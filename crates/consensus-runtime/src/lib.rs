@@ -2159,6 +2159,87 @@ mod tests {
     }
 
     #[test]
+    fn sustained_multi_round_quorum_rehearsal_preserves_monotonic_finality() {
+        use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
+        let signers: Vec<_> = (0..3)
+            .map(|index| {
+                ValidatorSigner::from_seed(
+                    activechain_protocol_types::PrincipalId::new(Digest384::new([101 + index; 48])),
+                    [102 + index; 32],
+                )
+            })
+            .collect();
+        let genesis = ValidatorGenesis::new(
+            1,
+            1,
+            signers
+                .iter()
+                .map(|signer| {
+                    ValidatorGenesisEntry::new(
+                        signer.validator(),
+                        1,
+                        signer.public_key().try_into().unwrap(),
+                    )
+                    .unwrap()
+                })
+                .collect(),
+        )
+        .unwrap();
+        let paths: Vec<_> = (0..3)
+            .map(|index| {
+                std::env::temp_dir()
+                    .join(format!("activechain-soak-{}-{index}.bin", std::process::id()))
+            })
+            .collect();
+        let services: Vec<_> = paths
+            .iter()
+            .map(|path| {
+                ValidatorService::from_genesis(
+                    ConsensusState::new_with_validator_set_root(1, genesis.validator_set_root()),
+                    &genesis,
+                    path.clone(),
+                )
+                .unwrap()
+            })
+            .collect();
+        for height in 1..=16 {
+            let (proposal, leader_vote) = services[0]
+                .propose_round(
+                    &signers[0],
+                    height,
+                    0,
+                    Digest384::new([height as u8; 48]),
+                    height * 2,
+                )
+                .unwrap();
+            let mut votes = vec![leader_vote];
+            for index in 1..3 {
+                votes.push(
+                    services[index]
+                        .process_proposal_and_sign_vote(
+                            proposal.clone(),
+                            &signers[index],
+                            height * 2 + index as u64,
+                        )
+                        .unwrap(),
+                );
+            }
+            for (service_index, service) in services.iter().enumerate() {
+                for vote in &votes {
+                    if vote.envelope.sender() != (service_index + 1) as u16 {
+                        let _ = service.process_message(vote.clone());
+                    }
+                }
+            }
+            assert_eq!(services[0].state().unwrap().finalized_height(), height);
+        }
+        assert_eq!(services[0].metrics().rejected_messages, 0);
+        for path in paths {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    #[test]
     fn three_persistent_services_converge_after_authenticated_vote_fanout() {
         use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
         let ids: Vec<_> = (0..3)
