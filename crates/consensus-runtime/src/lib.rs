@@ -358,6 +358,58 @@ pub enum ProposalError {
     StaleOrWrongEpoch,
 }
 
+pub struct VoteCollector {
+    proposal: BlockProposal,
+    votes: Vec<(Vec<u8>, ValidatorVote)>,
+    seen: BTreeMap<activechain_protocol_types::PrincipalId, ()>,
+    signer_stake: u128,
+}
+impl VoteCollector {
+    pub fn new(proposal: BlockProposal) -> Self {
+        Self { proposal, votes: Vec::new(), seen: BTreeMap::new(), signer_stake: 0 }
+    }
+    pub fn add_vote(
+        &mut self,
+        validator_set: &ValidatorSet,
+        public_key: &[u8],
+        vote: ValidatorVote,
+    ) -> Result<(), VoteCollectionError> {
+        if vote.height() != self.proposal.height()
+            || vote.round() != self.proposal.round()
+            || vote.block_digest() != self.proposal.block_digest()
+        {
+            return Err(VoteCollectionError::ContextMismatch);
+        }
+        if self.seen.contains_key(&vote.validator()) {
+            return Err(VoteCollectionError::Duplicate);
+        }
+        let stake = validator_set
+            .stake_of(&vote.validator())
+            .ok_or(VoteCollectionError::UnknownValidator)?;
+        activechain_crypto_provider::verify_validator_vote(public_key, &vote)
+            .map_err(VoteCollectionError::Verification)?;
+        self.seen.insert(vote.validator(), ());
+        self.signer_stake =
+            self.signer_stake.checked_add(stake).ok_or(VoteCollectionError::StakeOverflow)?;
+        self.votes.push((public_key.to_vec(), vote));
+        Ok(())
+    }
+    pub fn signer_stake(&self) -> u128 {
+        self.signer_stake
+    }
+    pub fn votes(&self) -> &[(Vec<u8>, ValidatorVote)] {
+        &self.votes
+    }
+}
+#[derive(Debug, Eq, PartialEq)]
+pub enum VoteCollectionError {
+    ContextMismatch,
+    Duplicate,
+    UnknownValidator,
+    Verification(VerificationError),
+    StakeOverflow,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
