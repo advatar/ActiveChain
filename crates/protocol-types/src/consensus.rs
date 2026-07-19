@@ -88,6 +88,50 @@ pub enum ValidatorSetError {
     NotStrictlyOrdered,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EpochTransition {
+    from_epoch: Epoch,
+    to_epoch: Epoch,
+    activation_height: u64,
+    validator_set_root: Digest384,
+}
+impl EpochTransition {
+    pub const TYPE_TAG: u16 = 0x0067;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const ENCODED_LENGTH: usize = 8 + 8 + 8 + 48;
+    pub fn new(
+        from_epoch: Epoch,
+        to_epoch: Epoch,
+        activation_height: u64,
+        validator_set_root: Digest384,
+    ) -> Result<Self, EpochTransitionError> {
+        if to_epoch != from_epoch.saturating_add(1) {
+            return Err(EpochTransitionError::NonConsecutiveEpochs);
+        }
+        if activation_height == 0 {
+            return Err(EpochTransitionError::ZeroActivationHeight);
+        }
+        Ok(Self { from_epoch, to_epoch, activation_height, validator_set_root })
+    }
+    pub const fn from_epoch(&self) -> Epoch {
+        self.from_epoch
+    }
+    pub const fn to_epoch(&self) -> Epoch {
+        self.to_epoch
+    }
+    pub const fn activation_height(&self) -> u64 {
+        self.activation_height
+    }
+    pub const fn validator_set_root(&self) -> Digest384 {
+        self.validator_set_root
+    }
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EpochTransitionError {
+    NonConsecutiveEpochs,
+    ZeroActivationHeight,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct QuorumCertificate {
     epoch: Epoch,
@@ -214,6 +258,25 @@ impl CanonicalType for ValidatorSet {
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
+impl CanonicalEncode for EpochTransition {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.from_epoch.encode(e)?;
+        self.to_epoch.encode(e)?;
+        self.activation_height.encode(e)?;
+        self.validator_set_root.encode(e)
+    }
+}
+impl CanonicalDecode for EpochTransition {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(u64::decode(d)?, u64::decode(d)?, u64::decode(d)?, Digest384::decode(d)?)
+            .map_err(|_| DecodeError::InvalidValue("invalid epoch transition"))
+    }
+}
+impl CanonicalType for EpochTransition {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::ENCODED_LENGTH;
+}
 
 #[cfg(test)]
 mod tests {
@@ -252,6 +315,15 @@ mod tests {
         assert_eq!(
             QuorumCertificate::new(1, 2, 3, digest(1), digest(2), 10, 6),
             Err(QuorumCertificateError::InsufficientStake)
+        );
+    }
+    #[test]
+    fn epoch_transition_requires_consecutive_epochs() {
+        let transition = EpochTransition::new(4, 5, 100, digest(9)).unwrap();
+        assert_eq!(transition.to_epoch(), 5);
+        assert_eq!(
+            EpochTransition::new(4, 6, 100, digest(9)),
+            Err(EpochTransitionError::NonConsecutiveEpochs)
         );
     }
 }
