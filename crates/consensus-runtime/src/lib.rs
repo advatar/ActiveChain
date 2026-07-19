@@ -63,6 +63,27 @@ impl SignedPeerEnvelope {
 pub struct PeerSocket {
     stream: TcpStream,
 }
+
+pub struct PeerDirectory {
+    peers: BTreeMap<u16, PeerSocket>,
+}
+impl PeerDirectory {
+    pub fn new() -> Self {
+        Self { peers: BTreeMap::new() }
+    }
+    pub fn insert(&mut self, peer_id: u16, socket: PeerSocket) {
+        self.peers.insert(peer_id, socket);
+    }
+    pub fn len(&self) -> usize {
+        self.peers.len()
+    }
+    pub fn broadcast(&mut self, envelope: &SignedPeerEnvelope) -> std::io::Result<()> {
+        for socket in self.peers.values_mut() {
+            socket.send(envelope)?;
+        }
+        Ok(())
+    }
+}
 impl PeerSocket {
     pub fn connect(stream: TcpStream) -> Self {
         Self { stream }
