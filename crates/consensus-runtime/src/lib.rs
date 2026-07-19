@@ -1914,7 +1914,7 @@ mod tests {
         let mut follower = ValidatorEngine::new(ConsensusState::new(1), set, public_keys).unwrap();
         follower.process_and_save(ConsensusMessage::Certificate(proof), &path).unwrap();
         assert_eq!(load_snapshot(&path).unwrap().finalized_height(), 1);
-        std::fs::remove_file(path).unwrap();
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
@@ -2001,6 +2001,60 @@ mod tests {
         assert_eq!(metrics.finalized_certificates, 1);
         assert_eq!(metrics.rejected_messages, 0);
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn live_socket_session_authenticates_before_processing_consensus() {
+        use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
+        let validator = activechain_protocol_types::PrincipalId::new(Digest384::new([71; 48]));
+        let signer = std::sync::Arc::new(ValidatorSigner::from_seed(validator, [72; 32]));
+        let genesis = ValidatorGenesis::new(
+            1,
+            1,
+            vec![
+                ValidatorGenesisEntry::new(validator, 1, signer.public_key().try_into().unwrap())
+                    .unwrap(),
+            ],
+        )
+        .unwrap();
+        let path =
+            std::env::temp_dir().join(format!("activechain-live-{}.bin", std::process::id()));
+        let service = std::sync::Arc::new(
+            ValidatorService::from_genesis(
+                ConsensusState::new_with_validator_set_root(1, genesis.validator_set_root()),
+                &genesis,
+                path.clone(),
+            )
+            .unwrap(),
+        );
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let server_service = std::sync::Arc::clone(&service);
+        let server_signer = std::sync::Arc::clone(&signer);
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            server_service
+                .serve_authenticated_genesis_peer(
+                    PeerSocket::connect(stream),
+                    1,
+                    &server_signer,
+                    [73; 32],
+                )
+                .unwrap();
+        });
+        let mut client = PeerSocket::connect(TcpStream::connect(address).unwrap());
+        client.send_handshake(&signer.sign_handshake(1, [73; 32]).unwrap()).unwrap();
+        client.receive_handshake().unwrap().verify(&signer.public_key()).unwrap();
+        let proposal = signer.sign_proposal(1, 1, 0, Digest384::new([74; 48])).unwrap();
+        client
+            .send_message(
+                &signer.sign_envelope(1, 1, ConsensusMessage::Proposal(proposal)).unwrap(),
+            )
+            .unwrap();
+        drop(client);
+        server.join().unwrap();
+        assert_eq!(service.metrics().proposals, 1);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
