@@ -382,4 +382,23 @@ mod tests {
         );
         sender.join().unwrap();
     }
+
+    #[test]
+    fn consensus_dispatch_preserves_peer_identity_and_sequence() {
+        let queue = PeerEventQueue::new();
+        let envelope = SignedPeerEnvelope::new(
+            12,
+            42,
+            Digest384::new([1; 48]),
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420]).unwrap(),
+        )
+        .unwrap();
+        queue.push(PeerEvent { peer_id: 12, envelope }).unwrap();
+        let result = ConsensusDispatcher::dispatch_once(&queue, |event| {
+            assert_eq!(event.peer_id, 12);
+            assert_eq!(event.envelope.sequence(), 42);
+            Ok(())
+        });
+        assert_eq!(result, Ok(()));
+    }
 }
