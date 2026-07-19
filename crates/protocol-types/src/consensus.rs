@@ -1,6 +1,6 @@
 //! PQ-bound consensus message types for the first testnet boundary.
 
-use crate::{CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature};
+use crate::{CryptoSuiteId, Digest384, Epoch, PrincipalId, ProtocolSignature};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
@@ -52,6 +52,54 @@ pub enum ValidatorVoteError {
     InvalidConsensusSuite,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct ValidatorWeight {
+    pub validator: PrincipalId,
+    pub stake: u128,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QuorumCertificate {
+    epoch: Epoch,
+    height: u64,
+    round: u64,
+    block_digest: Digest384,
+    vote_set_root: Digest384,
+    total_stake: u128,
+    signer_stake: u128,
+}
+
+impl QuorumCertificate {
+    pub const TYPE_TAG: u16 = 0x0065;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const ENCODED_LENGTH: usize = 8 + 8 + 8 + 48 + 48 + 16 + 16;
+    pub fn new(
+        epoch: Epoch,
+        height: u64,
+        round: u64,
+        block_digest: Digest384,
+        vote_set_root: Digest384,
+        total_stake: u128,
+        signer_stake: u128,
+    ) -> Result<Self, QuorumCertificateError> {
+        if total_stake == 0 || signer_stake > total_stake {
+            return Err(QuorumCertificateError::InvalidStake);
+        }
+        if signer_stake.checked_mul(3).ok_or(QuorumCertificateError::StakeOverflow)?
+            <= total_stake.checked_mul(2).ok_or(QuorumCertificateError::StakeOverflow)?
+        {
+            return Err(QuorumCertificateError::InsufficientStake);
+        }
+        Ok(Self { epoch, height, round, block_digest, vote_set_root, total_stake, signer_stake })
+    }
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum QuorumCertificateError {
+    InvalidStake,
+    InsufficientStake,
+    StakeOverflow,
+}
+
 impl CanonicalEncode for ValidatorVote {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
         self.validator.encode(e)?;
@@ -77,6 +125,36 @@ impl CanonicalType for ValidatorVote {
     const TYPE_TAG: u16 = Self::TYPE_TAG;
     const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+impl CanonicalEncode for QuorumCertificate {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.epoch.encode(e)?;
+        self.height.encode(e)?;
+        self.round.encode(e)?;
+        self.block_digest.encode(e)?;
+        self.vote_set_root.encode(e)?;
+        self.total_stake.encode(e)?;
+        self.signer_stake.encode(e)
+    }
+}
+impl CanonicalDecode for QuorumCertificate {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            u64::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            u128::decode(d)?,
+            u128::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid quorum certificate"))
+    }
+}
+impl CanonicalType for QuorumCertificate {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::ENCODED_LENGTH;
 }
 
 #[cfg(test)]
@@ -108,6 +186,14 @@ mod tests {
         assert_eq!(
             ValidatorVote::new(PrincipalId::new(digest(1)), 7, 2, digest(3), signature),
             Err(ValidatorVoteError::InvalidConsensusSuite)
+        );
+    }
+    #[test]
+    fn quorum_certificate_requires_strict_two_thirds_stake() {
+        assert!(QuorumCertificate::new(1, 2, 3, digest(1), digest(2), 10, 7).is_ok());
+        assert_eq!(
+            QuorumCertificate::new(1, 2, 3, digest(1), digest(2), 10, 6),
+            Err(QuorumCertificateError::InsufficientStake)
         );
     }
 }

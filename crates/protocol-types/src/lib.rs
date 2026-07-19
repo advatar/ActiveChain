@@ -20,7 +20,9 @@ pub use authority::{
     CapabilityValidationError, DataSelector, HolderBinding, RateLimit, RateLimitError,
     RecoveryRequest, RecoveryRequestError, ResourceSelector, ScopeSelector, ScopeSelectorError,
 };
-pub use consensus::{ValidatorVote, ValidatorVoteError};
+pub use consensus::{
+    QuorumCertificate, QuorumCertificateError, ValidatorVote, ValidatorVoteError, ValidatorWeight,
+};
 pub use credential::{
     CREDENTIAL_FORMAT_VERSION, Credential, CredentialAcceptancePolicy, CredentialStatement,
     CredentialStatusRegistry, CredentialValidationError, MAX_ACCEPTED_CREDENTIAL_ISSUERS,

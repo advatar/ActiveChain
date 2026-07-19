@@ -143,6 +143,15 @@ Tracked by [GitHub issue #10](https://github.com/advatar/ActiveChain/issues/10).
 ActiveChain is PQ-by-construction from its first protocol release. Migration windows exist for
 algorithm versioning and deprecation, never as permission to ship a classical safety dependency.
 
+## Active milestone — PQ validator epochs and quorum certificates
+
+Tracked by [GitHub issue #11](https://github.com/advatar/ActiveChain/issues/11).
+
+- [ ] Define bounded canonical validator sets and epoch identity.
+- [x] Bind quorum certificates to a Merkleized raw ML-DSA vote-set root.
+- [x] Enforce overflow-safe two-thirds stake thresholds.
+- [ ] Add canonical vectors and malformed/under-threshold rejection tests.
+
 ## Planned milestone — P-051 immutable ObjectVM packages and upgrade model
 
 Tracked by [GitHub issue #9](https://github.com/advatar/ActiveChain/issues/9).
