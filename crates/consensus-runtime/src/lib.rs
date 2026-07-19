@@ -9,6 +9,7 @@ use activechain_protocol_types::{
 };
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
+use std::net::TcpListener;
 use std::net::TcpStream;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -66,6 +67,22 @@ pub struct PeerSocket {
 
 pub struct PeerDirectory {
     peers: BTreeMap<u16, PeerSocket>,
+}
+
+pub struct PeerListener {
+    listener: TcpListener,
+}
+impl PeerListener {
+    pub fn bind(address: (&str, u16)) -> std::io::Result<Self> {
+        Ok(Self { listener: TcpListener::bind(address)? })
+    }
+    pub fn local_addr(&self) -> std::io::Result<std::net::SocketAddr> {
+        self.listener.local_addr()
+    }
+    pub fn accept(&self) -> std::io::Result<PeerSocket> {
+        let (stream, _) = self.listener.accept()?;
+        Ok(PeerSocket::connect(stream))
+    }
 }
 impl PeerDirectory {
     pub fn new() -> Self {
