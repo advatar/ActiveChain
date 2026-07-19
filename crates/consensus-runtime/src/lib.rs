@@ -10,6 +10,7 @@ use activechain_protocol_types::{
     BlockProposal, ConsensusSnapshot, ConsensusState, ConsensusStateError, CryptoSuiteId,
     Digest384, ProtocolSignature, QuorumCertificate, ValidatorGenesis, ValidatorSet, ValidatorVote,
 };
+use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
 use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
@@ -22,6 +23,43 @@ use std::sync::mpsc::{self, Receiver, Sender};
 
 const PEER_BODY_DOMAIN: &[u8] = b"ACTIVECHAIN-PEER-BODY-V1";
 pub const MAX_PEER_FRAME_LEN: usize = 16 * 1024;
+
+pub struct ValidatorSigner {
+    validator: activechain_protocol_types::PrincipalId,
+    key: SigningKey<MlDsa44>,
+}
+impl ValidatorSigner {
+    pub fn from_seed(validator: activechain_protocol_types::PrincipalId, seed: [u8; 32]) -> Self {
+        Self { validator, key: SigningKey::<MlDsa44>::from_seed(&Seed::from(seed)) }
+    }
+    pub const fn validator(&self) -> activechain_protocol_types::PrincipalId {
+        self.validator
+    }
+    pub fn public_key(&self) -> Vec<u8> {
+        self.key.verifying_key().encode().to_vec()
+    }
+    fn sign_vote(&self, proposal: &BlockProposal) -> Result<ValidatorVote, ValidatorEngineError> {
+        let unsigned = ValidatorVote::new(
+            self.validator,
+            proposal.height(),
+            proposal.round(),
+            proposal.block_digest(),
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420])
+                .map_err(|_| ValidatorEngineError::Signer)?,
+        )
+        .map_err(|_| ValidatorEngineError::Signer)?;
+        let signature = self.key.sign(&unsigned.signing_payload());
+        ValidatorVote::new(
+            self.validator,
+            proposal.height(),
+            proposal.round(),
+            proposal.block_digest(),
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec())
+                .map_err(|_| ValidatorEngineError::Signer)?,
+        )
+        .map_err(|_| ValidatorEngineError::Signer)
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CertifiedBlock {
@@ -688,6 +726,9 @@ impl VoteCollector {
     pub fn signer_stake(&self) -> u128 {
         self.signer_stake
     }
+    pub const fn proposal(&self) -> &BlockProposal {
+        &self.proposal
+    }
     pub fn votes(&self) -> &[(Vec<u8>, ValidatorVote)] {
         &self.votes
     }
@@ -774,6 +815,17 @@ impl ValidatorEngine {
     pub const fn state(&self) -> ConsensusState {
         self.state
     }
+    pub fn sign_current_vote(
+        &self,
+        signer: &ValidatorSigner,
+    ) -> Result<ValidatorVote, ValidatorEngineError> {
+        let proposal =
+            self.collector.as_ref().ok_or(ValidatorEngineError::MissingProposal)?.proposal();
+        if self.validator_set.stake_of(&signer.validator()).is_none() {
+            return Err(ValidatorEngineError::UnknownValidator);
+        }
+        signer.sign_vote(proposal)
+    }
     pub fn process(
         &mut self,
         message: ConsensusMessage,
@@ -859,6 +911,7 @@ pub enum ValidatorEngineError {
     Transport(TransportError),
     Runtime(RuntimeError),
     Snapshot(std::io::Error),
+    Signer,
 }
 
 pub struct ValidatorService {
@@ -1221,6 +1274,38 @@ mod tests {
             ValidatorEngine::from_genesis(ConsensusState::new(8), &genesis),
             Err(ValidatorEngineError::GenesisEpochMismatch)
         ));
+    }
+
+    #[test]
+    fn validator_signer_produces_a_provider_verifiable_vote() {
+        use activechain_protocol_types::{PrincipalId, ValidatorWeight};
+        let validator = PrincipalId::new(Digest384::new([4; 48]));
+        let signer = ValidatorSigner::from_seed(validator, [6; 32]);
+        let set = ValidatorSet::new(vec![ValidatorWeight { validator, stake: 1 }]).unwrap();
+        let mut keys = BTreeMap::new();
+        keys.insert(validator, signer.public_key());
+        let placeholder = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420]).unwrap();
+        let unsigned =
+            BlockProposal::new(validator, 1, 1, 0, Digest384::new([5; 48]), placeholder.clone())
+                .unwrap();
+        let proposal = BlockProposal::new(
+            validator,
+            1,
+            1,
+            0,
+            Digest384::new([5; 48]),
+            ProtocolSignature::new(
+                CryptoSuiteId::ML_DSA_44,
+                signer.key.sign(&unsigned.signing_payload()).encode().to_vec(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let mut engine = ValidatorEngine::new(ConsensusState::new(1), set, keys).unwrap();
+        engine.process(ConsensusMessage::Proposal(proposal)).unwrap();
+        let vote = engine.sign_current_vote(&signer).unwrap();
+        activechain_crypto_provider::verify_validator_vote(&signer.public_key(), &vote).unwrap();
+        assert!(engine.process(ConsensusMessage::Vote(vote)).unwrap().is_some());
     }
 
     #[test]

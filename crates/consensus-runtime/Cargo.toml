@@ -11,9 +11,7 @@ activechain-crypto-provider.workspace = true
 activechain-protocol-types.workspace = true
 activechain-canonical-codec.workspace = true
 sha3.workspace = true
+ml-dsa = "0.1.1"
 
 [lints]
 workspace = true
-
-[dev-dependencies]
-ml-dsa = "0.1.1"
