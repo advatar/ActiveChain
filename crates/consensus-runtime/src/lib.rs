@@ -84,6 +84,32 @@ impl PeerSocket {
         self.stream.read_exact(&mut frame)?;
         Ok(frame)
     }
+    pub fn receive_envelope(&mut self) -> std::io::Result<SignedPeerEnvelope> {
+        let frame = self.receive_frame()?;
+        if frame.len() < 2 + 8 + 48 + 2 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "peer frame too short",
+            ));
+        }
+        let sender = u16::from_be_bytes([frame[0], frame[1]]);
+        let sequence = u64::from_be_bytes(frame[2..10].try_into().unwrap());
+        let body_digest = Digest384::new(frame[10..58].try_into().unwrap());
+        let signature_len = u16::from_be_bytes([frame[58], frame[59]]) as usize;
+        if frame.len() != 60 + signature_len {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "peer signature length mismatch",
+            ));
+        }
+        let signature = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, frame[60..].to_vec())
+            .map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid ML-DSA signature")
+            })?;
+        SignedPeerEnvelope::new(sender, sequence, body_digest, signature).map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid peer envelope")
+        })
+    }
 }
 #[derive(Debug, Eq, PartialEq)]
 pub enum TransportError {
