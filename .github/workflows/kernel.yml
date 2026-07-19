@@ -4,15 +4,30 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deterministic-kernel-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
   rust:
-    runs-on: ubuntu-latest
+    name: Rust kernel on local ARM64
+    runs-on: [self-hosted, macOS, ARM64, activechain-ci]
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+      PATH: /Users/johansellstrom/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Check out the exact revision
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          clean: true
+          fetch-depth: 1
+          persist-credentials: false
       - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
       - name: Check formatting
@@ -23,3 +38,9 @@ jobs:
         run: cargo test --locked --workspace --all-features
       - name: Run documentation tests
         run: cargo test --locked --workspace --doc
+      - name: Build release binaries and libraries
+        run: cargo build --locked --workspace --release
+      - name: Run release tests
+        run: cargo test --locked --workspace --release
+      - name: Reproduce canonical vectors
+        run: cargo run --locked --quiet -p activechain-vector-generator | diff -u testing/vectors/canonical/principal-v1.txt -

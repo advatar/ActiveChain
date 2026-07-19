@@ -42,3 +42,5 @@ cargo run --locked --quiet -p activechain-vector-generator
 ```
 
 Implementation progress is tracked in `STATUS.md` and [GitHub issue #1](https://github.com/advatar/ActiveChain/issues/1).
+
+CI runs on the repository's dedicated macOS ARM64 self-hosted runner. Its pinned installation, operations, and security boundary are documented in `docs/ci/self-hosted-runner.md`.

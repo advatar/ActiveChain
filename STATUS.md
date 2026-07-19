@@ -16,10 +16,23 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Phase 0 bootstrap is tracked by [GitHub issue #1](https://github.com/advatar/ActiveChain/issues/1).
 
+## Active milestone — local CI and authority kernel
+
+Tracked by [GitHub issue #2](https://github.com/advatar/ActiveChain/issues/2).
+
+- [x] Register a dedicated repo-scoped self-hosted runner on this Mac.
+- [x] Route CI exclusively to the `activechain-ci` runner label and harden checkout behavior.
+- [ ] Verify the full CI workflow completes on the local runner.
+- [ ] Draft `P-020` principal lifecycle and `P-022` capability semantics.
+- [ ] Add canonical authenticator and capability schemas.
+- [ ] Implement bounded authenticator descriptors and validation.
+- [ ] Implement pure principal lifecycle transitions for creation, rotation, freeze, and recovery initiation.
+- [ ] Implement canonical capability grants and mechanically checked attenuation.
+- [ ] Publish deterministic authority vectors.
+- [ ] Add unit and property tests for lifecycle invariants and non-escalation.
+
 ## Queued authority-kernel milestones
 
-- Implement principal and authenticator lifecycle semantics.
-- Implement capability grants and mechanically checked attenuation.
 - Define and implement the bounded APL policy kernel.
 - Add a Lean reference model and differential vectors for authority semantics.
 - Implement versioned objects, access manifests, and the reference transition function.
