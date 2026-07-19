@@ -54,13 +54,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         seed[..8].copy_from_slice(&(index as u64).to_be_bytes());
         seed[8..16].copy_from_slice(&genesis.epoch().to_be_bytes());
         seed[16..24].copy_from_slice(&genesis.activation_height().to_be_bytes());
-        let signer = activechain_consensus_runtime::ValidatorSigner::from_seed(
-            genesis.entries()[index].validator(),
+        let probe = activechain_consensus_runtime::ValidatorSigner::from_seed(
+            activechain_protocol_types::PrincipalId::new(Digest384::new([0; 48])),
             seed,
         );
-        if signer.public_key() != genesis.entries()[index].public_key() {
-            return Err("derived signer does not match genesis public key".into());
-        }
+        let public_key = probe.public_key();
+        let entry = genesis
+            .entries()
+            .iter()
+            .find(|entry| entry.public_key() == public_key.as_slice())
+            .ok_or("derived signer does not match genesis public key")?;
+        let signer =
+            activechain_consensus_runtime::ValidatorSigner::from_seed(entry.validator(), seed);
         if run_once {
             let next_height = state.finalized_height().saturating_add(1);
             let service = ValidatorService::from_genesis(
