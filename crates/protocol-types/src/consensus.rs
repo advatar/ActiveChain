@@ -89,6 +89,15 @@ impl ValidatorSet {
     pub fn as_slice(&self) -> &[ValidatorWeight] {
         &self.0
     }
+    pub fn stake_of(&self, validator: &PrincipalId) -> Option<u128> {
+        self.0
+            .binary_search_by_key(validator, |entry| entry.validator)
+            .ok()
+            .map(|index| self.0[index].stake)
+    }
+    pub fn total_stake(&self) -> u128 {
+        self.0.iter().map(|entry| entry.stake).sum()
+    }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ValidatorSetError {
