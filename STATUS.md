@@ -193,6 +193,7 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
   - [x] Add consensus-runtime admission validation for replay-verifiable execution evidence.
 - [ ] Ship genesis, validator, and wallet CLIs plus an indexer, metrics, alerts, and operator documentation.
   - [x] Add a canonical genesis generator CLI for reproducible validator manifests.
+  - [x] Add thread-safe validator proposal/vote/finality/rejection metrics snapshots for local readiness checks.
 - [ ] Pass multi-process Byzantine, restart, partition, and sustained-load testnet rehearsals on the local runner.
 - [ ] Update and push the landing page at each completed launch milestone.
 

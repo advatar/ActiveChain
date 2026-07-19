@@ -18,11 +18,37 @@ use sha3::{
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::time::{Duration, Instant};
 
 const PEER_BODY_DOMAIN: &[u8] = b"ACTIVECHAIN-PEER-BODY-V1";
 pub const MAX_PEER_FRAME_LEN: usize = 16 * 1024;
+
+#[derive(Default)]
+pub struct ValidatorMetrics {
+    proposals: AtomicU64,
+    votes: AtomicU64,
+    finalized_certificates: AtomicU64,
+    rejected_messages: AtomicU64,
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MetricsSnapshot {
+    pub proposals: u64,
+    pub votes: u64,
+    pub finalized_certificates: u64,
+    pub rejected_messages: u64,
+}
+impl ValidatorMetrics {
+    pub fn snapshot(&self) -> MetricsSnapshot {
+        MetricsSnapshot {
+            proposals: self.proposals.load(Ordering::Relaxed),
+            votes: self.votes.load(Ordering::Relaxed),
+            finalized_certificates: self.finalized_certificates.load(Ordering::Relaxed),
+            rejected_messages: self.rejected_messages.load(Ordering::Relaxed),
+        }
+    }
+}
 
 pub struct ValidatorSigner {
     validator: activechain_protocol_types::PrincipalId,
@@ -1267,6 +1293,7 @@ pub struct ValidatorService {
     replay: std::sync::Mutex<ReplayGuard>,
     sender_keys: BTreeMap<u16, Vec<u8>>,
     snapshot_path: std::path::PathBuf,
+    metrics: std::sync::Arc<ValidatorMetrics>,
 }
 impl ValidatorService {
     pub fn from_genesis(
@@ -1285,15 +1312,28 @@ impl ValidatorService {
             replay: std::sync::Mutex::new(ReplayGuard::default()),
             sender_keys,
             snapshot_path,
+            metrics: std::sync::Arc::new(ValidatorMetrics::default()),
         })
     }
     pub fn state(&self) -> Result<ConsensusState, ValidatorServiceError> {
         self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned).map(|engine| engine.state())
     }
+    pub fn metrics(&self) -> MetricsSnapshot {
+        self.metrics.snapshot()
+    }
     pub fn process_message(
         &self,
         message: AuthenticatedConsensusMessage,
     ) -> Result<Option<CertifiedBlock>, ValidatorServiceError> {
+        match &message.message {
+            ConsensusMessage::Proposal(_) => {
+                self.metrics.proposals.fetch_add(1, Ordering::Relaxed);
+            }
+            ConsensusMessage::Vote(_) => {
+                self.metrics.votes.fetch_add(1, Ordering::Relaxed);
+            }
+            ConsensusMessage::Certificate(_) => {}
+        }
         let key = self
             .sender_keys
             .get(&message.envelope.sender())
@@ -1303,11 +1343,22 @@ impl ValidatorService {
             .map_err(|_| ValidatorServiceError::Poisoned)?
             .accept(&message.envelope, key)
             .map_err(ValidatorServiceError::Transport)?;
-        self.engine
+        let result = self
+            .engine
             .lock()
             .map_err(|_| ValidatorServiceError::Poisoned)?
             .process_and_save(message.message, &self.snapshot_path)
-            .map_err(ValidatorServiceError::Engine)
+            .map_err(ValidatorServiceError::Engine);
+        match &result {
+            Ok(Some(_)) => {
+                self.metrics.finalized_certificates.fetch_add(1, Ordering::Relaxed);
+            }
+            Err(_) => {
+                self.metrics.rejected_messages.fetch_add(1, Ordering::Relaxed);
+            }
+            _ => {}
+        }
+        result
     }
     pub fn process_proposal_and_sign_vote(
         &self,
@@ -1823,6 +1874,11 @@ mod tests {
         .unwrap();
         service.propose_round(&signer, 1, 0, Digest384::new([8; 48]), 1).unwrap();
         assert_eq!(service.state().unwrap().finalized_height(), 1);
+        let metrics = service.metrics();
+        assert_eq!(metrics.proposals, 1);
+        assert_eq!(metrics.votes, 1);
+        assert_eq!(metrics.finalized_certificates, 1);
+        assert_eq!(metrics.rejected_messages, 0);
         std::fs::remove_file(path).unwrap();
     }
 
