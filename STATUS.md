@@ -195,6 +195,7 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
 - [ ] Ship genesis, validator, and wallet CLIs plus an indexer, metrics, alerts, and operator documentation.
   - [x] Add a canonical genesis generator CLI for reproducible validator manifests.
   - [x] Add thread-safe validator proposal/vote/finality/rejection metrics snapshots for local readiness checks.
+  - [x] Expose metrics snapshots in stable Prometheus text format for operator alerts.
   - [x] Add deterministic `validator-node ... <index> --once` execution for process-level round rehearsals.
   - [x] Publish the operator runbook and release-gate thresholds in `docs/testnet-operations.md`.
 - [ ] Pass multi-process Byzantine, restart, partition, and sustained-load testnet rehearsals on the local runner.

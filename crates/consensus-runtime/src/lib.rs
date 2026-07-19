@@ -39,6 +39,14 @@ pub struct MetricsSnapshot {
     pub finalized_certificates: u64,
     pub rejected_messages: u64,
 }
+impl MetricsSnapshot {
+    pub fn prometheus(self, validator_id: u16) -> String {
+        format!(
+            "activechain_validator_proposals{{validator=\"{validator_id}\"}} {}\nactivechain_validator_votes{{validator=\"{validator_id}\"}} {}\nactivechain_validator_finalized_certificates{{validator=\"{validator_id}\"}} {}\nactivechain_validator_rejected_messages{{validator=\"{validator_id}\"}} {}\n",
+            self.proposals, self.votes, self.finalized_certificates, self.rejected_messages,
+        )
+    }
+}
 impl ValidatorMetrics {
     pub fn snapshot(&self) -> MetricsSnapshot {
         MetricsSnapshot {
@@ -2015,6 +2023,11 @@ mod tests {
         assert_eq!(metrics.votes, 1);
         assert_eq!(metrics.finalized_certificates, 1);
         assert_eq!(metrics.rejected_messages, 0);
+        assert!(
+            metrics
+                .prometheus(1)
+                .contains("activechain_validator_finalized_certificates{validator=\"1\"} 1")
+        );
         std::fs::remove_file(path).unwrap();
     }
 
