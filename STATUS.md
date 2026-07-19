@@ -185,6 +185,7 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
 - [ ] Integrate transparent proof-carrying ObjectVM execution into block admission and finalization.
   - [x] Add canonical replay-verifiable execution evidence with program verification and result matching.
 - [ ] Ship genesis, validator, and wallet CLIs plus an indexer, metrics, alerts, and operator documentation.
+  - [x] Add a canonical genesis generator CLI for reproducible validator manifests.
 - [ ] Pass multi-process Byzantine, restart, partition, and sustained-load testnet rehearsals on the local runner.
 - [ ] Update and push the landing page at each completed launch milestone.
 
