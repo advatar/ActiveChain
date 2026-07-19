@@ -592,4 +592,28 @@ mod tests {
         converge_peers(&mut peers, &set, &certificate, &vote_refs).unwrap();
         assert!(peers.iter().all(|peer| peer.state().finalized_height() == 1));
     }
+
+    #[test]
+    fn consensus_state_survives_restart_snapshot() {
+        let mut state = ConsensusState::new(4);
+        let qc = QuorumCertificate::new(
+            4,
+            9,
+            2,
+            Digest384::new([1; 48]),
+            Digest384::new([2; 48]),
+            10,
+            7,
+        )
+        .unwrap();
+        state.apply_qc(&qc).unwrap();
+        let path =
+            std::env::temp_dir().join(format!("activechain-snapshot-{}.bin", std::process::id()));
+        save_snapshot(&path, &state).unwrap();
+        let restored = load_snapshot(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(restored.epoch(), 4);
+        assert_eq!(restored.finalized_height(), 9);
+        assert_eq!(restored.finalized_round(), 2);
+    }
 }
