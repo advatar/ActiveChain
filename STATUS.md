@@ -127,3 +127,14 @@ Tracked by [GitHub issue #4](https://github.com/advatar/ActiveChain/issues/4).
 - PQ transport, consensus, and data availability.
 - Proof-carrying execution and privacy profiles.
 - Protected ordering and the external compute plane.
+
+## Planned milestone — P-051 immutable ObjectVM packages and upgrade model
+
+Tracked by [GitHub issue #9](https://github.com/advatar/ActiveChain/issues/9).
+
+- [ ] Define bounded immutable package and module manifests around verified ObjectVM programs.
+- [ ] Bind package identity to canonical bytecode and manifest commitments.
+- [ ] Validate entry-point, import, and upgrade constraints without ambient state.
+- [ ] Publish deterministic package vectors and unit/property tests.
+- [ ] Pass the full local-runner CI matrix.
+- [ ] Update the landing page to reflect the completed milestone and next testnet gate.
