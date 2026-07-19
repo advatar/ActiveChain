@@ -5,9 +5,11 @@
 
 extern crate alloc;
 
+mod evidence;
 mod execute;
 mod value;
 
+pub use evidence::{EvidenceError, ExecutionEvidence};
 pub use execute::{VmExecutionError, execute};
 pub use value::{VmEventValue, VmExecutionResult, VmExecutionResultError, VmValue};
 

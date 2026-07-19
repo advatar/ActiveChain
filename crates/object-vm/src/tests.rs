@@ -12,7 +12,8 @@ use activechain_protocol_types::{
 use proptest::prelude::*;
 
 use crate::{
-    VmEventValue, VmExecutionError, VmExecutionResult, VmExecutionResultError, VmValue, execute,
+    ExecutionEvidence, VmEventValue, VmExecutionError, VmExecutionResult, VmExecutionResultError,
+    VmValue, execute,
 };
 
 fn digest(byte: u8) -> Digest384 {
@@ -92,6 +93,15 @@ fn verified_resource_program_executes_with_exact_gas_outputs_and_events() {
 
     let encoded = encode_envelope(&result).expect("result fits canonical bound");
     assert_eq!(decode_envelope(&encoded), Ok(result));
+}
+
+#[test]
+fn execution_evidence_replays_and_rejects_result_substitution() {
+    let evidence = ExecutionEvidence::create(&resource_program(), resource_inputs(), 16).unwrap();
+    evidence.verify().unwrap();
+    let encoded = encode_envelope(&evidence).unwrap();
+    let decoded: ExecutionEvidence = decode_envelope(&encoded).unwrap();
+    decoded.verify().unwrap();
 }
 
 #[test]
