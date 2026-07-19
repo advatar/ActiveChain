@@ -17,9 +17,9 @@ use sha3::{
 };
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
-use std::net::TcpListener;
-use std::net::TcpStream;
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::mpsc::{self, Receiver, SyncSender};
+use std::time::{Duration, Instant};
 
 const PEER_BODY_DOMAIN: &[u8] = b"ACTIVECHAIN-PEER-BODY-V1";
 pub const MAX_PEER_FRAME_LEN: usize = 16 * 1024;
@@ -311,6 +311,7 @@ pub struct PeerSocket {
 pub struct PeerDirectory {
     peers: BTreeMap<u16, (PeerSocket, Vec<u8>)>,
     replay: ReplayGuard,
+    rate_limits: BTreeMap<u16, (Instant, usize)>,
 }
 impl Default for PeerDirectory {
     fn default() -> Self {
@@ -347,7 +348,11 @@ impl PeerListener {
 impl PeerDirectory {
     pub const MAX_PEERS: usize = 128;
     pub fn new() -> Self {
-        Self { peers: BTreeMap::new(), replay: ReplayGuard::default() }
+        Self {
+            peers: BTreeMap::new(),
+            replay: ReplayGuard::default(),
+            rate_limits: BTreeMap::new(),
+        }
     }
     pub fn insert(
         &mut self,
@@ -380,10 +385,24 @@ impl PeerDirectory {
         &mut self,
         peer_id: u16,
     ) -> Result<AuthenticatedConsensusMessage, PeerReceiveError> {
+        if !self.allow_receive(peer_id, Instant::now()) {
+            return Err(PeerReceiveError::Transport(TransportError::RateLimited));
+        }
         let (socket, key) = self.peers.get_mut(&peer_id).ok_or(PeerReceiveError::UnknownPeer)?;
         let message = socket.receive_message().map_err(PeerReceiveError::Io)?;
         self.replay.accept(&message.envelope, key).map_err(PeerReceiveError::Transport)?;
         Ok(message)
+    }
+    fn allow_receive(&mut self, peer_id: u16, now: Instant) -> bool {
+        let entry = self.rate_limits.entry(peer_id).or_insert((now, 0));
+        if now.duration_since(entry.0) >= Duration::from_secs(1) {
+            *entry = (now, 0);
+        }
+        if entry.1 >= 256 {
+            return false;
+        }
+        entry.1 += 1;
+        true
     }
     pub fn broadcast(&mut self, envelope: &SignedPeerEnvelope) -> std::io::Result<()> {
         for (socket, _) in self.peers.values_mut() {
@@ -406,6 +425,82 @@ pub enum PeerDirectoryError {
     AlreadyRegistered,
     Capacity,
     InvalidPublicKey,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PeerEndpoint {
+    pub id: u16,
+    pub address: SocketAddr,
+    pub public_key: Vec<u8>,
+}
+pub struct PeerConnector {
+    endpoints: Vec<PeerEndpoint>,
+    attempts: usize,
+    connect_timeout: Duration,
+    backoff: Duration,
+}
+impl PeerConnector {
+    pub fn new(endpoints: Vec<PeerEndpoint>) -> Result<Self, PeerConnectorError> {
+        if endpoints.is_empty()
+            || endpoints.len() > PeerDirectory::MAX_PEERS
+            || endpoints.iter().any(|endpoint| endpoint.public_key.len() != 1312)
+        {
+            return Err(PeerConnectorError::InvalidConfiguration);
+        }
+        Ok(Self {
+            endpoints,
+            attempts: 3,
+            connect_timeout: Duration::from_millis(500),
+            backoff: Duration::from_millis(25),
+        })
+    }
+    pub fn with_retry_policy(
+        mut self,
+        attempts: usize,
+        connect_timeout: Duration,
+        backoff: Duration,
+    ) -> Result<Self, PeerConnectorError> {
+        if attempts == 0 || attempts > 16 {
+            return Err(PeerConnectorError::InvalidConfiguration);
+        }
+        self.attempts = attempts;
+        self.connect_timeout = connect_timeout;
+        self.backoff = backoff;
+        Ok(self)
+    }
+    pub fn connect_all(&self) -> (PeerDirectory, Vec<(u16, std::io::Error)>) {
+        let mut directory = PeerDirectory::new();
+        let mut failures = Vec::new();
+        for endpoint in &self.endpoints {
+            let mut last_error = None;
+            for attempt in 0..self.attempts {
+                match TcpStream::connect_timeout(&endpoint.address, self.connect_timeout) {
+                    Ok(stream) => {
+                        let socket = PeerSocket::connect(stream);
+                        if directory
+                            .insert(endpoint.id, socket, endpoint.public_key.clone())
+                            .is_ok()
+                        {
+                            last_error = None;
+                            break;
+                        }
+                    }
+                    Err(error) => last_error = Some(error),
+                }
+                if attempt + 1 < self.attempts {
+                    std::thread::sleep(self.backoff.saturating_mul((attempt + 1) as u32));
+                }
+            }
+            if let Some(error) = last_error {
+                failures.push((endpoint.id, error));
+            }
+        }
+        (directory, failures)
+    }
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PeerConnectorError {
+    InvalidConfiguration,
 }
 #[derive(Debug)]
 pub enum PeerReceiveError {
@@ -646,6 +741,7 @@ pub enum TransportError {
     BodyDigestMismatch,
     Verification(VerificationError),
     Replay,
+    RateLimited,
 }
 
 #[derive(Default, Debug)]
@@ -1515,6 +1611,30 @@ mod tests {
         for path in paths {
             std::fs::remove_file(path).unwrap();
         }
+    }
+
+    #[test]
+    fn peer_connector_bounds_configuration_and_reports_unreachable_peers() {
+        let endpoint = PeerEndpoint {
+            id: 1,
+            address: "127.0.0.1:9".parse().unwrap(),
+            public_key: vec![0; 1312],
+        };
+        let connector = PeerConnector::new(vec![endpoint])
+            .unwrap()
+            .with_retry_policy(1, Duration::from_millis(5), Duration::ZERO)
+            .unwrap();
+        let (directory, failures) = connector.connect_all();
+        assert!(directory.is_empty());
+        assert_eq!(failures.len(), 1);
+        assert!(matches!(
+            PeerConnector::new(vec![PeerEndpoint {
+                id: 1,
+                address: "127.0.0.1:1".parse().unwrap(),
+                public_key: vec![0; 3]
+            }]),
+            Err(PeerConnectorError::InvalidConfiguration)
+        ));
     }
 
     #[test]

@@ -174,6 +174,7 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
 - [x] Broadcast complete authenticated consensus messages and enforce bounded peer event queues.
 - [x] Run the complete proposal → vote → QC → finalization loop in the validator process and persist finalized state.
 - [ ] Add configured peer discovery, authenticated connection handshakes, reconnects, bounded queues, rate limits, and backpressure.
+  - [x] Add bounded endpoint configuration, retry/backoff connection attempts, per-peer receive rate limits, and unreachable-peer reporting.
 - [ ] Activate validator-set and staking transitions only through finalized consensus state.
 - [ ] Implement erasure-coded data availability, commitments, sampling, and authenticated snapshot distribution.
   - [x] Add bounded Reed–Solomon shard construction/reconstruction with SHAKE commitments and deterministic sampling.
