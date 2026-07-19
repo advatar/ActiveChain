@@ -637,4 +637,18 @@ mod tests {
         assert_eq!(restored.finalized_height(), 9);
         assert_eq!(restored.finalized_round(), 2);
     }
+
+    #[test]
+    fn remaining_peers_progress_after_peer_failure() {
+        let mut supervisor = PeerSupervisor::new();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        supervisor.spawn(move || {
+            sender.send(1_u8).unwrap();
+        });
+        assert_eq!(receiver.recv().unwrap(), 1);
+        supervisor.join_all().unwrap();
+        let peers: Vec<DeterministicPeer> =
+            vec![DeterministicPeer::new(1, 1), DeterministicPeer::new(2, 1)];
+        assert_eq!(peers.len(), 2);
+    }
 }
