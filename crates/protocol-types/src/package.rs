@@ -1,0 +1,165 @@
+//! Canonical immutable ObjectVM package manifests (P-051).
+
+extern crate alloc;
+
+use crate::{Digest384, PackageId};
+use activechain_canonical_codec::{
+    CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
+};
+use alloc::vec::Vec;
+
+pub const MAX_PACKAGE_ENTRIES: usize = 64;
+pub const MAX_PACKAGE_IMPORTS: usize = 32;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum UpgradePolicy {
+    Immutable = 0,
+    Governed = 1,
+}
+
+impl CanonicalEncode for UpgradePolicy {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(e)
+    }
+}
+impl CanonicalDecode for UpgradePolicy {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(d)? {
+            0 => Ok(Self::Immutable),
+            1 => Ok(Self::Governed),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "UpgradePolicy", tag }),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PackageManifest {
+    bytecode_commitment: Digest384,
+    entry_points: Vec<u16>,
+    imports: Vec<PackageId>,
+    upgrade_policy: UpgradePolicy,
+}
+
+impl PackageManifest {
+    pub const TYPE_TAG: u16 = 0x0062;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize =
+        48 + 1 + MAX_PACKAGE_ENTRIES * 2 + 1 + MAX_PACKAGE_IMPORTS * 48 + 1;
+
+    pub fn new(
+        bytecode_commitment: Digest384,
+        entry_points: Vec<u16>,
+        imports: Vec<PackageId>,
+        upgrade_policy: UpgradePolicy,
+    ) -> Result<Self, PackageManifestError> {
+        if entry_points.is_empty() || entry_points.len() > MAX_PACKAGE_ENTRIES {
+            return Err(PackageManifestError::EntryPointBounds);
+        }
+        if entry_points.windows(2).any(|pair| pair[0] >= pair[1]) {
+            return Err(PackageManifestError::EntryPointsNotStrictlySorted);
+        }
+        if imports.len() > MAX_PACKAGE_IMPORTS {
+            return Err(PackageManifestError::ImportBounds);
+        }
+        if imports.windows(2).any(|pair| pair[0] >= pair[1]) {
+            return Err(PackageManifestError::ImportsNotStrictlySorted);
+        }
+        Ok(Self { bytecode_commitment, entry_points, imports, upgrade_policy })
+    }
+    pub const fn bytecode_commitment(&self) -> Digest384 {
+        self.bytecode_commitment
+    }
+    pub fn entry_points(&self) -> &[u16] {
+        &self.entry_points
+    }
+    pub fn imports(&self) -> &[PackageId] {
+        &self.imports
+    }
+    pub const fn upgrade_policy(&self) -> UpgradePolicy {
+        self.upgrade_policy
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PackageManifestError {
+    EntryPointBounds,
+    EntryPointsNotStrictlySorted,
+    ImportBounds,
+    ImportsNotStrictlySorted,
+}
+
+impl CanonicalEncode for PackageManifest {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.bytecode_commitment.encode(e)?;
+        e.write_length(self.entry_points.len(), MAX_PACKAGE_ENTRIES)?;
+        for entry in &self.entry_points {
+            entry.encode(e)?;
+        }
+        e.write_length(self.imports.len(), MAX_PACKAGE_IMPORTS)?;
+        for import in &self.imports {
+            import.encode(e)?;
+        }
+        self.upgrade_policy.encode(e)
+    }
+}
+impl CanonicalDecode for PackageManifest {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            Digest384::decode(d)?,
+            {
+                let n = d.read_length(MAX_PACKAGE_ENTRIES)?;
+                let mut v = Vec::with_capacity(n);
+                for _ in 0..n {
+                    v.push(u16::decode(d)?);
+                }
+                v
+            },
+            {
+                let n = d.read_length(MAX_PACKAGE_IMPORTS)?;
+                let mut v = Vec::with_capacity(n);
+                for _ in 0..n {
+                    v.push(PackageId::decode(d)?);
+                }
+                v
+            },
+            UpgradePolicy::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid P-051 package manifest"))
+    }
+}
+impl CanonicalType for PackageManifest {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate alloc;
+    use super::*;
+    use activechain_canonical_codec::{decode_envelope, encode_envelope};
+    use alloc::vec;
+    fn digest(byte: u8) -> Digest384 {
+        Digest384::new([byte; 48])
+    }
+    #[test]
+    fn package_manifest_round_trips() {
+        let value = PackageManifest::new(
+            digest(1),
+            vec![0, 4],
+            vec![PackageId::new(digest(2))],
+            UpgradePolicy::Immutable,
+        )
+        .unwrap();
+        let bytes = encode_envelope(&value).unwrap();
+        assert_eq!(decode_envelope::<PackageManifest>(&bytes), Ok(value));
+    }
+    #[test]
+    fn package_manifest_rejects_unsorted_entries() {
+        assert_eq!(
+            PackageManifest::new(digest(1), vec![2, 1], Vec::new(), UpgradePolicy::Immutable),
+            Err(PackageManifestError::EntryPointsNotStrictlySorted)
+        );
+    }
+}

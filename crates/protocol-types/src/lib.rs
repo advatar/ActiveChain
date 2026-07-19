@@ -11,6 +11,7 @@ mod authority;
 mod credential;
 mod crypto;
 mod object;
+mod package;
 
 pub use authority::{
     BoundedActionSet, BoundedActionSetError, CapabilityGrant, CapabilityGrantFields,
@@ -31,6 +32,9 @@ pub use object::{
     MAX_CREATION_NAMESPACES, MAX_DYNAMIC_READS, MAX_EXACT_READS, MAX_EXACT_WRITES,
     MAX_IMMUTABLE_READS, MAX_PUBLIC_OBJECT_VALUE, NamespaceGrant, Object, ObjectFields,
     ObjectFlags, ObjectFlagsError, ObjectOwner, ObjectValidationError, ObjectVersionRef,
+};
+pub use package::{
+    MAX_PACKAGE_ENTRIES, MAX_PACKAGE_IMPORTS, PackageManifest, PackageManifestError, UpgradePolicy,
 };
 
 /// The fixed size of every protocol digest and identifier.
