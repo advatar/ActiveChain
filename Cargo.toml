@@ -5,6 +5,7 @@ members = [
     "crates/canonical-codec",
     "crates/crypto-provider",
     "crates/consensus-runtime",
+    "crates/data-availability",
     "crates/capability",
     "crates/credential",
     "crates/devnet-kernel",
