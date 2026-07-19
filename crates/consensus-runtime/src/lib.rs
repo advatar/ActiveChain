@@ -262,6 +262,49 @@ pub struct SignedPeerEnvelope {
     body_digest: Digest384,
     signature: ProtocolSignature,
 }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PeerHandshake {
+    sender: u16,
+    challenge: [u8; 32],
+    signature: ProtocolSignature,
+}
+impl PeerHandshake {
+    pub fn new(
+        sender: u16,
+        challenge: [u8; 32],
+        signature: ProtocolSignature,
+    ) -> Result<Self, TransportError> {
+        if signature.suite() != CryptoSuiteId::ML_DSA_44 {
+            return Err(TransportError::InvalidSuite);
+        }
+        Ok(Self { sender, challenge, signature })
+    }
+    pub const fn sender(&self) -> u16 {
+        self.sender
+    }
+    pub const fn challenge(&self) -> &[u8; 32] {
+        &self.challenge
+    }
+    pub fn signature_bytes(&self) -> &[u8] {
+        self.signature.as_bytes()
+    }
+    pub fn signing_payload(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(35);
+        bytes.extend_from_slice(b"ACTIVECHAIN-PEER-HANDSHAKE-V1");
+        bytes.extend_from_slice(&self.sender.to_be_bytes());
+        bytes.extend_from_slice(&self.challenge);
+        bytes
+    }
+    pub fn verify(&self, public_key: &[u8]) -> Result<(), TransportError> {
+        activechain_crypto_provider::verify_ml_dsa44(
+            public_key,
+            &self.signing_payload(),
+            self.signature.as_bytes(),
+        )
+        .map_err(TransportError::Verification)
+    }
+}
 impl SignedPeerEnvelope {
     pub fn new(
         sender: u16,
@@ -775,6 +818,34 @@ impl PeerSocket {
         let message = ConsensusMessage::decode(frame[kind_offset], &frame[body_offset..])
             .map_err(transport_io_error)?;
         AuthenticatedConsensusMessage::new(envelope, message).map_err(transport_io_error)
+    }
+    pub fn send_handshake(&mut self, handshake: &PeerHandshake) -> std::io::Result<()> {
+        let frame_len = 2 + 32 + 2 + handshake.signature_bytes().len();
+        if frame_len > MAX_PEER_FRAME_LEN {
+            return Err(invalid_data("handshake exceeds limit"));
+        }
+        let mut frame = Vec::with_capacity(frame_len);
+        frame.extend_from_slice(&handshake.sender().to_be_bytes());
+        frame.extend_from_slice(handshake.challenge());
+        frame.extend_from_slice(&(handshake.signature_bytes().len() as u16).to_be_bytes());
+        frame.extend_from_slice(handshake.signature_bytes());
+        self.stream.write_all(&(frame.len() as u32).to_be_bytes())?;
+        self.stream.write_all(&frame)
+    }
+    pub fn receive_handshake(&mut self) -> std::io::Result<PeerHandshake> {
+        let frame = self.receive_frame()?;
+        if frame.len() < 36 {
+            return Err(invalid_data("handshake frame too short"));
+        }
+        let sender = u16::from_be_bytes([frame[0], frame[1]]);
+        let challenge: [u8; 32] = frame[2..34].try_into().unwrap();
+        let signature_len = u16::from_be_bytes([frame[34], frame[35]]) as usize;
+        if frame.len() != 36 + signature_len {
+            return Err(invalid_data("handshake signature length mismatch"));
+        }
+        let signature = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, frame[36..].to_vec())
+            .map_err(|_| invalid_data("invalid handshake signature"))?;
+        PeerHandshake::new(sender, challenge, signature).map_err(transport_io_error)
     }
 }
 fn invalid_data(message: &'static str) -> std::io::Error {
@@ -1320,6 +1391,35 @@ mod tests {
             guard.accept(&received, key.verifying_key().encode().as_slice()),
             Err(TransportError::Replay)
         );
+        sender.join().unwrap();
+    }
+
+    #[test]
+    fn loopback_handshake_proves_ml_dsa_peer_identity() {
+        let key = SigningKey::<MlDsa44>::from_seed(&Seed::from([13; 32]));
+        let placeholder = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420]).unwrap();
+        let unsigned = PeerHandshake::new(5, [4; 32], placeholder).unwrap();
+        let handshake = PeerHandshake::new(
+            5,
+            [4; 32],
+            ProtocolSignature::new(
+                CryptoSuiteId::ML_DSA_44,
+                key.sign(&unsigned.signing_payload()).encode().to_vec(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let sender = std::thread::spawn(move || {
+            let mut socket = PeerSocket::connect(TcpStream::connect(address).unwrap());
+            socket.send_handshake(&handshake).unwrap();
+        });
+        let (stream, _) = listener.accept().unwrap();
+        let mut socket = PeerSocket::connect(stream);
+        let received = socket.receive_handshake().unwrap();
+        received.verify(key.verifying_key().encode().as_slice()).unwrap();
+        assert_eq!(received.sender(), 5);
         sender.join().unwrap();
     }
 
