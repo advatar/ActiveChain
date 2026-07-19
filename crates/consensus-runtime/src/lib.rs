@@ -1821,6 +1821,74 @@ mod tests {
     }
 
     #[test]
+    fn partition_replay_and_late_vote_recovery_preserve_quorum_safety() {
+        use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
+        let ids: Vec<_> = (0..3)
+            .map(|index| {
+                activechain_protocol_types::PrincipalId::new(Digest384::new([index + 40; 48]))
+            })
+            .collect();
+        let signers: Vec<_> = ids
+            .iter()
+            .enumerate()
+            .map(|(index, id)| ValidatorSigner::from_seed(*id, [index as u8 + 50; 32]))
+            .collect();
+        let entries = signers
+            .iter()
+            .map(|signer| {
+                ValidatorGenesisEntry::new(
+                    signer.validator(),
+                    1,
+                    signer.public_key().try_into().unwrap(),
+                )
+                .unwrap()
+            })
+            .collect();
+        let genesis = ValidatorGenesis::new(1, 1, entries).unwrap();
+        let paths: Vec<_> = (0..3)
+            .map(|index| {
+                std::env::temp_dir().join(format!(
+                    "activechain-fault-{}-{}.bin",
+                    std::process::id(),
+                    index
+                ))
+            })
+            .collect();
+        let services: Vec<_> = paths
+            .iter()
+            .map(|path| {
+                ValidatorService::from_genesis(
+                    ConsensusState::new_with_validator_set_root(1, genesis.validator_set_root()),
+                    &genesis,
+                    path.clone(),
+                )
+                .unwrap()
+            })
+            .collect();
+        let (proposal, leader_vote) =
+            services[0].propose_round(&signers[0], 1, 0, Digest384::new([41; 48]), 1).unwrap();
+        let vote_one =
+            services[1].process_proposal_and_sign_vote(proposal.clone(), &signers[1], 2).unwrap();
+        let vote_two =
+            services[2].process_proposal_and_sign_vote(proposal, &signers[2], 2).unwrap();
+        assert!(services[0].process_message(vote_one.clone()).unwrap().is_none());
+        assert_eq!(services[0].state().unwrap().finalized_height(), 0);
+        assert!(matches!(
+            services[0].process_message(leader_vote.clone()),
+            Err(ValidatorServiceError::Transport(TransportError::Replay))
+        ));
+        for receiver in &services {
+            let _ = receiver.process_message(vote_one.clone());
+            let _ = receiver.process_message(vote_two.clone());
+            let _ = receiver.process_message(leader_vote.clone());
+        }
+        assert!(services.iter().all(|service| service.state().unwrap().finalized_height() == 1));
+        for path in paths {
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn vote_collection_rejects_duplicate_unknown_mismatched_and_under_threshold_votes() {
         use activechain_protocol_types::{PrincipalId, ValidatorWeight};
         let key = SigningKey::<MlDsa44>::from_seed(&Seed::from([1; 32]));
