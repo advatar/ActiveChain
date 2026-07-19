@@ -32,6 +32,24 @@ cargo run --quiet -p activechain-consensus-runtime --bin validator-node -- \
 
 rg --fixed-strings "completed network round: finalized_height=1" "$workdir/proposer.out"
 test -s "$workdir/v0.snapshot"
+kill "${pids[1]}" 2>/dev/null || true
+python3 - <<'PY'
+import socket
+try:
+    socket.create_connection(("127.0.0.1", 4512), timeout=1)
+except OSError:
+    pass
+else:
+    raise SystemExit("partition probe unexpectedly connected")
+PY
+cargo run --quiet -p activechain-consensus-runtime --bin validator-node -- \
+  4512 "$workdir/v2.snapshot" "$genesis" 0 2 >"$workdir/v2-restart.out" 2>&1 &
+pids[1]="$!"
+sleep 2
+python3 - <<'PY'
+import socket
+socket.create_connection(("127.0.0.1", 4512), timeout=2).close()
+PY
 kill "${pids[0]}" 2>/dev/null || true
 cargo run --quiet -p activechain-consensus-runtime --bin validator-node -- \
   4511 "$workdir/v1.snapshot" "$genesis" 0 1 >"$workdir/v1-restart.out" 2>&1 &
