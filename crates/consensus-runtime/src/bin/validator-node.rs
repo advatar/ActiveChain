@@ -2,6 +2,11 @@ use activechain_consensus_runtime::{
     PeerListener, ValidatorService, load_genesis, load_snapshot, save_snapshot,
 };
 use activechain_protocol_types::ConsensusState;
+use activechain_protocol_types::Digest384;
+use sha3::{
+    Shake256,
+    digest::{ExtendableOutput, Update, XofReader},
+};
 use std::env;
 use std::path::Path;
 
@@ -11,6 +16,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let snapshot_path = args.next();
     let genesis_path = args.next();
     let genesis_epoch: u64 = args.next().as_deref().unwrap_or("0").parse()?;
+    let validator_index: Option<usize> = args.next().map(|value| value.parse()).transpose()?;
+    let run_once = args.next().as_deref() == Some("--once");
     let genesis = genesis_path.as_deref().map(Path::new).map(load_genesis).transpose()?;
     let state =
         snapshot_path.as_deref().map(Path::new).map(load_snapshot).transpose()?.unwrap_or_else(
@@ -36,6 +43,58 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         state.epoch(),
         state.finalized_height()
     );
+    if let (Some(genesis), Some(index)) = (genesis.as_ref(), validator_index) {
+        if index >= genesis.entries().len() {
+            return Err(format!("validator index {index} is outside genesis set").into());
+        }
+        let mut seed = [0_u8; 32];
+        seed[..8].copy_from_slice(&(index as u64).to_be_bytes());
+        seed[8..16].copy_from_slice(&genesis.epoch().to_be_bytes());
+        seed[16..24].copy_from_slice(&genesis.activation_height().to_be_bytes());
+        let signer = activechain_consensus_runtime::ValidatorSigner::from_seed(
+            genesis.entries()[index].validator(),
+            seed,
+        );
+        if signer.public_key() != genesis.entries()[index].public_key() {
+            return Err("derived signer does not match genesis public key".into());
+        }
+        if run_once {
+            let next_height = state.finalized_height().saturating_add(1);
+            let service = ValidatorService::from_genesis(
+                state,
+                genesis,
+                snapshot_path
+                    .as_deref()
+                    .map(Path::new)
+                    .unwrap_or_else(|| Path::new("validator.snapshot"))
+                    .to_path_buf(),
+            )
+            .map_err(|error| format!("validator service configuration failed: {error:?}"))?;
+            let block_digest = {
+                let mut digest = [0_u8; 48];
+                let mut hasher = Shake256::default();
+                hasher.update(b"ACTIVECHAIN-TESTNET-ROUND-V1");
+                hasher.update(genesis.validator_set_root().as_bytes());
+                hasher.finalize_xof().read(&mut digest);
+                Digest384::new(digest)
+            };
+            service
+                .propose_round(&signer, next_height, 0, block_digest, 1)
+                .map_err(|error| format!("deterministic round failed: {error:?}"))?;
+            let metrics = service.metrics();
+            println!(
+                "completed deterministic round: finalized_height={} proposals={} votes={} rejected={}",
+                service
+                    .state()
+                    .map_err(|error| format!("state read failed: {error:?}"))?
+                    .finalized_height(),
+                metrics.proposals,
+                metrics.votes,
+                metrics.rejected_messages
+            );
+            return Ok(());
+        }
+    }
     if let Some(genesis) = genesis {
         let service = std::sync::Arc::new(
             ValidatorService::from_genesis(
