@@ -405,6 +405,12 @@ pub fn load_snapshot(path: &std::path::Path) -> std::io::Result<ConsensusState> 
     })?;
     Ok(ConsensusState::from_snapshot(snapshot))
 }
+pub fn load_genesis(path: &std::path::Path) -> std::io::Result<ValidatorGenesis> {
+    let bytes = std::fs::read(path)?;
+    decode_envelope(&bytes).map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, "genesis encoding invalid")
+    })
+}
 impl PeerSocket {
     pub fn connect(stream: TcpStream) -> Self {
         Self { stream }
@@ -853,6 +859,74 @@ pub enum ValidatorEngineError {
     Transport(TransportError),
     Runtime(RuntimeError),
     Snapshot(std::io::Error),
+}
+
+pub struct ValidatorService {
+    engine: std::sync::Mutex<ValidatorEngine>,
+    replay: std::sync::Mutex<ReplayGuard>,
+    sender_keys: BTreeMap<u16, Vec<u8>>,
+    snapshot_path: std::path::PathBuf,
+}
+impl ValidatorService {
+    pub fn from_genesis(
+        state: ConsensusState,
+        genesis: &ValidatorGenesis,
+        snapshot_path: std::path::PathBuf,
+    ) -> Result<Self, ValidatorEngineError> {
+        let sender_keys = genesis
+            .entries()
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| ((index + 1) as u16, entry.public_key().to_vec()))
+            .collect();
+        Ok(Self {
+            engine: std::sync::Mutex::new(ValidatorEngine::from_genesis(state, genesis)?),
+            replay: std::sync::Mutex::new(ReplayGuard::default()),
+            sender_keys,
+            snapshot_path,
+        })
+    }
+    pub fn state(&self) -> Result<ConsensusState, ValidatorServiceError> {
+        self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned).map(|engine| engine.state())
+    }
+    pub fn process_message(
+        &self,
+        message: AuthenticatedConsensusMessage,
+    ) -> Result<Option<CertifiedBlock>, ValidatorServiceError> {
+        let key = self
+            .sender_keys
+            .get(&message.envelope.sender())
+            .ok_or(ValidatorServiceError::UnknownSender)?;
+        self.replay
+            .lock()
+            .map_err(|_| ValidatorServiceError::Poisoned)?
+            .accept(&message.envelope, key)
+            .map_err(ValidatorServiceError::Transport)?;
+        self.engine
+            .lock()
+            .map_err(|_| ValidatorServiceError::Poisoned)?
+            .process_and_save(message.message, &self.snapshot_path)
+            .map_err(ValidatorServiceError::Engine)
+    }
+    pub fn serve_peer(&self, mut peer: PeerSocket) -> std::io::Result<()> {
+        loop {
+            let message = match peer.receive_message() {
+                Ok(message) => message,
+                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
+                Err(error) => return Err(error),
+            };
+            self.process_message(message).map_err(|error| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{error:?}"))
+            })?;
+        }
+    }
+}
+#[derive(Debug)]
+pub enum ValidatorServiceError {
+    UnknownSender,
+    Poisoned,
+    Transport(TransportError),
+    Engine(ValidatorEngineError),
 }
 
 #[cfg(test)]
