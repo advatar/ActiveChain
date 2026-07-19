@@ -45,6 +45,7 @@ dependencies = [
  "activechain-canonical-codec",
  "activechain-crypto-provider",
  "activechain-data-availability",
+ "activechain-object-vm",
  "activechain-protocol-types",
  "ml-dsa",
  "sha3 0.10.9",

@@ -652,6 +652,27 @@ pub fn load_genesis(path: &std::path::Path) -> std::io::Result<ValidatorGenesis>
         std::io::Error::new(std::io::ErrorKind::InvalidData, "genesis encoding invalid")
     })
 }
+pub fn open_protected_payload<T: activechain_canonical_codec::CanonicalType>(
+    encoded_envelope: &[u8],
+    recipient: &activechain_crypto_provider::MlKem768Recipient,
+    associated_data: &[u8],
+) -> std::io::Result<T> {
+    let protected = activechain_crypto_provider::ProtectedEnvelope::decode(encoded_envelope)
+        .map_err(|_| invalid_data("protected envelope is invalid"))?;
+    let plaintext = protected
+        .open(recipient, associated_data)
+        .map_err(|_| invalid_data("protected envelope authentication failed"))?;
+    decode_envelope(&plaintext).map_err(|_| invalid_data("protected payload is not canonical"))
+}
+pub fn verify_execution_evidence(
+    evidence: &activechain_object_vm::ExecutionEvidence,
+) -> Result<(), RuntimeAdmissionError> {
+    evidence.verify().map_err(|_| RuntimeAdmissionError::ExecutionEvidenceInvalid)
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RuntimeAdmissionError {
+    ExecutionEvidenceInvalid,
+}
 pub fn save_distributed_snapshot(
     path: &std::path::Path,
     state: &ConsensusState,
@@ -1894,6 +1915,29 @@ mod tests {
         let restored = load_distributed_snapshot(&path).unwrap();
         assert_eq!(restored, state);
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn runtime_opens_only_authenticated_canonical_protected_payloads() {
+        let recipient = activechain_crypto_provider::MlKem768Recipient::from_seed([15; 64]);
+        let snapshot = ConsensusState::new(3).snapshot();
+        let protected = activechain_crypto_provider::ProtectedEnvelope::seal(
+            &recipient.public_key(),
+            &encode_envelope(&snapshot).unwrap(),
+            b"chain-1",
+        )
+        .unwrap();
+        let opened: ConsensusSnapshot =
+            open_protected_payload(&protected.encode().unwrap(), &recipient, b"chain-1").unwrap();
+        assert_eq!(opened, snapshot);
+        assert!(
+            open_protected_payload::<ConsensusSnapshot>(
+                &protected.encode().unwrap(),
+                &recipient,
+                b"chain-2"
+            )
+            .is_err()
+        );
     }
 
     #[test]

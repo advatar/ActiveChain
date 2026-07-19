@@ -58,6 +58,40 @@ impl ProtectedEnvelope {
     pub const fn tag(&self) -> &[u8; 48] {
         &self.tag
     }
+    pub fn encode(&self) -> Result<Vec<u8>, KemError> {
+        if self.ciphertext.len() > u32::MAX as usize
+            || self.encrypted_payload.len() > MAX_PROTECTED_PAYLOAD
+        {
+            return Err(KemError::PayloadTooLarge);
+        }
+        let mut bytes =
+            Vec::with_capacity(13 + self.ciphertext.len() + self.encrypted_payload.len());
+        bytes.extend_from_slice(b"ACPE1");
+        bytes.extend_from_slice(&(self.ciphertext.len() as u32).to_be_bytes());
+        bytes.extend_from_slice(&(self.encrypted_payload.len() as u32).to_be_bytes());
+        bytes.extend_from_slice(&self.ciphertext);
+        bytes.extend_from_slice(&self.encrypted_payload);
+        bytes.extend_from_slice(&self.tag);
+        Ok(bytes)
+    }
+    pub fn decode(bytes: &[u8]) -> Result<Self, KemError> {
+        if bytes.len() < 13 + 48 || &bytes[..5] != b"ACPE1" {
+            return Err(KemError::InvalidEnvelope);
+        }
+        let ciphertext_len = u32::from_be_bytes(bytes[5..9].try_into().unwrap()) as usize;
+        let payload_len = u32::from_be_bytes(bytes[9..13].try_into().unwrap()) as usize;
+        if payload_len > MAX_PROTECTED_PAYLOAD
+            || bytes.len() != 13 + ciphertext_len + payload_len + 48
+        {
+            return Err(KemError::InvalidEnvelope);
+        }
+        let payload_start = 13 + ciphertext_len;
+        Ok(Self {
+            ciphertext: bytes[13..payload_start].to_vec(),
+            encrypted_payload: bytes[payload_start..payload_start + payload_len].to_vec(),
+            tag: bytes[payload_start + payload_len..].try_into().unwrap(),
+        })
+    }
 }
 fn xor_stream(shared: &[u8; 32], ciphertext: &[u8], aad: &[u8], input: &[u8]) -> Vec<u8> {
     let mut reader = Shake256::default();
@@ -126,6 +160,7 @@ pub enum KemError {
     DecapsulationFailed,
     PayloadTooLarge,
     AuthenticationFailed,
+    InvalidEnvelope,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -277,6 +312,7 @@ mod tests {
             b"chain-1",
         )
         .unwrap();
+        let envelope = ProtectedEnvelope::decode(&envelope.encode().unwrap()).unwrap();
         assert_eq!(envelope.open(&recipient, b"chain-1").unwrap(), b"secret action");
         assert_eq!(envelope.open(&recipient, b"chain-2"), Err(KemError::AuthenticationFailed));
         let mut tampered = envelope.clone();

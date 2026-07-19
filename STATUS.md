@@ -184,8 +184,10 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
 - [ ] Add ML-KEM protected transaction submission without classical confidentiality dependencies.
   - [x] Add reviewed RustCrypto ML-KEM-768 encapsulation/decapsulation boundary and tamper tests.
   - [x] Bind protected payload confidentiality and integrity to ML-KEM shared keys and associated data.
+  - [x] Add canonical protected-envelope serialization and runtime admission of authenticated payloads.
 - [ ] Integrate transparent proof-carrying ObjectVM execution into block admission and finalization.
   - [x] Add canonical replay-verifiable execution evidence with program verification and result matching.
+  - [x] Add consensus-runtime admission validation for replay-verifiable execution evidence.
 - [ ] Ship genesis, validator, and wallet CLIs plus an indexer, metrics, alerts, and operator documentation.
   - [x] Add a canonical genesis generator CLI for reproducible validator manifests.
 - [ ] Pass multi-process Byzantine, restart, partition, and sustained-load testnet rehearsals on the local runner.
