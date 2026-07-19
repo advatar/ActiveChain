@@ -33,7 +33,10 @@ jobs:
           rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
           rustup target add --toolchain 1.97.1 aarch64-apple-ios
       - name: Install pinned Lean toolchain
-        run: elan toolchain install leanprover/lean4:v4.32.0
+        run: |
+          if ! elan toolchain list | rg --fixed-strings --line-regexp 'leanprover/lean4:v4.32.0'; then
+            elan toolchain install leanprover/lean4:v4.32.0
+          fi
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Check all targets
