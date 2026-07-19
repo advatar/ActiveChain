@@ -35,7 +35,7 @@ Tracked by [GitHub issue #2](https://github.com/advatar/ActiveChain/issues/2).
 
 - Implement versioned objects, access manifests, and the reference transition function.
 
-## Active milestone — bounded APL policy kernel
+## Completed milestone — bounded APL policy kernel
 
 Tracked by [GitHub issue #3](https://github.com/advatar/ActiveChain/issues/3).
 
@@ -48,7 +48,7 @@ Tracked by [GitHub issue #3](https://github.com/advatar/ActiveChain/issues/3).
 - [x] Add an executable Lean reference model with core decision theorems.
 - [x] Publish a deterministic APL policy/request/decision vector.
 - [x] Add unit, property, and Rust-versus-model truth-table tests.
-- [ ] Pass the full local-runner CI matrix.
+- [x] Pass the full local-runner CI matrix.
 
 ## Deferred until the semantic kernel is stable
 
