@@ -168,6 +168,8 @@ Tracked by [GitHub issue #12](https://github.com/advatar/ActiveChain/issues/12).
 Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
 
 - [x] Carry canonically encoded proposal, vote, and quorum-certificate bodies in authenticated peer frames.
+- [x] Define canonical validator genesis entries binding ordered stake and fixed ML-DSA-44 public keys.
+- [x] Bind the persistent validator service to genesis, authenticate sender-indexed peer messages, and save finalized snapshots.
 - [ ] Run the complete proposal → vote → QC → finalization loop in the validator process and persist finalized state.
 - [ ] Add configured peer discovery, authenticated connection handshakes, reconnects, bounded queues, rate limits, and backpressure.
 - [ ] Activate validator-set and staking transitions only through finalized consensus state.
