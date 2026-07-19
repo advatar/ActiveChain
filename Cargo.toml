@@ -3,6 +3,7 @@ members = [
     "crates/action-kernel",
     "crates/bytecode-verifier",
     "crates/canonical-codec",
+    "crates/crypto-provider",
     "crates/capability",
     "crates/credential",
     "crates/devnet-kernel",
