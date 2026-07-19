@@ -328,6 +328,15 @@ pub fn broadcast_certificate(
     Ok(())
 }
 
+pub fn converge_peers(
+    peers: &mut [DeterministicPeer],
+    validator_set: &ValidatorSet,
+    certificate: &QuorumCertificate,
+    votes: &[(&[u8], ValidatorVote)],
+) -> Result<(), (u16, RuntimeError)> {
+    broadcast_certificate(peers, validator_set, certificate, votes)
+}
+
 pub fn finalize_round(
     state: &mut ConsensusState,
     validator_set: &ValidatorSet,
