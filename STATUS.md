@@ -54,16 +54,16 @@ Tracked by [GitHub issue #3](https://github.com/advatar/ActiveChain/issues/3).
 
 Tracked by [GitHub issue #5](https://github.com/advatar/ActiveChain/issues/5).
 
-- [ ] Draft the normative `P-031` state-tree and witness specification.
-- [ ] Define domain-separated leaf, empty, internal-node, and final-root transcripts.
-- [ ] Implement the fixed-depth 16-way sparse SHAKE256/384 reference tree.
-- [ ] Bind the 4,096 logical partitions to the first 12 object-ID bits.
-- [ ] Define canonical state commitments and compressed proof schemas.
-- [ ] Generate and verify membership and non-membership proofs.
-- [ ] Reject malformed, non-canonical, wrong-kind, wrong-object, and tampered proofs.
-- [ ] Add an executable Lean path/fold model and Rust differential fixture.
-- [ ] Publish deterministic state-root and proof vectors.
-- [ ] Add unit and property tests for determinism, updates, proofs, tampering, encoding, and bounds.
+- [x] Draft the normative `P-031` state-tree and witness specification.
+- [x] Define domain-separated leaf, empty, internal-node, and final-root transcripts.
+- [x] Implement the fixed-depth 16-way sparse SHAKE256/384 reference tree.
+- [x] Bind the 4,096 logical partitions to the first 12 object-ID bits.
+- [x] Define canonical state commitments and compressed proof schemas.
+- [x] Generate and verify membership and non-membership proofs.
+- [x] Reject malformed, non-canonical, wrong-kind, wrong-object, and tampered proofs.
+- [x] Add an executable Lean path/fold model and Rust differential fixture.
+- [x] Publish deterministic state-root and proof vectors.
+- [x] Add unit and property tests for determinism, updates, proofs, tampering, encoding, and bounds.
 - [ ] Pass the full local-runner CI matrix.
 
 ## Completed milestone — versioned objects and atomic transitions

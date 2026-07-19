@@ -7,6 +7,7 @@ members = [
     "crates/principal",
     "crates/protocol-commitment",
     "crates/protocol-types",
+    "crates/state-tree",
     "crates/transition",
     "tools/vector-generator",
 ]
@@ -25,6 +26,7 @@ activechain-object = { path = "crates/object", version = "0.1.0" }
 activechain-policy-kernel = { path = "crates/policy-kernel", version = "0.1.0" }
 activechain-principal = { path = "crates/principal", version = "0.1.0" }
 activechain-protocol-types = { path = "crates/protocol-types", version = "0.1.0" }
+activechain-state-tree = { path = "crates/state-tree", version = "0.1.0" }
 activechain-transition = { path = "crates/transition", version = "0.1.0" }
 proptest = { version = "1.7.0", default-features = false, features = ["std"] }
 sha3 = { version = "0.10.8", default-features = false }

@@ -306,3 +306,24 @@ struct TransitionReceipt @type_tag(0x0053) @version(1) @max_bytes(104) {
 struct ObjectState @type_tag(0x0054) @version(1) @max_bytes(1078785) {
     objects: BoundedSet<Object, 64>;
 }
+
+enum StateProofKind : u8 {
+    Membership = 0;
+    NonMembership = 1;
+}
+
+struct StateProofLevel {
+    sibling_bitmap: u16;
+    siblings: BitmapValues<Digest384, 16>;
+}
+
+struct StateProof @type_tag(0x0055) @version(1) @max_bytes(69361) {
+    kind: StateProofKind;
+    object_id: ObjectId;
+    levels: FixedList<StateProofLevel, 96>;
+}
+
+struct StateCommitment @type_tag(0x0056) @version(1) @max_bytes(56) {
+    root: Digest384;
+    object_count: u64;
+}

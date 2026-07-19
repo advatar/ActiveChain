@@ -60,6 +60,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-state-tree"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-protocol-types",
+ "proptest",
+ "sha3",
+]
+
+[[package]]
 name = "activechain-transition"
 version = "0.1.0"
 dependencies = [
@@ -81,6 +91,7 @@ dependencies = [
  "activechain-principal",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
+ "activechain-state-tree",
  "activechain-transition",
 ]
 

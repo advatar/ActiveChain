@@ -1,6 +1,6 @@
 name = "activechain-formal"
 version = "0.1.0"
-defaultTargets = ["ActiveChain", "aplTruthTable", "objectTable"]
+defaultTargets = ["ActiveChain", "aplTruthTable", "objectTable", "stateTreeTable"]
 
 [[lean_lib]]
 name = "ActiveChain"
@@ -12,3 +12,7 @@ root = "AplTruthTable"
 [[lean_exe]]
 name = "objectTable"
 root = "ObjectTable"
+
+[[lean_exe]]
+name = "stateTreeTable"
+root = "StateTreeTable"

@@ -14,6 +14,7 @@ activechain-object.workspace = true
 activechain-policy-kernel.workspace = true
 activechain-principal.workspace = true
 activechain-protocol-types.workspace = true
+activechain-state-tree.workspace = true
 activechain-transition.workspace = true
 activechain-protocol-commitment = { path = "../../crates/protocol-commitment", version = "0.1.0" }
 
