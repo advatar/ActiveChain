@@ -1489,6 +1489,25 @@ impl ValidatorService {
         peer.send_handshake(&response)?;
         self.serve_peer(peer)
     }
+    pub fn serve_authenticated_genesis_peer(
+        &self,
+        mut peer: PeerSocket,
+        local_peer_id: u16,
+        signer: &ValidatorSigner,
+        challenge: [u8; 32],
+    ) -> std::io::Result<()> {
+        let inbound = peer.receive_handshake()?;
+        let expected_key = self
+            .sender_keys
+            .get(&inbound.sender())
+            .ok_or_else(|| invalid_data("unknown peer handshake sender"))?;
+        inbound.verify(expected_key).map_err(transport_io_error)?;
+        let response = signer
+            .sign_handshake(local_peer_id, challenge)
+            .map_err(|_| invalid_data("handshake signing failed"))?;
+        peer.send_handshake(&response)?;
+        self.serve_peer(peer)
+    }
 }
 #[derive(Debug)]
 pub enum ValidatorServiceError {

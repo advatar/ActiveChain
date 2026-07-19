@@ -199,6 +199,7 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
 - [ ] Pass multi-process Byzantine, restart, partition, and sustained-load testnet rehearsals on the local runner.
   - [x] Launch three genesis-bound validator-node processes and verify deterministic signer derivation, metrics, and persisted snapshots.
   - [x] Require ML-DSA verification on inbound validator socket sessions before accepting consensus frames.
+  - [x] Wire genesis-bound authenticated session handling into the validator-node accept loop.
 - [ ] Update and push the landing page at each completed launch milestone.
 
 ## Planned milestone — P-051 immutable ObjectVM packages and upgrade model

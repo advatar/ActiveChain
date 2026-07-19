@@ -116,10 +116,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .map_err(|error| format!("validator service configuration failed: {error:?}"))?,
         );
-        listener.spawn_accept_loop(move |peer| {
-            let service = std::sync::Arc::clone(&service);
-            let _ = service.serve_peer(peer);
-        })?;
+        if let Some(index) = validator_index {
+            let mut seed = [0_u8; 32];
+            seed[..8].copy_from_slice(&(index as u64).to_be_bytes());
+            seed[8..16].copy_from_slice(&genesis.epoch().to_be_bytes());
+            seed[16..24].copy_from_slice(&genesis.activation_height().to_be_bytes());
+            let probe = activechain_consensus_runtime::ValidatorSigner::from_seed(
+                activechain_protocol_types::PrincipalId::new(Digest384::new([0; 48])),
+                seed,
+            );
+            let entry = genesis
+                .entries()
+                .iter()
+                .find(|entry| entry.public_key() == probe.public_key().as_slice())
+                .ok_or("derived signer does not match genesis public key")?;
+            let signer = std::sync::Arc::new(
+                activechain_consensus_runtime::ValidatorSigner::from_seed(entry.validator(), seed),
+            );
+            listener.spawn_accept_loop(move |peer| {
+                let service = std::sync::Arc::clone(&service);
+                let signer = std::sync::Arc::clone(&signer);
+                let _ = service.serve_authenticated_genesis_peer(
+                    peer,
+                    (index + 1) as u16,
+                    &signer,
+                    [23; 32],
+                );
+            })?;
+        } else {
+            listener.spawn_accept_loop(move |peer| {
+                let service = std::sync::Arc::clone(&service);
+                let _ = service.serve_peer(peer);
+            })?;
+        }
     } else {
         listener.spawn_accept_loop(|mut peer| {
             let _ = peer.receive_frame();
