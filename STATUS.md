@@ -31,7 +31,7 @@ Tracked by [GitHub issue #2](https://github.com/advatar/ActiveChain/issues/2).
 - [x] Publish deterministic authority vectors.
 - [x] Add unit and property tests for lifecycle invariants and non-escalation.
 
-## Active milestone — typed ObjectVM verifier and metered interpreter
+## Completed milestone — typed ObjectVM verifier and metered interpreter
 
 Tracked by [GitHub issue #6](https://github.com/advatar/ActiveChain/issues/6).
 
@@ -44,7 +44,7 @@ Tracked by [GitHub issue #6](https://github.com/advatar/ActiveChain/issues/6).
 - [x] Return bounded typed outputs/events and total structural, verification, and execution failures.
 - [x] Add an executable Lean instruction/resource model and Rust differential fixture.
 - [x] Publish deterministic bytecode/execution vectors and comprehensive unit/property tests.
-- [ ] Pass the full local-runner CI matrix.
+- [x] Pass the full local-runner CI matrix.
 
 ## Completed milestone — bounded APL policy kernel
 
