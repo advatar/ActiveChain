@@ -46,7 +46,7 @@ Tracked by [GitHub issue #6](https://github.com/advatar/ActiveChain/issues/6).
 - [x] Publish deterministic bytecode/execution vectors and comprehensive unit/property tests.
 - [x] Pass the full local-runner CI matrix.
 
-## Active milestone — P-040 admission and single-node semantic devnet
+## Completed milestone — P-040 admission and single-node semantic devnet
 
 Tracked by [GitHub issue #7](https://github.com/advatar/ActiveChain/issues/7).
 
@@ -59,7 +59,7 @@ Tracked by [GitHub issue #7](https://github.com/advatar/ActiveChain/issues/7).
 - [x] Implement a pure `no_std` devnet chain kernel plus a minimal host executable.
 - [x] Add an executable Lean nonce/replay model and Rust differential fixture.
 - [x] Publish deterministic action/block vectors and comprehensive unit/property tests.
-- [ ] Pass the full local-runner CI matrix.
+- [x] Pass the full local-runner CI matrix.
 
 ## Completed milestone — bounded APL policy kernel
 
