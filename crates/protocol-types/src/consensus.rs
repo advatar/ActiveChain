@@ -63,6 +63,62 @@ pub enum ValidatorVoteError {
     InvalidConsensusSuite,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BlockProposal {
+    proposer: PrincipalId,
+    epoch: Epoch,
+    height: u64,
+    round: u64,
+    block_digest: Digest384,
+    signature: ProtocolSignature,
+}
+impl BlockProposal {
+    pub const TYPE_TAG: u16 = 0x0068;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 + 8 + 8 + 8 + 48 + ProtocolSignature::MAX_ENCODED_LEN;
+    pub fn new(
+        proposer: PrincipalId,
+        epoch: Epoch,
+        height: u64,
+        round: u64,
+        block_digest: Digest384,
+        signature: ProtocolSignature,
+    ) -> Result<Self, ValidatorVoteError> {
+        if signature.suite() != CryptoSuiteId::ML_DSA_44 {
+            return Err(ValidatorVoteError::InvalidConsensusSuite);
+        }
+        Ok(Self { proposer, epoch, height, round, block_digest, signature })
+    }
+    pub const fn proposer(&self) -> PrincipalId {
+        self.proposer
+    }
+    pub const fn epoch(&self) -> Epoch {
+        self.epoch
+    }
+    pub const fn height(&self) -> u64 {
+        self.height
+    }
+    pub const fn round(&self) -> u64 {
+        self.round
+    }
+    pub const fn block_digest(&self) -> Digest384 {
+        self.block_digest
+    }
+    pub fn signature(&self) -> &ProtocolSignature {
+        &self.signature
+    }
+    pub fn signing_payload(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(18 + 48 + 8 + 8 + 8 + 48);
+        bytes.extend_from_slice(b"ACTIVECHAIN-PROPOSAL-V1");
+        bytes.extend_from_slice(self.proposer.digest().as_bytes());
+        bytes.extend_from_slice(&self.epoch.to_be_bytes());
+        bytes.extend_from_slice(&self.height.to_be_bytes());
+        bytes.extend_from_slice(&self.round.to_be_bytes());
+        bytes.extend_from_slice(self.block_digest.as_bytes());
+        bytes
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct ValidatorWeight {
     pub validator: PrincipalId,
@@ -232,6 +288,34 @@ impl CanonicalDecode for ValidatorVote {
     }
 }
 impl CanonicalType for ValidatorVote {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+impl CanonicalEncode for BlockProposal {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.proposer.encode(e)?;
+        self.epoch.encode(e)?;
+        self.height.encode(e)?;
+        self.round.encode(e)?;
+        self.block_digest.encode(e)?;
+        self.signature.encode(e)
+    }
+}
+impl CanonicalDecode for BlockProposal {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            PrincipalId::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            Digest384::decode(d)?,
+            ProtocolSignature::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid ML-DSA block proposal"))
+    }
+}
+impl CanonicalType for BlockProposal {
     const TYPE_TAG: u16 = Self::TYPE_TAG;
     const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
