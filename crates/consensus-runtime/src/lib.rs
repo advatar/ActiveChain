@@ -59,6 +59,35 @@ impl ValidatorSigner {
         )
         .map_err(|_| ValidatorEngineError::Signer)
     }
+    fn sign_proposal(
+        &self,
+        epoch: u64,
+        height: u64,
+        round: u64,
+        block_digest: Digest384,
+    ) -> Result<BlockProposal, ValidatorEngineError> {
+        let unsigned = BlockProposal::new(
+            self.validator,
+            epoch,
+            height,
+            round,
+            block_digest,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420])
+                .map_err(|_| ValidatorEngineError::Signer)?,
+        )
+        .map_err(|_| ValidatorEngineError::Signer)?;
+        let signature = self.key.sign(&unsigned.signing_payload());
+        BlockProposal::new(
+            self.validator,
+            epoch,
+            height,
+            round,
+            block_digest,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec())
+                .map_err(|_| ValidatorEngineError::Signer)?,
+        )
+        .map_err(|_| ValidatorEngineError::Signer)
+    }
     fn sign_envelope(
         &self,
         sender: u16,
@@ -1019,6 +1048,43 @@ impl ValidatorService {
             .sign_envelope(sender, sequence, ConsensusMessage::Vote(vote))
             .map_err(ValidatorServiceError::Engine)
     }
+    pub fn propose_round(
+        &self,
+        signer: &ValidatorSigner,
+        height: u64,
+        round: u64,
+        block_digest: Digest384,
+        sequence: u64,
+    ) -> Result<(AuthenticatedConsensusMessage, AuthenticatedConsensusMessage), ValidatorServiceError>
+    {
+        let state = self.state()?;
+        let proposal = signer
+            .sign_proposal(state.epoch(), height, round, block_digest)
+            .map_err(ValidatorServiceError::Engine)?;
+        let sender = self.sender_for(signer)?;
+        let proposal_message = signer
+            .sign_envelope(sender, sequence, ConsensusMessage::Proposal(proposal))
+            .map_err(ValidatorServiceError::Engine)?;
+        self.process_message(proposal_message.clone())?;
+        let vote = self
+            .engine
+            .lock()
+            .map_err(|_| ValidatorServiceError::Poisoned)?
+            .sign_current_vote(signer)
+            .map_err(ValidatorServiceError::Engine)?;
+        let vote_message = signer
+            .sign_envelope(sender, sequence.saturating_add(1), ConsensusMessage::Vote(vote))
+            .map_err(ValidatorServiceError::Engine)?;
+        self.process_message(vote_message.clone())?;
+        Ok((proposal_message, vote_message))
+    }
+    fn sender_for(&self, signer: &ValidatorSigner) -> Result<u16, ValidatorServiceError> {
+        let public_key = signer.public_key();
+        self.sender_keys
+            .iter()
+            .find_map(|(sender, key)| (key == &public_key).then_some(*sender))
+            .ok_or(ValidatorServiceError::UnknownSender)
+    }
     pub fn serve_peer(&self, mut peer: PeerSocket) -> std::io::Result<()> {
         loop {
             let message = match peer.receive_message() {
@@ -1364,6 +1430,29 @@ mod tests {
         let vote = engine.sign_current_vote(&signer).unwrap();
         activechain_crypto_provider::verify_validator_vote(&signer.public_key(), &vote).unwrap();
         assert!(engine.process(ConsensusMessage::Vote(vote)).unwrap().is_some());
+    }
+
+    #[test]
+    fn persistent_service_drives_single_validator_round_to_finality() {
+        use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
+        let validator = activechain_protocol_types::PrincipalId::new(Digest384::new([6; 48]));
+        let signer = ValidatorSigner::from_seed(validator, [7; 32]);
+        let genesis = ValidatorGenesis::new(
+            1,
+            1,
+            vec![
+                ValidatorGenesisEntry::new(validator, 1, signer.public_key().try_into().unwrap())
+                    .unwrap(),
+            ],
+        )
+        .unwrap();
+        let path =
+            std::env::temp_dir().join(format!("activechain-round-{}.bin", std::process::id()));
+        let service =
+            ValidatorService::from_genesis(ConsensusState::new(1), &genesis, path.clone()).unwrap();
+        service.propose_round(&signer, 1, 0, Digest384::new([8; 48]), 1).unwrap();
+        assert_eq!(service.state().unwrap().finalized_height(), 1);
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
