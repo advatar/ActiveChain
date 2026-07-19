@@ -24,6 +24,7 @@ pub struct AvailabilityBatch {
     data_shards: usize,
     parity_shards: usize,
     shard_size: usize,
+    payload_len: usize,
     shards: Vec<Vec<u8>>,
     commitments: Vec<ShardCommitment>,
 }
@@ -55,13 +56,87 @@ impl AvailabilityBatch {
             .map_err(|_| AvailabilityError::CodingFailed)?;
         let commitments =
             shards.iter().enumerate().map(|(index, shard)| commitment(index, shard)).collect();
-        Ok(Self { data_shards, parity_shards, shard_size, shards, commitments })
+        Ok(Self {
+            data_shards,
+            parity_shards,
+            shard_size,
+            payload_len: payload.len(),
+            shards,
+            commitments,
+        })
     }
     pub fn shards(&self) -> &[Vec<u8>] {
         &self.shards
     }
     pub fn commitments(&self) -> &[ShardCommitment] {
         &self.commitments
+    }
+    pub fn serialize(&self) -> Result<Vec<u8>, AvailabilityError> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"ACDA1");
+        bytes.extend_from_slice(&(self.data_shards as u16).to_be_bytes());
+        bytes.extend_from_slice(&(self.parity_shards as u16).to_be_bytes());
+        bytes.extend_from_slice(&(self.shard_size as u32).to_be_bytes());
+        bytes.extend_from_slice(&(self.payload_len as u32).to_be_bytes());
+        for (shard, commitment) in self.shards.iter().zip(&self.commitments) {
+            bytes.extend_from_slice(&(shard.len() as u32).to_be_bytes());
+            bytes.extend_from_slice(shard);
+            bytes.extend_from_slice(commitment.as_bytes());
+        }
+        Ok(bytes)
+    }
+    pub fn deserialize(bytes: &[u8]) -> Result<Self, AvailabilityError> {
+        if bytes.len() < 17 || &bytes[..5] != b"ACDA1" {
+            return Err(AvailabilityError::InvalidLayout);
+        }
+        let data_shards = u16::from_be_bytes(bytes[5..7].try_into().unwrap()) as usize;
+        let parity_shards = u16::from_be_bytes(bytes[7..9].try_into().unwrap()) as usize;
+        let shard_size = u32::from_be_bytes(bytes[9..13].try_into().unwrap()) as usize;
+        let payload_len = u32::from_be_bytes(bytes[13..17].try_into().unwrap()) as usize;
+        if data_shards == 0
+            || parity_shards == 0
+            || data_shards + parity_shards > MAX_SHARDS
+            || shard_size > MAX_SHARD_BYTES
+            || payload_len == 0
+            || payload_len > data_shards * shard_size
+        {
+            return Err(AvailabilityError::InvalidLayout);
+        }
+        let mut offset = 17;
+        let mut shards = Vec::with_capacity(data_shards + parity_shards);
+        let mut commitments = Vec::with_capacity(data_shards + parity_shards);
+        for _ in 0..data_shards + parity_shards {
+            if bytes.len() < offset + 4 {
+                return Err(AvailabilityError::InvalidLayout);
+            }
+            let length = u32::from_be_bytes(bytes[offset..offset + 4].try_into().unwrap()) as usize;
+            offset += 4;
+            if length != shard_size || bytes.len() < offset + length + 48 {
+                return Err(AvailabilityError::InvalidLayout);
+            }
+            let shard = bytes[offset..offset + length].to_vec();
+            offset += length;
+            let field_commitment = ShardCommitment(bytes[offset..offset + 48].try_into().unwrap());
+            offset += 48;
+            if commitment(shards.len(), &shard) != field_commitment {
+                return Err(AvailabilityError::CommitmentMismatch);
+            }
+            shards.push(shard);
+            commitments.push(field_commitment);
+        }
+        if offset != bytes.len() {
+            return Err(AvailabilityError::InvalidLayout);
+        }
+        Ok(Self { data_shards, parity_shards, shard_size, payload_len, shards, commitments })
+    }
+    pub fn reconstruct_payload(&self, missing: &[usize]) -> Result<Vec<u8>, AvailabilityError> {
+        let shards = self.reconstruct(missing)?;
+        let mut payload = Vec::with_capacity(self.payload_len);
+        for shard in shards.iter().take(self.data_shards) {
+            payload.extend_from_slice(shard);
+        }
+        payload.truncate(self.payload_len);
+        Ok(payload)
     }
     pub fn sample(&self, seed: &[u8; 48], count: usize) -> Result<Vec<usize>, AvailabilityError> {
         if count == 0 || count > self.shards.len() {
@@ -154,5 +229,11 @@ mod tests {
         let batch = AvailabilityBatch::encode(b"sample", 2, 2).unwrap();
         assert_eq!(batch.sample(&[9; 48], 2), batch.sample(&[9; 48], 2));
         assert_eq!(batch.sample(&[9; 48], 0), Err(AvailabilityError::Bounds));
+    }
+    #[test]
+    fn serialized_batches_reconstruct_payload_after_distribution() {
+        let batch = AvailabilityBatch::encode(b"distributed snapshot payload", 3, 2).unwrap();
+        let restored = AvailabilityBatch::deserialize(&batch.serialize().unwrap()).unwrap();
+        assert_eq!(restored.reconstruct_payload(&[0, 3]).unwrap(), b"distributed snapshot payload");
     }
 }

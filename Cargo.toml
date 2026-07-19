@@ -33,6 +33,7 @@ activechain-action-kernel = { path = "crates/action-kernel", version = "0.1.0" }
 activechain-bytecode-verifier = { path = "crates/bytecode-verifier", version = "0.1.0" }
 activechain-canonical-codec = { path = "crates/canonical-codec", version = "0.1.0" }
 activechain-crypto-provider = { path = "crates/crypto-provider", version = "0.1.0" }
+activechain-data-availability = { path = "crates/data-availability", version = "0.1.0" }
 activechain-capability = { path = "crates/capability", version = "0.1.0" }
 activechain-credential = { path = "crates/credential", version = "0.1.0" }
 activechain-devnet-kernel = { path = "crates/devnet-kernel", version = "0.1.0" }

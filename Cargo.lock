@@ -44,6 +44,7 @@ version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
  "activechain-crypto-provider",
+ "activechain-data-availability",
  "activechain-protocol-types",
  "ml-dsa",
  "sha3 0.10.9",

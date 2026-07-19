@@ -609,6 +609,56 @@ pub fn load_genesis(path: &std::path::Path) -> std::io::Result<ValidatorGenesis>
         std::io::Error::new(std::io::ErrorKind::InvalidData, "genesis encoding invalid")
     })
 }
+pub fn save_distributed_snapshot(
+    path: &std::path::Path,
+    state: &ConsensusState,
+    data_shards: usize,
+    parity_shards: usize,
+) -> std::io::Result<()> {
+    let state_bytes =
+        encode_envelope(&state.snapshot()).map_err(|_| invalid_data("snapshot encoding failed"))?;
+    let batch = activechain_data_availability::AvailabilityBatch::encode(
+        &state_bytes,
+        data_shards,
+        parity_shards,
+    )
+    .map_err(|_| invalid_data("snapshot shard encoding failed"))?
+    .serialize()
+    .map_err(|_| invalid_data("snapshot shard serialization failed"))?;
+    let mut bytes = Vec::with_capacity(13 + state_bytes.len() + batch.len());
+    bytes.extend_from_slice(b"ACSN1");
+    bytes.extend_from_slice(&(state_bytes.len() as u32).to_be_bytes());
+    bytes.extend_from_slice(&(batch.len() as u32).to_be_bytes());
+    bytes.extend_from_slice(&state_bytes);
+    bytes.extend_from_slice(&batch);
+    let temporary = path.with_extension("tmp");
+    std::fs::write(&temporary, bytes)?;
+    std::fs::rename(temporary, path)
+}
+pub fn load_distributed_snapshot(path: &std::path::Path) -> std::io::Result<ConsensusState> {
+    let bytes = std::fs::read(path)?;
+    if bytes.len() < 13 || &bytes[..5] != b"ACSN1" {
+        return Err(invalid_data("invalid distributed snapshot"));
+    }
+    let state_len = u32::from_be_bytes(bytes[5..9].try_into().unwrap()) as usize;
+    let batch_len = u32::from_be_bytes(bytes[9..13].try_into().unwrap()) as usize;
+    if bytes.len() != 13 + state_len + batch_len {
+        return Err(invalid_data("distributed snapshot length mismatch"));
+    }
+    let state_bytes = &bytes[13..13 + state_len];
+    let batch_bytes = &bytes[13 + state_len..];
+    let batch = activechain_data_availability::AvailabilityBatch::deserialize(batch_bytes)
+        .map_err(|_| invalid_data("distributed snapshot shards invalid"))?;
+    let reconstructed = batch
+        .reconstruct_payload(&[])
+        .map_err(|_| invalid_data("distributed snapshot reconstruction failed"))?;
+    if reconstructed != state_bytes {
+        return Err(invalid_data("distributed snapshot state mismatch"));
+    }
+    let snapshot: ConsensusSnapshot = decode_envelope(&reconstructed)
+        .map_err(|_| invalid_data("distributed snapshot decoding failed"))?;
+    Ok(ConsensusState::from_snapshot(snapshot))
+}
 impl PeerSocket {
     pub fn connect(stream: TcpStream) -> Self {
         Self { stream }
@@ -1733,6 +1783,17 @@ mod tests {
         assert_eq!(restored.epoch(), 4);
         assert_eq!(restored.finalized_height(), 9);
         assert_eq!(restored.finalized_round(), 2);
+    }
+
+    #[test]
+    fn distributed_snapshot_round_trips_through_authenticated_shards() {
+        let state = ConsensusState::new_with_validator_set_root(4, Digest384::new([7; 48]));
+        let path = std::env::temp_dir()
+            .join(format!("activechain-distributed-{}.bin", std::process::id()));
+        save_distributed_snapshot(&path, &state, 3, 2).unwrap();
+        let restored = load_distributed_snapshot(&path).unwrap();
+        assert_eq!(restored, state);
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
