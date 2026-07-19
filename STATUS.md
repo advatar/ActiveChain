@@ -50,7 +50,7 @@ Tracked by [GitHub issue #3](https://github.com/advatar/ActiveChain/issues/3).
 - [x] Add unit, property, and Rust-versus-model truth-table tests.
 - [x] Pass the full local-runner CI matrix.
 
-## Active milestone — versioned objects and atomic transitions
+## Completed milestone — versioned objects and atomic transitions
 
 Tracked by [GitHub issue #4](https://github.com/advatar/ActiveChain/issues/4).
 
@@ -63,7 +63,7 @@ Tracked by [GitHub issue #4](https://github.com/advatar/ActiveChain/issues/4).
 - [x] Add an executable Lean version/atomicity model and cross-check fixtures.
 - [x] Publish deterministic object, manifest, transfer, and receipt vectors.
 - [x] Add unit and property tests for canonical encoding, confinement, authorization, versioning, and atomic abort.
-- [ ] Pass the full local-runner CI matrix.
+- [x] Pass the full local-runner CI matrix.
 
 ## Deferred until the semantic kernel is stable
 
