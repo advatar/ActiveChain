@@ -24,10 +24,91 @@ const PEER_BODY_DOMAIN: &[u8] = b"ACTIVECHAIN-PEER-BODY-V1";
 pub const MAX_PEER_FRAME_LEN: usize = 16 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CertifiedBlock {
+    certificate: QuorumCertificate,
+    votes: Vec<ValidatorVote>,
+}
+impl CertifiedBlock {
+    pub fn new(
+        certificate: QuorumCertificate,
+        votes: Vec<ValidatorVote>,
+    ) -> Result<Self, TransportError> {
+        if votes.is_empty() || votes.len() > activechain_protocol_types::MAX_VALIDATORS_PER_EPOCH {
+            return Err(TransportError::InvalidBody);
+        }
+        if votes.iter().any(|vote| {
+            vote.height() != certificate.height()
+                || vote.round() != certificate.round()
+                || vote.block_digest() != certificate.block_digest()
+        }) {
+            return Err(TransportError::InvalidBody);
+        }
+        Ok(Self { certificate, votes })
+    }
+    pub const fn certificate(&self) -> &QuorumCertificate {
+        &self.certificate
+    }
+    pub fn votes(&self) -> &[ValidatorVote] {
+        &self.votes
+    }
+    fn encode(&self) -> Result<Vec<u8>, TransportError> {
+        let certificate =
+            encode_envelope(&self.certificate).map_err(|_| TransportError::InvalidBody)?;
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&(certificate.len() as u32).to_be_bytes());
+        bytes.extend_from_slice(&certificate);
+        bytes.extend_from_slice(&(self.votes.len() as u16).to_be_bytes());
+        for vote in &self.votes {
+            let encoded = encode_envelope(vote).map_err(|_| TransportError::InvalidBody)?;
+            bytes.extend_from_slice(&(encoded.len() as u32).to_be_bytes());
+            bytes.extend_from_slice(&encoded);
+        }
+        Ok(bytes)
+    }
+    fn decode(mut bytes: &[u8]) -> Result<Self, TransportError> {
+        let certificate_bytes = take_length_prefixed(&mut bytes)?;
+        let certificate =
+            decode_envelope(certificate_bytes).map_err(|_| TransportError::InvalidBody)?;
+        if bytes.len() < 2 {
+            return Err(TransportError::InvalidBody);
+        }
+        let count = u16::from_be_bytes([bytes[0], bytes[1]]) as usize;
+        bytes = &bytes[2..];
+        if count == 0 || count > activechain_protocol_types::MAX_VALIDATORS_PER_EPOCH {
+            return Err(TransportError::InvalidBody);
+        }
+        let mut votes = Vec::with_capacity(count);
+        for _ in 0..count {
+            votes.push(
+                decode_envelope(take_length_prefixed(&mut bytes)?)
+                    .map_err(|_| TransportError::InvalidBody)?,
+            );
+        }
+        if !bytes.is_empty() {
+            return Err(TransportError::InvalidBody);
+        }
+        Self::new(certificate, votes)
+    }
+}
+
+fn take_length_prefixed<'a>(bytes: &mut &'a [u8]) -> Result<&'a [u8], TransportError> {
+    if bytes.len() < 4 {
+        return Err(TransportError::InvalidBody);
+    }
+    let length = u32::from_be_bytes(bytes[..4].try_into().unwrap()) as usize;
+    if length > MAX_PEER_FRAME_LEN || bytes.len() < 4 + length {
+        return Err(TransportError::InvalidBody);
+    }
+    let value = &bytes[4..4 + length];
+    *bytes = &bytes[4 + length..];
+    Ok(value)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConsensusMessage {
     Proposal(BlockProposal),
     Vote(ValidatorVote),
-    Certificate(QuorumCertificate),
+    Certificate(CertifiedBlock),
 }
 impl ConsensusMessage {
     fn kind(&self) -> u8 {
@@ -41,7 +122,7 @@ impl ConsensusMessage {
         match self {
             Self::Proposal(value) => encode_envelope(value),
             Self::Vote(value) => encode_envelope(value),
-            Self::Certificate(value) => encode_envelope(value),
+            Self::Certificate(value) => return value.encode(),
         }
         .map_err(|_| TransportError::InvalidBody)
     }
@@ -49,7 +130,7 @@ impl ConsensusMessage {
         match kind {
             1 => decode_envelope(body).map(Self::Proposal),
             2 => decode_envelope(body).map(Self::Vote),
-            3 => decode_envelope(body).map(Self::Certificate),
+            3 => return CertifiedBlock::decode(body).map(Self::Certificate),
             _ => return Err(TransportError::InvalidMessageKind),
         }
         .map_err(|_| TransportError::InvalidBody)
@@ -646,6 +727,116 @@ pub enum VoteCollectionError {
     InsufficientStake,
 }
 
+pub struct ValidatorEngine {
+    state: ConsensusState,
+    validator_set: ValidatorSet,
+    public_keys: BTreeMap<activechain_protocol_types::PrincipalId, Vec<u8>>,
+    collector: Option<VoteCollector>,
+}
+impl ValidatorEngine {
+    pub fn new(
+        state: ConsensusState,
+        validator_set: ValidatorSet,
+        public_keys: BTreeMap<activechain_protocol_types::PrincipalId, Vec<u8>>,
+    ) -> Result<Self, ValidatorEngineError> {
+        for validator in validator_set.as_slice() {
+            let key = public_keys
+                .get(&validator.validator)
+                .ok_or(ValidatorEngineError::MissingValidatorKey)?;
+            if key.len() != 1312 {
+                return Err(ValidatorEngineError::InvalidValidatorKey);
+            }
+        }
+        Ok(Self { state, validator_set, public_keys, collector: None })
+    }
+    pub const fn state(&self) -> ConsensusState {
+        self.state
+    }
+    pub fn process(
+        &mut self,
+        message: ConsensusMessage,
+    ) -> Result<Option<CertifiedBlock>, ValidatorEngineError> {
+        match message {
+            ConsensusMessage::Proposal(proposal) => {
+                let key = self
+                    .public_keys
+                    .get(&proposal.proposer())
+                    .ok_or(ValidatorEngineError::UnknownValidator)?;
+                admit_proposal(&self.state, &proposal, key)
+                    .map_err(ValidatorEngineError::Proposal)?;
+                self.collector = Some(VoteCollector::new(proposal));
+                Ok(None)
+            }
+            ConsensusMessage::Vote(vote) => {
+                let key = self
+                    .public_keys
+                    .get(&vote.validator())
+                    .ok_or(ValidatorEngineError::UnknownValidator)?;
+                let collector =
+                    self.collector.as_mut().ok_or(ValidatorEngineError::MissingProposal)?;
+                collector
+                    .add_vote(&self.validator_set, key, vote)
+                    .map_err(ValidatorEngineError::Vote)?;
+                match collector.finalize(self.state.epoch(), &self.validator_set) {
+                    Ok(certificate) => {
+                        let votes: Vec<_> =
+                            collector.votes().iter().map(|(_, vote)| vote.clone()).collect();
+                        let proof = CertifiedBlock::new(certificate, votes)
+                            .map_err(ValidatorEngineError::Transport)?;
+                        self.apply_certificate(&proof)?;
+                        self.collector = None;
+                        Ok(Some(proof))
+                    }
+                    Err(VoteCollectionError::InsufficientStake) => Ok(None),
+                    Err(error) => Err(ValidatorEngineError::Vote(error)),
+                }
+            }
+            ConsensusMessage::Certificate(proof) => {
+                self.apply_certificate(&proof)?;
+                self.collector = None;
+                Ok(None)
+            }
+        }
+    }
+    pub fn process_and_save(
+        &mut self,
+        message: ConsensusMessage,
+        snapshot_path: &std::path::Path,
+    ) -> Result<Option<CertifiedBlock>, ValidatorEngineError> {
+        let before = self.state;
+        let result = self.process(message)?;
+        if self.state != before {
+            save_snapshot(snapshot_path, &self.state).map_err(ValidatorEngineError::Snapshot)?;
+        }
+        Ok(result)
+    }
+    fn apply_certificate(&mut self, proof: &CertifiedBlock) -> Result<(), ValidatorEngineError> {
+        let mut votes = Vec::with_capacity(proof.votes().len());
+        for vote in proof.votes() {
+            let key = self
+                .public_keys
+                .get(&vote.validator())
+                .ok_or(ValidatorEngineError::UnknownValidator)?;
+            votes.push((key.as_slice(), vote.clone()));
+        }
+        finalize_round(&mut self.state, &self.validator_set, proof.certificate(), &votes)
+            .map_err(ValidatorEngineError::Runtime)
+    }
+}
+
+#[derive(Debug)]
+pub enum ValidatorEngineError {
+    MissingValidatorKey,
+    InvalidValidatorKey,
+    UnknownValidator,
+    MissingProposal,
+    Proposal(ProposalError),
+    Vote(VoteCollectionError),
+    Transport(TransportError),
+    Runtime(RuntimeError),
+    Snapshot(std::io::Error),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -846,6 +1037,76 @@ mod tests {
         ];
         converge_peers(&mut peers, &set, &certificate, &vote_refs).unwrap();
         assert!(peers.iter().all(|peer| peer.state().finalized_height() == 1));
+    }
+
+    #[test]
+    fn validator_engines_complete_proposal_vote_certificate_and_restart() {
+        use activechain_protocol_types::{PrincipalId, ValidatorWeight};
+        let keys: Vec<_> =
+            (0..3).map(|seed| SigningKey::<MlDsa44>::from_seed(&Seed::from([seed; 32]))).collect();
+        let ids: Vec<_> =
+            (0..3).map(|value| PrincipalId::new(Digest384::new([value + 1; 48]))).collect();
+        let set = ValidatorSet::new(
+            ids.iter().copied().map(|validator| ValidatorWeight { validator, stake: 1 }).collect(),
+        )
+        .unwrap();
+        let public_keys: BTreeMap<_, _> = ids
+            .iter()
+            .copied()
+            .zip(keys.iter().map(|key| key.verifying_key().encode().to_vec()))
+            .collect();
+        let placeholder = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420]).unwrap();
+        let unsigned =
+            BlockProposal::new(ids[0], 1, 1, 0, Digest384::new([8; 48]), placeholder.clone())
+                .unwrap();
+        let proposal = BlockProposal::new(
+            ids[0],
+            1,
+            1,
+            0,
+            Digest384::new([8; 48]),
+            ProtocolSignature::new(
+                CryptoSuiteId::ML_DSA_44,
+                keys[0].sign(&unsigned.signing_payload()).encode().to_vec(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let mut leader =
+            ValidatorEngine::new(ConsensusState::new(1), set.clone(), public_keys.clone()).unwrap();
+        leader.process(ConsensusMessage::Proposal(proposal)).unwrap();
+        let mut proof = None;
+        for (key, id) in keys.iter().zip(ids.iter()) {
+            let unsigned =
+                ValidatorVote::new(*id, 1, 0, Digest384::new([8; 48]), placeholder.clone())
+                    .unwrap();
+            let vote = ValidatorVote::new(
+                *id,
+                1,
+                0,
+                Digest384::new([8; 48]),
+                ProtocolSignature::new(
+                    CryptoSuiteId::ML_DSA_44,
+                    key.sign(&unsigned.signing_payload()).encode().to_vec(),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            proof = leader.process(ConsensusMessage::Vote(vote)).unwrap().or(proof);
+        }
+        let proof = proof.unwrap();
+        assert_eq!(leader.state().finalized_height(), 1);
+        let wire_message = ConsensusMessage::Certificate(proof.clone());
+        assert_eq!(
+            ConsensusMessage::decode(3, &wire_message.encode_body().unwrap()).unwrap(),
+            wire_message
+        );
+        let path = std::env::temp_dir()
+            .join(format!("activechain-validator-engine-{}.bin", std::process::id()));
+        let mut follower = ValidatorEngine::new(ConsensusState::new(1), set, public_keys).unwrap();
+        follower.process_and_save(ConsensusMessage::Certificate(proof), &path).unwrap();
+        assert_eq!(load_snapshot(&path).unwrap().finalized_height(), 1);
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
