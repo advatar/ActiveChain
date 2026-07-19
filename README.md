@@ -21,19 +21,23 @@ The implementation is deliberately starting below networking and consensus. The 
 - executable Lean models for APL effects, object versioning, and atomic publication;
 - a canonical fixed-depth sparse state tree with compressed membership and non-membership witnesses;
 - executable Lean models for state-key paths and abstract 16-way proof folding;
-- deterministic principal, authority, APL, object-transition, state-root, and proof vectors;
-- unit and property tests for codec safety, authority, policy, transitions, tree roots, and proof tampering.
+- bounded typed ObjectVM bytecode, a static resource/control-flow verifier, and a prepaid-gas interpreter;
+- executable Lean models for ObjectVM copy/move/consume resource semantics and instruction costs;
+- deterministic principal, authority, APL, transition, state-tree, and ObjectVM vectors;
+- unit and property tests for codec safety, authority, policy, transitions, proofs, bytecode, and execution.
 
 ## Workspace
 
 ```text
 crates/canonical-codec       consensus binary encoding
+crates/bytecode-verifier     typed ObjectVM bytecode and static verification
 crates/protocol-types        canonical IDs, principals, authenticators, capabilities
 crates/protocol-commitment   SHAKE256/384 commitment transcript
 crates/principal             pure principal lifecycle state machine
 crates/capability            mechanical delegation attenuation
 crates/policy-kernel         bounded APL AST, requests, evaluation, decisions
 crates/object                exact one-step object ownership transitions
+crates/object-vm             deterministic metered reference interpreter
 crates/transition            access-confined atomic transfer reference kernel
 crates/state-tree            canonical sparse state commitment and witnesses
 formal/lean/                 executable APL/object/state-tree models and proofs
@@ -43,7 +47,7 @@ testing/vectors/             cross-implementation fixtures
 tools/vector-generator/      deterministic vector producer
 ```
 
-All nine protocol and semantic-kernel crates compile with `#![no_std]` and `#![forbid(unsafe_code)]`. The vector generator and Lean models are host verification tooling outside the consensus kernel.
+All eleven protocol and semantic-kernel crates compile with `#![no_std]` and `#![forbid(unsafe_code)]`. The vector generator and Lean models are host verification tooling outside the consensus kernel.
 
 ## Verify locally
 
@@ -52,7 +56,7 @@ The repository pins Rust 1.97.1. Run:
 ```sh
 cargo fmt --all --check
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
-cargo check --locked --target aarch64-apple-ios --lib -p activechain-canonical-codec -p activechain-protocol-types -p activechain-protocol-commitment -p activechain-principal -p activechain-capability -p activechain-policy-kernel -p activechain-object -p activechain-transition -p activechain-state-tree
+cargo check --locked --target aarch64-apple-ios --lib -p activechain-bytecode-verifier -p activechain-canonical-codec -p activechain-protocol-types -p activechain-protocol-commitment -p activechain-principal -p activechain-capability -p activechain-policy-kernel -p activechain-object -p activechain-object-vm -p activechain-transition -p activechain-state-tree
 cargo test --locked --workspace --all-features
 cargo test --locked --workspace --doc
 cargo run --locked --quiet -p activechain-vector-generator -- principal-v1
@@ -60,9 +64,10 @@ cargo run --locked --quiet -p activechain-vector-generator -- authority-v1
 cargo run --locked --quiet -p activechain-vector-generator -- apl-v1
 cargo run --locked --quiet -p activechain-vector-generator -- object-transition-v1
 cargo run --locked --quiet -p activechain-vector-generator -- state-tree-v1
+cargo run --locked --quiet -p activechain-vector-generator -- object-vm-v1
 cd formal/lean && lake build
 ```
 
-Implementation progress is tracked in `STATUS.md` and the linked milestone issues, including [state-tree issue #5](https://github.com/advatar/ActiveChain/issues/5).
+Implementation progress is tracked in `STATUS.md` and the linked milestone issues, including [ObjectVM issue #6](https://github.com/advatar/ActiveChain/issues/6).
 
 CI runs on the repository's dedicated macOS ARM64 self-hosted runner. Its pinned installation, operations, and security boundary are documented in `docs/ci/self-hosted-runner.md`.

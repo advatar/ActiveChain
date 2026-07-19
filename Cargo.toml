@@ -1,8 +1,10 @@
 [workspace]
 members = [
+    "crates/bytecode-verifier",
     "crates/canonical-codec",
     "crates/capability",
     "crates/object",
+    "crates/object-vm",
     "crates/policy-kernel",
     "crates/principal",
     "crates/protocol-commitment",
@@ -20,9 +22,11 @@ rust-version = "1.97.1"
 repository = "https://github.com/advatar/ActiveChain"
 
 [workspace.dependencies]
+activechain-bytecode-verifier = { path = "crates/bytecode-verifier", version = "0.1.0" }
 activechain-canonical-codec = { path = "crates/canonical-codec", version = "0.1.0" }
 activechain-capability = { path = "crates/capability", version = "0.1.0" }
 activechain-object = { path = "crates/object", version = "0.1.0" }
+activechain-object-vm = { path = "crates/object-vm", version = "0.1.0" }
 activechain-policy-kernel = { path = "crates/policy-kernel", version = "0.1.0" }
 activechain-principal = { path = "crates/principal", version = "0.1.0" }
 activechain-protocol-types = { path = "crates/protocol-types", version = "0.1.0" }

@@ -3,6 +3,15 @@
 version = 4
 
 [[package]]
+name = "activechain-bytecode-verifier"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-protocol-types",
+ "proptest",
+]
+
+[[package]]
 name = "activechain-canonical-codec"
 version = "0.1.0"
 dependencies = [
@@ -21,6 +30,16 @@ dependencies = [
 name = "activechain-object"
 version = "0.1.0"
 dependencies = [
+ "activechain-protocol-types",
+ "proptest",
+]
+
+[[package]]
+name = "activechain-object-vm"
+version = "0.1.0"
+dependencies = [
+ "activechain-bytecode-verifier",
+ "activechain-canonical-codec",
  "activechain-protocol-types",
  "proptest",
 ]
@@ -84,9 +103,11 @@ dependencies = [
 name = "activechain-vector-generator"
 version = "0.1.0"
 dependencies = [
+ "activechain-bytecode-verifier",
  "activechain-canonical-codec",
  "activechain-capability",
  "activechain-object",
+ "activechain-object-vm",
  "activechain-policy-kernel",
  "activechain-principal",
  "activechain-protocol-commitment",

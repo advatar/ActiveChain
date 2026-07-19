@@ -1,0 +1,18 @@
+[package]
+name = "activechain-bytecode-verifier"
+description = "Bounded typed ObjectVM bytecode and static verifier for ActiveChain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+activechain-canonical-codec.workspace = true
+activechain-protocol-types.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

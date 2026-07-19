@@ -35,15 +35,15 @@ Tracked by [GitHub issue #2](https://github.com/advatar/ActiveChain/issues/2).
 
 Tracked by [GitHub issue #6](https://github.com/advatar/ActiveChain/issues/6).
 
-- [ ] Draft the normative `P-050` ObjectVM instruction, typing, resource, control-flow, and metering semantics.
-- [ ] Define bounded canonical bytecode-program, instruction, value-type, event, and execution-result schemas.
-- [ ] Implement a `no_std` verifier for instruction/register bounds, forward-only targets, reachability, and complete returns.
-- [ ] Enforce static register typing, definite initialization, and exact state agreement at control-flow merges.
-- [ ] Enforce copyable scalars, affine capabilities, and exactly preserved linear objects.
-- [ ] Implement a deterministic `no_std` reference interpreter with explicit inputs, checked arithmetic, and prepaid fixed gas.
-- [ ] Return bounded typed outputs/events and total structural, verification, and execution failures.
-- [ ] Add an executable Lean instruction/resource model and Rust differential fixture.
-- [ ] Publish deterministic bytecode/execution vectors and comprehensive unit/property tests.
+- [x] Draft the normative `P-050` ObjectVM instruction, typing, resource, control-flow, and metering semantics.
+- [x] Define bounded canonical bytecode-program, instruction, value-type, event, and execution-result schemas.
+- [x] Implement a `no_std` verifier for instruction/register bounds, forward-only targets, reachability, and complete returns.
+- [x] Enforce static register typing, definite initialization, and exact state agreement at control-flow merges.
+- [x] Enforce copyable scalars, affine capabilities, and exactly preserved linear objects.
+- [x] Implement a deterministic `no_std` reference interpreter with explicit inputs, checked arithmetic, and prepaid fixed gas.
+- [x] Return bounded typed outputs/events and total structural, verification, and execution failures.
+- [x] Add an executable Lean instruction/resource model and Rust differential fixture.
+- [x] Publish deterministic bytecode/execution vectors and comprehensive unit/property tests.
 - [ ] Pass the full local-runner CI matrix.
 
 ## Completed milestone — bounded APL policy kernel

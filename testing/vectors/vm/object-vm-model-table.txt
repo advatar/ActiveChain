@@ -1,0 +1,6 @@
+Copy,U64,Accept,1
+Copy,Capability,CopyRequiresCopyable,1
+Copy,Object,CopyRequiresCopyable,1
+Consume,Capability,Accept,1
+Consume,Object,TypeMismatch,1
+Move,Object,Accept,1

@@ -327,3 +327,55 @@ struct StateCommitment @type_tag(0x0056) @version(1) @max_bytes(56) {
     root: Digest384;
     object_count: u64;
 }
+
+enum VmValueType : u8 {
+    U64 = 0;
+    Bool = 1;
+    Digest = 2;
+    Object = 3;
+    Capability = 4;
+}
+
+enum VmInstruction : u8 @max_bytes(50) {
+    LoadU64(destination: u8, value: u64) = 0;
+    LoadBool(destination: u8, value: bool) = 1;
+    LoadDigest(destination: u8, value: Digest384) = 2;
+    Copy(destination: u8, source: u8) = 3;
+    Move(destination: u8, source: u8) = 4;
+    AddU64(destination: u8, left: u8, right: u8) = 5;
+    EqU64(destination: u8, left: u8, right: u8) = 6;
+    Jump(target: u16) = 7;
+    BranchIf(condition: u8, target: u16) = 8;
+    ConsumeCapability(source: u8) = 9;
+    Emit(source: u8) = 10;
+    Return(sources: BoundedList<u8, 16>) = 11;
+}
+
+struct VmProgram @type_tag(0x0060) @version(1) @max_bytes(12854) {
+    input_count: u8;
+    register_types: BoundedList<VmValueType, 32>;
+    output_types: BoundedList<VmValueType, 16>;
+    instructions: BoundedList<VmInstruction, 256>;
+    maximum_events: u8;
+}
+
+enum VmValue : u8 @max_bytes(16857) {
+    U64(value: u64) = 0;
+    Bool(value: bool) = 1;
+    Digest(value: Digest384) = 2;
+    Object(value: Object) = 3;
+    Capability(value: CapabilityId) = 4;
+}
+
+enum VmEventValue : u8 @max_bytes(49) {
+    U64(value: u64) = 0;
+    Bool(value: bool) = 1;
+    Digest(value: Digest384) = 2;
+}
+
+struct VmExecutionResult @type_tag(0x0061) @version(1) @max_bytes(270508) {
+    gas_used: u64;
+    steps: u16;
+    outputs: BoundedList<VmValue, 16>;
+    events: BoundedList<VmEventValue, 16>;
+}

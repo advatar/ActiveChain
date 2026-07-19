@@ -8,9 +8,11 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+activechain-bytecode-verifier.workspace = true
 activechain-canonical-codec.workspace = true
 activechain-capability.workspace = true
 activechain-object.workspace = true
+activechain-object-vm.workspace = true
 activechain-policy-kernel.workspace = true
 activechain-principal.workspace = true
 activechain-protocol-types.workspace = true

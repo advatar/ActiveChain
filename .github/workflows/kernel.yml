@@ -44,6 +44,7 @@ jobs:
       - name: Check no-std kernel target
         run: >-
           cargo check --locked --target aarch64-apple-ios --lib
+          -p activechain-bytecode-verifier
           -p activechain-canonical-codec
           -p activechain-protocol-types
           -p activechain-protocol-commitment
@@ -51,6 +52,7 @@ jobs:
           -p activechain-capability
           -p activechain-policy-kernel
           -p activechain-object
+          -p activechain-object-vm
           -p activechain-state-tree
           -p activechain-transition
       - name: Build executable Lean reference model
@@ -71,7 +73,8 @@ jobs:
           cargo run --locked --quiet -p activechain-vector-generator -- apl-v1 | diff -u testing/vectors/policy/apl-v1.txt -
           cargo run --locked --quiet -p activechain-vector-generator -- object-transition-v1 | diff -u testing/vectors/object/object-transition-v1.txt -
           cargo run --locked --quiet -p activechain-vector-generator -- state-tree-v1 | diff -u testing/vectors/state/state-tree-v1.txt -
-      - name: Cross-check Rust and Lean APL effect tables
+          cargo run --locked --quiet -p activechain-vector-generator -- object-vm-v1 | diff -u testing/vectors/vm/object-vm-v1.txt -
+      - name: Cross-check Rust and Lean semantic tables
         run: |
           cargo run --locked --quiet -p activechain-vector-generator -- apl-truth-table | diff -u testing/vectors/policy/apl-truth-table.txt -
           (cd formal/lean && lake exe aplTruthTable) | diff -u testing/vectors/policy/apl-truth-table.txt -
@@ -79,3 +82,5 @@ jobs:
           (cd formal/lean && lake exe objectTable) | diff -u testing/vectors/object/object-model-table.txt -
           cargo run --locked --quiet -p activechain-vector-generator -- state-tree-model-table | diff -u testing/vectors/state/state-tree-model-table.txt -
           (cd formal/lean && lake exe stateTreeTable) | diff -u testing/vectors/state/state-tree-model-table.txt -
+          cargo run --locked --quiet -p activechain-vector-generator -- object-vm-model-table | diff -u testing/vectors/vm/object-vm-model-table.txt -
+          (cd formal/lean && lake exe objectVMTable) | diff -u testing/vectors/vm/object-vm-model-table.txt -
