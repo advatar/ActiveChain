@@ -197,6 +197,7 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
   - [x] Add thread-safe validator proposal/vote/finality/rejection metrics snapshots for local readiness checks.
   - [x] Add deterministic `validator-node ... <index> --once` execution for process-level round rehearsals.
 - [ ] Pass multi-process Byzantine, restart, partition, and sustained-load testnet rehearsals on the local runner.
+  - [x] Launch three genesis-bound validator-node processes and verify deterministic signer derivation, metrics, and persisted snapshots.
 - [ ] Update and push the landing page at each completed launch milestone.
 
 ## Planned milestone — P-051 immutable ObjectVM packages and upgrade model
