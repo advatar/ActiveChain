@@ -1,9 +1,11 @@
 //! PQ-bound consensus message types for the first testnet boundary.
 
+extern crate alloc;
 use crate::{CryptoSuiteId, Digest384, Epoch, PrincipalId, ProtocolSignature};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
+use alloc::vec::Vec;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValidatorVote {
@@ -56,6 +58,34 @@ pub enum ValidatorVoteError {
 pub struct ValidatorWeight {
     pub validator: PrincipalId,
     pub stake: u128,
+}
+
+pub const MAX_VALIDATORS_PER_EPOCH: usize = 256;
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatorSet(Vec<ValidatorWeight>);
+impl ValidatorSet {
+    pub const MAX_ENCODED_LEN: usize = 1 + MAX_VALIDATORS_PER_EPOCH * (48 + 16);
+    pub fn new(validators: Vec<ValidatorWeight>) -> Result<Self, ValidatorSetError> {
+        if validators.is_empty() || validators.len() > MAX_VALIDATORS_PER_EPOCH {
+            return Err(ValidatorSetError::Bounds);
+        }
+        if validators.iter().any(|v| v.stake == 0) {
+            return Err(ValidatorSetError::ZeroStake);
+        }
+        if validators.windows(2).any(|pair| pair[0].validator >= pair[1].validator) {
+            return Err(ValidatorSetError::NotStrictlyOrdered);
+        }
+        Ok(Self(validators))
+    }
+    pub fn as_slice(&self) -> &[ValidatorWeight] {
+        &self.0
+    }
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ValidatorSetError {
+    Bounds,
+    ZeroStake,
+    NotStrictlyOrdered,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -155,6 +185,34 @@ impl CanonicalType for QuorumCertificate {
     const TYPE_TAG: u16 = Self::TYPE_TAG;
     const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
     const MAX_ENCODED_LEN: usize = Self::ENCODED_LENGTH;
+}
+impl CanonicalEncode for ValidatorSet {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        e.write_length(self.0.len(), MAX_VALIDATORS_PER_EPOCH)?;
+        for validator in &self.0 {
+            validator.validator.encode(e)?;
+            validator.stake.encode(e)?;
+        }
+        Ok(())
+    }
+}
+impl CanonicalDecode for ValidatorSet {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let n = d.read_length(MAX_VALIDATORS_PER_EPOCH)?;
+        let mut values = Vec::with_capacity(n);
+        for _ in 0..n {
+            values.push(ValidatorWeight {
+                validator: PrincipalId::decode(d)?,
+                stake: u128::decode(d)?,
+            });
+        }
+        Self::new(values).map_err(|_| DecodeError::InvalidValue("invalid validator set"))
+    }
+}
+impl CanonicalType for ValidatorSet {
+    const TYPE_TAG: u16 = 0x0066;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
 #[cfg(test)]
