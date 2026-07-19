@@ -7,6 +7,7 @@ use activechain_protocol_types::{
     ConsensusState, ConsensusStateError, CryptoSuiteId, Digest384, ProtocolSignature,
     QuorumCertificate, ValidatorSet, ValidatorVote,
 };
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SignedPeerEnvelope {
@@ -54,6 +55,30 @@ impl SignedPeerEnvelope {
 pub enum TransportError {
     InvalidSuite,
     Verification(VerificationError),
+    Replay,
+}
+
+#[derive(Default, Debug)]
+pub struct ReplayGuard {
+    highest: BTreeMap<u16, u64>,
+}
+impl ReplayGuard {
+    pub fn accept(
+        &mut self,
+        envelope: &SignedPeerEnvelope,
+        public_key: &[u8],
+    ) -> Result<(), TransportError> {
+        envelope.verify(public_key)?;
+        if self
+            .highest
+            .get(&envelope.sender())
+            .is_some_and(|highest| envelope.sequence() <= *highest)
+        {
+            return Err(TransportError::Replay);
+        }
+        self.highest.insert(envelope.sender(), envelope.sequence());
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug)]
