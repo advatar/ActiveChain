@@ -16,7 +16,7 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Phase 0 bootstrap is tracked by [GitHub issue #1](https://github.com/advatar/ActiveChain/issues/1).
 
-## Active milestone — local CI and authority kernel
+## Completed milestone — local CI and authority kernel
 
 Tracked by [GitHub issue #2](https://github.com/advatar/ActiveChain/issues/2).
 
@@ -33,9 +33,22 @@ Tracked by [GitHub issue #2](https://github.com/advatar/ActiveChain/issues/2).
 
 ## Queued authority-kernel milestones
 
-- Define and implement the bounded APL policy kernel.
-- Add a Lean reference model and differential vectors for authority semantics.
 - Implement versioned objects, access manifests, and the reference transition function.
+
+## Active milestone — bounded APL policy kernel
+
+Tracked by [GitHub issue #3](https://github.com/advatar/ActiveChain/issues/3).
+
+- [x] Draft the normative `P-023` Authorization Policy Language specification.
+- [x] Define canonical policy, predicate, effect, and obligation schemas.
+- [x] Implement bounded policy and authorization-request validation.
+- [x] Implement a total `no_std` evaluator with default deny and forbid precedence.
+- [x] Meter every rule and predicate without data-dependent short-circuiting.
+- [x] Return bounded deterministic state-update and audit obligations.
+- [x] Add an executable Lean reference model with core decision theorems.
+- [x] Publish a deterministic APL policy/request/decision vector.
+- [x] Add unit, property, and Rust-versus-model truth-table tests.
+- [ ] Pass the full local-runner CI matrix.
 
 ## Deferred until the semantic kernel is stable
 

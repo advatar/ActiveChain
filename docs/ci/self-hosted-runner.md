@@ -17,6 +17,8 @@ ActiveChain CI executes on a dedicated repository-scoped runner on the developme
 
 The retained distribution archive was verified against SHA-256 `e1a9bc7a3661e06fa0b129d15c2064fe65dc81a431001d8958a9db1409b73769` before extraction.
 
+The runner uses the host's pinned `rustup` and `elan` installations. The workflow installs Rust 1.97.1 and Lean 4.32.0 by exact version, then builds the Rust kernel, the executable Lean APL model, and their shared frozen truth table entirely on this machine.
+
 ## Operations
 
 Inspect GitHub registration:

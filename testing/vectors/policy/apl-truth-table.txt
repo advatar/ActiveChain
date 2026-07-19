@@ -1,0 +1,4 @@
+false,false,Deny
+false,true,Deny
+true,false,Permit
+true,true,Deny

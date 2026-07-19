@@ -142,3 +142,79 @@ struct CapabilityGrant @type_tag(0x0030) @version(1) @max_bytes(22024) {
     constraint_hash: Digest384;
     issuer_signature: ProtocolSignature;
 }
+
+enum ActorBinding : u8 {
+    Principal(principal_id: PrincipalId) = 0;
+    Private(commitment: Digest384) = 1;
+}
+
+enum PolicyEffect : u8 {
+    Permit = 0;
+    Forbid = 1;
+}
+
+enum PolicyPredicate : u8 {
+    ActorIs(actor: ActorBinding) = 0;
+    ActionIs(action: ActionId) = 1;
+    ResourceMatches(selector: ResourceSelector) = 2;
+    ValueAtMost(value: Amount) = 3;
+    ValueAtLeast(value: Amount) = 4;
+    HeightAtLeast(height: Height) = 5;
+    HeightAtMost(height: Height) = 6;
+    HasCredentialSchema(schema: Digest384) = 7;
+    HasCapability(capability_id: CapabilityId) = 8;
+    ApprovalCountAtLeast(role: Digest384, minimum: u8) = 9;
+    FreezeStateIs(freeze_state: FreezeState) = 10;
+    DeclaredPurposeIs(purpose: Digest384) = 11;
+}
+
+enum PolicyObligation : u8 @max_bytes(65) {
+    DecrementCapabilityBudget(capability_id: CapabilityId, amount: Amount) = 0;
+    ConsumeCapability(capability_id: CapabilityId) = 1;
+    EmitAuditCommitment(commitment: Digest384) = 2;
+    RequireApproval(role: Digest384, minimum: u8) = 3;
+    DelaySettlementUntil(height: Height) = 4;
+    RestrictOutputDisclosure(policy_hash: Digest384) = 5;
+}
+
+struct PolicyRule {
+    effect: PolicyEffect;
+    predicates: BoundedList<PolicyPredicate, 16>;
+    obligations: BoundedList<PolicyObligation, 4>;
+}
+
+struct PolicySet @type_tag(0x0040) @version(1) @max_bytes(35043) {
+    language_version: u16;
+    rules: BoundedList<PolicyRule, 32>;
+}
+
+struct ApprovalFact {
+    role: Digest384;
+    count: u8;
+}
+
+struct PolicyRequest @type_tag(0x0041) @version(1) @max_bytes(4078) {
+    actor: ActorBinding;
+    action: ActionId;
+    resource: ObjectId;
+    height: Height;
+    value: Amount;
+    freeze_state: FreezeState;
+    declared_purpose: Option<Digest384>;
+    credential_schemas: BoundedSet<Digest384, 32>;
+    capabilities: BoundedSet<CapabilityId, 32>;
+    approvals: BoundedMap<Digest384, u8, 16>;
+}
+
+enum DecisionResult : u8 {
+    Deny = 0;
+    Permit = 1;
+}
+
+struct PolicyDecision @type_tag(0x0042) @version(1) @max_bytes(8327) {
+    result: DecisionResult;
+    matched_permit_rules: u8;
+    matched_forbid_rules: u8;
+    steps_used: u16;
+    obligations: BoundedList<PolicyObligation, 128>;
+}

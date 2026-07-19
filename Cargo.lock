@@ -18,6 +18,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-policy-kernel"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-protocol-types",
+ "proptest",
+]
+
+[[package]]
 name = "activechain-principal"
 version = "0.1.0"
 dependencies = [
@@ -48,6 +57,7 @@ version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
  "activechain-capability",
+ "activechain-policy-kernel",
  "activechain-principal",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
