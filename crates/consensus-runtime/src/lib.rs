@@ -598,6 +598,49 @@ impl PeerConnector {
         }
         (directory, failures)
     }
+    pub fn connect_all_with_handshake(
+        &self,
+        local_peer_id: u16,
+        signer: &ValidatorSigner,
+        challenge: [u8; 32],
+    ) -> (PeerDirectory, Vec<(u16, std::io::Error)>) {
+        let mut directory = PeerDirectory::new();
+        let mut failures = Vec::new();
+        let outbound = match signer.sign_handshake(local_peer_id, challenge) {
+            Ok(handshake) => handshake,
+            Err(_) => {
+                for endpoint in &self.endpoints {
+                    failures.push((
+                        endpoint.id,
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "handshake signing failed",
+                        ),
+                    ));
+                }
+                return (directory, failures);
+            }
+        };
+        for endpoint in &self.endpoints {
+            match self.connect_with_handshake(endpoint, &outbound, challenge) {
+                Ok(socket) => {
+                    if let Err(error) =
+                        directory.insert(endpoint.id, socket, endpoint.public_key.clone())
+                    {
+                        failures.push((
+                            endpoint.id,
+                            std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                format!("peer registration failed: {error:?}"),
+                            ),
+                        ));
+                    }
+                }
+                Err(error) => failures.push((endpoint.id, error)),
+            }
+        }
+        (directory, failures)
+    }
     pub fn reconnect(&self, endpoint: &PeerEndpoint) -> Result<PeerSocket, std::io::Error> {
         let mut last_error = None;
         for attempt in 0..self.attempts {
