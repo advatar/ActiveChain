@@ -53,20 +53,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if index >= genesis.entries().len() {
             return Err(format!("validator index {index} is outside genesis set").into());
         }
-        let mut seed = [0_u8; 32];
-        seed[..8].copy_from_slice(&(index as u64).to_be_bytes());
-        seed[8..16].copy_from_slice(&genesis.epoch().to_be_bytes());
-        seed[16..24].copy_from_slice(&genesis.activation_height().to_be_bytes());
-        let probe = activechain_consensus_runtime::ValidatorSigner::from_seed(
-            activechain_protocol_types::PrincipalId::new(Digest384::new([0; 48])),
-            seed,
-        );
-        let public_key = probe.public_key();
-        let entry = genesis
-            .entries()
-            .iter()
-            .find(|entry| entry.public_key() == public_key.as_slice())
-            .ok_or("derived signer does not match genesis public key")?;
+        let entry = genesis.entries().get(index).ok_or("validator index outside genesis")?;
+        let (seed, entry) = (0..genesis.entries().len())
+            .find_map(|candidate| {
+                let mut seed = [0_u8; 32];
+                seed[..8].copy_from_slice(&(candidate as u64).to_be_bytes());
+                seed[8..16].copy_from_slice(&genesis.epoch().to_be_bytes());
+                seed[16..24].copy_from_slice(&genesis.activation_height().to_be_bytes());
+                let probe = activechain_consensus_runtime::ValidatorSigner::from_seed(
+                    activechain_protocol_types::PrincipalId::new(Digest384::new([0; 48])),
+                    seed,
+                );
+                (probe.public_key() == entry.public_key()).then_some((seed, entry))
+            })
+            .ok_or("could not derive signer for genesis entry")?;
+        let local_peer_id = index as u16 + 1;
         let signer =
             activechain_consensus_runtime::ValidatorSigner::from_seed(entry.validator(), seed);
         if run_once && !peer_specs.is_empty() {
@@ -93,7 +94,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let signer = std::sync::Arc::clone(&listener_thread_signer);
                     let _ = service.serve_authenticated_genesis_peer_with_voting(
                         peer,
-                        (index + 1) as u16,
+                        local_peer_id,
                         &signer,
                         [23; 32],
                     );
@@ -120,9 +121,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(|_| "invalid peer configuration")?;
             let challenge = [23; 32];
             let (mut peers, failures) =
-                connector.connect_all_with_handshake((index + 1) as u16, &signer, challenge);
+                connector.connect_all_with_handshake(local_peer_id, &signer, challenge);
             if !failures.is_empty() {
-                return Err(format!("peer connection failures: {}", failures.len()).into());
+                return Err(format!("peer connection failures: {failures:?}").into());
             }
             let peer_ids: Vec<u16> = peers.peers().map(|(id, _)| *id).collect();
             let block_digest = Digest384::new([index as u8 + 120; 48]);
@@ -191,19 +192,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map_err(|error| format!("validator service configuration failed: {error:?}"))?,
         );
         if let Some(index) = validator_index {
-            let mut seed = [0_u8; 32];
-            seed[..8].copy_from_slice(&(index as u64).to_be_bytes());
-            seed[8..16].copy_from_slice(&genesis.epoch().to_be_bytes());
-            seed[16..24].copy_from_slice(&genesis.activation_height().to_be_bytes());
-            let probe = activechain_consensus_runtime::ValidatorSigner::from_seed(
-                activechain_protocol_types::PrincipalId::new(Digest384::new([0; 48])),
-                seed,
-            );
-            let entry = genesis
-                .entries()
-                .iter()
-                .find(|entry| entry.public_key() == probe.public_key().as_slice())
-                .ok_or("derived signer does not match genesis public key")?;
+            let entry = genesis.entries().get(index).ok_or("validator index outside genesis")?;
+            let (seed, entry) = (0..genesis.entries().len())
+                .find_map(|candidate| {
+                    let mut seed = [0_u8; 32];
+                    seed[..8].copy_from_slice(&(candidate as u64).to_be_bytes());
+                    seed[8..16].copy_from_slice(&genesis.epoch().to_be_bytes());
+                    seed[16..24].copy_from_slice(&genesis.activation_height().to_be_bytes());
+                    let probe = activechain_consensus_runtime::ValidatorSigner::from_seed(
+                        activechain_protocol_types::PrincipalId::new(Digest384::new([0; 48])),
+                        seed,
+                    );
+                    (probe.public_key() == entry.public_key()).then_some((seed, entry))
+                })
+                .ok_or("could not derive signer for genesis entry")?;
+            let local_peer_id = index as u16 + 1;
             let signer = std::sync::Arc::new(
                 activechain_consensus_runtime::ValidatorSigner::from_seed(entry.validator(), seed),
             );
@@ -212,7 +215,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let signer = std::sync::Arc::clone(&signer);
                 let _ = service.serve_authenticated_genesis_peer_with_voting(
                     peer,
-                    (index + 1) as u16,
+                    local_peer_id,
                     &signer,
                     [23; 32],
                 );
