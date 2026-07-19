@@ -8,7 +8,8 @@ use activechain_crypto_provider::{
 };
 use activechain_protocol_types::{
     BlockProposal, ConsensusSnapshot, ConsensusState, ConsensusStateError, CryptoSuiteId,
-    Digest384, ProtocolSignature, QuorumCertificate, ValidatorGenesis, ValidatorSet, ValidatorVote,
+    Digest384, EpochTransition, ProtocolSignature, QuorumCertificate, ValidatorGenesis,
+    ValidatorSet, ValidatorVote,
 };
 use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
 use sha3::{
@@ -1291,6 +1292,31 @@ impl ValidatorEngine {
     pub const fn state(&self) -> ConsensusState {
         self.state
     }
+    pub fn activate_finalized_validator_set(
+        &mut self,
+        transition: &EpochTransition,
+        next_genesis: &ValidatorGenesis,
+    ) -> Result<(), ValidatorEngineError> {
+        if transition.from_epoch() != self.state.epoch()
+            || transition.to_epoch() != next_genesis.epoch()
+            || transition.validator_set_root() != next_genesis.validator_set_root()
+            || self.state.finalized_height() < transition.activation_height()
+        {
+            return Err(ValidatorEngineError::InvalidEpochTransition);
+        }
+        self.state
+            .apply_epoch_transition(transition, transition.activation_height())
+            .map_err(|_| ValidatorEngineError::InvalidEpochTransition)?;
+        self.validator_set =
+            next_genesis.validator_set().map_err(|_| ValidatorEngineError::InvalidGenesis)?;
+        self.public_keys = next_genesis
+            .entries()
+            .iter()
+            .map(|entry| (entry.validator(), entry.public_key().to_vec()))
+            .collect();
+        self.collector = None;
+        Ok(())
+    }
     pub fn sign_current_vote(
         &self,
         signer: &ValidatorSigner,
@@ -1377,6 +1403,7 @@ impl ValidatorEngine {
 #[derive(Debug)]
 pub enum ValidatorEngineError {
     InvalidGenesis,
+    InvalidEpochTransition,
     GenesisEpochMismatch,
     GenesisRootMismatch,
     MissingValidatorKey,
@@ -1420,6 +1447,17 @@ impl ValidatorService {
     }
     pub fn state(&self) -> Result<ConsensusState, ValidatorServiceError> {
         self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned).map(|engine| engine.state())
+    }
+    pub fn activate_finalized_validator_set(
+        &self,
+        transition: &EpochTransition,
+        next_genesis: &ValidatorGenesis,
+    ) -> Result<(), ValidatorServiceError> {
+        self.engine
+            .lock()
+            .map_err(|_| ValidatorServiceError::Poisoned)?
+            .activate_finalized_validator_set(transition, next_genesis)
+            .map_err(ValidatorServiceError::Engine)
     }
     pub fn metrics(&self) -> MetricsSnapshot {
         self.metrics.snapshot()
@@ -2111,6 +2149,46 @@ mod tests {
                 .contains("activechain_validator_finalized_certificates{validator=\"1\"} 1")
         );
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn validator_set_activation_requires_finalized_height() {
+        use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
+        let validator = activechain_protocol_types::PrincipalId::new(Digest384::new([75; 48]));
+        let signer = ValidatorSigner::from_seed(validator, [76; 32]);
+        let genesis = |activation| {
+            ValidatorGenesis::new(
+                activation,
+                activation,
+                vec![
+                    ValidatorGenesisEntry::new(
+                        validator,
+                        1,
+                        signer.public_key().try_into().unwrap(),
+                    )
+                    .unwrap(),
+                ],
+            )
+            .unwrap()
+        };
+        let current = genesis(1);
+        let next = genesis(2);
+        let path =
+            std::env::temp_dir().join(format!("activechain-activation-{}.bin", std::process::id()));
+        let service = ValidatorService::from_genesis(
+            ConsensusState::new_with_validator_set_root(1, current.validator_set_root()),
+            &current,
+            path.clone(),
+        )
+        .unwrap();
+        let transition = EpochTransition::new(1, 2, 2, next.validator_set_root()).unwrap();
+        assert!(service.activate_finalized_validator_set(&transition, &next).is_err());
+        service.propose_round(&signer, 1, 0, Digest384::new([77; 48]), 1).unwrap();
+        service.propose_round(&signer, 2, 0, Digest384::new([78; 48]), 3).unwrap();
+        service.activate_finalized_validator_set(&transition, &next).unwrap();
+        assert_eq!(service.state().unwrap().epoch(), 2);
+        assert_eq!(service.state().unwrap().validator_set_root(), next.validator_set_root());
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

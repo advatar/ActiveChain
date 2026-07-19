@@ -184,6 +184,7 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
   - [x] Provide an authenticated round helper that fans out canonical proposal and vote messages through the peer directory.
 - [ ] Activate validator-set and staking transitions only through finalized consensus state.
   - [x] Bind the active validator-set root into finalized epoch transitions and durable consensus snapshots.
+  - [x] Gate validator-set replacement on a finalized activation height and atomically update the engine root/key set.
 - [x] Implement erasure-coded data availability, commitments, sampling, and authenticated snapshot distribution.
   - [x] Add bounded Reed–Solomon shard construction/reconstruction with SHAKE commitments and deterministic sampling.
   - [x] Add authenticated distributed snapshot serialization, reconstruction, and restart tests.
