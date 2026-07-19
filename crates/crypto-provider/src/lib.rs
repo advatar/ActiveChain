@@ -5,6 +5,44 @@ extern crate alloc;
 
 use activechain_protocol_types::{BlockProposal, QuorumCertificate, ValidatorSet, ValidatorVote};
 use ml_dsa::{EncodedSignature, EncodedVerifyingKey, MlDsa44, Signature, Verifier, VerifyingKey};
+use ml_kem::{
+    DecapsulationKey, EncapsulationKey, MlKem768, Seed as KemSeed,
+    kem::{Encapsulate, KeyExport, TryDecapsulate},
+    ml_kem_768::Ciphertext,
+};
+
+/// Reviewed ML-KEM-768 boundary for protected transaction key establishment.
+pub struct MlKem768Recipient {
+    key: DecapsulationKey<MlKem768>,
+}
+impl MlKem768Recipient {
+    pub fn from_seed(seed: [u8; 64]) -> Self {
+        Self { key: DecapsulationKey::<MlKem768>::from_seed(KemSeed::from(seed)) }
+    }
+    pub fn public_key(&self) -> Vec<u8> {
+        self.key.encapsulation_key().to_bytes().to_vec()
+    }
+    pub fn decapsulate(&self, ciphertext: &[u8]) -> Result<[u8; 32], KemError> {
+        let ciphertext =
+            Ciphertext::try_from(ciphertext).map_err(|_| KemError::InvalidCiphertext)?;
+        let shared =
+            self.key.try_decapsulate(&ciphertext).map_err(|_| KemError::DecapsulationFailed)?;
+        Ok(shared.into())
+    }
+}
+pub fn ml_kem768_encapsulate(public_key: &[u8]) -> Result<(Vec<u8>, [u8; 32]), KemError> {
+    let encoded = public_key.try_into().map_err(|_| KemError::InvalidPublicKey)?;
+    let key =
+        EncapsulationKey::<MlKem768>::new(&encoded).map_err(|_| KemError::InvalidPublicKey)?;
+    let (ciphertext, shared) = key.encapsulate();
+    Ok((ciphertext.as_slice().to_vec(), shared.into()))
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum KemError {
+    InvalidPublicKey,
+    InvalidCiphertext,
+    DecapsulationFailed,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum VerificationError {
@@ -133,5 +171,16 @@ mod tests {
         assert!(
             verify_validator_vote(signing_key.verifying_key().encode().as_slice(), &vote).is_ok()
         );
+    }
+
+    #[test]
+    fn ml_kem768_round_trip_and_tampered_ciphertext_rejects() {
+        let recipient = MlKem768Recipient::from_seed([11; 64]);
+        let (ciphertext, sender_secret) = ml_kem768_encapsulate(&recipient.public_key()).unwrap();
+        let receiver_secret = recipient.decapsulate(&ciphertext).unwrap();
+        assert_eq!(sender_secret, receiver_secret);
+        let mut tampered = ciphertext;
+        tampered[0] ^= 1;
+        assert_ne!(recipient.decapsulate(&tampered).unwrap(), sender_secret);
     }
 }
