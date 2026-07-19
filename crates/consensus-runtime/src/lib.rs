@@ -517,4 +517,62 @@ mod tests {
         });
         assert_eq!(result, Ok(()));
     }
+
+    #[test]
+    fn three_peers_converge_on_a_real_pq_qc() {
+        use activechain_protocol_types::{ValidatorSet, ValidatorWeight};
+        let keys: Vec<_> = (0..3)
+            .map(|seed_byte| {
+                ml_dsa::SigningKey::<ml_dsa::MlDsa44>::from_seed(&ml_dsa::Seed::from(
+                    [seed_byte; 32],
+                ))
+            })
+            .collect();
+        let ids: Vec<_> = (0..3)
+            .map(|byte| {
+                activechain_protocol_types::PrincipalId::new(Digest384::new([byte + 1; 48]))
+            })
+            .collect();
+        let set = ValidatorSet::new(vec![
+            ValidatorWeight { validator: ids[0], stake: 4 },
+            ValidatorWeight { validator: ids[1], stake: 3 },
+            ValidatorWeight { validator: ids[2], stake: 3 },
+        ])
+        .unwrap();
+        let placeholder = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420]).unwrap();
+        let proposal =
+            BlockProposal::new(ids[0], 1, 1, 1, Digest384::new([5; 48]), placeholder.clone())
+                .unwrap();
+        let mut collector = VoteCollector::new(proposal);
+        let mut votes = Vec::new();
+        for (index, key) in keys.iter().enumerate() {
+            let unsigned =
+                ValidatorVote::new(ids[index], 1, 1, Digest384::new([5; 48]), placeholder.clone())
+                    .unwrap();
+            let signature = key.sign(&unsigned.signing_payload());
+            let vote = ValidatorVote::new(
+                ids[index],
+                1,
+                1,
+                Digest384::new([5; 48]),
+                ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec())
+                    .unwrap(),
+            )
+            .unwrap();
+            collector
+                .add_vote(&set, key.verifying_key().encode().as_slice(), vote.clone())
+                .unwrap();
+            votes.push((key.verifying_key().encode().to_vec(), vote));
+        }
+        let certificate = collector.finalize(1, &set).unwrap();
+        let vote_refs: Vec<(&[u8], ValidatorVote)> =
+            votes.iter().map(|(key, vote)| (key.as_slice(), vote.clone())).collect();
+        let mut peers = vec![
+            DeterministicPeer::new(1, 1),
+            DeterministicPeer::new(2, 1),
+            DeterministicPeer::new(3, 1),
+        ];
+        converge_peers(&mut peers, &set, &certificate, &vote_refs).unwrap();
+        assert!(peers.iter().all(|peer| peer.state().finalized_height() == 1));
+    }
 }
