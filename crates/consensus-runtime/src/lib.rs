@@ -1516,6 +1516,32 @@ impl ValidatorService {
         peers.broadcast_message(&proposal).map_err(ValidatorServiceError::Io)?;
         peers.broadcast_message(&vote).map_err(ValidatorServiceError::Io)
     }
+    pub fn propose_round_collect_votes(
+        &self,
+        signer: &ValidatorSigner,
+        height: u64,
+        round: u64,
+        block_digest: Digest384,
+        sequence: u64,
+        peers: &mut PeerDirectory,
+        peer_ids: &[u16],
+    ) -> Result<ConsensusState, ValidatorServiceError> {
+        let (proposal, own_vote) =
+            self.propose_round(signer, height, round, block_digest, sequence)?;
+        peers.broadcast_message(&proposal).map_err(ValidatorServiceError::Io)?;
+        peers.broadcast_message(&own_vote).map_err(ValidatorServiceError::Io)?;
+        for peer_id in peer_ids {
+            let vote = peers.receive_verified(*peer_id).map_err(|error| match error {
+                PeerReceiveError::Io(io) => ValidatorServiceError::Io(io),
+                PeerReceiveError::Transport(transport) => {
+                    ValidatorServiceError::Transport(transport)
+                }
+                PeerReceiveError::UnknownPeer => ValidatorServiceError::UnknownSender,
+            })?;
+            self.process_message(vote)?;
+        }
+        self.state()
+    }
     fn sender_for(&self, signer: &ValidatorSigner) -> Result<u16, ValidatorServiceError> {
         let public_key = signer.public_key();
         self.sender_keys

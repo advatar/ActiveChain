@@ -203,6 +203,7 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
   - [x] Require ML-DSA verification on inbound validator socket sessions before accepting consensus frames.
   - [x] Wire genesis-bound authenticated session handling into the validator-node accept loop.
   - [x] Return a signed vote from authenticated proposal-serving sessions for scheduled fan-in.
+  - [x] Add proposer-side round coordination that broadcasts, receives, and admits peer votes.
   - [x] Make peer discovery return only sockets that completed the authenticated ML-DSA handshake.
   - [x] Exercise a live TCP handshake and consensus frame end-to-end before service admission.
   - [x] Prove three independently signed validator votes reach a receiver over authenticated TCP and finalize a QC.
