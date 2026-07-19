@@ -1,0 +1,14 @@
+[package]
+name = "activechain-consensus-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+activechain-crypto-provider.workspace = true
+activechain-protocol-types.workspace = true
+
+[lints]
+workspace = true

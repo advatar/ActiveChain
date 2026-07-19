@@ -39,6 +39,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-consensus-runtime"
+version = "0.1.0"
+dependencies = [
+ "activechain-crypto-provider",
+ "activechain-protocol-types",
+]
+
+[[package]]
 name = "activechain-credential"
 version = "0.1.0"
 dependencies = [
