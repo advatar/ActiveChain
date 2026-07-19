@@ -31,9 +31,9 @@ Tracked by [GitHub issue #2](https://github.com/advatar/ActiveChain/issues/2).
 - [x] Publish deterministic authority vectors.
 - [x] Add unit and property tests for lifecycle invariants and non-escalation.
 
-## Queued authority-kernel milestones
+## Queued semantic-kernel milestones
 
-- Implement versioned objects, access manifests, and the reference transition function.
+- Implement state-tree witnesses and a deterministic state-root transition.
 
 ## Completed milestone — bounded APL policy kernel
 
@@ -49,6 +49,21 @@ Tracked by [GitHub issue #3](https://github.com/advatar/ActiveChain/issues/3).
 - [x] Publish a deterministic APL policy/request/decision vector.
 - [x] Add unit, property, and Rust-versus-model truth-table tests.
 - [x] Pass the full local-runner CI matrix.
+
+## Active milestone — versioned objects and atomic transitions
+
+Tracked by [GitHub issue #4](https://github.com/advatar/ActiveChain/issues/4).
+
+- [ ] Draft `P-030` object semantics and refine the executable `P-010` boundary.
+- [ ] Define canonical object, owner, flags, version-reference, access-manifest, command, and receipt schemas.
+- [ ] Implement bounded object validation and exact checked one-step version updates.
+- [ ] Implement canonical sorted, duplicate-free access-manifest validation.
+- [ ] Implement bounded transfer transaction inputs and deterministic receipts.
+- [ ] Integrate committed APL control policies with access-confined atomic transfer execution.
+- [ ] Add an executable Lean version/atomicity model and cross-check fixtures.
+- [ ] Publish deterministic object, manifest, transfer, and receipt vectors.
+- [ ] Add unit and property tests for canonical encoding, confinement, authorization, versioning, and atomic abort.
+- [ ] Pass the full local-runner CI matrix.
 
 ## Deferred until the semantic kernel is stable
 
