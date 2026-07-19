@@ -1110,6 +1110,68 @@ mod tests {
     }
 
     #[test]
+    fn vote_collection_rejects_duplicate_unknown_mismatched_and_under_threshold_votes() {
+        use activechain_protocol_types::{PrincipalId, ValidatorWeight};
+        let key = SigningKey::<MlDsa44>::from_seed(&Seed::from([1; 32]));
+        let id = PrincipalId::new(Digest384::new([1; 48]));
+        let unknown = PrincipalId::new(Digest384::new([2; 48]));
+        let set = ValidatorSet::new(vec![
+            ValidatorWeight { validator: id, stake: 2 },
+            ValidatorWeight { validator: unknown, stake: 1 },
+        ])
+        .unwrap();
+        let placeholder = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420]).unwrap();
+        let proposal =
+            BlockProposal::new(id, 1, 3, 0, Digest384::new([3; 48]), placeholder.clone()).unwrap();
+        let make_vote = |validator, height, digest| {
+            let unsigned =
+                ValidatorVote::new(validator, height, 0, digest, placeholder.clone()).unwrap();
+            ValidatorVote::new(
+                validator,
+                height,
+                0,
+                digest,
+                ProtocolSignature::new(
+                    CryptoSuiteId::ML_DSA_44,
+                    key.sign(&unsigned.signing_payload()).encode().to_vec(),
+                )
+                .unwrap(),
+            )
+            .unwrap()
+        };
+        let valid = make_vote(id, 3, Digest384::new([3; 48]));
+        let mut collector = VoteCollector::new(proposal.clone());
+        assert_eq!(
+            collector.add_vote(&set, key.verifying_key().encode().as_slice(), valid.clone()),
+            Ok(())
+        );
+        assert_eq!(
+            collector.add_vote(&set, key.verifying_key().encode().as_slice(), valid),
+            Err(VoteCollectionError::Duplicate)
+        );
+        assert_eq!(collector.finalize(1, &set), Err(VoteCollectionError::InsufficientStake));
+        let mut collector = VoteCollector::new(proposal.clone());
+        assert_eq!(
+            collector.add_vote(
+                &set,
+                key.verifying_key().encode().as_slice(),
+                make_vote(id, 4, Digest384::new([3; 48]))
+            ),
+            Err(VoteCollectionError::ContextMismatch)
+        );
+        let outsider = PrincipalId::new(Digest384::new([9; 48]));
+        let mut collector = VoteCollector::new(proposal);
+        assert_eq!(
+            collector.add_vote(
+                &set,
+                key.verifying_key().encode().as_slice(),
+                make_vote(outsider, 3, Digest384::new([3; 48]))
+            ),
+            Err(VoteCollectionError::UnknownValidator)
+        );
+    }
+
+    #[test]
     fn consensus_state_survives_restart_snapshot() {
         let mut state = ConsensusState::new(4);
         let qc = QuorumCertificate::new(

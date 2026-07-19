@@ -159,7 +159,7 @@ Tracked by [GitHub issue #12](https://github.com/advatar/ActiveChain/issues/12).
 - [x] Build an in-memory deterministic proposal and vote-collection runtime.
 - [x] Form quorum certificates only after provider-backed vote verification.
 - [x] Advance consensus state on finalized certificates.
-- [ ] Exercise duplicate, unknown, mismatched, and under-threshold adversarial cases.
+- [x] Exercise duplicate, unknown, mismatched, and under-threshold adversarial cases.
 - [x] Add canonical consensus snapshots for validator restart recovery.
 - [x] Add canonical genesis configuration binding epoch, activation height, and validator-set root.
 
