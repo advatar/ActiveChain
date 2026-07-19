@@ -79,6 +79,22 @@ impl PackageManifest {
     pub const fn upgrade_policy(&self) -> UpgradePolicy {
         self.upgrade_policy
     }
+
+    pub fn validate_upgrade_from(&self, replacement: &Self) -> Result<(), PackageUpgradeError> {
+        if self.upgrade_policy == UpgradePolicy::Immutable {
+            return Err(PackageUpgradeError::ImmutablePackage);
+        }
+        if replacement.upgrade_policy != self.upgrade_policy {
+            return Err(PackageUpgradeError::PolicyChanged);
+        }
+        if replacement.entry_points != self.entry_points {
+            return Err(PackageUpgradeError::EntryPointsChanged);
+        }
+        if !self.imports.iter().all(|import| replacement.imports.binary_search(import).is_ok()) {
+            return Err(PackageUpgradeError::ImportRemoved);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -87,6 +103,14 @@ pub enum PackageManifestError {
     EntryPointsNotStrictlySorted,
     ImportBounds,
     ImportsNotStrictlySorted,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PackageUpgradeError {
+    ImmutablePackage,
+    PolicyChanged,
+    EntryPointsChanged,
+    ImportRemoved,
 }
 
 impl CanonicalEncode for PackageManifest {
@@ -160,6 +184,49 @@ mod tests {
         assert_eq!(
             PackageManifest::new(digest(1), vec![2, 1], Vec::new(), UpgradePolicy::Immutable),
             Err(PackageManifestError::EntryPointsNotStrictlySorted)
+        );
+    }
+
+    #[test]
+    fn governed_upgrade_preserves_entry_points_and_dependencies() {
+        let current = PackageManifest::new(
+            digest(1),
+            vec![0, 4],
+            vec![PackageId::new(digest(2))],
+            UpgradePolicy::Governed,
+        )
+        .unwrap();
+        let replacement = PackageManifest::new(
+            digest(3),
+            vec![0, 4],
+            vec![PackageId::new(digest(2)), PackageId::new(digest(4))],
+            UpgradePolicy::Governed,
+        )
+        .unwrap();
+        assert_eq!(current.validate_upgrade_from(&replacement), Ok(()));
+    }
+
+    #[test]
+    fn immutable_upgrade_and_entry_point_changes_are_rejected() {
+        let current =
+            PackageManifest::new(digest(1), vec![0, 4], Vec::new(), UpgradePolicy::Immutable)
+                .unwrap();
+        let replacement =
+            PackageManifest::new(digest(3), vec![0, 4], Vec::new(), UpgradePolicy::Immutable)
+                .unwrap();
+        assert_eq!(
+            current.validate_upgrade_from(&replacement),
+            Err(PackageUpgradeError::ImmutablePackage)
+        );
+        let governed =
+            PackageManifest::new(digest(1), vec![0, 4], Vec::new(), UpgradePolicy::Governed)
+                .unwrap();
+        let changed =
+            PackageManifest::new(digest(3), vec![0, 5], Vec::new(), UpgradePolicy::Governed)
+                .unwrap();
+        assert_eq!(
+            governed.validate_upgrade_from(&changed),
+            Err(PackageUpgradeError::EntryPointsChanged)
         );
     }
 }

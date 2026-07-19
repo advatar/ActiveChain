@@ -34,7 +34,8 @@ pub use object::{
     ObjectFlags, ObjectFlagsError, ObjectOwner, ObjectValidationError, ObjectVersionRef,
 };
 pub use package::{
-    MAX_PACKAGE_ENTRIES, MAX_PACKAGE_IMPORTS, PackageManifest, PackageManifestError, UpgradePolicy,
+    MAX_PACKAGE_ENTRIES, MAX_PACKAGE_IMPORTS, PackageManifest, PackageManifestError,
+    PackageUpgradeError, UpgradePolicy,
 };
 
 /// The fixed size of every protocol digest and identifier.
