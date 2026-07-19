@@ -8,7 +8,7 @@ use activechain_crypto_provider::{
 };
 use activechain_protocol_types::{
     BlockProposal, ConsensusSnapshot, ConsensusState, ConsensusStateError, CryptoSuiteId,
-    Digest384, ProtocolSignature, QuorumCertificate, ValidatorSet, ValidatorVote,
+    Digest384, ProtocolSignature, QuorumCertificate, ValidatorGenesis, ValidatorSet, ValidatorVote,
 };
 use sha3::{
     Shake256,
@@ -734,6 +734,22 @@ pub struct ValidatorEngine {
     collector: Option<VoteCollector>,
 }
 impl ValidatorEngine {
+    pub fn from_genesis(
+        state: ConsensusState,
+        genesis: &ValidatorGenesis,
+    ) -> Result<Self, ValidatorEngineError> {
+        if state.epoch() != genesis.epoch() {
+            return Err(ValidatorEngineError::GenesisEpochMismatch);
+        }
+        let validator_set =
+            genesis.validator_set().map_err(|_| ValidatorEngineError::InvalidGenesis)?;
+        let public_keys = genesis
+            .entries()
+            .iter()
+            .map(|entry| (entry.validator(), entry.public_key().to_vec()))
+            .collect();
+        Self::new(state, validator_set, public_keys)
+    }
     pub fn new(
         state: ConsensusState,
         validator_set: ValidatorSet,
@@ -826,6 +842,8 @@ impl ValidatorEngine {
 
 #[derive(Debug)]
 pub enum ValidatorEngineError {
+    InvalidGenesis,
+    GenesisEpochMismatch,
     MissingValidatorKey,
     InvalidValidatorKey,
     UnknownValidator,
@@ -1107,6 +1125,28 @@ mod tests {
         follower.process_and_save(ConsensusMessage::Certificate(proof), &path).unwrap();
         assert_eq!(load_snapshot(&path).unwrap().finalized_height(), 1);
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn validator_engine_rejects_genesis_epoch_mismatch() {
+        use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
+        let genesis = ValidatorGenesis::new(
+            9,
+            1,
+            vec![
+                ValidatorGenesisEntry::new(
+                    activechain_protocol_types::PrincipalId::new(Digest384::new([1; 48])),
+                    1,
+                    [2; activechain_protocol_types::ML_DSA44_PUBLIC_KEY_LENGTH],
+                )
+                .unwrap(),
+            ],
+        )
+        .unwrap();
+        assert!(matches!(
+            ValidatorEngine::from_genesis(ConsensusState::new(8), &genesis),
+            Err(ValidatorEngineError::GenesisEpochMismatch)
+        ));
     }
 
     #[test]
