@@ -61,7 +61,7 @@ Tracked by [GitHub issue #7](https://github.com/advatar/ActiveChain/issues/7).
 - [x] Publish deterministic action/block vectors and comprehensive unit/property tests.
 - [x] Pass the full local-runner CI matrix.
 
-## Active milestone — P-021 credentials and status-aware presentations
+## Completed milestone — P-021 credentials and status-aware presentations
 
 Tracked by [GitHub issue #8](https://github.com/advatar/ActiveChain/issues/8).
 
@@ -74,7 +74,7 @@ Tracked by [GitHub issue #8](https://github.com/advatar/ActiveChain/issues/8).
 - [x] Add an executable Lean acceptance model and Rust differential fixture.
 - [x] Publish deterministic credential and status vectors.
 - [x] Add comprehensive unit, property, and boundary tests.
-- [ ] Pass the full dedicated local-runner CI matrix.
+- [x] Pass the full dedicated local-runner CI matrix.
 
 ## Completed milestone — bounded APL policy kernel
 
