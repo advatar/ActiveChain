@@ -33,7 +33,7 @@ Tracked by [GitHub issue #2](https://github.com/advatar/ActiveChain/issues/2).
 
 ## Queued semantic-kernel milestones
 
-- Implement state-tree witnesses and a deterministic state-root transition.
+- Define ObjectVM bytecode, verifier, and a metered reference interpreter.
 
 ## Completed milestone — bounded APL policy kernel
 
@@ -49,6 +49,22 @@ Tracked by [GitHub issue #3](https://github.com/advatar/ActiveChain/issues/3).
 - [x] Publish a deterministic APL policy/request/decision vector.
 - [x] Add unit, property, and Rust-versus-model truth-table tests.
 - [x] Pass the full local-runner CI matrix.
+
+## Active milestone — canonical sparse state tree and witnesses
+
+Tracked by [GitHub issue #5](https://github.com/advatar/ActiveChain/issues/5).
+
+- [ ] Draft the normative `P-031` state-tree and witness specification.
+- [ ] Define domain-separated leaf, empty, internal-node, and final-root transcripts.
+- [ ] Implement the fixed-depth 16-way sparse SHAKE256/384 reference tree.
+- [ ] Bind the 4,096 logical partitions to the first 12 object-ID bits.
+- [ ] Define canonical state commitments and compressed proof schemas.
+- [ ] Generate and verify membership and non-membership proofs.
+- [ ] Reject malformed, non-canonical, wrong-kind, wrong-object, and tampered proofs.
+- [ ] Add an executable Lean path/fold model and Rust differential fixture.
+- [ ] Publish deterministic state-root and proof vectors.
+- [ ] Add unit and property tests for determinism, updates, proofs, tampering, encoding, and bounds.
+- [ ] Pass the full local-runner CI matrix.
 
 ## Completed milestone — versioned objects and atomic transitions
 
