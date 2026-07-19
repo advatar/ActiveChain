@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::net::TcpStream;
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, SyncSender};
 
 const PEER_BODY_DOMAIN: &[u8] = b"ACTIVECHAIN-PEER-BODY-V1";
 pub const MAX_PEER_FRAME_LEN: usize = 16 * 1024;
@@ -362,6 +362,15 @@ impl PeerDirectory {
         }
         Ok(())
     }
+    pub fn broadcast_message(
+        &mut self,
+        message: &AuthenticatedConsensusMessage,
+    ) -> std::io::Result<()> {
+        for (socket, _) in self.peers.values_mut() {
+            socket.send_message(message)?;
+        }
+        Ok(())
+    }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PeerDirectoryError {
@@ -382,7 +391,7 @@ pub struct PeerEvent {
     pub envelope: SignedPeerEnvelope,
 }
 pub struct PeerEventQueue {
-    sender: Sender<PeerEvent>,
+    sender: SyncSender<PeerEvent>,
     receiver: Receiver<PeerEvent>,
 }
 impl Default for PeerEventQueue {
@@ -391,11 +400,15 @@ impl Default for PeerEventQueue {
     }
 }
 impl PeerEventQueue {
+    pub const DEFAULT_CAPACITY: usize = 1024;
     pub fn new() -> Self {
-        let (sender, receiver) = mpsc::channel();
+        Self::with_capacity(Self::DEFAULT_CAPACITY)
+    }
+    pub fn with_capacity(capacity: usize) -> Self {
+        let (sender, receiver) = mpsc::sync_channel(capacity);
         Self { sender, receiver }
     }
-    pub fn sender(&self) -> Sender<PeerEvent> {
+    pub fn sender(&self) -> SyncSender<PeerEvent> {
         self.sender.clone()
     }
     pub fn push(&self, event: PeerEvent) -> Result<(), mpsc::SendError<PeerEvent>> {
