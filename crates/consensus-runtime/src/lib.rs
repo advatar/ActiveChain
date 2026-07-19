@@ -199,11 +199,44 @@ pub enum RuntimeError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
+    use std::net::TcpListener;
     #[test]
     fn runtime_rejects_without_verified_votes() {
         let mut state = ConsensusState::new(1);
         let set = ValidatorSet::new(Vec::new());
         assert!(set.is_err());
         let _ = &mut state;
+    }
+
+    #[test]
+    fn loopback_socket_round_trip_and_replay_guard() {
+        let key = SigningKey::<MlDsa44>::from_seed(&Seed::default());
+        let placeholder = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420]).unwrap();
+        let unsigned = SignedPeerEnvelope::new(4, 1, Digest384::new([9; 48]), placeholder).unwrap();
+        let signature = key.sign(&unsigned.signing_payload());
+        let envelope = SignedPeerEnvelope::new(
+            4,
+            1,
+            Digest384::new([9; 48]),
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec()).unwrap(),
+        )
+        .unwrap();
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let sender = std::thread::spawn(move || {
+            let mut socket = PeerSocket::connect(std::net::TcpStream::connect(address).unwrap());
+            socket.send(&envelope).unwrap();
+        });
+        let (stream, _) = listener.accept().unwrap();
+        let mut socket = PeerSocket::connect(stream);
+        let received = socket.receive_envelope().unwrap();
+        let mut guard = ReplayGuard::default();
+        assert!(guard.accept(&received, key.verifying_key().encode().as_slice()).is_ok());
+        assert_eq!(
+            guard.accept(&received, key.verifying_key().encode().as_slice()),
+            Err(TransportError::Replay)
+        );
+        sender.join().unwrap();
     }
 }

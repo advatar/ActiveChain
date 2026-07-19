@@ -12,3 +12,6 @@ activechain-protocol-types.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+ml-dsa = "0.1.1"

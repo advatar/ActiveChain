@@ -44,6 +44,7 @@ version = "0.1.0"
 dependencies = [
  "activechain-crypto-provider",
  "activechain-protocol-types",
+ "ml-dsa",
 ]
 
 [[package]]
