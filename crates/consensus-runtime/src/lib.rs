@@ -1412,6 +1412,23 @@ impl ValidatorService {
         self.process_message(vote_message.clone())?;
         Ok((proposal_message, vote_message))
     }
+    /// Propose, self-process, and fan out a complete round to authenticated peers.
+    ///
+    /// The local service finalizes from its own quorum rules; peers receive the
+    /// same canonical proposal and vote bodies through the bounded directory.
+    pub fn propose_round_and_broadcast(
+        &self,
+        signer: &ValidatorSigner,
+        height: u64,
+        round: u64,
+        block_digest: Digest384,
+        sequence: u64,
+        peers: &mut PeerDirectory,
+    ) -> Result<(), ValidatorServiceError> {
+        let (proposal, vote) = self.propose_round(signer, height, round, block_digest, sequence)?;
+        peers.broadcast_message(&proposal).map_err(ValidatorServiceError::Io)?;
+        peers.broadcast_message(&vote).map_err(ValidatorServiceError::Io)
+    }
     fn sender_for(&self, signer: &ValidatorSigner) -> Result<u16, ValidatorServiceError> {
         let public_key = signer.public_key();
         self.sender_keys
@@ -1436,6 +1453,7 @@ impl ValidatorService {
 pub enum ValidatorServiceError {
     UnknownSender,
     Poisoned,
+    Io(std::io::Error),
     Transport(TransportError),
     Engine(ValidatorEngineError),
 }
