@@ -182,6 +182,22 @@ impl PeerEventQueue {
         self.receiver.try_recv()
     }
 }
+
+pub struct ConsensusDispatcher;
+impl ConsensusDispatcher {
+    pub fn dispatch_once<F>(queue: &PeerEventQueue, handler: F) -> Result<(), DispatchError>
+    where
+        F: FnOnce(PeerEvent) -> Result<(), String>,
+    {
+        let event = queue.recv().map_err(|_| DispatchError::QueueClosed)?;
+        handler(event).map_err(DispatchError::Handler)
+    }
+}
+#[derive(Debug, Eq, PartialEq)]
+pub enum DispatchError {
+    QueueClosed,
+    Handler(String),
+}
 impl PeerSocket {
     pub fn connect(stream: TcpStream) -> Self {
         Self { stream }
