@@ -50,7 +50,7 @@ Tracked by [GitHub issue #3](https://github.com/advatar/ActiveChain/issues/3).
 - [x] Add unit, property, and Rust-versus-model truth-table tests.
 - [x] Pass the full local-runner CI matrix.
 
-## Active milestone — canonical sparse state tree and witnesses
+## Completed milestone — canonical sparse state tree and witnesses
 
 Tracked by [GitHub issue #5](https://github.com/advatar/ActiveChain/issues/5).
 
@@ -64,7 +64,7 @@ Tracked by [GitHub issue #5](https://github.com/advatar/ActiveChain/issues/5).
 - [x] Add an executable Lean path/fold model and Rust differential fixture.
 - [x] Publish deterministic state-root and proof vectors.
 - [x] Add unit and property tests for determinism, updates, proofs, tampering, encoding, and bounds.
-- [ ] Pass the full local-runner CI matrix.
+- [x] Pass the full local-runner CI matrix.
 
 ## Completed milestone — versioned objects and atomic transitions
 
