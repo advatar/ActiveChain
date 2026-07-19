@@ -1456,6 +1456,68 @@ mod tests {
     }
 
     #[test]
+    fn three_persistent_services_converge_after_authenticated_vote_fanout() {
+        use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
+        let ids: Vec<_> = (0..3)
+            .map(|index| {
+                activechain_protocol_types::PrincipalId::new(Digest384::new([index + 20; 48]))
+            })
+            .collect();
+        let signers: Vec<_> = ids
+            .iter()
+            .enumerate()
+            .map(|(index, id)| ValidatorSigner::from_seed(*id, [index as u8 + 30; 32]))
+            .collect();
+        let entries = signers
+            .iter()
+            .map(|signer| {
+                ValidatorGenesisEntry::new(
+                    signer.validator(),
+                    1,
+                    signer.public_key().try_into().unwrap(),
+                )
+                .unwrap()
+            })
+            .collect();
+        let genesis = ValidatorGenesis::new(1, 1, entries).unwrap();
+        let paths: Vec<_> = (0..3)
+            .map(|index| {
+                std::env::temp_dir().join(format!(
+                    "activechain-converge-{}-{}.bin",
+                    std::process::id(),
+                    index
+                ))
+            })
+            .collect();
+        let services: Vec<_> = paths
+            .iter()
+            .map(|path| {
+                ValidatorService::from_genesis(ConsensusState::new(1), &genesis, path.clone())
+                    .unwrap()
+            })
+            .collect();
+        let (proposal, leader_vote) =
+            services[0].propose_round(&signers[0], 1, 0, Digest384::new([21; 48]), 1).unwrap();
+        let mut votes = vec![leader_vote];
+        for index in 1..3 {
+            votes.push(
+                services[index]
+                    .process_proposal_and_sign_vote(proposal.clone(), &signers[index], 2)
+                    .unwrap(),
+            );
+        }
+        for receiver in &services {
+            for vote in &votes {
+                let _ = receiver.process_message(vote.clone());
+            }
+        }
+        assert!(services.iter().all(|service| service.state().unwrap().finalized_height() == 1));
+        for path in paths {
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn vote_collection_rejects_duplicate_unknown_mismatched_and_under_threshold_votes() {
         use activechain_protocol_types::{PrincipalId, ValidatorWeight};
         let key = SigningKey::<MlDsa44>::from_seed(&Seed::from([1; 32]));

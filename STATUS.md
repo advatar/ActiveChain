@@ -172,7 +172,7 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
 - [x] Bind the persistent validator service to genesis, authenticate sender-indexed peer messages, and save finalized snapshots.
 - [x] Add a reviewed ML-DSA validator signer and authenticated local vote production from admitted proposals.
 - [x] Broadcast complete authenticated consensus messages and enforce bounded peer event queues.
-- [ ] Run the complete proposal → vote → QC → finalization loop in the validator process and persist finalized state.
+- [x] Run the complete proposal → vote → QC → finalization loop in the validator process and persist finalized state.
 - [ ] Add configured peer discovery, authenticated connection handshakes, reconnects, bounded queues, rate limits, and backpressure.
 - [ ] Activate validator-set and staking transitions only through finalized consensus state.
 - [ ] Implement erasure-coded data availability, commitments, sampling, and authenticated snapshot distribution.
