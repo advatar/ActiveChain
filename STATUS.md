@@ -147,7 +147,7 @@ algorithm versioning and deprecation, never as permission to ship a classical sa
 
 Tracked by [GitHub issue #11](https://github.com/advatar/ActiveChain/issues/11).
 
-- [ ] Define bounded canonical validator sets and epoch identity.
+- [x] Define bounded canonical validator sets and epoch identity.
 - [x] Bind quorum certificates to a Merkleized raw ML-DSA vote-set root.
 - [x] Enforce overflow-safe two-thirds stake thresholds.
 - [ ] Add canonical vectors and malformed/under-threshold rejection tests.
