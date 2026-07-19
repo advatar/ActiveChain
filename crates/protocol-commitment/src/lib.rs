@@ -4,7 +4,7 @@
 //! Domain-separated SHAKE256 commitments over canonical protocol bodies.
 
 use activechain_canonical_codec::{CanonicalType, EncodeError, encode_body};
-use activechain_protocol_types::{DIGEST_LENGTH, Digest384};
+use activechain_protocol_types::{DIGEST_LENGTH, Digest384, PackageId, PackageManifest};
 use sha3::{Shake256, digest::ExtendableOutput, digest::Update, digest::XofReader};
 
 const TRANSCRIPT_PREFIX: &[u8] = b"ACTIVECHAIN-COMMITMENT";
@@ -32,12 +32,19 @@ impl DomainTag {
     pub const CREDENTIAL_ID: Self = Self(0x0007);
     /// Commitment signed by a credential issuer.
     pub const CREDENTIAL_ISSUANCE: Self = Self(0x0008);
+    /// Derivation of an immutable ObjectVM package identifier.
+    pub const PACKAGE_ID: Self = Self(0x0009);
 
     /// Returns the registered numeric tag.
     #[must_use]
     pub const fn as_u16(self) -> u16 {
         self.0
     }
+}
+
+/// Derives the immutable package identifier from its canonical manifest.
+pub fn package_id(manifest: &PackageManifest) -> Result<PackageId, EncodeError> {
+    commit(DomainTag::PACKAGE_ID, manifest).map(PackageId::new)
 }
 
 /// Computes a 384-bit SHAKE256 commitment over the P-001 transcript.
@@ -64,6 +71,7 @@ pub fn commit<T: CanonicalType>(domain: DomainTag, value: &T) -> Result<Digest38
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
     use activechain_canonical_codec::{
         CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     };
@@ -71,7 +79,7 @@ mod tests {
         Digest384, FreezeState, Principal, PrincipalId, PrincipalKind,
     };
 
-    use super::{DomainTag, commit};
+    use super::{DomainTag, commit, package_id};
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
@@ -142,5 +150,18 @@ mod tests {
             167, 228, 236, 133, 154, 138, 212, 178, 168, 67,
         ]);
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn package_identity_binds_the_complete_manifest() {
+        use activechain_protocol_types::{PackageManifest, UpgradePolicy};
+        use alloc::vec;
+        let first =
+            PackageManifest::new(digest(0x71), vec![0, 3], vec![], UpgradePolicy::Immutable)
+                .expect("manifest is valid");
+        let second =
+            PackageManifest::new(digest(0x71), vec![0, 4], vec![], UpgradePolicy::Immutable)
+                .expect("manifest is valid");
+        assert_ne!(package_id(&first).unwrap(), package_id(&second).unwrap());
     }
 }
