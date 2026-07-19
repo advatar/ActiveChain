@@ -415,6 +415,17 @@ impl PeerDirectory {
         self.peers.insert(peer_id, (socket, public_key));
         Ok(())
     }
+    pub fn replace(
+        &mut self,
+        peer_id: u16,
+        socket: PeerSocket,
+        public_key: Vec<u8>,
+    ) -> Result<(), PeerDirectoryError> {
+        if self.peers.contains_key(&peer_id) {
+            self.peers.remove(&peer_id);
+        }
+        self.insert(peer_id, socket, public_key)
+    }
     pub fn len(&self) -> usize {
         self.peers.len()
     }
@@ -539,6 +550,21 @@ impl PeerConnector {
             }
         }
         (directory, failures)
+    }
+    pub fn reconnect(&self, endpoint: &PeerEndpoint) -> Result<PeerSocket, std::io::Error> {
+        let mut last_error = None;
+        for attempt in 0..self.attempts {
+            match TcpStream::connect_timeout(&endpoint.address, self.connect_timeout) {
+                Ok(stream) => return Ok(PeerSocket::connect(stream)),
+                Err(error) => last_error = Some(error),
+            }
+            if attempt + 1 < self.attempts {
+                std::thread::sleep(self.backoff.saturating_mul((attempt + 1) as u32));
+            }
+        }
+        Err(last_error.unwrap_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::NotConnected, "reconnect failed")
+        }))
     }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
