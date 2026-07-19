@@ -166,6 +166,15 @@ impl QuorumCertificate {
         }
         Ok(Self { epoch, height, round, block_digest, vote_set_root, total_stake, signer_stake })
     }
+    pub const fn epoch(&self) -> Epoch {
+        self.epoch
+    }
+    pub const fn height(&self) -> u64 {
+        self.height
+    }
+    pub const fn round(&self) -> u64 {
+        self.round
+    }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum QuorumCertificateError {

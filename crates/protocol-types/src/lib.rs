@@ -9,6 +9,7 @@ use activechain_canonical_codec::{
 
 mod authority;
 mod consensus;
+mod consensus_state;
 mod credential;
 mod crypto;
 mod migration;
@@ -24,6 +25,7 @@ pub use consensus::{
     EpochTransition, EpochTransitionError, QuorumCertificate, QuorumCertificateError, ValidatorSet,
     ValidatorSetError, ValidatorVote, ValidatorVoteError, ValidatorWeight,
 };
+pub use consensus_state::{ConsensusState, ConsensusStateError};
 pub use credential::{
     CREDENTIAL_FORMAT_VERSION, Credential, CredentialAcceptancePolicy, CredentialStatement,
     CredentialStatusRegistry, CredentialValidationError, MAX_ACCEPTED_CREDENTIAL_ISSUERS,
