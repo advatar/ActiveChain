@@ -1574,6 +1574,45 @@ impl ValidatorService {
         peer.send_handshake(&response)?;
         self.serve_peer(peer)
     }
+    pub fn serve_authenticated_genesis_peer_with_voting(
+        &self,
+        mut peer: PeerSocket,
+        local_peer_id: u16,
+        signer: &ValidatorSigner,
+        challenge: [u8; 32],
+    ) -> std::io::Result<()> {
+        let inbound = peer.receive_handshake()?;
+        let expected_key = self
+            .sender_keys
+            .get(&inbound.sender())
+            .ok_or_else(|| invalid_data("unknown peer handshake sender"))?;
+        inbound.verify(expected_key).map_err(transport_io_error)?;
+        peer.send_handshake(
+            &signer
+                .sign_handshake(local_peer_id, challenge)
+                .map_err(|_| invalid_data("handshake signing failed"))?,
+        )?;
+        loop {
+            let message = match peer.receive_message() {
+                Ok(message) => message,
+                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
+                Err(error) => return Err(error),
+            };
+            if let ConsensusMessage::Proposal(_) = &message.message {
+                let vote = self
+                    .process_proposal_and_sign_vote(
+                        message.clone(),
+                        signer,
+                        message.envelope.sequence().saturating_add(1),
+                    )
+                    .map_err(|_| invalid_data("proposal admission failed"))?;
+                peer.send_message(&vote)?;
+            } else {
+                self.process_message(message)
+                    .map_err(|_| invalid_data("consensus admission failed"))?;
+            }
+        }
+    }
 }
 #[derive(Debug)]
 pub enum ValidatorServiceError {
@@ -2062,7 +2101,7 @@ mod tests {
         let server = std::thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
             server_service
-                .serve_authenticated_genesis_peer(
+                .serve_authenticated_genesis_peer_with_voting(
                     PeerSocket::connect(stream),
                     1,
                     &server_signer,
@@ -2079,6 +2118,7 @@ mod tests {
                 &signer.sign_envelope(1, 1, ConsensusMessage::Proposal(proposal)).unwrap(),
             )
             .unwrap();
+        assert!(matches!(client.receive_message().unwrap().message, ConsensusMessage::Vote(_)));
         drop(client);
         server.join().unwrap();
         assert_eq!(service.metrics().proposals, 1);
