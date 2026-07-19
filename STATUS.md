@@ -202,6 +202,7 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
   - [x] Require ML-DSA verification on inbound validator socket sessions before accepting consensus frames.
   - [x] Wire genesis-bound authenticated session handling into the validator-node accept loop.
   - [x] Make peer discovery return only sockets that completed the authenticated ML-DSA handshake.
+  - [x] Exercise a live TCP handshake and consensus frame end-to-end before service admission.
 - [ ] Update and push the landing page at each completed launch milestone.
 
 ## Planned milestone — P-051 immutable ObjectVM packages and upgrade model
