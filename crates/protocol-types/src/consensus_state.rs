@@ -10,10 +10,22 @@ pub struct ConsensusState {
     epoch: Epoch,
     finalized_height: u64,
     finalized_round: u64,
+    validator_set_root: crate::Digest384,
 }
 impl ConsensusState {
     pub const fn new(epoch: Epoch) -> Self {
-        Self { epoch, finalized_height: 0, finalized_round: 0 }
+        Self {
+            epoch,
+            finalized_height: 0,
+            finalized_round: 0,
+            validator_set_root: crate::Digest384::ZERO,
+        }
+    }
+    pub const fn new_with_validator_set_root(
+        epoch: Epoch,
+        validator_set_root: crate::Digest384,
+    ) -> Self {
+        Self { epoch, finalized_height: 0, finalized_round: 0, validator_set_root }
     }
     pub const fn epoch(&self) -> Epoch {
         self.epoch
@@ -23,6 +35,9 @@ impl ConsensusState {
     }
     pub const fn finalized_round(&self) -> u64 {
         self.finalized_round
+    }
+    pub const fn validator_set_root(&self) -> crate::Digest384 {
+        self.validator_set_root
     }
     pub fn apply_qc(&mut self, qc: &QuorumCertificate) -> Result<(), ConsensusStateError> {
         if qc.epoch() != self.epoch {
@@ -48,6 +63,7 @@ impl ConsensusState {
             return Err(ConsensusStateError::InvalidTransition);
         }
         self.epoch = transition.to_epoch();
+        self.validator_set_root = transition.validator_set_root();
         Ok(())
     }
 }
@@ -63,6 +79,7 @@ pub struct ConsensusSnapshot {
     pub epoch: Epoch,
     pub finalized_height: u64,
     pub finalized_round: u64,
+    pub validator_set_root: crate::Digest384,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -114,6 +131,7 @@ impl ConsensusState {
             epoch: self.epoch,
             finalized_height: self.finalized_height,
             finalized_round: self.finalized_round,
+            validator_set_root: self.validator_set_root,
         }
     }
     pub const fn from_snapshot(snapshot: ConsensusSnapshot) -> Self {
@@ -121,6 +139,7 @@ impl ConsensusState {
             epoch: snapshot.epoch,
             finalized_height: snapshot.finalized_height,
             finalized_round: snapshot.finalized_round,
+            validator_set_root: snapshot.validator_set_root,
         }
     }
 }
@@ -128,7 +147,7 @@ impl CanonicalEncode for ConsensusSnapshot {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
         self.epoch.encode(e)?;
         self.finalized_height.encode(e)?;
-        self.finalized_round.encode(e)
+        self.finalized_round.encode(e).and_then(|_| self.validator_set_root.encode(e))
     }
 }
 impl CanonicalDecode for ConsensusSnapshot {
@@ -137,13 +156,14 @@ impl CanonicalDecode for ConsensusSnapshot {
             epoch: u64::decode(d)?,
             finalized_height: u64::decode(d)?,
             finalized_round: u64::decode(d)?,
+            validator_set_root: crate::Digest384::decode(d)?,
         })
     }
 }
 impl CanonicalType for ConsensusSnapshot {
     const TYPE_TAG: u16 = 0x0069;
     const SCHEMA_VERSION: u16 = 1;
-    const MAX_ENCODED_LEN: usize = 24;
+    const MAX_ENCODED_LEN: usize = 72;
 }
 
 #[cfg(test)]
@@ -159,5 +179,20 @@ mod tests {
         let qc = QuorumCertificate::new(1, 2, 1, digest(1), digest(2), 10, 7).unwrap();
         assert_eq!(state.apply_qc(&qc), Ok(()));
         assert_eq!(state.apply_qc(&qc), Err(ConsensusStateError::NonMonotonicCertificate));
+    }
+
+    #[test]
+    fn finalized_epoch_transition_activates_and_persists_validator_set_root() {
+        let root = digest(9);
+        let transition = EpochTransition::new(1, 2, 3, root).unwrap();
+        let mut state = ConsensusState::new(1);
+        assert_eq!(
+            state.apply_epoch_transition(&transition, 2),
+            Err(ConsensusStateError::InvalidTransition)
+        );
+        assert_eq!(state.apply_epoch_transition(&transition, 3), Ok(()));
+        assert_eq!(state.validator_set_root(), root);
+        let restored = ConsensusState::from_snapshot(state.snapshot());
+        assert_eq!(restored.validator_set_root(), root);
     }
 }

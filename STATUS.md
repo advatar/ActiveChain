@@ -176,6 +176,7 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
 - [ ] Add configured peer discovery, authenticated connection handshakes, reconnects, bounded queues, rate limits, and backpressure.
   - [x] Add bounded endpoint configuration, retry/backoff connection attempts, per-peer receive rate limits, and unreachable-peer reporting.
 - [ ] Activate validator-set and staking transitions only through finalized consensus state.
+  - [x] Bind the active validator-set root into finalized epoch transitions and durable consensus snapshots.
 - [ ] Implement erasure-coded data availability, commitments, sampling, and authenticated snapshot distribution.
   - [x] Add bounded Reed–Solomon shard construction/reconstruction with SHAKE commitments and deterministic sampling.
 - [ ] Add ML-KEM protected transaction submission without classical confidentiality dependencies.

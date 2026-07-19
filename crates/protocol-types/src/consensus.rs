@@ -6,6 +6,10 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
 use alloc::vec::Vec;
+use sha3::{
+    Shake256,
+    digest::{ExtendableOutput, Update, XofReader},
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValidatorVote {
@@ -451,6 +455,18 @@ impl ValidatorGenesis {
                 .collect(),
         )
     }
+    pub fn validator_set_root(&self) -> Digest384 {
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-VALIDATOR-SET-V1");
+        for entry in &self.entries {
+            hasher.update(entry.validator.digest().as_bytes());
+            hasher.update(&entry.stake.to_be_bytes());
+            hasher.update(&entry.public_key);
+        }
+        let mut root = [0_u8; 48];
+        hasher.finalize_xof().read(&mut root);
+        Digest384::new(root)
+    }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ValidatorGenesisError {
@@ -591,6 +607,7 @@ mod tests {
         let encoded = encode_envelope(&genesis).unwrap();
         assert_eq!(decode_envelope::<ValidatorGenesis>(&encoded), Ok(genesis.clone()));
         assert_eq!(genesis.validator_set().unwrap().total_stake(), 10);
+        assert_ne!(genesis.validator_set_root(), Digest384::ZERO);
         assert_eq!(genesis.entries()[0].public_key()[0], 7);
         assert_eq!(
             ValidatorGenesis::new(

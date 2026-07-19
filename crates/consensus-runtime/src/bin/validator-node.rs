@@ -11,12 +11,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let snapshot_path = args.next();
     let genesis_path = args.next();
     let genesis_epoch: u64 = args.next().as_deref().unwrap_or("0").parse()?;
-    let state = snapshot_path
-        .as_deref()
-        .map(Path::new)
-        .map(load_snapshot)
-        .transpose()?
-        .unwrap_or_else(|| ConsensusState::new(genesis_epoch));
+    let genesis = genesis_path.as_deref().map(Path::new).map(load_genesis).transpose()?;
+    let state =
+        snapshot_path.as_deref().map(Path::new).map(load_snapshot).transpose()?.unwrap_or_else(
+            || {
+                genesis.as_ref().map_or_else(
+                    || ConsensusState::new(genesis_epoch),
+                    |config| {
+                        ConsensusState::new_with_validator_set_root(
+                            config.epoch(),
+                            config.validator_set_root(),
+                        )
+                    },
+                )
+            },
+        );
     if let Some(path) = snapshot_path.as_deref() {
         save_snapshot(Path::new(path), &state)?;
     }
@@ -27,8 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         state.epoch(),
         state.finalized_height()
     );
-    if let Some(genesis_path) = genesis_path {
-        let genesis = load_genesis(Path::new(&genesis_path))?;
+    if let Some(genesis) = genesis {
         let service = std::sync::Arc::new(
             ValidatorService::from_genesis(
                 state,

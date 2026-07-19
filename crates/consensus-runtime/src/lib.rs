@@ -949,6 +949,9 @@ impl ValidatorEngine {
         if state.epoch() != genesis.epoch() {
             return Err(ValidatorEngineError::GenesisEpochMismatch);
         }
+        if state.validator_set_root() != genesis.validator_set_root() {
+            return Err(ValidatorEngineError::GenesisRootMismatch);
+        }
         let validator_set =
             genesis.validator_set().map_err(|_| ValidatorEngineError::InvalidGenesis)?;
         let public_keys = genesis
@@ -1063,6 +1066,7 @@ impl ValidatorEngine {
 pub enum ValidatorEngineError {
     InvalidGenesis,
     GenesisEpochMismatch,
+    GenesisRootMismatch,
     MissingValidatorKey,
     InvalidValidatorKey,
     UnknownValidator,
@@ -1544,8 +1548,12 @@ mod tests {
         .unwrap();
         let path =
             std::env::temp_dir().join(format!("activechain-round-{}.bin", std::process::id()));
-        let service =
-            ValidatorService::from_genesis(ConsensusState::new(1), &genesis, path.clone()).unwrap();
+        let service = ValidatorService::from_genesis(
+            ConsensusState::new_with_validator_set_root(1, genesis.validator_set_root()),
+            &genesis,
+            path.clone(),
+        )
+        .unwrap();
         service.propose_round(&signer, 1, 0, Digest384::new([8; 48]), 1).unwrap();
         assert_eq!(service.state().unwrap().finalized_height(), 1);
         std::fs::remove_file(path).unwrap();
@@ -1588,8 +1596,12 @@ mod tests {
         let services: Vec<_> = paths
             .iter()
             .map(|path| {
-                ValidatorService::from_genesis(ConsensusState::new(1), &genesis, path.clone())
-                    .unwrap()
+                ValidatorService::from_genesis(
+                    ConsensusState::new_with_validator_set_root(1, genesis.validator_set_root()),
+                    &genesis,
+                    path.clone(),
+                )
+                .unwrap()
             })
             .collect();
         let (proposal, leader_vote) =
