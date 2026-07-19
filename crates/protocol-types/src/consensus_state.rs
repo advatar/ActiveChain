@@ -64,6 +64,50 @@ pub struct ConsensusSnapshot {
     pub finalized_height: u64,
     pub finalized_round: u64,
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GenesisConfig {
+    pub epoch: Epoch,
+    pub activation_height: u64,
+    pub validator_set_root: crate::Digest384,
+}
+impl GenesisConfig {
+    pub const TYPE_TAG: u16 = 0x006a;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const ENCODED_LENGTH: usize = 8 + 8 + 48;
+    pub fn new(
+        epoch: Epoch,
+        activation_height: u64,
+        validator_set_root: crate::Digest384,
+    ) -> Result<Self, GenesisConfigError> {
+        if activation_height == 0 {
+            return Err(GenesisConfigError::ZeroActivationHeight);
+        }
+        Ok(Self { epoch, activation_height, validator_set_root })
+    }
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GenesisConfigError {
+    ZeroActivationHeight,
+}
+impl CanonicalEncode for GenesisConfig {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.epoch.encode(e)?;
+        self.activation_height.encode(e)?;
+        self.validator_set_root.encode(e)
+    }
+}
+impl CanonicalDecode for GenesisConfig {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(u64::decode(d)?, u64::decode(d)?, crate::Digest384::decode(d)?)
+            .map_err(|_| DecodeError::InvalidValue("invalid genesis configuration"))
+    }
+}
+impl CanonicalType for GenesisConfig {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::ENCODED_LENGTH;
+}
 impl ConsensusState {
     pub const fn snapshot(&self) -> ConsensusSnapshot {
         ConsensusSnapshot {

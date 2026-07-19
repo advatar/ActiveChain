@@ -161,6 +161,7 @@ Tracked by [GitHub issue #12](https://github.com/advatar/ActiveChain/issues/12).
 - [ ] Advance consensus state on finalized certificates.
 - [ ] Exercise duplicate, unknown, mismatched, and under-threshold adversarial cases.
 - [x] Add canonical consensus snapshots for validator restart recovery.
+- [x] Add canonical genesis configuration binding epoch, activation height, and validator-set root.
 
 ## Planned milestone — P-051 immutable ObjectVM packages and upgrade model
 
