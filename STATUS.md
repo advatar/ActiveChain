@@ -179,6 +179,7 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
   - [x] Add bounded Reed–Solomon shard construction/reconstruction with SHAKE commitments and deterministic sampling.
 - [ ] Add ML-KEM protected transaction submission without classical confidentiality dependencies.
   - [x] Add reviewed RustCrypto ML-KEM-768 encapsulation/decapsulation boundary and tamper tests.
+  - [x] Bind protected payload confidentiality and integrity to ML-KEM shared keys and associated data.
 - [ ] Integrate transparent proof-carrying ObjectVM execution into block admission and finalization.
 - [ ] Ship genesis, validator, and wallet CLIs plus an indexer, metrics, alerts, and operator documentation.
 - [ ] Pass multi-process Byzantine, restart, partition, and sustained-load testnet rehearsals on the local runner.

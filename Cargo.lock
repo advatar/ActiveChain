@@ -67,6 +67,7 @@ dependencies = [
  "activechain-protocol-types",
  "ml-dsa",
  "ml-kem",
+ "sha3 0.10.9",
 ]
 
 [[package]]

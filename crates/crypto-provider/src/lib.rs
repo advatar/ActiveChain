@@ -10,6 +10,88 @@ use ml_kem::{
     kem::{Encapsulate, KeyExport, TryDecapsulate},
     ml_kem_768::Ciphertext,
 };
+use sha3::{
+    Shake256,
+    digest::{ExtendableOutput, Update, XofReader},
+};
+
+pub const MAX_PROTECTED_PAYLOAD: usize = 64 * 1024;
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProtectedEnvelope {
+    ciphertext: Vec<u8>,
+    encrypted_payload: Vec<u8>,
+    tag: [u8; 48],
+}
+impl ProtectedEnvelope {
+    pub fn seal(
+        public_key: &[u8],
+        payload: &[u8],
+        associated_data: &[u8],
+    ) -> Result<Self, KemError> {
+        if payload.len() > MAX_PROTECTED_PAYLOAD {
+            return Err(KemError::PayloadTooLarge);
+        }
+        let (ciphertext, shared) = ml_kem768_encapsulate(public_key)?;
+        let encrypted_payload = xor_stream(&shared, &ciphertext, associated_data, payload);
+        let tag = envelope_tag(&shared, &ciphertext, associated_data, &encrypted_payload);
+        Ok(Self { ciphertext, encrypted_payload, tag })
+    }
+    pub fn open(
+        &self,
+        recipient: &MlKem768Recipient,
+        associated_data: &[u8],
+    ) -> Result<Vec<u8>, KemError> {
+        let shared = recipient.decapsulate(&self.ciphertext)?;
+        let expected =
+            envelope_tag(&shared, &self.ciphertext, associated_data, &self.encrypted_payload);
+        if !constant_time_equal(&expected, &self.tag) {
+            return Err(KemError::AuthenticationFailed);
+        }
+        Ok(xor_stream(&shared, &self.ciphertext, associated_data, &self.encrypted_payload))
+    }
+    pub fn ciphertext(&self) -> &[u8] {
+        &self.ciphertext
+    }
+    pub fn encrypted_payload(&self) -> &[u8] {
+        &self.encrypted_payload
+    }
+    pub const fn tag(&self) -> &[u8; 48] {
+        &self.tag
+    }
+}
+fn xor_stream(shared: &[u8; 32], ciphertext: &[u8], aad: &[u8], input: &[u8]) -> Vec<u8> {
+    let mut reader = Shake256::default();
+    reader.update(b"ACTIVECHAIN-MLKEM-STREAM-V1");
+    reader.update(shared);
+    reader.update(&(ciphertext.len() as u32).to_be_bytes());
+    reader.update(ciphertext);
+    reader.update(&(aad.len() as u32).to_be_bytes());
+    reader.update(aad);
+    let mut stream = vec![0; input.len()];
+    reader.finalize_xof().read(&mut stream);
+    input.iter().zip(stream).map(|(left, right)| left ^ right).collect()
+}
+fn envelope_tag(shared: &[u8; 32], ciphertext: &[u8], aad: &[u8], encrypted: &[u8]) -> [u8; 48] {
+    let mut hasher = Shake256::default();
+    hasher.update(b"ACTIVECHAIN-MLKEM-TAG-V1");
+    hasher.update(shared);
+    hasher.update(&(ciphertext.len() as u32).to_be_bytes());
+    hasher.update(ciphertext);
+    hasher.update(&(aad.len() as u32).to_be_bytes());
+    hasher.update(aad);
+    hasher.update(&(encrypted.len() as u32).to_be_bytes());
+    hasher.update(encrypted);
+    let mut tag = [0; 48];
+    hasher.finalize_xof().read(&mut tag);
+    tag
+}
+fn constant_time_equal(left: &[u8; 48], right: &[u8; 48]) -> bool {
+    let mut difference = 0_u8;
+    for (a, b) in left.iter().zip(right) {
+        difference |= a ^ b;
+    }
+    difference == 0
+}
 
 /// Reviewed ML-KEM-768 boundary for protected transaction key establishment.
 pub struct MlKem768Recipient {
@@ -42,6 +124,8 @@ pub enum KemError {
     InvalidPublicKey,
     InvalidCiphertext,
     DecapsulationFailed,
+    PayloadTooLarge,
+    AuthenticationFailed,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -182,5 +266,21 @@ mod tests {
         let mut tampered = ciphertext;
         tampered[0] ^= 1;
         assert_ne!(recipient.decapsulate(&tampered).unwrap(), sender_secret);
+    }
+
+    #[test]
+    fn protected_envelope_binds_associated_data_and_payload() {
+        let recipient = MlKem768Recipient::from_seed([12; 64]);
+        let envelope = ProtectedEnvelope::seal(
+            recipient.public_key().as_slice(),
+            b"secret action",
+            b"chain-1",
+        )
+        .unwrap();
+        assert_eq!(envelope.open(&recipient, b"chain-1").unwrap(), b"secret action");
+        assert_eq!(envelope.open(&recipient, b"chain-2"), Err(KemError::AuthenticationFailed));
+        let mut tampered = envelope.clone();
+        tampered.encrypted_payload[0] ^= 1;
+        assert_eq!(tampered.open(&recipient, b"chain-1"), Err(KemError::AuthenticationFailed));
     }
 }
