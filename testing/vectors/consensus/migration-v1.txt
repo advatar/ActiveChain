@@ -1,0 +1,8 @@
+# ActiveChain PQ migration window vector v1
+suite=ML_DSA_65
+activation_height=100
+deprecation_height=200
+before_active=99
+active_start=100
+active_end=199
+after_deprecation=200

@@ -96,4 +96,28 @@ mod tests {
             Err(CryptoMigrationError::DeprecationNotAfterActivation)
         );
     }
+    #[test]
+    fn frozen_migration_vector_matches_half_open_interval() {
+        let vector = include_str!("../../../testing/vectors/consensus/migration-v1.txt");
+        let value = |name: &str| {
+            vector
+                .lines()
+                .find_map(|line| {
+                    line.split_once('=').and_then(|(key, value)| (key == name).then_some(value))
+                })
+                .unwrap()
+                .parse::<u64>()
+                .unwrap()
+        };
+        let window = CryptoMigrationWindow::new(
+            CryptoSuiteId::ML_DSA_65,
+            value("activation_height"),
+            Some(value("deprecation_height")),
+        )
+        .unwrap();
+        assert!(!window.is_active_at(value("before_active")));
+        assert!(window.is_active_at(value("active_start")));
+        assert!(window.is_active_at(value("active_end")));
+        assert!(!window.is_active_at(value("after_deprecation")));
+    }
 }

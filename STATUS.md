@@ -137,6 +137,7 @@ Tracked by [GitHub issue #10](https://github.com/advatar/ActiveChain/issues/10).
 - [x] Document the day-one PQ-only admission policy and bounded future-suite migration process.
 - [ ] Specify migration behavior for validator, principal, credential, transport, and protected-envelope keys.
 - [ ] Add deterministic migration vectors and rejection tests.
+- [x] Freeze a PQ migration-window vector and test half-open activation/deprecation boundaries.
 - [ ] Do not describe consensus, threshold encryption, or clients as quantum-safe until their implementations pass these gates.
 - [x] Add a canonical height-bounded PQ migration window primitive and boundary tests.
 - [x] Add a canonical ML-DSA-44-bound validator vote primitive for the future BFT boundary.
