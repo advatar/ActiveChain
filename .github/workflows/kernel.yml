@@ -1,0 +1,25 @@
+name: Deterministic kernel
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
+      - name: Check formatting
+        run: cargo fmt --all --check
+      - name: Check all targets
+        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - name: Run tests
+        run: cargo test --locked --workspace --all-features
+      - name: Run documentation tests
+        run: cargo test --locked --workspace --doc

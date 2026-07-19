@@ -1,0 +1,14 @@
+[package]
+name = "activechain-canonical-codec"
+description = "Bounded canonical consensus encoding for ActiveChain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

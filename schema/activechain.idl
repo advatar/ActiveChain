@@ -1,0 +1,52 @@
+// ActiveChain canonical schema draft 1.
+//
+// This source is normative input to future generators. Until generators exist,
+// P-001 and the hand-written Rust implementation MUST agree with this file.
+
+namespace activechain.protocol;
+
+type Digest384 = bytes[48];
+
+newtype ObjectId = Digest384;
+newtype PrincipalId = Digest384;
+newtype CapabilityId = Digest384;
+newtype CredentialId = Digest384;
+newtype PackageId = Digest384;
+newtype JobId = Digest384;
+newtype TransactionId = Digest384;
+
+type Height = u64;
+type Epoch = u64;
+type Round = u64;
+type Amount = u128;
+type ResourceUnits = u128;
+type Timestamp = u64;
+
+enum PrincipalKind : u8 {
+    Human = 0;
+    Organization = 1;
+    Device = 2;
+    Service = 3;
+    Agent = 4;
+    Pseudonym = 5;
+}
+
+enum FreezeState : u8 {
+    Active = 0;
+    RecoveryPending = 1;
+    Frozen = 2;
+}
+
+struct Principal @type_tag(0x0020) @version(1) @max_bytes(282) {
+    principal_id: PrincipalId;
+    principal_kind: PrincipalKind;
+    controller_policy_hash: Digest384;
+    recovery_policy_hash: Digest384;
+    authenticator_set_root: Digest384;
+    sequence: u64;
+    freeze_state: FreezeState;
+    metadata_commitment: Digest384;
+    anchor_deposit: Amount;
+    created_at: Height;
+    last_updated_at: Height;
+}

@@ -1,0 +1,17 @@
+[package]
+name = "activechain-protocol-types"
+description = "Canonical primitive and protocol object types for ActiveChain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+activechain-canonical-codec.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true
