@@ -2058,6 +2058,107 @@ mod tests {
     }
 
     #[test]
+    fn live_socket_quorum_fan_in_finalizes_three_validator_qc() {
+        use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
+        let signers: Vec<_> = (0..3)
+            .map(|index| {
+                ValidatorSigner::from_seed(
+                    activechain_protocol_types::PrincipalId::new(Digest384::new([81 + index; 48])),
+                    [82 + index; 32],
+                )
+            })
+            .collect();
+        let genesis = ValidatorGenesis::new(
+            1,
+            1,
+            signers
+                .iter()
+                .map(|signer| {
+                    ValidatorGenesisEntry::new(
+                        signer.validator(),
+                        1,
+                        signer.public_key().try_into().unwrap(),
+                    )
+                    .unwrap()
+                })
+                .collect(),
+        )
+        .unwrap();
+        let path =
+            std::env::temp_dir().join(format!("activechain-live-qc-{}.bin", std::process::id()));
+        let receiver = std::sync::Arc::new(
+            ValidatorService::from_genesis(
+                ConsensusState::new_with_validator_set_root(1, genesis.validator_set_root()),
+                &genesis,
+                path.clone(),
+            )
+            .unwrap(),
+        );
+        let send = |sender: &ValidatorSigner,
+                    sender_id: u16,
+                    message: AuthenticatedConsensusMessage| {
+            let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            let address = listener.local_addr().unwrap();
+            let service = std::sync::Arc::clone(&receiver);
+            let server = std::thread::spawn(move || {
+                let (stream, _) = listener.accept().unwrap();
+                let local_signer = ValidatorSigner::from_seed(
+                    activechain_protocol_types::PrincipalId::new(Digest384::new([81; 48])),
+                    [82; 32],
+                );
+                service
+                    .serve_authenticated_genesis_peer(
+                        PeerSocket::connect(stream),
+                        1,
+                        &local_signer,
+                        [91; 32],
+                    )
+                    .unwrap();
+            });
+            let mut client = PeerSocket::connect(TcpStream::connect(address).unwrap());
+            client.send_handshake(&sender.sign_handshake(sender_id, [91; 32]).unwrap()).unwrap();
+            client.receive_handshake().unwrap().verify(&signers[0].public_key()).unwrap();
+            client.send_message(&message).unwrap();
+            drop(client);
+            server.join().unwrap();
+        };
+        let proposal = signers[0].sign_proposal(1, 1, 0, Digest384::new([92; 48])).unwrap();
+        let proposal_message =
+            signers[0].sign_envelope(1, 1, ConsensusMessage::Proposal(proposal.clone())).unwrap();
+        send(&signers[0], 1, proposal_message);
+        let mut votes = Vec::new();
+        for (index, signer) in signers.iter().enumerate() {
+            receiver
+                .process_message(
+                    signer
+                        .sign_envelope(
+                            (index + 1) as u16,
+                            10 + index as u64,
+                            ConsensusMessage::Proposal(proposal.clone()),
+                        )
+                        .unwrap(),
+                )
+                .ok();
+            let vote = receiver.engine.lock().unwrap().sign_current_vote(signer).unwrap();
+            votes.push(
+                signer
+                    .sign_envelope(
+                        (index + 1) as u16,
+                        20 + index as u64,
+                        ConsensusMessage::Vote(vote),
+                    )
+                    .unwrap(),
+            );
+        }
+        for vote in votes {
+            let sender_id = vote.envelope.sender();
+            send(&signers[sender_id as usize - 1], sender_id, vote);
+        }
+        assert_eq!(receiver.state().unwrap().finalized_height(), 1);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn three_persistent_services_converge_after_authenticated_vote_fanout() {
         use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
         let ids: Vec<_> = (0..3)
