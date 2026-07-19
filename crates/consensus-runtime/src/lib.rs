@@ -206,6 +206,27 @@ pub enum DispatchError {
     Handler(String),
 }
 
+pub struct PeerSupervisor {
+    handles: Vec<std::thread::JoinHandle<()>>,
+}
+impl PeerSupervisor {
+    pub fn new() -> Self {
+        Self { handles: Vec::new() }
+    }
+    pub fn spawn<F>(&mut self, worker: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        self.handles.push(std::thread::spawn(worker));
+    }
+    pub fn join_all(self) -> std::thread::Result<()> {
+        for handle in self.handles {
+            handle.join()?;
+        }
+        Ok(())
+    }
+}
+
 pub fn save_snapshot(path: &std::path::Path, state: &ConsensusState) -> std::io::Result<()> {
     let bytes = encode_envelope(&state.snapshot()).map_err(|_| {
         std::io::Error::new(std::io::ErrorKind::InvalidData, "snapshot encoding failed")
