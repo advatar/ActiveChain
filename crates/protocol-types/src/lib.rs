@@ -26,7 +26,7 @@ pub use consensus::{
     QuorumCertificateError, ValidatorSet, ValidatorSetError, ValidatorVote, ValidatorVoteError,
     ValidatorWeight,
 };
-pub use consensus_state::{ConsensusState, ConsensusStateError};
+pub use consensus_state::{ConsensusSnapshot, ConsensusState, ConsensusStateError};
 pub use credential::{
     CREDENTIAL_FORMAT_VERSION, Credential, CredentialAcceptancePolicy, CredentialStatement,
     CredentialStatusRegistry, CredentialValidationError, MAX_ACCEPTED_CREDENTIAL_ISSUERS,

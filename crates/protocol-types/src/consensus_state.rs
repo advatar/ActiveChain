@@ -1,6 +1,9 @@
 //! Deterministic consensus-state transition checks for the PQ testnet kernel.
 
 use crate::{Epoch, EpochTransition, QuorumCertificate};
+use activechain_canonical_codec::{
+    CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ConsensusState {
@@ -53,6 +56,50 @@ pub enum ConsensusStateError {
     WrongEpoch,
     NonMonotonicCertificate,
     InvalidTransition,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ConsensusSnapshot {
+    pub epoch: Epoch,
+    pub finalized_height: u64,
+    pub finalized_round: u64,
+}
+impl ConsensusState {
+    pub const fn snapshot(&self) -> ConsensusSnapshot {
+        ConsensusSnapshot {
+            epoch: self.epoch,
+            finalized_height: self.finalized_height,
+            finalized_round: self.finalized_round,
+        }
+    }
+    pub const fn from_snapshot(snapshot: ConsensusSnapshot) -> Self {
+        Self {
+            epoch: snapshot.epoch,
+            finalized_height: snapshot.finalized_height,
+            finalized_round: snapshot.finalized_round,
+        }
+    }
+}
+impl CanonicalEncode for ConsensusSnapshot {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.epoch.encode(e)?;
+        self.finalized_height.encode(e)?;
+        self.finalized_round.encode(e)
+    }
+}
+impl CanonicalDecode for ConsensusSnapshot {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Ok(Self {
+            epoch: u64::decode(d)?,
+            finalized_height: u64::decode(d)?,
+            finalized_round: u64::decode(d)?,
+        })
+    }
+}
+impl CanonicalType for ConsensusSnapshot {
+    const TYPE_TAG: u16 = 0x0069;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 24;
 }
 
 #[cfg(test)]

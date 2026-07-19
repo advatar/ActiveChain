@@ -160,6 +160,7 @@ Tracked by [GitHub issue #12](https://github.com/advatar/ActiveChain/issues/12).
 - [ ] Form quorum certificates only after provider-backed vote verification.
 - [ ] Advance consensus state on finalized certificates.
 - [ ] Exercise duplicate, unknown, mismatched, and under-threshold adversarial cases.
+- [x] Add canonical consensus snapshots for validator restart recovery.
 
 ## Planned milestone — P-051 immutable ObjectVM packages and upgrade model
 
