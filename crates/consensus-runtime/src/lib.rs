@@ -557,6 +557,19 @@ pub struct PeerEndpoint {
     pub address: SocketAddr,
     pub public_key: Vec<u8>,
 }
+impl PeerEndpoint {
+    pub fn from_genesis_address(
+        id: u16,
+        address: &str,
+        public_key: Vec<u8>,
+    ) -> Result<Self, PeerConnectorError> {
+        if id == 0 || public_key.len() != 1312 {
+            return Err(PeerConnectorError::InvalidConfiguration);
+        }
+        let address = address.parse().map_err(|_| PeerConnectorError::InvalidConfiguration)?;
+        Ok(Self { id, address, public_key })
+    }
+}
 pub struct PeerConnector {
     endpoints: Vec<PeerEndpoint>,
     attempts: usize,
@@ -2405,6 +2418,12 @@ mod tests {
 
     #[test]
     fn peer_connector_bounds_configuration_and_reports_unreachable_peers() {
+        assert!(PeerEndpoint::from_genesis_address(0, "127.0.0.1:1", vec![0; 1312]).is_err());
+        assert!(PeerEndpoint::from_genesis_address(1, "not-an-address", vec![0; 1312]).is_err());
+        assert_eq!(
+            PeerEndpoint::from_genesis_address(1, "127.0.0.1:9", vec![0; 1312]).unwrap().id,
+            1
+        );
         let endpoint = PeerEndpoint {
             id: 1,
             address: "127.0.0.1:9".parse().unwrap(),
