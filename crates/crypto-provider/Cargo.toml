@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 ml-dsa = "0.1.1"
+activechain-protocol-types.workspace = true
 
 [lints]
 workspace = true

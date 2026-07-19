@@ -47,6 +47,15 @@ impl ValidatorVote {
     pub const fn signature(&self) -> &ProtocolSignature {
         &self.signature
     }
+    pub fn signing_payload(&self) -> Vec<u8> {
+        let mut payload = Vec::with_capacity(18 + 48 + 8 + 8 + 48);
+        payload.extend_from_slice(b"ACTIVECHAIN-VOTE-V1");
+        payload.extend_from_slice(self.validator.digest().as_bytes());
+        payload.extend_from_slice(&self.height.to_be_bytes());
+        payload.extend_from_slice(&self.round.to_be_bytes());
+        payload.extend_from_slice(self.block_digest.as_bytes());
+        payload
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -53,6 +53,7 @@ dependencies = [
 name = "activechain-crypto-provider"
 version = "0.1.0"
 dependencies = [
+ "activechain-protocol-types",
  "ml-dsa",
 ]
 

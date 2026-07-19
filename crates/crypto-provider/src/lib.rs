@@ -2,6 +2,7 @@
 
 //! Cryptographic provider boundary for authoritative PQ verification.
 
+use activechain_protocol_types::ValidatorVote;
 use ml_dsa::{EncodedSignature, EncodedVerifyingKey, MlDsa44, Signature, Verifier, VerifyingKey};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -28,9 +29,19 @@ pub fn verify_ml_dsa44(
     verifying_key.verify(message, &signature).map_err(|_| VerificationError::InvalidSignature)
 }
 
+pub fn verify_validator_vote(
+    public_key: &[u8],
+    vote: &ValidatorVote,
+) -> Result<(), VerificationError> {
+    verify_ml_dsa44(public_key, &vote.signing_payload(), vote.signature().as_bytes())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use activechain_protocol_types::{
+        CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature, ValidatorVote,
+    };
     use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
     #[test]
     fn verifies_a_real_ml_dsa44_signature() {
@@ -53,6 +64,31 @@ mod tests {
                 signature.encode().as_slice()
             ),
             Err(VerificationError::InvalidSignature)
+        );
+    }
+
+    #[test]
+    fn verifies_a_consensus_vote_payload() {
+        let signing_key = SigningKey::<MlDsa44>::from_seed(&Seed::default());
+        let unsigned = ValidatorVote::new(
+            PrincipalId::new(Digest384::new([7; 48])),
+            9,
+            2,
+            Digest384::new([8; 48]),
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420]).unwrap(),
+        )
+        .unwrap();
+        let signature = signing_key.sign(&unsigned.signing_payload());
+        let vote = ValidatorVote::new(
+            unsigned.validator(),
+            unsigned.height(),
+            unsigned.round(),
+            unsigned.block_digest(),
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec()).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            verify_validator_vote(signing_key.verifying_key().encode().as_slice(), &vote).is_ok()
         );
     }
 }
