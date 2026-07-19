@@ -64,6 +64,27 @@ impl ValidatorSigner {
     pub fn public_key(&self) -> Vec<u8> {
         self.key.verifying_key().encode().to_vec()
     }
+    pub fn sign_handshake(
+        &self,
+        sender: u16,
+        challenge: [u8; 32],
+    ) -> Result<PeerHandshake, ValidatorEngineError> {
+        let placeholder = PeerHandshake::new(
+            sender,
+            challenge,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420])
+                .map_err(|_| ValidatorEngineError::Signer)?,
+        )
+        .map_err(|_| ValidatorEngineError::Signer)?;
+        let signature = self.key.sign(&placeholder.signing_payload());
+        PeerHandshake::new(
+            sender,
+            challenge,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec())
+                .map_err(|_| ValidatorEngineError::Signer)?,
+        )
+        .map_err(|_| ValidatorEngineError::Signer)
+    }
     fn sign_vote(&self, proposal: &BlockProposal) -> Result<ValidatorVote, ValidatorEngineError> {
         let unsigned = ValidatorVote::new(
             self.validator,
@@ -1447,6 +1468,26 @@ impl ValidatorService {
                 std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{error:?}"))
             })?;
         }
+    }
+    pub fn serve_authenticated_peer(
+        &self,
+        mut peer: PeerSocket,
+        local_peer_id: u16,
+        signer: &ValidatorSigner,
+        expected_peer_id: u16,
+        expected_public_key: &[u8],
+        challenge: [u8; 32],
+    ) -> std::io::Result<()> {
+        let inbound = peer.receive_handshake()?;
+        if inbound.sender() != expected_peer_id {
+            return Err(invalid_data("peer handshake sender mismatch"));
+        }
+        inbound.verify(expected_public_key).map_err(transport_io_error)?;
+        let response = signer
+            .sign_handshake(local_peer_id, challenge)
+            .map_err(|_| invalid_data("handshake signing failed"))?;
+        peer.send_handshake(&response)?;
+        self.serve_peer(peer)
     }
 }
 #[derive(Debug)]
