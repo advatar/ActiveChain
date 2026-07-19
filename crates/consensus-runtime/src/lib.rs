@@ -96,14 +96,25 @@ impl PeerListener {
     }
 }
 impl PeerDirectory {
+    pub const MAX_PEERS: usize = 128;
     pub fn new() -> Self {
         Self { peers: BTreeMap::new() }
     }
-    pub fn insert(&mut self, peer_id: u16, socket: PeerSocket) {
+    pub fn insert(&mut self, peer_id: u16, socket: PeerSocket) -> Result<(), PeerDirectoryError> {
+        if self.peers.contains_key(&peer_id) {
+            return Err(PeerDirectoryError::AlreadyRegistered);
+        }
+        if self.peers.len() >= Self::MAX_PEERS {
+            return Err(PeerDirectoryError::Capacity);
+        }
         self.peers.insert(peer_id, socket);
+        Ok(())
     }
     pub fn len(&self) -> usize {
         self.peers.len()
+    }
+    pub fn remove(&mut self, peer_id: u16) -> bool {
+        self.peers.remove(&peer_id).is_some()
     }
     pub fn broadcast(&mut self, envelope: &SignedPeerEnvelope) -> std::io::Result<()> {
         for socket in self.peers.values_mut() {
@@ -111,6 +122,11 @@ impl PeerDirectory {
         }
         Ok(())
     }
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PeerDirectoryError {
+    AlreadyRegistered,
+    Capacity,
 }
 impl PeerSocket {
     pub fn connect(stream: TcpStream) -> Self {
