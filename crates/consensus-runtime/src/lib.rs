@@ -67,6 +67,7 @@ pub struct PeerSocket {
 
 pub struct PeerDirectory {
     peers: BTreeMap<u16, (PeerSocket, Vec<u8>)>,
+    replay: ReplayGuard,
 }
 
 pub struct PeerListener {
@@ -98,7 +99,7 @@ impl PeerListener {
 impl PeerDirectory {
     pub const MAX_PEERS: usize = 128;
     pub fn new() -> Self {
-        Self { peers: BTreeMap::new() }
+        Self { peers: BTreeMap::new(), replay: ReplayGuard::default() }
     }
     pub fn insert(
         &mut self,
@@ -124,6 +125,15 @@ impl PeerDirectory {
     pub fn remove(&mut self, peer_id: u16) -> bool {
         self.peers.remove(&peer_id).is_some()
     }
+    pub fn receive_verified(
+        &mut self,
+        peer_id: u16,
+    ) -> Result<SignedPeerEnvelope, PeerReceiveError> {
+        let (socket, key) = self.peers.get_mut(&peer_id).ok_or(PeerReceiveError::UnknownPeer)?;
+        let envelope = socket.receive_envelope().map_err(PeerReceiveError::Io)?;
+        self.replay.accept(&envelope, key).map_err(PeerReceiveError::Transport)?;
+        Ok(envelope)
+    }
     pub fn broadcast(&mut self, envelope: &SignedPeerEnvelope) -> std::io::Result<()> {
         for (socket, _) in self.peers.values_mut() {
             socket.send(envelope)?;
@@ -136,6 +146,12 @@ pub enum PeerDirectoryError {
     AlreadyRegistered,
     Capacity,
     InvalidPublicKey,
+}
+#[derive(Debug)]
+pub enum PeerReceiveError {
+    UnknownPeer,
+    Io(std::io::Error),
+    Transport(TransportError),
 }
 impl PeerSocket {
     pub fn connect(stream: TcpStream) -> Self {
