@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 30
     env:
       CARGO_TERM_COLOR: always
-      PATH: /Users/johansellstrom/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+      PATH: /opt/homebrew/opt/rustup/bin:/Users/johansellstrom/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
     steps:
       - name: Check out the exact revision
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
