@@ -487,6 +487,9 @@ impl PeerDirectory {
     pub fn is_empty(&self) -> bool {
         self.peers.is_empty()
     }
+    pub fn peers(&self) -> impl Iterator<Item = (&u16, &(PeerSocket, Vec<u8>))> {
+        self.peers.iter()
+    }
     pub fn remove(&mut self, peer_id: u16) -> bool {
         self.peers.remove(&peer_id).is_some()
     }

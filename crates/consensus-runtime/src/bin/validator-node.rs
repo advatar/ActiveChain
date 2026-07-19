@@ -17,7 +17,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let genesis_path = args.next();
     let genesis_epoch: u64 = args.next().as_deref().unwrap_or("0").parse()?;
     let validator_index: Option<usize> = args.next().map(|value| value.parse()).transpose()?;
-    let run_once = args.next().as_deref() == Some("--once");
+    let extras: Vec<String> = args.collect();
+    let run_once = extras.iter().any(|value| value == "--once");
+    let peer_specs: Vec<&str> =
+        extras.iter().filter_map(|value| value.strip_prefix("--peer=")).collect();
     let genesis = genesis_path.as_deref().map(Path::new).map(load_genesis).transpose()?;
     let state = snapshot_path
         .as_deref()
@@ -66,6 +69,77 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .ok_or("derived signer does not match genesis public key")?;
         let signer =
             activechain_consensus_runtime::ValidatorSigner::from_seed(entry.validator(), seed);
+        if run_once && !peer_specs.is_empty() {
+            let next_height = state.finalized_height().saturating_add(1);
+            let service = std::sync::Arc::new(
+                ValidatorService::from_genesis(
+                    state,
+                    genesis,
+                    snapshot_path
+                        .as_deref()
+                        .map(Path::new)
+                        .unwrap_or_else(|| Path::new("validator.snapshot"))
+                        .to_path_buf(),
+                )
+                .map_err(|error| format!("validator service configuration failed: {error:?}"))?,
+            );
+            let listener_thread_service = std::sync::Arc::clone(&service);
+            let listener_thread_signer = std::sync::Arc::new(
+                activechain_consensus_runtime::ValidatorSigner::from_seed(entry.validator(), seed),
+            );
+            std::thread::spawn(move || {
+                let _ = listener.spawn_accept_loop(move |peer| {
+                    let service = std::sync::Arc::clone(&listener_thread_service);
+                    let signer = std::sync::Arc::clone(&listener_thread_signer);
+                    let _ = service.serve_authenticated_genesis_peer_with_voting(
+                        peer,
+                        (index + 1) as u16,
+                        &signer,
+                        [23; 32],
+                    );
+                });
+            });
+            let mut endpoints = Vec::new();
+            for spec in &peer_specs {
+                let (id, address) = spec.split_once('@').ok_or("peer must use <id>@<address>")?;
+                let id: u16 = id.parse().map_err(|_| "invalid peer ID")?;
+                let entry = genesis
+                    .entries()
+                    .get(id.saturating_sub(1) as usize)
+                    .ok_or("peer ID is outside genesis set")?;
+                endpoints.push(
+                    activechain_consensus_runtime::PeerEndpoint::from_genesis_address(
+                        id,
+                        address,
+                        entry.public_key().to_vec(),
+                    )
+                    .map_err(|_| "invalid peer endpoint")?,
+                );
+            }
+            let connector = activechain_consensus_runtime::PeerConnector::new(endpoints)
+                .map_err(|_| "invalid peer configuration")?;
+            let challenge = [23; 32];
+            let (mut peers, failures) =
+                connector.connect_all_with_handshake((index + 1) as u16, &signer, challenge);
+            if !failures.is_empty() {
+                return Err(format!("peer connection failures: {}", failures.len()).into());
+            }
+            let peer_ids: Vec<u16> = peers.peers().map(|(id, _)| *id).collect();
+            let block_digest = Digest384::new([index as u8 + 120; 48]);
+            let state = service
+                .propose_round_collect_votes(
+                    &signer,
+                    next_height,
+                    0,
+                    block_digest,
+                    1,
+                    &mut peers,
+                    &peer_ids,
+                )
+                .map_err(|error| format!("network round failed: {error:?}"))?;
+            println!("completed network round: finalized_height={}", state.finalized_height());
+            return Ok(());
+        }
         if run_once {
             let next_height = state.finalized_height().saturating_add(1);
             let service = ValidatorService::from_genesis(
@@ -136,7 +210,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             listener.spawn_accept_loop(move |peer| {
                 let service = std::sync::Arc::clone(&service);
                 let signer = std::sync::Arc::clone(&signer);
-                let _ = service.serve_authenticated_genesis_peer(
+                let _ = service.serve_authenticated_genesis_peer_with_voting(
                     peer,
                     (index + 1) as u16,
                     &signer,
