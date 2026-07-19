@@ -3,7 +3,7 @@
 
 extern crate alloc;
 
-use activechain_protocol_types::{QuorumCertificate, ValidatorSet, ValidatorVote};
+use activechain_protocol_types::{BlockProposal, QuorumCertificate, ValidatorSet, ValidatorVote};
 use ml_dsa::{EncodedSignature, EncodedVerifyingKey, MlDsa44, Signature, Verifier, VerifyingKey};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -39,6 +39,13 @@ pub fn verify_validator_vote(
     vote: &ValidatorVote,
 ) -> Result<(), VerificationError> {
     verify_ml_dsa44(public_key, &vote.signing_payload(), vote.signature().as_bytes())
+}
+
+pub fn verify_block_proposal(
+    public_key: &[u8],
+    proposal: &BlockProposal,
+) -> Result<(), VerificationError> {
+    verify_ml_dsa44(public_key, &proposal.signing_payload(), proposal.signature().as_bytes())
 }
 
 pub fn verify_quorum_certificate(
