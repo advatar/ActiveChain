@@ -61,6 +61,21 @@ Tracked by [GitHub issue #7](https://github.com/advatar/ActiveChain/issues/7).
 - [x] Publish deterministic action/block vectors and comprehensive unit/property tests.
 - [x] Pass the full local-runner CI matrix.
 
+## Active milestone — P-021 credentials and status-aware presentations
+
+Tracked by [GitHub issue #8](https://github.com/advatar/ActiveChain/issues/8).
+
+- [ ] Draft credential, acceptance-policy, issuer, status, freshness, and presentation semantics.
+- [ ] Define bounded canonical credential, registry, and acceptance-policy schemas.
+- [ ] Add strict canonical Rust credential and registry types.
+- [ ] Implement a pure `no_std` verifier over explicitly preverified issuer and status evidence.
+- [ ] Bind subject, issuer, schema, time, issuance log, registry root, sequence, and freshness.
+- [ ] Produce typed facts safe to inject into the current APL request boundary.
+- [ ] Add an executable Lean acceptance model and Rust differential fixture.
+- [ ] Publish deterministic credential and status vectors.
+- [ ] Add comprehensive unit, property, and boundary tests.
+- [ ] Pass the full dedicated local-runner CI matrix.
+
 ## Completed milestone — bounded APL policy kernel
 
 Tracked by [GitHub issue #3](https://github.com/advatar/ActiveChain/issues/3).
