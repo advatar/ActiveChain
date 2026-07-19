@@ -173,7 +173,7 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
 - [x] Add a reviewed ML-DSA validator signer and authenticated local vote production from admitted proposals.
 - [x] Broadcast complete authenticated consensus messages and enforce bounded peer event queues.
 - [x] Run the complete proposal → vote → QC → finalization loop in the validator process and persist finalized state.
-- [ ] Add configured peer discovery, authenticated connection handshakes, reconnects, bounded queues, rate limits, and backpressure.
+- [x] Add configured peer discovery, authenticated connection handshakes, reconnects, bounded queues, rate limits, and backpressure.
   - [x] Add bounded endpoint configuration, retry/backoff connection attempts, per-peer receive rate limits, and unreachable-peer reporting.
   - [x] Add challenge-based ML-DSA peer handshakes with bounded framing and loopback verification.
   - [x] Add partition, replay, dropped-vote, and late-recovery multi-validator rehearsal evidence.
@@ -182,14 +182,14 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
   - [x] Provide an authenticated round helper that fans out canonical proposal and vote messages through the peer directory.
 - [ ] Activate validator-set and staking transitions only through finalized consensus state.
   - [x] Bind the active validator-set root into finalized epoch transitions and durable consensus snapshots.
-- [ ] Implement erasure-coded data availability, commitments, sampling, and authenticated snapshot distribution.
+- [x] Implement erasure-coded data availability, commitments, sampling, and authenticated snapshot distribution.
   - [x] Add bounded Reed–Solomon shard construction/reconstruction with SHAKE commitments and deterministic sampling.
   - [x] Add authenticated distributed snapshot serialization, reconstruction, and restart tests.
-- [ ] Add ML-KEM protected transaction submission without classical confidentiality dependencies.
+- [x] Add ML-KEM protected transaction submission without classical confidentiality dependencies.
   - [x] Add reviewed RustCrypto ML-KEM-768 encapsulation/decapsulation boundary and tamper tests.
   - [x] Bind protected payload confidentiality and integrity to ML-KEM shared keys and associated data.
   - [x] Add canonical protected-envelope serialization and runtime admission of authenticated payloads.
-- [ ] Integrate transparent proof-carrying ObjectVM execution into block admission and finalization.
+- [x] Integrate transparent proof-carrying ObjectVM execution into block admission and finalization.
   - [x] Add canonical replay-verifiable execution evidence with program verification and result matching.
   - [x] Add consensus-runtime admission validation for replay-verifiable execution evidence.
 - [ ] Ship genesis, validator, and wallet CLIs plus an indexer, metrics, alerts, and operator documentation.
@@ -198,7 +198,7 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
   - [x] Expose metrics snapshots in stable Prometheus text format for operator alerts.
   - [x] Add deterministic `validator-node ... <index> --once` execution for process-level round rehearsals.
   - [x] Publish the operator runbook and release-gate thresholds in `docs/testnet-operations.md`.
-- [ ] Pass multi-process Byzantine, restart, partition, and sustained-load testnet rehearsals on the local runner.
+- [x] Pass multi-process Byzantine, restart, partition, and sustained-load testnet rehearsals on the local runner.
   - [x] Launch three genesis-bound validator-node processes and verify deterministic signer derivation, metrics, and persisted snapshots.
   - [x] Require ML-DSA verification on inbound validator socket sessions before accepting consensus frames.
   - [x] Wire genesis-bound authenticated session handling into the validator-node accept loop.
