@@ -1,0 +1,4 @@
+5,5,Accepted(6)
+5,4,Replay
+5,6,SequenceGap
+18446744073709551615,18446744073709551615,SequenceExhausted

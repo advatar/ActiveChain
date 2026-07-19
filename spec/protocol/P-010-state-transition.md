@@ -1,6 +1,6 @@
 # P-010: Global state-transition function
 
-- Status: Draft 0.2
+- Status: Draft 0.3
 - Protocol version: Development
 - Issue: <https://github.com/advatar/ActiveChain/issues/4>
 
@@ -19,7 +19,7 @@ transition(
 ) -> TransitionOutput | TransitionError
 ```
 
-For identical inputs, conforming implementations MUST return byte-identical outputs or the same typed error. The function MUST NOT read a clock, filesystem, network, environment variable, random device, locale, or floating-point state. P-030 supplies the first executable refinement over an explicit bounded object state; a later P-031 refinement will replace that fixture with authenticated state witnesses.
+For identical inputs, conforming implementations MUST return byte-identical outputs or the same typed error. The function MUST NOT read a clock, filesystem, network, environment variable, random device, locale, or floating-point state. P-030 supplies the first executable refinement over an explicit bounded object state. P-031 authenticates that state, and the P-040 development refinement composes ordered public actions into deterministic single-node blocks.
 
 ## 3. Transition output
 
@@ -56,6 +56,14 @@ transition_objects(pre_state, transfer_transaction)
 The semantic function verifies request binding, declared exact write access, object presence and version, committed APL control policy, authorization, supported obligations, and the P-030 transfer invariants in that order. It applies commands to scratch state and publishes them only when every command succeeds. Every semantic failure returns the original pre-state and a typed receipt.
 
 This refinement does not claim that the explicit state list is a global-state witness. It exists to freeze object and atomicity semantics independently of the state-tree implementation.
+
+### 4.2 Development block refinement
+
+The single-node semantic devnet applies `DevnetBlockV1` to an explicit `DevnetChainState` through a pure function. It first verifies chain, height, parent, pre-state root, and strict action-ID order. Each action then passes P-040 validity, fee reservation, ticket uniqueness, and exact nonce checks before its P-030 transfer executes.
+
+Block-structural or admission errors return no output and therefore cannot publish scratch state. Once an action is admitted, its fee ticket and nonce are consumed even if transfer semantics fail. A transfer failure publishes the existing object state through its typed `TransitionReceiptV1`. If actual work exceeds the envelope resource ceiling, the action instead returns `ResourceLimitExceeded`, charges the declared maximum, and publishes the pre-action object state.
+
+The output binds the post-state tree, ordered action receipts, receipt root, block identifier, advanced nonce channels, and consumed ticket set. This refinement has no clock, storage, networking, signature adapter, mempool, or consensus behavior.
 
 ## 5. Error behavior
 

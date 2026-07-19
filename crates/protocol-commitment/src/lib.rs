@@ -24,6 +24,10 @@ impl DomainTag {
     pub const SIGNING_PAYLOAD: Self = Self(0x0003);
     /// Commitment to a canonical state-tree leaf.
     pub const STATE_LEAF: Self = Self(0x0004);
+    /// Derivation of an admitted action identifier.
+    pub const ACTION_ID: Self = Self(0x0005);
+    /// Derivation of a canonical finalized development block identifier.
+    pub const BLOCK_ID: Self = Self(0x0006);
 
     /// Returns the registered numeric tag.
     #[must_use]

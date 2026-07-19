@@ -1,0 +1,21 @@
+[package]
+name = "activechain-action-kernel"
+description = "Canonical P-040 public action admission and replay protection for ActiveChain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+activechain-canonical-codec.workspace = true
+activechain-policy-kernel.workspace = true
+activechain-protocol-commitment = { path = "../protocol-commitment", version = "0.1.0" }
+activechain-protocol-types.workspace = true
+activechain-transition.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

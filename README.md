@@ -23,13 +23,17 @@ The implementation is deliberately starting below networking and consensus. The 
 - executable Lean models for state-key paths and abstract 16-way proof folding;
 - bounded typed ObjectVM bytecode, a static resource/control-flow verifier, and a prepaid-gas interpreter;
 - executable Lean models for ObjectVM copy/move/consume resource semantics and instruction costs;
-- deterministic principal, authority, APL, transition, state-tree, and ObjectVM vectors;
-- unit and property tests for codec safety, authority, policy, transitions, proofs, bytecode, and execution.
+- public action envelopes with exact nonce channels, one-shot fee tickets, and six-dimensional resource ceilings;
+- a pure deterministic block kernel with canonical action/block identifiers, receipts, charges, and post-state roots;
+- a minimal semantic-devnet host and an executable Lean nonce/replay model;
+- deterministic principal, authority, APL, transition, state-tree, ObjectVM, action, and block vectors;
+- unit and property tests for codec safety, authority, policy, transitions, proofs, bytecode, execution, admission, and block application.
 
 ## Workspace
 
 ```text
 crates/canonical-codec       consensus binary encoding
+crates/action-kernel         public action admission values and replay semantics
 crates/bytecode-verifier     typed ObjectVM bytecode and static verification
 crates/protocol-types        canonical IDs, principals, authenticators, capabilities
 crates/protocol-commitment   SHAKE256/384 commitment transcript
@@ -40,14 +44,16 @@ crates/object                exact one-step object ownership transitions
 crates/object-vm             deterministic metered reference interpreter
 crates/transition            access-confined atomic transfer reference kernel
 crates/state-tree            canonical sparse state commitment and witnesses
+crates/devnet-kernel         pure deterministic single-node block application
 formal/lean/                 executable APL/object/state-tree models and proofs
+node/semantic-devnet/        minimal host shell around the pure block kernel
 schema/                      canonical schema source
 spec/protocol/               normative protocol drafts
 testing/vectors/             cross-implementation fixtures
 tools/vector-generator/      deterministic vector producer
 ```
 
-All eleven protocol and semantic-kernel crates compile with `#![no_std]` and `#![forbid(unsafe_code)]`. The vector generator and Lean models are host verification tooling outside the consensus kernel.
+All thirteen protocol and semantic-kernel crates compile with `#![no_std]` and `#![forbid(unsafe_code)]`. The semantic-devnet executable, vector generator, and Lean models are host tooling outside the consensus kernel.
 
 ## Verify locally
 
@@ -56,7 +62,7 @@ The repository pins Rust 1.97.1. Run:
 ```sh
 cargo fmt --all --check
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
-cargo check --locked --target aarch64-apple-ios --lib -p activechain-bytecode-verifier -p activechain-canonical-codec -p activechain-protocol-types -p activechain-protocol-commitment -p activechain-principal -p activechain-capability -p activechain-policy-kernel -p activechain-object -p activechain-object-vm -p activechain-transition -p activechain-state-tree
+cargo check --locked --target aarch64-apple-ios --lib -p activechain-action-kernel -p activechain-bytecode-verifier -p activechain-canonical-codec -p activechain-devnet-kernel -p activechain-protocol-types -p activechain-protocol-commitment -p activechain-principal -p activechain-capability -p activechain-policy-kernel -p activechain-object -p activechain-object-vm -p activechain-transition -p activechain-state-tree
 cargo test --locked --workspace --all-features
 cargo test --locked --workspace --doc
 cargo run --locked --quiet -p activechain-vector-generator -- principal-v1
@@ -65,9 +71,11 @@ cargo run --locked --quiet -p activechain-vector-generator -- apl-v1
 cargo run --locked --quiet -p activechain-vector-generator -- object-transition-v1
 cargo run --locked --quiet -p activechain-vector-generator -- state-tree-v1
 cargo run --locked --quiet -p activechain-vector-generator -- object-vm-v1
+cargo run --locked --quiet -p activechain-vector-generator -- devnet-block-v1
+cargo run --locked --quiet -p activechain-semantic-devnet -- empty-block
 cd formal/lean && lake build
 ```
 
-Implementation progress is tracked in `STATUS.md` and the linked milestone issues, including [ObjectVM issue #6](https://github.com/advatar/ActiveChain/issues/6).
+Implementation progress is tracked in `STATUS.md` and the linked milestone issues, including [semantic-devnet issue #7](https://github.com/advatar/ActiveChain/issues/7).
 
 CI runs on the repository's dedicated macOS ARM64 self-hosted runner. Its pinned installation, operations, and security boundary are documented in `docs/ci/self-hosted-runner.md`.

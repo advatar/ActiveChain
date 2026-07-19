@@ -16,6 +16,7 @@ newtype CredentialId = Digest384;
 newtype PackageId = Digest384;
 newtype JobId = Digest384;
 newtype TransactionId = Digest384;
+newtype ChainId = Digest384;
 
 type Height = u64;
 type Epoch = u64;
@@ -378,4 +379,86 @@ struct VmExecutionResult @type_tag(0x0061) @version(1) @max_bytes(270508) {
     steps: u16;
     outputs: BoundedList<VmValue, 16>;
     events: BoundedList<VmEventValue, 16>;
+}
+
+struct ResourceVector @max_bytes(48) {
+    policy_steps: u64;
+    object_reads: u64;
+    object_writes: u64;
+    vm_gas: u64;
+    events: u64;
+    encoded_bytes: u64;
+}
+
+struct ResourcePrices @max_bytes(48) {
+    policy_step: u64;
+    object_read: u64;
+    object_write: u64;
+    vm_gas: u64;
+    event: u64;
+    encoded_byte: u64;
+}
+
+struct ValidityInterval @max_bytes(16) {
+    valid_from: Height;
+    valid_until: Height;
+}
+
+struct FeeTicket @type_tag(0x0070) @version(1) @max_bytes(176) {
+    ticket_id: ObjectId;
+    payer: PrincipalId;
+    reserved_amount: Amount;
+    valid_until: Height;
+    nonce: u64;
+    permitted_resources: ResourceVector;
+}
+
+struct ActionEnvelope @type_tag(0x0071) @version(1) @max_bytes(1265778) {
+    protocol_version: u16;
+    chain_id: ChainId;
+    sender: PrincipalId;
+    fee_ticket: FeeTicket;
+    nonce_channel: u16;
+    sequence: u64;
+    validity: ValidityInterval;
+    maximum_resources: ResourceVector;
+    payload_commitment: Digest384;
+    payload: TransferTransaction;
+    authorization_commitment: Digest384;
+}
+
+struct NonceChannel @type_tag(0x0072) @version(1) @max_bytes(58) {
+    sender: PrincipalId;
+    channel: u16;
+    next_sequence: u64;
+}
+
+struct DevnetBlock @type_tag(0x0073) @version(1) @max_bytes(40505057) {
+    chain_id: ChainId;
+    height: Height;
+    parent_block_id: Digest384;
+    pre_state: StateCommitment;
+    actions: BoundedList<ActionEnvelope, 32>;
+}
+
+enum ActionOutcome : u8 @max_bytes(105) {
+    Transition(receipt: TransitionReceipt) = 0;
+    ResourceLimitExceeded = 1;
+}
+
+struct ActionReceipt @max_bytes(281) {
+    transaction_id: TransactionId;
+    outcome: ActionOutcome;
+    resources_used: ResourceVector;
+    fee_charged: Amount;
+    sequence: u64;
+    post_state: StateCommitment;
+}
+
+struct BlockReceipt @type_tag(0x0074) @version(1) @max_bytes(9161) {
+    block_id: Digest384;
+    height: Height;
+    pre_state: StateCommitment;
+    post_state: StateCommitment;
+    action_receipts: BoundedList<ActionReceipt, 32>;
 }

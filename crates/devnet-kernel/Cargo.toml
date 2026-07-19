@@ -1,0 +1,23 @@
+[package]
+name = "activechain-devnet-kernel"
+description = "Pure deterministic single-node semantic chain kernel for ActiveChain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+activechain-action-kernel.workspace = true
+activechain-canonical-codec.workspace = true
+activechain-protocol-commitment = { path = "../protocol-commitment", version = "0.1.0" }
+activechain-protocol-types.workspace = true
+activechain-state-tree.workspace = true
+activechain-transition.workspace = true
+
+[dev-dependencies]
+activechain-policy-kernel.workspace = true
+proptest.workspace = true
+
+[lints]
+workspace = true

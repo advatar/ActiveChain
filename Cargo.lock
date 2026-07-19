@@ -3,6 +3,18 @@
 version = 4
 
 [[package]]
+name = "activechain-action-kernel"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-policy-kernel",
+ "activechain-protocol-commitment",
+ "activechain-protocol-types",
+ "activechain-transition",
+ "proptest",
+]
+
+[[package]]
 name = "activechain-bytecode-verifier"
 version = "0.1.0"
 dependencies = [
@@ -23,6 +35,20 @@ name = "activechain-capability"
 version = "0.1.0"
 dependencies = [
  "activechain-protocol-types",
+ "proptest",
+]
+
+[[package]]
+name = "activechain-devnet-kernel"
+version = "0.1.0"
+dependencies = [
+ "activechain-action-kernel",
+ "activechain-canonical-codec",
+ "activechain-policy-kernel",
+ "activechain-protocol-commitment",
+ "activechain-protocol-types",
+ "activechain-state-tree",
+ "activechain-transition",
  "proptest",
 ]
 
@@ -79,6 +105,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-semantic-devnet"
+version = "0.1.0"
+dependencies = [
+ "activechain-action-kernel",
+ "activechain-devnet-kernel",
+ "activechain-protocol-types",
+ "activechain-state-tree",
+ "activechain-transition",
+]
+
+[[package]]
 name = "activechain-state-tree"
 version = "0.1.0"
 dependencies = [
@@ -103,9 +140,11 @@ dependencies = [
 name = "activechain-vector-generator"
 version = "0.1.0"
 dependencies = [
+ "activechain-action-kernel",
  "activechain-bytecode-verifier",
  "activechain-canonical-codec",
  "activechain-capability",
+ "activechain-devnet-kernel",
  "activechain-object",
  "activechain-object-vm",
  "activechain-policy-kernel",

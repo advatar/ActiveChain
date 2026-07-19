@@ -1,0 +1,18 @@
+[package]
+name = "activechain-semantic-devnet"
+description = "Minimal deterministic ActiveChain semantic-devnet host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+activechain-action-kernel.workspace = true
+activechain-devnet-kernel.workspace = true
+activechain-protocol-types.workspace = true
+activechain-state-tree.workspace = true
+activechain-transition.workspace = true
+
+[lints]
+workspace = true

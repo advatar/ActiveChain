@@ -50,15 +50,15 @@ Tracked by [GitHub issue #6](https://github.com/advatar/ActiveChain/issues/6).
 
 Tracked by [GitHub issue #7](https://github.com/advatar/ActiveChain/issues/7).
 
-- [ ] Draft the public-development `P-040` envelope, fee-ticket, resource, validity, and nonce semantics.
-- [ ] Define bounded canonical action-envelope, fee-ticket, block, action-receipt, and block-receipt schemas.
-- [ ] Bind envelopes to chain, sender, payload commitment, validity, resources, fees, nonce channel, and authorization evidence.
-- [ ] Implement exact nonce advancement, replay/gap rejection, and one-shot fee-ticket consumption.
-- [ ] Apply canonically ordered admitted transfers with total receipts and no partial semantic effects.
-- [ ] Derive deterministic action IDs, block IDs, receipt roots, resource charges, and state-tree post roots.
-- [ ] Implement a pure `no_std` devnet chain kernel plus a minimal host executable.
-- [ ] Add an executable Lean nonce/replay model and Rust differential fixture.
-- [ ] Publish deterministic action/block vectors and comprehensive unit/property tests.
+- [x] Draft the public-development `P-040` envelope, fee-ticket, resource, validity, and nonce semantics.
+- [x] Define bounded canonical action-envelope, fee-ticket, block, action-receipt, and block-receipt schemas.
+- [x] Bind envelopes to chain, sender, payload commitment, validity, resources, fees, nonce channel, and authorization evidence.
+- [x] Implement exact nonce advancement, replay/gap rejection, and one-shot fee-ticket consumption.
+- [x] Apply canonically ordered admitted transfers with total receipts and no partial semantic effects.
+- [x] Derive deterministic action IDs, block IDs, receipt roots, resource charges, and state-tree post roots.
+- [x] Implement a pure `no_std` devnet chain kernel plus a minimal host executable.
+- [x] Add an executable Lean nonce/replay model and Rust differential fixture.
+- [x] Publish deterministic action/block vectors and comprehensive unit/property tests.
 - [ ] Pass the full local-runner CI matrix.
 
 ## Completed milestone — bounded APL policy kernel

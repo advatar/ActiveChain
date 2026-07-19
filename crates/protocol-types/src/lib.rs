@@ -120,6 +120,7 @@ identifier_type!(CredentialId, "A credential identifier.");
 identifier_type!(PackageId, "An immutable contract package identifier.");
 identifier_type!(JobId, "An asynchronous compute job identifier.");
 identifier_type!(TransactionId, "A canonical transaction identifier.");
+identifier_type!(ChainId, "A protocol deployment and replay-protection identifier.");
 
 /// A finalized block height.
 pub type Height = u64;
