@@ -520,6 +520,21 @@ impl PeerDirectory {
         }
         Ok(())
     }
+    pub fn broadcast_message_best_effort(
+        &mut self,
+        message: &AuthenticatedConsensusMessage,
+    ) -> Vec<u16> {
+        let mut failed = Vec::new();
+        for (peer_id, (socket, _)) in &mut self.peers {
+            if socket.send_message(message).is_err() {
+                failed.push(*peer_id);
+            }
+        }
+        for peer_id in &failed {
+            self.peers.remove(peer_id);
+        }
+        failed
+    }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PeerDirectoryError {
