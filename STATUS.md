@@ -203,6 +203,7 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
   - [x] Add deterministic `validator-node ... <index> --once` execution for process-level round rehearsals.
   - [x] Publish the operator runbook and release-gate thresholds in `docs/testnet-operations.md`.
   - [x] Add a deterministic ML-DSA-44 wallet identity CLI for local testnet operators.
+  - [x] Add a deterministic finalized-snapshot indexer CLI for operator state ingestion.
 - [x] Pass multi-process Byzantine, restart, partition, and sustained-load testnet rehearsals on the local runner.
   - [x] Launch three genesis-bound validator-node processes and verify deterministic signer derivation, metrics, and persisted snapshots.
   - [x] Require ML-DSA verification on inbound validator socket sessions before accepting consensus frames.
