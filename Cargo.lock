@@ -42,6 +42,7 @@ dependencies = [
 name = "activechain-consensus-runtime"
 version = "0.1.0"
 dependencies = [
+ "activechain-canonical-codec",
  "activechain-crypto-provider",
  "activechain-protocol-types",
  "ml-dsa",

@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 activechain-crypto-provider.workspace = true
 activechain-protocol-types.workspace = true
+activechain-canonical-codec.workspace = true
 sha3.workspace = true
 
 [lints]

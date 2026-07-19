@@ -2,12 +2,13 @@
 
 //! Deterministic in-memory consensus boundary for the first PQ testnet runtime.
 
+use activechain_canonical_codec::{decode_envelope, encode_envelope};
 use activechain_crypto_provider::{
     VerificationError, verify_block_proposal, verify_quorum_certificate,
 };
 use activechain_protocol_types::{
-    BlockProposal, ConsensusState, ConsensusStateError, CryptoSuiteId, Digest384,
-    ProtocolSignature, QuorumCertificate, ValidatorSet, ValidatorVote,
+    BlockProposal, ConsensusSnapshot, ConsensusState, ConsensusStateError, CryptoSuiteId,
+    Digest384, ProtocolSignature, QuorumCertificate, ValidatorSet, ValidatorVote,
 };
 use sha3::{
     Shake256,
@@ -203,6 +204,22 @@ impl ConsensusDispatcher {
 pub enum DispatchError {
     QueueClosed,
     Handler(String),
+}
+
+pub fn save_snapshot(path: &std::path::Path, state: &ConsensusState) -> std::io::Result<()> {
+    let bytes = encode_envelope(&state.snapshot()).map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, "snapshot encoding failed")
+    })?;
+    let temporary = path.with_extension("tmp");
+    std::fs::write(&temporary, bytes)?;
+    std::fs::rename(temporary, path)
+}
+pub fn load_snapshot(path: &std::path::Path) -> std::io::Result<ConsensusState> {
+    let bytes = std::fs::read(path)?;
+    let snapshot: ConsensusSnapshot = decode_envelope(&bytes).map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, "snapshot decoding failed")
+    })?;
+    Ok(ConsensusState::from_snapshot(snapshot))
 }
 impl PeerSocket {
     pub fn connect(stream: TcpStream) -> Self {
