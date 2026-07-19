@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::net::TcpStream;
+use std::sync::mpsc::{self, Receiver, Sender};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SignedPeerEnvelope {
@@ -152,6 +153,34 @@ pub enum PeerReceiveError {
     UnknownPeer,
     Io(std::io::Error),
     Transport(TransportError),
+}
+
+#[derive(Clone, Debug)]
+pub struct PeerEvent {
+    pub peer_id: u16,
+    pub envelope: SignedPeerEnvelope,
+}
+pub struct PeerEventQueue {
+    sender: Sender<PeerEvent>,
+    receiver: Receiver<PeerEvent>,
+}
+impl PeerEventQueue {
+    pub fn new() -> Self {
+        let (sender, receiver) = mpsc::channel();
+        Self { sender, receiver }
+    }
+    pub fn sender(&self) -> Sender<PeerEvent> {
+        self.sender.clone()
+    }
+    pub fn push(&self, event: PeerEvent) -> Result<(), mpsc::SendError<PeerEvent>> {
+        self.sender.send(event)
+    }
+    pub fn recv(&self) -> Result<PeerEvent, mpsc::RecvError> {
+        self.receiver.recv()
+    }
+    pub fn try_recv(&self) -> Result<PeerEvent, mpsc::TryRecvError> {
+        self.receiver.try_recv()
+    }
 }
 impl PeerSocket {
     pub fn connect(stream: TcpStream) -> Self {
