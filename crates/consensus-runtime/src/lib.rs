@@ -8,6 +8,8 @@ use activechain_protocol_types::{
     QuorumCertificate, ValidatorSet, ValidatorVote,
 };
 use std::collections::BTreeMap;
+use std::io::{Read, Write};
+use std::net::TcpStream;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SignedPeerEnvelope {
@@ -34,6 +36,12 @@ impl SignedPeerEnvelope {
     pub const fn sequence(&self) -> u64 {
         self.sequence
     }
+    pub const fn body_digest(&self) -> Digest384 {
+        self.body_digest
+    }
+    pub fn signature_bytes(&self) -> &[u8] {
+        self.signature.as_bytes()
+    }
     pub fn signing_payload(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(18 + 2 + 8 + 48);
         bytes.extend_from_slice(b"ACTIVECHAIN-PEER-V1");
@@ -49,6 +57,32 @@ impl SignedPeerEnvelope {
             self.signature.as_bytes(),
         )
         .map_err(TransportError::Verification)
+    }
+}
+
+pub struct PeerSocket {
+    stream: TcpStream,
+}
+impl PeerSocket {
+    pub fn connect(stream: TcpStream) -> Self {
+        Self { stream }
+    }
+    pub fn send(&mut self, envelope: &SignedPeerEnvelope) -> std::io::Result<()> {
+        let mut frame = Vec::with_capacity(2 + 8 + 48 + 2 + envelope.signature_bytes().len());
+        frame.extend_from_slice(&envelope.sender().to_be_bytes());
+        frame.extend_from_slice(&envelope.sequence().to_be_bytes());
+        frame.extend_from_slice(envelope.body_digest().as_bytes());
+        frame.extend_from_slice(&(envelope.signature_bytes().len() as u16).to_be_bytes());
+        frame.extend_from_slice(envelope.signature_bytes());
+        self.stream.write_all(&(frame.len() as u32).to_be_bytes())?;
+        self.stream.write_all(&frame)
+    }
+    pub fn receive_frame(&mut self) -> std::io::Result<Vec<u8>> {
+        let mut len = [0; 4];
+        self.stream.read_exact(&mut len)?;
+        let mut frame = vec![0; u32::from_be_bytes(len) as usize];
+        self.stream.read_exact(&mut frame)?;
+        Ok(frame)
     }
 }
 #[derive(Debug, Eq, PartialEq)]
