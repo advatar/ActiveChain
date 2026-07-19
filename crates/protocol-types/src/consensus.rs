@@ -580,6 +580,43 @@ mod tests {
         );
     }
     #[test]
+    fn frozen_qc_vector_matches_threshold_rules() {
+        let vector = include_str!("../../../testing/vectors/consensus/qc-v1.txt");
+        let value = |name: &str| {
+            vector
+                .lines()
+                .find_map(|line| {
+                    line.split_once('=').and_then(|(key, value)| (key == name).then_some(value))
+                })
+                .unwrap()
+                .parse::<u128>()
+                .unwrap()
+        };
+        let qc = QuorumCertificate::new(
+            value("epoch") as u64,
+            value("height") as u64,
+            value("round") as u64,
+            digest(1),
+            digest(2),
+            value("total_stake"),
+            value("signer_stake"),
+        )
+        .unwrap();
+        assert_eq!(qc.height(), 9);
+        assert_eq!(
+            QuorumCertificate::new(
+                value("epoch") as u64,
+                value("height") as u64,
+                value("round") as u64,
+                digest(1),
+                digest(2),
+                value("total_stake"),
+                value("under_threshold_signer_stake"),
+            ),
+            Err(QuorumCertificateError::InsufficientStake)
+        );
+    }
+    #[test]
     fn epoch_transition_requires_consecutive_epochs() {
         let transition = EpochTransition::new(4, 5, 100, digest(9)).unwrap();
         assert_eq!(transition.to_epoch(), 5);

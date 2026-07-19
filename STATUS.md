@@ -152,6 +152,7 @@ Tracked by [GitHub issue #11](https://github.com/advatar/ActiveChain/issues/11).
 - [x] Bind quorum certificates to a Merkleized raw ML-DSA vote-set root.
 - [x] Enforce overflow-safe two-thirds stake thresholds.
 - [ ] Add canonical vectors and malformed/under-threshold rejection tests.
+- [x] Add a frozen QC stake-threshold vector with deterministic acceptance and rejection coverage.
 
 ## Active milestone — deterministic multi-validator PQ runtime
 

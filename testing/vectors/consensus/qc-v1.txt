@@ -1,0 +1,9 @@
+# ActiveChain canonical QC vector v1
+epoch=4
+height=9
+round=2
+block_digest=01
+vote_set_root=02
+total_stake=10
+signer_stake=7
+under_threshold_signer_stake=6
