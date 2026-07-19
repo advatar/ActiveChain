@@ -19,6 +19,13 @@ cargo run --quiet -p activechain-consensus-runtime --bin validator-node -- \
 pids+=("$!")
 sleep 2
 
+python3 - <<'PY'
+import socket
+sock = socket.create_connection(("127.0.0.1", 4511), timeout=2)
+sock.sendall((16 * 1024 + 1).to_bytes(4, "big"))
+sock.close()
+PY
+
 cargo run --quiet -p activechain-consensus-runtime --bin validator-node -- \
   4510 "$workdir/v0.snapshot" "$genesis" 0 0 --once \
   --peer=2@127.0.0.1:4511 --peer=3@127.0.0.1:4512 | tee "$workdir/proposer.out"

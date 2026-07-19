@@ -207,6 +207,7 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
   - [x] Validate peer ID/address/key tuples through a canonical endpoint constructor.
   - [x] Run a spawned three-process authenticated quorum round with returned votes and finalized height.
   - [x] Restart a live validator from its persisted snapshot and verify listener recovery.
+  - [x] Inject an oversized Byzantine frame into a live validator and prove quorum still finalizes.
   - [x] Make peer discovery return only sockets that completed the authenticated ML-DSA handshake.
   - [x] Exercise a live TCP handshake and consensus frame end-to-end before service admission.
   - [x] Prove three independently signed validator votes reach a receiver over authenticated TCP and finalize a QC.
