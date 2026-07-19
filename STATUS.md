@@ -134,6 +134,7 @@ Tracked by [GitHub issue #10](https://github.com/advatar/ActiveChain/issues/10).
 
 - [ ] Add explicit PQ-only validation for consensus-critical suite positions.
 - [ ] Define suite activation and deprecation boundaries before live testnet use.
+- [x] Document the day-one PQ-only admission policy and bounded future-suite migration process.
 - [ ] Specify migration behavior for validator, principal, credential, transport, and protected-envelope keys.
 - [ ] Add deterministic migration vectors and rejection tests.
 - [ ] Do not describe consensus, threshold encryption, or clients as quantum-safe until their implementations pass these gates.
