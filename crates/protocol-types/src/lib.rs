@@ -23,7 +23,8 @@ pub use authority::{
 };
 pub use consensus::{
     BlockProposal, EpochTransition, EpochTransitionError, MAX_VALIDATORS_PER_EPOCH,
-    QuorumCertificate, QuorumCertificateError, ValidatorSet, ValidatorSetError, ValidatorVote,
+    ML_DSA44_PUBLIC_KEY_LENGTH, QuorumCertificate, QuorumCertificateError, ValidatorGenesis,
+    ValidatorGenesisEntry, ValidatorGenesisError, ValidatorSet, ValidatorSetError, ValidatorVote,
     ValidatorVoteError, ValidatorWeight,
 };
 pub use consensus_state::{

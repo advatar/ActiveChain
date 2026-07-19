@@ -126,6 +126,7 @@ pub struct ValidatorWeight {
 }
 
 pub const MAX_VALIDATORS_PER_EPOCH: usize = 256;
+pub const ML_DSA44_PUBLIC_KEY_LENGTH: usize = 1312;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValidatorSet(Vec<ValidatorWeight>);
 impl ValidatorSet {
@@ -378,6 +379,131 @@ impl CanonicalType for ValidatorSet {
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatorGenesisEntry {
+    validator: PrincipalId,
+    stake: u128,
+    public_key: [u8; ML_DSA44_PUBLIC_KEY_LENGTH],
+}
+impl ValidatorGenesisEntry {
+    pub const ENCODED_LENGTH: usize = 48 + 16 + ML_DSA44_PUBLIC_KEY_LENGTH;
+    pub fn new(
+        validator: PrincipalId,
+        stake: u128,
+        public_key: [u8; ML_DSA44_PUBLIC_KEY_LENGTH],
+    ) -> Result<Self, ValidatorGenesisError> {
+        if stake == 0 {
+            return Err(ValidatorGenesisError::ZeroStake);
+        }
+        Ok(Self { validator, stake, public_key })
+    }
+    pub const fn validator(&self) -> PrincipalId {
+        self.validator
+    }
+    pub const fn stake(&self) -> u128 {
+        self.stake
+    }
+    pub fn public_key(&self) -> &[u8; ML_DSA44_PUBLIC_KEY_LENGTH] {
+        &self.public_key
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatorGenesis {
+    epoch: Epoch,
+    activation_height: u64,
+    entries: Vec<ValidatorGenesisEntry>,
+}
+impl ValidatorGenesis {
+    pub const TYPE_TAG: u16 = 0x006b;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize =
+        8 + 8 + 1 + MAX_VALIDATORS_PER_EPOCH * ValidatorGenesisEntry::ENCODED_LENGTH;
+    pub fn new(
+        epoch: Epoch,
+        activation_height: u64,
+        entries: Vec<ValidatorGenesisEntry>,
+    ) -> Result<Self, ValidatorGenesisError> {
+        if activation_height == 0 || entries.is_empty() || entries.len() > MAX_VALIDATORS_PER_EPOCH
+        {
+            return Err(ValidatorGenesisError::Bounds);
+        }
+        if entries.windows(2).any(|pair| pair[0].validator >= pair[1].validator) {
+            return Err(ValidatorGenesisError::NotStrictlyOrdered);
+        }
+        Ok(Self { epoch, activation_height, entries })
+    }
+    pub const fn epoch(&self) -> Epoch {
+        self.epoch
+    }
+    pub const fn activation_height(&self) -> u64 {
+        self.activation_height
+    }
+    pub fn entries(&self) -> &[ValidatorGenesisEntry] {
+        &self.entries
+    }
+    pub fn validator_set(&self) -> Result<ValidatorSet, ValidatorSetError> {
+        ValidatorSet::new(
+            self.entries
+                .iter()
+                .map(|entry| ValidatorWeight { validator: entry.validator, stake: entry.stake })
+                .collect(),
+        )
+    }
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ValidatorGenesisError {
+    Bounds,
+    ZeroStake,
+    NotStrictlyOrdered,
+}
+impl CanonicalEncode for ValidatorGenesisEntry {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.validator.encode(e)?;
+        self.stake.encode(e)?;
+        self.public_key.encode(e)
+    }
+}
+impl CanonicalDecode for ValidatorGenesisEntry {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            PrincipalId::decode(d)?,
+            u128::decode(d)?,
+            <[u8; ML_DSA44_PUBLIC_KEY_LENGTH]>::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid validator genesis entry"))
+    }
+}
+impl CanonicalEncode for ValidatorGenesis {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.epoch.encode(e)?;
+        self.activation_height.encode(e)?;
+        e.write_length(self.entries.len(), MAX_VALIDATORS_PER_EPOCH)?;
+        for entry in &self.entries {
+            entry.encode(e)?;
+        }
+        Ok(())
+    }
+}
+impl CanonicalDecode for ValidatorGenesis {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let epoch = u64::decode(d)?;
+        let activation_height = u64::decode(d)?;
+        let count = d.read_length(MAX_VALIDATORS_PER_EPOCH)?;
+        let mut entries = Vec::with_capacity(count);
+        for _ in 0..count {
+            entries.push(ValidatorGenesisEntry::decode(d)?);
+        }
+        Self::new(epoch, activation_height, entries)
+            .map_err(|_| DecodeError::InvalidValue("invalid validator genesis"))
+    }
+}
+impl CanonicalType for ValidatorGenesis {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
 impl CanonicalEncode for EpochTransition {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
         self.from_epoch.encode(e)?;
@@ -444,6 +570,35 @@ mod tests {
         assert_eq!(
             EpochTransition::new(4, 6, 100, digest(9)),
             Err(EpochTransitionError::NonConsecutiveEpochs)
+        );
+    }
+
+    #[test]
+    fn validator_genesis_binds_ordered_stake_and_ml_dsa_keys() {
+        let first = ValidatorGenesisEntry::new(
+            crate::PrincipalId::new(digest(1)),
+            4,
+            [7; ML_DSA44_PUBLIC_KEY_LENGTH],
+        )
+        .unwrap();
+        let second = ValidatorGenesisEntry::new(
+            crate::PrincipalId::new(digest(2)),
+            6,
+            [8; ML_DSA44_PUBLIC_KEY_LENGTH],
+        )
+        .unwrap();
+        let genesis = ValidatorGenesis::new(3, 1, vec![first, second]).unwrap();
+        let encoded = encode_envelope(&genesis).unwrap();
+        assert_eq!(decode_envelope::<ValidatorGenesis>(&encoded), Ok(genesis.clone()));
+        assert_eq!(genesis.validator_set().unwrap().total_stake(), 10);
+        assert_eq!(genesis.entries()[0].public_key()[0], 7);
+        assert_eq!(
+            ValidatorGenesis::new(
+                3,
+                1,
+                vec![genesis.entries()[1].clone(), genesis.entries()[0].clone()]
+            ),
+            Err(ValidatorGenesisError::NotStrictlyOrdered)
         );
     }
 }
