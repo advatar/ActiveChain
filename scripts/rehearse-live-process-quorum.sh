@@ -25,4 +25,10 @@ cargo run --quiet -p activechain-consensus-runtime --bin validator-node -- \
 
 rg --fixed-strings "completed network round: finalized_height=1" "$workdir/proposer.out"
 test -s "$workdir/v0.snapshot"
+kill "${pids[0]}" 2>/dev/null || true
+cargo run --quiet -p activechain-consensus-runtime --bin validator-node -- \
+  4511 "$workdir/v1.snapshot" "$genesis" 0 1 >"$workdir/v1-restart.out" 2>&1 &
+pids[0]="$!"
+sleep 2
+rg --fixed-strings "activechain validator listening on 0.0.0.0:4511" "$workdir/v1-restart.out"
 echo "live process quorum rehearsal passed"

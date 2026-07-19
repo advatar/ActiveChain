@@ -206,6 +206,7 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
   - [x] Add proposer-side round coordination that broadcasts, receives, and admits peer votes.
   - [x] Validate peer ID/address/key tuples through a canonical endpoint constructor.
   - [x] Run a spawned three-process authenticated quorum round with returned votes and finalized height.
+  - [x] Restart a live validator from its persisted snapshot and verify listener recovery.
   - [x] Make peer discovery return only sockets that completed the authenticated ML-DSA handshake.
   - [x] Exercise a live TCP handshake and consensus frame end-to-end before service admission.
   - [x] Prove three independently signed validator votes reach a receiver over authenticated TCP and finalize a QC.
