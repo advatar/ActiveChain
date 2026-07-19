@@ -2,10 +2,12 @@
 
 //! Deterministic in-memory consensus boundary for the first PQ testnet runtime.
 
-use activechain_crypto_provider::{VerificationError, verify_quorum_certificate};
+use activechain_crypto_provider::{
+    VerificationError, verify_block_proposal, verify_quorum_certificate,
+};
 use activechain_protocol_types::{
-    ConsensusState, ConsensusStateError, CryptoSuiteId, Digest384, ProtocolSignature,
-    QuorumCertificate, ValidatorSet, ValidatorVote,
+    BlockProposal, ConsensusState, ConsensusStateError, CryptoSuiteId, Digest384,
+    ProtocolSignature, QuorumCertificate, ValidatorSet, ValidatorVote,
 };
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
@@ -337,6 +339,23 @@ pub fn finalize_round(
 pub enum RuntimeError {
     VoteVerification(VerificationError),
     State(ConsensusStateError),
+}
+
+pub fn admit_proposal(
+    state: &ConsensusState,
+    proposal: &BlockProposal,
+    proposer_key: &[u8],
+) -> Result<(), ProposalError> {
+    verify_block_proposal(proposer_key, proposal).map_err(ProposalError::Verification)?;
+    if proposal.epoch() != state.epoch() || proposal.height() <= state.finalized_height() {
+        return Err(ProposalError::StaleOrWrongEpoch);
+    }
+    Ok(())
+}
+#[derive(Debug, Eq, PartialEq)]
+pub enum ProposalError {
+    Verification(VerificationError),
+    StaleOrWrongEpoch,
 }
 
 #[cfg(test)]
