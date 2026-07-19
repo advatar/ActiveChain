@@ -175,6 +175,23 @@ impl CryptoSuiteId {
             _ => None,
         }
     }
+
+    /// Returns whether this suite is a standardized post-quantum primitive.
+    #[must_use]
+    pub const fn is_post_quantum(self) -> bool {
+        matches!(
+            self.family,
+            CryptoFamily::MlDsa
+                | CryptoFamily::SlhDsaShake
+                | CryptoFamily::MlKem
+                | CryptoFamily::Shake
+        )
+    }
+
+    /// Rejects a suite at a safety-critical boundary unless it is PQ-enabled.
+    pub fn require_post_quantum(self) -> Result<Self, CryptoSuiteError> {
+        if self.is_post_quantum() { Ok(self) } else { Err(CryptoSuiteError::NonPostQuantumSuite) }
+    }
 }
 
 impl CanonicalEncode for CryptoSuiteId {
@@ -203,6 +220,8 @@ impl CanonicalDecode for CryptoSuiteId {
 pub enum CryptoSuiteError {
     /// No suite is registered for the complete tuple.
     UnregisteredSuite,
+    /// A classical suite was presented at a post-quantum safety boundary.
+    NonPostQuantumSuite,
 }
 
 /// A bounded, suite-tagged canonical signature.
@@ -527,6 +546,21 @@ mod tests {
             CryptoSuiteId::from_parts(CryptoFamily::MlDsa, 65, 2, 3),
             Err(CryptoSuiteError::UnregisteredSuite)
         );
+    }
+
+    #[test]
+    fn registered_suites_are_explicitly_pq_at_safety_boundaries() {
+        for suite in [
+            CryptoSuiteId::ML_DSA_44,
+            CryptoSuiteId::ML_DSA_65,
+            CryptoSuiteId::ML_DSA_87,
+            CryptoSuiteId::SLH_DSA_SHAKE_192S,
+            CryptoSuiteId::ML_KEM_768,
+            CryptoSuiteId::SHAKE256_384,
+        ] {
+            assert!(suite.is_post_quantum());
+            assert_eq!(suite.require_post_quantum(), Ok(suite));
+        }
     }
 
     #[test]

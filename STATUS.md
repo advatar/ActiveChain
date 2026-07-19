@@ -128,6 +128,16 @@ Tracked by [GitHub issue #4](https://github.com/advatar/ActiveChain/issues/4).
 - Proof-carrying execution and privacy profiles.
 - Protected ordering and the external compute plane.
 
+## Active milestone — full PQ migration boundary
+
+Tracked by [GitHub issue #10](https://github.com/advatar/ActiveChain/issues/10).
+
+- [ ] Add explicit PQ-only validation for consensus-critical suite positions.
+- [ ] Define suite activation and deprecation boundaries before live testnet use.
+- [ ] Specify migration behavior for validator, principal, credential, transport, and protected-envelope keys.
+- [ ] Add deterministic migration vectors and rejection tests.
+- [ ] Do not describe consensus, threshold encryption, or clients as quantum-safe until their implementations pass these gates.
+
 ## Planned milestone — P-051 immutable ObjectVM packages and upgrade model
 
 Tracked by [GitHub issue #9](https://github.com/advatar/ActiveChain/issues/9).
