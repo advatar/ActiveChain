@@ -4,8 +4,57 @@
 
 use activechain_crypto_provider::{VerificationError, verify_quorum_certificate};
 use activechain_protocol_types::{
-    ConsensusState, ConsensusStateError, QuorumCertificate, ValidatorSet, ValidatorVote,
+    ConsensusState, ConsensusStateError, CryptoSuiteId, Digest384, ProtocolSignature,
+    QuorumCertificate, ValidatorSet, ValidatorVote,
 };
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SignedPeerEnvelope {
+    sender: u16,
+    sequence: u64,
+    body_digest: Digest384,
+    signature: ProtocolSignature,
+}
+impl SignedPeerEnvelope {
+    pub fn new(
+        sender: u16,
+        sequence: u64,
+        body_digest: Digest384,
+        signature: ProtocolSignature,
+    ) -> Result<Self, TransportError> {
+        if signature.suite() != CryptoSuiteId::ML_DSA_44 {
+            return Err(TransportError::InvalidSuite);
+        }
+        Ok(Self { sender, sequence, body_digest, signature })
+    }
+    pub const fn sender(&self) -> u16 {
+        self.sender
+    }
+    pub const fn sequence(&self) -> u64 {
+        self.sequence
+    }
+    pub fn signing_payload(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(18 + 2 + 8 + 48);
+        bytes.extend_from_slice(b"ACTIVECHAIN-PEER-V1");
+        bytes.extend_from_slice(&self.sender.to_be_bytes());
+        bytes.extend_from_slice(&self.sequence.to_be_bytes());
+        bytes.extend_from_slice(self.body_digest.as_bytes());
+        bytes
+    }
+    pub fn verify(&self, public_key: &[u8]) -> Result<(), TransportError> {
+        activechain_crypto_provider::verify_ml_dsa44(
+            public_key,
+            &self.signing_payload(),
+            self.signature.as_bytes(),
+        )
+        .map_err(TransportError::Verification)
+    }
+}
+#[derive(Debug, Eq, PartialEq)]
+pub enum TransportError {
+    InvalidSuite,
+    Verification(VerificationError),
+}
 
 #[derive(Clone, Debug)]
 pub struct DeterministicPeer {
