@@ -1532,6 +1532,7 @@ impl ValidatorService {
         peers.broadcast_message(&proposal).map_err(ValidatorServiceError::Io)?;
         peers.broadcast_message(&vote).map_err(ValidatorServiceError::Io)
     }
+    #[allow(clippy::too_many_arguments)]
     pub fn propose_round_collect_votes(
         &self,
         signer: &ValidatorSigner,
