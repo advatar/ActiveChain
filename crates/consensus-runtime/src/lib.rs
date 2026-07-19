@@ -2214,26 +2214,30 @@ mod tests {
                 .unwrap();
             let mut votes = vec![leader_vote];
             for index in 1..3 {
-                votes.push(
-                    services[index]
-                        .process_proposal_and_sign_vote(
-                            proposal.clone(),
-                            &signers[index],
-                            height * 2 + index as u64,
-                        )
-                        .unwrap(),
-                );
+                let vote = services[index]
+                    .process_proposal_and_sign_vote(
+                        proposal.clone(),
+                        &signers[index],
+                        height * 2 + index as u64,
+                    )
+                    .unwrap();
+                services[index].process_message(vote.clone()).unwrap();
+                votes.push(vote);
             }
             for (service_index, service) in services.iter().enumerate() {
                 for vote in &votes {
                     if vote.envelope.sender() != (service_index + 1) as u16 {
-                        let _ = service.process_message(vote.clone());
+                        service.process_message(vote.clone()).unwrap();
                     }
                 }
             }
-            assert_eq!(services[0].state().unwrap().finalized_height(), height);
+            assert!(
+                services
+                    .iter()
+                    .all(|service| service.state().unwrap().finalized_height() == height)
+            );
         }
-        assert_eq!(services[0].metrics().rejected_messages, 0);
+        assert!(services.iter().all(|service| service.metrics().rejected_messages == 0));
         for path in paths {
             let _ = std::fs::remove_file(path);
         }
