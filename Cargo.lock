@@ -45,6 +45,7 @@ dependencies = [
  "activechain-crypto-provider",
  "activechain-protocol-types",
  "ml-dsa",
+ "sha3",
 ]
 
 [[package]]

@@ -9,6 +9,10 @@ use activechain_protocol_types::{
     BlockProposal, ConsensusState, ConsensusStateError, CryptoSuiteId, Digest384,
     ProtocolSignature, QuorumCertificate, ValidatorSet, ValidatorVote,
 };
+use sha3::{
+    Shake256,
+    digest::{ExtendableOutput, Update, XofReader},
+};
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -400,6 +404,37 @@ impl VoteCollector {
     pub fn votes(&self) -> &[(Vec<u8>, ValidatorVote)] {
         &self.votes
     }
+    pub fn finalize(
+        &self,
+        epoch: u64,
+        validator_set: &ValidatorSet,
+    ) -> Result<QuorumCertificate, VoteCollectionError> {
+        let total = validator_set.total_stake();
+        if self.signer_stake.checked_mul(3).ok_or(VoteCollectionError::StakeOverflow)?
+            <= total.checked_mul(2).ok_or(VoteCollectionError::StakeOverflow)?
+        {
+            return Err(VoteCollectionError::InsufficientStake);
+        }
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-VOTE-SET-V1");
+        for (key, vote) in &self.votes {
+            hasher.update(key);
+            hasher.update(&vote.signing_payload());
+            hasher.update(vote.signature().as_bytes());
+        }
+        let mut root = [0_u8; 48];
+        hasher.finalize_xof().read(&mut root);
+        QuorumCertificate::new(
+            epoch,
+            self.proposal.height(),
+            self.proposal.round(),
+            self.proposal.block_digest(),
+            Digest384::new(root),
+            total,
+            self.signer_stake,
+        )
+        .map_err(|_| VoteCollectionError::InsufficientStake)
+    }
 }
 #[derive(Debug, Eq, PartialEq)]
 pub enum VoteCollectionError {
@@ -408,6 +443,7 @@ pub enum VoteCollectionError {
     UnknownValidator,
     Verification(VerificationError),
     StakeOverflow,
+    InsufficientStake,
 }
 
 #[cfg(test)]
