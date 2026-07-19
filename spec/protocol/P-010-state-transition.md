@@ -1,7 +1,8 @@
 # P-010: Global state-transition function
 
-- Status: Skeleton draft 0.1
+- Status: Draft 0.2
 - Protocol version: Development
+- Issue: <https://github.com/advatar/ActiveChain/issues/4>
 
 ## 1. Scope
 
@@ -18,7 +19,7 @@ transition(
 ) -> TransitionOutput | TransitionError
 ```
 
-For identical inputs, conforming implementations MUST return byte-identical outputs or the same typed error. The function MUST NOT read a clock, filesystem, network, environment variable, random device, locale, or floating-point state.
+For identical inputs, conforming implementations MUST return byte-identical outputs or the same typed error. The function MUST NOT read a clock, filesystem, network, environment variable, random device, locale, or floating-point state. P-030 supplies the first executable refinement over an explicit bounded object state; a later P-031 refinement will replace that fixture with authenticated state witnesses.
 
 ## 3. Transition output
 
@@ -42,6 +43,20 @@ derive roots and the execution trace
 
 No failed transaction may leave partial effects. A malformed but admitted envelope MUST have a total, provable outcome.
 
+### 4.1 Development object refinement
+
+Before the state tree and VM are admitted, the reference kernel executes `TransferTransactionV1` against `ObjectStateV1`:
+
+```text
+transition_objects(pre_state, transfer_transaction)
+    -> { published_state, TransitionReceiptV1 }
+       | implementation-level TransitionError
+```
+
+The semantic function verifies request binding, declared exact write access, object presence and version, committed APL control policy, authorization, supported obligations, and the P-030 transfer invariants in that order. It applies commands to scratch state and publishes them only when every command succeeds. Every semantic failure returns the original pre-state and a typed receipt.
+
+This refinement does not claim that the explicit state list is a global-state witness. It exists to freeze object and atomicity semantics independently of the state-tree implementation.
+
 ## 5. Error behavior
 
 Errors before transaction admission reject the candidate transition. Per-envelope semantic failures after admission become canonical receipts. Protocol-version dispatch MUST define which class each error belongs to.
@@ -56,7 +71,7 @@ This function trusts only the protocol-version dispatcher, canonical decoder, cr
 
 ## 8. Test vectors and formal properties
 
-Initial vectors cover only canonical inputs. Later revisions MUST add success, every failure receipt, replay, stale versions, atomic abort, authorization denial, fee accounting, and cross-client state-root vectors.
+Development vectors cover canonical inputs plus a successful P-030 object transfer. Unit and differential fixtures cover stale versions, atomic abort, authorization denial, and access failure. Later revisions MUST add every block-level failure receipt, replay, fee accounting, and cross-client authenticated state-root vectors.
 
 Required properties include determinism, atomicity, access confinement, object uniqueness, resource conservation, budget safety, replay freedom, and proof-input binding.
 

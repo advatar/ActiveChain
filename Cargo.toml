@@ -2,10 +2,12 @@
 members = [
     "crates/canonical-codec",
     "crates/capability",
+    "crates/object",
     "crates/policy-kernel",
     "crates/principal",
     "crates/protocol-commitment",
     "crates/protocol-types",
+    "crates/transition",
     "tools/vector-generator",
 ]
 resolver = "3"
@@ -19,9 +21,11 @@ repository = "https://github.com/advatar/ActiveChain"
 [workspace.dependencies]
 activechain-canonical-codec = { path = "crates/canonical-codec", version = "0.1.0" }
 activechain-capability = { path = "crates/capability", version = "0.1.0" }
+activechain-object = { path = "crates/object", version = "0.1.0" }
 activechain-policy-kernel = { path = "crates/policy-kernel", version = "0.1.0" }
 activechain-principal = { path = "crates/principal", version = "0.1.0" }
 activechain-protocol-types = { path = "crates/protocol-types", version = "0.1.0" }
+activechain-transition = { path = "crates/transition", version = "0.1.0" }
 proptest = { version = "1.7.0", default-features = false, features = ["std"] }
 sha3 = { version = "0.10.8", default-features = false }
 

@@ -1,0 +1,4 @@
+0,0,true,Success(1)
+7,6,true,StaleObjectVersion
+18446744073709551615,18446744073709551615,true,VersionExhausted
+7,7,false,AuthorizationDenied

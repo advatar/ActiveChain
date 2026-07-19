@@ -1,6 +1,6 @@
 [package]
-name = "activechain-vector-generator"
-description = "Deterministic canonical test-vector generator for ActiveChain"
+name = "activechain-transition"
+description = "Bounded atomic reference state transition for ActiveChain"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,13 +9,10 @@ publish = false
 
 [dependencies]
 activechain-canonical-codec.workspace = true
-activechain-capability.workspace = true
 activechain-object.workspace = true
 activechain-policy-kernel.workspace = true
-activechain-principal.workspace = true
+activechain-protocol-commitment = { path = "../protocol-commitment", version = "0.1.0" }
 activechain-protocol-types.workspace = true
-activechain-transition.workspace = true
-activechain-protocol-commitment = { path = "../../crates/protocol-commitment", version = "0.1.0" }
 
 [lints]
 workspace = true

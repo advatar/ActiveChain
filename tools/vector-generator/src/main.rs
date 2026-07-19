@@ -2,6 +2,7 @@
 
 use activechain_canonical_codec::{CanonicalType, encode_body, encode_envelope};
 use activechain_capability::verify_attenuation;
+use activechain_object::{ObjectTransitionError, transfer_object};
 use activechain_policy_kernel::{
     APL_LANGUAGE_VERSION, ActorBinding, ApprovalFact, DecisionResult, PolicyDecision, PolicyEffect,
     PolicyObligation, PolicyPredicate, PolicyRequest, PolicyRequestFields, PolicyRule, PolicySet,
@@ -13,10 +14,15 @@ use activechain_principal::{
 };
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
-    ActionId, AuthenticatorDescriptor, AuthenticatorId, AuthenticatorPurpose, BoundedActionSet,
-    CapabilityGrant, CapabilityGrantFields, CapabilityId, CryptoSuiteId, DataSelector, Digest384,
-    FreezeState, HolderBinding, ObjectId, Principal, PrincipalId, PrincipalKind, ProtocolSignature,
-    RateLimit, RecoveryRequest, ResourceSelector,
+    AccessManifest, AccessManifestFields, ActionId, AuthenticatorDescriptor, AuthenticatorId,
+    AuthenticatorPurpose, BoundedActionSet, CapabilityGrant, CapabilityGrantFields, CapabilityId,
+    CryptoSuiteId, DataSelector, Digest384, FreezeState, HolderBinding, Object, ObjectFields,
+    ObjectFlags, ObjectId, ObjectOwner, ObjectVersionRef, Principal, PrincipalId, PrincipalKind,
+    ProtocolSignature, RateLimit, RecoveryRequest, ResourceSelector,
+};
+use activechain_transition::{
+    ObjectState, ReceiptResult, TRANSFER_OBJECT_ACTION_ID, TransferCommand, TransferTransaction,
+    TransitionReceipt, apply_transfer_transaction,
 };
 
 fn repeated_digest(byte: u8) -> Digest384 {
@@ -428,6 +434,190 @@ fn render_apl_truth_table() -> String {
     output
 }
 
+fn object_transition_values() -> (
+    Object,
+    AccessManifest,
+    ObjectState,
+    TransferTransaction,
+    TransitionReceipt,
+    Object,
+    ObjectState,
+) {
+    let object_id = ObjectId::new(repeated_digest(0xa0));
+    let actor = ActorBinding::Principal(identifier_principal(0xb1));
+    let policy = PolicySet::new(
+        APL_LANGUAGE_VERSION,
+        vec![
+            PolicyRule::new(
+                PolicyEffect::Permit,
+                vec![
+                    PolicyPredicate::ActorIs(actor),
+                    PolicyPredicate::ActionIs(TRANSFER_OBJECT_ACTION_ID),
+                    PolicyPredicate::ResourceMatches(ResourceSelector::exact(object_id)),
+                    PolicyPredicate::FreezeStateIs(FreezeState::Active),
+                ],
+                vec![],
+            )
+            .expect("object vector control rule is valid"),
+        ],
+    )
+    .expect("object vector policy is bounded");
+    let control_policy_hash =
+        commit(DomainTag::CANONICAL_VALUE, &policy).expect("object vector control policy encodes");
+    let object = Object::new(ObjectFields {
+        object_id,
+        object_version: 7,
+        type_id: repeated_digest(0xa1),
+        owner: ObjectOwner::Principal(identifier_principal(0xb1)),
+        control_policy_hash,
+        use_policy_hash: repeated_digest(0xa2),
+        disclosure_policy_hash: repeated_digest(0xa3),
+        upgrade_policy_hash: repeated_digest(0xa4),
+        package_id: None,
+        value_root: repeated_digest(0xa5),
+        public_value: Some(b"activechain-object-v1".to_vec()),
+        lease_expiry_epoch: 100,
+        storage_deposit: 5_000,
+        flags: ObjectFlags::TRANSFERABLE.union(ObjectFlags::LINEAR),
+    })
+    .expect("object vector value is canonical");
+    let input = ObjectVersionRef::new(object_id, 7);
+    let manifest = AccessManifest::new(AccessManifestFields {
+        exact_reads: vec![],
+        exact_writes: vec![input],
+        immutable_reads: vec![],
+        creation_namespaces: vec![],
+        maximum_created_objects: 0,
+        maximum_dynamic_reads: 0,
+        dynamic_read_policy: None,
+    })
+    .expect("object vector manifest is canonical");
+    let request = PolicyRequest::new(PolicyRequestFields {
+        actor,
+        action: TRANSFER_OBJECT_ACTION_ID,
+        resource: object_id,
+        height: 50,
+        value: 0,
+        freeze_state: FreezeState::Active,
+        declared_purpose: None,
+        credential_schemas: vec![],
+        capabilities: vec![],
+        approvals: vec![],
+    })
+    .expect("object vector request is canonical");
+    let transaction = TransferTransaction::new(
+        50,
+        manifest.clone(),
+        vec![TransferCommand::new(
+            input,
+            ObjectOwner::Shielded(repeated_digest(0xb0)),
+            policy,
+            request,
+        )],
+    )
+    .expect("object vector transaction is canonical");
+    let pre_state = ObjectState::new(vec![object.clone()]).expect("object vector state is ordered");
+    let output = apply_transfer_transaction(&pre_state, &transaction)
+        .expect("object vector transition is structurally valid");
+    assert_eq!(output.receipt().result(), ReceiptResult::Success);
+    assert_eq!(output.receipt().objects_updated(), 1);
+    assert_eq!(output.receipt().policy_steps(), 5);
+    let post_object =
+        output.state().find(object_id).expect("transition preserves object identity").clone();
+    assert_eq!(post_object.object_version(), 8);
+    (
+        object,
+        manifest,
+        pre_state,
+        transaction,
+        output.receipt(),
+        post_object,
+        output.state().clone(),
+    )
+}
+
+fn render_object_transition_v1() -> String {
+    let (object, manifest, pre_state, transaction, receipt, post_object, post_state) =
+        object_transition_values();
+    let mut output = String::from(
+        "# ActiveChain object transition vector\n\
+# Generated by: cargo run --locked --quiet -p activechain-vector-generator -- object-transition-v1\n\
+# Transcripts: P-001/P-010/P-023/P-030 draft\n\
+\n\
+vector=object-transition-v1\n\
+commitment_domain=canonical-value (0x0001)\n\
+object_id=a0 repeated 48 times\n\
+object_version_before=7\n\
+object_version_after=8\n\
+new_owner=Shielded(b0 repeated 48 times)\n\
+receipt=Success\n\
+objects_updated=1\n\
+policy_steps=5\n\
+\n",
+    );
+    output.push_str(&encoded_value("object_before", &object));
+    output.push('\n');
+    output.push_str(&encoded_value("access_manifest", &manifest));
+    output.push('\n');
+    output.push_str(&encoded_value("pre_state", &pre_state));
+    output.push('\n');
+    output.push_str(&encoded_value("transfer_transaction", &transaction));
+    output.push('\n');
+    output.push_str(&encoded_value("transition_receipt", &receipt));
+    output.push('\n');
+    output.push_str(&encoded_value("object_after", &post_object));
+    output.push('\n');
+    output.push_str(&encoded_value("post_state", &post_state));
+    output
+}
+
+fn model_object(version: u64) -> Object {
+    Object::new(ObjectFields {
+        object_id: ObjectId::new(repeated_digest(0xc0)),
+        object_version: version,
+        type_id: repeated_digest(0xc1),
+        owner: ObjectOwner::Shared,
+        control_policy_hash: Digest384::ZERO,
+        use_policy_hash: Digest384::ZERO,
+        disclosure_policy_hash: Digest384::ZERO,
+        upgrade_policy_hash: Digest384::ZERO,
+        package_id: None,
+        value_root: Digest384::ZERO,
+        public_value: None,
+        lease_expiry_epoch: 0,
+        storage_deposit: 0,
+        flags: ObjectFlags::TRANSFERABLE,
+    })
+    .expect("model object is canonical")
+}
+
+fn render_object_model_table() -> String {
+    let mut output = String::new();
+    for (version, expected_version, authorized) in
+        [(0, 0, true), (7, 6, true), (u64::MAX, u64::MAX, true), (7, 7, false)]
+    {
+        let result = if !authorized {
+            String::from("AuthorizationDenied")
+        } else {
+            let object = model_object(version);
+            match transfer_object(
+                &object,
+                ObjectVersionRef::new(object.object_id(), expected_version),
+                ObjectOwner::Shielded(repeated_digest(0xc2)),
+            ) {
+                Ok(updated) => format!("Success({})", updated.object_version()),
+                Err(ObjectTransitionError::StaleObjectVersion { .. }) => {
+                    String::from("StaleObjectVersion")
+                }
+                Err(ObjectTransitionError::VersionExhausted) => String::from("VersionExhausted"),
+                other => panic!("unexpected object model result: {other:?}"),
+            }
+        };
+        output.push_str(&format!("{version},{expected_version},{authorized},{result}\n"));
+    }
+    output
+}
+
 fn main() {
     let vector = std::env::args().nth(1);
     match vector.as_deref().unwrap_or("principal-v1") {
@@ -435,10 +625,12 @@ fn main() {
         "authority-v1" => print!("{}", render_authority_v1()),
         "apl-v1" => print!("{}", render_apl_v1()),
         "apl-truth-table" => print!("{}", render_apl_truth_table()),
+        "object-transition-v1" => print!("{}", render_object_transition_v1()),
+        "object-model-table" => print!("{}", render_object_model_table()),
         unknown => {
             eprintln!(
                 "unknown vector {unknown}; expected principal-v1, authority-v1, apl-v1, or \
-                 apl-truth-table"
+                 apl-truth-table, object-transition-v1, or object-model-table"
             );
             std::process::exit(2);
         }
@@ -447,7 +639,10 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{render_apl_truth_table, render_apl_v1, render_authority_v1, render_principal_v1};
+    use super::{
+        render_apl_truth_table, render_apl_v1, render_authority_v1, render_object_model_table,
+        render_object_transition_v1, render_principal_v1,
+    };
 
     #[test]
     fn generated_principal_vector_is_frozen() {
@@ -471,5 +666,17 @@ mod tests {
     fn rust_effect_table_matches_the_frozen_lean_table() {
         let published = include_str!("../../../testing/vectors/policy/apl-truth-table.txt");
         assert_eq!(render_apl_truth_table(), published);
+    }
+
+    #[test]
+    fn generated_object_transition_vector_is_frozen() {
+        let published = include_str!("../../../testing/vectors/object/object-transition-v1.txt");
+        assert_eq!(render_object_transition_v1(), published);
+    }
+
+    #[test]
+    fn rust_object_table_matches_the_frozen_lean_table() {
+        let published = include_str!("../../../testing/vectors/object/object-model-table.txt");
+        assert_eq!(render_object_model_table(), published);
     }
 }

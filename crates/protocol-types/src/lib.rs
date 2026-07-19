@@ -9,6 +9,7 @@ use activechain_canonical_codec::{
 
 mod authority;
 mod crypto;
+mod object;
 
 pub use authority::{
     BoundedActionSet, BoundedActionSetError, CapabilityGrant, CapabilityGrantFields,
@@ -18,6 +19,12 @@ pub use authority::{
 pub use crypto::{
     AuthenticatorDescriptor, AuthenticatorPurpose, AuthenticatorValidationError, CryptoFamily,
     CryptoSuiteError, CryptoSuiteId, ProtocolSignature, SignatureError,
+};
+pub use object::{
+    AccessManifest, AccessManifestError, AccessManifestFields, MAX_CREATED_OBJECTS,
+    MAX_CREATION_NAMESPACES, MAX_DYNAMIC_READS, MAX_EXACT_READS, MAX_EXACT_WRITES,
+    MAX_IMMUTABLE_READS, MAX_PUBLIC_OBJECT_VALUE, NamespaceGrant, Object, ObjectFields,
+    ObjectFlags, ObjectFlagsError, ObjectOwner, ObjectValidationError, ObjectVersionRef,
 };
 
 /// The fixed size of every protocol digest and identifier.

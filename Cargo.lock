@@ -18,6 +18,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-object"
+version = "0.1.0"
+dependencies = [
+ "activechain-protocol-types",
+ "proptest",
+]
+
+[[package]]
 name = "activechain-policy-kernel"
 version = "0.1.0"
 dependencies = [
@@ -52,15 +60,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-transition"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-object",
+ "activechain-policy-kernel",
+ "activechain-protocol-commitment",
+ "activechain-protocol-types",
+]
+
+[[package]]
 name = "activechain-vector-generator"
 version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
  "activechain-capability",
+ "activechain-object",
  "activechain-policy-kernel",
  "activechain-principal",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
+ "activechain-transition",
 ]
 
 [[package]]

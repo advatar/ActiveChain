@@ -54,15 +54,15 @@ Tracked by [GitHub issue #3](https://github.com/advatar/ActiveChain/issues/3).
 
 Tracked by [GitHub issue #4](https://github.com/advatar/ActiveChain/issues/4).
 
-- [ ] Draft `P-030` object semantics and refine the executable `P-010` boundary.
-- [ ] Define canonical object, owner, flags, version-reference, access-manifest, command, and receipt schemas.
-- [ ] Implement bounded object validation and exact checked one-step version updates.
-- [ ] Implement canonical sorted, duplicate-free access-manifest validation.
-- [ ] Implement bounded transfer transaction inputs and deterministic receipts.
-- [ ] Integrate committed APL control policies with access-confined atomic transfer execution.
-- [ ] Add an executable Lean version/atomicity model and cross-check fixtures.
-- [ ] Publish deterministic object, manifest, transfer, and receipt vectors.
-- [ ] Add unit and property tests for canonical encoding, confinement, authorization, versioning, and atomic abort.
+- [x] Draft `P-030` object semantics and refine the executable `P-010` boundary.
+- [x] Define canonical object, owner, flags, version-reference, access-manifest, command, and receipt schemas.
+- [x] Implement bounded object validation and exact checked one-step version updates.
+- [x] Implement canonical sorted, duplicate-free access-manifest validation.
+- [x] Implement bounded transfer transaction inputs and deterministic receipts.
+- [x] Integrate committed APL control policies with access-confined atomic transfer execution.
+- [x] Add an executable Lean version/atomicity model and cross-check fixtures.
+- [x] Publish deterministic object, manifest, transfer, and receipt vectors.
+- [x] Add unit and property tests for canonical encoding, confinement, authorization, versioning, and atomic abort.
 - [ ] Pass the full local-runner CI matrix.
 
 ## Deferred until the semantic kernel is stable

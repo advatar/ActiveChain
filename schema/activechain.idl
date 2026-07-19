@@ -218,3 +218,91 @@ struct PolicyDecision @type_tag(0x0042) @version(1) @max_bytes(8327) {
     steps_used: u16;
     obligations: BoundedList<PolicyObligation, 128>;
 }
+
+enum ObjectOwner : u8 {
+    Principal(principal_id: PrincipalId) = 0;
+    Shared = 1;
+    Immutable = 2;
+    CapabilityControlled(capability_id: CapabilityId) = 3;
+    Shielded(commitment: Digest384) = 4;
+}
+
+newtype ObjectFlags = u16;
+
+struct Object @type_tag(0x0050) @version(1) @max_bytes(16856) {
+    object_id: ObjectId;
+    object_version: u64;
+    type_id: Digest384;
+    owner: ObjectOwner;
+    control_policy_hash: Digest384;
+    use_policy_hash: Digest384;
+    disclosure_policy_hash: Digest384;
+    upgrade_policy_hash: Digest384;
+    package_id: Option<PackageId>;
+    value_root: Digest384;
+    public_value: Option<bytes<16384>>;
+    lease_expiry_epoch: Epoch;
+    storage_deposit: Amount;
+    flags: ObjectFlags;
+}
+
+struct ObjectVersionRef {
+    object_id: ObjectId;
+    version: u64;
+}
+
+struct NamespaceGrant @max_bytes(99) {
+    namespace: ResourceSelector;
+    capability_id: CapabilityId;
+}
+
+struct AccessManifest @type_tag(0x0051) @version(1) @max_bytes(10093) {
+    exact_reads: BoundedSet<ObjectVersionRef, 64>;
+    exact_writes: BoundedSet<ObjectVersionRef, 32>;
+    immutable_reads: BoundedSet<ObjectId, 64>;
+    creation_namespaces: BoundedSet<NamespaceGrant, 16>;
+    maximum_created_objects: u32;
+    maximum_dynamic_reads: u32;
+    dynamic_read_policy: Option<Digest384>;
+}
+
+struct TransferCommand @max_bytes(39226) {
+    input: ObjectVersionRef;
+    new_owner: ObjectOwner;
+    control_policy: PolicySet;
+    request: PolicyRequest;
+}
+
+struct TransferTransaction @type_tag(0x0052) @version(1) @max_bytes(1265334) {
+    height: Height;
+    access_manifest: AccessManifest;
+    commands: BoundedList<TransferCommand, 32>;
+}
+
+enum ReceiptResult : u8 {
+    Success = 0;
+    RequestContextMismatch = 1;
+    AccessManifestViolation = 2;
+    ObjectNotFound = 3;
+    StaleObjectVersion = 4;
+    ControlPolicyMismatch = 5;
+    AuthorizationDenied = 6;
+    UnsupportedObligation = 7;
+    ImmutableObject = 8;
+    TransferDisabled = 9;
+    OwnerUnchanged = 10;
+    VersionExhausted = 11;
+}
+
+struct TransitionReceipt @type_tag(0x0053) @version(1) @max_bytes(104) {
+    result: ReceiptResult;
+    failed_command: Option<u8>;
+    objects_updated: u8;
+    policy_steps: u32;
+    pre_state_commitment: Digest384;
+    post_state_commitment: Digest384;
+}
+
+struct ObjectState @type_tag(0x0054) @version(1) @max_bytes(1078785) {
+    objects: BoundedSet<Object, 64>;
+}
