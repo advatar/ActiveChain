@@ -8,6 +8,7 @@ use activechain_canonical_codec::{
 };
 
 mod authority;
+mod consensus;
 mod credential;
 mod crypto;
 mod migration;
@@ -19,6 +20,7 @@ pub use authority::{
     CapabilityValidationError, DataSelector, HolderBinding, RateLimit, RateLimitError,
     RecoveryRequest, RecoveryRequestError, ResourceSelector, ScopeSelector, ScopeSelectorError,
 };
+pub use consensus::{ValidatorVote, ValidatorVoteError};
 pub use credential::{
     CREDENTIAL_FORMAT_VERSION, Credential, CredentialAcceptancePolicy, CredentialStatement,
     CredentialStatusRegistry, CredentialValidationError, MAX_ACCEPTED_CREDENTIAL_ISSUERS,

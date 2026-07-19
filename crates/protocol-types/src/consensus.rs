@@ -1,0 +1,113 @@
+//! PQ-bound consensus message types for the first testnet boundary.
+
+use crate::{CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature};
+use activechain_canonical_codec::{
+    CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
+};
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatorVote {
+    validator: PrincipalId,
+    height: u64,
+    round: u64,
+    block_digest: Digest384,
+    signature: ProtocolSignature,
+}
+
+impl ValidatorVote {
+    pub const TYPE_TAG: u16 = 0x0064;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 + 8 + 8 + 48 + ProtocolSignature::MAX_ENCODED_LEN;
+    pub fn new(
+        validator: PrincipalId,
+        height: u64,
+        round: u64,
+        block_digest: Digest384,
+        signature: ProtocolSignature,
+    ) -> Result<Self, ValidatorVoteError> {
+        if signature.suite() != CryptoSuiteId::ML_DSA_44 {
+            return Err(ValidatorVoteError::InvalidConsensusSuite);
+        }
+        Ok(Self { validator, height, round, block_digest, signature })
+    }
+    pub const fn validator(&self) -> PrincipalId {
+        self.validator
+    }
+    pub const fn height(&self) -> u64 {
+        self.height
+    }
+    pub const fn round(&self) -> u64 {
+        self.round
+    }
+    pub const fn block_digest(&self) -> Digest384 {
+        self.block_digest
+    }
+    pub const fn signature(&self) -> &ProtocolSignature {
+        &self.signature
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ValidatorVoteError {
+    InvalidConsensusSuite,
+}
+
+impl CanonicalEncode for ValidatorVote {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.validator.encode(e)?;
+        self.height.encode(e)?;
+        self.round.encode(e)?;
+        self.block_digest.encode(e)?;
+        self.signature.encode(e)
+    }
+}
+impl CanonicalDecode for ValidatorVote {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            PrincipalId::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            Digest384::decode(d)?,
+            ProtocolSignature::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("validator vote requires ML-DSA-44"))
+    }
+}
+impl CanonicalType for ValidatorVote {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use activechain_canonical_codec::{decode_envelope, encode_envelope};
+    use alloc::vec;
+    extern crate alloc;
+    fn digest(byte: u8) -> Digest384 {
+        Digest384::new([byte; 48])
+    }
+    #[test]
+    fn validator_vote_is_round_scoped_and_pq_bound() {
+        let vote = ValidatorVote::new(
+            PrincipalId::new(digest(1)),
+            7,
+            2,
+            digest(3),
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![4; 2420]).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(vote.height(), 7);
+        assert_eq!(vote.round(), 2);
+        assert_eq!(decode_envelope::<ValidatorVote>(&encode_envelope(&vote).unwrap()), Ok(vote));
+    }
+    #[test]
+    fn validator_vote_rejects_other_pq_signature_suites() {
+        let signature = ProtocolSignature::new(CryptoSuiteId::ML_DSA_65, vec![4; 3309]).unwrap();
+        assert_eq!(
+            ValidatorVote::new(PrincipalId::new(digest(1)), 7, 2, digest(3), signature),
+            Err(ValidatorVoteError::InvalidConsensusSuite)
+        );
+    }
+}
