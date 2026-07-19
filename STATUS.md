@@ -152,6 +152,15 @@ Tracked by [GitHub issue #11](https://github.com/advatar/ActiveChain/issues/11).
 - [x] Enforce overflow-safe two-thirds stake thresholds.
 - [ ] Add canonical vectors and malformed/under-threshold rejection tests.
 
+## Active milestone — deterministic multi-validator PQ runtime
+
+Tracked by [GitHub issue #12](https://github.com/advatar/ActiveChain/issues/12).
+
+- [ ] Build an in-memory deterministic proposal and vote-collection runtime.
+- [ ] Form quorum certificates only after provider-backed vote verification.
+- [ ] Advance consensus state on finalized certificates.
+- [ ] Exercise duplicate, unknown, mismatched, and under-threshold adversarial cases.
+
 ## Planned milestone — P-051 immutable ObjectVM packages and upgrade model
 
 Tracked by [GitHub issue #9](https://github.com/advatar/ActiveChain/issues/9).
