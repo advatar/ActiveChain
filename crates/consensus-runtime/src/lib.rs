@@ -83,6 +83,17 @@ impl PeerListener {
         let (stream, _) = self.listener.accept()?;
         Ok(PeerSocket::connect(stream))
     }
+    pub fn spawn_accept_loop<F>(&self, handler: F) -> std::io::Result<()>
+    where
+        F: Fn(PeerSocket) + Send + Sync + 'static,
+    {
+        let handler = std::sync::Arc::new(handler);
+        loop {
+            let socket = self.accept()?;
+            let handler = std::sync::Arc::clone(&handler);
+            std::thread::spawn(move || handler(socket));
+        }
+    }
 }
 impl PeerDirectory {
     pub fn new() -> Self {
