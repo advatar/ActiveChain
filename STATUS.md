@@ -163,6 +163,21 @@ Tracked by [GitHub issue #12](https://github.com/advatar/ActiveChain/issues/12).
 - [x] Add canonical consensus snapshots for validator restart recovery.
 - [x] Add canonical genesis configuration binding epoch, activation height, and validator-set root.
 
+## Active milestone — PQ testnet launch readiness
+
+Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
+
+- [ ] Carry canonically encoded proposal, vote, and quorum-certificate bodies in authenticated peer frames.
+- [ ] Run the complete proposal → vote → QC → finalization loop in the validator process and persist finalized state.
+- [ ] Add configured peer discovery, authenticated connection handshakes, reconnects, bounded queues, rate limits, and backpressure.
+- [ ] Activate validator-set and staking transitions only through finalized consensus state.
+- [ ] Implement erasure-coded data availability, commitments, sampling, and authenticated snapshot distribution.
+- [ ] Add ML-KEM protected transaction submission without classical confidentiality dependencies.
+- [ ] Integrate transparent proof-carrying ObjectVM execution into block admission and finalization.
+- [ ] Ship genesis, validator, and wallet CLIs plus an indexer, metrics, alerts, and operator documentation.
+- [ ] Pass multi-process Byzantine, restart, partition, and sustained-load testnet rehearsals on the local runner.
+- [ ] Update and push the landing page at each completed launch milestone.
+
 ## Planned milestone — P-051 immutable ObjectVM packages and upgrade model
 
 Tracked by [GitHub issue #9](https://github.com/advatar/ActiveChain/issues/9).
