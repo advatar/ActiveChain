@@ -193,6 +193,15 @@ impl QuorumCertificate {
     pub const fn round(&self) -> u64 {
         self.round
     }
+    pub const fn total_stake(&self) -> u128 {
+        self.total_stake
+    }
+    pub const fn signer_stake(&self) -> u128 {
+        self.signer_stake
+    }
+    pub const fn block_digest(&self) -> Digest384 {
+        self.block_digest
+    }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum QuorumCertificateError {

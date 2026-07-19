@@ -1,8 +1,9 @@
 #![forbid(unsafe_code)]
-
 //! Cryptographic provider boundary for authoritative PQ verification.
 
-use activechain_protocol_types::ValidatorVote;
+extern crate alloc;
+
+use activechain_protocol_types::{QuorumCertificate, ValidatorSet, ValidatorVote};
 use ml_dsa::{EncodedSignature, EncodedVerifyingKey, MlDsa44, Signature, Verifier, VerifyingKey};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -12,6 +13,10 @@ pub enum VerificationError {
     MalformedKey,
     MalformedSignature,
     InvalidSignature,
+    UnknownValidator,
+    DuplicateValidator,
+    VoteContextMismatch,
+    StakeMismatch,
 }
 
 pub fn verify_ml_dsa44(
@@ -34,6 +39,37 @@ pub fn verify_validator_vote(
     vote: &ValidatorVote,
 ) -> Result<(), VerificationError> {
     verify_ml_dsa44(public_key, &vote.signing_payload(), vote.signature().as_bytes())
+}
+
+pub fn verify_quorum_certificate(
+    certificate: &QuorumCertificate,
+    validator_set: &ValidatorSet,
+    votes: &[(&[u8], ValidatorVote)],
+) -> Result<(), VerificationError> {
+    let mut seen = alloc::vec::Vec::new();
+    let mut signer_stake = 0_u128;
+    for (public_key, vote) in votes {
+        if vote.height() != certificate.height()
+            || vote.round() != certificate.round()
+            || vote.block_digest() != certificate.block_digest()
+        {
+            return Err(VerificationError::VoteContextMismatch);
+        }
+        if seen.contains(&vote.validator()) {
+            return Err(VerificationError::DuplicateValidator);
+        }
+        let stake =
+            validator_set.stake_of(&vote.validator()).ok_or(VerificationError::UnknownValidator)?;
+        verify_validator_vote(public_key, vote)?;
+        seen.push(vote.validator());
+        signer_stake = signer_stake.checked_add(stake).ok_or(VerificationError::StakeMismatch)?;
+    }
+    if validator_set.total_stake() != certificate.total_stake()
+        || signer_stake != certificate.signer_stake()
+    {
+        return Err(VerificationError::StakeMismatch);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
