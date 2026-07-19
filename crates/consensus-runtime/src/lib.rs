@@ -59,6 +59,29 @@ impl ValidatorSigner {
         )
         .map_err(|_| ValidatorEngineError::Signer)
     }
+    fn sign_envelope(
+        &self,
+        sender: u16,
+        sequence: u64,
+        message: ConsensusMessage,
+    ) -> Result<AuthenticatedConsensusMessage, ValidatorEngineError> {
+        let digest = message.digest().map_err(ValidatorEngineError::Transport)?;
+        let placeholder = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420])
+            .map_err(|_| ValidatorEngineError::Signer)?;
+        let unsigned = SignedPeerEnvelope::new(sender, sequence, digest, placeholder)
+            .map_err(|_| ValidatorEngineError::Signer)?;
+        let signature = self.key.sign(&unsigned.signing_payload());
+        let envelope = SignedPeerEnvelope::new(
+            sender,
+            sequence,
+            digest,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec())
+                .map_err(|_| ValidatorEngineError::Signer)?,
+        )
+        .map_err(|_| ValidatorEngineError::Signer)?;
+        AuthenticatedConsensusMessage::new(envelope, message)
+            .map_err(ValidatorEngineError::Transport)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -959,6 +982,28 @@ impl ValidatorService {
             .lock()
             .map_err(|_| ValidatorServiceError::Poisoned)?
             .process_and_save(message.message, &self.snapshot_path)
+            .map_err(ValidatorServiceError::Engine)
+    }
+    pub fn process_proposal_and_sign_vote(
+        &self,
+        proposal: AuthenticatedConsensusMessage,
+        signer: &ValidatorSigner,
+        sequence: u64,
+    ) -> Result<AuthenticatedConsensusMessage, ValidatorServiceError> {
+        self.process_message(proposal)?;
+        let vote = self
+            .engine
+            .lock()
+            .map_err(|_| ValidatorServiceError::Poisoned)?
+            .sign_current_vote(signer)
+            .map_err(ValidatorServiceError::Engine)?;
+        let sender = self
+            .sender_keys
+            .iter()
+            .find_map(|(sender, key)| (key == &signer.public_key()).then_some(*sender))
+            .ok_or(ValidatorServiceError::UnknownSender)?;
+        signer
+            .sign_envelope(sender, sequence, ConsensusMessage::Vote(vote))
             .map_err(ValidatorServiceError::Engine)
     }
     pub fn serve_peer(&self, mut peer: PeerSocket) -> std::io::Result<()> {
