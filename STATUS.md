@@ -139,6 +139,9 @@ Tracked by [GitHub issue #10](https://github.com/advatar/ActiveChain/issues/10).
 - [ ] Do not describe consensus, threshold encryption, or clients as quantum-safe until their implementations pass these gates.
 - [x] Add a canonical height-bounded PQ migration window primitive and boundary tests.
 
+ActiveChain is PQ-by-construction from its first protocol release. Migration windows exist for
+algorithm versioning and deprecation, never as permission to ship a classical safety dependency.
+
 ## Planned milestone — P-051 immutable ObjectVM packages and upgrade model
 
 Tracked by [GitHub issue #9](https://github.com/advatar/ActiveChain/issues/9).
