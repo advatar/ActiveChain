@@ -19,20 +19,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let validator_index: Option<usize> = args.next().map(|value| value.parse()).transpose()?;
     let run_once = args.next().as_deref() == Some("--once");
     let genesis = genesis_path.as_deref().map(Path::new).map(load_genesis).transpose()?;
-    let state =
-        snapshot_path.as_deref().map(Path::new).map(load_snapshot).transpose()?.unwrap_or_else(
-            || {
-                genesis.as_ref().map_or_else(
-                    || ConsensusState::new(genesis_epoch),
-                    |config| {
-                        ConsensusState::new_with_validator_set_root(
-                            config.epoch(),
-                            config.validator_set_root(),
-                        )
-                    },
-                )
-            },
-        );
+    let state = snapshot_path
+        .as_deref()
+        .filter(|path| Path::new(path).exists())
+        .map(Path::new)
+        .map(load_snapshot)
+        .transpose()?
+        .unwrap_or_else(|| {
+            genesis.as_ref().map_or_else(
+                || ConsensusState::new(genesis_epoch),
+                |config| {
+                    ConsensusState::new_with_validator_set_root(
+                        config.epoch(),
+                        config.validator_set_root(),
+                    )
+                },
+            )
+        });
     if let Some(path) = snapshot_path.as_deref() {
         save_snapshot(Path::new(path), &state)?;
     }
