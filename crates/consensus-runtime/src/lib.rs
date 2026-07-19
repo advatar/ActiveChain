@@ -20,6 +20,70 @@ use std::net::TcpListener;
 use std::net::TcpStream;
 use std::sync::mpsc::{self, Receiver, Sender};
 
+const PEER_BODY_DOMAIN: &[u8] = b"ACTIVECHAIN-PEER-BODY-V1";
+pub const MAX_PEER_FRAME_LEN: usize = 16 * 1024;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ConsensusMessage {
+    Proposal(BlockProposal),
+    Vote(ValidatorVote),
+    Certificate(QuorumCertificate),
+}
+impl ConsensusMessage {
+    fn kind(&self) -> u8 {
+        match self {
+            Self::Proposal(_) => 1,
+            Self::Vote(_) => 2,
+            Self::Certificate(_) => 3,
+        }
+    }
+    fn encode_body(&self) -> Result<Vec<u8>, TransportError> {
+        match self {
+            Self::Proposal(value) => encode_envelope(value),
+            Self::Vote(value) => encode_envelope(value),
+            Self::Certificate(value) => encode_envelope(value),
+        }
+        .map_err(|_| TransportError::InvalidBody)
+    }
+    fn decode(kind: u8, body: &[u8]) -> Result<Self, TransportError> {
+        match kind {
+            1 => decode_envelope(body).map(Self::Proposal),
+            2 => decode_envelope(body).map(Self::Vote),
+            3 => decode_envelope(body).map(Self::Certificate),
+            _ => return Err(TransportError::InvalidMessageKind),
+        }
+        .map_err(|_| TransportError::InvalidBody)
+    }
+    pub fn digest(&self) -> Result<Digest384, TransportError> {
+        let body = self.encode_body()?;
+        let mut hasher = Shake256::default();
+        hasher.update(PEER_BODY_DOMAIN);
+        hasher.update(&[self.kind()]);
+        hasher.update(&(body.len() as u32).to_be_bytes());
+        hasher.update(&body);
+        let mut digest = [0_u8; 48];
+        hasher.finalize_xof().read(&mut digest);
+        Ok(Digest384::new(digest))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthenticatedConsensusMessage {
+    pub envelope: SignedPeerEnvelope,
+    pub message: ConsensusMessage,
+}
+impl AuthenticatedConsensusMessage {
+    pub fn new(
+        envelope: SignedPeerEnvelope,
+        message: ConsensusMessage,
+    ) -> Result<Self, TransportError> {
+        if envelope.body_digest() != message.digest()? {
+            return Err(TransportError::BodyDigestMismatch);
+        }
+        Ok(Self { envelope, message })
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SignedPeerEnvelope {
     sender: u16,
@@ -77,6 +141,11 @@ pub struct PeerDirectory {
     peers: BTreeMap<u16, (PeerSocket, Vec<u8>)>,
     replay: ReplayGuard,
 }
+impl Default for PeerDirectory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 pub struct PeerListener {
     listener: TcpListener,
@@ -130,17 +199,20 @@ impl PeerDirectory {
     pub fn len(&self) -> usize {
         self.peers.len()
     }
+    pub fn is_empty(&self) -> bool {
+        self.peers.is_empty()
+    }
     pub fn remove(&mut self, peer_id: u16) -> bool {
         self.peers.remove(&peer_id).is_some()
     }
     pub fn receive_verified(
         &mut self,
         peer_id: u16,
-    ) -> Result<SignedPeerEnvelope, PeerReceiveError> {
+    ) -> Result<AuthenticatedConsensusMessage, PeerReceiveError> {
         let (socket, key) = self.peers.get_mut(&peer_id).ok_or(PeerReceiveError::UnknownPeer)?;
-        let envelope = socket.receive_envelope().map_err(PeerReceiveError::Io)?;
-        self.replay.accept(&envelope, key).map_err(PeerReceiveError::Transport)?;
-        Ok(envelope)
+        let message = socket.receive_message().map_err(PeerReceiveError::Io)?;
+        self.replay.accept(&message.envelope, key).map_err(PeerReceiveError::Transport)?;
+        Ok(message)
     }
     pub fn broadcast(&mut self, envelope: &SignedPeerEnvelope) -> std::io::Result<()> {
         for (socket, _) in self.peers.values_mut() {
@@ -170,6 +242,11 @@ pub struct PeerEvent {
 pub struct PeerEventQueue {
     sender: Sender<PeerEvent>,
     receiver: Receiver<PeerEvent>,
+}
+impl Default for PeerEventQueue {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 impl PeerEventQueue {
     pub fn new() -> Self {
@@ -208,6 +285,11 @@ pub enum DispatchError {
 
 pub struct PeerSupervisor {
     handles: Vec<std::thread::JoinHandle<()>>,
+}
+impl Default for PeerSupervisor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 impl PeerSupervisor {
     pub fn new() -> Self {
@@ -267,7 +349,14 @@ impl PeerSocket {
     pub fn receive_frame(&mut self) -> std::io::Result<Vec<u8>> {
         let mut len = [0; 4];
         self.stream.read_exact(&mut len)?;
-        let mut frame = vec![0; u32::from_be_bytes(len) as usize];
+        let frame_len = u32::from_be_bytes(len) as usize;
+        if frame_len > MAX_PEER_FRAME_LEN {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "peer frame exceeds limit",
+            ));
+        }
+        let mut frame = vec![0; frame_len];
         self.stream.read_exact(&mut frame)?;
         Ok(frame)
     }
@@ -297,10 +386,74 @@ impl PeerSocket {
             std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid peer envelope")
         })
     }
+    pub fn send_message(
+        &mut self,
+        authenticated: &AuthenticatedConsensusMessage,
+    ) -> std::io::Result<()> {
+        let body = authenticated.message.encode_body().map_err(transport_io_error)?;
+        let envelope = &authenticated.envelope;
+        let frame_len = 2 + 8 + 48 + 2 + envelope.signature_bytes().len() + 1 + 4 + body.len();
+        if frame_len > MAX_PEER_FRAME_LEN {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "peer frame exceeds limit",
+            ));
+        }
+        let mut frame = Vec::with_capacity(frame_len);
+        frame.extend_from_slice(&envelope.sender().to_be_bytes());
+        frame.extend_from_slice(&envelope.sequence().to_be_bytes());
+        frame.extend_from_slice(envelope.body_digest().as_bytes());
+        frame.extend_from_slice(&(envelope.signature_bytes().len() as u16).to_be_bytes());
+        frame.extend_from_slice(envelope.signature_bytes());
+        frame.push(authenticated.message.kind());
+        frame.extend_from_slice(&(body.len() as u32).to_be_bytes());
+        frame.extend_from_slice(&body);
+        self.stream.write_all(&(frame.len() as u32).to_be_bytes())?;
+        self.stream.write_all(&frame)
+    }
+    pub fn receive_message(&mut self) -> std::io::Result<AuthenticatedConsensusMessage> {
+        let frame = self.receive_frame()?;
+        if frame.len() < 65 {
+            return Err(invalid_data("consensus frame too short"));
+        }
+        let sender = u16::from_be_bytes([frame[0], frame[1]]);
+        let sequence = u64::from_be_bytes(frame[2..10].try_into().unwrap());
+        let digest = Digest384::new(frame[10..58].try_into().unwrap());
+        let signature_len = u16::from_be_bytes([frame[58], frame[59]]) as usize;
+        let kind_offset = 60_usize
+            .checked_add(signature_len)
+            .ok_or_else(|| invalid_data("invalid signature length"))?;
+        let body_offset = kind_offset + 5;
+        if body_offset > frame.len() {
+            return Err(invalid_data("truncated consensus frame"));
+        }
+        let body_len =
+            u32::from_be_bytes(frame[kind_offset + 1..body_offset].try_into().unwrap()) as usize;
+        if frame.len() != body_offset + body_len {
+            return Err(invalid_data("consensus body length mismatch"));
+        }
+        let signature =
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, frame[60..kind_offset].to_vec())
+                .map_err(|_| invalid_data("invalid ML-DSA signature"))?;
+        let envelope = SignedPeerEnvelope::new(sender, sequence, digest, signature)
+            .map_err(transport_io_error)?;
+        let message = ConsensusMessage::decode(frame[kind_offset], &frame[body_offset..])
+            .map_err(transport_io_error)?;
+        AuthenticatedConsensusMessage::new(envelope, message).map_err(transport_io_error)
+    }
+}
+fn invalid_data(message: &'static str) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, message)
+}
+fn transport_io_error(error: TransportError) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{error:?}"))
 }
 #[derive(Debug, Eq, PartialEq)]
 pub enum TransportError {
     InvalidSuite,
+    InvalidMessageKind,
+    InvalidBody,
+    BodyDigestMismatch,
     Verification(VerificationError),
     Replay,
 }
@@ -498,6 +651,29 @@ mod tests {
     use super::*;
     use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
     use std::net::TcpListener;
+    fn signed_message(
+        key: &SigningKey<MlDsa44>,
+        sender: u16,
+        sequence: u64,
+        message: ConsensusMessage,
+    ) -> AuthenticatedConsensusMessage {
+        let digest = message.digest().unwrap();
+        let placeholder = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420]).unwrap();
+        let unsigned = SignedPeerEnvelope::new(sender, sequence, digest, placeholder).unwrap();
+        let signature = key.sign(&unsigned.signing_payload());
+        AuthenticatedConsensusMessage::new(
+            SignedPeerEnvelope::new(
+                sender,
+                sequence,
+                digest,
+                ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec())
+                    .unwrap(),
+            )
+            .unwrap(),
+            message,
+        )
+        .unwrap()
+    }
     #[test]
     fn runtime_rejects_without_verified_votes() {
         let mut state = ConsensusState::new(1);
@@ -534,6 +710,64 @@ mod tests {
             guard.accept(&received, key.verifying_key().encode().as_slice()),
             Err(TransportError::Replay)
         );
+        sender.join().unwrap();
+    }
+
+    #[test]
+    fn authenticated_consensus_body_round_trips_and_verifies() {
+        let key = SigningKey::<MlDsa44>::from_seed(&Seed::from([7; 32]));
+        let vote = ValidatorVote::new(
+            activechain_protocol_types::PrincipalId::new(Digest384::new([3; 48])),
+            8,
+            2,
+            Digest384::new([4; 48]),
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![5; 2420]).unwrap(),
+        )
+        .unwrap();
+        let authenticated = signed_message(&key, 7, 9, ConsensusMessage::Vote(vote.clone()));
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let sender = std::thread::spawn(move || {
+            let mut socket = PeerSocket::connect(std::net::TcpStream::connect(address).unwrap());
+            socket.send_message(&authenticated).unwrap();
+        });
+        let (stream, _) = listener.accept().unwrap();
+        let mut socket = PeerSocket::connect(stream);
+        let received = socket.receive_message().unwrap();
+        received.envelope.verify(key.verifying_key().encode().as_slice()).unwrap();
+        assert_eq!(received.message, ConsensusMessage::Vote(vote));
+        sender.join().unwrap();
+    }
+
+    #[test]
+    fn authenticated_consensus_body_rejects_digest_substitution() {
+        let signature = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420]).unwrap();
+        let vote = ValidatorVote::new(
+            activechain_protocol_types::PrincipalId::new(Digest384::new([1; 48])),
+            1,
+            1,
+            Digest384::new([2; 48]),
+            signature.clone(),
+        )
+        .unwrap();
+        let envelope = SignedPeerEnvelope::new(1, 1, Digest384::new([9; 48]), signature).unwrap();
+        assert_eq!(
+            AuthenticatedConsensusMessage::new(envelope, ConsensusMessage::Vote(vote)),
+            Err(TransportError::BodyDigestMismatch)
+        );
+    }
+
+    #[test]
+    fn peer_socket_rejects_oversized_frame_before_allocation() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let sender = std::thread::spawn(move || {
+            let mut stream = std::net::TcpStream::connect(address).unwrap();
+            stream.write_all(&((MAX_PEER_FRAME_LEN as u32) + 1).to_be_bytes()).unwrap();
+        });
+        let (stream, _) = listener.accept().unwrap();
+        let error = PeerSocket::connect(stream).receive_frame().unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
         sender.join().unwrap();
     }
 

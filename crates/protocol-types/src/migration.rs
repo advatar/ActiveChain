@@ -23,10 +23,10 @@ impl CryptoMigrationWindow {
         deprecation_height: Option<Height>,
     ) -> Result<Self, CryptoMigrationError> {
         suite.require_post_quantum().map_err(|_| CryptoMigrationError::NonPostQuantumSuite)?;
-        if let Some(deprecation_height) = deprecation_height {
-            if deprecation_height <= activation_height {
-                return Err(CryptoMigrationError::DeprecationNotAfterActivation);
-            }
+        if let Some(deprecation_height) = deprecation_height
+            && deprecation_height <= activation_height
+        {
+            return Err(CryptoMigrationError::DeprecationNotAfterActivation);
         }
         Ok(Self { suite, activation_height, deprecation_height })
     }

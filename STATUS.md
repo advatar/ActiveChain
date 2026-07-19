@@ -167,7 +167,7 @@ Tracked by [GitHub issue #12](https://github.com/advatar/ActiveChain/issues/12).
 
 Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
 
-- [ ] Carry canonically encoded proposal, vote, and quorum-certificate bodies in authenticated peer frames.
+- [x] Carry canonically encoded proposal, vote, and quorum-certificate bodies in authenticated peer frames.
 - [ ] Run the complete proposal → vote → QC → finalization loop in the validator process and persist finalized state.
 - [ ] Add configured peer discovery, authenticated connection handshakes, reconnects, bounded queues, rate limits, and backpressure.
 - [ ] Activate validator-set and staking transitions only through finalized consensus state.
