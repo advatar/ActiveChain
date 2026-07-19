@@ -29,11 +29,21 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
       - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
+          rustup target add --toolchain 1.97.1 aarch64-apple-ios
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Check all targets
         run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - name: Check no-std kernel target
+        run: >-
+          cargo check --locked --target aarch64-apple-ios --lib
+          -p activechain-canonical-codec
+          -p activechain-protocol-types
+          -p activechain-protocol-commitment
+          -p activechain-principal
+          -p activechain-capability
       - name: Run tests
         run: cargo test --locked --workspace --all-features
       - name: Run documentation tests
@@ -43,4 +53,6 @@ jobs:
       - name: Run release tests
         run: cargo test --locked --workspace --release
       - name: Reproduce canonical vectors
-        run: cargo run --locked --quiet -p activechain-vector-generator | diff -u testing/vectors/canonical/principal-v1.txt -
+        run: |
+          cargo run --locked --quiet -p activechain-vector-generator -- principal-v1 | diff -u testing/vectors/canonical/principal-v1.txt -
+          cargo run --locked --quiet -p activechain-vector-generator -- authority-v1 | diff -u testing/vectors/authority/authority-v1.txt -

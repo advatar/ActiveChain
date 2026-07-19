@@ -9,6 +9,8 @@ type Digest384 = bytes[48];
 
 newtype ObjectId = Digest384;
 newtype PrincipalId = Digest384;
+newtype AuthenticatorId = Digest384;
+newtype ActionId = Digest384;
 newtype CapabilityId = Digest384;
 newtype CredentialId = Digest384;
 newtype PackageId = Digest384;
@@ -49,4 +51,94 @@ struct Principal @type_tag(0x0020) @version(1) @max_bytes(282) {
     anchor_deposit: Amount;
     created_at: Height;
     last_updated_at: Height;
+}
+
+enum CryptoFamily : u8 {
+    MlDsa = 1;
+    SlhDsaShake = 2;
+    MlKem = 3;
+    Shake = 4;
+}
+
+struct CryptoSuiteId {
+    family: CryptoFamily;
+    parameter_set: u16;
+    encoding_version: u16;
+    security_profile: u8;
+}
+
+enum AuthenticatorPurpose : u8 {
+    Control = 0;
+    Recovery = 1;
+    Session = 2;
+    Validator = 3;
+    CredentialIssuance = 4;
+    ToolReceipt = 5;
+}
+
+struct AuthenticatorDescriptor @type_tag(0x0021) @version(1) @max_bytes(4179) {
+    authenticator_id: AuthenticatorId;
+    scheme: CryptoSuiteId;
+    verification_key: bytes<4096>;
+    purpose: AuthenticatorPurpose;
+    valid_from: Height;
+    valid_until: Option<Height>;
+    revoked_at: Option<Height>;
+}
+
+struct RecoveryRequest @type_tag(0x0022) @version(1) @max_bytes(232) {
+    principal_id: PrincipalId;
+    expected_sequence: u64;
+    proposed_controller_policy_hash: Digest384;
+    proposed_authenticator_set_root: Digest384;
+    recovery_evidence_commitment: Digest384;
+    initiated_at: Height;
+    challenge_deadline: Height;
+    recovery_bond: Amount;
+}
+
+enum ScopeSelector : u8 {
+    Any = 0;
+    Exact(value: Digest384) = 1;
+    Prefix(bits: u16, bytes: Digest384) = 2;
+}
+
+newtype ResourceSelector = ScopeSelector;
+newtype DataSelector = ScopeSelector;
+
+enum HolderBinding : u8 {
+    Principal(principal_id: PrincipalId) = 0;
+    Private(commitment: Digest384) = 1;
+    Bearer = 2;
+}
+
+struct RateLimit {
+    maximum_uses: u64;
+    window_blocks: u64;
+}
+
+struct ProtocolSignature @max_bytes(20011) {
+    suite: CryptoSuiteId;
+    bytes: bytes<20000>;
+}
+
+struct CapabilityGrant @type_tag(0x0030) @version(1) @max_bytes(22024) {
+    capability_id: CapabilityId;
+    issuer: PrincipalId;
+    holder_binding: HolderBinding;
+    parent_capability: Option<CapabilityId>;
+    permitted_actions: BoundedSet<ActionId, 32>;
+    resource_scope: ResourceSelector;
+    data_scope: DataSelector;
+    monetary_limit: Option<Amount>;
+    compute_limit: Option<ResourceUnits>;
+    rate_limit: Option<RateLimit>;
+    use_limit: Option<u64>;
+    valid_from: Height;
+    valid_until: Option<Height>;
+    delegation_depth_remaining: u8;
+    delegation_allowed: bool;
+    revocation_registry: Option<ObjectId>;
+    constraint_hash: Digest384;
+    issuer_signature: ProtocolSignature;
 }

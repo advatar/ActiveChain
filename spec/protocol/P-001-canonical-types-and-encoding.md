@@ -22,6 +22,8 @@ Identifier types are distinct even when their physical representations match. Im
 
 Fixed-width integers MUST use big-endian byte order. A Boolean MUST be one byte: `00` for false and `01` for true. Other Boolean tags MUST be rejected. Enum discriminants use their declared fixed-width integer representation; unknown discriminants MUST be rejected.
 
+An `Option<T>` MUST be encoded as one presence byte followed by no value for `00` or exactly one canonical `T` for `01`. Every other presence byte MUST be rejected.
+
 Floating-point values, native-width integers, locale-sensitive strings, and unordered collections MUST NOT occur in a consensus type.
 
 ## 3. Lengths and byte strings
@@ -48,7 +50,7 @@ body_length    : minimal u32 ULEB128
 body           : body_length bytes
 ```
 
-Type tag `0x0020` is `Principal`. Its development schema version is `1`. Tags not registered for the expected type, unsupported versions, trailing bytes after the envelope, and trailing bytes inside the body MUST be rejected.
+Development type tags are `0x0020` for `Principal`, `0x0021` for `AuthenticatorDescriptor`, `0x0022` for `RecoveryRequest`, and `0x0030` for `CapabilityGrant`. Their development schema version is `1`. Tags not registered for the expected type, unsupported versions, trailing bytes after the envelope, and trailing bytes inside the body MUST be rejected.
 
 Fields in a body occur exactly once in schema order. There are no field names or field numbers on the wire. Schema evolution therefore requires a new schema version.
 

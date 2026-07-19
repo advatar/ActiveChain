@@ -9,6 +9,8 @@ publish = false
 
 [dependencies]
 activechain-canonical-codec.workspace = true
+activechain-capability.workspace = true
+activechain-principal.workspace = true
 activechain-protocol-types.workspace = true
 activechain-protocol-commitment = { path = "../../crates/protocol-commitment", version = "0.1.0" }
 

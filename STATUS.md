@@ -22,14 +22,14 @@ Tracked by [GitHub issue #2](https://github.com/advatar/ActiveChain/issues/2).
 
 - [x] Register a dedicated repo-scoped self-hosted runner on this Mac.
 - [x] Route CI exclusively to the `activechain-ci` runner label and harden checkout behavior.
-- [ ] Verify the full CI workflow completes on the local runner.
-- [ ] Draft `P-020` principal lifecycle and `P-022` capability semantics.
-- [ ] Add canonical authenticator and capability schemas.
-- [ ] Implement bounded authenticator descriptors and validation.
-- [ ] Implement pure principal lifecycle transitions for creation, rotation, freeze, and recovery initiation.
-- [ ] Implement canonical capability grants and mechanically checked attenuation.
-- [ ] Publish deterministic authority vectors.
-- [ ] Add unit and property tests for lifecycle invariants and non-escalation.
+- [x] Verify the full CI workflow completes on the local runner.
+- [x] Draft `P-020` principal lifecycle and `P-022` capability semantics.
+- [x] Add canonical authenticator and capability schemas.
+- [x] Implement bounded authenticator descriptors and validation.
+- [x] Implement pure principal lifecycle transitions for creation, rotation, freeze, and recovery initiation.
+- [x] Implement canonical capability grants and mechanically checked attenuation.
+- [x] Publish deterministic authority vectors.
+- [x] Add unit and property tests for lifecycle invariants and non-escalation.
 
 ## Queued authority-kernel milestones
 

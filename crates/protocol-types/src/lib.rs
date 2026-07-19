@@ -7,6 +7,19 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
 
+mod authority;
+mod crypto;
+
+pub use authority::{
+    BoundedActionSet, BoundedActionSetError, CapabilityGrant, CapabilityGrantFields,
+    CapabilityValidationError, DataSelector, HolderBinding, RateLimit, RateLimitError,
+    RecoveryRequest, RecoveryRequestError, ResourceSelector, ScopeSelector, ScopeSelectorError,
+};
+pub use crypto::{
+    AuthenticatorDescriptor, AuthenticatorPurpose, AuthenticatorValidationError, CryptoFamily,
+    CryptoSuiteError, CryptoSuiteId, ProtocolSignature, SignatureError,
+};
+
 /// The fixed size of every protocol digest and identifier.
 pub const DIGEST_LENGTH: usize = 48;
 
@@ -93,6 +106,8 @@ macro_rules! identifier_type {
 
 identifier_type!(ObjectId, "A globally unique object identifier.");
 identifier_type!(PrincipalId, "A stable principal identifier independent of controller keys.");
+identifier_type!(AuthenticatorId, "A principal authenticator identifier.");
+identifier_type!(ActionId, "A protocol or application action identifier.");
 identifier_type!(CapabilityId, "A capability grant identifier.");
 identifier_type!(CredentialId, "A credential identifier.");
 identifier_type!(PackageId, "An immutable contract package identifier.");

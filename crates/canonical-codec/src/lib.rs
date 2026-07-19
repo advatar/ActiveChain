@@ -421,6 +421,28 @@ impl CanonicalDecode for bool {
     }
 }
 
+impl<T: CanonicalEncode> CanonicalEncode for Option<T> {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        match self {
+            None => 0_u8.encode(encoder),
+            Some(value) => {
+                1_u8.encode(encoder)?;
+                value.encode(encoder)
+            }
+        }
+    }
+}
+
+impl<T: CanonicalDecode> CanonicalDecode for Option<T> {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(decoder)? {
+            0 => Ok(None),
+            1 => Ok(Some(T::decode(decoder)?)),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "Option", tag }),
+        }
+    }
+}
+
 impl<const LENGTH: usize> CanonicalEncode for [u8; LENGTH] {
     fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
         encoder.write_raw(self)
@@ -526,6 +548,19 @@ mod tests {
             Err(DecodeError::LengthLimitExceeded { length: 4, maximum: 3 })
         );
         assert_eq!(decoder.remaining(), 4);
+    }
+
+    #[test]
+    fn options_have_one_canonical_presence_tag() {
+        let mut encoder = Encoder::new(9);
+        Some(9_u64).encode(&mut encoder).expect("option fits");
+        assert_eq!(encoder.finish(), vec![1, 0, 0, 0, 0, 0, 0, 0, 9]);
+
+        let mut decoder = Decoder::new(&[2]);
+        assert_eq!(
+            Option::<u64>::decode(&mut decoder),
+            Err(DecodeError::InvalidEnumTag { type_name: "Option", tag: 2 })
+        );
     }
 
     proptest! {

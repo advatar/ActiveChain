@@ -10,6 +10,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-capability"
+version = "0.1.0"
+dependencies = [
+ "activechain-protocol-types",
+ "proptest",
+]
+
+[[package]]
+name = "activechain-principal"
+version = "0.1.0"
+dependencies = [
+ "activechain-protocol-types",
+ "proptest",
+]
+
+[[package]]
 name = "activechain-protocol-commitment"
 version = "0.1.0"
 dependencies = [
@@ -31,6 +47,8 @@ name = "activechain-vector-generator"
 version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
+ "activechain-capability",
+ "activechain-principal",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
 ]

@@ -1,8 +1,18 @@
 //! Generates the frozen development vectors from typed protocol values.
 
-use activechain_canonical_codec::{encode_body, encode_envelope};
+use activechain_canonical_codec::{CanonicalType, encode_body, encode_envelope};
+use activechain_capability::verify_attenuation;
+use activechain_principal::{
+    LifecycleAuthorization, PrincipalCommand, PrincipalGenesis, apply_lifecycle_command,
+    create_principal,
+};
 use activechain_protocol_commitment::{DomainTag, commit};
-use activechain_protocol_types::{Digest384, FreezeState, Principal, PrincipalId, PrincipalKind};
+use activechain_protocol_types::{
+    ActionId, AuthenticatorDescriptor, AuthenticatorId, AuthenticatorPurpose, BoundedActionSet,
+    CapabilityGrant, CapabilityGrantFields, CapabilityId, CryptoSuiteId, DataSelector, Digest384,
+    FreezeState, HolderBinding, ObjectId, Principal, PrincipalId, PrincipalKind, ProtocolSignature,
+    RateLimit, RecoveryRequest, ResourceSelector,
+};
 
 fn repeated_digest(byte: u8) -> Digest384 {
     Digest384::new([byte; 48])
@@ -79,17 +89,243 @@ canonical_value_commitment_hex={}\n",
     )
 }
 
+fn identifier_principal(byte: u8) -> PrincipalId {
+    PrincipalId::new(repeated_digest(byte))
+}
+
+fn identifier_capability(byte: u8) -> CapabilityId {
+    CapabilityId::new(repeated_digest(byte))
+}
+
+fn identifier_action(byte: u8) -> ActionId {
+    ActionId::new(repeated_digest(byte))
+}
+
+fn encoded_value<T: CanonicalType>(name: &str, value: &T) -> String {
+    let body = encode_body(value).expect("vector body must fit its declared bound");
+    let envelope = encode_envelope(value).expect("vector envelope must fit its declared bound");
+    let commitment =
+        commit(DomainTag::CANONICAL_VALUE, value).expect("vector commitment input must encode");
+    format!(
+        "{name}_type_tag=0x{:04x}\n\
+{name}_schema_version={}\n\
+{name}_body_length={}\n\
+{name}_body_hex={}\n\
+{name}_envelope_hex={}\n\
+{name}_canonical_value_commitment_hex={}\n",
+        T::TYPE_TAG,
+        T::SCHEMA_VERSION,
+        body.len(),
+        hexadecimal(&body),
+        hexadecimal(&envelope),
+        hexadecimal(commitment.as_bytes()),
+    )
+}
+
+fn authority_authenticator() -> AuthenticatorDescriptor {
+    AuthenticatorDescriptor::new(
+        AuthenticatorId::new(repeated_digest(0x66)),
+        CryptoSuiteId::ML_DSA_65,
+        vec![0x77; 1_952],
+        AuthenticatorPurpose::Control,
+        42,
+        Some(1_000),
+        None,
+    )
+    .expect("authority vector authenticator is valid")
+}
+
+fn authority_lifecycle() -> (Principal, Principal, Principal, RecoveryRequest) {
+    let genesis = PrincipalGenesis {
+        principal_id: identifier_principal(0x11),
+        principal_kind: PrincipalKind::Agent,
+        controller_policy_hash: repeated_digest(0x22),
+        recovery_policy_hash: repeated_digest(0x33),
+        authenticator_set_root: repeated_digest(0x44),
+        metadata_commitment: repeated_digest(0x55),
+        anchor_deposit: 1_000,
+    };
+    let created = create_principal(genesis, 42, 500).expect("authority genesis is valid");
+
+    let controller = LifecycleAuthorization::controller(
+        created.principal_id(),
+        created.sequence(),
+        created.controller_policy_hash(),
+    );
+    let rotation_output = apply_lifecycle_command(
+        &created,
+        PrincipalCommand::RotateController {
+            expected_sequence: 0,
+            new_controller_policy_hash: repeated_digest(0x23),
+            new_authenticator_set_root: repeated_digest(0x45),
+        },
+        Some(&controller),
+        43,
+    )
+    .expect("authority rotation is valid");
+    let rotated = rotation_output.principal();
+    assert_eq!(rotation_output.recovery_request(), None);
+
+    let controller = LifecycleAuthorization::controller(
+        rotated.principal_id(),
+        rotated.sequence(),
+        rotated.controller_policy_hash(),
+    );
+    let freeze_output = apply_lifecycle_command(
+        &rotated,
+        PrincipalCommand::Freeze { expected_sequence: 1 },
+        Some(&controller),
+        44,
+    )
+    .expect("authority freeze is valid");
+    let frozen = freeze_output.principal();
+    assert_eq!(freeze_output.recovery_request(), None);
+
+    let recovery = LifecycleAuthorization::recovery(
+        frozen.principal_id(),
+        frozen.sequence(),
+        frozen.recovery_policy_hash(),
+    );
+    let recovery_output = apply_lifecycle_command(
+        &frozen,
+        PrincipalCommand::InitiateRecovery {
+            expected_sequence: 2,
+            proposed_controller_policy_hash: repeated_digest(0x24),
+            proposed_authenticator_set_root: repeated_digest(0x46),
+            recovery_evidence_commitment: repeated_digest(0x88),
+            challenge_deadline: 55,
+            recovery_bond: 250,
+        },
+        Some(&recovery),
+        45,
+    )
+    .expect("authority recovery initiation is valid");
+    let pending = recovery_output.principal();
+    let request = recovery_output.recovery_request().expect("recovery vector must produce request");
+
+    (created, rotated, pending, request)
+}
+
+fn authority_signature(byte: u8) -> ProtocolSignature {
+    ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![byte; 2_420])
+        .expect("authority vector signature has canonical structure")
+}
+
+fn authority_capabilities() -> (CapabilityGrant, CapabilityGrant) {
+    let revocation_registry = ObjectId::new(repeated_digest(0x93));
+    let constraint_hash = repeated_digest(0x94);
+    let parent = CapabilityGrant::new(
+        CapabilityGrantFields {
+            capability_id: identifier_capability(0x90),
+            issuer: identifier_principal(0x91),
+            holder_binding: HolderBinding::Principal(identifier_principal(0x92)),
+            parent_capability: None,
+            permitted_actions: BoundedActionSet::new(vec![
+                identifier_action(0x01),
+                identifier_action(0x02),
+            ])
+            .expect("authority vector actions are sorted"),
+            resource_scope: ResourceSelector::ANY,
+            data_scope: DataSelector::ANY,
+            monetary_limit: Some(1_000),
+            compute_limit: Some(10_000),
+            rate_limit: Some(RateLimit::new(100, 50).expect("non-zero rate")),
+            use_limit: Some(500),
+            valid_from: 10,
+            valid_until: Some(1_000),
+            delegation_depth_remaining: 2,
+            delegation_allowed: true,
+            revocation_registry: Some(revocation_registry),
+            constraint_hash,
+        },
+        authority_signature(0x95),
+    )
+    .expect("authority parent grant is valid");
+
+    let child = CapabilityGrant::new(
+        CapabilityGrantFields {
+            capability_id: identifier_capability(0x96),
+            issuer: identifier_principal(0x92),
+            holder_binding: HolderBinding::Principal(identifier_principal(0x97)),
+            parent_capability: Some(identifier_capability(0x90)),
+            permitted_actions: BoundedActionSet::new(vec![identifier_action(0x01)])
+                .expect("authority vector child action is valid"),
+            resource_scope: ResourceSelector::exact(ObjectId::new(repeated_digest(0x98))),
+            data_scope: DataSelector::exact(repeated_digest(0x99)),
+            monetary_limit: Some(500),
+            compute_limit: Some(5_000),
+            rate_limit: Some(RateLimit::new(50, 50).expect("non-zero rate")),
+            use_limit: Some(100),
+            valid_from: 20,
+            valid_until: Some(900),
+            delegation_depth_remaining: 1,
+            delegation_allowed: true,
+            revocation_registry: Some(revocation_registry),
+            constraint_hash,
+        },
+        authority_signature(0x9a),
+    )
+    .expect("authority child grant is valid");
+    verify_attenuation(&parent, &child).expect("authority child is mechanically attenuated");
+    (parent, child)
+}
+
+fn render_authority_v1() -> String {
+    let authenticator = authority_authenticator();
+    let (created, rotated, pending, recovery_request) = authority_lifecycle();
+    let (parent, child) = authority_capabilities();
+
+    let mut output = String::from(
+        "# ActiveChain authority vector\n\
+# Generated by: cargo run --locked --quiet -p activechain-vector-generator -- authority-v1\n\
+# Transcripts: P-001/P-002/P-020/P-022 draft 0.1\n\
+\n\
+vector=authority-v1\n\
+commitment_domain=canonical-value (0x0001)\n\
+\n",
+    );
+    output.push_str(&encoded_value("authenticator", &authenticator));
+    output.push('\n');
+    output.push_str(&encoded_value("created_principal", &created));
+    output.push('\n');
+    output.push_str(&encoded_value("rotated_principal", &rotated));
+    output.push('\n');
+    output.push_str(&encoded_value("recovery_pending_principal", &pending));
+    output.push('\n');
+    output.push_str(&encoded_value("recovery_request", &recovery_request));
+    output.push('\n');
+    output.push_str(&encoded_value("parent_capability", &parent));
+    output.push('\n');
+    output.push_str(&encoded_value("child_capability", &child));
+    output.push_str("\nattenuation_result=permit\n");
+    output
+}
+
 fn main() {
-    print!("{}", render_principal_v1());
+    let vector = std::env::args().nth(1);
+    match vector.as_deref().unwrap_or("principal-v1") {
+        "principal-v1" => print!("{}", render_principal_v1()),
+        "authority-v1" => print!("{}", render_authority_v1()),
+        unknown => {
+            eprintln!("unknown vector {unknown}; expected principal-v1 or authority-v1");
+            std::process::exit(2);
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::render_principal_v1;
+    use super::{render_authority_v1, render_principal_v1};
 
     #[test]
     fn generated_principal_vector_is_frozen() {
         let published = include_str!("../../../testing/vectors/canonical/principal-v1.txt");
         assert_eq!(render_principal_v1(), published);
+    }
+
+    #[test]
+    fn generated_authority_vector_is_frozen() {
+        let published = include_str!("../../../testing/vectors/authority/authority-v1.txt");
+        assert_eq!(render_authority_v1(), published);
     }
 }
