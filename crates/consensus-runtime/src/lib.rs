@@ -66,7 +66,7 @@ pub struct PeerSocket {
 }
 
 pub struct PeerDirectory {
-    peers: BTreeMap<u16, PeerSocket>,
+    peers: BTreeMap<u16, (PeerSocket, Vec<u8>)>,
 }
 
 pub struct PeerListener {
@@ -100,14 +100,22 @@ impl PeerDirectory {
     pub fn new() -> Self {
         Self { peers: BTreeMap::new() }
     }
-    pub fn insert(&mut self, peer_id: u16, socket: PeerSocket) -> Result<(), PeerDirectoryError> {
+    pub fn insert(
+        &mut self,
+        peer_id: u16,
+        socket: PeerSocket,
+        public_key: Vec<u8>,
+    ) -> Result<(), PeerDirectoryError> {
+        if public_key.len() != 1312 {
+            return Err(PeerDirectoryError::InvalidPublicKey);
+        }
         if self.peers.contains_key(&peer_id) {
             return Err(PeerDirectoryError::AlreadyRegistered);
         }
         if self.peers.len() >= Self::MAX_PEERS {
             return Err(PeerDirectoryError::Capacity);
         }
-        self.peers.insert(peer_id, socket);
+        self.peers.insert(peer_id, (socket, public_key));
         Ok(())
     }
     pub fn len(&self) -> usize {
@@ -117,7 +125,7 @@ impl PeerDirectory {
         self.peers.remove(&peer_id).is_some()
     }
     pub fn broadcast(&mut self, envelope: &SignedPeerEnvelope) -> std::io::Result<()> {
-        for socket in self.peers.values_mut() {
+        for (socket, _) in self.peers.values_mut() {
             socket.send(envelope)?;
         }
         Ok(())
@@ -127,10 +135,19 @@ impl PeerDirectory {
 pub enum PeerDirectoryError {
     AlreadyRegistered,
     Capacity,
+    InvalidPublicKey,
 }
 impl PeerSocket {
     pub fn connect(stream: TcpStream) -> Self {
         Self { stream }
+    }
+    pub fn set_timeouts(
+        &self,
+        read: Option<std::time::Duration>,
+        write: Option<std::time::Duration>,
+    ) -> std::io::Result<()> {
+        self.stream.set_read_timeout(read)?;
+        self.stream.set_write_timeout(write)
     }
     pub fn send(&mut self, envelope: &SignedPeerEnvelope) -> std::io::Result<()> {
         let mut frame = Vec::with_capacity(2 + 8 + 48 + 2 + envelope.signature_bytes().len());
