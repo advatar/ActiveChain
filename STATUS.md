@@ -178,6 +178,7 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
   - [x] Add challenge-based ML-DSA peer handshakes with bounded framing and loopback verification.
   - [x] Add partition, replay, dropped-vote, and late-recovery multi-validator rehearsal evidence.
   - [x] Add bounded reconnect retry and peer-directory replacement APIs.
+  - [x] Require a matching authenticated handshake during reconnect before accepting the socket.
 - [ ] Activate validator-set and staking transitions only through finalized consensus state.
   - [x] Bind the active validator-set root into finalized epoch transitions and durable consensus snapshots.
 - [ ] Implement erasure-coded data availability, commitments, sampling, and authenticated snapshot distribution.

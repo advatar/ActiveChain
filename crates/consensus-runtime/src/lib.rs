@@ -566,6 +566,21 @@ impl PeerConnector {
             std::io::Error::new(std::io::ErrorKind::NotConnected, "reconnect failed")
         }))
     }
+    pub fn connect_with_handshake(
+        &self,
+        endpoint: &PeerEndpoint,
+        outbound: &PeerHandshake,
+        expected_challenge: [u8; 32],
+    ) -> Result<PeerSocket, std::io::Error> {
+        let mut socket = self.reconnect(endpoint)?;
+        socket.send_handshake(outbound)?;
+        let inbound = socket.receive_handshake()?;
+        inbound.verify(&endpoint.public_key).map_err(transport_io_error)?;
+        if inbound.challenge() != &expected_challenge || inbound.sender() != endpoint.id {
+            return Err(invalid_data("peer handshake identity mismatch"));
+        }
+        Ok(socket)
+    }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PeerConnectorError {
@@ -1468,6 +1483,61 @@ mod tests {
         received.verify(key.verifying_key().encode().as_slice()).unwrap();
         assert_eq!(received.sender(), 5);
         sender.join().unwrap();
+    }
+
+    #[test]
+    fn reconnect_requires_matching_authenticated_peer_handshake() {
+        let client_key = SigningKey::<MlDsa44>::from_seed(&Seed::from([16; 32]));
+        let server_key = SigningKey::<MlDsa44>::from_seed(&Seed::from([17; 32]));
+        let server_public_key = server_key.verifying_key().encode().to_vec();
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let server_challenge = [19; 32];
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut socket = PeerSocket::connect(stream);
+            let _client = socket.receive_handshake().unwrap();
+            let placeholder = PeerHandshake::new(
+                8,
+                server_challenge,
+                ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420]).unwrap(),
+            )
+            .unwrap();
+            let response = PeerHandshake::new(
+                8,
+                server_challenge,
+                ProtocolSignature::new(
+                    CryptoSuiteId::ML_DSA_44,
+                    server_key.sign(&placeholder.signing_payload()).encode().to_vec(),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            socket.send_handshake(&response).unwrap();
+        });
+        let endpoint = PeerEndpoint { id: 8, address, public_key: server_public_key };
+        let connector = PeerConnector::new(vec![endpoint.clone()])
+            .unwrap()
+            .with_retry_policy(1, Duration::from_millis(100), Duration::ZERO)
+            .unwrap();
+        let placeholder = PeerHandshake::new(
+            7,
+            [18; 32],
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420]).unwrap(),
+        )
+        .unwrap();
+        let outbound = PeerHandshake::new(
+            7,
+            [18; 32],
+            ProtocolSignature::new(
+                CryptoSuiteId::ML_DSA_44,
+                client_key.sign(&placeholder.signing_payload()).encode().to_vec(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        connector.connect_with_handshake(&endpoint, &outbound, server_challenge).unwrap();
+        server.join().unwrap();
     }
 
     #[test]
