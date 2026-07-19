@@ -8,6 +8,7 @@ use activechain_canonical_codec::{
 };
 
 mod authority;
+mod credential;
 mod crypto;
 mod object;
 
@@ -15,6 +16,11 @@ pub use authority::{
     BoundedActionSet, BoundedActionSetError, CapabilityGrant, CapabilityGrantFields,
     CapabilityValidationError, DataSelector, HolderBinding, RateLimit, RateLimitError,
     RecoveryRequest, RecoveryRequestError, ResourceSelector, ScopeSelector, ScopeSelectorError,
+};
+pub use credential::{
+    CREDENTIAL_FORMAT_VERSION, Credential, CredentialAcceptancePolicy, CredentialStatement,
+    CredentialStatusRegistry, CredentialValidationError, MAX_ACCEPTED_CREDENTIAL_ISSUERS,
+    MAX_ACCEPTED_CREDENTIAL_SCHEMAS,
 };
 pub use crypto::{
     AuthenticatorDescriptor, AuthenticatorPurpose, AuthenticatorValidationError, CryptoFamily,

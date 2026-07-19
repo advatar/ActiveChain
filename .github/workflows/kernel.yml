@@ -47,6 +47,7 @@ jobs:
           -p activechain-action-kernel
           -p activechain-bytecode-verifier
           -p activechain-canonical-codec
+          -p activechain-credential
           -p activechain-devnet-kernel
           -p activechain-protocol-types
           -p activechain-protocol-commitment
@@ -72,6 +73,7 @@ jobs:
         run: |
           cargo run --locked --quiet -p activechain-vector-generator -- principal-v1 | diff -u testing/vectors/canonical/principal-v1.txt -
           cargo run --locked --quiet -p activechain-vector-generator -- authority-v1 | diff -u testing/vectors/authority/authority-v1.txt -
+          cargo run --locked --quiet -p activechain-vector-generator -- credential-v1 | diff -u testing/vectors/credential/credential-v1.txt -
           cargo run --locked --quiet -p activechain-vector-generator -- apl-v1 | diff -u testing/vectors/policy/apl-v1.txt -
           cargo run --locked --quiet -p activechain-vector-generator -- object-transition-v1 | diff -u testing/vectors/object/object-transition-v1.txt -
           cargo run --locked --quiet -p activechain-vector-generator -- state-tree-v1 | diff -u testing/vectors/state/state-tree-v1.txt -
@@ -82,6 +84,8 @@ jobs:
         run: |
           cargo run --locked --quiet -p activechain-vector-generator -- apl-truth-table | diff -u testing/vectors/policy/apl-truth-table.txt -
           (cd formal/lean && lake exe aplTruthTable) | diff -u testing/vectors/policy/apl-truth-table.txt -
+          cargo run --locked --quiet -p activechain-vector-generator -- credential-status-table | diff -u testing/vectors/credential/credential-status-table.txt -
+          (cd formal/lean && lake exe credentialStatusTable) | diff -u testing/vectors/credential/credential-status-table.txt -
           cargo run --locked --quiet -p activechain-vector-generator -- object-model-table | diff -u testing/vectors/object/object-model-table.txt -
           (cd formal/lean && lake exe objectTable) | diff -u testing/vectors/object/object-model-table.txt -
           cargo run --locked --quiet -p activechain-vector-generator -- state-tree-model-table | diff -u testing/vectors/state/state-tree-model-table.txt -

@@ -28,6 +28,10 @@ impl DomainTag {
     pub const ACTION_ID: Self = Self(0x0005);
     /// Derivation of a canonical finalized development block identifier.
     pub const BLOCK_ID: Self = Self(0x0006);
+    /// Derivation of a complete signed credential identifier.
+    pub const CREDENTIAL_ID: Self = Self(0x0007);
+    /// Commitment signed by a credential issuer.
+    pub const CREDENTIAL_ISSUANCE: Self = Self(0x0008);
 
     /// Returns the registered numeric tag.
     #[must_use]

@@ -15,6 +15,8 @@ The implementation is deliberately starting below networking and consensus. The 
 - versioned post-quantum suite identifiers, exact key/signature structure, and bounded authenticators;
 - pure principal creation, rotation, freeze, and recovery-initiation transitions;
 - signed capability grants and conservative multi-dimensional delegation attenuation;
+- canonical off-chain credentials with issuer-bound signatures and status-registry snapshots;
+- a pure status/freshness-aware credential verifier that derives bounded APL schema facts;
 - a bounded, total APL evaluator with default deny, forbid precedence, fixed metering, and atomic obligations;
 - an executable Lean APL effect model with proved decision properties and a Rust differential check;
 - versioned objects, bounded disjoint access manifests, and atomic APL-authorized transfer batches;
@@ -26,7 +28,8 @@ The implementation is deliberately starting below networking and consensus. The 
 - public action envelopes with exact nonce channels, one-shot fee tickets, and six-dimensional resource ceilings;
 - a pure deterministic block kernel with canonical action/block identifiers, receipts, charges, and post-state roots;
 - a minimal semantic-devnet host and an executable Lean nonce/replay model;
-- deterministic principal, authority, APL, transition, state-tree, ObjectVM, action, and block vectors;
+- an executable Lean credential-status model with required/future/stale/revoked precedence;
+- deterministic principal, authority, credential, APL, transition, state-tree, ObjectVM, action, and block vectors;
 - unit and property tests for codec safety, authority, policy, transitions, proofs, bytecode, execution, admission, and block application.
 
 ## Workspace
@@ -39,6 +42,7 @@ crates/protocol-types        canonical IDs, principals, authenticators, capabili
 crates/protocol-commitment   SHAKE256/384 commitment transcript
 crates/principal             pure principal lifecycle state machine
 crates/capability            mechanical delegation attenuation
+crates/credential            issuer/status-aware credential presentation verification
 crates/policy-kernel         bounded APL AST, requests, evaluation, decisions
 crates/object                exact one-step object ownership transitions
 crates/object-vm             deterministic metered reference interpreter
@@ -53,7 +57,7 @@ testing/vectors/             cross-implementation fixtures
 tools/vector-generator/      deterministic vector producer
 ```
 
-All thirteen protocol and semantic-kernel crates compile with `#![no_std]` and `#![forbid(unsafe_code)]`. The semantic-devnet executable, vector generator, and Lean models are host tooling outside the consensus kernel.
+All fourteen protocol and semantic-kernel crates compile with `#![no_std]` and `#![forbid(unsafe_code)]`. The semantic-devnet executable, vector generator, and Lean models are host tooling outside the consensus kernel.
 
 ## Verify locally
 
@@ -62,11 +66,12 @@ The repository pins Rust 1.97.1. Run:
 ```sh
 cargo fmt --all --check
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
-cargo check --locked --target aarch64-apple-ios --lib -p activechain-action-kernel -p activechain-bytecode-verifier -p activechain-canonical-codec -p activechain-devnet-kernel -p activechain-protocol-types -p activechain-protocol-commitment -p activechain-principal -p activechain-capability -p activechain-policy-kernel -p activechain-object -p activechain-object-vm -p activechain-transition -p activechain-state-tree
+cargo check --locked --target aarch64-apple-ios --lib -p activechain-action-kernel -p activechain-bytecode-verifier -p activechain-canonical-codec -p activechain-credential -p activechain-devnet-kernel -p activechain-protocol-types -p activechain-protocol-commitment -p activechain-principal -p activechain-capability -p activechain-policy-kernel -p activechain-object -p activechain-object-vm -p activechain-transition -p activechain-state-tree
 cargo test --locked --workspace --all-features
 cargo test --locked --workspace --doc
 cargo run --locked --quiet -p activechain-vector-generator -- principal-v1
 cargo run --locked --quiet -p activechain-vector-generator -- authority-v1
+cargo run --locked --quiet -p activechain-vector-generator -- credential-v1
 cargo run --locked --quiet -p activechain-vector-generator -- apl-v1
 cargo run --locked --quiet -p activechain-vector-generator -- object-transition-v1
 cargo run --locked --quiet -p activechain-vector-generator -- state-tree-v1
@@ -76,6 +81,6 @@ cargo run --locked --quiet -p activechain-semantic-devnet -- empty-block
 cd formal/lean && lake build
 ```
 
-Implementation progress is tracked in `STATUS.md` and the linked milestone issues, including [semantic-devnet issue #7](https://github.com/advatar/ActiveChain/issues/7).
+Implementation progress is tracked in `STATUS.md` and the linked milestone issues, including [credential verification issue #8](https://github.com/advatar/ActiveChain/issues/8).
 
 CI runs on the repository's dedicated macOS ARM64 self-hosted runner. Its pinned installation, operations, and security boundary are documented in `docs/ci/self-hosted-runner.md`.

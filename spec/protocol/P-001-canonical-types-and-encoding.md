@@ -80,6 +80,10 @@ Registered development domain tags are:
 | `0x0002` | object identifier derivation |
 | `0x0003` | signing payload |
 | `0x0004` | state leaf |
+| `0x0005` | admitted action identifier |
+| `0x0006` | finalized development block identifier |
+| `0x0007` | complete signed credential identifier |
+| `0x0008` | unsigned credential issuance statement |
 
 The envelope is not hashed as `canonical_body`; its type and version are already explicit transcript fields. A caller MUST select the domain for the intended protocol use.
 

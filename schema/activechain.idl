@@ -98,6 +98,37 @@ struct RecoveryRequest @type_tag(0x0022) @version(1) @max_bytes(232) {
     recovery_bond: Amount;
 }
 
+struct CredentialStatement @type_tag(0x0023) @version(1) @max_bytes(366) {
+    format_version: u16;
+    issuer: PrincipalId;
+    subject_binding: Digest384;
+    schema_id: Digest384;
+    claims_commitment: Digest384;
+    issuance_height: Height;
+    valid_from: Timestamp;
+    valid_until: Option<Timestamp>;
+    status_registry: Option<ObjectId>;
+    issuance_log_root: Option<Digest384>;
+    terms_commitment: Option<Digest384>;
+}
+
+struct CredentialStatusRegistry @type_tag(0x0025) @version(1) @max_bytes(208) {
+    registry_id: ObjectId;
+    issuer: PrincipalId;
+    schema_id: Digest384;
+    status_root: Digest384;
+    sequence: u64;
+    effective_height: Height;
+}
+
+struct CredentialAcceptancePolicy @type_tag(0x0026) @version(1) @max_bytes(3084) {
+    accepted_issuers: BoundedSet<PrincipalId, 32>;
+    accepted_schemas: BoundedSet<Digest384, 32>;
+    maximum_status_age: u64;
+    require_status: bool;
+    require_issuance_log: bool;
+}
+
 enum ScopeSelector : u8 {
     Any = 0;
     Exact(value: Digest384) = 1;
@@ -121,6 +152,11 @@ struct RateLimit {
 struct ProtocolSignature @max_bytes(20011) {
     suite: CryptoSuiteId;
     bytes: bytes<20000>;
+}
+
+struct Credential @type_tag(0x0024) @version(1) @max_bytes(5001) {
+    statement: CredentialStatement;
+    issuer_signature: ProtocolSignature;
 }
 
 struct CapabilityGrant @type_tag(0x0030) @version(1) @max_bytes(22024) {

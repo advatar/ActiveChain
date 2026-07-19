@@ -12,6 +12,7 @@ activechain-action-kernel.workspace = true
 activechain-bytecode-verifier.workspace = true
 activechain-canonical-codec.workspace = true
 activechain-capability.workspace = true
+activechain-credential.workspace = true
 activechain-devnet-kernel.workspace = true
 activechain-object.workspace = true
 activechain-object-vm.workspace = true

@@ -39,6 +39,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-credential"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-policy-kernel",
+ "activechain-protocol-commitment",
+ "activechain-protocol-types",
+ "proptest",
+]
+
+[[package]]
 name = "activechain-devnet-kernel"
 version = "0.1.0"
 dependencies = [
@@ -144,6 +155,7 @@ dependencies = [
  "activechain-bytecode-verifier",
  "activechain-canonical-codec",
  "activechain-capability",
+ "activechain-credential",
  "activechain-devnet-kernel",
  "activechain-object",
  "activechain-object-vm",
