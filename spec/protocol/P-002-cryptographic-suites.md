@@ -8,6 +8,8 @@
 
 This revision specifies canonical cryptographic-suite identifiers and structural key/signature validation. It does not yet specify provider APIs, signature verification, key generation, KEM operations, secret-key storage, or proof-system parameters.
 
+Every safety-critical suite selection is migration-gated. A `CryptoMigrationWindowV1` names a registered post-quantum suite, an activation height, and an optional deprecation height. A suite is valid only at heights in `[activation, deprecation)`, with no deprecation height meaning no scheduled sunset. Classical or unknown suites are rejected before allocation or cryptographic work; live consensus and client implementations must not claim quantum safety until their selected windows and providers are independently verified.
+
 ## 2. Suite identifier
 
 Every key, signature, ciphertext, proof, and commitment MUST identify a complete suite tuple:

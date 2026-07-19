@@ -137,6 +137,7 @@ Tracked by [GitHub issue #10](https://github.com/advatar/ActiveChain/issues/10).
 - [ ] Specify migration behavior for validator, principal, credential, transport, and protected-envelope keys.
 - [ ] Add deterministic migration vectors and rejection tests.
 - [ ] Do not describe consensus, threshold encryption, or clients as quantum-safe until their implementations pass these gates.
+- [x] Add a canonical height-bounded PQ migration window primitive and boundary tests.
 
 ## Planned milestone — P-051 immutable ObjectVM packages and upgrade model
 

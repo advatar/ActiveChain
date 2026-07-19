@@ -10,6 +10,7 @@ use activechain_canonical_codec::{
 mod authority;
 mod credential;
 mod crypto;
+mod migration;
 mod object;
 mod package;
 
@@ -27,6 +28,7 @@ pub use crypto::{
     AuthenticatorDescriptor, AuthenticatorPurpose, AuthenticatorValidationError, CryptoFamily,
     CryptoSuiteError, CryptoSuiteId, ProtocolSignature, SignatureError,
 };
+pub use migration::{CryptoMigrationError, CryptoMigrationWindow};
 pub use object::{
     AccessManifest, AccessManifestError, AccessManifestFields, MAX_CREATED_OBJECTS,
     MAX_CREATION_NAMESPACES, MAX_DYNAMIC_READS, MAX_EXACT_READS, MAX_EXACT_WRITES,
