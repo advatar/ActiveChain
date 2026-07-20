@@ -3,7 +3,7 @@
 //! Protocol-owned wallet primitives intended to sit underneath OpenWallet adapters.
 //! This crate never stores plaintext secret keys and never signs an unconstrained request.
 
-use activechain_cash_kernel::FeeQuote;
+use activechain_cash_kernel::{CoinCellRecord, FeeQuote};
 use activechain_protocol_types::{CoinCellId, Digest384, PrincipalId};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -41,6 +41,37 @@ pub enum WalletError {
     MissingFee,
     Expired,
     DuplicateIntent,
+    InsufficientFunds,
+}
+
+pub fn select_cells(
+    cells: &[CoinCellRecord],
+    owner: PrincipalId,
+    amount: u128,
+    fee: u128,
+) -> Result<(CoinCellId, CoinCellId), WalletError> {
+    let required = amount.checked_add(fee).ok_or(WalletError::InsufficientFunds)?;
+    let mut payment = None;
+    let mut reserve = None;
+    for record in cells {
+        if record.cell().owner() != owner {
+            continue;
+        }
+        if payment.is_none() && record.cell().amount() >= required {
+            payment = Some(record.id());
+            continue;
+        }
+        if reserve.is_none() && record.cell().amount() >= fee {
+            reserve = Some(record.id());
+        }
+        if payment.is_some() && reserve.is_some() {
+            break;
+        }
+    }
+    match (payment, reserve) {
+        (Some(payment), Some(reserve)) if payment != reserve => Ok((payment, reserve)),
+        _ => Err(WalletError::InsufficientFunds),
+    }
 }
 
 pub fn authorize_intent(
@@ -67,6 +98,8 @@ pub fn authorize_intent(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use activechain_cash_kernel::{CoinCell, CoinCellOrigin};
+    use activechain_protocol_types::TransactionId;
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
     }
@@ -106,5 +139,25 @@ mod tests {
         let mut zero = intent();
         zero.amount = 0;
         assert_eq!(authorize_intent(policy, zero, 0, 1), Err(WalletError::ZeroAmount));
+    }
+
+    #[test]
+    fn cell_selection_is_deterministic_and_keeps_fee_reserve_separate() {
+        let owner = principal(2);
+        let cells = vec![
+            CoinCellRecord::new(
+                CoinCellId::new(digest(4)),
+                CoinCell::new(CoinCellOrigin::new(TransactionId::new(digest(6)), 0), owner, 20, 1)
+                    .unwrap(),
+            ),
+            CoinCellRecord::new(
+                CoinCellId::new(digest(5)),
+                CoinCell::new(CoinCellOrigin::new(TransactionId::new(digest(7)), 0), owner, 5, 1)
+                    .unwrap(),
+            ),
+        ];
+        let (payment, reserve) = select_cells(&cells, owner, 10, 2).unwrap();
+        assert_ne!(payment, reserve);
+        assert_eq!(select_cells(&cells, owner, 30, 2), Err(WalletError::InsufficientFunds));
     }
 }
