@@ -7,6 +7,7 @@ extern crate alloc;
 
 use activechain_cash_kernel::{CoinCellRecord, CoinTransfer, FeeQuote};
 use activechain_protocol_types::{CoinCellId, Digest384, PrincipalId};
+use alloc::vec::Vec;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SpendPolicy {
@@ -44,6 +45,59 @@ pub enum WalletError {
     Expired,
     DuplicateIntent,
     InsufficientFunds,
+    KeySlotExists,
+    KeySlotMissing,
+    EmptyCiphertext,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum KeyPurpose {
+    Authentication,
+    KeyAgreement,
+    Recovery,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KeySlot {
+    pub id: Digest384,
+    pub purpose: KeyPurpose,
+    pub version: u32,
+    pub ciphertext: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct EncryptedKeystore {
+    slots: Vec<KeySlot>,
+}
+
+impl EncryptedKeystore {
+    pub fn import_ciphertext(&mut self, slot: KeySlot) -> Result<(), WalletError> {
+        if slot.ciphertext.is_empty() {
+            return Err(WalletError::EmptyCiphertext);
+        }
+        if self.slots.iter().any(|existing| existing.id == slot.id) {
+            return Err(WalletError::KeySlotExists);
+        }
+        self.slots.push(slot);
+        self.slots.sort_by_key(|slot| slot.id);
+        Ok(())
+    }
+    pub fn rotate(&mut self, old: Digest384, replacement: KeySlot) -> Result<(), WalletError> {
+        let position =
+            self.slots.iter().position(|slot| slot.id == old).ok_or(WalletError::KeySlotMissing)?;
+        if replacement.ciphertext.is_empty()
+            || self.slots.iter().any(|slot| slot.id == replacement.id)
+        {
+            return Err(WalletError::KeySlotExists);
+        }
+        self.slots.remove(position);
+        self.slots.push(replacement);
+        self.slots.sort_by_key(|slot| slot.id);
+        Ok(())
+    }
+    pub fn slots(&self) -> &[KeySlot] {
+        &self.slots
+    }
 }
 
 pub fn select_cells(
@@ -122,6 +176,7 @@ mod tests {
     use super::*;
     use activechain_cash_kernel::{CoinCell, CoinCellOrigin};
     use activechain_protocol_types::TransactionId;
+    use alloc::vec;
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
     }
@@ -189,5 +244,26 @@ mod tests {
         assert_eq!(transfer.amount(), 10);
         assert_eq!(transfer.fee(), 3);
         assert_eq!(transfer.fee_reserve(), CoinCellId::new(digest(5)));
+    }
+
+    #[test]
+    fn keystore_only_accepts_opaque_ciphertext_and_supports_rotation() {
+        let mut store = EncryptedKeystore::default();
+        let first = KeySlot {
+            id: digest(8),
+            purpose: KeyPurpose::Authentication,
+            version: 1,
+            ciphertext: vec![1, 2, 3],
+        };
+        store.import_ciphertext(first.clone()).unwrap();
+        assert_eq!(store.import_ciphertext(first), Err(WalletError::KeySlotExists));
+        let replacement = KeySlot {
+            id: digest(9),
+            purpose: KeyPurpose::Authentication,
+            version: 2,
+            ciphertext: vec![4, 5],
+        };
+        store.rotate(digest(8), replacement).unwrap();
+        assert_eq!(store.slots()[0].id, digest(9));
     }
 }
