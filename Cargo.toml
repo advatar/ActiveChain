@@ -8,6 +8,7 @@ members = [
     "crates/data-availability",
     "crates/capability",
     "crates/cash-kernel",
+    "crates/wallet-core",
     "crates/credential",
     "crates/devnet-kernel",
     "crates/object",
@@ -37,6 +38,7 @@ activechain-crypto-provider = { path = "crates/crypto-provider", version = "0.1.
 activechain-data-availability = { path = "crates/data-availability", version = "0.1.0" }
 activechain-capability = { path = "crates/capability", version = "0.1.0" }
 activechain-cash-kernel = { path = "crates/cash-kernel", version = "0.1.0" }
+activechain-wallet-core = { path = "crates/wallet-core", version = "0.1.0" }
 activechain-credential = { path = "crates/credential", version = "0.1.0" }
 activechain-devnet-kernel = { path = "crates/devnet-kernel", version = "0.1.0" }
 activechain-object = { path = "crates/object", version = "0.1.0" }

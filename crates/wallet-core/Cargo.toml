@@ -1,0 +1,15 @@
+[package]
+name = "activechain-wallet-core"
+description = "OpenWallet-aligned ActiveChain wallet primitives for PQ identity and Coin Cell intents"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+activechain-cash-kernel.workspace = true
+activechain-protocol-types.workspace = true
+
+[lints]
+workspace = true
