@@ -1,0 +1,18 @@
+{
+  "package": "activechain-verifier-package-v1",
+  "protocol_revision": "activechain-v1-dev",
+  "rust_crate": "activechain-verifier-api",
+  "ffi_crate": "activechain-verifier-ffi",
+  "envelope_manifest": "manifest-v1.json",
+  "light_client_manifest": "light-client-v1.json",
+  "failure_codes": {
+    "ok": 0,
+    "too_large": 1,
+    "decode_error": 2,
+    "type_mismatch": 3,
+    "version_mismatch": 4,
+    "commitment_mismatch": 5,
+    "null_pointer": 6
+  },
+  "status": "development-integration"
+}
