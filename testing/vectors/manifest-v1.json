@@ -1,0 +1,26 @@
+{
+  "manifest": "activechain-verifier-v1",
+  "protocol_revision": "activechain-v1-dev",
+  "vectors": [
+    {
+      "id": "principal-v1",
+      "type_tag": "0x0001",
+      "schema_version": 1,
+      "source": "principal-v1.txt",
+      "status": "valid"
+    },
+    {
+      "id": "native-money-v1",
+      "type_tag": "0x0080-0x0089",
+      "schema_version": 1,
+      "source": "cash/native-money-v1.txt",
+      "status": "valid"
+    }
+  ],
+  "malformed_cases": [
+    { "id": "wrong-version", "rule": "reject_unknown_schema_version" },
+    { "id": "trailing-byte", "rule": "reject_non_empty_trailing_bytes" },
+    { "id": "tampered-body", "rule": "reject_commitment_mismatch" },
+    { "id": "wrong-type", "rule": "reject_type_tag_mismatch" }
+  ]
+}

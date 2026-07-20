@@ -288,3 +288,12 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [ ] Publish versioned Rust FFI types and golden vectors.
 - [ ] Build iOS and Android local three-validator prototypes.
 - [ ] Complete secure-storage, recovery, and mobile signing audits.
+
+## Active milestone — dBrowser verifier compatibility
+
+- [x] Freeze envelope type/version/body-length/trailing-byte rules in `P-110`.
+- [x] Publish the machine-readable `testing/vectors/manifest-v1.json` index.
+- [ ] Add complete envelope/commitment hashes for every published vector.
+- [ ] Implement a bounded language-neutral verifier API and structured failure codes.
+- [ ] Add malformed/tampered/wrong-version/trailing-byte fixtures to CI.
+- [ ] Freeze light-client finality, checkpoint, state-sync, DA, and upgrade requirements.
