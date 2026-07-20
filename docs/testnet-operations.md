@@ -14,6 +14,23 @@ cargo run --release -p activechain-consensus-runtime --bin genesis-tool -- \
 The manifest binds epoch, activation height, stake, validator IDs, and ML-DSA-44
 public keys. Keep it immutable after distribution.
 
+## Derive an operator wallet
+
+```sh
+cargo run --release -p activechain-wallet-core --bin activechain-wallet -- \
+  derive 0 1 0
+```
+
+Register the printed principal in the testnet faucet manifest. Never reuse a seed or principal
+between testnet genesis files.
+
+## Fund and submit a transfer
+
+The faucet issues a test-only Coin Cell on the exact genesis chain. The wallet must discover a
+funded cell, reserve a distinct fee cell, construct a canonical `CoinTransfer`, and submit it to
+transaction ingress. Ingress applies the cash-kernel transition and rejects a repeated transition
+ID.
+
 ## Run the process rehearsal
 
 ```sh
@@ -33,6 +50,8 @@ greater than zero is a release blocker.
   roots, or a snapshot that cannot be loaded after restart.
 - A testnet announcement requires a green self-hosted CI run and successful
   partition, replay, late-vote, restart, and sustained-load rehearsals.
+- Public faucet and transaction-ingress endpoints may only be announced with the signed genesis
+  manifest; placeholder endpoints are not launch infrastructure.
 
 Metrics exposed by `ValidatorService::metrics()` are intentionally monotonic:
 `proposals`, `votes`, `finalized_certificates`, and `rejected_messages`.
