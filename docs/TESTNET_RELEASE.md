@@ -13,6 +13,18 @@ not sufficient.
   reserves, and transfer construction.
 - Faucet/genesis funding tool bound to the testnet genesis hash.
 
+## dBrowser compatibility gate
+
+Before publishing a verifier package, run:
+
+```sh
+bash scripts/check-verifier-manifest.sh
+cargo test -p activechain-verifier-api
+```
+
+The manifest checker verifies every published vector hash and every malformed fixture. A production
+package additionally requires compiled C bindings and finality/state/DA proof fixtures.
+
 ## Wallet acceptance
 
 1. Derive two independent ML-DSA testnet identities.

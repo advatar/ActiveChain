@@ -297,3 +297,4 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [ ] Implement a bounded language-neutral verifier API and structured failure codes.
 - [ ] Add malformed/tampered/wrong-version/trailing-byte fixtures to CI.
 - [ ] Freeze light-client finality, checkpoint, state-sync, DA, and upgrade requirements.
+- [x] Add a local manifest checker for vector hashes and malformed fixtures.
