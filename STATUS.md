@@ -281,3 +281,10 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [ ] Add OpenWallet credential and application-session adapters.
 - [x] Freeze the first-testnet wallet/operator contract in `spec/protocol/P-100-testnet-wallet-operator.md`.
 - [x] Publish the first-testnet release checklist and explicit transaction-ingress blockers.
+
+## Planned milestone — mobile wallet shells
+
+- [x] Freeze the shared-core/native-shell boundary in `docs/mobile-wallet.md`.
+- [ ] Publish versioned Rust FFI types and golden vectors.
+- [ ] Build iOS and Android local three-validator prototypes.
+- [ ] Complete secure-storage, recovery, and mobile signing audits.
