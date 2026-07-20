@@ -5,8 +5,10 @@
 
 extern crate alloc;
 
+use activechain_cash_kernel::{CashLedger, CashTransitionError, GenesisEconomy};
 use activechain_cash_kernel::{CoinCellRecord, CoinTransfer, FeeQuote};
-use activechain_protocol_types::{CoinCellId, Digest384, PrincipalId};
+use activechain_protocol_commitment::cash_transition_id;
+use activechain_protocol_types::{CoinCellId, Digest384, PrincipalId, TransactionId};
 use alloc::vec::Vec;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -48,6 +50,30 @@ pub enum WalletError {
     KeySlotExists,
     KeySlotMissing,
     EmptyCiphertext,
+    Replay,
+}
+
+pub struct TransactionIngress {
+    ledger: CashLedger,
+    accepted: Vec<TransactionId>,
+}
+
+impl TransactionIngress {
+    pub fn from_genesis(economy: &GenesisEconomy) -> Result<Self, CashTransitionError> {
+        Ok(Self { ledger: CashLedger::from_genesis(economy)?, accepted: Vec::new() })
+    }
+    pub fn submit(&mut self, transfer: &CoinTransfer, height: u64) -> Result<(), WalletError> {
+        let id = cash_transition_id(transfer).map_err(|_| WalletError::MissingFee)?;
+        if self.accepted.contains(&id) {
+            return Err(WalletError::Replay);
+        }
+        self.ledger.apply_transfer(transfer, height).map_err(|_| WalletError::InsufficientFunds)?;
+        self.accepted.push(id);
+        Ok(())
+    }
+    pub fn ledger(&self) -> &CashLedger {
+        &self.ledger
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
