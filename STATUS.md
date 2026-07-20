@@ -279,3 +279,4 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [ ] Add encrypted PQ keystore, ML-DSA/ML-KEM key lifecycle, DID resolution, and recovery.
 - [ ] Add CLI adapter for testnet transfer, verifier bonding, duty receipts, and reward redemption.
 - [ ] Add OpenWallet credential and application-session adapters.
+- [x] Freeze the first-testnet wallet/operator contract in `spec/protocol/P-100-testnet-wallet-operator.md`.
