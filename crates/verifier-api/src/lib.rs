@@ -26,6 +26,29 @@ pub enum VerifyError {
     CommitmentMismatch,
 }
 
+impl VerifyError {
+    pub const fn code(self) -> u32 {
+        match self {
+            Self::TooLarge => 1,
+            Self::Decode(_) => 2,
+            Self::TypeMismatch => 3,
+            Self::VersionMismatch => 4,
+            Self::CommitmentMismatch => 5,
+        }
+    }
+}
+
+pub const VERIFY_OK: u32 = 0;
+
+pub fn inspect_envelope_code(bytes: &[u8], expected_type: u16, expected_version: u16) -> u32 {
+    inspect_envelope(bytes, expected_type, expected_version)
+        .map_or_else(|error| error.code(), |_| VERIFY_OK)
+}
+
+pub fn verify_commitment_code(domain: &[u8], body: &[u8], expected: Digest384) -> u32 {
+    verify_shake_commitment(domain, body, expected).map_or_else(|error| error.code(), |_| VERIFY_OK)
+}
+
 pub fn verify_shake_commitment(
     domain: &[u8],
     body: &[u8],
@@ -85,5 +108,8 @@ mod tests {
             verify_shake_commitment(b"wrong", &[0xaa, 0xbb], expected),
             Err(VerifyError::CommitmentMismatch)
         );
+        assert_eq!(inspect_envelope_code(&valid, 0x1234, 1), VERIFY_OK);
+        assert_eq!(inspect_envelope_code(&valid, 0x1234, 2), 4);
+        assert_eq!(verify_commitment_code(b"wrong", &[0xaa, 0xbb], expected), 5);
     }
 }
