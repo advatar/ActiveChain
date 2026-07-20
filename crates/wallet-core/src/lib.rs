@@ -3,7 +3,9 @@
 //! Protocol-owned wallet primitives intended to sit underneath OpenWallet adapters.
 //! This crate never stores plaintext secret keys and never signs an unconstrained request.
 
-use activechain_cash_kernel::{CoinCellRecord, FeeQuote};
+extern crate alloc;
+
+use activechain_cash_kernel::{CoinCellRecord, CoinTransfer, FeeQuote};
 use activechain_protocol_types::{CoinCellId, Digest384, PrincipalId};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -95,6 +97,26 @@ pub fn authorize_intent(
     Ok(intent)
 }
 
+pub fn build_transfer(
+    intent: WalletIntent,
+    current_height: u64,
+) -> Result<CoinTransfer, WalletError> {
+    if current_height > intent.valid_until {
+        return Err(WalletError::Expired);
+    }
+    let fee = intent.fee.total().ok_or(WalletError::MissingFee)?;
+    CoinTransfer::new(
+        intent.sender,
+        intent.recipient,
+        alloc::vec![intent.input],
+        intent.fee_reserve,
+        intent.amount,
+        fee,
+        intent.valid_until,
+    )
+    .map_err(|_| WalletError::InsufficientFunds)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -159,5 +181,13 @@ mod tests {
         let (payment, reserve) = select_cells(&cells, owner, 10, 2).unwrap();
         assert_ne!(payment, reserve);
         assert_eq!(select_cells(&cells, owner, 30, 2), Err(WalletError::InsufficientFunds));
+    }
+
+    #[test]
+    fn intent_builds_canonical_transfer_with_fee_reserve() {
+        let transfer = build_transfer(intent(), 10).unwrap();
+        assert_eq!(transfer.amount(), 10);
+        assert_eq!(transfer.fee(), 3);
+        assert_eq!(transfer.fee_reserve(), CoinCellId::new(digest(5)));
     }
 }
