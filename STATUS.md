@@ -254,7 +254,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [ ] Add partitioned Coin Cell state, input locks, parallel execution, and conflict fallback.
 - [ ] Implement the transparent specialized CashAIR and direct-reexecution comparison.
 - [ ] Add the cash-specific capacity and fee market, refundable deposits, sponsorship, and paymasters.
-- [ ] Implement accountable verifier profiles, bond lots, assigned-duty receipts, rewards, and objective penalties.
+- [x] Implement the first accountable verifier-duty kernel: role-scoped bond lots, one-shot assignments, fixed rewards, receipt validation, and bounded objective penalties.
 - [ ] Add random audit assignments and commit/reveal challenge rewards without passive-verifier inflation.
 - [ ] Build a reproducible proof-finalized cash throughput benchmark with real PQ, DA, state, and proof work.
 - [ ] Pass the full local-runner CI matrix.

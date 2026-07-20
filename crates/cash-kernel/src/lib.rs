@@ -9,9 +9,14 @@
 
 extern crate alloc;
 
+mod economics;
 mod transition;
 mod types;
 
+pub use economics::{
+    DutyAssignment, DutyReceipt, EconomicsError, ObjectiveFault, RewardSettlement, VerifierRole,
+    register_assignment, settle_duty,
+};
 pub use transition::{CashLedger, CashTransitionError};
 pub use types::{
     CoinBurnTransition, CoinCell, CoinCellOrigin, CoinCellRecord, CoinCellSet, CoinMintTransition,
