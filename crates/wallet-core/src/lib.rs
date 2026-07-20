@@ -43,6 +43,50 @@ pub struct WalletIntent {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PaymentSession {
+    pub session_id: Digest384,
+    pub intent_id: Digest384,
+    pub expires_at: u64,
+    pub witness: Digest384,
+}
+
+impl PaymentSession {
+    pub fn open(
+        session_id: Digest384,
+        intent: &WalletIntent,
+        expires_at: u64,
+    ) -> Result<Self, WalletError> {
+        if expires_at == 0 || expires_at > intent.valid_until {
+            return Err(WalletError::Expired);
+        }
+        let witness = Self::derive_witness(session_id, intent.intent_id, expires_at);
+        Ok(Self { session_id, intent_id: intent.intent_id, expires_at, witness })
+    }
+
+    pub fn verify(&self, intent: &WalletIntent, height: u64) -> Result<(), WalletError> {
+        if height > self.expires_at || intent.intent_id != self.intent_id {
+            return Err(WalletError::Expired);
+        }
+        if self.witness != Self::derive_witness(self.session_id, self.intent_id, self.expires_at) {
+            return Err(WalletError::PolicyDenied);
+        }
+        Ok(())
+    }
+
+    fn derive_witness(session: Digest384, intent: Digest384, expires_at: u64) -> Digest384 {
+        use sha3::digest::{ExtendableOutput, Update, XofReader};
+        let mut h = sha3::Shake256::default();
+        h.update(b"ACTIVECHAIN-PQ-PAYMENT-SESSION-V1");
+        h.update(session.as_bytes());
+        h.update(intent.as_bytes());
+        h.update(&expires_at.to_be_bytes());
+        let mut out = [0_u8; 48];
+        h.finalize_xof().read(&mut out);
+        Digest384::new(out)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WalletError {
     ZeroAmount,
     PolicyDenied,
@@ -435,5 +479,15 @@ mod tests {
         };
         assert_eq!(bridge.approve_and_build(policy, intent(), 0, 10).unwrap().amount(), 10);
         assert_eq!(bridge.key_slots().len(), 1);
+    }
+
+    #[test]
+    fn payment_session_is_bound_and_expires() {
+        let session = PaymentSession::open(digest(7), &intent(), 15).unwrap();
+        assert!(session.verify(&intent(), 15).is_ok());
+        assert_eq!(session.verify(&intent(), 16), Err(WalletError::Expired));
+        let mut altered = session;
+        altered.intent_id = digest(8);
+        assert_eq!(altered.verify(&intent(), 1), Err(WalletError::Expired));
     }
 }
