@@ -6,7 +6,8 @@
       "id": "principal-v1",
       "type_tag": "0x0001",
       "schema_version": 1,
-      "source": "principal-v1.txt",
+      "source": "canonical/principal-v1.txt",
+      "sha256": "0310a43dacc5c0d1f4be0102d48d1d69c2c072b563f054399633f3595836d78b",
       "status": "valid"
     },
     {
@@ -14,13 +15,62 @@
       "type_tag": "0x0080-0x0089",
       "schema_version": 1,
       "source": "cash/native-money-v1.txt",
+      "sha256": "4610eae5a8d0f7a382461a4bc2bc380c23a94c0873dee671c52d9aef90d56066",
+      "status": "valid"
+    },
+    {
+      "id": "authority-v1",
+      "type_tag": "0x0020",
+      "schema_version": 1,
+      "source": "authority/authority-v1.txt",
+      "sha256": "fe02d6aea31062e898de45f707fb09b20a8b5009f3c24f87fae52ee814b52da1",
+      "status": "valid"
+    },
+    {
+      "id": "credential-v1",
+      "type_tag": "0x0030",
+      "schema_version": 1,
+      "source": "credential/credential-v1.txt",
+      "sha256": "fc47bcda73e75dced2fad0a13f288f34814855bedc7d0ccf39a9c0b8d9b8b398",
+      "status": "valid"
+    },
+    {
+      "id": "apl-v1",
+      "type_tag": "0x0040",
+      "schema_version": 1,
+      "source": "policy/apl-v1.txt",
+      "sha256": "03ad63e4d96722e7e7acc8235de9d36045790ef48784a7fb3822e40df6c259fd",
+      "status": "valid"
+    },
+    {
+      "id": "state-tree-v1",
+      "type_tag": "0x0050",
+      "schema_version": 1,
+      "source": "state/state-tree-v1.txt",
+      "sha256": "fd3d155743f3a6b75cbfe45fea108b00160b17c662ce48072664f7367787ca5c",
+      "status": "valid"
+    },
+    {
+      "id": "object-transition-v1",
+      "type_tag": "0x0060",
+      "schema_version": 1,
+      "source": "object/object-transition-v1.txt",
+      "sha256": "ebf464bded1704f19c068f112bb9d73fe60c1f83bf749e25cade359087e8933b",
+      "status": "valid"
+    },
+    {
+      "id": "devnet-block-v1",
+      "type_tag": "0x0070",
+      "schema_version": 1,
+      "source": "devnet/devnet-block-v1.txt",
+      "sha256": "80050406b27ad3f53bf3094938a9e39c5154e38eaa03240d84f3c9317fa9b627",
       "status": "valid"
     }
   ],
   "malformed_cases": [
-    { "id": "wrong-version", "rule": "reject_unknown_schema_version" },
-    { "id": "trailing-byte", "rule": "reject_non_empty_trailing_bytes" },
-    { "id": "tampered-body", "rule": "reject_commitment_mismatch" },
-    { "id": "wrong-type", "rule": "reject_type_tag_mismatch" }
+    { "id": "wrong-version", "source": "canonical/malformed-wrong-version.hex", "rule": "reject_unknown_schema_version" },
+    { "id": "trailing-byte", "source": "canonical/malformed-trailing-byte.hex", "rule": "reject_non_empty_trailing_bytes" },
+    { "id": "tampered-body", "source": "canonical/malformed-trailing-byte.hex", "rule": "reject_commitment_mismatch" },
+    { "id": "wrong-type", "source": "canonical/malformed-wrong-type.hex", "rule": "reject_type_tag_mismatch" }
   ]
 }
