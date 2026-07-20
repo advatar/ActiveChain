@@ -1,0 +1,13 @@
+# ActiveChain native-money vector v1
+genesis_supply=1000
+locked_vesting_supply=100
+security_reserve_balance=100
+circulating_supply=800
+security_fee_revenue=0
+reserve_draw=0
+target_security_budget=50
+authorized_issuance=50
+issuance_cap=100
+post_supply_after_epoch=1050
+burned_amount=100
+post_supply_after_burn=950

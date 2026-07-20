@@ -37,6 +37,7 @@ The implementation is deliberately starting below networking and consensus. The 
 ```text
 crates/canonical-codec       consensus binary encoding
 crates/action-kernel         public action admission values and replay semantics
+crates/cash-kernel           native Coin Cell money and deterministic issuance
 crates/bytecode-verifier     typed ObjectVM bytecode and static verification
 crates/protocol-types        canonical IDs, principals, authenticators, capabilities
 crates/protocol-commitment   SHAKE256/384 commitment transcript
@@ -66,7 +67,7 @@ The repository pins Rust 1.97.1. Run:
 ```sh
 cargo fmt --all --check
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
-cargo check --locked --target aarch64-apple-ios --lib -p activechain-action-kernel -p activechain-bytecode-verifier -p activechain-canonical-codec -p activechain-credential -p activechain-devnet-kernel -p activechain-protocol-types -p activechain-protocol-commitment -p activechain-principal -p activechain-capability -p activechain-policy-kernel -p activechain-object -p activechain-object-vm -p activechain-transition -p activechain-state-tree
+cargo check --locked --target aarch64-apple-ios --lib -p activechain-action-kernel -p activechain-bytecode-verifier -p activechain-canonical-codec -p activechain-credential -p activechain-devnet-kernel -p activechain-protocol-types -p activechain-protocol-commitment -p activechain-principal -p activechain-capability -p activechain-cash-kernel -p activechain-policy-kernel -p activechain-object -p activechain-object-vm -p activechain-transition -p activechain-state-tree
 cargo test --locked --workspace --all-features
 cargo test --locked --workspace --doc
 cargo run --locked --quiet -p activechain-vector-generator -- principal-v1

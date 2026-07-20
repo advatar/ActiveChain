@@ -235,3 +235,27 @@ Tracked by [GitHub issue #9](https://github.com/advatar/ActiveChain/issues/9).
   - [x] Freeze a canonical package-manifest vector with malformed entry-point rejection coverage.
 - [x] Pass the full local-runner CI matrix.
 - [x] Update the landing page to reflect the completed milestone and next testnet gate.
+
+## Active milestone — native PQ cash plane and accountable verifier economy
+
+Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
+
+- [x] Implement canonical native-asset, genesis-allocation, Coin Cell, transfer, mint, burn, and supply schemas.
+- [x] Restrict native creation to one-time deterministic genesis allocation and bounded epoch security issuance; reject discretionary mint paths.
+- [x] Track genesis supply, cumulative security issuance, cumulative burn, circulating supply, locked/staked supply, security reserve, and last settled epoch.
+- [ ] Ensure reward credits/redemptions and shielding/unshielding never mint native value twice.
+- [x] Derive domain-separated Coin Cell identifiers, Coin Cell set roots, supply roots, and genesis allocation roots.
+- [x] Implement a pure `no_std` native-money transition kernel outside ObjectVM.
+- [x] Prove no double spend, checked value conservation, issuance-only minting, explicit burn accounting, and fee-reserve ownership.
+- [x] Publish a frozen native-money vector and unit/malformed-input tests.
+- [ ] Implement `CashTransferV1` and deterministic cash batches with fixed resource charging.
+- [ ] Add PQ payment sessions and compact authorization-key references.
+- [ ] Separate persistent canonical payment intents from short-lived PQ authorization witnesses.
+- [ ] Add partitioned Coin Cell state, input locks, parallel execution, and conflict fallback.
+- [ ] Implement the transparent specialized CashAIR and direct-reexecution comparison.
+- [ ] Add the cash-specific capacity and fee market, refundable deposits, sponsorship, and paymasters.
+- [ ] Implement accountable verifier profiles, bond lots, assigned-duty receipts, rewards, and objective penalties.
+- [ ] Add random audit assignments and commit/reveal challenge rewards without passive-verifier inflation.
+- [ ] Build a reproducible proof-finalized cash throughput benchmark with real PQ, DA, state, and proof work.
+- [ ] Pass the full local-runner CI matrix.
+- [ ] Update and push the landing-page roadmap at each completed major milestone.

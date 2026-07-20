@@ -53,6 +53,7 @@ jobs:
           -p activechain-protocol-commitment
           -p activechain-principal
           -p activechain-capability
+          -p activechain-cash-kernel
           -p activechain-policy-kernel
           -p activechain-object
           -p activechain-object-vm

@@ -39,6 +39,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-cash-kernel"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-protocol-commitment",
+ "activechain-protocol-types",
+ "proptest",
+]
+
+[[package]]
 name = "activechain-consensus-runtime"
 version = "0.1.0"
 dependencies = [

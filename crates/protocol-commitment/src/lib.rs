@@ -4,7 +4,10 @@
 //! Domain-separated SHAKE256 commitments over canonical protocol bodies.
 
 use activechain_canonical_codec::{CanonicalType, EncodeError, encode_body};
-use activechain_protocol_types::{DIGEST_LENGTH, Digest384, PackageId, PackageManifest};
+use activechain_protocol_types::{
+    AssetId, CoinCellId, CoinCellSetRoot, DIGEST_LENGTH, Digest384, GenesisAllocationRoot,
+    PackageId, PackageManifest, SupplyRoot, TransactionId,
+};
 use sha3::{Shake256, digest::ExtendableOutput, digest::Update, digest::XofReader};
 
 const TRANSCRIPT_PREFIX: &[u8] = b"ACTIVECHAIN-COMMITMENT";
@@ -34,6 +37,18 @@ impl DomainTag {
     pub const CREDENTIAL_ISSUANCE: Self = Self(0x0008);
     /// Derivation of an immutable ObjectVM package identifier.
     pub const PACKAGE_ID: Self = Self(0x0009);
+    /// Derivation of a native asset identifier from its canonical definition.
+    pub const NATIVE_ASSET_ID: Self = Self(0x000a);
+    /// Derivation of a native-money transition identifier.
+    pub const CASH_TRANSITION_ID: Self = Self(0x000b);
+    /// Derivation of a Coin Cell identifier from its transaction origin.
+    pub const COIN_CELL_ID: Self = Self(0x000c);
+    /// Commitment to the complete canonical unspent Coin Cell set.
+    pub const COIN_CELL_SET_ROOT: Self = Self(0x000d);
+    /// Commitment to canonical native-asset supply accounting.
+    pub const SUPPLY_ROOT: Self = Self(0x000e);
+    /// Commitment to the one-time genesis allocation.
+    pub const GENESIS_ALLOCATION_ROOT: Self = Self(0x000f);
 
     /// Returns the registered numeric tag.
     #[must_use]
@@ -45,6 +60,38 @@ impl DomainTag {
 /// Derives the immutable package identifier from its canonical manifest.
 pub fn package_id(manifest: &PackageManifest) -> Result<PackageId, EncodeError> {
     commit(DomainTag::PACKAGE_ID, manifest).map(PackageId::new)
+}
+
+/// Derives a native asset identifier from a canonical definition.
+pub fn native_asset_id<T: CanonicalType>(definition: &T) -> Result<AssetId, EncodeError> {
+    commit(DomainTag::NATIVE_ASSET_ID, definition).map(AssetId::new)
+}
+
+/// Derives a Coin Cell identifier from its canonical origin.
+pub fn coin_cell_id<T: CanonicalType>(origin: &T) -> Result<CoinCellId, EncodeError> {
+    commit(DomainTag::COIN_CELL_ID, origin).map(CoinCellId::new)
+}
+
+/// Derives a native-money transition identifier from its canonical intent.
+pub fn cash_transition_id<T: CanonicalType>(transition: &T) -> Result<TransactionId, EncodeError> {
+    commit(DomainTag::CASH_TRANSITION_ID, transition).map(TransactionId::new)
+}
+
+/// Commits a canonical unspent Coin Cell set.
+pub fn coin_cell_set_root<T: CanonicalType>(set: &T) -> Result<CoinCellSetRoot, EncodeError> {
+    commit(DomainTag::COIN_CELL_SET_ROOT, set).map(CoinCellSetRoot::new)
+}
+
+/// Commits canonical native-asset supply accounting.
+pub fn supply_root<T: CanonicalType>(supply: &T) -> Result<SupplyRoot, EncodeError> {
+    commit(DomainTag::SUPPLY_ROOT, supply).map(SupplyRoot::new)
+}
+
+/// Commits the one-time deterministic genesis allocation.
+pub fn genesis_allocation_root<T: CanonicalType>(
+    allocation: &T,
+) -> Result<GenesisAllocationRoot, EncodeError> {
+    commit(DomainTag::GENESIS_ALLOCATION_ROOT, allocation).map(GenesisAllocationRoot::new)
 }
 
 /// Computes a 384-bit SHAKE256 commitment over the P-001 transcript.

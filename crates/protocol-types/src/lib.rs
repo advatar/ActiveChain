@@ -145,6 +145,11 @@ identifier_type!(PackageId, "An immutable contract package identifier.");
 identifier_type!(JobId, "An asynchronous compute job identifier.");
 identifier_type!(TransactionId, "A canonical transaction identifier.");
 identifier_type!(ChainId, "A protocol deployment and replay-protection identifier.");
+identifier_type!(AssetId, "A canonical native or fixed-profile asset identifier.");
+identifier_type!(CoinCellId, "A canonical identifier for one unspent native-money cell.");
+identifier_type!(CoinCellSetRoot, "A commitment to the canonical unspent Coin Cell set.");
+identifier_type!(SupplyRoot, "A commitment to canonical native-asset supply accounting.");
+identifier_type!(GenesisAllocationRoot, "A commitment to the one-time native genesis allocation.");
 
 /// A finalized block height.
 pub type Height = u64;
