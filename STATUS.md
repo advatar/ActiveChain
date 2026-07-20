@@ -139,7 +139,7 @@ Tracked by [GitHub issue #10](https://github.com/advatar/ActiveChain/issues/10).
 - [x] Specify the day-one suite and bounded migration requirement for each key class in the PQ policy matrix.
 - [x] Add deterministic migration vectors and rejection tests.
 - [x] Freeze a PQ migration-window vector and test half-open activation/deprecation boundaries.
-- [ ] Do not describe consensus, threshold encryption, or clients as quantum-safe until their implementations pass these gates.
+- [x] Do not describe consensus, threshold encryption, or clients as quantum-safe until their implementations pass these gates.
 - [x] Add a canonical height-bounded PQ migration window primitive and boundary tests.
 - [x] Add a canonical ML-DSA-44-bound validator vote primitive for the future BFT boundary.
 
@@ -222,7 +222,7 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
   - [x] Prove three independently signed validator votes reach a receiver over authenticated TCP and finalize a QC.
   - [x] Run a 16-round sustained quorum rehearsal with monotonic leader finality and zero leader rejections.
   - [x] Remove failed sockets during best-effort broadcast so one dead peer cannot stall remaining fan-out.
-- [ ] Update and push the landing page at each completed launch milestone.
+- [x] Update and push the landing page at each completed launch milestone.
 
 ## Planned milestone — P-051 immutable ObjectVM packages and upgrade model
 
@@ -234,4 +234,4 @@ Tracked by [GitHub issue #9](https://github.com/advatar/ActiveChain/issues/9).
 - [x] Publish deterministic package vectors and unit/property tests.
   - [x] Freeze a canonical package-manifest vector with malformed entry-point rejection coverage.
 - [x] Pass the full local-runner CI matrix.
-- [ ] Update the landing page to reflect the completed milestone and next testnet gate.
+- [x] Update the landing page to reflect the completed milestone and next testnet gate.
