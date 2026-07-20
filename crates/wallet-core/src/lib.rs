@@ -11,6 +11,8 @@ use activechain_cash_kernel::{CoinCellRecord, CoinTransfer, FeeQuote};
 use activechain_protocol_commitment::cash_transition_id;
 use activechain_protocol_types::{CoinCellId, Digest384, PrincipalId, TransactionId};
 use alloc::vec::Vec;
+use std::io::{Read, Write};
+use std::net::TcpListener;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SpendPolicy {
@@ -57,6 +59,16 @@ pub enum WalletError {
 pub struct TransactionIngress {
     ledger: CashLedger,
     accepted: Vec<TransactionId>,
+}
+
+pub const MAX_INGRESS_FRAME: usize = 256 * 1024;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IngressError {
+    Io,
+    FrameTooLarge,
+    Malformed,
+    Rejected,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -120,6 +132,22 @@ impl TransactionIngress {
     }
     pub fn ledger(&self) -> &CashLedger {
         &self.ledger
+    }
+
+    pub fn serve_once(&mut self, listener: &TcpListener, height: u64) -> Result<(), IngressError> {
+        let (mut stream, _) = listener.accept().map_err(|_| IngressError::Io)?;
+        let mut header = [0_u8; 4];
+        stream.read_exact(&mut header).map_err(|_| IngressError::Io)?;
+        let length = u32::from_be_bytes(header) as usize;
+        if length == 0 || length > MAX_INGRESS_FRAME {
+            return Err(IngressError::FrameTooLarge);
+        }
+        let mut frame = alloc::vec![0_u8; length];
+        stream.read_exact(&mut frame).map_err(|_| IngressError::Io)?;
+        let result = self.submit_envelope(&frame, height).map_err(|_| IngressError::Rejected);
+        let response = if result.is_ok() { [1_u8, 0, 0, 0] } else { [0_u8, 0, 0, 1] };
+        stream.write_all(&response).map_err(|_| IngressError::Io)?;
+        result
     }
 }
 
