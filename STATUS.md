@@ -231,7 +231,7 @@ Tracked by [GitHub issue #9](https://github.com/advatar/ActiveChain/issues/9).
 - [x] Define bounded immutable package and module manifests around verified ObjectVM programs.
 - [x] Bind package identity to canonical bytecode and manifest commitments.
 - [x] Validate entry-point, import, and upgrade constraints without ambient state.
-- [ ] Publish deterministic package vectors and unit/property tests.
+- [x] Publish deterministic package vectors and unit/property tests.
   - [x] Freeze a canonical package-manifest vector with malformed entry-point rejection coverage.
 - [ ] Pass the full local-runner CI matrix.
 - [ ] Update the landing page to reflect the completed milestone and next testnet gate.
