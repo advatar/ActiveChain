@@ -39,6 +39,10 @@ verify_envelope(bytes, expected_type, expected_version)
 An eventual C ABI MUST preserve this result shape, use caller-owned buffers, require explicit output
 lengths, and never panic or allocate without a published bound.
 
+The checked-in header `crates/verifier-api/include/activechain_verifier.h` freezes the adapter
+function signatures and numeric result codes. Bindings MUST reject null pointers, lengths above the
+published bound, and integer truncation before calling the Rust implementation.
+
 ## Light-client requirements
 
 Before a light client trusts state it MUST verify a finalized quorum certificate, the validator-set
