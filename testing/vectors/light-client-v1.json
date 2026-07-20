@@ -1,0 +1,12 @@
+{
+  "manifest": "activechain-light-client-v1",
+  "protocol_revision": "activechain-v1-dev",
+  "requirements": [
+    { "id": "finality-qc", "proof": "quorum-certificate", "status": "required" },
+    { "id": "validator-set", "proof": "finalized-validator-set-root", "status": "required" },
+    { "id": "checkpoint", "proof": "state-root-protocol-revision-binding", "status": "required" },
+    { "id": "state-sync", "proof": "membership-or-non-membership-witness", "status": "required" },
+    { "id": "data-availability", "proof": "sample-and-reconstruct-evidence", "status": "required" },
+    { "id": "upgrade", "proof": "version-gated-finalized-activation", "status": "required" }
+  ]
+}

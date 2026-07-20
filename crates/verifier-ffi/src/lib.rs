@@ -57,3 +57,52 @@ pub unsafe extern "C" fn activechain_verify_commitment_code(
     digest.copy_from_slice(digest_bytes);
     activechain_verifier_api::verify_commitment_code(domain, body, Digest384::new(digest))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn abi_rejects_null_and_accepts_canonical_envelopes() {
+        assert_eq!(
+            unsafe { activechain_inspect_envelope_code(core::ptr::null(), 1, 0x1234, 1) },
+            NULL_POINTER
+        );
+        let bytes = [0x12, 0x34, 0, 1, 1, 0xaa];
+        assert_eq!(
+            unsafe {
+                activechain_inspect_envelope_code(bytes.as_ptr(), bytes.len() as u32, 0x1234, 1)
+            },
+            0
+        );
+    }
+
+    #[test]
+    fn abi_rejects_null_commitment_and_wrong_commitment() {
+        assert_eq!(
+            unsafe {
+                activechain_verify_commitment_code(
+                    core::ptr::null(),
+                    0,
+                    core::ptr::null(),
+                    0,
+                    core::ptr::null(),
+                )
+            },
+            NULL_POINTER
+        );
+        let digest = [0_u8; 48];
+        assert_eq!(
+            unsafe {
+                activechain_verify_commitment_code(
+                    core::ptr::null(),
+                    0,
+                    core::ptr::null(),
+                    0,
+                    digest.as_ptr(),
+                )
+            },
+            5
+        );
+    }
+}
