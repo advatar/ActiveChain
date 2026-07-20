@@ -13,6 +13,9 @@ done
 
 jq -r '.malformed_cases[].source' "$manifest" | while read -r source; do
   test -s "$root/testing/vectors/$source" || { echo "missing malformed fixture: $source" >&2; exit 1; }
+  hex=$(tr -d '[:space:]' < "$root/testing/vectors/$source")
+  test $(( ${#hex} % 2 )) -eq 0 || { echo "odd-length malformed fixture: $source" >&2; exit 1; }
+  printf '%s' "$hex" | LC_ALL=C grep -Eq '^[0-9a-fA-F]+$' || { echo "non-hex malformed fixture: $source" >&2; exit 1; }
 done
 
 light="$root/testing/vectors/light-client-v1.json"
