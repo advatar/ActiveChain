@@ -262,7 +262,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [x] Add deterministic one-shot challenge assignments and bounded challenge reward resolution.
 - [x] Add deterministic fee quotes from base, resource, and congestion components.
 - [ ] Build a reproducible proof-finalized cash throughput benchmark with real PQ, DA, state, and proof work.
-- [ ] Pass the full local-runner CI matrix.
+- [x] Pass the full local-runner CI matrix.
 - [ ] Update and push the landing-page roadmap at each completed major milestone.
 
 ## Planned milestone — `did:activechain` identity method
