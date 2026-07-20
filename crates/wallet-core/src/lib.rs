@@ -50,6 +50,14 @@ pub struct PaymentSession {
     pub witness: Digest384,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AuthorizationWitness {
+    pub session_id: Digest384,
+    pub intent_id: Digest384,
+    pub expires_at: u64,
+    pub witness: Digest384,
+}
+
 impl PaymentSession {
     pub fn open(
         session_id: Digest384,
@@ -71,6 +79,15 @@ impl PaymentSession {
             return Err(WalletError::PolicyDenied);
         }
         Ok(())
+    }
+
+    pub fn witness(&self) -> AuthorizationWitness {
+        AuthorizationWitness {
+            session_id: self.session_id,
+            intent_id: self.intent_id,
+            expires_at: self.expires_at,
+            witness: self.witness,
+        }
     }
 
     fn derive_witness(session: Digest384, intent: Digest384, expires_at: u64) -> Digest384 {
@@ -336,6 +353,23 @@ pub fn authorize_intent(
     Ok(intent)
 }
 
+pub fn authorize_with_witness(
+    intent: WalletIntent,
+    witness: AuthorizationWitness,
+    policy: SpendPolicy,
+    spent_today: u128,
+    current_height: u64,
+) -> Result<WalletIntent, WalletError> {
+    let session = PaymentSession {
+        session_id: witness.session_id,
+        intent_id: witness.intent_id,
+        expires_at: witness.expires_at,
+        witness: witness.witness,
+    };
+    session.verify(&intent, current_height)?;
+    authorize_intent(policy, intent, spent_today, current_height)
+}
+
 pub fn build_transfer(
     intent: WalletIntent,
     current_height: u64,
@@ -489,5 +523,17 @@ mod tests {
         let mut altered = session;
         altered.intent_id = digest(8);
         assert_eq!(altered.verify(&intent(), 1), Err(WalletError::Expired));
+    }
+
+    #[test]
+    fn witness_authorizes_persistent_intent_without_mutating_it() {
+        let original = intent();
+        let witness = PaymentSession::open(digest(7), &original, 15).unwrap().witness();
+        let policy = SpendPolicy {
+            daily_limit: 100,
+            max_single_payment: 25,
+            recipient_commitment: Some(digest(3)),
+        };
+        assert_eq!(authorize_with_witness(original, witness, policy, 0, 10).unwrap(), original);
     }
 }
