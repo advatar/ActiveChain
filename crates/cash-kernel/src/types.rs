@@ -11,6 +11,7 @@ use activechain_protocol_types::{
 pub const MAX_COIN_CELLS: usize = 4_096;
 /// Maximum number of inputs in one fixed-semantics transfer or burn.
 pub const MAX_TRANSFER_INPUTS: usize = 16;
+pub const MAX_TRANSFER_BATCH: usize = 64;
 /// Maximum native symbol length in canonical UTF-8 bytes.
 pub const MAX_SYMBOL_LENGTH: usize = 12;
 /// Maximum genesis allocation entries in the bounded genesis manifest.
@@ -616,6 +617,33 @@ pub struct CoinTransfer {
     amount: Amount,
     fee: Amount,
     valid_until: Height,
+}
+
+/// Deterministic batch boundary for the first cash execution lane.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CashTransferV1 {
+    transfers: Vec<CoinTransfer>,
+}
+
+impl CashTransferV1 {
+    pub fn new(transfers: Vec<CoinTransfer>) -> Result<Self, NativeMoneyError> {
+        if transfers.is_empty() || transfers.len() > MAX_TRANSFER_BATCH {
+            return Err(NativeMoneyError::InvalidInputs);
+        }
+        if transfers.windows(2).any(|pair| pair[0].inputs()[0] >= pair[1].inputs()[0]) {
+            return Err(NativeMoneyError::InputsNotOrdered);
+        }
+        Ok(Self { transfers })
+    }
+
+    pub fn transfers(&self) -> &[CoinTransfer] {
+        &self.transfers
+    }
+
+    /// Fixed base plus linear resource charge; independent of execution outcome.
+    pub fn resource_units(&self) -> u64 {
+        32 + self.transfers.iter().map(|t| 16 + t.inputs().len() as u64 * 4).sum::<u64>()
+    }
 }
 impl CoinTransfer {
     pub const TYPE_TAG: u16 = 0x0086;

@@ -20,9 +20,9 @@ pub use economics::{
 };
 pub use transition::{CashLedger, CashTransitionError};
 pub use types::{
-    CoinBurnTransition, CoinCell, CoinCellOrigin, CoinCellRecord, CoinCellSet, CoinMintTransition,
-    CoinTransfer, EpochEconomicsTransition, GenesisAllocation, GenesisEconomy, MAX_COIN_CELLS,
-    MAX_TRANSFER_INPUTS, NativeAssetDefinition, NativeMoneyError, NativeSupply,
+    CashTransferV1, CoinBurnTransition, CoinCell, CoinCellOrigin, CoinCellRecord, CoinCellSet,
+    CoinMintTransition, CoinTransfer, EpochEconomicsTransition, GenesisAllocation, GenesisEconomy,
+    MAX_COIN_CELLS, MAX_TRANSFER_INPUTS, NativeAssetDefinition, NativeMoneyError, NativeSupply,
 };
 
 #[cfg(test)]
@@ -35,9 +35,9 @@ mod tests {
     use proptest::prelude::*;
 
     use super::{
-        CashLedger, CashTransitionError, CoinBurnTransition, CoinMintTransition, CoinTransfer,
-        EpochEconomicsTransition, GenesisAllocation, GenesisEconomy, NativeAssetDefinition,
-        NativeMoneyError, NativeSupply,
+        CashLedger, CashTransferV1, CashTransitionError, CoinBurnTransition, CoinMintTransition,
+        CoinTransfer, EpochEconomicsTransition, GenesisAllocation, GenesisEconomy,
+        NativeAssetDefinition, NativeMoneyError, NativeSupply,
     };
 
     fn digest(byte: u8) -> Digest384 {
@@ -87,6 +87,33 @@ mod tests {
             pre_supply + issuance,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn cash_transfer_batch_is_ordered_and_fixed_costed() {
+        let first = CoinTransfer::new(
+            principal(10),
+            principal(12),
+            vec![CoinCellId::new(digest(1))],
+            CoinCellId::new(digest(2)),
+            10,
+            1,
+            20,
+        )
+        .unwrap();
+        let second = CoinTransfer::new(
+            principal(10),
+            principal(12),
+            vec![CoinCellId::new(digest(3))],
+            CoinCellId::new(digest(4)),
+            11,
+            1,
+            20,
+        )
+        .unwrap();
+        let batch = CashTransferV1::new(vec![first, second]).unwrap();
+        assert_eq!(batch.resource_units(), 72);
+        assert!(CashTransferV1::new(batch.transfers().iter().cloned().rev().collect()).is_err());
     }
 
     #[test]
