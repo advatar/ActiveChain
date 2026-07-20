@@ -71,6 +71,10 @@ impl AvailabilityBatch {
     pub fn commitments(&self) -> &[ShardCommitment] {
         &self.commitments
     }
+    pub fn payload_commitment(&self) -> Result<ShardCommitment, AvailabilityError> {
+        let payload = self.reconstruct_payload(&[])?;
+        Ok(payload_commitment(&payload))
+    }
     pub fn serialize(&self) -> Result<Vec<u8>, AvailabilityError> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(b"ACDA1");
@@ -201,6 +205,15 @@ fn commitment(index: usize, shard: &[u8]) -> ShardCommitment {
     hasher.finalize_xof().read(&mut output);
     ShardCommitment(output)
 }
+
+fn payload_commitment(payload: &[u8]) -> ShardCommitment {
+    let mut output = [0_u8; 48];
+    let mut hasher = Shake256::default();
+    hasher.update(b"ACTIVECHAIN-DA-PAYLOAD-V1");
+    hasher.update(payload);
+    hasher.finalize_xof().read(&mut output);
+    ShardCommitment(output)
+}
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AvailabilityError {
     Bounds,
@@ -235,5 +248,6 @@ mod tests {
         let batch = AvailabilityBatch::encode(b"distributed snapshot payload", 3, 2).unwrap();
         let restored = AvailabilityBatch::deserialize(&batch.serialize().unwrap()).unwrap();
         assert_eq!(restored.reconstruct_payload(&[0, 3]).unwrap(), b"distributed snapshot payload");
+        assert_eq!(restored.payload_commitment().unwrap(), batch.payload_commitment().unwrap());
     }
 }
