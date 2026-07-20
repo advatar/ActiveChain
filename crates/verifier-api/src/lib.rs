@@ -2,6 +2,11 @@
 #![forbid(unsafe_code)]
 
 use activechain_canonical_codec::{DecodeError, Decoder};
+use activechain_protocol_types::Digest384;
+use sha3::{
+    Shake256,
+    digest::{ExtendableOutput, Update, XofReader},
+};
 
 pub const MAX_ENVELOPE_LENGTH: usize = 256 * 1024;
 
@@ -18,6 +23,20 @@ pub enum VerifyError {
     Decode(DecodeError),
     TypeMismatch,
     VersionMismatch,
+    CommitmentMismatch,
+}
+
+pub fn verify_shake_commitment(
+    domain: &[u8],
+    body: &[u8],
+    expected: Digest384,
+) -> Result<(), VerifyError> {
+    let mut output = [0_u8; 48];
+    let mut hasher = Shake256::default();
+    hasher.update(domain);
+    hasher.update(body);
+    hasher.finalize_xof().read(&mut output);
+    if Digest384::new(output) == expected { Ok(()) } else { Err(VerifyError::CommitmentMismatch) }
 }
 
 pub fn inspect_envelope(
@@ -53,5 +72,18 @@ mod tests {
         let mut trailing = valid.to_vec();
         trailing.push(0);
         assert!(matches!(inspect_envelope(&trailing, 0x1234, 1), Err(VerifyError::Decode(_))));
+        let expected = {
+            let mut output = [0_u8; 48];
+            let mut h = Shake256::default();
+            h.update(b"demo");
+            h.update(&[0xaa, 0xbb]);
+            h.finalize_xof().read(&mut output);
+            Digest384::new(output)
+        };
+        assert_eq!(verify_shake_commitment(b"demo", &[0xaa, 0xbb], expected), Ok(()));
+        assert_eq!(
+            verify_shake_commitment(b"wrong", &[0xaa, 0xbb], expected),
+            Err(VerifyError::CommitmentMismatch)
+        );
     }
 }
