@@ -58,6 +58,47 @@ pub struct TransactionIngress {
     accepted: Vec<TransactionId>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FaucetGrant {
+    pub genesis_hash: Digest384,
+    pub recipient: PrincipalId,
+    pub amount: u128,
+    pub claim_id: Digest384,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct FaucetService {
+    claims: Vec<Digest384>,
+}
+
+impl FaucetService {
+    pub fn claim(
+        &mut self,
+        genesis_hash: Digest384,
+        recipient: PrincipalId,
+        amount: u128,
+    ) -> Result<FaucetGrant, WalletError> {
+        if amount == 0 {
+            return Err(WalletError::ZeroAmount);
+        }
+        let mut bytes = [0_u8; 48];
+        let recipient_bytes = recipient.into_digest().into_bytes();
+        let mut hasher = sha3::Shake256::default();
+        use sha3::digest::{ExtendableOutput, Update, XofReader};
+        hasher.update(b"ACTIVECHAIN-TESTNET-FAUCET-CLAIM-V1");
+        hasher.update(genesis_hash.as_bytes());
+        hasher.update(&recipient_bytes);
+        hasher.update(&amount.to_be_bytes());
+        hasher.finalize_xof().read(&mut bytes);
+        let claim_id = Digest384::new(bytes);
+        if self.claims.contains(&claim_id) {
+            return Err(WalletError::Replay);
+        }
+        self.claims.push(claim_id);
+        Ok(FaucetGrant { genesis_hash, recipient, amount, claim_id })
+    }
+}
+
 impl TransactionIngress {
     pub fn from_genesis(economy: &GenesisEconomy) -> Result<Self, CashTransitionError> {
         Ok(Self { ledger: CashLedger::from_genesis(economy)?, accepted: Vec::new() })
@@ -291,5 +332,14 @@ mod tests {
         };
         store.rotate(digest(8), replacement).unwrap();
         assert_eq!(store.slots()[0].id, digest(9));
+    }
+
+    #[test]
+    fn faucet_grants_are_genesis_bound_and_one_shot() {
+        let mut faucet = FaucetService::default();
+        let grant = faucet.claim(digest(1), principal(2), 100).unwrap();
+        assert_eq!(grant.genesis_hash, digest(1));
+        assert_eq!(faucet.claim(digest(1), principal(2), 100), Err(WalletError::Replay));
+        assert_ne!(faucet.claim(digest(2), principal(2), 100).unwrap().claim_id, grant.claim_id);
     }
 }
