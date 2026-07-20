@@ -49,6 +49,7 @@ crates/object                exact one-step object ownership transitions
 crates/object-vm             deterministic metered reference interpreter
 crates/transition            access-confined atomic transfer reference kernel
 crates/state-tree            canonical sparse state commitment and witnesses
+crates/wallet-core           OpenWallet-aligned PQ wallet intents and Coin Cell selection
 crates/devnet-kernel         pure deterministic single-node block application
 formal/lean/                 executable APL/object/state-tree models and proofs
 node/semantic-devnet/        minimal host shell around the pure block kernel
@@ -59,6 +60,19 @@ tools/vector-generator/      deterministic vector producer
 ```
 
 All fourteen protocol and semantic-kernel crates compile with `#![no_std]` and `#![forbid(unsafe_code)]`. The semantic-devnet executable, vector generator, and Lean models are host tooling outside the consensus kernel.
+
+### Testnet wallet POC
+
+Derive a deterministic post-quantum wallet identity for local testnet genesis and operator
+rehearsals:
+
+```sh
+cargo run -p activechain-wallet-core --bin activechain-wallet -- derive 0 1 0
+```
+
+The command prints the ML-DSA suite, principal commitment, and public key. Secret material is not
+printed or persisted by the CLI; production keystore encryption and node submission are separate
+wallet milestones.
 
 ## Verify locally
 

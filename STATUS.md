@@ -275,6 +275,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 ## Active milestone — OpenWallet-aligned ActiveChain wallet
 
 - [x] Add `activechain-wallet-core` with policy-gated Coin Cell intents and deterministic fee checks.
+- [x] Add a deterministic ML-DSA testnet wallet CLI for operator/genesis identity derivation.
 - [ ] Add encrypted PQ keystore, ML-DSA/ML-KEM key lifecycle, DID resolution, and recovery.
 - [ ] Add CLI adapter for testnet transfer, verifier bonding, duty receipts, and reward redemption.
 - [ ] Add OpenWallet credential and application-session adapters.
