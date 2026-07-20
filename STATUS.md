@@ -253,7 +253,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [x] Publish a frozen native-money vector and unit/malformed-input tests.
 - [x] Implement `CashTransferV1` and deterministic cash batches with fixed resource charging.
 - [x] Add PQ payment sessions and compact authorization-key references.
-- [ ] Separate persistent canonical payment intents from short-lived PQ authorization witnesses.
+- [x] Separate persistent canonical payment intents from short-lived PQ authorization witnesses.
 - [ ] Add partitioned Coin Cell state, input locks, parallel execution, and conflict fallback.
 - [ ] Implement the transparent specialized CashAIR and direct-reexecution comparison.
 - [ ] Add the cash-specific capacity and fee market, refundable deposits, sponsorship, and paymasters.
