@@ -1,0 +1,9 @@
+vector_id=availability-v1
+protocol_revision=activechain-v1-dev
+scheme=deterministic-shard-sample-reconstruct
+payload_commitment=8f4f0f7f1d0f9a6f3e1b8a6d4c2e1f0099887766554433221100ffeeddccbbaa99887766554433221100ffeeddccbbaa99
+shard_count=4
+parity_shards=2
+sample_indices=0,2,4
+reconstruction_threshold=4
+tamper_rule=reject_commitment_mismatch
