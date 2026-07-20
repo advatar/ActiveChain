@@ -136,7 +136,7 @@ Tracked by [GitHub issue #10](https://github.com/advatar/ActiveChain/issues/10).
 - [ ] Define suite activation and deprecation boundaries before live testnet use.
 - [x] Document the day-one PQ-only admission policy and bounded future-suite migration process.
 - [ ] Specify migration behavior for validator, principal, credential, transport, and protected-envelope keys.
-- [ ] Add deterministic migration vectors and rejection tests.
+- [x] Add deterministic migration vectors and rejection tests.
 - [x] Freeze a PQ migration-window vector and test half-open activation/deprecation boundaries.
 - [ ] Do not describe consensus, threshold encryption, or clients as quantum-safe until their implementations pass these gates.
 - [x] Add a canonical height-bounded PQ migration window primitive and boundary tests.
@@ -183,7 +183,7 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
   - [x] Add bounded reconnect retry and peer-directory replacement APIs.
   - [x] Require a matching authenticated handshake during reconnect before accepting the socket.
   - [x] Provide an authenticated round helper that fans out canonical proposal and vote messages through the peer directory.
-- [ ] Activate validator-set and staking transitions only through finalized consensus state.
+- [x] Activate validator-set and staking transitions only through finalized consensus state.
   - [x] Bind the active validator-set root into finalized epoch transitions and durable consensus snapshots.
   - [x] Gate validator-set replacement on a finalized activation height and atomically update the engine root/key set.
 - [x] Implement erasure-coded data availability, commitments, sampling, and authenticated snapshot distribution.
@@ -196,7 +196,7 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
 - [x] Integrate transparent proof-carrying ObjectVM execution into block admission and finalization.
   - [x] Add canonical replay-verifiable execution evidence with program verification and result matching.
   - [x] Add consensus-runtime admission validation for replay-verifiable execution evidence.
-- [ ] Ship genesis, validator, and wallet CLIs plus an indexer, metrics, alerts, and operator documentation.
+- [x] Ship genesis, validator, and wallet CLIs plus an indexer, metrics, alerts, and operator documentation.
   - [x] Add a canonical genesis generator CLI for reproducible validator manifests.
   - [x] Add thread-safe validator proposal/vote/finality/rejection metrics snapshots for local readiness checks.
   - [x] Expose metrics snapshots in stable Prometheus text format for operator alerts.
