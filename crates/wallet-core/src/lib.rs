@@ -5,6 +5,7 @@
 
 extern crate alloc;
 
+use activechain_canonical_codec::decode_envelope;
 use activechain_cash_kernel::{CashLedger, CashTransitionError, GenesisEconomy};
 use activechain_cash_kernel::{CoinCellRecord, CoinTransfer, FeeQuote};
 use activechain_protocol_commitment::cash_transition_id;
@@ -111,6 +112,11 @@ impl TransactionIngress {
         self.ledger.apply_transfer(transfer, height).map_err(|_| WalletError::InsufficientFunds)?;
         self.accepted.push(id);
         Ok(())
+    }
+    pub fn submit_envelope(&mut self, bytes: &[u8], height: u64) -> Result<(), WalletError> {
+        let transfer =
+            decode_envelope::<CoinTransfer>(bytes).map_err(|_| WalletError::MissingFee)?;
+        self.submit(&transfer, height)
     }
     pub fn ledger(&self) -> &CashLedger {
         &self.ledger

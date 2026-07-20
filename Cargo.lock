@@ -213,6 +213,7 @@ dependencies = [
 name = "activechain-wallet-core"
 version = "0.1.0"
 dependencies = [
+ "activechain-canonical-codec",
  "activechain-cash-kernel",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
