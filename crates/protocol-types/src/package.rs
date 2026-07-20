@@ -200,6 +200,24 @@ mod tests {
             Err(PackageManifestError::EntryPointsNotStrictlySorted)
         );
     }
+    #[test]
+    fn package_entry_point_order_property_rejects_all_duplicate_or_descending_pairs() {
+        for first in 0_u16..8 {
+            for second in 0_u16..8 {
+                let result = PackageManifest::new(
+                    digest(1),
+                    vec![first, second],
+                    Vec::new(),
+                    UpgradePolicy::Immutable,
+                );
+                if first < second {
+                    assert!(result.is_ok());
+                } else {
+                    assert_eq!(result, Err(PackageManifestError::EntryPointsNotStrictlySorted));
+                }
+            }
+        }
+    }
 
     #[test]
     fn governed_upgrade_preserves_entry_points_and_dependencies() {
