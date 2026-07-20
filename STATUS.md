@@ -132,7 +132,7 @@ Tracked by [GitHub issue #4](https://github.com/advatar/ActiveChain/issues/4).
 
 Tracked by [GitHub issue #10](https://github.com/advatar/ActiveChain/issues/10).
 
-- [ ] Add explicit PQ-only validation for consensus-critical suite positions.
+- [x] Add explicit PQ-only validation for consensus-critical suite positions.
 - [ ] Define suite activation and deprecation boundaries before live testnet use.
 - [x] Document the day-one PQ-only admission policy and bounded future-suite migration process.
 - [ ] Specify migration behavior for validator, principal, credential, transport, and protected-envelope keys.
@@ -152,7 +152,7 @@ Tracked by [GitHub issue #11](https://github.com/advatar/ActiveChain/issues/11).
 - [x] Define bounded canonical validator sets and epoch identity.
 - [x] Bind quorum certificates to a Merkleized raw ML-DSA vote-set root.
 - [x] Enforce overflow-safe two-thirds stake thresholds.
-- [ ] Add canonical vectors and malformed/under-threshold rejection tests.
+- [x] Add canonical vectors and malformed/under-threshold rejection tests.
 - [x] Add a frozen QC stake-threshold vector with deterministic acceptance and rejection coverage.
 
 ## Active milestone — deterministic multi-validator PQ runtime
