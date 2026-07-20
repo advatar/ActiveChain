@@ -217,7 +217,7 @@ impl GenesisEconomy {
         if allocations.is_empty() || allocations.len() > MAX_GENESIS_ALLOCATIONS {
             return Err(NativeMoneyError::InvalidGenesisAllocations);
         }
-        if allocations.windows(2).any(|pair| pair[0].recipient() >= pair[1].recipient()) {
+        if allocations.windows(2).any(|pair| pair[0].recipient() > pair[1].recipient()) {
             return Err(NativeMoneyError::GenesisAllocationsNotOrdered);
         }
         let mut total = security_reserve;

@@ -1733,6 +1733,8 @@ pub enum ValidatorServiceError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use activechain_canonical_codec::encode_envelope;
+    use activechain_cash_kernel::CoinTransfer;
     use activechain_cash_kernel::{GenesisAllocation, GenesisEconomy, NativeAssetDefinition};
     use activechain_protocol_types::{ChainId, PrincipalId};
     use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
@@ -1778,12 +1780,28 @@ mod tests {
         .unwrap();
         let economy = GenesisEconomy::new(
             definition,
-            vec![GenesisAllocation::new(owner, 700, 100).unwrap()],
-            200,
+            vec![
+                GenesisAllocation::new(owner, 700, 100).unwrap(),
+                GenesisAllocation::new(owner, 100, 0).unwrap(),
+            ],
+            100,
         )
         .unwrap();
-        let gateway = WalletTransactionGateway::from_genesis(&economy).unwrap();
-        assert_eq!(gateway.ledger().supply().genesis_supply(), 1_000);
+        let mut gateway = WalletTransactionGateway::from_genesis(&economy).unwrap();
+        let cells = gateway.ledger().cells().as_slice();
+        let transfer = CoinTransfer::new(
+            owner,
+            PrincipalId::new(digest(11)),
+            vec![cells[0].id()],
+            cells[1].id(),
+            10,
+            1,
+            10,
+        )
+        .unwrap();
+        let envelope = encode_envelope(&transfer).unwrap();
+        gateway.submit_envelope(&envelope, 1).unwrap();
+        assert!(gateway.submit_envelope(&envelope, 1).is_err());
     }
     #[test]
     fn runtime_rejects_without_verified_votes() {
