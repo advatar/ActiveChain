@@ -171,6 +171,46 @@ pub struct EncryptedKeystore {
     slots: Vec<KeySlot>,
 }
 
+/// Platform-neutral bridge used by native mobile shells. Platform code supplies only opaque
+/// ciphertext and hardware-backed signing callbacks; policy and transfer construction stay here.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct WalletBridge {
+    keystore: EncryptedKeystore,
+}
+
+impl WalletBridge {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn import_key_slot(&mut self, slot: KeySlot) -> Result<(), WalletError> {
+        self.keystore.import_ciphertext(slot)
+    }
+
+    pub fn rotate_key_slot(
+        &mut self,
+        old: Digest384,
+        replacement: KeySlot,
+    ) -> Result<(), WalletError> {
+        self.keystore.rotate(old, replacement)
+    }
+
+    pub fn key_slots(&self) -> &[KeySlot] {
+        self.keystore.slots()
+    }
+
+    pub fn approve_and_build(
+        &self,
+        policy: SpendPolicy,
+        intent: WalletIntent,
+        spent_today: u128,
+        current_height: u64,
+    ) -> Result<CoinTransfer, WalletError> {
+        authorize_intent(policy, intent, spent_today, current_height)?;
+        build_transfer(intent, current_height)
+    }
+}
+
 impl EncryptedKeystore {
     pub fn import_ciphertext(&mut self, slot: KeySlot) -> Result<(), WalletError> {
         if slot.ciphertext.is_empty() {
@@ -375,5 +415,25 @@ mod tests {
         assert_eq!(grant.genesis_hash, digest(1));
         assert_eq!(faucet.claim(digest(1), principal(2), 100), Err(WalletError::Replay));
         assert_ne!(faucet.claim(digest(2), principal(2), 100).unwrap().claim_id, grant.claim_id);
+    }
+
+    #[test]
+    fn mobile_bridge_keeps_policy_and_keystore_boundaries() {
+        let mut bridge = WalletBridge::new();
+        bridge
+            .import_key_slot(KeySlot {
+                id: digest(8),
+                purpose: KeyPurpose::Authentication,
+                version: 1,
+                ciphertext: vec![1, 2, 3],
+            })
+            .unwrap();
+        let policy = SpendPolicy {
+            daily_limit: 100,
+            max_single_payment: 25,
+            recipient_commitment: Some(digest(3)),
+        };
+        assert_eq!(bridge.approve_and_build(policy, intent(), 0, 10).unwrap().amount(), 10);
+        assert_eq!(bridge.key_slots().len(), 1);
     }
 }
