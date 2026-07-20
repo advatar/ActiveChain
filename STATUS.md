@@ -136,6 +136,7 @@ Tracked by [GitHub issue #10](https://github.com/advatar/ActiveChain/issues/10).
 - [ ] Define suite activation and deprecation boundaries before live testnet use.
 - [x] Document the day-one PQ-only admission policy and bounded future-suite migration process.
 - [ ] Specify migration behavior for validator, principal, credential, transport, and protected-envelope keys.
+- [x] Specify the day-one suite and bounded migration requirement for each key class in the PQ policy matrix.
 - [x] Add deterministic migration vectors and rejection tests.
 - [x] Freeze a PQ migration-window vector and test half-open activation/deprecation boundaries.
 - [ ] Do not describe consensus, threshold encryption, or clients as quantum-safe until their implementations pass these gates.
