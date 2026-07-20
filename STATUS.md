@@ -271,3 +271,10 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [ ] Add ML-DSA rotation, ML-KEM agreement, SLH-DSA recovery, deactivation, and DID test vectors.
 - [ ] Add ENS alias records without treating ENS control as protocol authorization.
 - [ ] Add EUDI Wallet interoperability for OpenID4VCI/OpenID4VP and mdoc/VC presentations.
+
+## Active milestone — OpenWallet-aligned ActiveChain wallet
+
+- [x] Add `activechain-wallet-core` with policy-gated Coin Cell intents and deterministic fee checks.
+- [ ] Add encrypted PQ keystore, ML-DSA/ML-KEM key lifecycle, DID resolution, and recovery.
+- [ ] Add CLI adapter for testnet transfer, verifier bonding, duty receipts, and reward redemption.
+- [ ] Add OpenWallet credential and application-session adapters.
