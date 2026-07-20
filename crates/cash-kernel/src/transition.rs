@@ -13,6 +13,7 @@ use crate::types::{
     CoinTransfer, EpochEconomicsTransition, GenesisEconomy, NativeAssetDefinition,
     NativeMoneyError, NativeSupply,
 };
+use crate::{RewardRedemption, RewardSettlement};
 
 /// Atomic bounded native-money ledger used by the semantic and process kernels.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -23,6 +24,26 @@ pub struct CashLedger {
 }
 
 impl CashLedger {
+    pub fn redeem_reward(
+        &mut self,
+        settlement: &RewardSettlement,
+        redemption: &RewardRedemption,
+    ) -> Result<(), CashTransitionError> {
+        if redemption.settlement != settlement.assignment || settlement.reward == 0 {
+            return Err(CashTransitionError::Invalid(NativeMoneyError::ZeroAmount));
+        }
+        let transfer = CoinTransfer::new(
+            redemption.pool_owner,
+            settlement.verifier,
+            alloc::vec![redemption.pool_cell],
+            redemption.fee_reserve,
+            settlement.reward,
+            0,
+            redemption.height,
+        )
+        .map_err(CashTransitionError::Invalid)?;
+        self.apply_transfer(&transfer, redemption.height)
+    }
     /// Creates a ledger from a validated one-time genesis economy.
     pub fn from_genesis(economy: &GenesisEconomy) -> Result<Self, CashTransitionError> {
         let mut records = Vec::new();

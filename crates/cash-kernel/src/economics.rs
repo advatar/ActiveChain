@@ -47,6 +47,42 @@ pub struct RewardSettlement {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RewardRedemption {
+    pub settlement: Digest384,
+    pub pool_owner: PrincipalId,
+    pub pool_cell: CoinCellId,
+    pub fee_reserve: CoinCellId,
+    pub height: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ChallengeAssignment {
+    pub id: Digest384,
+    pub duty: Digest384,
+    pub challenger: PrincipalId,
+    pub bond: CoinCellId,
+    pub reward: u128,
+    pub deadline: u64,
+    pub resolved: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FeeQuote {
+    pub base: u128,
+    pub resource_units: u64,
+    pub resource_price: u128,
+    pub congestion_price: u128,
+}
+
+impl FeeQuote {
+    pub fn total(self) -> Option<u128> {
+        self.base
+            .checked_add((self.resource_units as u128).checked_mul(self.resource_price)?)
+            .and_then(|v| v.checked_add(self.congestion_price))
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EconomicsError {
     DuplicateAssignment,
     UnknownAssignment,
@@ -55,6 +91,45 @@ pub enum EconomicsError {
     AlreadySettled,
     EmptyEvidence,
     InvalidSlash,
+    InvalidChallenge,
+}
+
+pub fn assign_challenge(
+    challenges: &mut Vec<ChallengeAssignment>,
+    challenge: ChallengeAssignment,
+) -> Result<(), EconomicsError> {
+    if challenge.reward == 0
+        || challenge.deadline == 0
+        || challenge.bond == CoinCellId::new(Digest384::new([0; 48]))
+    {
+        return Err(EconomicsError::InvalidChallenge);
+    }
+    if challenges.iter().any(|c| c.id == challenge.id) {
+        return Err(EconomicsError::DuplicateAssignment);
+    }
+    challenges.push(challenge);
+    Ok(())
+}
+
+pub fn resolve_challenge(
+    challenges: &mut [ChallengeAssignment],
+    id: Digest384,
+    challenger: PrincipalId,
+    height: u64,
+) -> Result<u128, EconomicsError> {
+    let challenge =
+        challenges.iter_mut().find(|c| c.id == id).ok_or(EconomicsError::UnknownAssignment)?;
+    if challenge.challenger != challenger {
+        return Err(EconomicsError::WrongVerifier);
+    }
+    if challenge.resolved {
+        return Err(EconomicsError::AlreadySettled);
+    }
+    if height > challenge.deadline {
+        return Err(EconomicsError::Expired);
+    }
+    challenge.resolved = true;
+    Ok(challenge.reward)
 }
 
 pub fn settle_duty(
@@ -195,6 +270,30 @@ mod tests {
         assert_eq!(
             register_assignment(&mut a, assignment()),
             Err(EconomicsError::DuplicateAssignment)
+        );
+    }
+
+    #[test]
+    fn challenge_is_one_shot_and_fee_quote_is_checked() {
+        let mut challenges = Vec::new();
+        let challenge = ChallengeAssignment {
+            id: id(5),
+            duty: id(1),
+            challenger: principal(8),
+            bond: CoinCellId::new(id(7)),
+            reward: 9,
+            deadline: 20,
+            resolved: false,
+        };
+        assign_challenge(&mut challenges, challenge).unwrap();
+        assert_eq!(resolve_challenge(&mut challenges, id(5), principal(8), 20), Ok(9));
+        assert_eq!(
+            resolve_challenge(&mut challenges, id(5), principal(8), 20),
+            Err(EconomicsError::AlreadySettled)
+        );
+        assert_eq!(
+            FeeQuote { base: 3, resource_units: 4, resource_price: 5, congestion_price: 2 }.total(),
+            Some(25)
         );
     }
 }

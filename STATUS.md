@@ -244,6 +244,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [x] Restrict native creation to one-time deterministic genesis allocation and bounded epoch security issuance; reject discretionary mint paths.
 - [x] Track genesis supply, cumulative security issuance, cumulative burn, circulating supply, locked/staked supply, security reserve, and last settled epoch.
 - [ ] Ensure reward credits/redemptions and shielding/unshielding never mint native value twice.
+- [x] Route verifier reward redemption through an explicit pool-owned Coin Cell transfer intent.
 - [x] Derive domain-separated Coin Cell identifiers, Coin Cell set roots, supply roots, and genesis allocation roots.
 - [x] Implement a pure `no_std` native-money transition kernel outside ObjectVM.
 - [x] Prove no double spend, checked value conservation, issuance-only minting, explicit burn accounting, and fee-reserve ownership.
@@ -256,6 +257,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [ ] Add the cash-specific capacity and fee market, refundable deposits, sponsorship, and paymasters.
 - [x] Implement the first accountable verifier-duty kernel: role-scoped bond lots, one-shot assignments, fixed rewards, receipt validation, and bounded objective penalties.
 - [ ] Add random audit assignments and commit/reveal challenge rewards without passive-verifier inflation.
+- [x] Add deterministic one-shot challenge assignments and bounded challenge reward resolution.
+- [x] Add deterministic fee quotes from base, resource, and congestion components.
 - [ ] Build a reproducible proof-finalized cash throughput benchmark with real PQ, DA, state, and proof work.
 - [ ] Pass the full local-runner CI matrix.
 - [ ] Update and push the landing-page roadmap at each completed major milestone.

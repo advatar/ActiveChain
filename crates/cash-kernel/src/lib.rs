@@ -14,8 +14,9 @@ mod transition;
 mod types;
 
 pub use economics::{
-    DutyAssignment, DutyReceipt, EconomicsError, ObjectiveFault, RewardSettlement, VerifierRole,
-    register_assignment, settle_duty,
+    ChallengeAssignment, DutyAssignment, DutyReceipt, EconomicsError, FeeQuote, ObjectiveFault,
+    RewardRedemption, RewardSettlement, VerifierRole, assign_challenge, register_assignment,
+    resolve_challenge, settle_duty,
 };
 pub use transition::{CashLedger, CashTransitionError};
 pub use types::{
