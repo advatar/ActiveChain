@@ -1,0 +1,5 @@
+# ActiveChain canonical package manifest vector v1
+bytecode_commitment=01
+entry_points=0,4,9
+upgrade_policy=immutable
+malformed_entry_points=4,4

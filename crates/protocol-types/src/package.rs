@@ -186,6 +186,20 @@ mod tests {
             Err(PackageManifestError::EntryPointsNotStrictlySorted)
         );
     }
+    #[test]
+    fn frozen_package_vector_matches_canonical_bounds() {
+        let vector = include_str!("../../../testing/vectors/object/package-v1.txt");
+        assert!(vector.contains("entry_points=0,4,9"));
+        assert!(vector.contains("upgrade_policy=immutable"));
+        let value =
+            PackageManifest::new(digest(1), vec![0, 4, 9], Vec::new(), UpgradePolicy::Immutable)
+                .unwrap();
+        assert_eq!(value.entry_points(), &[0, 4, 9]);
+        assert_eq!(
+            PackageManifest::new(digest(1), vec![4, 4], Vec::new(), UpgradePolicy::Immutable),
+            Err(PackageManifestError::EntryPointsNotStrictlySorted)
+        );
+    }
 
     #[test]
     fn governed_upgrade_preserves_entry_points_and_dependencies() {
