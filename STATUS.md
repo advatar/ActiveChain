@@ -280,3 +280,4 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [ ] Add CLI adapter for testnet transfer, verifier bonding, duty receipts, and reward redemption.
 - [ ] Add OpenWallet credential and application-session adapters.
 - [x] Freeze the first-testnet wallet/operator contract in `spec/protocol/P-100-testnet-wallet-operator.md`.
+- [x] Publish the first-testnet release checklist and explicit transaction-ingress blockers.
