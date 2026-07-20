@@ -262,3 +262,12 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [ ] Build a reproducible proof-finalized cash throughput benchmark with real PQ, DA, state, and proof work.
 - [ ] Pass the full local-runner CI matrix.
 - [ ] Update and push the landing-page roadmap at each completed major milestone.
+
+## Planned milestone — `did:activechain` identity method
+
+- [x] Freeze the method-specific identifier, PQ verification methods, resolver boundary, and
+  finalized lifecycle operations in `spec/protocol/P-095-activechain-did-method.md`.
+- [ ] Implement canonical DID controller records and resolver responses.
+- [ ] Add ML-DSA rotation, ML-KEM agreement, SLH-DSA recovery, deactivation, and DID test vectors.
+- [ ] Add ENS alias records without treating ENS control as protocol authorization.
+- [ ] Add EUDI Wallet interoperability for OpenID4VCI/OpenID4VP and mdoc/VC presentations.
