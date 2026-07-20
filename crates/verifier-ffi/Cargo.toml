@@ -1,0 +1,15 @@
+[package]
+name = "activechain-verifier-ffi"
+description = "Isolated C ABI adapter for the ActiveChain verifier API"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+activechain-protocol-types.workspace = true
+activechain-verifier-api.workspace = true

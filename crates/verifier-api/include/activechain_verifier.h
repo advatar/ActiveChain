@@ -10,6 +10,7 @@
 #define ACTIVECHAIN_VERIFY_TYPE_MISMATCH 3u
 #define ACTIVECHAIN_VERIFY_VERSION_MISMATCH 4u
 #define ACTIVECHAIN_VERIFY_COMMITMENT_MISMATCH 5u
+#define ACTIVECHAIN_VERIFY_NULL_POINTER 6u
 
 /*
  * Adapter contract. The adapter owns all input/output buffers; the verifier never

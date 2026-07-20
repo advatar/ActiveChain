@@ -219,6 +219,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-verifier-ffi"
+version = "0.1.0"
+dependencies = [
+ "activechain-protocol-types",
+ "activechain-verifier-api",
+]
+
+[[package]]
 name = "activechain-wallet-core"
 version = "0.1.0"
 dependencies = [
