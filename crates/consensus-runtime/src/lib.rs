@@ -23,6 +23,32 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::time::{Duration, Instant};
 
+/// Canonical wallet transaction admission owned by the validator runtime.
+/// Authenticated network handlers can delegate here after peer/session checks.
+pub struct WalletTransactionGateway {
+    ingress: activechain_wallet_core::TransactionIngress,
+}
+
+impl WalletTransactionGateway {
+    pub fn from_genesis(
+        economy: &activechain_cash_kernel::GenesisEconomy,
+    ) -> Result<Self, activechain_cash_kernel::CashTransitionError> {
+        Ok(Self { ingress: activechain_wallet_core::TransactionIngress::from_genesis(economy)? })
+    }
+
+    pub fn submit_envelope(
+        &mut self,
+        envelope: &[u8],
+        height: u64,
+    ) -> Result<(), activechain_wallet_core::WalletError> {
+        self.ingress.submit_envelope(envelope, height)
+    }
+
+    pub fn ledger(&self) -> &activechain_cash_kernel::CashLedger {
+        self.ingress.ledger()
+    }
+}
+
 const PEER_BODY_DOMAIN: &[u8] = b"ACTIVECHAIN-PEER-BODY-V1";
 pub const MAX_PEER_FRAME_LEN: usize = 16 * 1024;
 
