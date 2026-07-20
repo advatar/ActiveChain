@@ -14,9 +14,9 @@ mod transition;
 mod types;
 
 pub use economics::{
-    ChallengeAssignment, DutyAssignment, DutyReceipt, EconomicsError, FeeQuote, ObjectiveFault,
-    RewardRedemption, RewardSettlement, VerifierRole, assign_challenge, register_assignment,
-    resolve_challenge, settle_duty,
+    ChallengeAssignment, DutyAssignment, DutyReceipt, EconomicsError, FeeMarket, FeeQuote,
+    ObjectiveFault, RewardRedemption, RewardSettlement, SecurityPoolAllocation, SlashSplit,
+    VerifierRole, assign_challenge, register_assignment, resolve_challenge, settle_duty,
 };
 pub use transition::{CashLedger, CashTransitionError};
 pub use types::{

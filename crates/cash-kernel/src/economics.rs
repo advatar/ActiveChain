@@ -82,6 +82,84 @@ impl FeeQuote {
     }
 }
 
+pub const FINALITY_POOL_BPS: u16 = 7_000;
+pub const AVAILABILITY_POOL_BPS: u16 = 1_500;
+pub const AUDIT_POOL_BPS: u16 = 1_000;
+pub const PUBLIC_GOODS_POOL_BPS: u16 = 500;
+pub const USER_SLASH_BPS: u16 = 4_000;
+pub const SECURITY_SLASH_BPS: u16 = 4_000;
+pub const CHALLENGER_SLASH_BPS: u16 = 2_000;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SecurityPoolAllocation {
+    pub finality: u128,
+    pub availability: u128,
+    pub audit: u128,
+    pub public_goods: u128,
+}
+impl SecurityPoolAllocation {
+    pub fn split(amount: u128) -> Option<Self> {
+        let finality = amount.checked_mul(FINALITY_POOL_BPS as u128)?.checked_div(10_000)?;
+        let availability =
+            amount.checked_mul(AVAILABILITY_POOL_BPS as u128)?.checked_div(10_000)?;
+        let audit = amount.checked_mul(AUDIT_POOL_BPS as u128)?.checked_div(10_000)?;
+        let public_goods =
+            amount.checked_mul(PUBLIC_GOODS_POOL_BPS as u128)?.checked_div(10_000)?;
+        Some(Self { finality, availability, audit, public_goods })
+    }
+    pub fn total(self) -> Option<u128> {
+        self.finality
+            .checked_add(self.availability)?
+            .checked_add(self.audit)?
+            .checked_add(self.public_goods)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SlashSplit {
+    pub user: u128,
+    pub security_pool: u128,
+    pub challenger: u128,
+}
+impl SlashSplit {
+    pub fn split(amount: u128) -> Option<Self> {
+        let user = amount.checked_mul(USER_SLASH_BPS as u128)?.checked_div(10_000);
+        let security_pool = amount.checked_mul(SECURITY_SLASH_BPS as u128)?.checked_div(10_000);
+        let challenger = amount.checked_mul(CHALLENGER_SLASH_BPS as u128)?.checked_div(10_000)?;
+        Some(Self { user: user?, security_pool: security_pool?, challenger })
+    }
+    pub fn total(self) -> Option<u128> {
+        self.user.checked_add(self.security_pool)?.checked_add(self.challenger)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FeeMarket {
+    pub base_fee: u128,
+    pub target_units: u64,
+    pub max_change_bps: u16,
+}
+impl FeeMarket {
+    pub fn new(base_fee: u128, target_units: u64, max_change_bps: u16) -> Option<Self> {
+        (base_fee > 0 && target_units > 0 && max_change_bps <= 10_000).then_some(Self {
+            base_fee,
+            target_units,
+            max_change_bps,
+        })
+    }
+    pub fn next(self, used_units: u64) -> Option<Self> {
+        let delta = self.base_fee.checked_mul(self.max_change_bps as u128)?.checked_div(10_000)?;
+        let next = if used_units > self.target_units {
+            self.base_fee.checked_add(delta)?
+        } else if used_units < self.target_units {
+            self.base_fee.saturating_sub(delta).max(1)
+        } else {
+            self.base_fee
+        };
+        Some(Self { base_fee: next, ..self })
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EconomicsError {
     DuplicateAssignment,
@@ -295,5 +373,10 @@ mod tests {
             FeeQuote { base: 3, resource_units: 4, resource_price: 5, congestion_price: 2 }.total(),
             Some(25)
         );
+        assert_eq!(SecurityPoolAllocation::split(10_000).unwrap().total(), Some(10_000));
+        assert_eq!(SlashSplit::split(10_000).unwrap().total(), Some(10_000));
+        let market = FeeMarket::new(100, 10, 1_000).unwrap();
+        assert!(market.next(20).unwrap().base_fee > market.base_fee);
+        assert!(market.next(1).unwrap().base_fee < market.base_fee);
     }
 }
