@@ -12,7 +12,7 @@ Every accepted value is encoded as:
 ```text
 type_tag:       u16, big-endian
 schema_version: u16, big-endian
-body_length:    u32, big-endian
+body_length:    canonical unsigned varint (maximum four bytes)
 body:           canonical schema bytes
 ```
 
