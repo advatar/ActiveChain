@@ -1733,6 +1733,8 @@ pub enum ValidatorServiceError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use activechain_cash_kernel::{GenesisAllocation, GenesisEconomy, NativeAssetDefinition};
+    use activechain_protocol_types::{ChainId, PrincipalId};
     use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
     use std::net::TcpListener;
     fn signed_message(
@@ -1757,6 +1759,31 @@ mod tests {
             message,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn wallet_gateway_binds_a_genesis_ledger() {
+        let digest = |byte| Digest384::new([byte; 48]);
+        let owner = PrincipalId::new(digest(10));
+        let definition = NativeAssetDefinition::new(
+            ChainId::new(digest(1)),
+            b"ACT".to_vec(),
+            18,
+            1_000,
+            150,
+            digest(2),
+            digest(3),
+            digest(4),
+        )
+        .unwrap();
+        let economy = GenesisEconomy::new(
+            definition,
+            vec![GenesisAllocation::new(owner, 700, 100).unwrap()],
+            200,
+        )
+        .unwrap();
+        let gateway = WalletTransactionGateway::from_genesis(&economy).unwrap();
+        assert_eq!(gateway.ledger().supply().genesis_supply(), 1_000);
     }
     #[test]
     fn runtime_rejects_without_verified_votes() {
