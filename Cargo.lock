@@ -215,6 +215,8 @@ version = "0.1.0"
 dependencies = [
  "activechain-cash-kernel",
  "activechain-protocol-types",
+ "ml-dsa",
+ "sha3 0.10.9",
 ]
 
 [[package]]
