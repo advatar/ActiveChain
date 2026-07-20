@@ -20,6 +20,9 @@ The first bridge exposes a small versioned API:
 No bridge function accepts an unconstrained amount/recipient pair, returns plaintext secret keys,
 or performs network calls while holding decrypted key material longer than necessary.
 
+The current Rust bridge is `activechain_wallet_core::WalletBridge`; native shells bind to its
+policy-gated `approve_and_build` operation and pass only opaque `KeySlot` ciphertext handles.
+
 ## iOS and Android
 
 - iOS stores encrypted key-slot material behind Keychain/Secure Enclave handles.
