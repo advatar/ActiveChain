@@ -24,6 +24,8 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       PATH: /Users/johansellstrom/.cargo/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
+      KANALEN_DEPLOY_USER: ${{ secrets.KANALEN_DEPLOY_USER }}
+      KANALEN_DEPLOY_KEY: ${{ secrets.KANALEN_DEPLOY_KEY }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with: { clean: true, fetch-depth: 1, persist-credentials: false }
@@ -45,22 +47,23 @@ jobs:
           tar -czf "kanalen-${GITHUB_SHA}.tar.gz" -C dist kanalen
           shasum -a 256 "kanalen-${GITHUB_SHA}.tar.gz" > "kanalen-${GITHUB_SHA}.sha256"
       - name: Publish bundle artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: kanalen-${{ github.sha }}
           path: |
             kanalen-*.tar.gz
             kanalen-*.sha256
       - name: Optional Mac mini deployment
-        if: ${{ inputs.deploy == true && secrets.KANALEN_DEPLOY_KEY != '' }}
+        if: >-
+          ${{ inputs.deploy == true && env.KANALEN_DEPLOY_USER != '' &&
+          env.KANALEN_DEPLOY_KEY != '' }}
         env:
           DEPLOY_HOST: ${{ inputs.deploy_host }}
-          DEPLOY_USER: ${{ secrets.KANALEN_DEPLOY_USER }}
-          DEPLOY_KEY: ${{ secrets.KANALEN_DEPLOY_KEY }}
         run: |
-          install -m 600 /dev/null /tmp/kanalen-deploy-key
-          printf '%s' "$DEPLOY_KEY" > /tmp/kanalen-deploy-key
-          scp -i /tmp/kanalen-deploy-key -o StrictHostKeyChecking=accept-new \
+          key_path=$(mktemp /tmp/activechain-kanalen-deploy-key.XXXXXX)
+          trap 'rm -f "$key_path"' EXIT
+          chmod 600 "$key_path"
+          printf '%s' "$KANALEN_DEPLOY_KEY" > "$key_path"
+          scp -i "$key_path" -o StrictHostKeyChecking=accept-new \
             "kanalen-${GITHUB_SHA}.tar.gz" "kanalen-${GITHUB_SHA}.sha256" \
-            "$DEPLOY_USER@$DEPLOY_HOST:/Volumes/ActiveChain/testnet/"
-          rm -f /tmp/kanalen-deploy-key
+            "$KANALEN_DEPLOY_USER@$DEPLOY_HOST:/Volumes/ActiveChain/testnet/"

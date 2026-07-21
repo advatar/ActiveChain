@@ -107,6 +107,8 @@ Tracked by [GitHub issue #2](https://github.com/advatar/ActiveChain/issues/2).
 - [x] Register a dedicated repo-scoped self-hosted runner on this Mac.
 - [x] Route CI exclusively to the `activechain-ci` runner label and harden checkout behavior.
 - [x] Verify the full CI workflow completes on the local runner.
+- [x] Keep the Kanalen deployment workflow dispatch-only and startup-valid, pin its artifact action,
+  and remove its temporary SSH key on every exit path.
 - [x] Draft `P-020` principal lifecycle and `P-022` capability semantics.
 - [x] Add canonical authenticator and capability schemas.
 - [x] Implement bounded authenticator descriptors and validation.
