@@ -239,7 +239,7 @@ Tracked by [GitHub issue #18](https://github.com/advatar/ActiveChain/issues/18).
     fees, expiry, and proof public inputs.
   - [x] Reject duplicate and previously spent nullifiers with atomic application semantics.
   - [x] Publish deterministic vectors and unit, property, and malformed-input tests.
-- [ ] Add persistent nullifier storage and atomic shield/unshield cash-ledger integration.
+- [x] Add persistent nullifier storage and atomic shield/unshield cash-ledger integration.
 - [ ] Add domain pseudonym and private-credential presentation statements.
 - [ ] Add private-object transition statements and scoped disclosure semantics.
 - [ ] Add protected-envelope, committee, ordering, forced-inclusion, and public-lane isolation.

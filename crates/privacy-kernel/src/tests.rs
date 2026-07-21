@@ -1,5 +1,5 @@
 use activechain_canonical_codec::{decode_envelope, encode_envelope};
-use activechain_protocol_types::{AssetId, ChainId, Digest384, PrincipalId};
+use activechain_protocol_types::{AssetId, ChainId, CoinCellId, Digest384, PrincipalId};
 use alloc::{vec, vec::Vec};
 use proptest::prelude::*;
 
@@ -40,6 +40,37 @@ fn canonical_values_round_trip() {
     assert_eq!(
         decode_envelope::<ShieldedTransferPublicInputs>(&encode_envelope(&statement).unwrap()),
         Ok(statement)
+    );
+
+    let shield = ShieldIntent::new(
+        ChainId::new(digest(1)),
+        AssetId::new(digest(2)),
+        PrincipalId::new(digest(3)),
+        vec![CoinCellId::new(digest(10))],
+        CoinCellId::new(digest(11)),
+        40,
+        2,
+        vec![digest(20)],
+        100,
+    )
+    .unwrap();
+    assert_eq!(decode_envelope::<ShieldIntent>(&encode_envelope(&shield).unwrap()), Ok(shield));
+
+    let unshield = UnshieldIntent::new(
+        ChainId::new(digest(1)),
+        AssetId::new(digest(2)),
+        digest(3),
+        PrincipalId::new(digest(4)),
+        30,
+        2,
+        vec![digest(10)],
+        vec![digest(20)],
+        100,
+    )
+    .unwrap();
+    assert_eq!(
+        decode_envelope::<UnshieldIntent>(&encode_envelope(&unshield).unwrap()),
+        Ok(unshield)
     );
 }
 
@@ -157,6 +188,25 @@ fn malformed_and_unbound_inputs_are_rejected() {
         Err(PrivacyError::PublicInputMismatch)
     );
     assert!(state.as_slice().is_empty());
+}
+
+#[test]
+fn shielded_cash_state_round_trips_with_persistent_nullifiers() {
+    let nullifiers = NullifierSet::new(vec![digest(10), digest(11)]).unwrap();
+    let state = ShieldedCashState::new(500, digest(12), nullifiers).unwrap();
+    let encoded = encode_envelope(&state).unwrap();
+    assert_eq!(decode_envelope::<ShieldedCashState>(&encoded), Ok(state));
+}
+
+#[test]
+fn verified_nullifier_consumption_is_atomic() {
+    let mut set = NullifierSet::new(vec![digest(10)]).unwrap();
+    let snapshot = set.clone();
+    assert_eq!(
+        set.consume_verified(&[digest(9), digest(10)]),
+        Err(PrivacyError::NullifierAlreadySpent)
+    );
+    assert_eq!(set, snapshot);
 }
 
 proptest! {

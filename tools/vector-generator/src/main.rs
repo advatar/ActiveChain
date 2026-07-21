@@ -27,7 +27,8 @@ use activechain_principal::{
     create_principal,
 };
 use activechain_privacy_kernel::{
-    NullifierOpening, ShieldedNote, ShieldedTransferPublicInputs, VerifiedPrivacyProof,
+    NullifierOpening, NullifierSet, ShieldedCashState, ShieldedNote, ShieldedTransferPublicInputs,
+    VerifiedPrivacyProof,
 };
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
@@ -186,18 +187,25 @@ fn render_privacy_v1() -> String {
     let public_inputs_commitment = inputs.commitment().expect("privacy vector inputs commit");
     let proof = VerifiedPrivacyProof { public_inputs_commitment, verified: true };
     assert!(proof.verified);
+    let state = ShieldedCashState::new(
+        500,
+        public_inputs_commitment,
+        NullifierSet::new(vec![nullifier]).expect("privacy vector nullifier set is canonical"),
+    )
+    .expect("privacy vector state is valid");
 
     format!(
         "# ActiveChain bounded privacy vector v1\n\
 note_commitment_hex={}\n\
 nullifier_hex={}\n\
 public_inputs_commitment_hex={}\n\
-{}{}",
+{}{}{}",
         hexadecimal(note_commitment.as_bytes()),
         hexadecimal(nullifier.as_bytes()),
         hexadecimal(public_inputs_commitment.as_bytes()),
         encoded_value("note", &note),
         encoded_value("public_inputs", &inputs),
+        encoded_value("shielded_state", &state),
     )
 }
 

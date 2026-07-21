@@ -40,6 +40,8 @@ must not hold value anyone is unwilling to lose.
 - a minimal semantic-devnet host and an executable Lean nonce/replay model;
 - an executable Lean credential-status model with required/future/stale/revoked precedence;
 - deterministic principal, authority, credential, APL, transition, state-tree, ObjectVM, action, and block vectors;
+- canonical shielded-note, viewing-capability, persistent-nullifier, and atomic native
+  shield/unshield reference boundaries without production privacy claims;
 - unit and property tests for codec safety, authority, policy, transitions, proofs, bytecode, execution, admission, and block application.
 
 ## Workspace

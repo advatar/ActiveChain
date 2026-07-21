@@ -30,6 +30,8 @@ mod tests {
     extern crate alloc;
 
     use activechain_canonical_codec::{decode_envelope, encode_envelope};
+    use activechain_privacy_kernel::{ShieldIntent, UnshieldIntent, VerifiedPrivacyProof};
+    use activechain_protocol_commitment::{DomainTag, commit};
     use activechain_protocol_types::{ChainId, CoinCellId, Digest384, PrincipalId};
     use alloc::vec;
     use proptest::prelude::*;
@@ -225,6 +227,145 @@ mod tests {
         assert_eq!(ledger.supply().current_total_supply(), 900);
         assert_eq!(ledger.supply().cumulative_burn(), 100);
         ledger.verify_invariants().unwrap();
+    }
+
+    #[test]
+    fn shield_and_unshield_are_supply_conserving_atomic_and_replay_safe() {
+        let economy = economy();
+        let mut ledger = CashLedger::from_genesis(&economy).unwrap();
+        let minted = ledger
+            .apply_mint(
+                &CoinMintTransition::new(digest(2), principal(10), 50, 1, 1).unwrap(),
+                &settlement(1_000, 50, 1),
+            )
+            .unwrap();
+        let input = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .find(|record| record.cell().owner() == principal(10) && record.id() != minted)
+            .unwrap()
+            .id();
+        let shield = ShieldIntent::new(
+            economy.definition().chain_id(),
+            ledger.asset_id().unwrap(),
+            principal(10),
+            vec![input],
+            minted,
+            400,
+            7,
+            vec![digest(60)],
+            20,
+        )
+        .unwrap();
+        let shield_proof = VerifiedPrivacyProof {
+            public_inputs_commitment: commit(DomainTag::PRIVACY_PUBLIC_INPUTS, &shield).unwrap(),
+            verified: true,
+        };
+        ledger.apply_shield(&shield, shield_proof, 2).unwrap();
+        assert_eq!(ledger.shielded_state().pool_balance(), 400);
+        assert_eq!(ledger.supply().current_total_supply(), 1_050);
+        assert_eq!(ledger.supply().security_reserve_balance(), 107);
+
+        let unshield = UnshieldIntent::new(
+            economy.definition().chain_id(),
+            ledger.asset_id().unwrap(),
+            ledger.shielded_state().anchor(),
+            principal(12),
+            100,
+            3,
+            vec![digest(70)],
+            vec![digest(80)],
+            30,
+        )
+        .unwrap();
+        let unshield_proof = VerifiedPrivacyProof {
+            public_inputs_commitment: commit(DomainTag::PRIVACY_PUBLIC_INPUTS, &unshield).unwrap(),
+            verified: true,
+        };
+        let output = ledger.apply_unshield(&unshield, unshield_proof, 3).unwrap();
+        assert_eq!(ledger.shielded_state().pool_balance(), 297);
+        assert_eq!(ledger.supply().security_reserve_balance(), 110);
+        assert_eq!(ledger.supply().current_total_supply(), 1_050);
+        assert_eq!(
+            ledger
+                .cells()
+                .as_slice()
+                .iter()
+                .find(|record| record.id() == output)
+                .unwrap()
+                .cell()
+                .amount(),
+            100
+        );
+
+        let snapshot = ledger.clone();
+        assert_eq!(
+            ledger.apply_unshield(&unshield, unshield_proof, 3),
+            Err(CashTransitionError::Privacy(
+                activechain_privacy_kernel::PrivacyError::WrongAnchor
+            ))
+        );
+        assert_eq!(ledger, snapshot);
+
+        let rebound_replay = UnshieldIntent::new(
+            economy.definition().chain_id(),
+            ledger.asset_id().unwrap(),
+            ledger.shielded_state().anchor(),
+            principal(12),
+            100,
+            3,
+            vec![digest(70)],
+            vec![digest(81)],
+            30,
+        )
+        .unwrap();
+        let rebound_proof = VerifiedPrivacyProof {
+            public_inputs_commitment: commit(DomainTag::PRIVACY_PUBLIC_INPUTS, &rebound_replay)
+                .unwrap(),
+            verified: true,
+        };
+        assert_eq!(
+            ledger.apply_unshield(&rebound_replay, rebound_proof, 4),
+            Err(CashTransitionError::Privacy(
+                activechain_privacy_kernel::PrivacyError::NullifierAlreadySpent
+            ))
+        );
+        assert_eq!(ledger, snapshot);
+    }
+
+    #[test]
+    fn rejected_shield_proof_consumes_no_public_cells() {
+        let economy = economy();
+        let mut ledger = CashLedger::from_genesis(&economy).unwrap();
+        let owned = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .find(|record| record.cell().owner() == principal(10))
+            .unwrap()
+            .id();
+        let intent = ShieldIntent::new(
+            economy.definition().chain_id(),
+            ledger.asset_id().unwrap(),
+            principal(10),
+            vec![owned],
+            CoinCellId::new(digest(99)),
+            1,
+            0,
+            vec![digest(60)],
+            20,
+        )
+        .unwrap();
+        let before = ledger.clone();
+        let proof = VerifiedPrivacyProof { public_inputs_commitment: digest(98), verified: false };
+        assert_eq!(
+            ledger.apply_shield(&intent, proof, 2),
+            Err(CashTransitionError::Privacy(
+                activechain_privacy_kernel::PrivacyError::ProofNotVerified
+            ))
+        );
+        assert_eq!(ledger, before);
     }
 
     #[test]

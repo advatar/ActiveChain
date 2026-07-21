@@ -11,6 +11,7 @@ publish = false
 activechain-canonical-codec.workspace = true
 activechain-protocol-commitment = { path = "../protocol-commitment", version = "0.1.0" }
 activechain-protocol-types.workspace = true
+activechain-privacy-kernel.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
