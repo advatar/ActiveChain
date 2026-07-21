@@ -9,6 +9,11 @@ pub extern "C" fn activechain_wallet_ffi_revision() -> u32 {
 }
 
 /// Validates a bounded OpenWallet session tuple without accepting secret material.
+///
+/// # Safety
+///
+/// `session_id` and `relying_party` must each point to a readable 48-byte buffer for the
+/// duration of this call. The function does not retain either pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn activechain_wallet_session_valid(
     session_id: *const u8,
