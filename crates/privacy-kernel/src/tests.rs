@@ -197,6 +197,74 @@ fn credential_proof_substitution_fails_closed() {
 }
 
 #[test]
+fn disclosure_capabilities_only_attenuate() {
+    let capability = |fields, not_before, expires_at| {
+        DisclosureCapability::new(
+            ChainId::new(digest(1)),
+            digest(2),
+            PrincipalId::new(digest(3)),
+            digest(4),
+            digest(5),
+            fields,
+            not_before,
+            expires_at,
+        )
+        .unwrap()
+    };
+    let parent = capability(vec![1, 2, 4], 10, 30);
+    let child = capability(vec![1, 4], 12, 20);
+    assert_eq!(parent.verify_attenuation(&child), Ok(()));
+    assert_eq!(
+        parent.verify_attenuation(&capability(vec![1, 3], 12, 20)),
+        Err(PrivacyError::ScopeEscalation)
+    );
+    assert_eq!(
+        decode_envelope::<DisclosureCapability>(&encode_envelope(&parent).unwrap()),
+        Ok(parent)
+    );
+}
+
+fn private_object_transition() -> PrivateObjectTransition {
+    PrivateObjectTransition::new(
+        ChainId::new(digest(1)),
+        digest(2),
+        digest(3),
+        digest(4),
+        digest(5),
+        digest(6),
+        digest(7),
+        digest(8),
+        digest(9),
+        digest(10),
+        digest(11),
+        100,
+    )
+    .unwrap()
+}
+
+#[test]
+fn private_object_transition_binds_complete_context() {
+    let transition = private_object_transition();
+    assert_eq!(
+        decode_envelope::<PrivateObjectTransition>(&encode_envelope(&transition).unwrap()),
+        Ok(transition)
+    );
+    let proof = VerifiedPrivacyProof {
+        public_inputs_commitment: transition.commitment().unwrap(),
+        verified: true,
+    };
+    assert_eq!(transition.verify(proof, ChainId::new(digest(1)), digest(2), 99), Ok(digest(3)));
+    assert_eq!(
+        transition.verify(proof, ChainId::new(digest(1)), digest(20), 99),
+        Err(PrivacyError::WrongAnchor)
+    );
+    assert_eq!(
+        transition.verify(proof, ChainId::new(digest(1)), digest(2), 101),
+        Err(PrivacyError::Expired)
+    );
+}
+
+#[test]
 fn admission_is_fail_closed_and_atomic() {
     let statement = inputs(vec![digest(10), digest(11)]);
     let proof = VerifiedPrivacyProof {

@@ -59,6 +59,8 @@ impl DomainTag {
     pub const DOMAIN_PSEUDONYM: Self = Self(0x0013);
     /// Commitment to a private-credential proof's complete public statement.
     pub const PRIVATE_CREDENTIAL_PRESENTATION: Self = Self(0x0014);
+    /// Commitment to a private-object transition's complete public statement.
+    pub const PRIVATE_OBJECT_TRANSITION: Self = Self(0x0015);
 
     /// Returns the registered numeric tag.
     #[must_use]

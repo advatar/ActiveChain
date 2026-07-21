@@ -20,6 +20,8 @@ use alloc::vec::Vec;
 pub const MAX_SHIELDED_ITEMS: usize = 16;
 /// Maximum nullifiers retained by this bounded reference state.
 pub const MAX_SPENT_NULLIFIERS: usize = 4_096;
+/// Maximum explicitly disclosed field identifiers in one capability.
+pub const MAX_DISCLOSED_FIELDS: usize = 64;
 
 /// Semantic rejection at the privacy admission boundary.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -39,6 +41,7 @@ pub enum PrivacyError {
     PublicInputMismatch,
     ProofNotVerified,
     CommitmentEncoding,
+    ScopeEscalation,
 }
 
 fn map_decode<T>(result: Result<T, PrivacyError>) -> Result<T, DecodeError> {
@@ -442,6 +445,267 @@ impl CanonicalType for PrivateCredentialPresentation {
     const TYPE_TAG: u16 = Self::TYPE_TAG;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 48 * 9 + 8 * 4;
+}
+
+/// Viewer- and purpose-bound permission to decrypt selected private-object fields.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisclosureCapability {
+    chain_id: ChainId,
+    object_commitment: Digest384,
+    viewer: PrincipalId,
+    viewing_key_commitment: Digest384,
+    purpose: Digest384,
+    fields: Vec<u16>,
+    not_before: u64,
+    expires_at: u64,
+}
+
+impl DisclosureCapability {
+    pub const TYPE_TAG: u16 = 0x00aa;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        chain_id: ChainId,
+        object_commitment: Digest384,
+        viewer: PrincipalId,
+        viewing_key_commitment: Digest384,
+        purpose: Digest384,
+        fields: Vec<u16>,
+        not_before: u64,
+        expires_at: u64,
+    ) -> Result<Self, PrivacyError> {
+        if object_commitment == Digest384::ZERO
+            || viewing_key_commitment == Digest384::ZERO
+            || purpose == Digest384::ZERO
+            || fields.is_empty()
+            || fields.len() > MAX_DISCLOSED_FIELDS
+        {
+            return Err(PrivacyError::InvalidViewingScope);
+        }
+        if fields.windows(2).any(|pair| pair[0] >= pair[1]) {
+            return Err(PrivacyError::NonCanonicalOrder);
+        }
+        if not_before > expires_at {
+            return Err(PrivacyError::InvalidValidityWindow);
+        }
+        Ok(Self {
+            chain_id,
+            object_commitment,
+            viewer,
+            viewing_key_commitment,
+            purpose,
+            fields,
+            not_before,
+            expires_at,
+        })
+    }
+
+    #[must_use]
+    pub fn is_valid_at(&self, height: u64) -> bool {
+        self.not_before <= height && height <= self.expires_at
+    }
+
+    /// Requires a child disclosure to preserve identity/purpose and narrow fields and time.
+    pub fn verify_attenuation(&self, child: &Self) -> Result<(), PrivacyError> {
+        if child.chain_id != self.chain_id
+            || child.object_commitment != self.object_commitment
+            || child.viewer != self.viewer
+            || child.viewing_key_commitment != self.viewing_key_commitment
+            || child.purpose != self.purpose
+            || child.not_before < self.not_before
+            || child.expires_at > self.expires_at
+            || !child.fields.iter().all(|field| self.fields.binary_search(field).is_ok())
+        {
+            return Err(PrivacyError::ScopeEscalation);
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalEncode for DisclosureCapability {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain_id.encode(e)?;
+        self.object_commitment.encode(e)?;
+        self.viewer.encode(e)?;
+        self.viewing_key_commitment.encode(e)?;
+        self.purpose.encode(e)?;
+        e.write_length(self.fields.len(), MAX_DISCLOSED_FIELDS)?;
+        for field in &self.fields {
+            field.encode(e)?;
+        }
+        self.not_before.encode(e)?;
+        self.expires_at.encode(e)
+    }
+}
+
+impl CanonicalDecode for DisclosureCapability {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let chain_id = ChainId::decode(d)?;
+        let object_commitment = Digest384::decode(d)?;
+        let viewer = PrincipalId::decode(d)?;
+        let viewing_key_commitment = Digest384::decode(d)?;
+        let purpose = Digest384::decode(d)?;
+        let count = d.read_length(MAX_DISCLOSED_FIELDS)?;
+        let mut fields = Vec::with_capacity(count);
+        for _ in 0..count {
+            fields.push(u16::decode(d)?);
+        }
+        map_decode(Self::new(
+            chain_id,
+            object_commitment,
+            viewer,
+            viewing_key_commitment,
+            purpose,
+            fields,
+            u64::decode(d)?,
+            u64::decode(d)?,
+        ))
+    }
+}
+
+impl CanonicalType for DisclosureCapability {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 * 5 + 1 + MAX_DISCLOSED_FIELDS * 2 + 16;
+}
+
+/// Complete public statement that a private-object transition proof must bind.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PrivateObjectTransition {
+    chain_id: ChainId,
+    pre_state_root: Digest384,
+    post_state_root: Digest384,
+    object_class: Digest384,
+    prior_object_commitment: Digest384,
+    output_object_commitment: Digest384,
+    authorization_commitment: Digest384,
+    policy_decision_commitment: Digest384,
+    program_commitment: Digest384,
+    access_manifest_commitment: Digest384,
+    disclosure_root: Digest384,
+    expires_at: u64,
+}
+
+impl PrivateObjectTransition {
+    pub const TYPE_TAG: u16 = 0x00ab;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        chain_id: ChainId,
+        pre_state_root: Digest384,
+        post_state_root: Digest384,
+        object_class: Digest384,
+        prior_object_commitment: Digest384,
+        output_object_commitment: Digest384,
+        authorization_commitment: Digest384,
+        policy_decision_commitment: Digest384,
+        program_commitment: Digest384,
+        access_manifest_commitment: Digest384,
+        disclosure_root: Digest384,
+        expires_at: u64,
+    ) -> Result<Self, PrivacyError> {
+        let required = [
+            pre_state_root,
+            post_state_root,
+            object_class,
+            prior_object_commitment,
+            output_object_commitment,
+            authorization_commitment,
+            policy_decision_commitment,
+            program_commitment,
+            access_manifest_commitment,
+            disclosure_root,
+        ];
+        if required.contains(&Digest384::ZERO) || pre_state_root == post_state_root {
+            return Err(PrivacyError::PublicInputMismatch);
+        }
+        Ok(Self {
+            chain_id,
+            pre_state_root,
+            post_state_root,
+            object_class,
+            prior_object_commitment,
+            output_object_commitment,
+            authorization_commitment,
+            policy_decision_commitment,
+            program_commitment,
+            access_manifest_commitment,
+            disclosure_root,
+            expires_at,
+        })
+    }
+
+    pub fn commitment(&self) -> Result<Digest384, PrivacyError> {
+        commit(DomainTag::PRIVATE_OBJECT_TRANSITION, self)
+            .map_err(|_| PrivacyError::CommitmentEncoding)
+    }
+
+    pub fn verify(
+        &self,
+        proof: VerifiedPrivacyProof,
+        expected_chain: ChainId,
+        expected_pre_state_root: Digest384,
+        current_height: u64,
+    ) -> Result<Digest384, PrivacyError> {
+        if self.chain_id != expected_chain {
+            return Err(PrivacyError::WrongChain);
+        }
+        if self.pre_state_root != expected_pre_state_root {
+            return Err(PrivacyError::WrongAnchor);
+        }
+        if current_height > self.expires_at {
+            return Err(PrivacyError::Expired);
+        }
+        if !proof.verified {
+            return Err(PrivacyError::ProofNotVerified);
+        }
+        if proof.public_inputs_commitment != self.commitment()? {
+            return Err(PrivacyError::PublicInputMismatch);
+        }
+        Ok(self.post_state_root)
+    }
+}
+
+impl CanonicalEncode for PrivateObjectTransition {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain_id.encode(e)?;
+        self.pre_state_root.encode(e)?;
+        self.post_state_root.encode(e)?;
+        self.object_class.encode(e)?;
+        self.prior_object_commitment.encode(e)?;
+        self.output_object_commitment.encode(e)?;
+        self.authorization_commitment.encode(e)?;
+        self.policy_decision_commitment.encode(e)?;
+        self.program_commitment.encode(e)?;
+        self.access_manifest_commitment.encode(e)?;
+        self.disclosure_root.encode(e)?;
+        self.expires_at.encode(e)
+    }
+}
+
+impl CanonicalDecode for PrivateObjectTransition {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        map_decode(Self::new(
+            ChainId::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            u64::decode(d)?,
+        ))
+    }
+}
+
+impl CanonicalType for PrivateObjectTransition {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 * 11 + 8;
 }
 
 /// Exact public statement that a shielded-transfer proof must verify.
