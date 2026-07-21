@@ -22,9 +22,11 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
 
 - [x] Prove the initial wallet-agent HITL and replay properties in Tamarin.
 - [ ] Prove scoped consensus QC, finality, replay, and equivocation properties.
+  - [x] Prove bounded authentication, replay, non-equivocation, quorum-intersection, and frontier-finality component lemmas.
+  - [ ] Close the composed no-conflicting-QCs theorem and generalize four equal-stake validators to bounded weighted sets.
 - [x] Prove abstract cash conservation, authorized issuance, burn, and reward no-double-mint properties in Lean.
 - [x] Prove DA reconstruction bounds and fail-closed light-client trust transitions in Lean.
-- [ ] Prove principal rotation/recovery/deactivation and delegation attenuation properties.
+- [x] Prove bounded principal rotation/recovery/deactivation and direct-delegation attenuation properties.
 - [ ] Run every Lean and Tamarin model on the self-hosted CI runner.
 - [ ] Publish proof scopes, assumptions, counterexamples, and explicit unverified boundaries.
 - [ ] Obtain independent external formal-methods review before any non-developmental launch claim.

@@ -15,9 +15,9 @@ they are not a certificate that the complete implementation is correct.
 | --- | --- | --- | --- |
 | APL, credentials, objects, ObjectVM, state tree, nonce | Lean 4 | `formal/lean/ActiveChain/` | scoped models build and differential fixtures pass |
 | wallet-agent HITL and replay | Tamarin | `formal/tamarin/activechain_wallet.spthy` | three scoped safety lemmas proved |
-| consensus and validator networking | Tamarin | `formal/tamarin/activechain_consensus.spthy` | in progress |
+| consensus and validator networking | Tamarin | `formal/tamarin/activechain_consensus.spthy` | component lemmas proved; composed conflicting-QC theorem open |
 | native cash and reward supply | Lean 4 | `formal/lean/ActiveChain/Cash.lean` | scoped invariants proved |
-| identity lifecycle and delegation | Tamarin | `formal/tamarin/activechain_identity.spthy` | in progress |
+| identity lifecycle and delegation | Tamarin | `formal/tamarin/activechain_identity.spthy` | bounded lifecycle/delegation lemmas proved |
 | DA reconstruction and light-client trust | Lean 4 | `formal/lean/ActiveChain/DA.lean` | scoped invariants proved |
 
 ## Local reproduction
