@@ -11,6 +11,7 @@ struct TransferPreviewView: View {
     @State private var recipient = "did:activechain:test"
     @State private var amount = "10"
     @State private var status = "Review transfer before approval"
+    @State private var approvedPayload = ""
     @State private var network = "kanalen"
 
     private let networks = ["kanalen", "roslagen", "tralhavet"]
@@ -26,10 +27,21 @@ struct TransferPreviewView: View {
                 Button("Preview and approve") {
                     let preview = bridge.previewTransfer(recipient: recipient, amount: UInt64(amount) ?? 0,
                                                           feeReserve: 2, validUntil: 100, currentHeight: 1)
-                    do { _ = try bridge.approveTransfer(preview); status = "Approved canonical intent" }
-                    catch { status = "Rejected by wallet policy" }
+                    do {
+                        let payload = try bridge.approveTransfer(preview)
+                        approvedPayload = String(decoding: payload, as: UTF8.self)
+                        status = "Approved local canonical intent on \(network)"
+                    } catch {
+                        approvedPayload = ""
+                        status = "Rejected by wallet policy"
+                    }
                 }
                 Text(status).foregroundStyle(.secondary)
+                if !approvedPayload.isEmpty {
+                    Section("Approved intent (developer mode)") {
+                        Text(approvedPayload).font(.footnote).textSelection(.enabled)
+                    }
+                }
             }.navigationTitle("ActiveChain Wallet")
         }
     }
