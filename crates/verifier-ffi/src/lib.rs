@@ -2,12 +2,16 @@
 
 use activechain_protocol_types::Digest384;
 
+const TOO_LARGE: u32 = 1;
 const NULL_POINTER: u32 = 6;
+const MAX_ENVELOPE_LENGTH: u32 = activechain_verifier_api::MAX_ENVELOPE_LENGTH as u32;
 
 #[unsafe(no_mangle)]
 /// # Safety
-/// The caller must provide a readable `bytes` buffer of `bytes_len` bytes, or a null pointer only
-/// when `bytes_len` is zero. The verifier does not retain the pointer.
+/// For lengths through [`activechain_verifier_api::MAX_ENVELOPE_LENGTH`], the caller must provide a
+/// readable `bytes` buffer of `bytes_len` bytes, or a null pointer only when `bytes_len` is zero.
+/// Oversized inputs are rejected before the pointer is materialized. The verifier does not retain
+/// or write through the pointer.
 pub unsafe extern "C" fn activechain_inspect_envelope_code(
     bytes: *const u8,
     bytes_len: u32,
@@ -17,6 +21,9 @@ pub unsafe extern "C" fn activechain_inspect_envelope_code(
     if bytes.is_null() && bytes_len != 0 {
         return NULL_POINTER;
     }
+    if bytes_len > MAX_ENVELOPE_LENGTH {
+        return TOO_LARGE;
+    }
     let input = if bytes_len == 0 {
         &[]
     } else {
@@ -24,6 +31,9 @@ pub unsafe extern "C" fn activechain_inspect_envelope_code(
     };
     activechain_verifier_api::inspect_envelope_code(input, expected_type, expected_version)
 }
+
+#[cfg(kani)]
+mod kani_proofs;
 
 #[unsafe(no_mangle)]
 /// # Safety
@@ -75,10 +85,21 @@ mod tests {
             },
             0
         );
+        assert_eq!(
+            unsafe {
+                activechain_inspect_envelope_code(
+                    core::ptr::NonNull::<u8>::dangling().as_ptr(),
+                    MAX_ENVELOPE_LENGTH + 1,
+                    0x1234,
+                    1,
+                )
+            },
+            TOO_LARGE
+        );
     }
 
     #[test]
-    fn abi_rejects_null_commitment_and_wrong_commitment() {
+    fn abi_rejects_null_commitment_and_checks_known_commitment() {
         assert_eq!(
             unsafe {
                 activechain_verify_commitment_code(
@@ -100,6 +121,38 @@ mod tests {
                     core::ptr::null(),
                     0,
                     digest.as_ptr(),
+                )
+            },
+            5
+        );
+
+        let mut empty_digest = [
+            0x46, 0xb9, 0xdd, 0x2b, 0x0b, 0xa8, 0x8d, 0x13, 0x23, 0x3b, 0x3f, 0xeb, 0x74, 0x3e,
+            0xeb, 0x24, 0x3f, 0xcd, 0x52, 0xea, 0x62, 0xb8, 0x1b, 0x82, 0xb5, 0x0c, 0x27, 0x64,
+            0x6e, 0xd5, 0x76, 0x2f, 0xd7, 0x5d, 0xc4, 0xdd, 0xd8, 0xc0, 0xf2, 0x00, 0xcb, 0x05,
+            0x01, 0x9d, 0x67, 0xb5, 0x92, 0xf6,
+        ];
+        assert_eq!(
+            unsafe {
+                activechain_verify_commitment_code(
+                    core::ptr::null(),
+                    0,
+                    core::ptr::null(),
+                    0,
+                    empty_digest.as_ptr(),
+                )
+            },
+            0
+        );
+        empty_digest[0] ^= 1;
+        assert_eq!(
+            unsafe {
+                activechain_verify_commitment_code(
+                    core::ptr::null(),
+                    0,
+                    core::ptr::null(),
+                    0,
+                    empty_digest.as_ptr(),
                 )
             },
             5

@@ -1,0 +1,17 @@
+# Verification-only metadata shim. The library target is the production verifier-api source.
+[package]
+name = "activechain-verifier-api"
+description = "Kani dependency entry point for the production ActiveChain verifier API"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+path = "../../../verifier-api/src/lib.rs"
+
+[dependencies]
+activechain-canonical-codec.workspace = true
+activechain-protocol-types.workspace = true
+sha3.workspace = true

@@ -1,0 +1,13 @@
+# Verification-only metadata shim. The library and build targets are the production codec source.
+[package]
+name = "activechain-canonical-codec"
+description = "Kani dependency entry point for the production ActiveChain canonical codec"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+build = "../../../canonical-codec/build.rs"
+
+[lib]
+path = "../../../canonical-codec/src/lib.rs"

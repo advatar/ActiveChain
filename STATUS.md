@@ -89,12 +89,16 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
     - [x] Add the first Kani gate over the production canonical codec: seven bounded harnesses for
       strict round trips, truncation, trailing bytes, adversarial decode, length prefixes, raw
       reads, and bounded encoder writes.
+    - [x] Add five Kani harnesses over the production verifier C ABI for null and oversized pointer
+      rejection, exact safe-API refinement on inputs through nine bytes, strict error codes, and
+      commitment-pointer preconditions; arbitrary foreign readable-memory validity and SHAKE256
+      internals remain outside this bounded proof.
     - [x] Prove checked fee totals, strict-quorum arithmetic, base-fee adjustment, supply equations,
       partition accounting, and capped issuance in Verus, with a locked finite parity executable
       against the production cash and consensus crates.
     - [ ] Move the verified arithmetic behind a shared production implementation or add an
-      all-input refinement bridge, and extend Kani coverage to production schemas, persistence,
-      FFI, and network admission.
+      all-input refinement bridge, and extend Kani coverage to larger production schemas,
+      persistence, commitment internals, and network admission.
 - [ ] Add implementation-trace and differential conformance checks for every proof domain.
 - [ ] Run every Lean and Tamarin model on the self-hosted CI runner.
 - [ ] Publish proof scopes, assumptions, counterexamples, and explicit unverified boundaries.

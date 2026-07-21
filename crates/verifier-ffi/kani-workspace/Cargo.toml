@@ -1,0 +1,15 @@
+[workspace]
+members = ["api", "canonical-codec", "ffi", "protocol-types"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93.0"
+repository = "https://github.com/advatar/ActiveChain"
+
+[workspace.dependencies]
+activechain-canonical-codec = { path = "canonical-codec", version = "0.1.0" }
+activechain-protocol-types = { path = "protocol-types", version = "0.1.0" }
+activechain-verifier-api = { path = "api", version = "0.1.0" }
+sha3 = { version = "=0.10.9", default-features = false }

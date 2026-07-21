@@ -1,0 +1,19 @@
+# Kani 0.67.0 uses Rust 1.93. This verification-only manifest points at the production source
+# without copying or replacing it and changes only package metadata needed by that pinned toolchain.
+[package]
+name = "activechain-verifier-ffi"
+description = "Kani entry point for the production ActiveChain verifier C ABI adapter"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+build = "../../build.rs"
+
+[lib]
+path = "../../src/lib.rs"
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+activechain-protocol-types.workspace = true
+activechain-verifier-api.workspace = true
