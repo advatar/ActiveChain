@@ -1,0 +1,19 @@
+# Kani 0.67.0 uses Rust 1.93. This verification-only manifest points at the production source
+# without copying or replacing it and changes only package metadata needed by that pinned toolchain.
+[package]
+name = "activechain-object-vm"
+description = "Kani entry point for the production ActiveChain ObjectVM"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+build = "../../build.rs"
+
+[lib]
+path = "../../src/lib.rs"
+
+[dependencies]
+activechain-bytecode-verifier.workspace = true
+activechain-canonical-codec.workspace = true
+activechain-protocol-types.workspace = true

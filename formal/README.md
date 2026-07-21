@@ -30,6 +30,7 @@ they are not a certificate that the complete implementation is correct.
 | canonical envelopes and FFI gates | Lean 4 | `formal/lean/ActiveChain/Envelope.lean` | abstract strict-decode, binding, and pointer/length preconditions | only bounded concrete tests currently connect to Rust/C ABI |
 | concrete canonical codec | Kani | `crates/canonical-codec/src/kani_proofs.rs` | seven bounded production-code harnesses over a two-byte body and adversarial inputs up to nine bytes | deliberately bounded; larger production schemas, allocation failure, DoS limits, persistence, and FFI remain open |
 | verifier C ABI | Kani | `crates/verifier-ffi/src/kani_proofs.rs` | five production-wrapper harnesses for null/oversized rejection, exact safe-API refinement, strict status codes, and commitment pointer gates | deliberately bounded to envelope inputs through nine bytes; arbitrary foreign readable memory and SHAKE256 internals are assumptions, not proved claims |
+| bytecode verifier and ObjectVM helpers | Kani | `crates/bytecode-verifier/src/verify.rs`, `crates/object-vm/src/execute/kani_proofs.rs` | seven production-helper harnesses over bounded registers/targets, the complete resource-class table, gas prepayment, checked addition, and forward branch selection | compositional only; full `verify`-to-`execute` and whole-interpreter queries timed out at 180 seconds and are not proved |
 | epoch and protocol upgrades | Lean 4 | `formal/lean/ActiveChain/EpochUpgrade.lean` | exact activation, monotonic revision, retired-set, and stale-context rejection | Rust now enforces signed prior authorization, exact activation, revision-bound QCs, and bounded retired-root persistence; trace/differential refinement remains open |
 | PQ peer sessions | Tamarin | `formal/tamarin/activechain_pq_session.spthy` | 11 symbolic suite/context/replay, exact peer-correspondence, first-message-origin, and honest-session-secrecy lemmas | transcript-bound KDF and session state are not implemented in the current Rust handshake |
 
@@ -45,6 +46,7 @@ bash scripts/check-formal-models.sh
 bash scripts/check-tla-proof-pipeline.sh
 bash scripts/check-kani-codec.sh
 bash scripts/check-kani-verifier-ffi.sh
+bash scripts/check-kani-object-vm.sh
 formal/verus/verify.sh
 ```
 
@@ -58,7 +60,9 @@ selected lemma list; the corresponding weighted arithmetic and conditional compo
 in Lean. The proof-pipeline model is a finite safety result and makes no liveness or proof-system
 soundness claim. The Kani claim is limited to the exact finite bounds in
 `formal/KANI_CODEC_PROOF_SCOPE.md`; the C ABI claim is likewise limited to the exact bounds and
-foreign-memory precondition in `formal/KANI_VERIFIER_FFI_PROOF_SCOPE.md`. The Verus target is
+foreign-memory precondition in `formal/KANI_VERIFIER_FFI_PROOF_SCOPE.md`. The ObjectVM claim is the
+compositional production-helper result in `formal/KANI_OBJECT_VM_PROOF_SCOPE.md`, not a whole-run
+interpreter theorem. The Verus target is
 connected to production by finite parity vectors, not an all-input refinement proof. Falsified
 lemmas and counterexample traces are evidence to fix the model, specification, or code; they must
 never be hidden by weakening a property without documenting the change.

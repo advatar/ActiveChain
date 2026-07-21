@@ -3,7 +3,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use activechain_bytecode_verifier::{VerifiedProgram, VmInstruction, VmValueType};
+use activechain_bytecode_verifier::{VerifiedProgram, VmInstruction, VmProgram, VmValueType};
 
 use crate::{VmEventValue, VmExecutionResult, VmExecutionResultError, VmValue};
 
@@ -13,7 +13,14 @@ pub fn execute(
     inputs: Vec<VmValue>,
     gas_limit: u64,
 ) -> Result<VmExecutionResult, VmExecutionError> {
-    let program = verified.program();
+    execute_program(verified.program(), inputs, gas_limit)
+}
+
+fn execute_program(
+    program: &VmProgram,
+    inputs: Vec<VmValue>,
+    gas_limit: u64,
+) -> Result<VmExecutionResult, VmExecutionError> {
     let expected_inputs = usize::from(program.input_count());
     if inputs.len() != expected_inputs {
         return Err(VmExecutionError::InputCountMismatch {
@@ -49,21 +56,7 @@ pub fn execute(
             },
         )?;
         let cost = instruction.gas_cost();
-        let next_gas = gas_used.checked_add(cost).ok_or(VmExecutionError::GasExhausted {
-            program_counter,
-            gas_used,
-            instruction_cost: cost,
-            gas_limit,
-        })?;
-        if next_gas > gas_limit {
-            return Err(VmExecutionError::GasExhausted {
-                program_counter,
-                gas_used,
-                instruction_cost: cost,
-                gas_limit,
-            });
-        }
-        gas_used = next_gas;
+        gas_used = prepay_gas(program_counter, gas_used, cost, gas_limit)?;
         steps = steps.checked_add(1).ok_or(VmExecutionError::InvariantViolation {
             program_counter,
             reason: "verified instruction count exceeds u16",
@@ -98,9 +91,7 @@ pub fn execute(
             VmInstruction::AddU64 { destination, left, right } => {
                 let left = read_u64(&registers, program_counter, *left)?;
                 let right = read_u64(&registers, program_counter, *right)?;
-                let value = left
-                    .checked_add(right)
-                    .ok_or(VmExecutionError::ArithmeticOverflow { program_counter })?;
+                let value = checked_add(program_counter, left, right)?;
                 initialize(&mut registers, program_counter, *destination, VmValue::U64(value))?;
                 program_counter += 1;
             }
@@ -120,11 +111,7 @@ pub fn execute(
             }
             VmInstruction::BranchIf { condition, target } => {
                 let condition = read_bool(&registers, program_counter, *condition)?;
-                if condition {
-                    program_counter = usize::from(*target);
-                } else {
-                    program_counter += 1;
-                }
+                program_counter = select_branch_target(program_counter, condition, *target);
             }
             VmInstruction::ConsumeCapability { source } => {
                 let value = take(&mut registers, program_counter, *source)?;
@@ -159,6 +146,39 @@ pub fn execute(
             }
         }
     }
+}
+
+fn prepay_gas(
+    program_counter: usize,
+    gas_used: u64,
+    instruction_cost: u64,
+    gas_limit: u64,
+) -> Result<u64, VmExecutionError> {
+    let next_gas =
+        gas_used.checked_add(instruction_cost).ok_or(VmExecutionError::GasExhausted {
+            program_counter,
+            gas_used,
+            instruction_cost,
+            gas_limit,
+        })?;
+    if next_gas > gas_limit {
+        Err(VmExecutionError::GasExhausted {
+            program_counter,
+            gas_used,
+            instruction_cost,
+            gas_limit,
+        })
+    } else {
+        Ok(next_gas)
+    }
+}
+
+fn checked_add(program_counter: usize, left: u64, right: u64) -> Result<u64, VmExecutionError> {
+    left.checked_add(right).ok_or(VmExecutionError::ArithmeticOverflow { program_counter })
+}
+
+fn select_branch_target(program_counter: usize, condition: bool, target: u16) -> usize {
+    if condition { usize::from(target) } else { program_counter + 1 }
 }
 
 fn initialize(
@@ -246,4 +266,94 @@ pub enum VmExecutionError {
     InvariantViolation { program_counter: usize, reason: &'static str },
     /// An internally produced successful result violated canonical bounds.
     InvalidResult(VmExecutionResultError),
+}
+
+#[cfg(kani)]
+mod kani_proofs;
+
+#[cfg(test)]
+mod delegation_tests {
+    use alloc::vec;
+
+    use activechain_bytecode_verifier::{VmInstruction, VmProgram, VmValueType, verify};
+
+    use super::{execute, execute_program};
+    use crate::{VmEventValue, VmExecutionError, VmValue};
+
+    #[test]
+    fn public_verified_execution_delegates_exactly_to_the_private_interpreter() {
+        let program = VmProgram::new(
+            1,
+            vec![VmValueType::U64, VmValueType::U64],
+            vec![VmValueType::U64],
+            vec![
+                VmInstruction::Copy { destination: 1, source: 0 },
+                VmInstruction::Return { sources: vec![1] },
+            ],
+            0,
+        )
+        .expect("the delegation fixture is structurally bounded");
+        let verified = verify(program.clone()).expect("the delegation fixture verifies");
+        let inputs = vec![VmValue::U64(42)];
+
+        assert_eq!(execute(&verified, inputs.clone(), 3), execute_program(&program, inputs, 3));
+    }
+
+    #[test]
+    fn full_verified_execution_matches_the_exhaustive_small_gas_oracle() {
+        let program = VmProgram::new(
+            0,
+            vec![VmValueType::U64],
+            vec![],
+            vec![
+                VmInstruction::LoadU64 { destination: 0, value: 42 },
+                VmInstruction::Emit { source: 0 },
+                VmInstruction::Return { sources: vec![] },
+            ],
+            1,
+        )
+        .expect("the gas fixture is structurally bounded");
+        let verified = verify(program).expect("the gas fixture verifies");
+
+        for gas_limit in 0..=7 {
+            let result = execute(&verified, vec![], gas_limit);
+            match gas_limit {
+                0 => assert_eq!(
+                    result,
+                    Err(VmExecutionError::GasExhausted {
+                        program_counter: 0,
+                        gas_used: 0,
+                        instruction_cost: 1,
+                        gas_limit,
+                    })
+                ),
+                1..=4 => assert_eq!(
+                    result,
+                    Err(VmExecutionError::GasExhausted {
+                        program_counter: 1,
+                        gas_used: 1,
+                        instruction_cost: 4,
+                        gas_limit,
+                    })
+                ),
+                5 => assert_eq!(
+                    result,
+                    Err(VmExecutionError::GasExhausted {
+                        program_counter: 2,
+                        gas_used: 5,
+                        instruction_cost: 1,
+                        gas_limit,
+                    })
+                ),
+                6..=7 => {
+                    let success = result.expect("six gas executes the complete fixture");
+                    assert_eq!(success.gas_used(), 6);
+                    assert_eq!(success.steps(), 3);
+                    assert!(success.outputs().is_empty());
+                    assert_eq!(success.events(), &[VmEventValue::U64(42)]);
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
 }

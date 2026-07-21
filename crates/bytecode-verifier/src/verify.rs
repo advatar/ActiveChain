@@ -184,12 +184,13 @@ fn require_register(
     program_counter: usize,
     register: u8,
 ) -> Result<usize, VmVerificationError> {
+    register_index(register, program.register_types().len())
+        .ok_or(VmVerificationError::RegisterOutOfBounds { program_counter, register })
+}
+
+fn register_index(register: u8, register_count: usize) -> Option<usize> {
     let index = usize::from(register);
-    if index >= program.register_types().len() {
-        Err(VmVerificationError::RegisterOutOfBounds { program_counter, register })
-    } else {
-        Ok(index)
-    }
+    (index < register_count).then_some(index)
 }
 
 fn require_source(
@@ -380,4 +381,69 @@ pub enum VmVerificationError {
     DuplicateReturnRegister { program_counter: usize, register: u8 },
     /// A live linear object would be implicitly discarded.
     LinearObjectNotReturned { program_counter: usize, register: u8 },
+}
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+    use crate::{MAX_VM_INSTRUCTIONS, MAX_VM_REGISTERS, VmValueType};
+
+    #[kani::proof]
+    fn resource_classification_matches_the_complete_p050_value_table() {
+        let tag: u8 = kani::any();
+        kani::assume(tag <= 4);
+        let value_type = match tag {
+            0 => VmValueType::U64,
+            1 => VmValueType::Bool,
+            2 => VmValueType::Digest,
+            3 => VmValueType::Object,
+            4 => VmValueType::Capability,
+            _ => unreachable!(),
+        };
+
+        assert_eq!(value_type.is_copyable(), tag <= 2);
+        assert_eq!(value_type.is_event_scalar(), tag <= 2);
+        assert_eq!(value_type.is_linear(), tag == 3);
+        assert_eq!(value_type.is_affine(), tag == 4);
+    }
+
+    #[kani::proof]
+    fn register_index_is_exact_for_every_u8_within_protocol_counts() {
+        let register: u8 = kani::any();
+        let register_count: usize = kani::any();
+        kani::assume(register_count <= MAX_VM_REGISTERS);
+
+        let result = register_index(register, register_count);
+        if usize::from(register) < register_count {
+            assert_eq!(result, Some(usize::from(register)));
+        } else {
+            assert_eq!(result, None);
+        }
+    }
+
+    #[kani::proof]
+    fn target_validation_is_exact_for_every_u16_within_protocol_program_sizes() {
+        let program_counter: usize = kani::any();
+        let target: u16 = kani::any();
+        let instruction_count: usize = kani::any();
+        kani::assume(instruction_count >= 1);
+        kani::assume(instruction_count <= MAX_VM_INSTRUCTIONS);
+        kani::assume(program_counter < instruction_count);
+
+        let result = require_target(program_counter, target, instruction_count);
+        let target_index = usize::from(target);
+        if target_index >= instruction_count {
+            assert_eq!(
+                result,
+                Err(VmVerificationError::TargetOutOfBounds { program_counter, target })
+            );
+        } else if target_index <= program_counter {
+            assert_eq!(
+                result,
+                Err(VmVerificationError::TargetNotForward { program_counter, target })
+            );
+        } else {
+            assert_eq!(result, Ok(target_index));
+        }
+    }
 }

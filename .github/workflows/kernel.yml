@@ -17,7 +17,7 @@ jobs:
   rust:
     name: Rust kernel on local ARM64
     runs-on: [self-hosted, macOS, ARM64, activechain-ci]
-    timeout-minutes: 60
+    timeout-minutes: 120
     env:
       CARGO_TERM_COLOR: always
       PATH: /Users/johansellstrom/.elan/bin:/opt/homebrew/opt/rustup/bin:/Users/johansellstrom/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
@@ -68,6 +68,8 @@ jobs:
         run: bash scripts/check-kani-codec.sh
       - name: Bounded-model-check the verifier C ABI
         run: bash scripts/check-kani-verifier-ffi.sh
+      - name: Bounded-model-check the bytecode verifier and ObjectVM helpers
+        run: bash scripts/check-kani-object-vm.sh
       - name: Prove consensus and economics arithmetic contracts
         run: formal/verus/verify.sh
       - name: Run tests

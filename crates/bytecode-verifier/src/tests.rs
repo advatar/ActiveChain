@@ -142,6 +142,33 @@ fn targets_must_be_forward_in_bounds_and_all_code_reachable() {
 }
 
 #[test]
+fn every_u8_destination_is_admitted_only_when_declared() {
+    for destination in 0..=u8::MAX {
+        let candidate = program(
+            0,
+            vec![VmValueType::U64],
+            vec![],
+            vec![
+                VmInstruction::LoadU64 { destination, value: 7 },
+                VmInstruction::Return { sources: vec![] },
+            ],
+            0,
+        );
+        if destination == 0 {
+            assert!(verify(candidate).is_ok());
+        } else {
+            assert_eq!(
+                verify(candidate),
+                Err(VmVerificationError::RegisterOutOfBounds {
+                    program_counter: 0,
+                    register: destination,
+                })
+            );
+        }
+    }
+}
+
+#[test]
 fn branch_merges_require_identical_register_availability() {
     let inconsistent = program(
         1,

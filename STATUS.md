@@ -76,6 +76,11 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
   authorization chain, including multi-hop attenuation, revocation, budgets, and concurrency.
 - [ ] Complete APL evaluator, ObjectVM verifier/interpreter, state-tree, and codec refinement proofs;
   the current executable Lean tables cover only bounded semantic slices.
+  - [x] Add seven compositional Kani harnesses over the production bytecode-verifier and ObjectVM
+    helpers for bounded register/target admission, the complete resource-class table, prepaid gas,
+    checked addition, and forward branch selection. Full verifier-to-interpreter composition and
+    whole-run determinism remain outside this bounded result after the corresponding 180-second
+    Kani queries timed out without a counterexample.
 - [ ] Add TLA+ consensus/reconfiguration/crash models, Verus refinement proofs, and Kani bounded
   checks for decoders, arithmetic, persistence, FFI, and network admission.
   - [x] Pin TLA+ tools and exhaustively check the first finite consensus safety model on the local
@@ -93,6 +98,10 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
       rejection, exact safe-API refinement on inputs through nine bytes, strict error codes, and
       commitment-pointer preconditions; arbitrary foreign readable-memory validity and SHAKE256
       internals remain outside this bounded proof.
+    - [x] Add seven Kani harnesses over actual private production bytecode-verifier/ObjectVM
+      predicates for exact bounded register and target checks, resource classification, gas
+      prepayment, checked addition, and forward branch selection, backed by whole-entry-point Rust
+      tests and an explicit record of the unproved full-interpreter timeout boundary.
     - [x] Prove checked fee totals, strict-quorum arithmetic, base-fee adjustment, supply equations,
       partition accounting, and capped issuance in Verus, with a locked finite parity executable
       against the production cash and consensus crates.
