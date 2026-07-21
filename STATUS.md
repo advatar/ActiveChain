@@ -26,6 +26,8 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
   - [x] Prove bounded authentication, replay, non-equivocation, quorum-intersection, and frontier-finality component lemmas.
   - [x] Prove arbitrary weighted-quorum intersection and the conditional no-conflicting-QCs
     composition theorem in Lean.
+  - [x] Exhaustively model-check bounded parent/QC binding, durable locks, cross-view prefix
+    finality, crash/restart, and one validator-root transition in TLA+.
   - [ ] Implement and model parent/QC binding plus safe-vote, lock, and commit rules across rounds.
   - [ ] Prove any two finalized histories are prefix-comparable, including view changes, epoch
     changes, and restart recovery.
@@ -54,6 +56,11 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
   the current executable Lean tables cover only bounded semantic slices.
 - [ ] Add TLA+ consensus/reconfiguration/crash models, Verus refinement proofs, and Kani bounded
   checks for decoders, arithmetic, persistence, FFI, and network admission.
+  - [x] Pin TLA+ tools and exhaustively check the first finite consensus safety model on the local
+    runner.
+  - [ ] Generalize reconfiguration to membership churn and multiple transitions, and add a fair
+    timed liveness model before making liveness claims.
+  - [ ] Add Verus refinement and Kani bounded-checking gates for the concrete Rust boundaries.
 - [ ] Add implementation-trace and differential conformance checks for every proof domain.
 - [ ] Run every Lean and Tamarin model on the self-hosted CI runner.
 - [ ] Publish proof scopes, assumptions, counterexamples, and explicit unverified boundaries.

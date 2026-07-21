@@ -7,6 +7,7 @@ they are not a certificate that the complete implementation is correct.
 
 - Lean 4 models executable semantics and algebraic invariants.
 - Tamarin models adversarial protocol traces, authentication, replay, compromise, and ordering.
+- TLA+ exhaustively explores bounded consensus, reconfiguration, and crash interleavings.
 - Rust differential fixtures compare selected executable Lean tables with the implementation.
 
 ## Current proof domains
@@ -17,6 +18,7 @@ they are not a certificate that the complete implementation is correct.
 | wallet-agent HITL and replay | Tamarin | `formal/tamarin/activechain_wallet.spthy` | scoped biometric approval and one-shot acceptance lemmas | not connected to the mobile mock bridges or secure storage |
 | bounded consensus traces | Tamarin | `formal/tamarin/activechain_consensus.spthy` | authentication, replay, non-equivocation, quorum intersection, and frontier lemmas | partial; no cross-round chain-prefix finality refinement |
 | weighted consensus arithmetic | Lean 4 | `formal/lean/ActiveChain/WeightedConsensus.lean` | arbitrary-weight intersection and conditional conflicting-QC exclusion | vote-lock and signer-set premises require Rust conformance |
+| cross-view consensus safety | TLA+ / TLC | `formal/tla/ActiveChainConsensus.tla` | 936,652-state bounded exhaustive check of parent/QC binding, durable locks, prefix finality, crash/restart, and one root transition | incomplete; Rust proposals and persistence do not yet refine the modeled safe-vote kernel |
 | native cash and rewards | Lean 4 | `formal/lean/ActiveChain/Cash.lean`, `CashAuthorization.lean` | abstract conservation, issuance, burn, no-double-redemption, and chain-bound one-shot spend-admission target | incomplete; Rust still admits bare transfers, and finalized issuance/reward proof refinement is open |
 | identity lifecycle and delegation | Tamarin | `formal/tamarin/activechain_identity.spthy` | bounded lifecycle, direct attenuation, revocation, and replay lemmas | upstream signature/state-proof provenance and multi-hop budgets are open |
 | DA reconstruction and light-client trust | Lean 4 | `formal/lean/ActiveChain/DA.lean` | abstract reconstruction bounds and fail-closed trust transition | DA arithmetic and Rust state-machine refinement are open |

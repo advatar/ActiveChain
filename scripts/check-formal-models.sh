@@ -50,4 +50,5 @@ for model in "$root"/formal/tamarin/*.spthy; do
 done
 
 test "$found" -eq 1 || { echo "no Tamarin models found" >&2; exit 1; }
+"$root/scripts/check-tla-consensus.sh"
 echo "formal model checks passed"
