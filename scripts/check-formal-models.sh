@@ -4,8 +4,13 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 derivcheck_timeout=${ACTIVECHAIN_TAMARIN_DERIVCHECK_TIMEOUT:-180}
 
-if ! tamarin-prover --version 2>&1 | grep -q 'tamarin-prover 1\.12\.0'; then
+if ! tamarin_version=$(tamarin-prover --version 2>&1); then
+  echo "unable to run the pinned Tamarin prover" >&2
+  exit 1
+fi
+if ! grep -Eq '(tamarin-prover|Tamarin version) 1\.12\.0([^0-9]|$)' <<<"$tamarin_version"; then
   echo "formal proof gate requires Tamarin 1.12.0" >&2
+  printf '%s\n' "$tamarin_version" >&2
   exit 1
 fi
 
