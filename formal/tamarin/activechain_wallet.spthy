@@ -1,0 +1,45 @@
+theory ActiveChainWallet
+
+begin
+
+builtins: signing
+
+/* A deliberately small, executable model of the wallet authorization boundary.
+ * Consensus and cryptographic primitive proofs are outside this model; the
+ * lemmas state the safety properties this boundary must preserve. */
+
+rule CreateAgent:
+  [ Fr(~agent_key) ]
+  --[ AgentCreated($agent) ]->
+  [ !Agent($agent, ~agent_key) ]
+
+rule CreateIntent:
+  [ !Agent($agent, key), Fr(~intent_id) ]
+  --[ IntentCreated(~intent_id, $agent, $recipient, $amount) ]->
+  [ Intent(~intent_id, $agent, $recipient, $amount) ]
+
+rule ApproveWithBiometric:
+  [ Intent(~intent_id, $agent, $recipient, $amount), !Agent($agent, key), In(biometric) ]
+  --[ Approved(~intent_id, $agent), BiometricBound(~intent_id) ]->
+  [ ApprovedIntent(~intent_id, $agent, $recipient, $amount) ]
+
+rule AcceptOnce:
+  [ ApprovedIntent(~intent_id, $agent, $recipient, $amount) ]
+  --[ Accepted(~intent_id, $agent), Transfer(~intent_id, $recipient, $amount) ]->
+  [ ]
+
+rule AttackerCanReplayBytesButNotState:
+  [ !Agent($agent, key) ]
+  --[ ReplayAttempt($agent) ]->
+  [ !Agent($agent, key) ]
+
+lemma accepted_implies_approval:
+  "All id a #i. Accepted(id,a)@i ==> (Ex #j. Approved(id,a)@j & j < i)"
+
+lemma biometric_required:
+  "All id a #i. Approved(id,a)@i ==> (Ex #j. BiometricBound(id)@j & (#j = #i | #j < #i))"
+
+lemma no_duplicate_acceptance:
+  "All id a #i #j. Accepted(id,a)@i & Accepted(id,a)@j ==> #i = #j"
+
+end

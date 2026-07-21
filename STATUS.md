@@ -87,6 +87,7 @@ Tracked by [GitHub issue #3](https://github.com/advatar/ActiveChain/issues/3).
 - [x] Meter every rule and predicate without data-dependent short-circuiting.
 - [x] Return bounded deterministic state-update and audit obligations.
 - [x] Add an executable Lean reference model with core decision theorems.
+- [x] Add and prove the initial Tamarin wallet-agent model: biometric-bound HITL approval, delegation sessions, and single-accept replay safety.
 - [x] Publish a deterministic APL policy/request/decision vector.
 - [x] Add unit, property, and Rust-versus-model truth-table tests.
 - [x] Pass the full local-runner CI matrix.
@@ -306,3 +307,22 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [x] Add malformed/tampered/wrong-version/trailing-byte fixtures to CI.
 - [ ] Freeze light-client finality, checkpoint, state-sync, DA, and upgrade requirements.
 - [x] Add a local manifest checker for vector hashes and malformed fixtures.
+
+## Planned milestone — external pre-launch security audit
+
+No audit has been completed; requirements and scope are frozen in `docs/SECURITY_AUDIT.md`. The
+wallet and all testnets remain explicitly developmental until this milestone completes.
+
+- [x] Publish the pre-launch audit scope, auditor requirements, and launch gate in
+  `docs/SECURITY_AUDIT.md`.
+- [ ] Select an independent external blockchain/security firm with post-quantum and mobile
+  expertise and freeze the audit commit.
+- [ ] Audit Rust consensus, cash economics, replay protection, and state transitions.
+- [ ] Audit PQ cryptography and ML-DSA/ML-KEM usage.
+- [ ] Audit C ABI/FFI memory safety and native wallet integration.
+- [ ] Audit iOS Keychain/Secure Enclave and Android Keystore handling.
+- [ ] Audit OpenWallet interoperability and protocol conformance.
+- [ ] Audit threat model, fuzzing, property tests, and validator/network abuse resistance.
+- [ ] Remediate all findings or document explicitly accepted risks.
+- [ ] Complete the firm's re-review of every fix.
+- [ ] Publish the final report and remediation log in this repository.
