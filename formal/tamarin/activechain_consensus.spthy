@@ -1,0 +1,248 @@
+theory ActiveChainConsensus
+
+begin
+
+builtins: signing, hashing
+
+functions: genesis/1, next/2
+
+/*
+ * Scoped safety model for the first ActiveChain testnet consensus boundary.
+ *
+ * The validator universe is four equal-stake validators.  A QC contains three
+ * distinct validators (strictly more than two thirds), and at most v4 is
+ * compromised.  The three honest validators have one linear vote right per
+ * epoch/parent/round slot.  This is the finite representative case for the
+ * weighted quorum-intersection assumption used by the Rust implementation.
+ *
+ * A rank is an append-only term: genesis(chain), then next(parent,digest).
+ * This abstracts the Rust lexicographic (height, round) monotonicity check.
+ */
+
+rule InstallGenesis:
+  [ Fr(~chain), Fr(~epoch), Fr(~sk1), Fr(~sk2), Fr(~sk3), Fr(~sk4) ]
+  --[ GenesisInstalled(~chain, ~epoch),
+      ValidatorRegistered(~epoch, 'v1', pk(~sk1)),
+      ValidatorRegistered(~epoch, 'v2', pk(~sk2)),
+      ValidatorRegistered(~epoch, 'v3', pk(~sk3)),
+      ValidatorRegistered(~epoch, 'v4', pk(~sk4)),
+      ValidatorCompromised(~epoch, 'v4') ]->
+  [ !Validator(~epoch, 'v1', ~sk1),
+    !Validator(~epoch, 'v2', ~sk2),
+    !Validator(~epoch, 'v3', ~sk3),
+    !Validator(~epoch, 'v4', ~sk4),
+    !Compromised(~epoch, 'v4', ~sk4),
+    !Slot(~epoch, genesis(~chain), 'r0'),
+    VoteRight(~epoch, 'v1', genesis(~chain), 'r0'),
+    VoteRight(~epoch, 'v2', genesis(~chain), 'r0'),
+    VoteRight(~epoch, 'v3', genesis(~chain), 'r0'),
+    FinalityState(~epoch, genesis(~chain)),
+    Out(<~epoch, 'v1', pk(~sk1)>),
+    Out(<~epoch, 'v2', pk(~sk2)>),
+    Out(<~epoch, 'v3', pk(~sk3)>),
+    Out(<~epoch, 'v4', pk(~sk4)>),
+    Out(~sk4) ]
+
+rule HonestVote:
+  let vote_payload = <v, parent, round, digest>
+      vote_signature = sign(vote_payload, sk)
+      body = <vote_payload, vote_signature>
+      envelope_signature = sign(<v, ~sequence, h(body)>, sk)
+  in
+  [ VoteRight(epoch, v, parent, round),
+    !Validator(epoch, v, sk),
+    !Slot(epoch, parent, round),
+    In(digest),
+    Fr(~sequence) ]
+  --[ HonestVoteAuthorized(epoch, v, parent, round, digest),
+      EnvelopeSent(epoch, v, ~sequence, parent, round, digest),
+      EnvelopeAccepted(epoch, v, ~sequence, parent, round, digest),
+      AuthenticatedVote(epoch, v, ~sequence, parent, round, digest) ]->
+  [ Out(<v, ~sequence, h(body), envelope_signature, body>),
+    !Vote(epoch, v, parent, round, digest) ]
+
+rule CompromisedVote:
+  let vote_payload = <'v4', parent, round, digest>
+      vote_signature = sign(vote_payload, sk)
+      body = <vote_payload, vote_signature>
+      envelope_signature = sign(<'v4', ~sequence, h(body)>, sk)
+  in
+  [ !Compromised(epoch, 'v4', sk),
+    !Slot(epoch, parent, round),
+    In(digest),
+    Fr(~sequence) ]
+  --[ CompromisedVoteAuthorized(epoch, 'v4', parent, round, digest),
+      EnvelopeSent(epoch, 'v4', ~sequence, parent, round, digest),
+      EnvelopeAccepted(epoch, 'v4', ~sequence, parent, round, digest),
+      AuthenticatedVote(epoch, 'v4', ~sequence, parent, round, digest) ]->
+  [ Out(<'v4', ~sequence, h(body), envelope_signature, body>),
+    !Vote(epoch, 'v4', parent, round, digest) ]
+
+/* Public envelope bytes are available to the Dolev-Yao adversary.  Admission
+ * is modeled as allocating a fresh high-water-mark sequence in the signing
+ * rules above; observed/replayed bytes cannot create another Vote fact. */
+rule ObserveOrReplayPublicBytes:
+  [ In(envelope) ]
+  --[ ReplayAttempt(envelope) ]->
+  [ ]
+
+/* Four explicit 3-of-4 combinations make distinct membership and quorum
+ * intersection visible to the prover. */
+rule FormQC123:
+  [ !Vote(epoch, 'v1', parent, round, digest),
+    !Vote(epoch, 'v2', parent, round, digest),
+    !Vote(epoch, 'v3', parent, round, digest),
+    Fr(~qc) ]
+  --[ QCFormed(~qc, epoch, parent, round, digest),
+      QCMember(~qc, epoch, 'v1', parent, round, digest),
+      QCMember(~qc, epoch, 'v2', parent, round, digest),
+      QCMember(~qc, epoch, 'v3', parent, round, digest) ]->
+  [ !QC(~qc, epoch, parent, round, digest),
+    QCUsable(~qc, epoch, parent, round, digest) ]
+
+rule FormQC124:
+  [ !Vote(epoch, 'v1', parent, round, digest),
+    !Vote(epoch, 'v2', parent, round, digest),
+    !Vote(epoch, 'v4', parent, round, digest),
+    Fr(~qc) ]
+  --[ QCFormed(~qc, epoch, parent, round, digest),
+      QCMember(~qc, epoch, 'v1', parent, round, digest),
+      QCMember(~qc, epoch, 'v2', parent, round, digest),
+      QCMember(~qc, epoch, 'v4', parent, round, digest) ]->
+  [ !QC(~qc, epoch, parent, round, digest),
+    QCUsable(~qc, epoch, parent, round, digest) ]
+
+rule FormQC134:
+  [ !Vote(epoch, 'v1', parent, round, digest),
+    !Vote(epoch, 'v3', parent, round, digest),
+    !Vote(epoch, 'v4', parent, round, digest),
+    Fr(~qc) ]
+  --[ QCFormed(~qc, epoch, parent, round, digest),
+      QCMember(~qc, epoch, 'v1', parent, round, digest),
+      QCMember(~qc, epoch, 'v3', parent, round, digest),
+      QCMember(~qc, epoch, 'v4', parent, round, digest) ]->
+  [ !QC(~qc, epoch, parent, round, digest),
+    QCUsable(~qc, epoch, parent, round, digest) ]
+
+rule FormQC234:
+  [ !Vote(epoch, 'v2', parent, round, digest),
+    !Vote(epoch, 'v3', parent, round, digest),
+    !Vote(epoch, 'v4', parent, round, digest),
+    Fr(~qc) ]
+  --[ QCFormed(~qc, epoch, parent, round, digest),
+      QCMember(~qc, epoch, 'v2', parent, round, digest),
+      QCMember(~qc, epoch, 'v3', parent, round, digest),
+      QCMember(~qc, epoch, 'v4', parent, round, digest) ]->
+  [ !QC(~qc, epoch, parent, round, digest),
+    QCUsable(~qc, epoch, parent, round, digest) ]
+
+/* Applying a QC consumes both the local frontier and that concrete QC.  The
+ * successor rank contains its parent, so no rule can recreate an ancestor. */
+rule FinalizeCertifiedSuccessor:
+  [ FinalityState(epoch, parent),
+    QCUsable(qc, epoch, parent, round, digest) ]
+  --[ QCAccepted(qc, epoch, parent, round, digest),
+      Finalized(epoch, parent, next(parent, digest), qc, digest) ]->
+  [ FinalityState(epoch, next(parent, digest)),
+    !Slot(epoch, next(parent, digest), 'r0'),
+    VoteRight(epoch, 'v1', next(parent, digest), 'r0'),
+    VoteRight(epoch, 'v2', next(parent, digest), 'r0'),
+    VoteRight(epoch, 'v3', next(parent, digest), 'r0') ]
+
+lemma authenticated_votes_have_registered_signers:
+  "All epoch v sequence parent round digest #i.
+     AuthenticatedVote(epoch,v,sequence,parent,round,digest)@i
+     ==> (Ex public_key #j.
+           ValidatorRegistered(epoch,v,public_key)@j & #j < #i)"
+
+lemma accepted_envelope_cannot_be_replayed [use_induction]:
+  "All epoch v sequence parent1 parent2 round1 round2 digest1 digest2 #i #j.
+     EnvelopeAccepted(epoch,v,sequence,parent1,round1,digest1)@i
+     & EnvelopeAccepted(epoch,v,sequence,parent2,round2,digest2)@j
+     ==> #i = #j"
+
+lemma honest_validator_does_not_equivocate [reuse]:
+  "All epoch v parent round digest1 digest2 #i #j.
+     HonestVoteAuthorized(epoch,v,parent,round,digest1)@i
+     & HonestVoteAuthorized(epoch,v,parent,round,digest2)@j
+     ==> digest1 = digest2"
+
+lemma qc_has_an_explicit_three_of_four_quorum:
+  "All qc epoch parent round digest #i.
+     QCFormed(qc,epoch,parent,round,digest)@i
+     ==>
+       ( (QCMember(qc,epoch,'v1',parent,round,digest)@i
+          & QCMember(qc,epoch,'v2',parent,round,digest)@i
+          & QCMember(qc,epoch,'v3',parent,round,digest)@i)
+         |
+         (QCMember(qc,epoch,'v1',parent,round,digest)@i
+          & QCMember(qc,epoch,'v2',parent,round,digest)@i
+          & QCMember(qc,epoch,'v4',parent,round,digest)@i)
+         |
+         (QCMember(qc,epoch,'v1',parent,round,digest)@i
+          & QCMember(qc,epoch,'v3',parent,round,digest)@i
+          & QCMember(qc,epoch,'v4',parent,round,digest)@i)
+         |
+         (QCMember(qc,epoch,'v2',parent,round,digest)@i
+          & QCMember(qc,epoch,'v3',parent,round,digest)@i
+          & QCMember(qc,epoch,'v4',parent,round,digest)@i) )"
+
+lemma qc_members_are_authenticated [reuse]:
+  "All qc epoch v parent round digest #i.
+     QCMember(qc,epoch,v,parent,round,digest)@i
+     ==> (Ex sequence #j.
+           AuthenticatedVote(epoch,v,sequence,parent,round,digest)@j
+           & #j < #i)"
+
+lemma strict_quorums_intersect [reuse]:
+  "All qc1 qc2 epoch parent round digest1 digest2 #i #j.
+     QCFormed(qc1,epoch,parent,round,digest1)@i
+     & QCFormed(qc2,epoch,parent,round,digest2)@j
+     ==> (Ex v.
+           QCMember(qc1,epoch,v,parent,round,digest1)@i
+           & QCMember(qc2,epoch,v,parent,round,digest2)@j)"
+
+lemma strict_quorums_share_an_honest_validator [reuse]:
+  "All qc1 qc2 epoch parent round digest1 digest2 #i #j.
+     QCFormed(qc1,epoch,parent,round,digest1)@i
+     & QCFormed(qc2,epoch,parent,round,digest2)@j
+     ==>
+       ( (QCMember(qc1,epoch,'v1',parent,round,digest1)@i
+          & QCMember(qc2,epoch,'v1',parent,round,digest2)@j)
+         |
+         (QCMember(qc1,epoch,'v2',parent,round,digest1)@i
+          & QCMember(qc2,epoch,'v2',parent,round,digest2)@j)
+         |
+         (QCMember(qc1,epoch,'v3',parent,round,digest1)@i
+          & QCMember(qc2,epoch,'v3',parent,round,digest2)@j) )"
+
+lemma no_conflicting_qcs_for_one_slot [use_induction]:
+  "All qc1 qc2 epoch parent round digest1 digest2 #i #j.
+     QCFormed(qc1,epoch,parent,round,digest1)@i
+     & QCFormed(qc2,epoch,parent,round,digest2)@j
+     ==> digest1 = digest2"
+
+lemma finality_requires_prior_qc:
+  "All epoch parent successor qc digest #i.
+     Finalized(epoch,parent,successor,qc,digest)@i
+     ==> (Ex round #j.
+           QCFormed(qc,epoch,parent,round,digest)@j & #j < #i)"
+
+lemma finality_is_monotonic_extension:
+  "All epoch parent successor qc digest #i.
+     Finalized(epoch,parent,successor,qc,digest)@i
+     ==> successor = next(parent,digest)"
+
+lemma a_finality_frontier_is_consumed_once [use_induction]:
+  "All epoch parent successor1 successor2 qc1 qc2 digest1 digest2 #i #j.
+     Finalized(epoch,parent,successor1,qc1,digest1)@i
+     & Finalized(epoch,parent,successor2,qc2,digest2)@j
+     ==> #i = #j"
+
+lemma finality_never_immediately_rolls_back [use_induction]:
+  "All epoch parent successor qc1 qc2 digest1 digest2 #i #j.
+     Finalized(epoch,parent,successor,qc1,digest1)@i
+     & Finalized(epoch,successor,parent,qc2,digest2)@j
+     ==> F"
+
+end

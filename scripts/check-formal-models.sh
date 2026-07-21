@@ -11,7 +11,15 @@ for model in "$root"/formal/tamarin/*.spthy; do
   found=1
   output=$(mktemp "${TMPDIR:-/tmp}/activechain-tamarin.XXXXXX")
   trap 'rm -f "$output"' EXIT
-  tamarin-prover "$model" --prove --derivcheck-timeout=60 | tee "$output"
+  lemma_file="${model%.spthy}.lemmas"
+  if test -f "$lemma_file"; then
+    while IFS= read -r lemma; do
+      test -n "$lemma" || continue
+      tamarin-prover "$model" --prove="$lemma" --derivcheck-timeout=60 | tee -a "$output"
+    done < "$lemma_file"
+  else
+    tamarin-prover "$model" --prove --derivcheck-timeout=60 | tee "$output"
+  fi
   if grep -Eq 'falsified|WARNING:|wellformedness check failed' "$output"; then
     echo "formal proof gate failed: $model" >&2
     exit 1
