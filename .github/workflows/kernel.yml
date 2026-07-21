@@ -62,6 +62,8 @@ jobs:
       - name: Build executable Lean reference model
         working-directory: formal/lean
         run: lake build
+      - name: Prove all Lean and Tamarin models
+        run: bash scripts/check-formal-models.sh
       - name: Run tests
         run: cargo test --locked --workspace --all-features
       - name: Run documentation tests
