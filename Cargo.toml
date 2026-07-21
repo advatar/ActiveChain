@@ -11,6 +11,7 @@ members = [
     "crates/wallet-core",
     "crates/verifier-api",
     "crates/verifier-ffi",
+    "crates/wallet-ffi",
     "crates/credential",
     "crates/devnet-kernel",
     "crates/object",
@@ -42,6 +43,7 @@ activechain-capability = { path = "crates/capability", version = "0.1.0" }
 activechain-cash-kernel = { path = "crates/cash-kernel", version = "0.1.0" }
 activechain-protocol-commitment = { path = "crates/protocol-commitment", version = "0.1.0" }
 activechain-wallet-core = { path = "crates/wallet-core", version = "0.1.0" }
+activechain-wallet-ffi = { path = "crates/wallet-ffi", version = "0.1.0" }
 activechain-verifier-api = { path = "crates/verifier-api", version = "0.1.0" }
 activechain-verifier-ffi = { path = "crates/verifier-ffi", version = "0.1.0" }
 activechain-credential = { path = "crates/credential", version = "0.1.0" }

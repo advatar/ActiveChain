@@ -14,5 +14,11 @@
     "commitment_mismatch": 5,
     "null_pointer": 6
   },
-  "status": "development-integration"
+  "status": "development-integration",
+  "production_certified": false,
+  "production_requirements": [
+    "versioned-binary-package-with-release-checksums",
+    "complete-light-client-finality-checkpoint-state-sync-da-and-upgrade-fixtures",
+    "independent-verifier-reproducibility-review"
+  ]
 }
