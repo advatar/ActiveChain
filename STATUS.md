@@ -33,6 +33,10 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
 - [x] Prove abstract cash conservation, authorized issuance, burn, and reward no-double-mint properties in Lean.
 - [ ] Refine the cash proof to signed, chain-bound intents, input authorization, atomic batches,
   one-shot sessions/nonces, finalized issuance, reward proofs, shielding, and crash-safe replay.
+  - [x] Prove the target chain/sender/intent/signature/nonce/session/input admission predicate and
+    atomic replay barriers in Lean.
+  - [ ] Replace the bare-transfer Rust ingress and unkeyed legacy session witness with the proved
+    PQ-signed, durable admission boundary.
 - [x] Prove DA reconstruction bounds and fail-closed light-client trust transitions in Lean.
 - [x] Prove canonical envelope rejection, commitment binding, and FFI precondition invariants in Lean.
 - [x] Prove bounded principal rotation/recovery/deactivation and direct-delegation attenuation properties.

@@ -1,5 +1,6 @@
 import ActiveChain.Apl
 import ActiveChain.Cash
+import ActiveChain.CashAuthorization
 import ActiveChain.Credential
 import ActiveChain.DA
 import ActiveChain.Envelope
