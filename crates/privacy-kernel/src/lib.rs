@@ -240,6 +240,210 @@ impl CanonicalType for ViewingCapability {
     const MAX_ENCODED_LEN: usize = 48 * 5 + 16;
 }
 
+/// Private opening for an unlinkable-by-construction, domain-scoped holder pseudonym.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DomainPseudonymOpening {
+    chain_id: ChainId,
+    domain: Digest384,
+    holder_secret_commitment: Digest384,
+    epoch: u64,
+}
+
+impl DomainPseudonymOpening {
+    pub const TYPE_TAG: u16 = 0x00a8;
+
+    pub fn new(
+        chain_id: ChainId,
+        domain: Digest384,
+        holder_secret_commitment: Digest384,
+        epoch: u64,
+    ) -> Result<Self, PrivacyError> {
+        if domain == Digest384::ZERO || holder_secret_commitment == Digest384::ZERO {
+            return Err(PrivacyError::InvalidViewingScope);
+        }
+        Ok(Self { chain_id, domain, holder_secret_commitment, epoch })
+    }
+
+    pub fn pseudonym(&self) -> Result<Digest384, PrivacyError> {
+        commit(DomainTag::DOMAIN_PSEUDONYM, self).map_err(|_| PrivacyError::CommitmentEncoding)
+    }
+}
+
+impl CanonicalEncode for DomainPseudonymOpening {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain_id.encode(e)?;
+        self.domain.encode(e)?;
+        self.holder_secret_commitment.encode(e)?;
+        self.epoch.encode(e)
+    }
+}
+
+impl CanonicalDecode for DomainPseudonymOpening {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        map_decode(Self::new(
+            ChainId::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            u64::decode(d)?,
+        ))
+    }
+}
+
+impl CanonicalType for DomainPseudonymOpening {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 * 3 + 8;
+}
+
+/// Public statement for a zero-knowledge credential presentation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PrivateCredentialPresentation {
+    chain_id: ChainId,
+    domain: Digest384,
+    pseudonym: Digest384,
+    issuer: PrincipalId,
+    schema: Digest384,
+    credential_commitment: Digest384,
+    status_registry_root: Digest384,
+    status_sequence: u64,
+    status_effective_height: u64,
+    maximum_status_age: u64,
+    non_revocation_commitment: Digest384,
+    predicate_commitment: Digest384,
+    expires_at: u64,
+}
+
+impl PrivateCredentialPresentation {
+    pub const TYPE_TAG: u16 = 0x00a9;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        chain_id: ChainId,
+        domain: Digest384,
+        pseudonym: Digest384,
+        issuer: PrincipalId,
+        schema: Digest384,
+        credential_commitment: Digest384,
+        status_registry_root: Digest384,
+        status_sequence: u64,
+        status_effective_height: u64,
+        maximum_status_age: u64,
+        non_revocation_commitment: Digest384,
+        predicate_commitment: Digest384,
+        expires_at: u64,
+    ) -> Result<Self, PrivacyError> {
+        if domain == Digest384::ZERO
+            || pseudonym == Digest384::ZERO
+            || status_registry_root == Digest384::ZERO
+            || non_revocation_commitment == Digest384::ZERO
+            || predicate_commitment == Digest384::ZERO
+        {
+            return Err(PrivacyError::InvalidViewingScope);
+        }
+        if status_sequence == 0 || maximum_status_age == 0 || status_effective_height > expires_at {
+            return Err(PrivacyError::InvalidValidityWindow);
+        }
+        Ok(Self {
+            chain_id,
+            domain,
+            pseudonym,
+            issuer,
+            schema,
+            credential_commitment,
+            status_registry_root,
+            status_sequence,
+            status_effective_height,
+            maximum_status_age,
+            non_revocation_commitment,
+            predicate_commitment,
+            expires_at,
+        })
+    }
+
+    pub fn commitment(&self) -> Result<Digest384, PrivacyError> {
+        commit(DomainTag::PRIVATE_CREDENTIAL_PRESENTATION, self)
+            .map_err(|_| PrivacyError::CommitmentEncoding)
+    }
+
+    /// Admits only an exact, fresh finalized-registry statement with a preverified proof.
+    pub fn verify(
+        &self,
+        proof: VerifiedPrivacyProof,
+        expected_chain: ChainId,
+        expected_domain: Digest384,
+        finalized_registry_root: Digest384,
+        minimum_status_sequence: u64,
+        current_height: u64,
+    ) -> Result<(), PrivacyError> {
+        if self.chain_id != expected_chain {
+            return Err(PrivacyError::WrongChain);
+        }
+        if self.domain != expected_domain
+            || self.status_registry_root != finalized_registry_root
+            || self.status_sequence < minimum_status_sequence
+        {
+            return Err(PrivacyError::PublicInputMismatch);
+        }
+        if current_height > self.expires_at
+            || current_height < self.status_effective_height
+            || current_height - self.status_effective_height > self.maximum_status_age
+        {
+            return Err(PrivacyError::Expired);
+        }
+        if !proof.verified {
+            return Err(PrivacyError::ProofNotVerified);
+        }
+        if proof.public_inputs_commitment != self.commitment()? {
+            return Err(PrivacyError::PublicInputMismatch);
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalEncode for PrivateCredentialPresentation {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain_id.encode(e)?;
+        self.domain.encode(e)?;
+        self.pseudonym.encode(e)?;
+        self.issuer.encode(e)?;
+        self.schema.encode(e)?;
+        self.credential_commitment.encode(e)?;
+        self.status_registry_root.encode(e)?;
+        self.status_sequence.encode(e)?;
+        self.status_effective_height.encode(e)?;
+        self.maximum_status_age.encode(e)?;
+        self.non_revocation_commitment.encode(e)?;
+        self.predicate_commitment.encode(e)?;
+        self.expires_at.encode(e)
+    }
+}
+
+impl CanonicalDecode for PrivateCredentialPresentation {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        map_decode(Self::new(
+            ChainId::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            PrincipalId::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            u64::decode(d)?,
+        ))
+    }
+}
+
+impl CanonicalType for PrivateCredentialPresentation {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 * 9 + 8 * 4;
+}
+
 /// Exact public statement that a shielded-transfer proof must verify.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ShieldedTransferPublicInputs {

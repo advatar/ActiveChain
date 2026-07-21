@@ -55,6 +55,10 @@ impl DomainTag {
     pub const NULLIFIER: Self = Self(0x0011);
     /// Commitment to the exact public inputs accepted by a privacy proof.
     pub const PRIVACY_PUBLIC_INPUTS: Self = Self(0x0012);
+    /// Derivation of a holder-controlled pseudonym scoped to one application domain and epoch.
+    pub const DOMAIN_PSEUDONYM: Self = Self(0x0013);
+    /// Commitment to a private-credential proof's complete public statement.
+    pub const PRIVATE_CREDENTIAL_PRESENTATION: Self = Self(0x0014);
 
     /// Returns the registered numeric tag.
     #[must_use]

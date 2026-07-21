@@ -27,8 +27,8 @@ use activechain_principal::{
     create_principal,
 };
 use activechain_privacy_kernel::{
-    NullifierOpening, NullifierSet, ShieldedCashState, ShieldedNote, ShieldedTransferPublicInputs,
-    VerifiedPrivacyProof,
+    DomainPseudonymOpening, NullifierOpening, NullifierSet, PrivateCredentialPresentation,
+    ShieldedCashState, ShieldedNote, ShieldedTransferPublicInputs, VerifiedPrivacyProof,
 };
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
@@ -193,19 +193,43 @@ fn render_privacy_v1() -> String {
         NullifierSet::new(vec![nullifier]).expect("privacy vector nullifier set is canonical"),
     )
     .expect("privacy vector state is valid");
+    let pseudonym =
+        DomainPseudonymOpening::new(chain_id, repeated_digest(0xaa), repeated_digest(0xbb), 7)
+            .expect("privacy vector pseudonym opening is valid")
+            .pseudonym()
+            .expect("privacy vector pseudonym commits");
+    let presentation = PrivateCredentialPresentation::new(
+        chain_id,
+        repeated_digest(0xaa),
+        pseudonym,
+        identifier_principal(0xcc),
+        repeated_digest(0xdd),
+        repeated_digest(0xde),
+        repeated_digest(0xef),
+        9,
+        900,
+        100,
+        repeated_digest(0xf0),
+        repeated_digest(0xf1),
+        1_050,
+    )
+    .expect("privacy vector credential presentation is valid");
 
     format!(
         "# ActiveChain bounded privacy vector v1\n\
 note_commitment_hex={}\n\
 nullifier_hex={}\n\
 public_inputs_commitment_hex={}\n\
-{}{}{}",
+domain_pseudonym_hex={}\n\
+{}{}{}{}",
         hexadecimal(note_commitment.as_bytes()),
         hexadecimal(nullifier.as_bytes()),
         hexadecimal(public_inputs_commitment.as_bytes()),
+        hexadecimal(pseudonym.as_bytes()),
         encoded_value("note", &note),
         encoded_value("public_inputs", &inputs),
         encoded_value("shielded_state", &state),
+        encoded_value("private_credential", &presentation),
     )
 }
 

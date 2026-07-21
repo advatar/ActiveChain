@@ -131,6 +131,72 @@ fn viewing_capability_is_scoped_and_height_bounded() {
 }
 
 #[test]
+fn domain_pseudonyms_separate_domains_and_epochs() {
+    let opening = |domain, epoch| {
+        DomainPseudonymOpening::new(ChainId::new(digest(1)), digest(domain), digest(9), epoch)
+            .unwrap()
+            .pseudonym()
+            .unwrap()
+    };
+    assert_ne!(opening(2, 7), opening(3, 7));
+    assert_ne!(opening(2, 7), opening(2, 8));
+}
+
+fn private_presentation() -> PrivateCredentialPresentation {
+    PrivateCredentialPresentation::new(
+        ChainId::new(digest(1)),
+        digest(2),
+        digest(3),
+        PrincipalId::new(digest(4)),
+        digest(5),
+        digest(6),
+        digest(7),
+        9,
+        100,
+        10,
+        digest(8),
+        digest(9),
+        120,
+    )
+    .unwrap()
+}
+
+#[test]
+fn private_credential_statement_binds_fresh_finalized_status() {
+    let presentation = private_presentation();
+    assert_eq!(
+        decode_envelope::<PrivateCredentialPresentation>(&encode_envelope(&presentation).unwrap()),
+        Ok(presentation)
+    );
+    let proof = VerifiedPrivacyProof {
+        public_inputs_commitment: presentation.commitment().unwrap(),
+        verified: true,
+    };
+    assert_eq!(
+        presentation.verify(proof, ChainId::new(digest(1)), digest(2), digest(7), 9, 110),
+        Ok(())
+    );
+    assert_eq!(
+        presentation.verify(proof, ChainId::new(digest(1)), digest(2), digest(7), 9, 111),
+        Err(PrivacyError::Expired)
+    );
+    assert_eq!(
+        presentation.verify(proof, ChainId::new(digest(1)), digest(2), digest(70), 9, 105),
+        Err(PrivacyError::PublicInputMismatch)
+    );
+}
+
+#[test]
+fn credential_proof_substitution_fails_closed() {
+    let presentation = private_presentation();
+    let wrong = VerifiedPrivacyProof { public_inputs_commitment: digest(99), verified: true };
+    assert_eq!(
+        presentation.verify(wrong, ChainId::new(digest(1)), digest(2), digest(7), 9, 105),
+        Err(PrivacyError::PublicInputMismatch)
+    );
+}
+
+#[test]
 fn admission_is_fail_closed_and_atomic() {
     let statement = inputs(vec![digest(10), digest(11)]);
     let proof = VerifiedPrivacyProof {
