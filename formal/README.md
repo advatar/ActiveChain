@@ -11,32 +11,45 @@ they are not a certificate that the complete implementation is correct.
 
 ## Current proof domains
 
-| Domain | Tool | Primary artifact | Status |
-| --- | --- | --- | --- |
-| APL, credentials, objects, ObjectVM, state tree, nonce | Lean 4 | `formal/lean/ActiveChain/` | scoped models build and differential fixtures pass |
-| wallet-agent HITL and replay | Tamarin | `formal/tamarin/activechain_wallet.spthy` | three scoped safety lemmas proved |
-| consensus and validator networking | Tamarin | `formal/tamarin/activechain_consensus.spthy` | component lemmas proved; composed conflicting-QC theorem open |
-| native cash and reward supply | Lean 4 | `formal/lean/ActiveChain/Cash.lean` | scoped invariants proved |
-| identity lifecycle and delegation | Tamarin | `formal/tamarin/activechain_identity.spthy` | bounded lifecycle/delegation lemmas proved |
-| DA reconstruction and light-client trust | Lean 4 | `formal/lean/ActiveChain/DA.lean` | scoped invariants proved |
-| canonical envelopes and FFI gates | Lean 4 | `formal/lean/ActiveChain/Envelope.lean` | scoped rejection/binding invariants proved |
+| Domain | Tool | Primary artifact | Mechanically checked result | Implementation refinement |
+| --- | --- | --- | --- | --- |
+| APL, credentials, objects, ObjectVM, state tree, nonce | Lean 4 | `formal/lean/ActiveChain/` | bounded semantic slices and six finite differential tables | incomplete; these are not full evaluator, VM, tree, or codec proofs |
+| wallet-agent HITL and replay | Tamarin | `formal/tamarin/activechain_wallet.spthy` | scoped biometric approval and one-shot acceptance lemmas | not connected to the mobile mock bridges or secure storage |
+| bounded consensus traces | Tamarin | `formal/tamarin/activechain_consensus.spthy` | authentication, replay, non-equivocation, quorum intersection, and frontier lemmas | partial; no cross-round chain-prefix finality refinement |
+| weighted consensus arithmetic | Lean 4 | `formal/lean/ActiveChain/WeightedConsensus.lean` | arbitrary-weight intersection and conditional conflicting-QC exclusion | vote-lock and signer-set premises require Rust conformance |
+| native cash and rewards | Lean 4 | `formal/lean/ActiveChain/Cash.lean` | abstract conservation, issuance, burn, and no-double-redemption equations | incomplete; spend authorization and finalized issuance/reward proofs are open |
+| identity lifecycle and delegation | Tamarin | `formal/tamarin/activechain_identity.spthy` | bounded lifecycle, direct attenuation, revocation, and replay lemmas | upstream signature/state-proof provenance and multi-hop budgets are open |
+| DA reconstruction and light-client trust | Lean 4 | `formal/lean/ActiveChain/DA.lean` | abstract reconstruction bounds and fail-closed trust transition | DA arithmetic and Rust state-machine refinement are open |
+| canonical envelopes and FFI gates | Lean 4 | `formal/lean/ActiveChain/Envelope.lean` | abstract strict-decode, binding, and pointer/length preconditions | only bounded concrete tests currently connect to Rust/C ABI |
+| epoch and protocol upgrades | Lean 4 | `formal/lean/ActiveChain/EpochUpgrade.lean` | exact activation, monotonic revision, retired-set, and stale-context rejection | Rust conformance is in progress |
+| PQ peer sessions | Tamarin | `formal/tamarin/activechain_pq_session.spthy` | scoped suite, context, key-confirmation, and bounded replay target | target protocol is stronger than the current Rust handshake |
+
+“Mechanically checked” means that the stated theorem holds in the named model. It does not imply
+that arbitrary production Rust executions refine that model. A domain becomes implementation-level
+evidence only after a trace, extraction, or differential conformance layer connects the concrete
+code and serialized values to the formal state and assumptions.
 
 ## Local reproduction
 
 ```bash
-(cd formal/lean && lake build)
-tamarin-prover formal/tamarin/activechain_wallet.spthy --prove --derivcheck-timeout=60
+bash scripts/check-formal-models.sh
 ```
 
-A proof run is accepted only when every declared lemma is `verified`, all well-formedness checks
-pass, and the proof-scope document records the model assumptions and implementation mapping.
-Falsified lemmas and counterexample traces are evidence to fix the model, specification, or code;
-they must never be hidden by weakening a property without documenting the change.
+The gate pins Lean through `formal/lean/lean-toolchain` and requires Tamarin 1.12.0. A proof run is
+accepted only when each CI-selected lemma is `verified`, all well-formedness checks pass, and the
+proof-scope document records assumptions, implementation mapping, and deliberately excluded
+properties. The bounded consensus model retains one expensive composition target outside its
+selected lemma list; the corresponding weighted arithmetic and conditional composition are proved
+in Lean. Falsified lemmas and counterexample traces are evidence to fix the model, specification, or
+code; they must never be hidden by weakening a property without documenting the change.
 
 ## Unverified boundary
 
-The program does not yet establish end-to-end correctness of the Rust implementation, the
-cryptographic primitives, liveness under arbitrary scheduling, data availability, mobile OS
-security, FFI memory safety, economics under every governance transition, or deployment
-configuration. Independent formal-methods and security review remains mandatory before any
+The program does not yet establish end-to-end correctness of the Rust implementation. In
+particular, it does not prove chain-prefix finality across rounds and reconfiguration, canonical
+finalized-block composition, cryptographically authorized cash spending, the full
+credential/capability/APL authorization chain, complete ObjectVM metatheory, cryptographic
+primitive security, liveness under arbitrary scheduling, mobile OS security, production FFI memory
+safety, or deployment correctness. The complete launch-gate backlog is tracked in `STATUS.md` and
+GitHub issue #16. Independent formal-methods and security review remains mandatory before any
 non-developmental or value-bearing launch.
