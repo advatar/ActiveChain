@@ -228,6 +228,22 @@ Tracked by [GitHub issue #4](https://github.com/advatar/ActiveChain/issues/4).
 - Proof-carrying execution and privacy profiles.
 - Protected ordering and the external compute plane.
 
+## Active milestone — Phase 4 privacy and protected ordering foundations
+
+Tracked by [GitHub issue #18](https://github.com/advatar/ActiveChain/issues/18).
+
+- [ ] Implement the first bounded privacy-kernel slice.
+  - [ ] Define canonical shielded-note commitments, nullifiers, viewing capabilities, and
+    shielded-transfer public inputs.
+  - [ ] Enforce fail-closed admission binding chain, anchor, asset, balance, nullifiers, outputs,
+    fees, expiry, and proof public inputs.
+  - [ ] Reject duplicate and previously spent nullifiers with atomic application semantics.
+  - [ ] Publish deterministic vectors and unit, property, and malformed-input tests.
+- [ ] Add persistent nullifier storage and atomic shield/unshield cash-ledger integration.
+- [ ] Add domain pseudonym and private-credential presentation statements.
+- [ ] Add private-object transition statements and scoped disclosure semantics.
+- [ ] Add protected-envelope, committee, ordering, forced-inclusion, and public-lane isolation.
+
 ## Active milestone — full PQ migration boundary
 
 Tracked by [GitHub issue #10](https://github.com/advatar/ActiveChain/issues/10).
