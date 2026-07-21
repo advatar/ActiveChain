@@ -22,7 +22,7 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
 
 - [x] Prove the initial wallet-agent HITL and replay properties in Tamarin.
 - [ ] Prove scoped consensus QC, finality, replay, and equivocation properties.
-- [ ] Prove abstract cash conservation, authorized issuance, burn, and reward no-double-mint properties in Lean.
+- [x] Prove abstract cash conservation, authorized issuance, burn, and reward no-double-mint properties in Lean.
 - [ ] Prove principal rotation/recovery/deactivation and delegation attenuation properties.
 - [ ] Run every Lean and Tamarin model on the self-hosted CI runner.
 - [ ] Publish proof scopes, assumptions, counterexamples, and explicit unverified boundaries.
