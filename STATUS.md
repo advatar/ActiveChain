@@ -243,9 +243,9 @@ Tracked by [GitHub issue #18](https://github.com/advatar/ActiveChain/issues/18).
 - [x] Add domain pseudonym and private-credential presentation statements.
 - [x] Add private-object transition statements and scoped disclosure semantics.
 - [ ] Add protected-envelope, committee, ordering, forced-inclusion, and public-lane isolation.
-  - [ ] Define bounded ML-KEM protected-submission and decryption/beacon committee values.
-  - [ ] Enforce post-lock commitment-only ordering and forced-inclusion deadlines.
-  - [ ] Prove by executable tests that protected-lane failure cannot block public-lane draining.
+  - [x] Define bounded ML-KEM protected-submission and decryption/beacon committee values.
+  - [x] Enforce post-lock commitment-only ordering and forced-inclusion deadlines.
+  - [x] Prove by executable tests that protected-lane failure cannot block public-lane draining.
   - [ ] Integrate threshold decryption shares, builder bids/bonds, networking, and persistence.
 
 ## Active milestone — full PQ migration boundary

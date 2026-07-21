@@ -9,6 +9,13 @@
 
 extern crate alloc;
 
+mod protected;
+
+pub use protected::{
+    CommitteeKind, MAX_COMMITTEE_MEMBERS, MAX_ORDERING_ITEMS, OrderingError, ProtectedCommittee,
+    ProtectedEnvelope, ProtectedOrdering,
+};
+
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };

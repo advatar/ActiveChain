@@ -61,6 +61,8 @@ impl DomainTag {
     pub const PRIVATE_CREDENTIAL_PRESENTATION: Self = Self(0x0014);
     /// Commitment to a private-object transition's complete public statement.
     pub const PRIVATE_OBJECT_TRANSITION: Self = Self(0x0015);
+    /// Deterministic order key derived only after a protected set is locked.
+    pub const PROTECTED_ORDER_KEY: Self = Self(0x0016);
 
     /// Returns the registered numeric tag.
     #[must_use]
