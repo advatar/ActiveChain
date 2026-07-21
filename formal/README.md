@@ -19,6 +19,7 @@ they are not a certificate that the complete implementation is correct.
 | native cash and reward supply | Lean 4 | `formal/lean/ActiveChain/Cash.lean` | scoped invariants proved |
 | identity lifecycle and delegation | Tamarin | `formal/tamarin/activechain_identity.spthy` | bounded lifecycle/delegation lemmas proved |
 | DA reconstruction and light-client trust | Lean 4 | `formal/lean/ActiveChain/DA.lean` | scoped invariants proved |
+| canonical envelopes and FFI gates | Lean 4 | `formal/lean/ActiveChain/Envelope.lean` | scoped rejection/binding invariants proved |
 
 ## Local reproduction
 
