@@ -455,6 +455,9 @@ impl<const LENGTH: usize> CanonicalDecode for [u8; LENGTH] {
     }
 }
 
+#[cfg(kani)]
+mod kani_proofs;
+
 #[cfg(test)]
 mod tests {
     extern crate alloc;

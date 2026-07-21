@@ -79,6 +79,11 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
   - [ ] Generalize reconfiguration to membership churn and multiple transitions, and add a fair
     timed liveness model before making liveness claims.
   - [ ] Add Verus refinement and Kani bounded-checking gates for the concrete Rust boundaries.
+    - [x] Add the first Kani gate over the production canonical codec: seven bounded harnesses for
+      strict round trips, truncation, trailing bytes, adversarial decode, length prefixes, raw
+      reads, and bounded encoder writes.
+    - [ ] Extend Kani coverage to production schemas, persistence, FFI, and network admission, and
+      add Verus refinement checks for consensus/economics arithmetic.
 - [ ] Add implementation-trace and differential conformance checks for every proof domain.
 - [ ] Run every Lean and Tamarin model on the self-hosted CI runner.
 - [ ] Publish proof scopes, assumptions, counterexamples, and explicit unverified boundaries.

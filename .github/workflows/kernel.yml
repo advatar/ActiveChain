@@ -17,7 +17,7 @@ jobs:
   rust:
     name: Rust kernel on local ARM64
     runs-on: [self-hosted, macOS, ARM64, activechain-ci]
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       CARGO_TERM_COLOR: always
       PATH: /Users/johansellstrom/.elan/bin:/opt/homebrew/opt/rustup/bin:/Users/johansellstrom/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
@@ -64,6 +64,8 @@ jobs:
         run: lake build
       - name: Prove all Lean and Tamarin models
         run: bash scripts/check-formal-models.sh
+      - name: Bounded-model-check the production canonical codec
+        run: bash scripts/check-kani-codec.sh
       - name: Run tests
         run: cargo test --locked --workspace --all-features
       - name: Run documentation tests

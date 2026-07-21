@@ -3,7 +3,10 @@ name = "activechain-canonical-codec"
 description = "Bounded canonical consensus encoding for ActiveChain"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+# Kani 0.67.0 is pinned to Rust nightly 1.93.0. This crate intentionally
+# keeps a compatible per-package MSRV so the verifier can analyze the real
+# codec implementation rather than a copied model.
+rust-version = "1.93.0"
 repository.workspace = true
 publish = false
 
