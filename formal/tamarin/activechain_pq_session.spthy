@@ -2,7 +2,7 @@ theory ActiveChainPQSession
 
 begin
 
-builtins: signing, asymmetric-encryption, symmetric-encryption
+builtins: signing, asymmetric-encryption, symmetric-encryption, hashing
 
 functions:
   confirm/2
@@ -12,8 +12,9 @@ functions:
  *
  * ML-DSA-44 is represented by Tamarin's perfect signing primitive. ML-KEM-768
  * is represented by Tamarin's perfect public-key encryption: encapsulation is
- * `aenc(fresh_shared_secret, pk(decapsulation_key))`, and decapsulation is
- * `adec(ciphertext, decapsulation_key)`. The
+ * `aenc(fresh_kem_secret, pk(decapsulation_key))`, and decapsulation is
+ * `adec(ciphertext, decapsulation_key)`. A domain-separated hash of that KEM
+ * secret and the complete signed transcript is the usable session key. The
  * constructors do not claim a reduction for FIPS 203 or FIPS 204.
  *
  * Every signed transcript contains the protocol version, chain identity,
@@ -79,32 +80,34 @@ rule AuthenticateAndEncapsulate:
                  'ML-DSA-44', 'ML-KEM-768'>
       challenge = <'server-challenge', context, initiator, responder,
                    client_nonce, session_id, server_nonce>
-      ciphertext = aenc(~shared_secret, responder_kem_public)
+      ciphertext = aenc(~kem_secret, responder_kem_public)
       transcript = <'client-finish', context, initiator, responder,
                     client_nonce, session_id, server_nonce, ciphertext>
+      shared_secret = h(<'ACTIVECHAIN-PQ-SESSION-KDF-V1', ~kem_secret, transcript>)
   in
   [ InitiatorPending(chain, epoch, initiator, responder, client_nonce),
     !SigningKey(chain, epoch, initiator, initiator_signing_key),
     !SigningKey(chain, epoch, responder, responder_signing_key),
     !KemPublic(chain, epoch, responder, responder_kem_public),
     In(<challenge, sign(challenge, responder_signing_key)>),
-    Fr(~shared_secret) ]
+    Fr(~kem_secret) ]
   --[ AuthenticatedChallenge(
         session_id, chain, epoch, initiator, responder, challenge),
       InitiatorFinished(
         session_id, chain, epoch, initiator, responder,
-        transcript, ~shared_secret) ]->
+        transcript, shared_secret) ]->
   [ InitiatorAwaitingConfirmation(
       session_id, chain, epoch, initiator, responder,
-      transcript, ~shared_secret),
+      transcript, shared_secret),
     Out(<transcript, sign(transcript, initiator_signing_key)>) ]
 
 rule AcceptClientFinish:
   let context = <'ACTIVECHAIN-PQ-SESSION-V1', chain, epoch,
                  'ML-DSA-44', 'ML-KEM-768'>
+      ciphertext = aenc(kem_secret, pk(responder_kem_key))
       transcript = <'client-finish', context, initiator, responder,
                     client_nonce, session_id, server_nonce, ciphertext>
-      shared_secret = adec(ciphertext, responder_kem_key)
+      shared_secret = h(<'ACTIVECHAIN-PQ-SESSION-KDF-V1', kem_secret, transcript>)
       confirmation = <'server-finish', transcript,
                       confirm(transcript, shared_secret)>
   in
@@ -270,5 +273,69 @@ lemma explicit_session_key_reveal_requires_an_established_session:
            ResponderAccepted(
              session_id,chain,epoch,initiator,responder,
              transcript,shared_secret)@j & #j < #i)"
+
+lemma responder_acceptance_authenticates_initiator:
+  "All session_id chain epoch initiator responder transcript shared_secret #i.
+     ResponderAccepted(
+       session_id,chain,epoch,initiator,responder,transcript,shared_secret)@i
+     ==>
+       ( (Ex #j.
+            InitiatorFinished(
+              session_id,chain,epoch,initiator,responder,
+              transcript,shared_secret)@j & #j < #i)
+         |
+         (Ex #c.
+            SigningKeyCompromised(chain,epoch,initiator)@c & #c < #i) )"
+
+lemma initiator_acceptance_authenticates_responder:
+  "All session_id chain epoch initiator responder transcript shared_secret #i.
+     InitiatorAccepted(
+       session_id,chain,epoch,initiator,responder,transcript,shared_secret)@i
+     ==>
+       ( (Ex #j.
+            ResponderAccepted(
+              session_id,chain,epoch,initiator,responder,
+              transcript,shared_secret)@j & #j < #i)
+         |
+         ( (Ex #s.
+              SigningKeyCompromised(chain,epoch,responder)@s & #s < #i)
+           &
+           (Ex #k.
+              KemKeyCompromised(chain,epoch,responder)@k & #k < #i) ) )"
+
+lemma honest_session_protected_acceptance_has_a_sender:
+  "All session_id chain epoch initiator responder transcript shared_secret
+       payload #h #r #i.
+     InitiatorFinished(
+       session_id,chain,epoch,initiator,responder,transcript,shared_secret)@h
+     & ResponderAccepted(
+         session_id,chain,epoch,initiator,responder,transcript,shared_secret)@r
+     & ProtectedEnvelopeAccepted(
+         session_id,chain,epoch,initiator,responder,payload)@i
+     ==>
+       ( (Ex #j.
+            ProtectedEnvelopeSent(
+              session_id,chain,epoch,initiator,responder,payload)@j & #j < #i)
+         |
+         (Ex #c.
+            SessionKeyCompromised(session_id)@c & #c < #i)
+         |
+         (Ex #k.
+            KemKeyCompromised(chain,epoch,responder)@k & #k < #i) )"
+
+lemma honest_established_secret_requires_compromise_to_leak:
+  "All session_id chain epoch initiator responder transcript shared_secret
+       #h #i #j.
+     InitiatorFinished(
+       session_id,chain,epoch,initiator,responder,transcript,shared_secret)@h
+     & ResponderAccepted(
+         session_id,chain,epoch,initiator,responder,transcript,shared_secret)@i
+     & K(shared_secret)@j
+     ==>
+       ( (Ex #k.
+            KemKeyCompromised(chain,epoch,responder)@k & #k < #j)
+         |
+         (Ex #s.
+            SessionKeyCompromised(session_id)@s & #s < #j) )"
 
 end

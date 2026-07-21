@@ -48,6 +48,11 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
 - [x] Prove the scoped PQ-session downgrade, context, key-confirmation, and bounded replay target in Tamarin.
 - [ ] Implement the modeled PQ transcript/session boundary and prove full agreement, secrecy under
   stated compromise assumptions, durable sequence handling, and parser conformance.
+  - [x] Prove exact prior-event peer correspondence, first-message origin, and honest-session
+    symbolic secrecy, and bind the session KDF to the complete signed transcript after a discovered
+    cross-session alias counterexample.
+  - [ ] Implement that transcript/KDF/key-confirmation state machine in Rust with durable sequences
+    and canonical parser/vector conformance.
 - [ ] Prove canonical finalized-block composition: decode, authorization, execution, fees/supply,
   post-state root, DA commitment, proof evidence, and protocol revision all bind the same block.
 - [ ] Prove the PQ-authenticated credential/capability/state-proof to APL decision to transition

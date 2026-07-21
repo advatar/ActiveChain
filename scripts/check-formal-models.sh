@@ -3,6 +3,7 @@ set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 derivcheck_timeout=${ACTIVECHAIN_TAMARIN_DERIVCHECK_TIMEOUT:-180}
+tamarin_process_timeout=${ACTIVECHAIN_TAMARIN_PROCESS_TIMEOUT:-300}
 
 if ! tamarin_version=$(tamarin-prover --version 2>&1); then
   echo "unable to run the pinned Tamarin prover" >&2
@@ -23,15 +24,19 @@ for model in "$root"/formal/tamarin/*.spthy; do
   output=$(mktemp "${TMPDIR:-/tmp}/activechain-tamarin.XXXXXX")
   trap 'rm -f "$output"' EXIT
   lemma_file="${model%.spthy}.lemmas"
+  tamarin_args=(--derivcheck-timeout="$derivcheck_timeout")
+  if [[ "$(basename "$model")" == activechain_pq_session.spthy ]]; then
+    tamarin_args+=(--auto-sources)
+  fi
   if test -f "$lemma_file"; then
     while IFS= read -r lemma; do
       test -n "$lemma" || continue
-      tamarin-prover "$model" --prove="$lemma" \
-        --derivcheck-timeout="$derivcheck_timeout" | tee -a "$output"
+      perl -e '$seconds=shift; alarm $seconds; exec @ARGV' "$tamarin_process_timeout" \
+        tamarin-prover "$model" --prove="$lemma" "${tamarin_args[@]}" | tee -a "$output"
     done < "$lemma_file"
   else
-    tamarin-prover "$model" --prove \
-      --derivcheck-timeout="$derivcheck_timeout" | tee "$output"
+    perl -e '$seconds=shift; alarm $seconds; exec @ARGV' "$tamarin_process_timeout" \
+      tamarin-prover "$model" --prove "${tamarin_args[@]}" | tee "$output"
   fi
   if grep -Eq 'falsified|WARNING:|wellformedness check failed' "$output"; then
     echo "formal proof gate failed: $model" >&2

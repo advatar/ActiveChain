@@ -24,7 +24,7 @@ they are not a certificate that the complete implementation is correct.
 | DA reconstruction and light-client trust | Lean 4 | `formal/lean/ActiveChain/DA.lean` | abstract reconstruction bounds and fail-closed trust transition | DA arithmetic and Rust state-machine refinement are open |
 | canonical envelopes and FFI gates | Lean 4 | `formal/lean/ActiveChain/Envelope.lean` | abstract strict-decode, binding, and pointer/length preconditions | only bounded concrete tests currently connect to Rust/C ABI |
 | epoch and protocol upgrades | Lean 4 | `formal/lean/ActiveChain/EpochUpgrade.lean` | exact activation, monotonic revision, retired-set, and stale-context rejection | Rust conformance is in progress |
-| PQ peer sessions | Tamarin | `formal/tamarin/activechain_pq_session.spthy` | scoped suite, context, key-confirmation, and bounded replay target | target protocol is stronger than the current Rust handshake |
+| PQ peer sessions | Tamarin | `formal/tamarin/activechain_pq_session.spthy` | 11 symbolic suite/context/replay, exact peer-correspondence, first-message-origin, and honest-session-secrecy lemmas | transcript-bound KDF and session state are not implemented in the current Rust handshake |
 
 “Mechanically checked” means that the stated theorem holds in the named model. It does not imply
 that arbitrary production Rust executions refine that model. A domain becomes implementation-level
