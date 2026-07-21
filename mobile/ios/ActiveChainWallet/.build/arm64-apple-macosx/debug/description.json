@@ -1,0 +1,602 @@
+{
+  "builtTestProducts" : [
+    {
+      "binaryPath" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.xctest/Contents/MacOS/ActiveChainWalletPackageTests",
+      "packagePath" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet",
+      "productName" : "ActiveChainWalletPackageTests"
+    }
+  ],
+  "copyCommands" : {
+
+  },
+  "explicitTargetDependencyImportCheckingMode" : {
+    "none" : {
+
+    }
+  },
+  "generatedSourceTargetSet" : [
+
+  ],
+  "pluginDescriptions" : [
+
+  ],
+  "swiftCommands" : {
+    "C.ActiveChainWallet-arm64-apple-macosx-debug.module" : {
+      "executable" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "fileList" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWallet.build/sources",
+      "importPath" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/Sources/ActiveChainWallet/WalletBridge.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWallet.build/sources"
+        }
+      ],
+      "isLibrary" : true,
+      "moduleName" : "ActiveChainWallet",
+      "moduleOutputPath" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/Modules/ActiveChainWallet.swiftmodule",
+      "objects" : [
+        "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWallet.build/WalletBridge.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx10.13",
+        "-incremental",
+        "-enable-batch-mode",
+        "-serialize-diagnostics",
+        "-index-store-path",
+        "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-j18",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-module-cache-path",
+        "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ModuleCache",
+        "-parseable-output",
+        "-parse-as-library",
+        "-emit-objc-header",
+        "-emit-objc-header-path",
+        "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWallet.build/include/ActiveChainWallet-Swift.h",
+        "-swift-version",
+        "5",
+        "-plugin-path",
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+        "-F",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-I",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-L",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+        "-Xcc",
+        "-F",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "activechainwallet"
+      ],
+      "outputFileMapPath" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWallet.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWallet.build/WalletBridge.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/Modules/ActiveChainWallet.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/Sources/ActiveChainWallet/WalletBridge.swift"
+      ],
+      "tempsPath" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWallet.build",
+      "wholeModuleOptimization" : false
+    },
+    "C.ActiveChainWalletPackageTests-arm64-apple-macosx-debug.module" : {
+      "executable" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "fileList" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.build/sources",
+      "importPath" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.derived/runner.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/Modules/ActiveChainWalletTests.swiftmodule"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.build/sources"
+        }
+      ],
+      "isLibrary" : true,
+      "moduleName" : "ActiveChainWalletPackageTests",
+      "moduleOutputPath" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/Modules/ActiveChainWalletPackageTests.swiftmodule",
+      "objects" : [
+        "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.build/runner.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx10.13",
+        "-incremental",
+        "-enable-batch-mode",
+        "-serialize-diagnostics",
+        "-index-store-path",
+        "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-Xfrontend",
+        "-enable-cross-import-overlays",
+        "-j18",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-module-cache-path",
+        "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ModuleCache",
+        "-parseable-output",
+        "-parse-as-library",
+        "-emit-objc-header",
+        "-emit-objc-header-path",
+        "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.build/include/ActiveChainWalletPackageTests-Swift.h",
+        "-plugin-path",
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+        "-F",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-I",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-L",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+        "-Xcc",
+        "-F",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "activechainwallet"
+      ],
+      "outputFileMapPath" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.build/runner.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/Modules/ActiveChainWalletPackageTests.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.derived/runner.swift"
+      ],
+      "tempsPath" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.build",
+      "wholeModuleOptimization" : false
+    },
+    "C.ActiveChainWalletTests-arm64-apple-macosx-debug.module" : {
+      "executable" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "fileList" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletTests.build/sources",
+      "importPath" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/Tests/ActiveChainWalletTests/WalletBridgeTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/Modules/ActiveChainWallet.swiftmodule"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletTests.build/sources"
+        }
+      ],
+      "isLibrary" : true,
+      "moduleName" : "ActiveChainWalletTests",
+      "moduleOutputPath" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/Modules/ActiveChainWalletTests.swiftmodule",
+      "objects" : [
+        "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletTests.build/WalletBridgeTests.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx14.0",
+        "-incremental",
+        "-enable-batch-mode",
+        "-serialize-diagnostics",
+        "-index-store-path",
+        "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-Xfrontend",
+        "-enable-cross-import-overlays",
+        "-j18",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-module-cache-path",
+        "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ModuleCache",
+        "-parseable-output",
+        "-parse-as-library",
+        "-swift-version",
+        "5",
+        "-plugin-path",
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+        "-F",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-I",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-L",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+        "-Xcc",
+        "-F",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "activechainwallet"
+      ],
+      "outputFileMapPath" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletTests.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletTests.build/WalletBridgeTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/Modules/ActiveChainWalletTests.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/Tests/ActiveChainWalletTests/WalletBridgeTests.swift"
+      ],
+      "tempsPath" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletTests.build",
+      "wholeModuleOptimization" : false
+    }
+  },
+  "swiftFrontendCommands" : {
+
+  },
+  "swiftTargetScanArgs" : {
+    "ActiveChainWallet" : [
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "-module-name",
+      "ActiveChainWallet",
+      "-package-name",
+      "activechainwallet",
+      "-c",
+      "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/Sources/ActiveChainWallet/WalletBridge.swift",
+      "-I",
+      "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/Modules",
+      "-target",
+      "arm64-apple-macosx10.13",
+      "-incremental",
+      "-enable-batch-mode",
+      "-serialize-diagnostics",
+      "-index-store-path",
+      "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-j18",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-module-cache-path",
+      "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ModuleCache",
+      "-parseable-output",
+      "-parse-as-library",
+      "-emit-objc-header",
+      "-emit-objc-header-path",
+      "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWallet.build/include/ActiveChainWallet-Swift.h",
+      "-swift-version",
+      "5",
+      "-plugin-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "-F",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-I",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-L",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "-Xcc",
+      "-F",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "activechainwallet",
+      "-driver-use-frontend-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+    ],
+    "ActiveChainWalletPackageTests" : [
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "-module-name",
+      "ActiveChainWalletPackageTests",
+      "-package-name",
+      "activechainwallet",
+      "-c",
+      "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.derived/runner.swift",
+      "-I",
+      "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/Modules",
+      "-target",
+      "arm64-apple-macosx10.13",
+      "-incremental",
+      "-enable-batch-mode",
+      "-serialize-diagnostics",
+      "-index-store-path",
+      "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-Xfrontend",
+      "-enable-cross-import-overlays",
+      "-j18",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-module-cache-path",
+      "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ModuleCache",
+      "-parseable-output",
+      "-parse-as-library",
+      "-emit-objc-header",
+      "-emit-objc-header-path",
+      "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.build/include/ActiveChainWalletPackageTests-Swift.h",
+      "-plugin-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "-F",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-I",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-L",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "-Xcc",
+      "-F",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "activechainwallet",
+      "-driver-use-frontend-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+    ],
+    "ActiveChainWalletTests" : [
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "-module-name",
+      "ActiveChainWalletTests",
+      "-package-name",
+      "activechainwallet",
+      "-c",
+      "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/Tests/ActiveChainWalletTests/WalletBridgeTests.swift",
+      "-I",
+      "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/Modules",
+      "-target",
+      "arm64-apple-macosx14.0",
+      "-incremental",
+      "-enable-batch-mode",
+      "-serialize-diagnostics",
+      "-index-store-path",
+      "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-Xfrontend",
+      "-enable-cross-import-overlays",
+      "-j18",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-module-cache-path",
+      "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ModuleCache",
+      "-parseable-output",
+      "-parse-as-library",
+      "-swift-version",
+      "5",
+      "-plugin-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "-F",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-I",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-L",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "-Xcc",
+      "-F",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "activechainwallet",
+      "-driver-use-frontend-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+    ]
+  },
+  "targetDependencyMap" : {
+    "ActiveChainWallet" : [
+
+    ],
+    "ActiveChainWalletPackageTests" : [
+      "ActiveChainWalletTests",
+      "ActiveChainWallet"
+    ],
+    "ActiveChainWalletTests" : [
+      "ActiveChainWallet"
+    ]
+  },
+  "testDiscoveryCommands" : {
+
+  },
+  "testEntryPointCommands" : {
+    "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.derived/runner.swift" : {
+      "inputs" : [
+
+      ],
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.derived/runner.swift"
+        }
+      ]
+    }
+  },
+  "traitConfiguration" : {
+    "default" : {
+
+    }
+  },
+  "writeCommands" : {
+    "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWallet.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/Sources/ActiveChainWallet/WalletBridge.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWallet.build/sources"
+    },
+    "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.derived/runner.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.build/sources"
+    },
+    "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.product/Objects.LinkFileList" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<link-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWallet.build/WalletBridge.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.build/runner.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletTests.build/WalletBridgeTests.swift.o"
+        }
+      ],
+      "outputFilePath" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.product/Objects.LinkFileList"
+    },
+    "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletTests.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/Tests/ActiveChainWalletTests/WalletBridgeTests.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletTests.build/sources"
+    },
+    "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt" : {
+      "alwaysOutOfDate" : true,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<swift-get-version>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+        }
+      ],
+      "outputFilePath" : "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+    }
+  }
+}

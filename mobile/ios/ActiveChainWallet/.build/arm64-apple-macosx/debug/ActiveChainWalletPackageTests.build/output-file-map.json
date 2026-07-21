@@ -1,0 +1,12 @@
+{
+  "": {
+    "swift-dependencies": "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.build/primary.swiftdeps"
+  },
+  "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.derived/runner.swift": {
+    "dependencies": "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.build/runner.d",
+    "object": "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.build/runner.swift.o",
+    "swiftmodule": "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.build/runner~partial.swiftmodule",
+    "swift-dependencies": "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.build/runner.swiftdeps",
+    "diagnostics": "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWalletPackageTests.build/runner.dia"
+  }
+}

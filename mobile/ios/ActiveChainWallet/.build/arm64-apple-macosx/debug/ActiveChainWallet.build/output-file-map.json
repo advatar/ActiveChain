@@ -1,0 +1,12 @@
+{
+  "": {
+    "swift-dependencies": "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWallet.build/primary.swiftdeps"
+  },
+  "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/Sources/ActiveChainWallet/WalletBridge.swift": {
+    "dependencies": "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWallet.build/WalletBridge.d",
+    "object": "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWallet.build/WalletBridge.swift.o",
+    "swiftmodule": "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWallet.build/WalletBridge~partial.swiftmodule",
+    "swift-dependencies": "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWallet.build/WalletBridge.swiftdeps",
+    "diagnostics": "/Users/johansellstrom/dev/advatar/ActiveChain/mobile/ios/ActiveChainWallet/.build/arm64-apple-macosx/debug/ActiveChainWallet.build/WalletBridge.dia"
+  }
+}
