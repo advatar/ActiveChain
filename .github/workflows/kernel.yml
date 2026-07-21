@@ -66,6 +66,8 @@ jobs:
         run: bash scripts/check-formal-models.sh
       - name: Bounded-model-check the production canonical codec
         run: bash scripts/check-kani-codec.sh
+      - name: Prove consensus and economics arithmetic contracts
+        run: formal/verus/verify.sh
       - name: Run tests
         run: cargo test --locked --workspace --all-features
       - name: Run documentation tests

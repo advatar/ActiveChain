@@ -9,6 +9,7 @@ they are not a certificate that the complete implementation is correct.
 - Tamarin models adversarial protocol traces, authentication, replay, compromise, and ordering.
 - TLA+ exhaustively explores bounded consensus, reconfiguration, and crash interleavings.
 - Kani bounded-model-checks selected concrete Rust safety and canonicality boundaries.
+- Verus proves selected checked-arithmetic contracts and compiles the verified target.
 - Rust differential fixtures compare selected executable Lean tables with the implementation.
 
 ## Current proof domains
@@ -19,6 +20,7 @@ they are not a certificate that the complete implementation is correct.
 | wallet-agent HITL and replay | Tamarin | `formal/tamarin/activechain_wallet.spthy` | scoped biometric approval and one-shot acceptance lemmas | not connected to the mobile mock bridges or secure storage |
 | bounded consensus traces | Tamarin | `formal/tamarin/activechain_consensus.spthy` | authentication, replay, non-equivocation, quorum intersection, and frontier lemmas | partial; no cross-round chain-prefix finality refinement |
 | weighted consensus arithmetic | Lean 4 | `formal/lean/ActiveChain/WeightedConsensus.lean` | arbitrary-weight intersection and conditional conflicting-QC exclusion | vote-lock and signer-set premises require Rust conformance |
+| checked consensus/economics arithmetic | Verus | `formal/verus/activechain_arithmetic.rs` | eight no-cheating obligations for fee, strict-quorum, base-fee, supply, partition, and capped-issuance arithmetic | verified target plus finite production parity vectors; an all-input Rust refinement bridge remains open |
 | cross-view consensus safety | TLA+ / TLC | `formal/tla/ActiveChainConsensus.tla` | 936,652-state bounded exhaustive check of parent/QC binding, durable locks, prefix finality, crash/restart, and one root transition | incomplete; Rust proposals and persistence do not yet refine the modeled safe-vote kernel |
 | proof-carrying block pipeline | TLA+ / TLC | `formal/tla/ActiveChainProofPipeline.tla` | 15,664-state bounded exhaustive check of exact proof-input binding, hostile/failing/withholding provers, retries, backpressure, stale cleanup, deterministic finalization, and one-time rewards | incomplete; proof-system soundness is assumed, crashes/liveness are excluded, and the Rust scheduler/finality/reward path has no refinement mapping |
 | finalized-block composition | Lean 4 | `formal/lean/ActiveChain/BlockComposition.lean` | fail-closed binding and mismatch-rejection contract across context, authorization, execution, economics, state, DA, proof inputs, and QC digest | incomplete; the Rust consensus path still finalizes an opaque digest |
@@ -41,18 +43,21 @@ code and serialized values to the formal state and assumptions.
 bash scripts/check-formal-models.sh
 bash scripts/check-tla-proof-pipeline.sh
 bash scripts/check-kani-codec.sh
+formal/verus/verify.sh
 ```
 
-The gates pin Lean through `formal/lean/lean-toolchain`, require Tamarin 1.12.0, and require
-`cargo-kani` 0.67.0 with its bundled Rust 1.93 nightly and CBMC 6.8.0. A proof run is
+The gates pin Lean through `formal/lean/lean-toolchain`, require Tamarin 1.12.0, require
+`cargo-kani` 0.67.0 with its bundled Rust 1.93 nightly and CBMC 6.8.0, and checksum-pin official
+Verus `0.2026.05.24.ecee80a`. A proof run is
 accepted only when each CI-selected lemma is `verified`, all well-formedness checks pass, and the
 proof-scope document records assumptions, implementation mapping, and deliberately excluded
 properties. The bounded consensus model retains one expensive composition target outside its
 selected lemma list; the corresponding weighted arithmetic and conditional composition are proved
 in Lean. The proof-pipeline model is a finite safety result and makes no liveness or proof-system
 soundness claim. The Kani claim is limited to the exact finite bounds in
-`formal/KANI_CODEC_PROOF_SCOPE.md`. Falsified lemmas and counterexample traces are evidence to fix
-the model, specification, or code; they must never be hidden by weakening a property without
+`formal/KANI_CODEC_PROOF_SCOPE.md`; the Verus target is connected to production by finite parity
+vectors, not an all-input refinement proof. Falsified lemmas and counterexample traces are evidence
+to fix the model, specification, or code; they must never be hidden by weakening a property without
 documenting the change.
 
 ## Unverified boundary

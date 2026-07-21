@@ -1,0 +1,14 @@
+[package]
+name = "activechain-verus-arithmetic-parity"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+activechain-cash-kernel = { path = "../../../crates/cash-kernel" }
+activechain-protocol-types = { path = "../../../crates/protocol-types" }
+
+[lints.rust]
+unsafe_code = "forbid"
