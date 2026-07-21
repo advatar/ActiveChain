@@ -8,3 +8,4 @@ import ActiveChain.Object
 import ActiveChain.ObjectVM
 import ActiveChain.Nonce
 import ActiveChain.StateTree
+import ActiveChain.WeightedConsensus
