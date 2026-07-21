@@ -58,6 +58,66 @@ pub struct AuthorizationWitness {
     pub witness: Digest384,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct OpenWalletSessionV1 {
+    pub session_id: Digest384,
+    pub relying_party: Digest384,
+    pub expires_at: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct OpenWalletCredentialRefV1 {
+    pub credential_id: Digest384,
+    pub schema_id: Digest384,
+    pub issuer: Digest384,
+}
+
+#[derive(Default)]
+pub struct OpenWalletAdapterV1 {
+    sessions: Vec<OpenWalletSessionV1>,
+    credentials: Vec<OpenWalletCredentialRefV1>,
+}
+
+impl OpenWalletAdapterV1 {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn register_credential(
+        &mut self,
+        credential: OpenWalletCredentialRefV1,
+    ) -> Result<(), WalletError> {
+        if self.credentials.iter().any(|item| item.credential_id == credential.credential_id) {
+            return Err(WalletError::DuplicateIntent);
+        }
+        self.credentials.push(credential);
+        self.credentials.sort_by_key(|item| item.credential_id);
+        Ok(())
+    }
+
+    pub fn open_session(
+        &mut self,
+        session: OpenWalletSessionV1,
+        height: u64,
+    ) -> Result<(), WalletError> {
+        if session.expires_at < height
+            || self.sessions.iter().any(|item| item.session_id == session.session_id)
+        {
+            return Err(WalletError::Expired);
+        }
+        self.sessions.push(session);
+        self.sessions.sort_by_key(|item| item.session_id);
+        Ok(())
+    }
+
+    pub fn credentials(&self) -> &[OpenWalletCredentialRefV1] {
+        &self.credentials
+    }
+    pub fn sessions(&self) -> &[OpenWalletSessionV1] {
+        &self.sessions
+    }
+}
+
 impl PaymentSession {
     pub fn open(
         session_id: Digest384,
@@ -535,5 +595,21 @@ mod tests {
             recipient_commitment: Some(digest(3)),
         };
         assert_eq!(authorize_with_witness(original, witness, policy, 0, 10).unwrap(), original);
+    }
+
+    #[test]
+    fn openwallet_adapter_is_deterministic_and_replay_safe() {
+        let mut adapter = OpenWalletAdapterV1::new();
+        let credential = OpenWalletCredentialRefV1 {
+            credential_id: digest(1),
+            schema_id: digest(2),
+            issuer: digest(3),
+        };
+        adapter.register_credential(credential).unwrap();
+        assert!(adapter.register_credential(credential).is_err());
+        let session =
+            OpenWalletSessionV1 { session_id: digest(4), relying_party: digest(5), expires_at: 10 };
+        adapter.open_session(session, 1).unwrap();
+        assert!(adapter.open_session(session, 1).is_err());
     }
 }
