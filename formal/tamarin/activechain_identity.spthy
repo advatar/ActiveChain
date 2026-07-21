@@ -1,0 +1,401 @@
+theory ActiveChainIdentity
+
+begin
+
+/*
+ * A bounded symbolic model of the P-020/P-095 principal lifecycle and one
+ * P-022 direct parent-to-child delegation. It starts at the Rust kernels'
+ * preverified authorization boundary. The bounded phases avoid silently
+ * relying on induction while still make rotation, recovery, deactivation,
+ * delegation, revocation, and byte replay executable.
+ */
+
+functions:
+  did/1,
+  authority/11,
+  subset_actions/2,
+  subset_scope/2,
+  lower_limit/2,
+  lower_rate/2,
+  later_start/2,
+  earlier_end/2,
+  lower_depth/2
+
+/* ------------------------------------------------------------------------- */
+/* Principal and did:activechain lifecycle                                   */
+/* ------------------------------------------------------------------------- */
+
+rule CreatePrincipal:
+  [ Fr(~principal), Fr(~controller), Fr(~recovery) ]
+  --[ PrincipalCreated(~principal, did(~principal), ~controller, ~recovery) ]->
+  [ ActivePrincipal0(~principal, did(~principal), ~controller, ~recovery),
+    !ControllerAuthority0(~principal, ~controller),
+    !RecoveryAuthority0(~principal, ~recovery),
+    Out(<~principal, did(~principal)>) ]
+
+rule AuthorizeControllerRotation0:
+  [ !ControllerAuthority0(principal, controller),
+    Fr(~command), Fr(~new_controller) ]
+  --[ ControllerAuthorized(
+        principal, 's0', controller, 'rotate', ~command) ]->
+  [ LifecycleAuthorization(
+      ~command, 'controller', principal, 's0', controller,
+      <'rotate', ~new_controller>),
+    Out(<'rotate', ~command, principal, 's0', ~new_controller>) ]
+
+rule ApplyControllerRotation0:
+  [ ActivePrincipal0(principal, did_value, controller, recovery),
+    LifecycleAuthorization(
+      command, 'controller', principal, 's0', controller,
+      <'rotate', new_controller>) ]
+  --[ LifecycleApplied(principal, 's0', 'rotate'),
+      DidLifecycleObserved(principal, did_value),
+      ControllerRotated(
+        principal, 's0', controller, new_controller, command) ]->
+  [ ActivePrincipal1(principal, did_value, new_controller, recovery),
+    !ControllerAuthority1(principal, new_controller),
+    !RecoveryAuthority1(principal, recovery) ]
+
+rule AuthorizeFreeze0:
+  [ !ControllerAuthority0(principal, controller), Fr(~command) ]
+  --[ ControllerAuthorized(
+        principal, 's0', controller, 'freeze', ~command) ]->
+  [ LifecycleAuthorization(
+      ~command, 'controller', principal, 's0', controller, 'freeze'),
+    Out(<'freeze', ~command, principal, 's0'>) ]
+
+rule ApplyFreeze0:
+  [ ActivePrincipal0(principal, did_value, controller, recovery),
+    LifecycleAuthorization(
+      command, 'controller', principal, 's0', controller, 'freeze') ]
+  --[ LifecycleApplied(principal, 's0', 'freeze'),
+      DidLifecycleObserved(principal, did_value),
+      PrincipalFrozen(principal, 's0', command) ]->
+  [ FrozenPrincipal1(principal, did_value, controller, recovery),
+    !RecoveryAuthority1(principal, recovery) ]
+
+rule AuthorizeRecovery0:
+  [ !RecoveryAuthority0(principal, recovery),
+    Fr(~request), Fr(~new_controller) ]
+  --[ RecoveryAuthorized(principal, 's0', recovery, ~request) ]->
+  [ LifecycleAuthorization(
+      ~request, 'recovery', principal, 's0', recovery,
+      <'recover', ~new_controller>),
+    Out(<'recover', ~request, principal, 's0', ~new_controller>) ]
+
+rule InitiateRecoveryFromActive0:
+  [ ActivePrincipal0(principal, did_value, controller, recovery),
+    LifecycleAuthorization(
+      request, 'recovery', principal, 's0', recovery,
+      <'recover', new_controller>) ]
+  --[ LifecycleApplied(principal, 's0', 'initiate_recovery'),
+      DidLifecycleObserved(principal, did_value),
+      RecoveryInitiated(
+        principal, 's0', recovery, request, new_controller) ]->
+  [ RecoveryPending1(
+      principal, did_value, controller, recovery, request, new_controller) ]
+
+rule AuthorizeRecovery1:
+  [ !RecoveryAuthority1(principal, recovery),
+    Fr(~request), Fr(~new_controller) ]
+  --[ RecoveryAuthorized(principal, 's1', recovery, ~request) ]->
+  [ LifecycleAuthorization(
+      ~request, 'recovery', principal, 's1', recovery,
+      <'recover', ~new_controller>),
+    Out(<'recover', ~request, principal, 's1', ~new_controller>) ]
+
+rule InitiateRecoveryFromFrozen1:
+  [ FrozenPrincipal1(principal, did_value, controller, recovery),
+    LifecycleAuthorization(
+      request, 'recovery', principal, 's1', recovery,
+      <'recover', new_controller>) ]
+  --[ LifecycleApplied(principal, 's1', 'initiate_recovery'),
+      DidLifecycleObserved(principal, did_value),
+      RecoveryInitiated(
+        principal, 's1', recovery, request, new_controller) ]->
+  [ RecoveryPending2(
+      principal, did_value, controller, recovery, request, new_controller) ]
+
+/* These rules abstract a check against finalized challenge-deadline height. */
+rule SatisfyRecoveryDeadline1:
+  [ RecoveryPending1(
+      principal, did_value, controller, recovery, request, new_controller) ]
+  --[ RecoveryChallengeElapsed(principal, request) ]->
+  [ RecoveryReady1(
+      principal, did_value, controller, recovery, request, new_controller) ]
+
+rule SatisfyRecoveryDeadline2:
+  [ RecoveryPending2(
+      principal, did_value, controller, recovery, request, new_controller) ]
+  --[ RecoveryChallengeElapsed(principal, request) ]->
+  [ RecoveryReady2(
+      principal, did_value, controller, recovery, request, new_controller) ]
+
+rule CompleteRecovery1:
+  [ RecoveryReady1(
+      principal, did_value, old_controller, recovery, request, new_controller) ]
+  --[ LifecycleApplied(principal, 's1', 'complete_recovery'),
+      DidLifecycleObserved(principal, did_value),
+      RecoveryCompleted(
+        principal, 's0', 's1', old_controller, new_controller, request) ]->
+  [ RecoveredPrincipal2(principal, did_value, new_controller, recovery),
+    !ControllerAuthority2(principal, new_controller) ]
+
+rule CompleteRecovery2:
+  [ RecoveryReady2(
+      principal, did_value, old_controller, recovery, request, new_controller) ]
+  --[ LifecycleApplied(principal, 's2', 'complete_recovery'),
+      DidLifecycleObserved(principal, did_value),
+      RecoveryCompleted(
+        principal, 's1', 's2', old_controller, new_controller, request) ]->
+  [ RecoveredPrincipal3(principal, did_value, new_controller, recovery),
+    !ControllerAuthority3(principal, new_controller) ]
+
+rule AuthorizeDeactivation0:
+  [ !ControllerAuthority0(principal, controller), Fr(~command) ]
+  --[ ControllerAuthorized(
+        principal, 's0', controller, 'deactivate', ~command) ]->
+  [ LifecycleAuthorization(
+      ~command, 'controller', principal, 's0', controller, 'deactivate'),
+    Out(<'deactivate', ~command, principal, 's0'>) ]
+
+rule ApplyDeactivation0:
+  [ ActivePrincipal0(principal, did_value, controller, recovery),
+    LifecycleAuthorization(
+      command, 'controller', principal, 's0', controller, 'deactivate') ]
+  --[ LifecycleApplied(principal, 's0', 'deactivate'),
+      DidLifecycleObserved(principal, did_value),
+      PrincipalDeactivated(principal, 's0', command) ]->
+  [ DeactivatedPrincipal(principal, did_value, 's1') ]
+
+rule AuthorizeDeactivation1:
+  [ !ControllerAuthority1(principal, controller), Fr(~command) ]
+  --[ ControllerAuthorized(
+        principal, 's1', controller, 'deactivate', ~command) ]->
+  [ LifecycleAuthorization(
+      ~command, 'controller', principal, 's1', controller, 'deactivate'),
+    Out(<'deactivate', ~command, principal, 's1'>) ]
+
+rule ApplyDeactivation1:
+  [ ActivePrincipal1(principal, did_value, controller, recovery),
+    LifecycleAuthorization(
+      command, 'controller', principal, 's1', controller, 'deactivate') ]
+  --[ LifecycleApplied(principal, 's1', 'deactivate'),
+      DidLifecycleObserved(principal, did_value),
+      PrincipalDeactivated(principal, 's1', command) ]->
+  [ DeactivatedPrincipal(principal, did_value, 's2') ]
+
+/* ------------------------------------------------------------------------- */
+/* One direct capability delegation, revocation, and invocation replay       */
+/* ------------------------------------------------------------------------- */
+
+rule IssueRootCapability:
+  [ !ControllerAuthority0(issuer, controller),
+    In(<actions, resource, data, money, compute, rate, uses,
+        valid_from, valid_until, depth, constraint, registry>),
+    Fr(~capability) ]
+  --[ RootCapabilityIssued(
+        ~capability, issuer,
+        authority(actions, resource, data, money, compute, rate, uses,
+                  valid_from, valid_until, depth, constraint),
+        registry) ]->
+  [ RootCapabilityActive(
+      ~capability, issuer, issuer, actions, resource, data, money, compute,
+      rate, uses, valid_from, valid_until, depth, constraint, registry) ]
+
+rule DelegateCapability:
+  let parent_authority =
+        authority(actions, resource, data, money, compute, rate, uses,
+                  valid_from, valid_until, depth, constraint)
+      child_authority =
+        authority(
+          subset_actions(actions, action_restriction),
+          subset_scope(resource, resource_restriction),
+          subset_scope(data, data_restriction),
+          lower_limit(money, money_restriction),
+          lower_limit(compute, compute_restriction),
+          lower_rate(rate, rate_restriction),
+          lower_limit(uses, uses_restriction),
+          later_start(valid_from, start_restriction),
+          earlier_end(valid_until, end_restriction),
+          lower_depth(depth, depth_restriction),
+          constraint)
+  in
+  [ RootCapabilityActive(
+      parent, parent_issuer, parent_holder, actions, resource, data, money,
+      compute, rate, uses, valid_from, valid_until, depth, constraint,
+      registry),
+    !ControllerAuthority0(parent_holder, holder_controller),
+    In(<child_holder, action_restriction, resource_restriction,
+        data_restriction, money_restriction, compute_restriction,
+        rate_restriction, uses_restriction, start_restriction,
+        end_restriction, depth_restriction>),
+    Fr(~child), Fr(~invocation) ]
+  --[ CapabilityDelegated(
+        ~child, parent, parent_holder, child_holder,
+        child_authority, parent_authority, registry),
+      CapabilityInvocationPrepared(~child, ~invocation, child_holder) ]->
+  [ DelegatedCapabilityActive(
+      ~child, parent, parent_holder, child_holder, child_authority, registry),
+    InvocationPermit(~child, ~invocation, child_authority, registry),
+    Out(<'invoke', ~child, ~invocation>) ]
+
+rule AcceptDelegatedCapabilityInvocation:
+  [ DelegatedCapabilityActive(
+      capability, parent, issuer, holder, cap_authority, registry),
+    InvocationPermit(capability, invocation, cap_authority, registry),
+    In(<'invoke', capability, invocation>) ]
+  --[ CapabilityUsed(capability, invocation, cap_authority, registry) ]->
+  [ DelegatedCapabilityUsed(capability, parent, issuer, holder) ]
+
+rule RevokeDelegatedCapability:
+  [ DelegatedCapabilityActive(
+      capability, parent, issuer, holder, cap_authority, registry),
+    !ControllerAuthority0(issuer, issuer_controller) ]
+  --[ CapabilityRevoked(capability, issuer, registry) ]->
+  [ DelegatedCapabilityRevoked(capability, parent, issuer, holder) ]
+
+rule RevokeRootCapability:
+  [ RootCapabilityActive(
+      capability, issuer, holder, actions, resource, data, money, compute,
+      rate, uses, valid_from, valid_until, depth, constraint, registry),
+    !ControllerAuthority0(issuer, issuer_controller) ]
+  --[ CapabilityRevoked(capability, issuer, registry) ]->
+  [ RootCapabilityRevoked(capability, issuer) ]
+
+/* ------------------------------------------------------------------------- */
+/* Principal/DID safety lemmas                                               */
+/* ------------------------------------------------------------------------- */
+
+lemma lifecycle_preserves_did:
+  "All principal did_value #i.
+     DidLifecycleObserved(principal, did_value)@i
+     ==> did_value = did(principal)"
+
+lemma rotation_requires_current_controller_authorization:
+  "All principal sequence old_controller new_controller command #i.
+     ControllerRotated(
+       principal, sequence, old_controller, new_controller, command)@i
+     ==> (Ex #j.
+           ControllerAuthorized(
+             principal, sequence, old_controller, 'rotate', command)@j
+           & #j < #i)"
+
+lemma recovery_requires_recovery_authorization:
+  "All principal sequence recovery request new_controller #i.
+     RecoveryInitiated(
+       principal, sequence, recovery, request, new_controller)@i
+     ==> (Ex #j.
+           RecoveryAuthorized(principal, sequence, recovery, request)@j
+           & #j < #i)"
+
+lemma recovery_completion_requires_initiation_and_deadline:
+  "All principal old_sequence pending_sequence old_controller
+       new_controller request #i.
+     RecoveryCompleted(
+       principal, old_sequence, pending_sequence, old_controller,
+       new_controller, request)@i
+     ==> (Ex recovery #j #k.
+           RecoveryInitiated(
+             principal, old_sequence, recovery, request, new_controller)@j
+           & RecoveryChallengeElapsed(principal, request)@k
+           & #j < #k & #k < #i)"
+
+lemma one_lifecycle_transition_per_sequence:
+  "All principal sequence operation_a operation_b #i #j.
+     LifecycleApplied(principal, sequence, operation_a)@i
+     & LifecycleApplied(principal, sequence, operation_b)@j
+     ==> #i = #j"
+
+lemma deactivation_is_terminal:
+  "All principal sequence command later_sequence operation #i #j.
+     PrincipalDeactivated(principal, sequence, command)@i
+     & LifecycleApplied(principal, later_sequence, operation)@j
+     ==> not (#i < #j)"
+
+/* ------------------------------------------------------------------------- */
+/* Capability safety lemmas                                                  */
+/* ------------------------------------------------------------------------- */
+
+lemma delegation_is_structurally_non_amplifying:
+  "All child parent parent_holder child_holder child_authority
+       parent_authority registry #i.
+     CapabilityDelegated(
+       child, parent, parent_holder, child_holder,
+       child_authority, parent_authority, registry)@i
+     ==> (Ex actions resource data money compute rate uses
+              valid_from valid_until depth constraint
+              action_restriction resource_restriction data_restriction
+              money_restriction compute_restriction rate_restriction
+              uses_restriction start_restriction end_restriction
+              depth_restriction.
+           parent_authority =
+             authority(actions, resource, data, money, compute, rate, uses,
+                       valid_from, valid_until, depth, constraint)
+           & child_authority =
+             authority(
+               subset_actions(actions, action_restriction),
+               subset_scope(resource, resource_restriction),
+               subset_scope(data, data_restriction),
+               lower_limit(money, money_restriction),
+               lower_limit(compute, compute_restriction),
+               lower_rate(rate, rate_restriction),
+               lower_limit(uses, uses_restriction),
+               later_start(valid_from, start_restriction),
+               earlier_end(valid_until, end_restriction),
+               lower_depth(depth, depth_restriction),
+               constraint))"
+
+lemma revoked_root_cannot_later_delegate:
+  "All child parent parent_holder child_holder child_authority
+       parent_authority registry issuer #i #j.
+     CapabilityRevoked(parent, issuer, registry)@i
+     & CapabilityDelegated(
+         child, parent, parent_holder, child_holder,
+         child_authority, parent_authority, registry)@j
+     ==> not (#i < #j)"
+
+lemma revocation_blocks_later_use:
+  "All capability issuer registry invocation cap_authority #i #j.
+     CapabilityRevoked(capability, issuer, registry)@i
+     & CapabilityUsed(capability, invocation, cap_authority, registry)@j
+     ==> not (#i < #j)"
+
+lemma capability_invocation_is_accepted_once:
+  "All capability invocation authority_a authority_b registry_a registry_b #i #j.
+     CapabilityUsed(capability, invocation, authority_a, registry_a)@i
+     & CapabilityUsed(capability, invocation, authority_b, registry_b)@j
+     ==> #i = #j"
+
+/* Executability witnesses keep the universal safety results non-vacuous. */
+
+lemma exists_rotation: exists-trace
+  "Ex principal sequence old_controller new_controller command #i.
+     ControllerRotated(
+       principal, sequence, old_controller, new_controller, command)@i"
+
+lemma exists_recovery_completion: exists-trace
+  "Ex principal old_sequence pending_sequence old_controller
+      new_controller request #i.
+     RecoveryCompleted(
+       principal, old_sequence, pending_sequence, old_controller,
+       new_controller, request)@i"
+
+lemma exists_deactivation: exists-trace
+  "Ex principal sequence command #i.
+     PrincipalDeactivated(principal, sequence, command)@i"
+
+lemma exists_delegated_capability_use: exists-trace
+  "Ex child parent holder child_holder child_authority parent_authority
+      registry invocation #i #j.
+     CapabilityDelegated(
+       child, parent, holder, child_holder,
+       child_authority, parent_authority, registry)@i
+     & CapabilityUsed(child, invocation, child_authority, registry)@j
+     & #i < #j"
+
+lemma exists_delegated_capability_revocation: exists-trace
+  "Ex capability issuer registry #i.
+     CapabilityRevoked(capability, issuer, registry)@i"
+
+end
