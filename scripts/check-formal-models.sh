@@ -56,4 +56,5 @@ done
 
 test "$found" -eq 1 || { echo "no Tamarin models found" >&2; exit 1; }
 "$root/scripts/check-tla-consensus.sh"
+"$root/scripts/check-tla-proof-pipeline.sh"
 echo "formal model checks passed"

@@ -20,6 +20,7 @@ they are not a certificate that the complete implementation is correct.
 | bounded consensus traces | Tamarin | `formal/tamarin/activechain_consensus.spthy` | authentication, replay, non-equivocation, quorum intersection, and frontier lemmas | partial; no cross-round chain-prefix finality refinement |
 | weighted consensus arithmetic | Lean 4 | `formal/lean/ActiveChain/WeightedConsensus.lean` | arbitrary-weight intersection and conditional conflicting-QC exclusion | vote-lock and signer-set premises require Rust conformance |
 | cross-view consensus safety | TLA+ / TLC | `formal/tla/ActiveChainConsensus.tla` | 936,652-state bounded exhaustive check of parent/QC binding, durable locks, prefix finality, crash/restart, and one root transition | incomplete; Rust proposals and persistence do not yet refine the modeled safe-vote kernel |
+| proof-carrying block pipeline | TLA+ / TLC | `formal/tla/ActiveChainProofPipeline.tla` | 15,664-state bounded exhaustive check of exact proof-input binding, hostile/failing/withholding provers, retries, backpressure, stale cleanup, deterministic finalization, and one-time rewards | incomplete; proof-system soundness is assumed, crashes/liveness are excluded, and the Rust scheduler/finality/reward path has no refinement mapping |
 | finalized-block composition | Lean 4 | `formal/lean/ActiveChain/BlockComposition.lean` | fail-closed binding and mismatch-rejection contract across context, authorization, execution, economics, state, DA, proof inputs, and QC digest | incomplete; the Rust consensus path still finalizes an opaque digest |
 | native cash and rewards | Lean 4 | `formal/lean/ActiveChain/Cash.lean`, `CashAuthorization.lean` | abstract conservation, issuance, burn, no-double-redemption, and chain-bound one-shot spend-admission target | authoritative Rust ingress now verifies the exact ML-DSA-44 request and in-memory replay barriers; finalized key provenance, joint crash persistence, and issuance/reward refinement remain open |
 | identity lifecycle and delegation | Tamarin | `formal/tamarin/activechain_identity.spthy` | bounded lifecycle, direct attenuation, revocation, and replay lemmas | upstream signature/state-proof provenance and multi-hop budgets are open |
@@ -38,6 +39,7 @@ code and serialized values to the formal state and assumptions.
 
 ```bash
 bash scripts/check-formal-models.sh
+bash scripts/check-tla-proof-pipeline.sh
 bash scripts/check-kani-codec.sh
 ```
 
@@ -47,7 +49,8 @@ accepted only when each CI-selected lemma is `verified`, all well-formedness che
 proof-scope document records assumptions, implementation mapping, and deliberately excluded
 properties. The bounded consensus model retains one expensive composition target outside its
 selected lemma list; the corresponding weighted arithmetic and conditional composition are proved
-in Lean. The Kani claim is limited to the exact finite bounds in
+in Lean. The proof-pipeline model is a finite safety result and makes no liveness or proof-system
+soundness claim. The Kani claim is limited to the exact finite bounds in
 `formal/KANI_CODEC_PROOF_SCOPE.md`. Falsified lemmas and counterexample traces are evidence to fix
 the model, specification, or code; they must never be hidden by weakening a property without
 documenting the change.

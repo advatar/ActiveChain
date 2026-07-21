@@ -66,8 +66,12 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
   post-state root, DA commitment, proof evidence, and protocol revision all bind the same block.
   - [x] Prove the fail-closed composition contract, deterministic finalization, component mismatch
     rejection, and collision-conditional state/proof uniqueness in Lean.
+  - [x] Exhaustively model-check the bounded proof-job pipeline with exact public-input binding,
+    invalid/cross-job proof rejection, retry/timeout/backpressure, stale cleanup, deterministic
+    sequential finalization, and one-time prover rewards in TLA+.
   - [ ] Implement the typed Rust block/header and validator admission path that refines the complete
-    predicate instead of finalizing an opaque digest.
+    predicate instead of finalizing an opaque digest, and persist proof jobs, acceptance, finality,
+    and reward replay protection crash-atomically.
 - [ ] Prove the PQ-authenticated credential/capability/state-proof to APL decision to transition
   authorization chain, including multi-hop attenuation, revocation, budgets, and concurrency.
 - [ ] Complete APL evaluator, ObjectVM verifier/interpreter, state-tree, and codec refinement proofs;
@@ -76,6 +80,9 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
   checks for decoders, arithmetic, persistence, FFI, and network admission.
   - [x] Pin TLA+ tools and exhaustively check the first finite consensus safety model on the local
     runner.
+  - [x] Add a second finite TLA+ model for hostile proof-pipeline scheduling and exact proof-input
+    binding; liveness remains excluded until honest-prover, delivery, and fairness assumptions are
+    specified.
   - [ ] Generalize reconfiguration to membership churn and multiple transitions, and add a fair
     timed liveness model before making liveness claims.
   - [ ] Add Verus refinement and Kani bounded-checking gates for the concrete Rust boundaries.
