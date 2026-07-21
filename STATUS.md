@@ -21,13 +21,36 @@ Phase 0 bootstrap is tracked by [GitHub issue #1](https://github.com/advatar/Act
 Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
 
 - [x] Prove the initial wallet-agent HITL and replay properties in Tamarin.
-- [ ] Prove scoped consensus QC, finality, replay, and equivocation properties.
+- [ ] Prove consensus QC, chain-prefix finality, replay, equivocation, view-change, reconfiguration,
+  and crash-recovery properties.
   - [x] Prove bounded authentication, replay, non-equivocation, quorum-intersection, and frontier-finality component lemmas.
-  - [ ] Close the composed no-conflicting-QCs theorem and generalize four equal-stake validators to bounded weighted sets.
+  - [x] Prove arbitrary weighted-quorum intersection and the conditional no-conflicting-QCs
+    composition theorem in Lean.
+  - [ ] Implement and model parent/QC binding plus safe-vote, lock, and commit rules across rounds.
+  - [ ] Prove any two finalized histories are prefix-comparable, including view changes, epoch
+    changes, and restart recovery.
+  - [ ] Verify canonical signer ordering, vote-set-root recomputation, and checked stake arithmetic.
 - [x] Prove abstract cash conservation, authorized issuance, burn, and reward no-double-mint properties in Lean.
+- [ ] Refine the cash proof to signed, chain-bound intents, input authorization, atomic batches,
+  one-shot sessions/nonces, finalized issuance, reward proofs, shielding, and crash-safe replay.
 - [x] Prove DA reconstruction bounds and fail-closed light-client trust transitions in Lean.
 - [x] Prove canonical envelope rejection, commitment binding, and FFI precondition invariants in Lean.
 - [x] Prove bounded principal rotation/recovery/deactivation and direct-delegation attenuation properties.
+- [x] Prove exact epoch/revision activation and retired-validator-set rejection in the abstract Lean model.
+- [ ] Implement and prove conformance for finalized epoch/revision authorization, exact activation,
+  retired-set history, and revision-bound certificate admission.
+- [x] Prove the scoped PQ-session downgrade, context, key-confirmation, and bounded replay target in Tamarin.
+- [ ] Implement the modeled PQ transcript/session boundary and prove full agreement, secrecy under
+  stated compromise assumptions, durable sequence handling, and parser conformance.
+- [ ] Prove canonical finalized-block composition: decode, authorization, execution, fees/supply,
+  post-state root, DA commitment, proof evidence, and protocol revision all bind the same block.
+- [ ] Prove the PQ-authenticated credential/capability/state-proof to APL decision to transition
+  authorization chain, including multi-hop attenuation, revocation, budgets, and concurrency.
+- [ ] Complete APL evaluator, ObjectVM verifier/interpreter, state-tree, and codec refinement proofs;
+  the current executable Lean tables cover only bounded semantic slices.
+- [ ] Add TLA+ consensus/reconfiguration/crash models, Verus refinement proofs, and Kani bounded
+  checks for decoders, arithmetic, persistence, FFI, and network admission.
+- [ ] Add implementation-trace and differential conformance checks for every proof domain.
 - [ ] Run every Lean and Tamarin model on the self-hosted CI runner.
 - [ ] Publish proof scopes, assumptions, counterexamples, and explicit unverified boundaries.
 - [ ] Obtain independent external formal-methods review before any non-developmental launch claim.
