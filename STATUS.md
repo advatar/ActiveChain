@@ -55,6 +55,10 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
     and canonical parser/vector conformance.
 - [ ] Prove canonical finalized-block composition: decode, authorization, execution, fees/supply,
   post-state root, DA commitment, proof evidence, and protocol revision all bind the same block.
+  - [x] Prove the fail-closed composition contract, deterministic finalization, component mismatch
+    rejection, and collision-conditional state/proof uniqueness in Lean.
+  - [ ] Implement the typed Rust block/header and validator admission path that refines the complete
+    predicate instead of finalizing an opaque digest.
 - [ ] Prove the PQ-authenticated credential/capability/state-proof to APL decision to transition
   authorization chain, including multi-hop attenuation, revocation, budgets, and concurrency.
 - [ ] Complete APL evaluator, ObjectVM verifier/interpreter, state-tree, and codec refinement proofs;

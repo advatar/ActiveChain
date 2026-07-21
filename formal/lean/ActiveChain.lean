@@ -1,4 +1,5 @@
 import ActiveChain.Apl
+import ActiveChain.BlockComposition
 import ActiveChain.Cash
 import ActiveChain.CashAuthorization
 import ActiveChain.Credential
