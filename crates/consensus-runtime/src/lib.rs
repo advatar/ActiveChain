@@ -10,9 +10,9 @@ use activechain_crypto_provider::{
     VerificationError, verify_block_proposal, verify_quorum_certificate,
 };
 use activechain_protocol_types::{
-    BlockProposal, ConsensusSnapshot, ConsensusState, ConsensusStateError, ConsensusVoteContext,
-    CryptoSuiteId, Digest384, EpochTransition, PrincipalId, ProtocolSignature, QuorumCertificate,
-    ValidatorGenesis, ValidatorSet, ValidatorVote,
+    BlockProposal, ConsensusSnapshot, ConsensusState, ConsensusStateError,
+    ConsensusUpgradeAuthorization, ConsensusVoteContext, CryptoSuiteId, Digest384, PrincipalId,
+    ProtocolSignature, QuorumCertificate, ValidatorGenesis, ValidatorSet, ValidatorVote,
 };
 use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
 use sha3::{
@@ -45,6 +45,19 @@ impl WalletTransactionGateway {
         height: u64,
     ) -> Result<(), activechain_wallet_core::WalletError> {
         self.ingress.submit_envelope(envelope, height)
+    }
+
+    /// Registers one sender's finalized ML-DSA-44 cash-session key and initial nonce.
+    ///
+    /// The caller is responsible for deriving this mapping from finalized identity and
+    /// authorization state; the gateway never accepts a key from a transaction request.
+    pub fn register_authorization_key(
+        &mut self,
+        sender: PrincipalId,
+        public_key: [u8; activechain_protocol_types::ML_DSA44_PUBLIC_KEY_LENGTH],
+        initial_nonce: u64,
+    ) -> Result<(), activechain_wallet_core::WalletError> {
+        self.ingress.register_authorization_key(sender, public_key, initial_nonce)
     }
 
     pub fn ledger(&self) -> &activechain_cash_kernel::CashLedger {
@@ -128,10 +141,15 @@ impl ValidatorSigner {
         proposal: &BlockProposal,
         genesis_commitment: Digest384,
         validator_set_root: Digest384,
+        protocol_revision: u64,
     ) -> Result<ValidatorVote, ValidatorEngineError> {
-        let context =
-            ConsensusVoteContext::new(genesis_commitment, proposal.epoch(), validator_set_root)
-                .map_err(|_| ValidatorEngineError::UnboundConsensusDomain)?;
+        let context = ConsensusVoteContext::new_with_revision(
+            genesis_commitment,
+            proposal.epoch(),
+            validator_set_root,
+            protocol_revision,
+        )
+        .map_err(|_| ValidatorEngineError::UnboundConsensusDomain)?;
         let unsigned = ValidatorVote::new(
             self.validator,
             context,
@@ -221,10 +239,18 @@ impl CertifiedBlock {
         if votes.is_empty() || votes.len() > activechain_protocol_types::MAX_VALIDATORS_PER_EPOCH {
             return Err(TransportError::InvalidBody);
         }
-        let vote_domain = (votes[0].genesis_commitment(), votes[0].validator_set_root());
+        let vote_domain = (
+            votes[0].genesis_commitment(),
+            votes[0].validator_set_root(),
+            votes[0].protocol_revision(),
+        );
         if votes.iter().any(|vote| {
-            vote.epoch() != certificate.epoch()
-                || (vote.genesis_commitment(), vote.validator_set_root()) != vote_domain
+            vote.genesis_commitment() != certificate.genesis_commitment()
+                || vote.epoch() != certificate.epoch()
+                || vote.validator_set_root() != certificate.validator_set_root()
+                || vote.protocol_revision() != certificate.protocol_revision()
+                || (vote.genesis_commitment(), vote.validator_set_root(), vote.protocol_revision())
+                    != vote_domain
                 || vote.height() != certificate.height()
                 || vote.round() != certificate.round()
                 || vote.block_digest() != certificate.block_digest()
@@ -876,6 +902,21 @@ pub fn load_snapshot(path: &std::path::Path) -> std::io::Result<ConsensusState> 
     Ok(ConsensusState::from_snapshot(snapshot))
 }
 
+/// Returns the immutable chain genesis commitment retained by a validator safety snapshot.
+/// Raw consensus-only snapshots predate this binding and return `None`.
+pub fn load_snapshot_chain_genesis_commitment(
+    path: &std::path::Path,
+) -> std::io::Result<Option<Digest384>> {
+    let bytes = std::fs::read(path)?;
+    match decode_envelope::<PersistedValidatorState>(&bytes) {
+        Ok(snapshot) => Ok(Some(snapshot.genesis_commitment)),
+        Err(_) if bytes.starts_with(&PersistedValidatorState::TYPE_TAG.to_be_bytes()) => {
+            Err(invalid_data("validator safety snapshot is invalid"))
+        }
+        Err(_) => Ok(None),
+    }
+}
+
 fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
     let temporary = path.with_extension("tmp");
     let mut file = std::fs::File::create(&temporary)?;
@@ -1176,6 +1217,7 @@ struct LocalVoteSlot {
     validator: PrincipalId,
     epoch: u64,
     validator_set_root: Digest384,
+    protocol_revision: u64,
     height: u64,
     round: u64,
 }
@@ -1202,6 +1244,7 @@ impl CanonicalEncode for PersistedValidatorState {
             slot.validator.encode(encoder)?;
             slot.epoch.encode(encoder)?;
             slot.validator_set_root.encode(encoder)?;
+            slot.protocol_revision.encode(encoder)?;
             slot.height.encode(encoder)?;
             slot.round.encode(encoder)?;
             digest.encode(encoder)?;
@@ -1239,11 +1282,13 @@ impl CanonicalDecode for PersistedValidatorState {
                 validator: PrincipalId::decode(decoder)?,
                 epoch: u64::decode(decoder)?,
                 validator_set_root: Digest384::decode(decoder)?,
+                protocol_revision: u64::decode(decoder)?,
                 height: u64::decode(decoder)?,
                 round: u64::decode(decoder)?,
             };
             let digest = Digest384::decode(decoder)?;
             if slot.validator_set_root == Digest384::ZERO
+                || slot.protocol_revision == 0
                 || previous_slot.is_some_and(|previous| slot <= previous)
                 || vote_locks.insert(slot, digest).is_some()
             {
@@ -1257,13 +1302,13 @@ impl CanonicalDecode for PersistedValidatorState {
 
 impl CanonicalType for PersistedValidatorState {
     const TYPE_TAG: u16 = 0x006c;
-    const SCHEMA_VERSION: u16 = 1;
-    const MAX_ENCODED_LEN: usize = 72
+    const SCHEMA_VERSION: u16 = 2;
+    const MAX_ENCODED_LEN: usize = ConsensusSnapshot::MAX_ENCODED_LEN
         + 48
         + 2
         + MAX_PERSISTED_REPLAY_SENDERS * (2 + 8)
         + 2
-        + MAX_PERSISTED_VOTE_LOCKS * (48 + 8 + 48 + 8 + 8 + 48);
+        + MAX_PERSISTED_VOTE_LOCKS * (48 + 8 + 48 + 8 + 8 + 8 + 48);
 }
 
 #[derive(Clone, Debug)]
@@ -1277,6 +1322,21 @@ impl DeterministicPeer {
     }
     pub const fn id(&self) -> u16 {
         self.id
+    }
+    pub fn new_with_consensus_context(
+        id: u16,
+        epoch: u64,
+        validator_set_root: Digest384,
+        protocol_revision: u64,
+    ) -> Result<Self, ConsensusStateError> {
+        Ok(Self {
+            id,
+            state: ConsensusState::new_with_consensus_context(
+                epoch,
+                validator_set_root,
+                protocol_revision,
+            )?,
+        })
     }
     pub const fn state(&self) -> ConsensusState {
         self.state
@@ -1319,6 +1379,13 @@ pub fn finalize_round(
     certificate: &QuorumCertificate,
     votes: &[(&[u8], ValidatorVote)],
 ) -> Result<(), RuntimeError> {
+    if votes.iter().any(|(_, vote)| {
+        vote.epoch() != state.epoch()
+            || vote.validator_set_root() != state.validator_set_root()
+            || vote.protocol_revision() != state.protocol_revision()
+    }) {
+        return Err(RuntimeError::State(ConsensusStateError::InvalidConsensusContext));
+    }
     verify_quorum_certificate(certificate, validator_set, votes)
         .map_err(RuntimeError::VoteVerification)?;
     state.apply_qc(certificate).map_err(RuntimeError::State)
@@ -1352,6 +1419,7 @@ pub struct VoteCollector {
     proposal: BlockProposal,
     genesis_commitment: Digest384,
     validator_set_root: Digest384,
+    protocol_revision: u64,
     votes: Vec<(Vec<u8>, ValidatorVote)>,
     seen: BTreeMap<activechain_protocol_types::PrincipalId, ()>,
     signer_stake: u128,
@@ -1361,11 +1429,13 @@ impl VoteCollector {
         proposal: BlockProposal,
         genesis_commitment: Digest384,
         validator_set_root: Digest384,
+        protocol_revision: u64,
     ) -> Self {
         Self {
             proposal,
             genesis_commitment,
             validator_set_root,
+            protocol_revision,
             votes: Vec::new(),
             seen: BTreeMap::new(),
             signer_stake: 0,
@@ -1380,6 +1450,7 @@ impl VoteCollector {
         if vote.genesis_commitment() != self.genesis_commitment
             || vote.epoch() != self.proposal.epoch()
             || vote.validator_set_root() != self.validator_set_root
+            || vote.protocol_revision() != self.protocol_revision
             || vote.height() != self.proposal.height()
             || vote.round() != self.proposal.round()
             || vote.block_digest() != self.proposal.block_digest()
@@ -1394,10 +1465,14 @@ impl VoteCollector {
             .ok_or(VoteCollectionError::UnknownValidator)?;
         activechain_crypto_provider::verify_validator_vote(public_key, &vote)
             .map_err(VoteCollectionError::Verification)?;
+        let insert_at = self
+            .votes
+            .binary_search_by_key(&vote.validator(), |(_, existing)| existing.validator())
+            .unwrap_err();
         self.seen.insert(vote.validator(), ());
         self.signer_stake =
             self.signer_stake.checked_add(stake).ok_or(VoteCollectionError::StakeOverflow)?;
-        self.votes.push((public_key.to_vec(), vote));
+        self.votes.insert(insert_at, (public_key.to_vec(), vote));
         Ok(())
     }
     pub fn signer_stake(&self) -> u128 {
@@ -1432,8 +1507,15 @@ impl VoteCollector {
         }
         let mut root = [0_u8; 48];
         hasher.finalize_xof().read(&mut root);
-        QuorumCertificate::new(
+        let context = ConsensusVoteContext::new_with_revision(
+            self.genesis_commitment,
             epoch,
+            self.validator_set_root,
+            self.protocol_revision,
+        )
+        .map_err(|_| VoteCollectionError::ContextMismatch)?;
+        QuorumCertificate::new(
+            context,
             self.proposal.height(),
             self.proposal.round(),
             self.proposal.block_digest(),
@@ -1468,20 +1550,30 @@ impl ValidatorEngine {
         state: ConsensusState,
         genesis: &ValidatorGenesis,
     ) -> Result<Self, ValidatorEngineError> {
-        if state.epoch() != genesis.epoch() {
+        Self::from_active_manifest(state, genesis, genesis.genesis_commitment())
+    }
+    pub fn from_active_manifest(
+        state: ConsensusState,
+        active_manifest: &ValidatorGenesis,
+        chain_genesis_commitment: Digest384,
+    ) -> Result<Self, ValidatorEngineError> {
+        if state.epoch() != active_manifest.epoch() {
             return Err(ValidatorEngineError::GenesisEpochMismatch);
         }
-        if state.validator_set_root() != genesis.validator_set_root() {
+        if state.validator_set_root() != active_manifest.validator_set_root() {
             return Err(ValidatorEngineError::GenesisRootMismatch);
         }
+        if state.protocol_revision() != active_manifest.protocol_revision() {
+            return Err(ValidatorEngineError::GenesisRevisionMismatch);
+        }
         let validator_set =
-            genesis.validator_set().map_err(|_| ValidatorEngineError::InvalidGenesis)?;
-        let public_keys = genesis
+            active_manifest.validator_set().map_err(|_| ValidatorEngineError::InvalidGenesis)?;
+        let public_keys = active_manifest
             .entries()
             .iter()
             .map(|entry| (entry.validator(), entry.public_key().to_vec()))
             .collect();
-        Self::new(state, genesis.genesis_commitment(), validator_set, public_keys)
+        Self::new(state, chain_genesis_commitment, validator_set, public_keys)
     }
     pub fn new(
         state: ConsensusState,
@@ -1514,29 +1606,86 @@ impl ValidatorEngine {
     }
     pub fn activate_finalized_validator_set(
         &mut self,
-        transition: &EpochTransition,
+        authorization: &ConsensusUpgradeAuthorization,
+        authorization_proof: &CertifiedBlock,
         next_genesis: &ValidatorGenesis,
     ) -> Result<(), ValidatorEngineError> {
-        if transition.from_epoch() != self.state.epoch()
-            || transition.to_epoch() != next_genesis.epoch()
-            || transition.validator_set_root() != next_genesis.validator_set_root()
-            || self.state.finalized_height() < transition.activation_height()
+        if !authorization.changes_validator_set()
+            || authorization.to_epoch() != next_genesis.epoch()
+            || authorization.activation_height() != next_genesis.activation_height()
+            || authorization.next_validator_set_root() != next_genesis.validator_set_root()
+            || authorization.next_protocol_revision() != next_genesis.protocol_revision()
         {
             return Err(ValidatorEngineError::InvalidEpochTransition);
         }
-        self.state
-            .apply_epoch_transition(transition, transition.activation_height())
-            .map_err(|_| ValidatorEngineError::InvalidEpochTransition)?;
-        self.validator_set =
+        self.verify_finalized_upgrade_authorization(authorization, authorization_proof)?;
+        let validator_set =
             next_genesis.validator_set().map_err(|_| ValidatorEngineError::InvalidGenesis)?;
-        self.public_keys = next_genesis
+        let public_keys = next_genesis
             .entries()
             .iter()
             .map(|entry| (entry.validator(), entry.public_key().to_vec()))
             .collect();
+        let mut next_state = self.state;
+        next_state
+            .apply_upgrade(authorization)
+            .map_err(|_| ValidatorEngineError::InvalidEpochTransition)?;
+        self.state = next_state;
+        self.validator_set = validator_set;
+        self.public_keys = public_keys;
         self.collector = None;
         self.local_vote_locks.clear();
         Ok(())
+    }
+    pub fn activate_finalized_protocol_upgrade(
+        &mut self,
+        authorization: &ConsensusUpgradeAuthorization,
+        authorization_proof: &CertifiedBlock,
+    ) -> Result<(), ValidatorEngineError> {
+        if authorization.changes_validator_set() || !authorization.changes_protocol_revision() {
+            return Err(ValidatorEngineError::InvalidProtocolUpgrade);
+        }
+        self.verify_finalized_upgrade_authorization(authorization, authorization_proof)?;
+        self.state
+            .apply_upgrade(authorization)
+            .map_err(|_| ValidatorEngineError::InvalidProtocolUpgrade)?;
+        self.collector = None;
+        self.local_vote_locks.clear();
+        Ok(())
+    }
+    fn verify_finalized_upgrade_authorization(
+        &self,
+        authorization: &ConsensusUpgradeAuthorization,
+        proof: &CertifiedBlock,
+    ) -> Result<(), ValidatorEngineError> {
+        let certificate = proof.certificate();
+        if certificate.height() != authorization.authorization_height()
+            || certificate.height() > self.state.finalized_height()
+            || certificate.block_digest() != authorization.commitment()
+            || certificate.genesis_commitment() != self.genesis_commitment
+            || certificate.epoch() != self.state.epoch()
+            || certificate.validator_set_root() != self.state.validator_set_root()
+            || certificate.protocol_revision() != self.state.protocol_revision()
+        {
+            return Err(ValidatorEngineError::InvalidUpgradeAuthorizationProof);
+        }
+        let mut votes = Vec::with_capacity(proof.votes().len());
+        for vote in proof.votes() {
+            if vote.genesis_commitment() != self.genesis_commitment
+                || vote.epoch() != self.state.epoch()
+                || vote.validator_set_root() != self.state.validator_set_root()
+                || vote.protocol_revision() != self.state.protocol_revision()
+            {
+                return Err(ValidatorEngineError::InvalidUpgradeAuthorizationProof);
+            }
+            let key = self
+                .public_keys
+                .get(&vote.validator())
+                .ok_or(ValidatorEngineError::InvalidUpgradeAuthorizationProof)?;
+            votes.push((key.as_slice(), vote.clone()));
+        }
+        verify_quorum_certificate(certificate, &self.validator_set, &votes)
+            .map_err(|_| ValidatorEngineError::InvalidUpgradeAuthorizationProof)
     }
     fn sign_current_vote(
         &mut self,
@@ -1555,6 +1704,7 @@ impl ValidatorEngine {
             validator: signer.validator(),
             epoch: proposal.epoch(),
             validator_set_root: self.state.validator_set_root(),
+            protocol_revision: self.state.protocol_revision(),
             height: proposal.height(),
             round: proposal.round(),
         };
@@ -1570,7 +1720,12 @@ impl ValidatorEngine {
                 self.local_vote_locks.insert(slot, proposal.block_digest());
             }
         }
-        signer.sign_vote(&proposal, self.genesis_commitment, self.state.validator_set_root())
+        signer.sign_vote(
+            &proposal,
+            self.genesis_commitment,
+            self.state.validator_set_root(),
+            self.state.protocol_revision(),
+        )
     }
     pub fn process(
         &mut self,
@@ -1588,6 +1743,7 @@ impl ValidatorEngine {
                     proposal,
                     self.genesis_commitment,
                     self.state.validator_set_root(),
+                    self.state.protocol_revision(),
                 ));
                 Ok(None)
             }
@@ -1635,11 +1791,19 @@ impl ValidatorEngine {
         Ok(result)
     }
     fn apply_certificate(&mut self, proof: &CertifiedBlock) -> Result<(), ValidatorEngineError> {
+        if proof.certificate().genesis_commitment() != self.genesis_commitment
+            || proof.certificate().epoch() != self.state.epoch()
+            || proof.certificate().validator_set_root() != self.state.validator_set_root()
+            || proof.certificate().protocol_revision() != self.state.protocol_revision()
+        {
+            return Err(ValidatorEngineError::VoteDomainMismatch);
+        }
         let mut votes = Vec::with_capacity(proof.votes().len());
         for vote in proof.votes() {
             if vote.genesis_commitment() != self.genesis_commitment
                 || vote.epoch() != self.state.epoch()
                 || vote.validator_set_root() != self.state.validator_set_root()
+                || vote.protocol_revision() != self.state.protocol_revision()
             {
                 return Err(ValidatorEngineError::VoteDomainMismatch);
             }
@@ -1663,8 +1827,11 @@ impl ValidatorEngine {
 pub enum ValidatorEngineError {
     InvalidGenesis,
     InvalidEpochTransition,
+    InvalidProtocolUpgrade,
+    InvalidUpgradeAuthorizationProof,
     GenesisEpochMismatch,
     GenesisRootMismatch,
+    GenesisRevisionMismatch,
     SnapshotDomainMismatch,
     SnapshotStateMismatch,
     SnapshotUnknownSender,
@@ -1687,7 +1854,7 @@ pub enum ValidatorEngineError {
 pub struct ValidatorService {
     engine: std::sync::Mutex<ValidatorEngine>,
     replay: std::sync::Mutex<ReplayGuard>,
-    sender_keys: BTreeMap<u16, Vec<u8>>,
+    sender_keys: std::sync::Mutex<BTreeMap<u16, Vec<u8>>>,
     snapshot_path: std::path::PathBuf,
     metrics: std::sync::Arc<ValidatorMetrics>,
 }
@@ -1697,13 +1864,25 @@ impl ValidatorService {
         genesis: &ValidatorGenesis,
         snapshot_path: std::path::PathBuf,
     ) -> Result<Self, ValidatorEngineError> {
-        let sender_keys = genesis
+        Self::from_active_manifest(state, genesis, genesis.genesis_commitment(), snapshot_path)
+    }
+    pub fn from_active_manifest(
+        state: ConsensusState,
+        active_manifest: &ValidatorGenesis,
+        chain_genesis_commitment: Digest384,
+        snapshot_path: std::path::PathBuf,
+    ) -> Result<Self, ValidatorEngineError> {
+        let sender_keys = active_manifest
             .entries()
             .iter()
             .enumerate()
             .map(|(index, entry)| ((index + 1) as u16, entry.public_key().to_vec()))
             .collect::<BTreeMap<_, _>>();
-        let mut engine = ValidatorEngine::from_genesis(state, genesis)?;
+        let mut engine = ValidatorEngine::from_active_manifest(
+            state,
+            active_manifest,
+            chain_genesis_commitment,
+        )?;
         let mut replay = ReplayGuard::default();
         match std::fs::read(&snapshot_path) {
             Ok(bytes) => match decode_envelope::<PersistedValidatorState>(&bytes) {
@@ -1737,7 +1916,7 @@ impl ValidatorService {
         Ok(Self {
             engine: std::sync::Mutex::new(engine),
             replay: std::sync::Mutex::new(replay),
-            sender_keys,
+            sender_keys: std::sync::Mutex::new(sender_keys),
             snapshot_path,
             metrics: std::sync::Arc::new(ValidatorMetrics::default()),
         })
@@ -1747,14 +1926,40 @@ impl ValidatorService {
     }
     pub fn activate_finalized_validator_set(
         &self,
-        transition: &EpochTransition,
+        authorization: &ConsensusUpgradeAuthorization,
+        authorization_proof: &CertifiedBlock,
         next_genesis: &ValidatorGenesis,
+    ) -> Result<(), ValidatorServiceError> {
+        let mut engine = self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
+        let replay = self.replay.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
+        let mut sender_keys =
+            self.sender_keys.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
+        let mut candidate = engine.clone();
+        candidate
+            .activate_finalized_validator_set(authorization, authorization_proof, next_genesis)
+            .map_err(ValidatorServiceError::Engine)?;
+        save_validator_snapshot(&self.snapshot_path, &candidate, &replay)
+            .map_err(ValidatorEngineError::Snapshot)
+            .map_err(ValidatorServiceError::Engine)?;
+        *sender_keys = next_genesis
+            .entries()
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| ((index + 1) as u16, entry.public_key().to_vec()))
+            .collect();
+        *engine = candidate;
+        Ok(())
+    }
+    pub fn activate_finalized_protocol_upgrade(
+        &self,
+        authorization: &ConsensusUpgradeAuthorization,
+        authorization_proof: &CertifiedBlock,
     ) -> Result<(), ValidatorServiceError> {
         let mut engine = self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
         let replay = self.replay.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
         let mut candidate = engine.clone();
         candidate
-            .activate_finalized_validator_set(transition, next_genesis)
+            .activate_finalized_protocol_upgrade(authorization, authorization_proof)
             .map_err(ValidatorServiceError::Engine)?;
         save_validator_snapshot(&self.snapshot_path, &candidate, &replay)
             .map_err(ValidatorEngineError::Snapshot)
@@ -1780,13 +1985,16 @@ impl ValidatorService {
         }
         let key = self
             .sender_keys
+            .lock()
+            .map_err(|_| ValidatorServiceError::Poisoned)?
             .get(&message.envelope.sender())
+            .cloned()
             .ok_or(ValidatorServiceError::UnknownSender)?;
         let mut engine = self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
         let mut replay = self.replay.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
         let mut candidate_replay = replay.clone();
         candidate_replay
-            .accept(&message.envelope, key)
+            .accept(&message.envelope, &key)
             .map_err(ValidatorServiceError::Transport)?;
         save_validator_snapshot(&self.snapshot_path, &engine, &candidate_replay)
             .map_err(ValidatorEngineError::Snapshot)
@@ -1838,6 +2046,8 @@ impl ValidatorService {
         let vote = self.sign_current_vote_durably(signer)?;
         let sender = self
             .sender_keys
+            .lock()
+            .map_err(|_| ValidatorServiceError::Poisoned)?
             .iter()
             .find_map(|(sender, key)| (key == &signer.public_key()).then_some(*sender))
             .ok_or(ValidatorServiceError::UnknownSender)?;
@@ -1917,6 +2127,8 @@ impl ValidatorService {
     fn sender_for(&self, signer: &ValidatorSigner) -> Result<u16, ValidatorServiceError> {
         let public_key = signer.public_key();
         self.sender_keys
+            .lock()
+            .map_err(|_| ValidatorServiceError::Poisoned)?
             .iter()
             .find_map(|(sender, key)| (key == &public_key).then_some(*sender))
             .ok_or(ValidatorServiceError::UnknownSender)
@@ -1963,9 +2175,12 @@ impl ValidatorService {
         let inbound = peer.receive_handshake()?;
         let expected_key = self
             .sender_keys
+            .lock()
+            .map_err(|_| invalid_data("validator sender-key lock poisoned"))?
             .get(&inbound.sender())
+            .cloned()
             .ok_or_else(|| invalid_data("unknown peer handshake sender"))?;
-        inbound.verify(expected_key).map_err(transport_io_error)?;
+        inbound.verify(&expected_key).map_err(transport_io_error)?;
         let response = signer
             .sign_handshake(local_peer_id, challenge)
             .map_err(|_| invalid_data("handshake signing failed"))?;
@@ -1982,9 +2197,12 @@ impl ValidatorService {
         let inbound = peer.receive_handshake()?;
         let expected_key = self
             .sender_keys
+            .lock()
+            .map_err(|_| invalid_data("validator sender-key lock poisoned"))?
             .get(&inbound.sender())
+            .cloned()
             .ok_or_else(|| invalid_data("unknown peer handshake sender"))?;
-        inbound.verify(expected_key).map_err(transport_io_error)?;
+        inbound.verify(&expected_key).map_err(transport_io_error)?;
         peer.send_handshake(
             &signer
                 .sign_handshake(local_peer_id, challenge)
@@ -2054,6 +2272,39 @@ mod tests {
         .unwrap()
     }
 
+    fn finalize_single_validator_proof(
+        service: &ValidatorService,
+        signer: &ValidatorSigner,
+        genesis: &ValidatorGenesis,
+        height: u64,
+        block_digest: Digest384,
+        sequence: u64,
+    ) -> CertifiedBlock {
+        let (proposal_message, vote_message) =
+            service.propose_round(signer, height, 0, block_digest, sequence).unwrap();
+        let proposal = match proposal_message.message {
+            ConsensusMessage::Proposal(proposal) => proposal,
+            _ => panic!("expected proposal"),
+        };
+        let vote = match vote_message.message {
+            ConsensusMessage::Vote(vote) => vote,
+            _ => panic!("expected vote"),
+        };
+        let validator_set = genesis.validator_set().unwrap();
+        let mut collector = VoteCollector::new(
+            proposal,
+            genesis.genesis_commitment(),
+            genesis.validator_set_root(),
+            genesis.protocol_revision(),
+        );
+        collector.add_vote(&validator_set, signer.public_key().as_slice(), vote.clone()).unwrap();
+        CertifiedBlock::new(
+            collector.finalize(genesis.epoch(), &validator_set).unwrap(),
+            vec![vote],
+        )
+        .unwrap()
+    }
+
     #[test]
     fn wallet_gateway_binds_a_genesis_ledger() {
         let digest = |byte| Digest384::new([byte; 48]);
@@ -2079,6 +2330,14 @@ mod tests {
         )
         .unwrap();
         let mut gateway = WalletTransactionGateway::from_genesis(&economy).unwrap();
+        let cash_key = SigningKey::<MlDsa44>::from_seed(&Seed::from([91; 32]));
+        gateway
+            .register_authorization_key(
+                owner,
+                cash_key.verifying_key().encode().as_slice().try_into().unwrap(),
+                0,
+            )
+            .unwrap();
         let cells = gateway.ledger().cells().as_slice();
         let transfer = CoinTransfer::new(
             owner,
@@ -2090,7 +2349,26 @@ mod tests {
             10,
         )
         .unwrap();
-        let envelope = encode_envelope(&transfer).unwrap();
+        let request = activechain_wallet_core::CashAuthorizationRequestV1::new(
+            ChainId::new(digest(1)),
+            owner,
+            0,
+            digest(12),
+            10,
+            transfer,
+        )
+        .unwrap();
+        let signature = cash_key.sign(&request.signing_payload().unwrap());
+        let authorized = activechain_wallet_core::AuthorizedCashTransferV1::new(
+            request,
+            ProtocolSignature::new(
+                CryptoSuiteId::ML_DSA_44,
+                signature.encode().as_slice().to_vec(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let envelope = encode_envelope(&authorized).unwrap();
         gateway.submit_envelope(&envelope, 1).unwrap();
         assert!(gateway.submit_envelope(&envelope, 1).is_err());
     }
@@ -2327,7 +2605,7 @@ mod tests {
         let validator_set_root = Digest384::new([51; 48]);
         let vote_context =
             ConsensusVoteContext::new(genesis_commitment, 1, validator_set_root).unwrap();
-        let mut collector = VoteCollector::new(proposal, genesis_commitment, validator_set_root);
+        let mut collector = VoteCollector::new(proposal, genesis_commitment, validator_set_root, 1);
         let mut votes = Vec::new();
         for (index, key) in keys.iter().enumerate() {
             let unsigned = ValidatorVote::new(
@@ -2359,9 +2637,9 @@ mod tests {
         let vote_refs: Vec<(&[u8], ValidatorVote)> =
             votes.iter().map(|(key, vote)| (key.as_slice(), vote.clone())).collect();
         let mut peers = vec![
-            DeterministicPeer::new(1, 1),
-            DeterministicPeer::new(2, 1),
-            DeterministicPeer::new(3, 1),
+            DeterministicPeer::new_with_consensus_context(1, 1, validator_set_root, 1).unwrap(),
+            DeterministicPeer::new_with_consensus_context(2, 1, validator_set_root, 1).unwrap(),
+            DeterministicPeer::new_with_consensus_context(3, 1, validator_set_root, 1).unwrap(),
         ];
         converge_peers(&mut peers, &set, &certificate, &vote_refs).unwrap();
         assert!(peers.iter().all(|peer| peer.state().finalized_height() == 1));
@@ -2610,43 +2888,197 @@ mod tests {
     }
 
     #[test]
-    fn validator_set_activation_requires_finalized_height() {
+    fn validator_set_activation_requires_prior_qc_and_exact_height() {
         use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
         let validator = activechain_protocol_types::PrincipalId::new(Digest384::new([75; 48]));
         let signer = ValidatorSigner::from_seed(validator, [76; 32]);
-        let genesis = |activation| {
-            ValidatorGenesis::new(
-                activation,
-                activation,
-                vec![
-                    ValidatorGenesisEntry::new(
-                        validator,
-                        1,
-                        signer.public_key().try_into().unwrap(),
-                    )
+        let next_signer = ValidatorSigner::from_seed(validator, [77; 32]);
+        let current = ValidatorGenesis::new(
+            1,
+            1,
+            vec![
+                ValidatorGenesisEntry::new(validator, 1, signer.public_key().try_into().unwrap())
                     .unwrap(),
-                ],
-            )
-            .unwrap()
-        };
-        let current = genesis(1);
-        let next = genesis(2);
+            ],
+        )
+        .unwrap();
+        let next = ValidatorGenesis::new(
+            2,
+            2,
+            vec![
+                ValidatorGenesisEntry::new(
+                    validator,
+                    1,
+                    next_signer.public_key().try_into().unwrap(),
+                )
+                .unwrap(),
+            ],
+        )
+        .unwrap();
         let path =
             std::env::temp_dir().join(format!("activechain-activation-{}.bin", std::process::id()));
+        let _ = std::fs::remove_file(&path);
         let service = ValidatorService::from_genesis(
             ConsensusState::new_with_validator_set_root(1, current.validator_set_root()),
             &current,
             path.clone(),
         )
         .unwrap();
-        let transition = EpochTransition::new(1, 2, 2, next.validator_set_root()).unwrap();
-        assert!(service.activate_finalized_validator_set(&transition, &next).is_err());
-        service.propose_round(&signer, 1, 0, Digest384::new([77; 48]), 1).unwrap();
-        service.propose_round(&signer, 2, 0, Digest384::new([78; 48]), 3).unwrap();
-        service.activate_finalized_validator_set(&transition, &next).unwrap();
+        let authorization = ConsensusUpgradeAuthorization::new(
+            1,
+            2,
+            1,
+            2,
+            current.validator_set_root(),
+            next.validator_set_root(),
+            1,
+            1,
+        )
+        .unwrap();
+        let proof = finalize_single_validator_proof(
+            &service,
+            &signer,
+            &current,
+            1,
+            authorization.commitment(),
+            1,
+        );
+
+        let wrong_authorization = ConsensusUpgradeAuthorization::new(
+            1,
+            2,
+            1,
+            2,
+            current.validator_set_root(),
+            Digest384::new([99; 48]),
+            1,
+            1,
+        )
+        .unwrap();
+        assert!(
+            service.activate_finalized_validator_set(&wrong_authorization, &proof, &next).is_err()
+        );
+        service.activate_finalized_validator_set(&authorization, &proof, &next).unwrap();
         assert_eq!(service.state().unwrap().epoch(), 2);
         assert_eq!(service.state().unwrap().validator_set_root(), next.validator_set_root());
-        let _ = std::fs::remove_file(path);
+        assert_eq!(
+            service.state().unwrap().retired_validator_set_roots(),
+            &[current.validator_set_root()]
+        );
+        service.propose_round(&next_signer, 2, 0, Digest384::new([78; 48]), 3).unwrap();
+        assert_eq!(service.state().unwrap().finalized_height(), 2);
+        drop(service);
+        let restored = load_snapshot(&path).unwrap();
+        let restarted = ValidatorService::from_active_manifest(
+            restored,
+            &next,
+            current.genesis_commitment(),
+            path.clone(),
+        )
+        .unwrap();
+        assert_eq!(restarted.state().unwrap().epoch(), 2);
+        assert_eq!(restarted.state().unwrap().retired_validator_set_roots().len(), 1);
+        drop(restarted);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn protocol_upgrade_rejects_stale_revision_certificates() {
+        use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
+        let validator = PrincipalId::new(Digest384::new([80; 48]));
+        let signer = ValidatorSigner::from_seed(validator, [81; 32]);
+        let genesis = ValidatorGenesis::new(
+            1,
+            1,
+            vec![
+                ValidatorGenesisEntry::new(validator, 1, signer.public_key().try_into().unwrap())
+                    .unwrap(),
+            ],
+        )
+        .unwrap();
+        let path = std::env::temp_dir()
+            .join(format!("activechain-protocol-upgrade-{}.bin", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let service = ValidatorService::from_genesis(
+            ConsensusState::new_with_validator_set_root(1, genesis.validator_set_root()),
+            &genesis,
+            path.clone(),
+        )
+        .unwrap();
+        let authorization = ConsensusUpgradeAuthorization::new(
+            1,
+            2,
+            1,
+            1,
+            genesis.validator_set_root(),
+            genesis.validator_set_root(),
+            1,
+            2,
+        )
+        .unwrap();
+        let proof = finalize_single_validator_proof(
+            &service,
+            &signer,
+            &genesis,
+            1,
+            authorization.commitment(),
+            1,
+        );
+        service.activate_finalized_protocol_upgrade(&authorization, &proof).unwrap();
+        assert_eq!(service.state().unwrap().protocol_revision(), 2);
+        assert_eq!(load_snapshot(&path).unwrap().protocol_revision(), 2);
+
+        let stale_proposal = signer.sign_proposal(1, 2, 0, Digest384::new([82; 48])).unwrap();
+        let stale_vote = signer
+            .sign_vote(
+                &stale_proposal,
+                genesis.genesis_commitment(),
+                genesis.validator_set_root(),
+                1,
+            )
+            .unwrap();
+        let validator_set = genesis.validator_set().unwrap();
+        let mut collector = VoteCollector::new(
+            stale_proposal,
+            genesis.genesis_commitment(),
+            genesis.validator_set_root(),
+            1,
+        );
+        collector
+            .add_vote(&validator_set, signer.public_key().as_slice(), stale_vote.clone())
+            .unwrap();
+        let stale_proof =
+            CertifiedBlock::new(collector.finalize(1, &validator_set).unwrap(), vec![stale_vote])
+                .unwrap();
+        assert!(matches!(
+            service.engine.lock().unwrap().process(ConsensusMessage::Certificate(stale_proof)),
+            Err(ValidatorEngineError::VoteDomainMismatch)
+        ));
+
+        service.propose_round(&signer, 2, 0, Digest384::new([83; 48]), 3).unwrap();
+        assert_eq!(service.state().unwrap().finalized_height(), 2);
+        let active_revision = ValidatorGenesis::new_with_revision(
+            1,
+            1,
+            2,
+            vec![
+                ValidatorGenesisEntry::new(validator, 1, signer.public_key().try_into().unwrap())
+                    .unwrap(),
+            ],
+        )
+        .unwrap();
+        drop(service);
+        let restored = load_snapshot(&path).unwrap();
+        let restarted = ValidatorService::from_active_manifest(
+            restored,
+            &active_revision,
+            genesis.genesis_commitment(),
+            path.clone(),
+        )
+        .unwrap();
+        assert_eq!(restarted.state().unwrap().protocol_revision(), 2);
+        drop(restarted);
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
@@ -3092,7 +3524,7 @@ mod tests {
         };
         let valid = make_vote(id, 3, Digest384::new([3; 48]));
         let mut collector =
-            VoteCollector::new(proposal.clone(), genesis_commitment, validator_set_root);
+            VoteCollector::new(proposal.clone(), genesis_commitment, validator_set_root, 1);
         assert_eq!(
             collector.add_vote(&set, key.verifying_key().encode().as_slice(), valid.clone()),
             Ok(())
@@ -3103,7 +3535,7 @@ mod tests {
         );
         assert_eq!(collector.finalize(1, &set), Err(VoteCollectionError::InsufficientStake));
         let mut collector =
-            VoteCollector::new(proposal.clone(), genesis_commitment, validator_set_root);
+            VoteCollector::new(proposal.clone(), genesis_commitment, validator_set_root, 1);
         assert_eq!(
             collector.add_vote(
                 &set,
@@ -3113,7 +3545,7 @@ mod tests {
             Err(VoteCollectionError::ContextMismatch)
         );
         let outsider = PrincipalId::new(Digest384::new([9; 48]));
-        let mut collector = VoteCollector::new(proposal, genesis_commitment, validator_set_root);
+        let mut collector = VoteCollector::new(proposal, genesis_commitment, validator_set_root, 1);
         assert_eq!(
             collector.add_vote(
                 &set,
@@ -3126,9 +3558,10 @@ mod tests {
 
     #[test]
     fn consensus_state_survives_restart_snapshot() {
-        let mut state = ConsensusState::new(4);
+        let validator_set_root = Digest384::new([7; 48]);
+        let mut state = ConsensusState::new_with_validator_set_root(4, validator_set_root);
         let qc = QuorumCertificate::new(
-            4,
+            ConsensusVoteContext::new(Digest384::new([8; 48]), 4, validator_set_root).unwrap(),
             9,
             2,
             Digest384::new([1; 48]),

@@ -23,7 +23,17 @@ format is finalized.
 
 The wallet performs Coin Cell discovery, deterministic input selection, fee estimation, policy
 evaluation, and canonical `CoinTransfer` construction. It MUST select a distinct fee reserve and
-bind a validity height. The node receives only the canonical transfer envelope and its PQ witness.
+bind a validity height. It then constructs `CashAuthorizationRequestV1`, binding the chain ID,
+sender, next nonce, one-shot session ID, session expiry, recipient commitment, and exact transfer,
+and signs its domain-separated canonical transcript with ML-DSA-44. The node receives only the
+outer `AuthorizedCashTransferV1` envelope; bare transfers and the legacy unkeyed session witness
+are not network-admissible.
+
+The node MUST resolve the sender's authorization key from finalized chain state, not from the
+request. It MUST atomically consume the nonce, session, payment inputs, fee input, and ledger
+transition. The current in-memory implementation satisfies the admission predicate but does not
+yet provide finalized key provenance or crash-atomic persistence of that joint state; both remain
+release gates.
 
 ## Operator safety
 
@@ -33,6 +43,7 @@ never reuse production or development seeds across networks.
 
 ## Launch acceptance
 
-The release rehearsal MUST demonstrate wallet derivation, funded Coin Cell discovery, a signed
-transfer, fee charging, replay rejection, restart recovery, and convergence across three
+The release rehearsal MUST demonstrate wallet derivation, finalized authorization-key discovery,
+funded Coin Cell discovery, a signed transfer, fee charging, nonce/session/input replay rejection,
+crash recovery of the joint ledger and authorization state, and convergence across three
 authenticated PQ validator processes.

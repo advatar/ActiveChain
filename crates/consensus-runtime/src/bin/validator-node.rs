@@ -1,5 +1,6 @@
 use activechain_consensus_runtime::{
-    PeerListener, ValidatorService, load_genesis, load_snapshot, save_snapshot,
+    PeerListener, ValidatorService, load_genesis, load_snapshot,
+    load_snapshot_chain_genesis_commitment, save_snapshot,
 };
 use activechain_protocol_types::ConsensusState;
 use activechain_protocol_types::Digest384;
@@ -32,14 +33,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             genesis.as_ref().map_or_else(
                 || ConsensusState::new(genesis_epoch),
                 |config| {
-                    ConsensusState::new_with_validator_set_root(
+                    ConsensusState::new_with_consensus_context(
                         config.epoch(),
                         config.validator_set_root(),
+                        config.protocol_revision(),
                     )
+                    .expect("validated manifest must define a consensus context")
                 },
             )
         });
-    if let Some(path) = snapshot_path.as_deref() {
+    let chain_genesis_commitment = snapshot_path
+        .as_deref()
+        .filter(|path| Path::new(path).exists())
+        .map(Path::new)
+        .map(load_snapshot_chain_genesis_commitment)
+        .transpose()?
+        .flatten()
+        .or_else(|| genesis.as_ref().map(|config| config.genesis_commitment()));
+    if let Some(path) = snapshot_path.as_deref().filter(|path| !Path::new(path).exists()) {
         save_snapshot(Path::new(path), &state)?;
     }
     let listener = PeerListener::bind(("0.0.0.0", port))?;
@@ -73,9 +84,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if run_once && !peer_specs.is_empty() {
             let next_height = state.finalized_height().saturating_add(1);
             let service = std::sync::Arc::new(
-                ValidatorService::from_genesis(
+                ValidatorService::from_active_manifest(
                     state,
                     genesis,
+                    chain_genesis_commitment.ok_or("missing immutable chain genesis commitment")?,
                     snapshot_path
                         .as_deref()
                         .map(Path::new)
@@ -143,9 +155,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         if run_once {
             let next_height = state.finalized_height().saturating_add(1);
-            let service = ValidatorService::from_genesis(
+            let service = ValidatorService::from_active_manifest(
                 state,
                 genesis,
+                chain_genesis_commitment.ok_or("missing immutable chain genesis commitment")?,
                 snapshot_path
                     .as_deref()
                     .map(Path::new)
@@ -180,9 +193,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(genesis) = genesis {
         let service = std::sync::Arc::new(
-            ValidatorService::from_genesis(
+            ValidatorService::from_active_manifest(
                 state,
                 &genesis,
+                chain_genesis_commitment.ok_or("missing immutable chain genesis commitment")?,
                 snapshot_path
                     .as_deref()
                     .map(Path::new)

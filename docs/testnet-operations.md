@@ -27,14 +27,18 @@ between testnet genesis files.
 ## Fund and submit a transfer
 
 The faucet issues a test-only Coin Cell on the exact genesis chain. The wallet must discover a
-funded cell, reserve a distinct fee cell, construct a canonical `CoinTransfer`, and submit it to
-transaction ingress. Ingress applies the cash-kernel transition and rejects a repeated transition
-ID.
+funded cell, reserve a distinct fee cell, construct a canonical `CoinTransfer`, wrap it in a
+chain/sender/nonce/session-bound `CashAuthorizationRequestV1`, sign the exact canonical transcript
+with ML-DSA-44, and submit the outer `AuthorizedCashTransferV1` envelope. Ingress resolves the
+sender key from finalized state and atomically applies the cash transition while consuming the
+nonce, session, payment inputs, and fee input. Bare transfers are test helpers only and MUST NOT be
+accepted by a network handler.
 
 ## Run the process rehearsal
 
 ```sh
 bash scripts/rehearse-validator-processes.sh
+```
 
 ## Build and deploy the Kanalen bundle
 
@@ -51,7 +55,6 @@ Kanalen reserves the host port block `49150-49153` to avoid the Mac mini's exist
 - `49153` metrics/health endpoint.
 
 Only `49151-49153` should be reverse-proxied later. Keep `49150` restricted to validator peers.
-```
 
 The rehearsal must produce one persisted snapshot per validator and report
 `proposals=1 votes=1 rejected=0` for every process. A rejected-message count

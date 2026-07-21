@@ -31,20 +31,29 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
   - [ ] Implement and model parent/QC binding plus safe-vote, lock, and commit rules across rounds.
   - [ ] Prove any two finalized histories are prefix-comparable, including view changes, epoch
     changes, and restart recovery.
-  - [ ] Verify canonical signer ordering, vote-set-root recomputation, and checked stake arithmetic.
+  - [x] Verify canonical signer ordering, vote-set-root recomputation, and checked stake arithmetic
+    at the Rust QC boundary.
 - [x] Prove abstract cash conservation, authorized issuance, burn, and reward no-double-mint properties in Lean.
 - [ ] Refine the cash proof to signed, chain-bound intents, input authorization, atomic batches,
   one-shot sessions/nonces, finalized issuance, reward proofs, shielding, and crash-safe replay.
   - [x] Prove the target chain/sender/intent/signature/nonce/session/input admission predicate and
     atomic replay barriers in Lean.
-  - [ ] Replace the bare-transfer Rust ingress and unkeyed legacy session witness with the proved
-    PQ-signed, durable admission boundary.
+  - [x] Replace authoritative bare-transfer ingress with a strict ML-DSA-44 envelope bound to the
+    chain, sender, exact transfer, recipient, nonce, session, expiry, and consumed inputs.
+  - [ ] Derive authorization keys from finalized identity state and persist the cash ledger, nonce,
+    session, and input-replay barriers in one crash-atomic state transition. The unkeyed legacy
+    `PaymentSession` remains a local compatibility helper and is not accepted by network ingress.
 - [x] Prove DA reconstruction bounds and fail-closed light-client trust transitions in Lean.
 - [x] Prove canonical envelope rejection, commitment binding, and FFI precondition invariants in Lean.
 - [x] Prove bounded principal rotation/recovery/deactivation and direct-delegation attenuation properties.
 - [x] Prove exact epoch/revision activation and retired-validator-set rejection in the abstract Lean model.
 - [ ] Implement and prove conformance for finalized epoch/revision authorization, exact activation,
   retired-set history, and revision-bound certificate admission.
+  - [x] Implement canonical finalized upgrade authorizations, exact-height activation,
+    revision-bound votes/QCs, bounded retired-root persistence, stale-certificate rejection, and
+    atomic validator key/root replacement in Rust.
+  - [ ] Add an implementation trace or differential refinement from the Rust upgrade path to the
+    Lean transition model, including the bounded retired-root exhaustion case.
 - [x] Prove the scoped PQ-session downgrade, context, key-confirmation, and bounded replay target in Tamarin.
 - [ ] Implement the modeled PQ transcript/session boundary and prove full agreement, secrecy under
   stated compromise assumptions, durable sequence handling, and parser conformance.

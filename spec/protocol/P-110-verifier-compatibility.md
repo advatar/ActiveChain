@@ -1,6 +1,6 @@
 # P-110: Stable verifier compatibility contract
 
-- Status: Draft 0.1
+- Status: Draft 0.2
 - Protocol revision: `activechain-v1-dev`
 
 This contract is the boundary for network-disabled local verifiers such as dBrowser.
@@ -49,3 +49,44 @@ Before a light client trusts state it MUST verify a finalized quorum certificate
 root active at that height, a checkpoint binding the state root and protocol revision, state-tree
 membership/non-membership proofs, and data-availability evidence. Validator-set changes require a
 finalized activation height. Upgrades require an explicit version gate and retained historical rules.
+
+### Epoch and revision activation
+
+Validator-set and protocol-revision changes MUST be represented by canonical
+`ConsensusUpgradeAuthorization` (`type_tag = 0x006d`, `schema_version = 1`). The authorization
+commits the authorization and activation heights, previous and next epochs, previous and next
+validator-set roots, and previous and next protocol revisions under
+`ACTIVECHAIN-CONSENSUS-UPGRADE-V1`.
+
+An authorization is actionable only when all of the following hold:
+
+- a strict-quorum `CertifiedBlock` finalizes the authorization commitment as its block digest;
+- every included ML-DSA vote is bound to the immutable genesis commitment, active epoch, active
+  validator-set root, and active protocol revision;
+- the authorization height is finalized before the activation height;
+- the node is at the boundary immediately before the declared activation height;
+- a validator-set change advances exactly one epoch and binds a `ValidatorGenesis` with the exact
+  next epoch, activation height, validator-set root, and protocol revision;
+- a protocol revision is unchanged or increases strictly; and
+- a next validator-set root has never appeared in the durable retired-root history.
+
+Nodes MUST reject early, missed, or late activation. They MUST reject certificates from a stale
+epoch, a non-active validator-set root, or a non-active protocol revision. A schema-v2 QC binds the
+complete consensus context, but a QC summary alone is not proof of its signer set and MUST NOT be
+treated as authoritative without its canonical signed votes. Validators in the signed vote set
+MUST be strictly ordered by principal ID. Verifiers MUST recompute `vote_set_root` from
+`ACTIVECHAIN-VOTE-SET-V1 || public_key || vote_signing_payload || signature` for each ordered vote
+and reject duplicate, reordered, omitted, substituted, or otherwise mismatched transcripts.
+
+The activation boundary uses these schema revisions:
+
+| Type | Type tag | Schema |
+| --- | --- | --- |
+| `ValidatorVote` | `0x0064` | `3` |
+| `QuorumCertificate` | `0x0065` | `2` |
+| `ConsensusSnapshot` | `0x0069` | `2` |
+| `ValidatorGenesis` | `0x006b` | `2` |
+| `ConsensusUpgradeAuthorization` | `0x006d` | `1` |
+
+Older snapshots and validator manifests omit required revision or rollback-history fields and MUST
+fail closed rather than be silently upgraded.

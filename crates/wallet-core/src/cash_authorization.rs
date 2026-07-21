@@ -1,0 +1,261 @@
+use activechain_canonical_codec::{
+    CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
+    encode_envelope,
+};
+use activechain_cash_kernel::CoinTransfer;
+use activechain_protocol_types::{
+    ChainId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature,
+};
+use alloc::vec::Vec;
+use ml_dsa::{EncodedSignature, EncodedVerifyingKey, MlDsa44, Signature, Verifier, VerifyingKey};
+use sha3::{
+    Shake256,
+    digest::{ExtendableOutput, Update, XofReader},
+};
+
+use crate::WalletError;
+
+const CASH_AUTHORIZATION_SIGNING_DOMAIN: &[u8] = b"ACTIVECHAIN-CASH-AUTHORIZATION-ML-DSA-44-V1";
+const CASH_INTENT_ID_DOMAIN: &[u8] = b"ACTIVECHAIN-CASH-INTENT-ID-V1";
+const RECIPIENT_COMMITMENT_DOMAIN: &[u8] = b"ACTIVECHAIN-CASH-RECIPIENT-V1";
+
+/// The exact canonical value authorized by an ML-DSA cash signature.
+///
+/// The recipient commitment is carried on the wire for policy interoperability, but strict
+/// decoding recomputes it from `transfer.recipient()` and rejects a mismatch.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CashAuthorizationRequestV1 {
+    chain_id: ChainId,
+    signer: PrincipalId,
+    nonce: u64,
+    session_id: Digest384,
+    session_expires_at: u64,
+    recipient_commitment: Digest384,
+    transfer: CoinTransfer,
+}
+
+impl CashAuthorizationRequestV1 {
+    pub const TYPE_TAG: u16 = 0x008a;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 + 48 + 8 + 48 + 8 + 48 + CoinTransfer::MAX_ENCODED_LEN;
+
+    pub fn new(
+        chain_id: ChainId,
+        signer: PrincipalId,
+        nonce: u64,
+        session_id: Digest384,
+        session_expires_at: u64,
+        transfer: CoinTransfer,
+    ) -> Result<Self, WalletError> {
+        if session_expires_at == 0 || session_expires_at > transfer.valid_until() {
+            return Err(WalletError::Expired);
+        }
+        Ok(Self {
+            chain_id,
+            signer,
+            nonce,
+            session_id,
+            session_expires_at,
+            recipient_commitment: recipient_commitment(transfer.recipient()),
+            transfer,
+        })
+    }
+
+    #[must_use]
+    pub const fn chain_id(&self) -> ChainId {
+        self.chain_id
+    }
+
+    #[must_use]
+    pub const fn signer(&self) -> PrincipalId {
+        self.signer
+    }
+
+    #[must_use]
+    pub const fn nonce(&self) -> u64 {
+        self.nonce
+    }
+
+    #[must_use]
+    pub const fn session_id(&self) -> Digest384 {
+        self.session_id
+    }
+
+    #[must_use]
+    pub const fn session_expires_at(&self) -> u64 {
+        self.session_expires_at
+    }
+
+    #[must_use]
+    pub const fn recipient_commitment(&self) -> Digest384 {
+        self.recipient_commitment
+    }
+
+    #[must_use]
+    pub const fn transfer(&self) -> &CoinTransfer {
+        &self.transfer
+    }
+
+    /// Returns the complete domain-separated canonical bytes that an ML-DSA signer authorizes.
+    pub fn signing_payload(&self) -> Result<Vec<u8>, EncodeError> {
+        let request = encode_envelope(self)?;
+        let request_length =
+            u64::try_from(request.len()).map_err(|_| EncodeError::LengthOverflow)?;
+        let capacity = CASH_AUTHORIZATION_SIGNING_DOMAIN
+            .len()
+            .checked_add(8)
+            .and_then(|length| length.checked_add(request.len()))
+            .ok_or(EncodeError::LengthOverflow)?;
+        let mut payload = Vec::with_capacity(capacity);
+        payload.extend_from_slice(CASH_AUTHORIZATION_SIGNING_DOMAIN);
+        payload.extend_from_slice(&request_length.to_be_bytes());
+        payload.extend_from_slice(&request);
+        Ok(payload)
+    }
+
+    /// Recomputes the intent identifier from the exact signing transcript.
+    pub fn intent_id(&self) -> Result<Digest384, EncodeError> {
+        let payload = self.signing_payload()?;
+        let mut hasher = Shake256::default();
+        hasher.update(CASH_INTENT_ID_DOMAIN);
+        hasher.update(&(payload.len() as u64).to_be_bytes());
+        hasher.update(&payload);
+        let mut output = [0_u8; 48];
+        hasher.finalize_xof().read(&mut output);
+        Ok(Digest384::new(output))
+    }
+}
+
+impl CanonicalEncode for CashAuthorizationRequestV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain_id.encode(encoder)?;
+        self.signer.encode(encoder)?;
+        self.nonce.encode(encoder)?;
+        self.session_id.encode(encoder)?;
+        self.session_expires_at.encode(encoder)?;
+        self.recipient_commitment.encode(encoder)?;
+        self.transfer.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for CashAuthorizationRequestV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let chain_id = ChainId::decode(decoder)?;
+        let signer = PrincipalId::decode(decoder)?;
+        let nonce = u64::decode(decoder)?;
+        let session_id = Digest384::decode(decoder)?;
+        let session_expires_at = u64::decode(decoder)?;
+        let claimed_recipient_commitment = Digest384::decode(decoder)?;
+        let transfer = CoinTransfer::decode(decoder)?;
+        if session_expires_at == 0 || session_expires_at > transfer.valid_until() {
+            return Err(DecodeError::InvalidValue(
+                "cash authorization session exceeds the transfer validity window",
+            ));
+        }
+        let expected_recipient_commitment = recipient_commitment(transfer.recipient());
+        if claimed_recipient_commitment != expected_recipient_commitment {
+            return Err(DecodeError::InvalidValue(
+                "cash authorization recipient commitment mismatch",
+            ));
+        }
+        Ok(Self {
+            chain_id,
+            signer,
+            nonce,
+            session_id,
+            session_expires_at,
+            recipient_commitment: expected_recipient_commitment,
+            transfer,
+        })
+    }
+}
+
+impl CanonicalType for CashAuthorizationRequestV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
+/// A strict canonical cash request plus its exact ML-DSA-44 authorization.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthorizedCashTransferV1 {
+    request: CashAuthorizationRequestV1,
+    signature: ProtocolSignature,
+}
+
+impl AuthorizedCashTransferV1 {
+    pub const TYPE_TAG: u16 = 0x008b;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize =
+        CashAuthorizationRequestV1::MAX_ENCODED_LEN + ProtocolSignature::MAX_ENCODED_LEN;
+
+    pub fn new(
+        request: CashAuthorizationRequestV1,
+        signature: ProtocolSignature,
+    ) -> Result<Self, WalletError> {
+        if signature.suite() != CryptoSuiteId::ML_DSA_44 {
+            return Err(WalletError::InvalidSignature);
+        }
+        Ok(Self { request, signature })
+    }
+
+    #[must_use]
+    pub const fn request(&self) -> &CashAuthorizationRequestV1 {
+        &self.request
+    }
+
+    #[must_use]
+    pub const fn signature(&self) -> &ProtocolSignature {
+        &self.signature
+    }
+
+    pub fn verify(&self, public_key: &[u8]) -> Result<(), WalletError> {
+        let key: EncodedVerifyingKey<MlDsa44> =
+            public_key.try_into().map_err(|_| WalletError::InvalidAuthorizationKey)?;
+        let signature: EncodedSignature<MlDsa44> =
+            self.signature.as_bytes().try_into().map_err(|_| WalletError::InvalidSignature)?;
+        let key = VerifyingKey::<MlDsa44>::decode(&key);
+        let signature =
+            Signature::<MlDsa44>::decode(&signature).ok_or(WalletError::InvalidSignature)?;
+        let payload =
+            self.request.signing_payload().map_err(|_| WalletError::MalformedAuthorization)?;
+        key.verify(&payload, &signature).map_err(|_| WalletError::InvalidSignature)
+    }
+}
+
+impl CanonicalEncode for AuthorizedCashTransferV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.request.encode(encoder)?;
+        self.signature.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for AuthorizedCashTransferV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let request = CashAuthorizationRequestV1::decode(decoder)?;
+        let signature = ProtocolSignature::decode(decoder)?;
+        if signature.suite() != CryptoSuiteId::ML_DSA_44 {
+            return Err(DecodeError::InvalidValue(
+                "cash authorization requires the ML-DSA-44 suite",
+            ));
+        }
+        Ok(Self { request, signature })
+    }
+}
+
+impl CanonicalType for AuthorizedCashTransferV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
+/// Derives the protocol recipient binding used by both policy checks and signed cash requests.
+#[must_use]
+pub fn recipient_commitment(recipient: PrincipalId) -> Digest384 {
+    let mut hasher = Shake256::default();
+    hasher.update(RECIPIENT_COMMITMENT_DOMAIN);
+    hasher.update(recipient.digest().as_bytes());
+    let mut output = [0_u8; 48];
+    hasher.finalize_xof().read(&mut output);
+    Digest384::new(output)
+}

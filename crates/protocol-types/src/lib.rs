@@ -22,13 +22,15 @@ pub use authority::{
     RecoveryRequest, RecoveryRequestError, ResourceSelector, ScopeSelector, ScopeSelectorError,
 };
 pub use consensus::{
-    BlockProposal, ConsensusVoteContext, EpochTransition, EpochTransitionError,
+    BlockProposal, ConsensusUpgradeAuthorization, ConsensusUpgradeAuthorizationError,
+    ConsensusVoteContext, EpochTransition, EpochTransitionError, INITIAL_PROTOCOL_REVISION,
     MAX_VALIDATORS_PER_EPOCH, ML_DSA44_PUBLIC_KEY_LENGTH, QuorumCertificate,
     QuorumCertificateError, ValidatorGenesis, ValidatorGenesisEntry, ValidatorGenesisError,
     ValidatorSet, ValidatorSetError, ValidatorVote, ValidatorVoteError, ValidatorWeight,
 };
 pub use consensus_state::{
     ConsensusSnapshot, ConsensusState, ConsensusStateError, GenesisConfig, GenesisConfigError,
+    MAX_RETIRED_VALIDATOR_SET_ROOTS,
 };
 pub use credential::{
     CREDENTIAL_FORMAT_VERSION, Credential, CredentialAcceptancePolicy, CredentialStatement,

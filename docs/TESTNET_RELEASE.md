@@ -12,8 +12,9 @@ testnet announcement MUST carry this developmental disclaimer.
 
 - Three or more authenticated PQ validator processes with canonical genesis.
 - Snapshot/restart recovery and partition reconnect rehearsal.
-- A transaction-ingress service that accepts only canonical `CoinTransfer` envelopes and PQ
-  authorization witnesses. It MUST never accept private keys.
+- A transaction-ingress service that accepts only canonical `AuthorizedCashTransferV1` envelopes
+  carrying an exact ML-DSA-44 request. It MUST resolve public keys from finalized state, persist
+  nonce/session/input replay barriers atomically with the ledger, and never accept private keys.
 - Wallet CLI support for deterministic testnet identity derivation, Coin Cell selection, fee
   reserves, and transfer construction.
 - Faucet/genesis funding tool bound to the testnet genesis hash.
@@ -35,7 +36,8 @@ package additionally requires compiled C bindings and finality/state/DA proof fi
 1. Derive two independent ML-DSA testnet identities.
 2. Fund one identity from the testnet faucet.
 3. Discover Coin Cells and construct a transfer with a distinct fee reserve.
-4. Submit the canonical envelope through transaction ingress.
+4. Sign the chain/sender/nonce/session/input-bound request with ML-DSA-44 and submit the canonical
+   `AuthorizedCashTransferV1` envelope through transaction ingress.
 5. Observe finality on all validators and index the recipient balance.
 6. Replay the envelope and confirm deterministic rejection.
 7. Restart one validator and confirm the transfer remains finalized.
@@ -50,5 +52,6 @@ package additionally requires compiled C bindings and finality/state/DA proof fi
 
 ## Release blockers
 
-The testnet MUST NOT be announced until transaction ingress, faucet funding, and the seven-step
-wallet acceptance rehearsal are implemented and passing on the local ARM64 runner.
+The testnet MUST NOT be announced until finalized authorization-key resolution, crash-atomic
+ingress persistence, faucet funding, and the seven-step wallet acceptance rehearsal are
+implemented and passing on the local ARM64 runner.

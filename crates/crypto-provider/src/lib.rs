@@ -172,7 +172,9 @@ pub enum VerificationError {
     InvalidSignature,
     UnknownValidator,
     DuplicateValidator,
+    NonCanonicalVoteOrder,
     VoteContextMismatch,
+    VoteSetRootMismatch,
     StakeMismatch,
 }
 
@@ -213,9 +215,16 @@ pub fn verify_quorum_certificate(
     let mut seen = alloc::vec::Vec::new();
     let mut signer_stake = 0_u128;
     let mut vote_domain = None;
+    let mut previous_validator = None;
+    let mut vote_set_hasher = Shake256::default();
+    vote_set_hasher.update(b"ACTIVECHAIN-VOTE-SET-V1");
     for (public_key, vote) in votes {
-        let current_domain = (vote.genesis_commitment(), vote.validator_set_root());
-        if vote.epoch() != certificate.epoch()
+        let current_domain =
+            (vote.genesis_commitment(), vote.validator_set_root(), vote.protocol_revision());
+        if vote.genesis_commitment() != certificate.genesis_commitment()
+            || vote.epoch() != certificate.epoch()
+            || vote.validator_set_root() != certificate.validator_set_root()
+            || vote.protocol_revision() != certificate.protocol_revision()
             || vote_domain.is_some_and(|domain| domain != current_domain)
             || vote.height() != certificate.height()
             || vote.round() != certificate.round()
@@ -227,11 +236,23 @@ pub fn verify_quorum_certificate(
         if seen.contains(&vote.validator()) {
             return Err(VerificationError::DuplicateValidator);
         }
+        if previous_validator.is_some_and(|previous| vote.validator() <= previous) {
+            return Err(VerificationError::NonCanonicalVoteOrder);
+        }
         let stake =
             validator_set.stake_of(&vote.validator()).ok_or(VerificationError::UnknownValidator)?;
         verify_validator_vote(public_key, vote)?;
+        vote_set_hasher.update(public_key);
+        vote_set_hasher.update(&vote.signing_payload());
+        vote_set_hasher.update(vote.signature().as_bytes());
         seen.push(vote.validator());
+        previous_validator = Some(vote.validator());
         signer_stake = signer_stake.checked_add(stake).ok_or(VerificationError::StakeMismatch)?;
+    }
+    let mut vote_set_root = [0_u8; 48];
+    vote_set_hasher.finalize_xof().read(&mut vote_set_root);
+    if activechain_protocol_types::Digest384::new(vote_set_root) != certificate.vote_set_root() {
+        return Err(VerificationError::VoteSetRootMismatch);
     }
     if validator_set.total_stake() != certificate.total_stake()
         || signer_stake != certificate.signer_stake()
@@ -246,7 +267,7 @@ mod tests {
     use super::*;
     use activechain_protocol_types::{
         ConsensusVoteContext, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature,
-        ValidatorVote,
+        QuorumCertificate, ValidatorSet, ValidatorVote, ValidatorWeight,
     };
     use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
     #[test]
@@ -320,6 +341,98 @@ mod tests {
         assert_eq!(
             verify_validator_vote(signing_key.verifying_key().encode().as_slice(), &wrong_epoch),
             Err(VerificationError::InvalidSignature)
+        );
+        let wrong_revision = ValidatorVote::new(
+            vote.validator(),
+            ConsensusVoteContext::new_with_revision(
+                vote.genesis_commitment(),
+                vote.epoch(),
+                vote.validator_set_root(),
+                vote.protocol_revision() + 1,
+            )
+            .unwrap(),
+            vote.height(),
+            vote.round(),
+            vote.block_digest(),
+            vote.signature().clone(),
+        )
+        .unwrap();
+        assert_eq!(
+            verify_validator_vote(signing_key.verifying_key().encode().as_slice(), &wrong_revision),
+            Err(VerificationError::InvalidSignature)
+        );
+    }
+
+    #[test]
+    fn quorum_verification_binds_canonical_vote_set_transcript() {
+        let context =
+            ConsensusVoteContext::new(Digest384::new([20; 48]), 3, Digest384::new([21; 48]))
+                .unwrap();
+        let block_digest = Digest384::new([22; 48]);
+        let validators: Vec<_> = [1_u8, 2]
+            .into_iter()
+            .map(|byte| ValidatorWeight {
+                validator: PrincipalId::new(Digest384::new([byte; 48])),
+                stake: 1,
+            })
+            .collect();
+        let validator_set = ValidatorSet::new(validators.clone()).unwrap();
+        let mut signed_votes = Vec::new();
+        for (index, validator) in validators.iter().enumerate() {
+            let signing_key =
+                SigningKey::<MlDsa44>::from_seed(&Seed::from([(index + 1) as u8; 32]));
+            let unsigned = ValidatorVote::new(
+                validator.validator,
+                context,
+                9,
+                2,
+                block_digest,
+                ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420]).unwrap(),
+            )
+            .unwrap();
+            let signature = signing_key.sign(&unsigned.signing_payload());
+            signed_votes.push((
+                signing_key.verifying_key().encode().to_vec(),
+                ValidatorVote::new(
+                    validator.validator,
+                    context,
+                    9,
+                    2,
+                    block_digest,
+                    ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec())
+                        .unwrap(),
+                )
+                .unwrap(),
+            ));
+        }
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-VOTE-SET-V1");
+        for (key, vote) in &signed_votes {
+            hasher.update(key);
+            hasher.update(&vote.signing_payload());
+            hasher.update(vote.signature().as_bytes());
+        }
+        let mut root = [0_u8; 48];
+        hasher.finalize_xof().read(&mut root);
+        let certificate =
+            QuorumCertificate::new(context, 9, 2, block_digest, Digest384::new(root), 2, 2)
+                .unwrap();
+        let mut vote_refs: Vec<_> =
+            signed_votes.iter().map(|(key, vote)| (key.as_slice(), vote.clone())).collect();
+        assert_eq!(verify_quorum_certificate(&certificate, &validator_set, &vote_refs), Ok(()));
+
+        let tampered_root =
+            QuorumCertificate::new(context, 9, 2, block_digest, Digest384::new([99; 48]), 2, 2)
+                .unwrap();
+        assert_eq!(
+            verify_quorum_certificate(&tampered_root, &validator_set, &vote_refs),
+            Err(VerificationError::VoteSetRootMismatch)
+        );
+
+        vote_refs.swap(0, 1);
+        assert_eq!(
+            verify_quorum_certificate(&certificate, &validator_set, &vote_refs),
+            Err(VerificationError::NonCanonicalVoteOrder)
         );
     }
 

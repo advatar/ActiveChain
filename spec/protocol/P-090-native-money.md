@@ -64,6 +64,31 @@ mutation.
 
 ## Post-quantum boundary
 
-This tranche defines value conservation and issuance accounting only. Payment
-authorization witnesses and compact ML-DSA sessions are specified by the next
-cash tranche; no classical signature suite may be added to native validation.
+Authoritative transaction ingress accepts only a strict canonical
+`AuthorizedCashTransferV1` envelope (type `0x008b`, schema version `1`). Its
+embedded `CashAuthorizationRequestV1` (type `0x008a`, schema version `1`) binds:
+
+- the immutable chain ID and sender principal;
+- the sender-local nonce, one-shot session ID, and session expiry;
+- a recomputed recipient commitment; and
+- the complete canonical `CoinTransfer`, including all input cells, fee reserve,
+  amount, fee, and validity height.
+
+The signature transcript is the domain-separated, length-prefixed canonical
+request envelope and MUST use ML-DSA-44. The node obtains the sender's public key
+from finalized authorization state; a request can never supply or replace that
+key. Strict decoding rejects a wrong type or version, malformed lengths,
+trailing bytes, a recipient mismatch, an expiry outside the transfer validity
+window, or any non-ML-DSA signature suite.
+
+Admission checks the exact next nonce and rejects reused session IDs or any
+already-consumed payment/fee input. The ledger transition, nonce increment,
+session consumption, and input replay barriers are constructed on a private
+next-state value and become visible together only after every ledger check
+succeeds. The current implementation provides this atomicity in memory. Before
+public value-bearing operation, finalized identity/key provenance and the joint
+ledger/authorization state MUST be persisted by one crash-atomic commit. The
+legacy unkeyed `PaymentSession` helper is local wallet compatibility code and is
+not a network authorization mechanism.
+
+No classical signature suite may be added to native validation.

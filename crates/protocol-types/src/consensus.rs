@@ -26,18 +26,36 @@ pub struct ConsensusVoteContext {
     genesis_commitment: Digest384,
     epoch: Epoch,
     validator_set_root: Digest384,
+    protocol_revision: u64,
 }
 
 impl ConsensusVoteContext {
+    /// Constructs the initial protocol-revision context.
     pub fn new(
         genesis_commitment: Digest384,
         epoch: Epoch,
         validator_set_root: Digest384,
     ) -> Result<Self, ValidatorVoteError> {
-        if genesis_commitment == Digest384::ZERO || validator_set_root == Digest384::ZERO {
+        Self::new_with_revision(
+            genesis_commitment,
+            epoch,
+            validator_set_root,
+            INITIAL_PROTOCOL_REVISION,
+        )
+    }
+    pub fn new_with_revision(
+        genesis_commitment: Digest384,
+        epoch: Epoch,
+        validator_set_root: Digest384,
+        protocol_revision: u64,
+    ) -> Result<Self, ValidatorVoteError> {
+        if genesis_commitment == Digest384::ZERO
+            || validator_set_root == Digest384::ZERO
+            || protocol_revision == 0
+        {
             return Err(ValidatorVoteError::UnboundConsensusDomain);
         }
-        Ok(Self { genesis_commitment, epoch, validator_set_root })
+        Ok(Self { genesis_commitment, epoch, validator_set_root, protocol_revision })
     }
     pub const fn genesis_commitment(self) -> Digest384 {
         self.genesis_commitment
@@ -48,13 +66,18 @@ impl ConsensusVoteContext {
     pub const fn validator_set_root(self) -> Digest384 {
         self.validator_set_root
     }
+    pub const fn protocol_revision(self) -> u64 {
+        self.protocol_revision
+    }
 }
+
+pub const INITIAL_PROTOCOL_REVISION: u64 = 1;
 
 impl ValidatorVote {
     pub const TYPE_TAG: u16 = 0x0064;
-    pub const SCHEMA_VERSION: u16 = 2;
+    pub const SCHEMA_VERSION: u16 = 3;
     pub const MAX_ENCODED_LEN: usize =
-        48 + 48 + 8 + 48 + 8 + 8 + 48 + ProtocolSignature::MAX_ENCODED_LEN;
+        48 + 48 + 8 + 48 + 8 + 8 + 8 + 48 + ProtocolSignature::MAX_ENCODED_LEN;
     pub fn new(
         validator: PrincipalId,
         context: ConsensusVoteContext,
@@ -80,6 +103,9 @@ impl ValidatorVote {
     pub const fn validator_set_root(&self) -> Digest384 {
         self.context.validator_set_root()
     }
+    pub const fn protocol_revision(&self) -> u64 {
+        self.context.protocol_revision()
+    }
     pub const fn height(&self) -> u64 {
         self.height
     }
@@ -93,12 +119,13 @@ impl ValidatorVote {
         &self.signature
     }
     pub fn signing_payload(&self) -> Vec<u8> {
-        let mut payload = Vec::with_capacity(18 + 2 + 48 + 8 + 48 + 48 + 8 + 8 + 48);
-        payload.extend_from_slice(b"ACTIVECHAIN-VOTE-V2");
+        let mut payload = Vec::with_capacity(18 + 2 + 48 + 8 + 48 + 8 + 48 + 8 + 8 + 48);
+        payload.extend_from_slice(b"ACTIVECHAIN-VOTE-V3");
         payload.extend_from_slice(&Self::SCHEMA_VERSION.to_be_bytes());
         payload.extend_from_slice(self.context.genesis_commitment.as_bytes());
         payload.extend_from_slice(&self.context.epoch.to_be_bytes());
         payload.extend_from_slice(self.context.validator_set_root.as_bytes());
+        payload.extend_from_slice(&self.context.protocol_revision.to_be_bytes());
         payload.extend_from_slice(self.validator.digest().as_bytes());
         payload.extend_from_slice(&self.height.to_be_bytes());
         payload.extend_from_slice(&self.round.to_be_bytes());
@@ -178,7 +205,10 @@ pub struct ValidatorWeight {
 pub const MAX_VALIDATORS_PER_EPOCH: usize = 256;
 pub const ML_DSA44_PUBLIC_KEY_LENGTH: usize = 1312;
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ValidatorSet(Vec<ValidatorWeight>);
+pub struct ValidatorSet {
+    validators: Vec<ValidatorWeight>,
+    total_stake: u128,
+}
 impl ValidatorSet {
     pub const MAX_ENCODED_LEN: usize = 1 + MAX_VALIDATORS_PER_EPOCH * (48 + 16);
     pub fn new(validators: Vec<ValidatorWeight>) -> Result<Self, ValidatorSetError> {
@@ -188,28 +218,33 @@ impl ValidatorSet {
         if validators.iter().any(|v| v.stake == 0) {
             return Err(ValidatorSetError::ZeroStake);
         }
+        let total_stake = validators
+            .iter()
+            .try_fold(0_u128, |total, validator| total.checked_add(validator.stake))
+            .ok_or(ValidatorSetError::StakeOverflow)?;
         if validators.windows(2).any(|pair| pair[0].validator >= pair[1].validator) {
             return Err(ValidatorSetError::NotStrictlyOrdered);
         }
-        Ok(Self(validators))
+        Ok(Self { validators, total_stake })
     }
     pub fn as_slice(&self) -> &[ValidatorWeight] {
-        &self.0
+        &self.validators
     }
     pub fn stake_of(&self, validator: &PrincipalId) -> Option<u128> {
-        self.0
+        self.validators
             .binary_search_by_key(validator, |entry| entry.validator)
             .ok()
-            .map(|index| self.0[index].stake)
+            .map(|index| self.validators[index].stake)
     }
-    pub fn total_stake(&self) -> u128 {
-        self.0.iter().map(|entry| entry.stake).sum()
+    pub const fn total_stake(&self) -> u128 {
+        self.total_stake
     }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ValidatorSetError {
     Bounds,
     ZeroStake,
+    StakeOverflow,
     NotStrictlyOrdered,
 }
 
@@ -230,11 +265,14 @@ impl EpochTransition {
         activation_height: u64,
         validator_set_root: Digest384,
     ) -> Result<Self, EpochTransitionError> {
-        if to_epoch != from_epoch.saturating_add(1) {
+        if from_epoch.checked_add(1) != Some(to_epoch) {
             return Err(EpochTransitionError::NonConsecutiveEpochs);
         }
         if activation_height == 0 {
             return Err(EpochTransitionError::ZeroActivationHeight);
+        }
+        if validator_set_root == Digest384::ZERO {
+            return Err(EpochTransitionError::ZeroValidatorSetRoot);
         }
         Ok(Self { from_epoch, to_epoch, activation_height, validator_set_root })
     }
@@ -255,11 +293,139 @@ impl EpochTransition {
 pub enum EpochTransitionError {
     NonConsecutiveEpochs,
     ZeroActivationHeight,
+    ZeroValidatorSetRoot,
+}
+
+/// Canonical control-plane authorization committed by a finalized block before activation.
+///
+/// The authorization may change the validator set, the protocol revision, or both. A validator
+/// set change advances exactly one epoch; a revision change is strictly increasing. Runtime code
+/// must additionally verify a quorum-certified block whose digest equals [`Self::commitment`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ConsensusUpgradeAuthorization {
+    authorization_height: u64,
+    activation_height: u64,
+    from_epoch: Epoch,
+    to_epoch: Epoch,
+    previous_validator_set_root: Digest384,
+    next_validator_set_root: Digest384,
+    previous_protocol_revision: u64,
+    next_protocol_revision: u64,
+}
+
+impl ConsensusUpgradeAuthorization {
+    pub const TYPE_TAG: u16 = 0x006d;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const ENCODED_LENGTH: usize = 8 + 8 + 8 + 8 + 48 + 48 + 8 + 8;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        authorization_height: u64,
+        activation_height: u64,
+        from_epoch: Epoch,
+        to_epoch: Epoch,
+        previous_validator_set_root: Digest384,
+        next_validator_set_root: Digest384,
+        previous_protocol_revision: u64,
+        next_protocol_revision: u64,
+    ) -> Result<Self, ConsensusUpgradeAuthorizationError> {
+        if authorization_height == 0 || authorization_height >= activation_height {
+            return Err(ConsensusUpgradeAuthorizationError::AuthorizationNotPrior);
+        }
+        if previous_validator_set_root == Digest384::ZERO
+            || next_validator_set_root == Digest384::ZERO
+        {
+            return Err(ConsensusUpgradeAuthorizationError::ZeroValidatorSetRoot);
+        }
+        if previous_protocol_revision == 0 || next_protocol_revision == 0 {
+            return Err(ConsensusUpgradeAuthorizationError::ZeroProtocolRevision);
+        }
+        let validator_set_changes = previous_validator_set_root != next_validator_set_root;
+        if validator_set_changes {
+            if from_epoch.checked_add(1) != Some(to_epoch) {
+                return Err(ConsensusUpgradeAuthorizationError::InvalidEpochTransition);
+            }
+        } else if from_epoch != to_epoch {
+            return Err(ConsensusUpgradeAuthorizationError::InvalidEpochTransition);
+        }
+        if next_protocol_revision < previous_protocol_revision {
+            return Err(ConsensusUpgradeAuthorizationError::ProtocolRevisionDowngrade);
+        }
+        if !validator_set_changes && next_protocol_revision == previous_protocol_revision {
+            return Err(ConsensusUpgradeAuthorizationError::NoChange);
+        }
+        Ok(Self {
+            authorization_height,
+            activation_height,
+            from_epoch,
+            to_epoch,
+            previous_validator_set_root,
+            next_validator_set_root,
+            previous_protocol_revision,
+            next_protocol_revision,
+        })
+    }
+    pub const fn authorization_height(&self) -> u64 {
+        self.authorization_height
+    }
+    pub const fn activation_height(&self) -> u64 {
+        self.activation_height
+    }
+    pub const fn from_epoch(&self) -> Epoch {
+        self.from_epoch
+    }
+    pub const fn to_epoch(&self) -> Epoch {
+        self.to_epoch
+    }
+    pub const fn previous_validator_set_root(&self) -> Digest384 {
+        self.previous_validator_set_root
+    }
+    pub const fn next_validator_set_root(&self) -> Digest384 {
+        self.next_validator_set_root
+    }
+    pub const fn previous_protocol_revision(&self) -> u64 {
+        self.previous_protocol_revision
+    }
+    pub const fn next_protocol_revision(&self) -> u64 {
+        self.next_protocol_revision
+    }
+    pub fn changes_validator_set(&self) -> bool {
+        self.previous_validator_set_root != self.next_validator_set_root
+    }
+    pub const fn changes_protocol_revision(&self) -> bool {
+        self.previous_protocol_revision != self.next_protocol_revision
+    }
+    pub fn commitment(&self) -> Digest384 {
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-CONSENSUS-UPGRADE-V1");
+        hasher.update(&Self::SCHEMA_VERSION.to_be_bytes());
+        hasher.update(&self.authorization_height.to_be_bytes());
+        hasher.update(&self.activation_height.to_be_bytes());
+        hasher.update(&self.from_epoch.to_be_bytes());
+        hasher.update(&self.to_epoch.to_be_bytes());
+        hasher.update(self.previous_validator_set_root.as_bytes());
+        hasher.update(self.next_validator_set_root.as_bytes());
+        hasher.update(&self.previous_protocol_revision.to_be_bytes());
+        hasher.update(&self.next_protocol_revision.to_be_bytes());
+        let mut commitment = [0_u8; 48];
+        hasher.finalize_xof().read(&mut commitment);
+        Digest384::new(commitment)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConsensusUpgradeAuthorizationError {
+    AuthorizationNotPrior,
+    ZeroValidatorSetRoot,
+    ZeroProtocolRevision,
+    InvalidEpochTransition,
+    ProtocolRevisionDowngrade,
+    NoChange,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct QuorumCertificate {
-    epoch: Epoch,
+    context: ConsensusVoteContext,
     height: u64,
     round: u64,
     block_digest: Digest384,
@@ -270,10 +436,10 @@ pub struct QuorumCertificate {
 
 impl QuorumCertificate {
     pub const TYPE_TAG: u16 = 0x0065;
-    pub const SCHEMA_VERSION: u16 = 1;
-    pub const ENCODED_LENGTH: usize = 8 + 8 + 8 + 48 + 48 + 16 + 16;
+    pub const SCHEMA_VERSION: u16 = 2;
+    pub const ENCODED_LENGTH: usize = 48 + 8 + 48 + 8 + 8 + 8 + 48 + 48 + 16 + 16;
     pub fn new(
-        epoch: Epoch,
+        context: ConsensusVoteContext,
         height: u64,
         round: u64,
         block_digest: Digest384,
@@ -289,10 +455,19 @@ impl QuorumCertificate {
         {
             return Err(QuorumCertificateError::InsufficientStake);
         }
-        Ok(Self { epoch, height, round, block_digest, vote_set_root, total_stake, signer_stake })
+        Ok(Self { context, height, round, block_digest, vote_set_root, total_stake, signer_stake })
     }
     pub const fn epoch(&self) -> Epoch {
-        self.epoch
+        self.context.epoch()
+    }
+    pub const fn genesis_commitment(&self) -> Digest384 {
+        self.context.genesis_commitment()
+    }
+    pub const fn validator_set_root(&self) -> Digest384 {
+        self.context.validator_set_root()
+    }
+    pub const fn protocol_revision(&self) -> u64 {
+        self.context.protocol_revision()
     }
     pub const fn height(&self) -> u64 {
         self.height
@@ -309,6 +484,9 @@ impl QuorumCertificate {
     pub const fn block_digest(&self) -> Digest384 {
         self.block_digest
     }
+    pub const fn vote_set_root(&self) -> Digest384 {
+        self.vote_set_root
+    }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum QuorumCertificateError {
@@ -323,6 +501,7 @@ impl CanonicalEncode for ValidatorVote {
         self.context.genesis_commitment.encode(e)?;
         self.context.epoch.encode(e)?;
         self.context.validator_set_root.encode(e)?;
+        self.context.protocol_revision.encode(e)?;
         self.height.encode(e)?;
         self.round.encode(e)?;
         self.block_digest.encode(e)?;
@@ -333,10 +512,11 @@ impl CanonicalDecode for ValidatorVote {
     fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
         Self::new(
             PrincipalId::decode(d)?,
-            ConsensusVoteContext::new(
+            ConsensusVoteContext::new_with_revision(
                 Digest384::decode(d)?,
                 u64::decode(d)?,
                 Digest384::decode(d)?,
+                u64::decode(d)?,
             )
             .map_err(|_| DecodeError::InvalidValue("validator vote context is unbound"))?,
             u64::decode(d)?,
@@ -382,7 +562,10 @@ impl CanonicalType for BlockProposal {
 }
 impl CanonicalEncode for QuorumCertificate {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
-        self.epoch.encode(e)?;
+        self.context.genesis_commitment.encode(e)?;
+        self.context.epoch.encode(e)?;
+        self.context.validator_set_root.encode(e)?;
+        self.context.protocol_revision.encode(e)?;
         self.height.encode(e)?;
         self.round.encode(e)?;
         self.block_digest.encode(e)?;
@@ -394,7 +577,13 @@ impl CanonicalEncode for QuorumCertificate {
 impl CanonicalDecode for QuorumCertificate {
     fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
         Self::new(
-            u64::decode(d)?,
+            ConsensusVoteContext::new_with_revision(
+                Digest384::decode(d)?,
+                u64::decode(d)?,
+                Digest384::decode(d)?,
+                u64::decode(d)?,
+            )
+            .map_err(|_| DecodeError::InvalidValue("quorum certificate context is unbound"))?,
             u64::decode(d)?,
             u64::decode(d)?,
             Digest384::decode(d)?,
@@ -412,8 +601,8 @@ impl CanonicalType for QuorumCertificate {
 }
 impl CanonicalEncode for ValidatorSet {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
-        e.write_length(self.0.len(), MAX_VALIDATORS_PER_EPOCH)?;
-        for validator in &self.0 {
+        e.write_length(self.validators.len(), MAX_VALIDATORS_PER_EPOCH)?;
+        for validator in &self.validators {
             validator.validator.encode(e)?;
             validator.stake.encode(e)?;
         }
@@ -472,32 +661,47 @@ impl ValidatorGenesisEntry {
 pub struct ValidatorGenesis {
     epoch: Epoch,
     activation_height: u64,
+    protocol_revision: u64,
     entries: Vec<ValidatorGenesisEntry>,
 }
 impl ValidatorGenesis {
     pub const TYPE_TAG: u16 = 0x006b;
-    pub const SCHEMA_VERSION: u16 = 1;
+    pub const SCHEMA_VERSION: u16 = 2;
     pub const MAX_ENCODED_LEN: usize =
-        8 + 8 + 1 + MAX_VALIDATORS_PER_EPOCH * ValidatorGenesisEntry::ENCODED_LENGTH;
+        8 + 8 + 8 + 1 + MAX_VALIDATORS_PER_EPOCH * ValidatorGenesisEntry::ENCODED_LENGTH;
     pub fn new(
         epoch: Epoch,
         activation_height: u64,
+        entries: Vec<ValidatorGenesisEntry>,
+    ) -> Result<Self, ValidatorGenesisError> {
+        Self::new_with_revision(epoch, activation_height, INITIAL_PROTOCOL_REVISION, entries)
+    }
+    pub fn new_with_revision(
+        epoch: Epoch,
+        activation_height: u64,
+        protocol_revision: u64,
         entries: Vec<ValidatorGenesisEntry>,
     ) -> Result<Self, ValidatorGenesisError> {
         if activation_height == 0 || entries.is_empty() || entries.len() > MAX_VALIDATORS_PER_EPOCH
         {
             return Err(ValidatorGenesisError::Bounds);
         }
+        if protocol_revision == 0 {
+            return Err(ValidatorGenesisError::ZeroProtocolRevision);
+        }
         if entries.windows(2).any(|pair| pair[0].validator >= pair[1].validator) {
             return Err(ValidatorGenesisError::NotStrictlyOrdered);
         }
-        Ok(Self { epoch, activation_height, entries })
+        Ok(Self { epoch, activation_height, protocol_revision, entries })
     }
     pub const fn epoch(&self) -> Epoch {
         self.epoch
     }
     pub const fn activation_height(&self) -> u64 {
         self.activation_height
+    }
+    pub const fn protocol_revision(&self) -> u64 {
+        self.protocol_revision
     }
     pub fn entries(&self) -> &[ValidatorGenesisEntry] {
         &self.entries
@@ -526,9 +730,10 @@ impl ValidatorGenesis {
     /// Identical genesis manifests intentionally identify the same chain.
     pub fn genesis_commitment(&self) -> Digest384 {
         let mut hasher = Shake256::default();
-        hasher.update(b"ACTIVECHAIN-CONSENSUS-GENESIS-V1");
+        hasher.update(b"ACTIVECHAIN-CONSENSUS-GENESIS-V2");
         hasher.update(&self.epoch.to_be_bytes());
         hasher.update(&self.activation_height.to_be_bytes());
+        hasher.update(&self.protocol_revision.to_be_bytes());
         hasher.update(self.validator_set_root().as_bytes());
         let mut commitment = [0_u8; 48];
         hasher.finalize_xof().read(&mut commitment);
@@ -539,6 +744,7 @@ impl ValidatorGenesis {
 pub enum ValidatorGenesisError {
     Bounds,
     ZeroStake,
+    ZeroProtocolRevision,
     NotStrictlyOrdered,
 }
 impl CanonicalEncode for ValidatorGenesisEntry {
@@ -562,6 +768,7 @@ impl CanonicalEncode for ValidatorGenesis {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
         self.epoch.encode(e)?;
         self.activation_height.encode(e)?;
+        self.protocol_revision.encode(e)?;
         e.write_length(self.entries.len(), MAX_VALIDATORS_PER_EPOCH)?;
         for entry in &self.entries {
             entry.encode(e)?;
@@ -573,12 +780,13 @@ impl CanonicalDecode for ValidatorGenesis {
     fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
         let epoch = u64::decode(d)?;
         let activation_height = u64::decode(d)?;
+        let protocol_revision = u64::decode(d)?;
         let count = d.read_length(MAX_VALIDATORS_PER_EPOCH)?;
         let mut entries = Vec::with_capacity(count);
         for _ in 0..count {
             entries.push(ValidatorGenesisEntry::decode(d)?);
         }
-        Self::new(epoch, activation_height, entries)
+        Self::new_with_revision(epoch, activation_height, protocol_revision, entries)
             .map_err(|_| DecodeError::InvalidValue("invalid validator genesis"))
     }
 }
@@ -602,6 +810,41 @@ impl CanonicalDecode for EpochTransition {
     }
 }
 impl CanonicalType for EpochTransition {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::ENCODED_LENGTH;
+}
+
+impl CanonicalEncode for ConsensusUpgradeAuthorization {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.authorization_height.encode(encoder)?;
+        self.activation_height.encode(encoder)?;
+        self.from_epoch.encode(encoder)?;
+        self.to_epoch.encode(encoder)?;
+        self.previous_validator_set_root.encode(encoder)?;
+        self.next_validator_set_root.encode(encoder)?;
+        self.previous_protocol_revision.encode(encoder)?;
+        self.next_protocol_revision.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for ConsensusUpgradeAuthorization {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid consensus upgrade authorization"))
+    }
+}
+
+impl CanonicalType for ConsensusUpgradeAuthorization {
     const TYPE_TAG: u16 = Self::TYPE_TAG;
     const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
     const MAX_ENCODED_LEN: usize = Self::ENCODED_LENGTH;
@@ -632,6 +875,7 @@ mod tests {
         assert_eq!(vote.epoch(), 3);
         assert_eq!(vote.genesis_commitment(), digest(10));
         assert_eq!(vote.validator_set_root(), digest(11));
+        assert_eq!(vote.protocol_revision(), INITIAL_PROTOCOL_REVISION);
         assert_eq!(decode_envelope::<ValidatorVote>(&encode_envelope(&vote).unwrap()), Ok(vote));
     }
     #[test]
@@ -650,12 +894,12 @@ mod tests {
         );
     }
     #[test]
-    fn validator_vote_signature_domain_binds_genesis_epoch_and_validator_set() {
+    fn validator_vote_signature_domain_binds_genesis_epoch_validator_set_and_revision() {
         let signature = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![4; 2420]).unwrap();
-        let make = |genesis, epoch, root| {
+        let make = |genesis, epoch, root, revision| {
             ValidatorVote::new(
                 PrincipalId::new(digest(1)),
-                ConsensusVoteContext::new(genesis, epoch, root).unwrap(),
+                ConsensusVoteContext::new_with_revision(genesis, epoch, root, revision).unwrap(),
                 7,
                 2,
                 digest(3),
@@ -664,17 +908,29 @@ mod tests {
             .unwrap()
             .signing_payload()
         };
-        let baseline = make(digest(10), 3, digest(11));
-        assert_ne!(baseline, make(digest(12), 3, digest(11)));
-        assert_ne!(baseline, make(digest(10), 4, digest(11)));
-        assert_ne!(baseline, make(digest(10), 3, digest(12)));
+        let baseline = make(digest(10), 3, digest(11), 1);
+        assert_ne!(baseline, make(digest(12), 3, digest(11), 1));
+        assert_ne!(baseline, make(digest(10), 4, digest(11), 1));
+        assert_ne!(baseline, make(digest(10), 3, digest(12), 1));
+        assert_ne!(baseline, make(digest(10), 3, digest(11), 2));
     }
     #[test]
     fn quorum_certificate_requires_strict_two_thirds_stake() {
-        assert!(QuorumCertificate::new(1, 2, 3, digest(1), digest(2), 10, 7).is_ok());
+        let context = ConsensusVoteContext::new(digest(10), 1, digest(11)).unwrap();
+        assert!(QuorumCertificate::new(context, 2, 3, digest(1), digest(2), 10, 7).is_ok());
         assert_eq!(
-            QuorumCertificate::new(1, 2, 3, digest(1), digest(2), 10, 6),
+            QuorumCertificate::new(context, 2, 3, digest(1), digest(2), 10, 6),
             Err(QuorumCertificateError::InsufficientStake)
+        );
+    }
+    #[test]
+    fn validator_set_rejects_total_stake_overflow() {
+        assert_eq!(
+            ValidatorSet::new(vec![
+                ValidatorWeight { validator: PrincipalId::new(digest(1)), stake: u128::MAX },
+                ValidatorWeight { validator: PrincipalId::new(digest(2)), stake: 1 },
+            ]),
+            Err(ValidatorSetError::StakeOverflow)
         );
     }
     #[test]
@@ -691,7 +947,7 @@ mod tests {
                 .unwrap()
         };
         let qc = QuorumCertificate::new(
-            value("epoch") as u64,
+            ConsensusVoteContext::new(digest(10), value("epoch") as u64, digest(11)).unwrap(),
             value("height") as u64,
             value("round") as u64,
             digest(1),
@@ -703,7 +959,7 @@ mod tests {
         assert_eq!(qc.height(), 9);
         assert_eq!(
             QuorumCertificate::new(
-                value("epoch") as u64,
+                ConsensusVoteContext::new(digest(10), value("epoch") as u64, digest(11),).unwrap(),
                 value("height") as u64,
                 value("round") as u64,
                 digest(1),
@@ -721,6 +977,26 @@ mod tests {
         assert_eq!(
             EpochTransition::new(4, 6, 100, digest(9)),
             Err(EpochTransitionError::NonConsecutiveEpochs)
+        );
+    }
+
+    #[test]
+    fn upgrade_authorization_is_canonical_monotonic_and_commitment_bound() {
+        let authorization =
+            ConsensusUpgradeAuthorization::new(9, 10, 4, 5, digest(8), digest(9), 2, 3).unwrap();
+        let envelope = encode_envelope(&authorization).unwrap();
+        assert_eq!(decode_envelope::<ConsensusUpgradeAuthorization>(&envelope), Ok(authorization));
+        assert_ne!(authorization.commitment(), Digest384::ZERO);
+        let different_revision =
+            ConsensusUpgradeAuthorization::new(9, 10, 4, 5, digest(8), digest(9), 2, 4).unwrap();
+        assert_ne!(authorization.commitment(), different_revision.commitment());
+        assert_eq!(
+            ConsensusUpgradeAuthorization::new(9, 10, 4, 5, digest(8), digest(9), 3, 2,),
+            Err(ConsensusUpgradeAuthorizationError::ProtocolRevisionDowngrade)
+        );
+        assert_eq!(
+            ConsensusUpgradeAuthorization::new(10, 10, 4, 5, digest(8), digest(9), 2, 3,),
+            Err(ConsensusUpgradeAuthorizationError::AuthorizationNotPrior)
         );
     }
 
