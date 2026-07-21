@@ -17,4 +17,15 @@ final class ActiveChainWalletTests: XCTestCase {
         XCTAssertTrue(adapter.open(session, at: 1))
         XCTAssertFalse(adapter.open(session, at: 1))
     }
+
+    func testNetworkSwitchUpdatesVisibleAssets() {
+        let profiles = [
+            NetworkProfile(id: "kanalen", displayName: "Kanalen", genesis: "g1", rpcURL: URL(string: "https://kanalen.example")!, faucetURL: nil, assets: ["ACT"]),
+            NetworkProfile(id: "roslagen", displayName: "Roslagen", genesis: "g2", rpcURL: URL(string: "https://roslagen.example")!, faucetURL: nil, assets: ["ACT", "TEST"])
+        ]
+        let selection = NetworkSelection(profiles: profiles)
+        XCTAssertEqual(selection.visibleAssets, ["ACT"])
+        XCTAssertTrue(selection.switchTo("roslagen"))
+        XCTAssertEqual(selection.visibleAssets, ["ACT", "TEST"])
+    }
 }

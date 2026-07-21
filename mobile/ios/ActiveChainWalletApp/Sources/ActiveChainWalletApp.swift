@@ -11,10 +11,16 @@ struct TransferPreviewView: View {
     @State private var recipient = "did:activechain:test"
     @State private var amount = "10"
     @State private var status = "Review transfer before approval"
+    @State private var network = "kanalen"
+
+    private let networks = ["kanalen", "roslagen", "tralhavet"]
 
     var body: some View {
         NavigationStack {
             Form {
+                Section("Network") {
+                    Picker("Testnet", selection: $network) { ForEach(networks, id: \.self) { Text($0) } }
+                }
                 Section("Recipient") { TextField("DID", text: $recipient).textInputAutocapitalization(.never) }
                 Section("Amount") { TextField("ACT", text: $amount).keyboardType(.numberPad) }
                 Button("Preview and approve") {

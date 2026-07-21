@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		54C17C1DB2671699FD7333A0 /* ActiveChainWalletApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00F60C541C50E0093CD8C615 /* ActiveChainWalletApp.swift */; };
 		654D7699CA37C0AEB8C01FD5 /* ActiveChainWalletTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF53AD2EFD667B91B6C0E2A2 /* ActiveChainWalletTests.swift */; };
+		A255F0544F1A5B6B4D343181 /* NetworkSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50EF838DF6F51C698FEE9C6F /* NetworkSelection.swift */; };
 		A955F5A4F6398043E6F147B7 /* OpenWalletAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9A7B68A6BF40EC2B257B49E /* OpenWalletAdapter.swift */; };
 		E1D024C4F4D90A2B11F8F524 /* WalletBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0157C828F4D0C1CCC8EDEAD /* WalletBridge.swift */; };
 /* End PBXBuildFile section */
@@ -26,6 +27,7 @@
 /* Begin PBXFileReference section */
 		00F60C541C50E0093CD8C615 /* ActiveChainWalletApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveChainWalletApp.swift; sourceTree = "<group>"; };
 		329F5D83AC50D372D7E5BA6F /* ActiveChainWalletTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ActiveChainWalletTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		50EF838DF6F51C698FEE9C6F /* NetworkSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkSelection.swift; sourceTree = "<group>"; };
 		6E90D7FAE93E0DFDE9D868BD /* ActiveChainWallet.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ActiveChainWallet.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A0157C828F4D0C1CCC8EDEAD /* WalletBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletBridge.swift; sourceTree = "<group>"; };
 		D9A7B68A6BF40EC2B257B49E /* OpenWalletAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenWalletAdapter.swift; sourceTree = "<group>"; };
@@ -45,6 +47,7 @@
 			isa = PBXGroup;
 			children = (
 				00F60C541C50E0093CD8C615 /* ActiveChainWalletApp.swift */,
+				50EF838DF6F51C698FEE9C6F /* NetworkSelection.swift */,
 				D9A7B68A6BF40EC2B257B49E /* OpenWalletAdapter.swift */,
 			);
 			path = Sources;
@@ -153,6 +156,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				54C17C1DB2671699FD7333A0 /* ActiveChainWalletApp.swift in Sources */,
+				A255F0544F1A5B6B4D343181 /* NetworkSelection.swift in Sources */,
 				A955F5A4F6398043E6F147B7 /* OpenWalletAdapter.swift in Sources */,
 				E1D024C4F4D90A2B11F8F524 /* WalletBridge.swift in Sources */,
 			);
