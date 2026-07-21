@@ -133,6 +133,9 @@ impl ProtectedDecryptionShare {
     pub const fn member(&self) -> u16 {
         self.member
     }
+    pub const fn submission_id(&self) -> Digest384 {
+        self.submission_id
+    }
     pub const fn share(&self) -> &[u8; 32] {
         &self.share
     }

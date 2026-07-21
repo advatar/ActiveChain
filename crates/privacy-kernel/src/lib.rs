@@ -11,6 +11,7 @@ extern crate alloc;
 
 mod builder;
 mod network;
+mod persistence;
 mod protected;
 
 pub use builder::{
@@ -18,6 +19,10 @@ pub use builder::{
     MAX_BUILDER_BIDS,
 };
 pub use network::{ProtectedDecryptionShare, ProtectedOrderedSet, ProtectedSetLock};
+pub use persistence::{
+    MAX_PROTECTED_REPLAY_BARRIERS, MAX_PROTECTED_SETTLEMENTS, MAX_PROTECTED_SHARES,
+    ProtectedStateSnapshot,
+};
 
 pub use protected::{
     CommitteeKind, MAX_COMMITTEE_MEMBERS, MAX_ORDERING_ITEMS, OrderingError, ProtectedCommittee,

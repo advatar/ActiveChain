@@ -139,13 +139,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             let peer_ids: Vec<u16> = peers.peers().map(|(id, _)| *id).collect();
             let block_digest = Digest384::new([index as u8 + 120; 48]);
+            let sequence = service
+                .next_sequence_for(local_peer_id)
+                .map_err(|error| format!("outgoing sequence unavailable: {error:?}"))?;
             let state = service
                 .propose_round_collect_votes(
                     &signer,
                     next_height,
                     0,
                     block_digest,
-                    1,
+                    sequence,
                     &mut peers,
                     &peer_ids,
                 )
@@ -175,7 +178,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Digest384::new(digest)
             };
             service
-                .propose_round(&signer, next_height, 0, block_digest, 1)
+                .propose_round(
+                    &signer,
+                    next_height,
+                    0,
+                    block_digest,
+                    service
+                        .next_sequence_for(local_peer_id)
+                        .map_err(|error| format!("outgoing sequence unavailable: {error:?}"))?,
+                )
                 .map_err(|error| format!("deterministic round failed: {error:?}"))?;
             let metrics = service.metrics();
             println!(

@@ -11,6 +11,7 @@ use activechain_crypto_provider::{
 };
 use activechain_privacy_kernel::{
     ProtectedDecryptionShare, ProtectedEnvelope, ProtectedOrderedSet, ProtectedSetLock,
+    ProtectedStateSnapshot,
 };
 use activechain_protocol_types::{
     BlockProposal, ConsensusSnapshot, ConsensusState, ConsensusStateError,
@@ -1019,6 +1020,22 @@ fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
         .unwrap_or_else(|| std::path::Path::new("."));
     std::fs::File::open(parent)?.sync_all()?;
     Ok(())
+}
+
+/// Atomically publishes a complete protected-ordering snapshot.
+pub fn save_protected_snapshot(
+    path: &std::path::Path,
+    state: &ProtectedStateSnapshot,
+) -> std::io::Result<()> {
+    let bytes =
+        encode_envelope(state).map_err(|_| invalid_data("protected snapshot encoding failed"))?;
+    write_atomic(path, &bytes)
+}
+
+/// Loads a protected snapshot, rejecting corruption, truncation, and non-canonical state.
+pub fn load_protected_snapshot(path: &std::path::Path) -> std::io::Result<ProtectedStateSnapshot> {
+    let bytes = std::fs::read(path)?;
+    decode_envelope(&bytes).map_err(|_| invalid_data("protected snapshot decoding failed"))
 }
 
 fn save_validator_snapshot(
@@ -2068,6 +2085,17 @@ impl ValidatorService {
     }
     pub fn metrics(&self) -> MetricsSnapshot {
         self.metrics.snapshot()
+    }
+    pub fn next_sequence_for(&self, sender: u16) -> Result<u64, ValidatorServiceError> {
+        self.replay
+            .lock()
+            .map_err(|_| ValidatorServiceError::Poisoned)?
+            .highest
+            .get(&sender)
+            .copied()
+            .unwrap_or(0)
+            .checked_add(1)
+            .ok_or(ValidatorServiceError::Transport(TransportError::Replay))
     }
     pub fn process_message(
         &self,
@@ -3760,6 +3788,81 @@ mod tests {
         assert_eq!(restored.epoch(), 4);
         assert_eq!(restored.finalized_height(), 9);
         assert_eq!(restored.finalized_round(), 2);
+    }
+
+    #[test]
+    fn protected_state_snapshot_is_atomic_restart_safe_and_fail_closed() {
+        let chain = ChainId::new(Digest384::new([31; 48]));
+        let submission_id = Digest384::new([32; 48]);
+        let root = Digest384::new([33; 48]);
+        let queue = vec![
+            ProtectedEnvelope::new(
+                chain,
+                submission_id,
+                CryptoSuiteId::ML_KEM_768,
+                7,
+                Digest384::new([34; 48]),
+                Digest384::new([35; 48]),
+                Digest384::new([36; 48]),
+                Digest384::new([37; 48]),
+                10,
+                100,
+                50,
+            )
+            .unwrap(),
+        ];
+        let lock = ProtectedSetLock::new(chain, 7, 12, root, vec![submission_id]).unwrap();
+        let state = ProtectedStateSnapshot::new(
+            chain,
+            7,
+            queue,
+            Some(lock),
+            vec![
+                ProtectedDecryptionShare::new(chain, 7, root, submission_id, 1, [38; 32]).unwrap(),
+            ],
+            Some(
+                ProtectedOrderedSet::new(
+                    chain,
+                    7,
+                    root,
+                    Digest384::new([39; 48]),
+                    vec![submission_id],
+                )
+                .unwrap(),
+            ),
+            vec![activechain_privacy_kernel::BondSettlement {
+                bid_id: Digest384::new([40; 48]),
+                builder: PrincipalId::new(Digest384::new([41; 48])),
+                released_bond: 100,
+                slashed_bond: 0,
+                fee_paid: 5,
+            }],
+            vec![(1, 8), (2, 11)],
+        )
+        .unwrap();
+        let path = std::env::temp_dir()
+            .join(format!("activechain-protected-snapshot-{}.bin", std::process::id()));
+        let temporary = path.with_extension("tmp");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&temporary);
+        let _ = std::fs::remove_dir(&temporary);
+
+        save_protected_snapshot(&path, &state).unwrap();
+        assert_eq!(load_protected_snapshot(&path).unwrap(), state);
+
+        let original = std::fs::read(&path).unwrap();
+        std::fs::write(&path, &original[..original.len() - 1]).unwrap();
+        assert_eq!(
+            load_protected_snapshot(&path).unwrap_err().kind(),
+            std::io::ErrorKind::InvalidData
+        );
+        std::fs::write(&path, &original).unwrap();
+
+        std::fs::create_dir(&temporary).unwrap();
+        assert!(save_protected_snapshot(&path, &state).is_err());
+        assert_eq!(load_protected_snapshot(&path).unwrap(), state);
+        std::fs::remove_dir(temporary).unwrap();
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
