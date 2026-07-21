@@ -16,6 +16,18 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Phase 0 bootstrap is tracked by [GitHub issue #1](https://github.com/advatar/ActiveChain/issues/1).
 
+## Active launch gate — whole-system formal verification
+
+Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
+
+- [x] Prove the initial wallet-agent HITL and replay properties in Tamarin.
+- [ ] Prove scoped consensus QC, finality, replay, and equivocation properties.
+- [ ] Prove abstract cash conservation, authorized issuance, burn, and reward no-double-mint properties in Lean.
+- [ ] Prove principal rotation/recovery/deactivation and delegation attenuation properties.
+- [ ] Run every Lean and Tamarin model on the self-hosted CI runner.
+- [ ] Publish proof scopes, assumptions, counterexamples, and explicit unverified boundaries.
+- [ ] Obtain independent external formal-methods review before any non-developmental launch claim.
+
 ## Completed milestone — local CI and authority kernel
 
 Tracked by [GitHub issue #2](https://github.com/advatar/ActiveChain/issues/2).

@@ -4,6 +4,16 @@ ActiveChain is being built as a formally specified, proof-carrying object ledger
 
 The implementation is deliberately starting below networking and consensus. The current Phase 0 slice establishes one deterministic meaning for protocol values before any distributed system is allowed to depend on them.
 
+## Security status
+
+**Developmental — no security audit has been completed.** The required pre-launch review is
+defined in [`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md): an independent external
+blockchain/security firm with post-quantum and mobile expertise must audit the consensus and cash
+kernels, PQ cryptography, C ABI/FFI surfaces, mobile keystore handling, OpenWallet
+interoperability, and validator/network abuse resistance, with findings published and fixes
+re-reviewed. Until that completes, the wallet and every testnet are explicitly developmental and
+must not hold value anyone is unwilling to lose.
+
 ## What exists now
 
 - draft system-boundary, canonical-encoding, and transition specifications under `spec/protocol/`;

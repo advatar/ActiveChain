@@ -41,5 +41,7 @@ outside the transaction kernel. ENS names are display/discovery aliases, never s
 1. Testnet CLI and transaction ingress.
 2. Rust FFI contract and golden vectors.
 3. iOS/Android shell prototypes against a local three-validator network.
-4. Secure-storage and recovery audit.
+4. Secure-storage and recovery audit, as part of the external pre-launch review in
+   `docs/SECURITY_AUDIT.md` (independent firm with PQ and mobile expertise; no audit has been
+   completed yet).
 5. Public mobile beta after testnet replay/restart/finality rehearsals pass.

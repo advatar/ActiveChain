@@ -3,6 +3,11 @@
 This checklist is the release gate for the first public testnet. A green unit-test suite alone is
 not sufficient.
 
+**Developmental status.** No security audit has been completed; the required pre-launch review is
+defined in `docs/SECURITY_AUDIT.md`. This testnet and the wallet remain explicitly developmental
+until that audit is completed, its findings are published, and fixes are re-reviewed. Every
+testnet announcement MUST carry this developmental disclaimer.
+
 ## Required services
 
 - Three or more authenticated PQ validator processes with canonical genesis.
