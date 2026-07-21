@@ -1,0 +1,398 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		54C17C1DB2671699FD7333A0 /* ActiveChainWalletApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00F60C541C50E0093CD8C615 /* ActiveChainWalletApp.swift */; };
+		654D7699CA37C0AEB8C01FD5 /* ActiveChainWalletTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF53AD2EFD667B91B6C0E2A2 /* ActiveChainWalletTests.swift */; };
+		E1D024C4F4D90A2B11F8F524 /* WalletBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0157C828F4D0C1CCC8EDEAD /* WalletBridge.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		0D1D7A28566BDA89F4BD1D37 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 77A9E9EBA9991A93F53CE8AA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5A9189AF9FFFB212F868608E;
+			remoteInfo = ActiveChainWallet;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		00F60C541C50E0093CD8C615 /* ActiveChainWalletApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveChainWalletApp.swift; sourceTree = "<group>"; };
+		329F5D83AC50D372D7E5BA6F /* ActiveChainWalletTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ActiveChainWalletTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		6E90D7FAE93E0DFDE9D868BD /* ActiveChainWallet.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ActiveChainWallet.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A0157C828F4D0C1CCC8EDEAD /* WalletBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletBridge.swift; sourceTree = "<group>"; };
+		FF53AD2EFD667B91B6C0E2A2 /* ActiveChainWalletTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveChainWalletTests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		0D6E1EC9D5FCDE4213B61210 /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				FF53AD2EFD667B91B6C0E2A2 /* ActiveChainWalletTests.swift */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
+		5677E6675108CDAAF144981B /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				00F60C541C50E0093CD8C615 /* ActiveChainWalletApp.swift */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		5D9729ABC689D123B56F8E8E /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				6E90D7FAE93E0DFDE9D868BD /* ActiveChainWallet.app */,
+				329F5D83AC50D372D7E5BA6F /* ActiveChainWalletTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		8FFD750E9DA0C36FF3E40877 /* ActiveChainWallet */ = {
+			isa = PBXGroup;
+			children = (
+				A0157C828F4D0C1CCC8EDEAD /* WalletBridge.swift */,
+			);
+			name = ActiveChainWallet;
+			path = ../ActiveChainWallet/Sources/ActiveChainWallet;
+			sourceTree = "<group>";
+		};
+		FD30C428A3076803D1B39507 = {
+			isa = PBXGroup;
+			children = (
+				8FFD750E9DA0C36FF3E40877 /* ActiveChainWallet */,
+				5677E6675108CDAAF144981B /* Sources */,
+				0D6E1EC9D5FCDE4213B61210 /* Tests */,
+				5D9729ABC689D123B56F8E8E /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		22BEA71FD65EBC58B18D2D4E /* ActiveChainWalletTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B7D94BA6E52ACBD0541876A9 /* Build configuration list for PBXNativeTarget "ActiveChainWalletTests" */;
+			buildPhases = (
+				D00C07819D6B1FFAB517B1E4 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				830C5AB4FDCA7F7A074B2FF0 /* PBXTargetDependency */,
+			);
+			name = ActiveChainWalletTests;
+			packageProductDependencies = (
+			);
+			productName = ActiveChainWalletTests;
+			productReference = 329F5D83AC50D372D7E5BA6F /* ActiveChainWalletTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		5A9189AF9FFFB212F868608E /* ActiveChainWallet */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C3560D0FC8A719EAF0323C0B /* Build configuration list for PBXNativeTarget "ActiveChainWallet" */;
+			buildPhases = (
+				C5E941163FED6D12870EF095 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ActiveChainWallet;
+			packageProductDependencies = (
+			);
+			productName = ActiveChainWallet;
+			productReference = 6E90D7FAE93E0DFDE9D868BD /* ActiveChainWallet.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		77A9E9EBA9991A93F53CE8AA /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = 2E69B04C476133009F8E6C19 /* Build configuration list for PBXProject "ActiveChainWallet" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = FD30C428A3076803D1B39507;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5D9729ABC689D123B56F8E8E /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				5A9189AF9FFFB212F868608E /* ActiveChainWallet */,
+				22BEA71FD65EBC58B18D2D4E /* ActiveChainWalletTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		C5E941163FED6D12870EF095 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				54C17C1DB2671699FD7333A0 /* ActiveChainWalletApp.swift in Sources */,
+				E1D024C4F4D90A2B11F8F524 /* WalletBridge.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D00C07819D6B1FFAB517B1E4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				654D7699CA37C0AEB8C01FD5 /* ActiveChainWalletTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		830C5AB4FDCA7F7A074B2FF0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5A9189AF9FFFB212F868608E /* ActiveChainWallet */;
+			targetProxy = 0D1D7A28566BDA89F4BD1D37 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		2E1DDD139A66295CE7DC5FED /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "ActiveChain Wallet";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.activechain.wallet;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		3712724E9B47FA8D6790786E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.activechain.ActiveChainWalletTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ActiveChainWallet.app/ActiveChainWallet";
+			};
+			name = Debug;
+		};
+		5F00CA6DB534A97DD17CDBC6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.activechain.ActiveChainWalletTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ActiveChainWallet.app/ActiveChainWallet";
+			};
+			name = Release;
+		};
+		8223E066385C6CB8A196D099 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		9B66FE15846D9EE1DB5A518E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		BCAA49F3300DC3480D8D9F11 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "ActiveChain Wallet";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.activechain.wallet;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2E69B04C476133009F8E6C19 /* Build configuration list for PBXProject "ActiveChainWallet" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8223E066385C6CB8A196D099 /* Debug */,
+				9B66FE15846D9EE1DB5A518E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B7D94BA6E52ACBD0541876A9 /* Build configuration list for PBXNativeTarget "ActiveChainWalletTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3712724E9B47FA8D6790786E /* Debug */,
+				5F00CA6DB534A97DD17CDBC6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C3560D0FC8A719EAF0323C0B /* Build configuration list for PBXNativeTarget "ActiveChainWallet" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2E1DDD139A66295CE7DC5FED /* Debug */,
+				BCAA49F3300DC3480D8D9F11 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 77A9E9EBA9991A93F53CE8AA /* Project object */;
+}

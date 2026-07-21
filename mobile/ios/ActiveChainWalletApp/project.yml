@@ -1,0 +1,28 @@
+name: ActiveChainWallet
+options:
+  bundleIdPrefix: dev.activechain
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  ActiveChainWallet:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: ../ActiveChainWallet/Sources/ActiveChainWallet
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: dev.activechain.wallet
+      SWIFT_VERSION: "5.9"
+      GENERATE_INFOPLIST_FILE: YES
+      INFOPLIST_KEY_CFBundleDisplayName: ActiveChain Wallet
+      INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.finance
+    scheme:
+      testTargets:
+        - ActiveChainWalletTests
+  ActiveChainWalletTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: ActiveChainWallet

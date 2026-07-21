@@ -287,7 +287,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 ## Planned milestone — mobile wallet shells
 
 - [ ] Add compile-checked iOS and Android shell prototypes over the shared wallet core.
-- [ ] Scaffold testable iOS and Android wallet shells with local bridge mocks.
+- [x] Scaffold testable iOS and Android wallet shells with local bridge mocks.
 - [x] Expose a platform-neutral mobile bridge that keeps policy, transfer construction, and opaque keystore slots in Rust.
 
 - [x] Freeze the shared-core/native-shell boundary in `docs/mobile-wallet.md`.
