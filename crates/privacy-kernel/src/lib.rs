@@ -9,7 +9,13 @@
 
 extern crate alloc;
 
+mod builder;
 mod protected;
+
+pub use builder::{
+    BondSettlement, BuilderAuction, BuilderBid, BuilderOutcome, BuilderSettlementError,
+    MAX_BUILDER_BIDS,
+};
 
 pub use protected::{
     CommitteeKind, MAX_COMMITTEE_MEMBERS, MAX_ORDERING_ITEMS, OrderingError, ProtectedCommittee,

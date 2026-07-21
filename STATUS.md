@@ -249,7 +249,7 @@ Tracked by [GitHub issue #18](https://github.com/advatar/ActiveChain/issues/18).
   - [ ] Integrate threshold decryption shares, builder bids/bonds, networking, and persistence.
     - [x] Wrap Shamir shares for committee members with real ML-KEM-768 and require the declared
       threshold to reconstruct and authenticate protected payloads.
-    - [ ] Add bounded builder bids, locked bonds, objective settlement, and penalty accounting.
+    - [x] Add bounded builder bids, locked bonds, objective settlement, and penalty accounting.
     - [ ] Carry protected submissions, locks, shares, and ordered sets over authenticated peers.
     - [ ] Persist protected queues, locks, shares, settlements, and replay barriers atomically.
 
