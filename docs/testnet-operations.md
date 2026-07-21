@@ -42,6 +42,15 @@ The manually triggered `Kanalen testnet deployment` workflow builds pinned relea
 publishes a checksum. During the home-network phase, set its deploy host to `192.168.2.126` and
 enable deployment. The workflow requires `KANALEN_DEPLOY_USER` and `KANALEN_DEPLOY_KEY` secrets,
 copies the bundle to `/Volumes/ActiveChain/testnet/`, and never exposes validator peer ports.
+
+Kanalen reserves the host port block `49150-49153` to avoid the Mac mini's existing services:
+
+- `49150` validator consensus peer listener;
+- `49151` public RPC gateway;
+- `49152` faucet HTTP service;
+- `49153` metrics/health endpoint.
+
+Only `49151-49153` should be reverse-proxied later. Keep `49150` restricted to validator peers.
 ```
 
 The rehearsal must produce one persisted snapshot per validator and report
