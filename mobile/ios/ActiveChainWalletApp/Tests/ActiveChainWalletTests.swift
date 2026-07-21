@@ -23,9 +23,13 @@ final class ActiveChainWalletTests: XCTestCase {
             NetworkProfile(id: "kanalen", displayName: "Kanalen", genesis: "g1", rpcURL: URL(string: "https://kanalen.example")!, faucetURL: nil, assets: ["ACT"]),
             NetworkProfile(id: "roslagen", displayName: "Roslagen", genesis: "g2", rpcURL: URL(string: "https://roslagen.example")!, faucetURL: nil, assets: ["ACT", "TEST"])
         ]
-        let selection = NetworkSelection(profiles: profiles)
+        let store = UserDefaults(suiteName: "network-test")!
+        store.removePersistentDomain(forName: "network-test")
+        let selection = NetworkSelection(profiles: profiles, store: store)
         XCTAssertEqual(selection.visibleAssets, ["ACT"])
         XCTAssertTrue(selection.switchTo("roslagen"))
         XCTAssertEqual(selection.visibleAssets, ["ACT", "TEST"])
+        let restored = NetworkSelection(profiles: profiles, store: store)
+        XCTAssertEqual(restored.selected.id, "roslagen")
     }
 }

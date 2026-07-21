@@ -14,11 +14,14 @@ public final class NetworkSelection: ObservableObject {
     @Published public private(set) var selected: NetworkProfile
     @Published public private(set) var visibleAssets: [String]
     private let profiles: [NetworkProfile]
+    private let store: UserDefaults
 
-    public init(profiles: [NetworkProfile], selectedID: String? = nil) {
+    public init(profiles: [NetworkProfile], selectedID: String? = nil, store: UserDefaults = .standard) {
         precondition(!profiles.isEmpty)
         self.profiles = profiles
-        let initial = profiles.first { $0.id == selectedID } ?? profiles[0]
+        self.store = store
+        let saved = selectedID ?? store.string(forKey: "activechain.selected-network")
+        let initial = profiles.first { $0.id == saved } ?? profiles[0]
         self.selected = initial
         self.visibleAssets = initial.assets
     }
@@ -27,6 +30,7 @@ public final class NetworkSelection: ObservableObject {
         guard let next = profiles.first(where: { $0.id == id }) else { return false }
         selected = next
         visibleAssets = next.assets
+        store.set(next.id, forKey: "activechain.selected-network")
         return true
     }
 }
