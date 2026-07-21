@@ -16,6 +16,15 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Phase 0 bootstrap is tracked by [GitHub issue #1](https://github.com/advatar/ActiveChain/issues/1).
 
+## Active investigation — Aztec billboard parity
+
+Tracked by [GitHub issue #17](https://github.com/advatar/ActiveChain/issues/17).
+
+- [x] Inventory the Aztec billboard's functional, privacy, moderation, bridge, UX, test, and proof properties.
+- [x] Map each property to the current ActiveChain implementation and identify missing protocol/runtime primitives.
+- [x] Publish an ActiveChain-native architecture, feasibility verdict, implementation stages, and verification gates.
+- [x] Verify the investigation artifacts, commit them on the isolated worktree branch, and push the branch.
+
 ## Active launch gate — whole-system formal verification
 
 Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
