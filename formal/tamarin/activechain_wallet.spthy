@@ -8,38 +8,54 @@ builtins: signing
  * Consensus and cryptographic primitive proofs are outside this model; the
  * lemmas state the safety properties this boundary must preserve. */
 
+rule EnrollOwnerBiometric:
+  [ Fr(~biometric_key) ]
+  --[ OwnerEnrolled($owner) ]->
+  [ !OwnerBiometric($owner, ~biometric_key) ]
+
 rule CreateAgent:
-  [ Fr(~agent_key) ]
-  --[ AgentCreated($agent) ]->
-  [ !Agent($agent, ~agent_key) ]
+  [ !OwnerBiometric($owner, biometric_key), Fr(~agent_key) ]
+  --[ AgentCreated($owner, $agent) ]->
+  [ !Agent($owner, $agent, ~agent_key) ]
 
 rule CreateIntent:
-  [ !Agent($agent, key), Fr(~intent_id) ]
-  --[ IntentCreated(~intent_id, $agent, $recipient, $amount) ]->
-  [ Intent(~intent_id, $agent, $recipient, $amount) ]
+  [ !Agent($owner, $agent, key), Fr(~intent_id) ]
+  --[ IntentCreated(~intent_id, $owner, $agent, $recipient, $amount) ]->
+  [ Intent(~intent_id, $owner, $agent, $recipient, $amount) ]
+
+rule AuthenticateBiometric:
+  [ !OwnerBiometric($owner, biometric_key), Fr(~grant) ]
+  --[ BiometricAuthenticated($owner, ~grant) ]->
+  [ BiometricGrant($owner, ~grant) ]
 
 rule ApproveWithBiometric:
-  [ Intent(~intent_id, $agent, $recipient, $amount), !Agent($agent, key), In(biometric) ]
-  --[ Approved(~intent_id, $agent), BiometricBound(~intent_id) ]->
-  [ ApprovedIntent(~intent_id, $agent, $recipient, $amount) ]
+  [ Intent(~intent_id, $owner, $agent, $recipient, $amount),
+    !Agent($owner, $agent, key), BiometricGrant($owner, ~grant) ]
+  --[ Approved(~intent_id, $owner, $agent), BiometricBound(~intent_id, $owner, ~grant) ]->
+  [ ApprovedIntent(~intent_id, $owner, $agent, $recipient, $amount) ]
 
 rule AcceptOnce:
-  [ ApprovedIntent(~intent_id, $agent, $recipient, $amount) ]
-  --[ Accepted(~intent_id, $agent), Transfer(~intent_id, $recipient, $amount) ]->
+  [ ApprovedIntent(~intent_id, $owner, $agent, $recipient, $amount) ]
+  --[ Accepted(~intent_id, $owner, $agent), Transfer(~intent_id, $recipient, $amount) ]->
   [ ]
 
 rule AttackerCanReplayBytesButNotState:
-  [ !Agent($agent, key) ]
-  --[ ReplayAttempt($agent) ]->
-  [ !Agent($agent, key) ]
+  [ !Agent($owner, $agent, key) ]
+  --[ ReplayAttempt($owner, $agent) ]->
+  [ !Agent($owner, $agent, key) ]
 
 lemma accepted_implies_approval:
-  "All id a #i. Accepted(id,a)@i ==> (Ex #j. Approved(id,a)@j & j < i)"
+  "All id o a #i. Accepted(id,o,a)@i ==> (Ex #j. Approved(id,o,a)@j & #j < #i)"
 
 lemma biometric_required:
-  "All id a #i. Approved(id,a)@i ==> (Ex #j. BiometricBound(id)@j & (#j = #i | #j < #i))"
+  "All id o a #i. Approved(id,o,a)@i ==>
+    (Ex grant #j. BiometricAuthenticated(o,grant)@j & #j < #i)"
+
+lemma biometric_grant_is_single_use:
+  "All grant id1 id2 o1 o2 #i #j.
+    BiometricBound(id1,o1,grant)@i & BiometricBound(id2,o2,grant)@j ==> #i = #j"
 
 lemma no_duplicate_acceptance:
-  "All id a #i #j. Accepted(id,a)@i & Accepted(id,a)@j ==> #i = #j"
+  "All id o a #i #j. Accepted(id,o,a)@i & Accepted(id,o,a)@j ==> #i = #j"
 
 end
