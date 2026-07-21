@@ -3,6 +3,7 @@ import ActiveChain.Cash
 import ActiveChain.Credential
 import ActiveChain.DA
 import ActiveChain.Envelope
+import ActiveChain.EpochUpgrade
 import ActiveChain.Object
 import ActiveChain.ObjectVM
 import ActiveChain.Nonce
