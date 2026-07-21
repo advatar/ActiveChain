@@ -35,6 +35,13 @@ ID.
 
 ```sh
 bash scripts/rehearse-validator-processes.sh
+
+## Build and deploy the Kanalen bundle
+
+The manually triggered `Kanalen testnet deployment` workflow builds pinned release binaries and
+publishes a checksum. During the home-network phase, set its deploy host to `192.168.2.126` and
+enable deployment. The workflow requires `KANALEN_DEPLOY_USER` and `KANALEN_DEPLOY_KEY` secrets,
+copies the bundle to `/Volumes/ActiveChain/testnet/`, and never exposes validator peer ports.
 ```
 
 The rehearsal must produce one persisted snapshot per validator and report

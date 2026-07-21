@@ -1,0 +1,65 @@
+name: Kanalen testnet deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Deploy the built bundle to the configured Mac mini"
+        required: true
+        default: false
+        type: boolean
+      deploy_host:
+        description: "SSH host for the home-network validator"
+        required: true
+        default: "192.168.2.126"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: [self-hosted, macOS, ARM64, activechain-ci]
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+      PATH: /Users/johansellstrom/.cargo/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with: { clean: true, fetch-depth: 1, persist-credentials: false }
+      - name: Build release bundle
+        run: |
+          cargo build --locked --release \
+            -p activechain-consensus-runtime \
+            -p activechain-wallet-core \
+            -p activechain-wallet-ffi \
+            -p activechain-verifier-ffi
+          mkdir -p dist/kanalen/{bin,lib,headers,manifests}
+          cp target/release/validator-node dist/kanalen/bin/
+          cp target/release/activechain-wallet dist/kanalen/bin/
+          cp target/release/activechain-faucet dist/kanalen/bin/
+          cp target/release/libactivechain_wallet_ffi.* dist/kanalen/lib/ 2>/dev/null || true
+          cp crates/wallet-ffi/include/activechain_wallet.h dist/kanalen/headers/
+          cp testing/vectors/activechain-verifier-package-v1.json dist/kanalen/manifests/
+          tar -czf "kanalen-${GITHUB_SHA}.tar.gz" -C dist kanalen
+          shasum -a 256 "kanalen-${GITHUB_SHA}.tar.gz" > "kanalen-${GITHUB_SHA}.sha256"
+      - name: Publish bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kanalen-${{ github.sha }}
+          path: |
+            kanalen-*.tar.gz
+            kanalen-*.sha256
+      - name: Optional Mac mini deployment
+        if: ${{ inputs.deploy == true && secrets.KANALEN_DEPLOY_KEY != '' }}
+        env:
+          DEPLOY_HOST: ${{ inputs.deploy_host }}
+          DEPLOY_USER: ${{ secrets.KANALEN_DEPLOY_USER }}
+          DEPLOY_KEY: ${{ secrets.KANALEN_DEPLOY_KEY }}
+        run: |
+          install -m 600 /dev/null /tmp/kanalen-deploy-key
+          printf '%s' "$DEPLOY_KEY" > /tmp/kanalen-deploy-key
+          scp -i /tmp/kanalen-deploy-key -o StrictHostKeyChecking=accept-new \
+            "kanalen-${GITHUB_SHA}.tar.gz" "kanalen-${GITHUB_SHA}.sha256" \
+            "$DEPLOY_USER@$DEPLOY_HOST:/Volumes/ActiveChain/testnet/"
+          rm -f /tmp/kanalen-deploy-key
