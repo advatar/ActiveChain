@@ -2,6 +2,12 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
+derivcheck_timeout=${ACTIVECHAIN_TAMARIN_DERIVCHECK_TIMEOUT:-180}
+
+if ! tamarin-prover --version 2>&1 | grep -q 'tamarin-prover 1\.12\.0'; then
+  echo "formal proof gate requires Tamarin 1.12.0" >&2
+  exit 1
+fi
 
 (cd "$root/formal/lean" && lake build)
 
@@ -15,10 +21,12 @@ for model in "$root"/formal/tamarin/*.spthy; do
   if test -f "$lemma_file"; then
     while IFS= read -r lemma; do
       test -n "$lemma" || continue
-      tamarin-prover "$model" --prove="$lemma" --derivcheck-timeout=60 | tee -a "$output"
+      tamarin-prover "$model" --prove="$lemma" \
+        --derivcheck-timeout="$derivcheck_timeout" | tee -a "$output"
     done < "$lemma_file"
   else
-    tamarin-prover "$model" --prove --derivcheck-timeout=60 | tee "$output"
+    tamarin-prover "$model" --prove \
+      --derivcheck-timeout="$derivcheck_timeout" | tee "$output"
   fi
   if grep -Eq 'falsified|WARNING:|wellformedness check failed' "$output"; then
     echo "formal proof gate failed: $model" >&2
