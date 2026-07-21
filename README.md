@@ -52,6 +52,7 @@ crates/bytecode-verifier     typed ObjectVM bytecode and static verification
 crates/protocol-types        canonical IDs, principals, authenticators, capabilities
 crates/protocol-commitment   SHAKE256/384 commitment transcript
 crates/principal             pure principal lifecycle state machine
+crates/privacy-kernel        bounded privacy statements and nullifier admission
 crates/capability            mechanical delegation attenuation
 crates/credential            issuer/status-aware credential presentation verification
 crates/policy-kernel         bounded APL AST, requests, evaluation, decisions

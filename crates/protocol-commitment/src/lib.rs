@@ -49,6 +49,12 @@ impl DomainTag {
     pub const SUPPLY_ROOT: Self = Self(0x000e);
     /// Commitment to the one-time genesis allocation.
     pub const GENESIS_ALLOCATION_ROOT: Self = Self(0x000f);
+    /// Commitment to a shielded note's complete private opening.
+    pub const SHIELDED_NOTE: Self = Self(0x0010);
+    /// Derivation of a one-shot nullifier from its private authorization material.
+    pub const NULLIFIER: Self = Self(0x0011);
+    /// Commitment to the exact public inputs accepted by a privacy proof.
+    pub const PRIVACY_PUBLIC_INPUTS: Self = Self(0x0012);
 
     /// Returns the registered numeric tag.
     #[must_use]

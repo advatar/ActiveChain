@@ -26,6 +26,9 @@ use activechain_principal::{
     LifecycleAuthorization, PrincipalCommand, PrincipalGenesis, apply_lifecycle_command,
     create_principal,
 };
+use activechain_privacy_kernel::{
+    NullifierOpening, ShieldedNote, ShieldedTransferPublicInputs, VerifiedPrivacyProof,
+};
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
     AccessManifest, AccessManifestFields, ActionId, AuthenticatorDescriptor, AuthenticatorId,
@@ -150,6 +153,51 @@ fn encoded_value<T: CanonicalType>(name: &str, value: &T) -> String {
         hexadecimal(&body),
         hexadecimal(&envelope),
         hexadecimal(commitment.as_bytes()),
+    )
+}
+
+fn render_privacy_v1() -> String {
+    let chain_id = ChainId::new(repeated_digest(0x11));
+    let asset_id = activechain_protocol_types::AssetId::new(repeated_digest(0x22));
+    let note = ShieldedNote::new(
+        chain_id,
+        asset_id,
+        repeated_digest(0x33),
+        500,
+        repeated_digest(0x44),
+        repeated_digest(0x55),
+    )
+    .expect("privacy vector note is valid");
+    let note_commitment = note.commitment().expect("privacy vector note commits");
+    let nullifier = NullifierOpening::new(chain_id, note_commitment, repeated_digest(0x66), 7)
+        .nullifier()
+        .expect("privacy vector nullifier commits");
+    let inputs = ShieldedTransferPublicInputs::new(
+        chain_id,
+        repeated_digest(0x77),
+        asset_id,
+        repeated_digest(0x88),
+        vec![nullifier],
+        vec![repeated_digest(0x99)],
+        5,
+        1_000,
+    )
+    .expect("privacy vector inputs are valid");
+    let public_inputs_commitment = inputs.commitment().expect("privacy vector inputs commit");
+    let proof = VerifiedPrivacyProof { public_inputs_commitment, verified: true };
+    assert!(proof.verified);
+
+    format!(
+        "# ActiveChain bounded privacy vector v1\n\
+note_commitment_hex={}\n\
+nullifier_hex={}\n\
+public_inputs_commitment_hex={}\n\
+{}{}",
+        hexadecimal(note_commitment.as_bytes()),
+        hexadecimal(nullifier.as_bytes()),
+        hexadecimal(public_inputs_commitment.as_bytes()),
+        encoded_value("note", &note),
+        encoded_value("public_inputs", &inputs),
     )
 }
 
@@ -1190,12 +1238,13 @@ fn main() {
         "nonce-model-table" => print!("{}", render_nonce_model_table()),
         "credential-v1" => print!("{}", render_credential_v1()),
         "credential-status-table" => print!("{}", render_credential_status_table()),
+        "privacy-v1" => print!("{}", render_privacy_v1()),
         unknown => {
             eprintln!(
                 "unknown vector {unknown}; expected principal-v1, authority-v1, apl-v1, or \
                  apl-truth-table, object-transition-v1, object-model-table, state-tree-v1, or \
                  state-tree-model-table, object-vm-v1, object-vm-model-table, devnet-block-v1, or \
-                 nonce-model-table, credential-v1, or credential-status-table"
+                 nonce-model-table, credential-v1, credential-status-table, or privacy-v1"
             );
             std::process::exit(2);
         }
@@ -1208,7 +1257,7 @@ mod tests {
         render_apl_truth_table, render_apl_v1, render_authority_v1, render_credential_status_table,
         render_credential_v1, render_devnet_block_v1, render_nonce_model_table,
         render_object_model_table, render_object_transition_v1, render_object_vm_model_table,
-        render_object_vm_v1, render_principal_v1, render_state_tree_model_table,
+        render_object_vm_v1, render_principal_v1, render_privacy_v1, render_state_tree_model_table,
         render_state_tree_v1,
     };
 
@@ -1295,5 +1344,11 @@ mod tests {
         let published =
             include_str!("../../../testing/vectors/credential/credential-status-table.txt");
         assert_eq!(render_credential_status_table(), published);
+    }
+
+    #[test]
+    fn generated_privacy_vector_is_frozen() {
+        let published = include_str!("../../../testing/vectors/privacy/privacy-v1.txt");
+        assert_eq!(render_privacy_v1(), published);
     }
 }
