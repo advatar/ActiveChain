@@ -32,4 +32,13 @@ final class ActiveChainWalletTests: XCTestCase {
         let restored = NetworkSelection(profiles: profiles, store: store)
         XCTAssertEqual(restored.selected.id, "roslagen")
     }
+
+    func testAgentDelegationAndRevocation() {
+        let store = AgentWalletStore()
+        let agent = AgentDelegation(id: "agent-1", label: "Research agent", capabilities: ["transfer"], dailyLimit: 100, expiresAt: 100, revoked: false)
+        XCTAssertTrue(store.delegate(agent))
+        XCTAssertFalse(store.delegate(agent))
+        store.revoke(agentID: "agent-1")
+        XCTAssertTrue(store.agents[0].revoked)
+    }
 }
