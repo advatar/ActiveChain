@@ -14,18 +14,50 @@ use sha3::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValidatorVote {
     validator: PrincipalId,
+    context: ConsensusVoteContext,
     height: u64,
     round: u64,
     block_digest: Digest384,
     signature: ProtocolSignature,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ConsensusVoteContext {
+    genesis_commitment: Digest384,
+    epoch: Epoch,
+    validator_set_root: Digest384,
+}
+
+impl ConsensusVoteContext {
+    pub fn new(
+        genesis_commitment: Digest384,
+        epoch: Epoch,
+        validator_set_root: Digest384,
+    ) -> Result<Self, ValidatorVoteError> {
+        if genesis_commitment == Digest384::ZERO || validator_set_root == Digest384::ZERO {
+            return Err(ValidatorVoteError::UnboundConsensusDomain);
+        }
+        Ok(Self { genesis_commitment, epoch, validator_set_root })
+    }
+    pub const fn genesis_commitment(self) -> Digest384 {
+        self.genesis_commitment
+    }
+    pub const fn epoch(self) -> Epoch {
+        self.epoch
+    }
+    pub const fn validator_set_root(self) -> Digest384 {
+        self.validator_set_root
+    }
+}
+
 impl ValidatorVote {
     pub const TYPE_TAG: u16 = 0x0064;
-    pub const SCHEMA_VERSION: u16 = 1;
-    pub const MAX_ENCODED_LEN: usize = 48 + 8 + 8 + 48 + ProtocolSignature::MAX_ENCODED_LEN;
+    pub const SCHEMA_VERSION: u16 = 2;
+    pub const MAX_ENCODED_LEN: usize =
+        48 + 48 + 8 + 48 + 8 + 8 + 48 + ProtocolSignature::MAX_ENCODED_LEN;
     pub fn new(
         validator: PrincipalId,
+        context: ConsensusVoteContext,
         height: u64,
         round: u64,
         block_digest: Digest384,
@@ -34,10 +66,19 @@ impl ValidatorVote {
         if signature.suite() != CryptoSuiteId::ML_DSA_44 {
             return Err(ValidatorVoteError::InvalidConsensusSuite);
         }
-        Ok(Self { validator, height, round, block_digest, signature })
+        Ok(Self { validator, context, height, round, block_digest, signature })
     }
     pub const fn validator(&self) -> PrincipalId {
         self.validator
+    }
+    pub const fn genesis_commitment(&self) -> Digest384 {
+        self.context.genesis_commitment()
+    }
+    pub const fn epoch(&self) -> Epoch {
+        self.context.epoch()
+    }
+    pub const fn validator_set_root(&self) -> Digest384 {
+        self.context.validator_set_root()
     }
     pub const fn height(&self) -> u64 {
         self.height
@@ -52,8 +93,12 @@ impl ValidatorVote {
         &self.signature
     }
     pub fn signing_payload(&self) -> Vec<u8> {
-        let mut payload = Vec::with_capacity(18 + 48 + 8 + 8 + 48);
-        payload.extend_from_slice(b"ACTIVECHAIN-VOTE-V1");
+        let mut payload = Vec::with_capacity(18 + 2 + 48 + 8 + 48 + 48 + 8 + 8 + 48);
+        payload.extend_from_slice(b"ACTIVECHAIN-VOTE-V2");
+        payload.extend_from_slice(&Self::SCHEMA_VERSION.to_be_bytes());
+        payload.extend_from_slice(self.context.genesis_commitment.as_bytes());
+        payload.extend_from_slice(&self.context.epoch.to_be_bytes());
+        payload.extend_from_slice(self.context.validator_set_root.as_bytes());
         payload.extend_from_slice(self.validator.digest().as_bytes());
         payload.extend_from_slice(&self.height.to_be_bytes());
         payload.extend_from_slice(&self.round.to_be_bytes());
@@ -65,6 +110,7 @@ impl ValidatorVote {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ValidatorVoteError {
     InvalidConsensusSuite,
+    UnboundConsensusDomain,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -274,6 +320,9 @@ pub enum QuorumCertificateError {
 impl CanonicalEncode for ValidatorVote {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
         self.validator.encode(e)?;
+        self.context.genesis_commitment.encode(e)?;
+        self.context.epoch.encode(e)?;
+        self.context.validator_set_root.encode(e)?;
         self.height.encode(e)?;
         self.round.encode(e)?;
         self.block_digest.encode(e)?;
@@ -284,6 +333,12 @@ impl CanonicalDecode for ValidatorVote {
     fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
         Self::new(
             PrincipalId::decode(d)?,
+            ConsensusVoteContext::new(
+                Digest384::decode(d)?,
+                u64::decode(d)?,
+                Digest384::decode(d)?,
+            )
+            .map_err(|_| DecodeError::InvalidValue("validator vote context is unbound"))?,
             u64::decode(d)?,
             u64::decode(d)?,
             Digest384::decode(d)?,
@@ -467,6 +522,18 @@ impl ValidatorGenesis {
         hasher.finalize_xof().read(&mut root);
         Digest384::new(root)
     }
+    /// Immutable commitment used to domain-separate consensus signatures.
+    /// Identical genesis manifests intentionally identify the same chain.
+    pub fn genesis_commitment(&self) -> Digest384 {
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-CONSENSUS-GENESIS-V1");
+        hasher.update(&self.epoch.to_be_bytes());
+        hasher.update(&self.activation_height.to_be_bytes());
+        hasher.update(self.validator_set_root().as_bytes());
+        let mut commitment = [0_u8; 48];
+        hasher.finalize_xof().read(&mut commitment);
+        Digest384::new(commitment)
+    }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ValidatorGenesisError {
@@ -553,6 +620,7 @@ mod tests {
     fn validator_vote_is_round_scoped_and_pq_bound() {
         let vote = ValidatorVote::new(
             PrincipalId::new(digest(1)),
+            ConsensusVoteContext::new(digest(10), 3, digest(11)).unwrap(),
             7,
             2,
             digest(3),
@@ -561,15 +629,45 @@ mod tests {
         .unwrap();
         assert_eq!(vote.height(), 7);
         assert_eq!(vote.round(), 2);
+        assert_eq!(vote.epoch(), 3);
+        assert_eq!(vote.genesis_commitment(), digest(10));
+        assert_eq!(vote.validator_set_root(), digest(11));
         assert_eq!(decode_envelope::<ValidatorVote>(&encode_envelope(&vote).unwrap()), Ok(vote));
     }
     #[test]
     fn validator_vote_rejects_other_pq_signature_suites() {
         let signature = ProtocolSignature::new(CryptoSuiteId::ML_DSA_65, vec![4; 3309]).unwrap();
         assert_eq!(
-            ValidatorVote::new(PrincipalId::new(digest(1)), 7, 2, digest(3), signature),
+            ValidatorVote::new(
+                PrincipalId::new(digest(1)),
+                ConsensusVoteContext::new(digest(10), 3, digest(11)).unwrap(),
+                7,
+                2,
+                digest(3),
+                signature,
+            ),
             Err(ValidatorVoteError::InvalidConsensusSuite)
         );
+    }
+    #[test]
+    fn validator_vote_signature_domain_binds_genesis_epoch_and_validator_set() {
+        let signature = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![4; 2420]).unwrap();
+        let make = |genesis, epoch, root| {
+            ValidatorVote::new(
+                PrincipalId::new(digest(1)),
+                ConsensusVoteContext::new(genesis, epoch, root).unwrap(),
+                7,
+                2,
+                digest(3),
+                signature.clone(),
+            )
+            .unwrap()
+            .signing_payload()
+        };
+        let baseline = make(digest(10), 3, digest(11));
+        assert_ne!(baseline, make(digest(12), 3, digest(11)));
+        assert_ne!(baseline, make(digest(10), 4, digest(11)));
+        assert_ne!(baseline, make(digest(10), 3, digest(12)));
     }
     #[test]
     fn quorum_certificate_requires_strict_two_thirds_stake() {

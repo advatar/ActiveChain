@@ -22,10 +22,10 @@ pub use authority::{
     RecoveryRequest, RecoveryRequestError, ResourceSelector, ScopeSelector, ScopeSelectorError,
 };
 pub use consensus::{
-    BlockProposal, EpochTransition, EpochTransitionError, MAX_VALIDATORS_PER_EPOCH,
-    ML_DSA44_PUBLIC_KEY_LENGTH, QuorumCertificate, QuorumCertificateError, ValidatorGenesis,
-    ValidatorGenesisEntry, ValidatorGenesisError, ValidatorSet, ValidatorSetError, ValidatorVote,
-    ValidatorVoteError, ValidatorWeight,
+    BlockProposal, ConsensusVoteContext, EpochTransition, EpochTransitionError,
+    MAX_VALIDATORS_PER_EPOCH, ML_DSA44_PUBLIC_KEY_LENGTH, QuorumCertificate,
+    QuorumCertificateError, ValidatorGenesis, ValidatorGenesisEntry, ValidatorGenesisError,
+    ValidatorSet, ValidatorSetError, ValidatorVote, ValidatorVoteError, ValidatorWeight,
 };
 pub use consensus_state::{
     ConsensusSnapshot, ConsensusState, ConsensusStateError, GenesisConfig, GenesisConfigError,

@@ -212,13 +212,18 @@ pub fn verify_quorum_certificate(
 ) -> Result<(), VerificationError> {
     let mut seen = alloc::vec::Vec::new();
     let mut signer_stake = 0_u128;
+    let mut vote_domain = None;
     for (public_key, vote) in votes {
-        if vote.height() != certificate.height()
+        let current_domain = (vote.genesis_commitment(), vote.validator_set_root());
+        if vote.epoch() != certificate.epoch()
+            || vote_domain.is_some_and(|domain| domain != current_domain)
+            || vote.height() != certificate.height()
             || vote.round() != certificate.round()
             || vote.block_digest() != certificate.block_digest()
         {
             return Err(VerificationError::VoteContextMismatch);
         }
+        vote_domain = Some(current_domain);
         if seen.contains(&vote.validator()) {
             return Err(VerificationError::DuplicateValidator);
         }
@@ -240,7 +245,8 @@ pub fn verify_quorum_certificate(
 mod tests {
     use super::*;
     use activechain_protocol_types::{
-        CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature, ValidatorVote,
+        ConsensusVoteContext, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature,
+        ValidatorVote,
     };
     use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
     #[test]
@@ -272,6 +278,7 @@ mod tests {
         let signing_key = SigningKey::<MlDsa44>::from_seed(&Seed::default());
         let unsigned = ValidatorVote::new(
             PrincipalId::new(Digest384::new([7; 48])),
+            ConsensusVoteContext::new(Digest384::new([5; 48]), 3, Digest384::new([6; 48])).unwrap(),
             9,
             2,
             Digest384::new([8; 48]),
@@ -281,6 +288,12 @@ mod tests {
         let signature = signing_key.sign(&unsigned.signing_payload());
         let vote = ValidatorVote::new(
             unsigned.validator(),
+            ConsensusVoteContext::new(
+                unsigned.genesis_commitment(),
+                unsigned.epoch(),
+                unsigned.validator_set_root(),
+            )
+            .unwrap(),
             unsigned.height(),
             unsigned.round(),
             unsigned.block_digest(),
@@ -289,6 +302,24 @@ mod tests {
         .unwrap();
         assert!(
             verify_validator_vote(signing_key.verifying_key().encode().as_slice(), &vote).is_ok()
+        );
+        let wrong_epoch = ValidatorVote::new(
+            vote.validator(),
+            ConsensusVoteContext::new(
+                vote.genesis_commitment(),
+                vote.epoch() + 1,
+                vote.validator_set_root(),
+            )
+            .unwrap(),
+            vote.height(),
+            vote.round(),
+            vote.block_digest(),
+            vote.signature().clone(),
+        )
+        .unwrap();
+        assert_eq!(
+            verify_validator_vote(signing_key.verifying_key().encode().as_slice(), &wrong_epoch),
+            Err(VerificationError::InvalidSignature)
         );
     }
 

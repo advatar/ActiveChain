@@ -2,14 +2,17 @@
 
 //! Deterministic in-memory consensus boundary for the first PQ testnet runtime.
 
-use activechain_canonical_codec::{decode_envelope, encode_envelope};
+use activechain_canonical_codec::{
+    CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
+    decode_envelope, encode_envelope,
+};
 use activechain_crypto_provider::{
     VerificationError, verify_block_proposal, verify_quorum_certificate,
 };
 use activechain_protocol_types::{
-    BlockProposal, ConsensusSnapshot, ConsensusState, ConsensusStateError, CryptoSuiteId,
-    Digest384, EpochTransition, ProtocolSignature, QuorumCertificate, ValidatorGenesis,
-    ValidatorSet, ValidatorVote,
+    BlockProposal, ConsensusSnapshot, ConsensusState, ConsensusStateError, ConsensusVoteContext,
+    CryptoSuiteId, Digest384, EpochTransition, PrincipalId, ProtocolSignature, QuorumCertificate,
+    ValidatorGenesis, ValidatorSet, ValidatorVote,
 };
 use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
 use sha3::{
@@ -120,9 +123,18 @@ impl ValidatorSigner {
         )
         .map_err(|_| ValidatorEngineError::Signer)
     }
-    fn sign_vote(&self, proposal: &BlockProposal) -> Result<ValidatorVote, ValidatorEngineError> {
+    fn sign_vote(
+        &self,
+        proposal: &BlockProposal,
+        genesis_commitment: Digest384,
+        validator_set_root: Digest384,
+    ) -> Result<ValidatorVote, ValidatorEngineError> {
+        let context =
+            ConsensusVoteContext::new(genesis_commitment, proposal.epoch(), validator_set_root)
+                .map_err(|_| ValidatorEngineError::UnboundConsensusDomain)?;
         let unsigned = ValidatorVote::new(
             self.validator,
+            context,
             proposal.height(),
             proposal.round(),
             proposal.block_digest(),
@@ -133,6 +145,7 @@ impl ValidatorSigner {
         let signature = self.key.sign(&unsigned.signing_payload());
         ValidatorVote::new(
             self.validator,
+            context,
             proposal.height(),
             proposal.round(),
             proposal.block_digest(),
@@ -208,8 +221,11 @@ impl CertifiedBlock {
         if votes.is_empty() || votes.len() > activechain_protocol_types::MAX_VALIDATORS_PER_EPOCH {
             return Err(TransportError::InvalidBody);
         }
+        let vote_domain = (votes[0].genesis_commitment(), votes[0].validator_set_root());
         if votes.iter().any(|vote| {
-            vote.height() != certificate.height()
+            vote.epoch() != certificate.epoch()
+                || (vote.genesis_commitment(), vote.validator_set_root()) != vote_domain
+                || vote.height() != certificate.height()
                 || vote.round() != certificate.round()
                 || vote.block_digest() != certificate.block_digest()
         }) {
@@ -829,19 +845,65 @@ impl PeerSupervisor {
 }
 
 pub fn save_snapshot(path: &std::path::Path, state: &ConsensusState) -> std::io::Result<()> {
-    let bytes = encode_envelope(&state.snapshot()).map_err(|_| {
-        std::io::Error::new(std::io::ErrorKind::InvalidData, "snapshot encoding failed")
-    })?;
-    let temporary = path.with_extension("tmp");
-    std::fs::write(&temporary, bytes)?;
-    std::fs::rename(temporary, path)
+    let bytes = match std::fs::read(path) {
+        Ok(existing) => match decode_envelope::<PersistedValidatorState>(&existing) {
+            Ok(mut persisted) => {
+                persisted.consensus = state.snapshot();
+                encode_envelope(&persisted).map_err(|_| invalid_data("snapshot encoding failed"))?
+            }
+            Err(_) if existing.starts_with(&PersistedValidatorState::TYPE_TAG.to_be_bytes()) => {
+                return Err(invalid_data("validator safety snapshot is invalid"));
+            }
+            Err(_) => encode_envelope(&state.snapshot())
+                .map_err(|_| invalid_data("snapshot encoding failed"))?,
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            encode_envelope(&state.snapshot())
+                .map_err(|_| invalid_data("snapshot encoding failed"))?
+        }
+        Err(error) => return Err(error),
+    };
+    write_atomic(path, &bytes)
 }
 pub fn load_snapshot(path: &std::path::Path) -> std::io::Result<ConsensusState> {
     let bytes = std::fs::read(path)?;
+    if let Ok(snapshot) = decode_envelope::<PersistedValidatorState>(&bytes) {
+        return Ok(ConsensusState::from_snapshot(snapshot.consensus));
+    }
     let snapshot: ConsensusSnapshot = decode_envelope(&bytes).map_err(|_| {
         std::io::Error::new(std::io::ErrorKind::InvalidData, "snapshot decoding failed")
     })?;
     Ok(ConsensusState::from_snapshot(snapshot))
+}
+
+fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    let temporary = path.with_extension("tmp");
+    let mut file = std::fs::File::create(&temporary)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    std::fs::rename(&temporary, path)?;
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    std::fs::File::open(parent)?.sync_all()?;
+    Ok(())
+}
+
+fn save_validator_snapshot(
+    path: &std::path::Path,
+    engine: &ValidatorEngine,
+    replay: &ReplayGuard,
+) -> std::io::Result<()> {
+    let snapshot = PersistedValidatorState {
+        consensus: engine.state.snapshot(),
+        genesis_commitment: engine.genesis_commitment,
+        replay_high_water: replay.highest.clone(),
+        vote_locks: engine.local_vote_locks.clone(),
+    };
+    let bytes = encode_envelope(&snapshot)
+        .map_err(|_| invalid_data("validator safety snapshot encoding failed"))?;
+    write_atomic(path, &bytes)
 }
 pub fn load_genesis(path: &std::path::Path) -> std::io::Result<ValidatorGenesis> {
     let bytes = std::fs::read(path)?;
@@ -1083,7 +1145,7 @@ pub enum TransportError {
     RateLimited,
 }
 
-#[derive(Default, Debug)]
+#[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub struct ReplayGuard {
     highest: BTreeMap<u16, u64>,
 }
@@ -1104,6 +1166,104 @@ impl ReplayGuard {
         self.highest.insert(envelope.sender(), envelope.sequence());
         Ok(())
     }
+}
+
+const MAX_PERSISTED_REPLAY_SENDERS: usize = activechain_protocol_types::MAX_VALIDATORS_PER_EPOCH;
+const MAX_PERSISTED_VOTE_LOCKS: usize = 4096;
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct LocalVoteSlot {
+    validator: PrincipalId,
+    epoch: u64,
+    validator_set_root: Digest384,
+    height: u64,
+    round: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PersistedValidatorState {
+    consensus: ConsensusSnapshot,
+    genesis_commitment: Digest384,
+    replay_high_water: BTreeMap<u16, u64>,
+    vote_locks: BTreeMap<LocalVoteSlot, Digest384>,
+}
+
+impl CanonicalEncode for PersistedValidatorState {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.consensus.encode(encoder)?;
+        self.genesis_commitment.encode(encoder)?;
+        encoder.write_length(self.replay_high_water.len(), MAX_PERSISTED_REPLAY_SENDERS)?;
+        for (sender, sequence) in &self.replay_high_water {
+            sender.encode(encoder)?;
+            sequence.encode(encoder)?;
+        }
+        encoder.write_length(self.vote_locks.len(), MAX_PERSISTED_VOTE_LOCKS)?;
+        for (slot, digest) in &self.vote_locks {
+            slot.validator.encode(encoder)?;
+            slot.epoch.encode(encoder)?;
+            slot.validator_set_root.encode(encoder)?;
+            slot.height.encode(encoder)?;
+            slot.round.encode(encoder)?;
+            digest.encode(encoder)?;
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for PersistedValidatorState {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let consensus = ConsensusSnapshot::decode(decoder)?;
+        let genesis_commitment = Digest384::decode(decoder)?;
+        if genesis_commitment == Digest384::ZERO {
+            return Err(DecodeError::InvalidValue("zero consensus genesis commitment"));
+        }
+        let replay_count = decoder.read_length(MAX_PERSISTED_REPLAY_SENDERS)?;
+        let mut replay_high_water = BTreeMap::new();
+        let mut previous_sender = None;
+        for _ in 0..replay_count {
+            let sender = u16::decode(decoder)?;
+            let sequence = u64::decode(decoder)?;
+            if sender == 0
+                || previous_sender.is_some_and(|previous| sender <= previous)
+                || replay_high_water.insert(sender, sequence).is_some()
+            {
+                return Err(DecodeError::InvalidValue("invalid replay high-water entry"));
+            }
+            previous_sender = Some(sender);
+        }
+        let vote_count = decoder.read_length(MAX_PERSISTED_VOTE_LOCKS)?;
+        let mut vote_locks = BTreeMap::new();
+        let mut previous_slot = None;
+        for _ in 0..vote_count {
+            let slot = LocalVoteSlot {
+                validator: PrincipalId::decode(decoder)?,
+                epoch: u64::decode(decoder)?,
+                validator_set_root: Digest384::decode(decoder)?,
+                height: u64::decode(decoder)?,
+                round: u64::decode(decoder)?,
+            };
+            let digest = Digest384::decode(decoder)?;
+            if slot.validator_set_root == Digest384::ZERO
+                || previous_slot.is_some_and(|previous| slot <= previous)
+                || vote_locks.insert(slot, digest).is_some()
+            {
+                return Err(DecodeError::InvalidValue("invalid local vote lock"));
+            }
+            previous_slot = Some(slot);
+        }
+        Ok(Self { consensus, genesis_commitment, replay_high_water, vote_locks })
+    }
+}
+
+impl CanonicalType for PersistedValidatorState {
+    const TYPE_TAG: u16 = 0x006c;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 72
+        + 48
+        + 2
+        + MAX_PERSISTED_REPLAY_SENDERS * (2 + 8)
+        + 2
+        + MAX_PERSISTED_VOTE_LOCKS * (48 + 8 + 48 + 8 + 8 + 48);
 }
 
 #[derive(Clone, Debug)]
@@ -1187,15 +1347,29 @@ pub enum ProposalError {
     StaleOrWrongEpoch,
 }
 
+#[derive(Clone)]
 pub struct VoteCollector {
     proposal: BlockProposal,
+    genesis_commitment: Digest384,
+    validator_set_root: Digest384,
     votes: Vec<(Vec<u8>, ValidatorVote)>,
     seen: BTreeMap<activechain_protocol_types::PrincipalId, ()>,
     signer_stake: u128,
 }
 impl VoteCollector {
-    pub fn new(proposal: BlockProposal) -> Self {
-        Self { proposal, votes: Vec::new(), seen: BTreeMap::new(), signer_stake: 0 }
+    pub fn new(
+        proposal: BlockProposal,
+        genesis_commitment: Digest384,
+        validator_set_root: Digest384,
+    ) -> Self {
+        Self {
+            proposal,
+            genesis_commitment,
+            validator_set_root,
+            votes: Vec::new(),
+            seen: BTreeMap::new(),
+            signer_stake: 0,
+        }
     }
     pub fn add_vote(
         &mut self,
@@ -1203,7 +1377,10 @@ impl VoteCollector {
         public_key: &[u8],
         vote: ValidatorVote,
     ) -> Result<(), VoteCollectionError> {
-        if vote.height() != self.proposal.height()
+        if vote.genesis_commitment() != self.genesis_commitment
+            || vote.epoch() != self.proposal.epoch()
+            || vote.validator_set_root() != self.validator_set_root
+            || vote.height() != self.proposal.height()
             || vote.round() != self.proposal.round()
             || vote.block_digest() != self.proposal.block_digest()
         {
@@ -1237,6 +1414,9 @@ impl VoteCollector {
         epoch: u64,
         validator_set: &ValidatorSet,
     ) -> Result<QuorumCertificate, VoteCollectionError> {
+        if epoch != self.proposal.epoch() {
+            return Err(VoteCollectionError::ContextMismatch);
+        }
         let total = validator_set.total_stake();
         if self.signer_stake.checked_mul(3).ok_or(VoteCollectionError::StakeOverflow)?
             <= total.checked_mul(2).ok_or(VoteCollectionError::StakeOverflow)?
@@ -1274,11 +1454,14 @@ pub enum VoteCollectionError {
     InsufficientStake,
 }
 
+#[derive(Clone)]
 pub struct ValidatorEngine {
     state: ConsensusState,
+    genesis_commitment: Digest384,
     validator_set: ValidatorSet,
     public_keys: BTreeMap<activechain_protocol_types::PrincipalId, Vec<u8>>,
     collector: Option<VoteCollector>,
+    local_vote_locks: BTreeMap<LocalVoteSlot, Digest384>,
 }
 impl ValidatorEngine {
     pub fn from_genesis(
@@ -1298,13 +1481,17 @@ impl ValidatorEngine {
             .iter()
             .map(|entry| (entry.validator(), entry.public_key().to_vec()))
             .collect();
-        Self::new(state, validator_set, public_keys)
+        Self::new(state, genesis.genesis_commitment(), validator_set, public_keys)
     }
     pub fn new(
         state: ConsensusState,
+        genesis_commitment: Digest384,
         validator_set: ValidatorSet,
         public_keys: BTreeMap<activechain_protocol_types::PrincipalId, Vec<u8>>,
     ) -> Result<Self, ValidatorEngineError> {
+        if genesis_commitment == Digest384::ZERO || state.validator_set_root() == Digest384::ZERO {
+            return Err(ValidatorEngineError::UnboundConsensusDomain);
+        }
         for validator in validator_set.as_slice() {
             let key = public_keys
                 .get(&validator.validator)
@@ -1313,7 +1500,14 @@ impl ValidatorEngine {
                 return Err(ValidatorEngineError::InvalidValidatorKey);
             }
         }
-        Ok(Self { state, validator_set, public_keys, collector: None })
+        Ok(Self {
+            state,
+            genesis_commitment,
+            validator_set,
+            public_keys,
+            collector: None,
+            local_vote_locks: BTreeMap::new(),
+        })
     }
     pub const fn state(&self) -> ConsensusState {
         self.state
@@ -1341,18 +1535,42 @@ impl ValidatorEngine {
             .map(|entry| (entry.validator(), entry.public_key().to_vec()))
             .collect();
         self.collector = None;
+        self.local_vote_locks.clear();
         Ok(())
     }
-    pub fn sign_current_vote(
-        &self,
+    fn sign_current_vote(
+        &mut self,
         signer: &ValidatorSigner,
     ) -> Result<ValidatorVote, ValidatorEngineError> {
-        let proposal =
-            self.collector.as_ref().ok_or(ValidatorEngineError::MissingProposal)?.proposal();
+        let proposal = self
+            .collector
+            .as_ref()
+            .ok_or(ValidatorEngineError::MissingProposal)?
+            .proposal()
+            .clone();
         if self.validator_set.stake_of(&signer.validator()).is_none() {
             return Err(ValidatorEngineError::UnknownValidator);
         }
-        signer.sign_vote(proposal)
+        let slot = LocalVoteSlot {
+            validator: signer.validator(),
+            epoch: proposal.epoch(),
+            validator_set_root: self.state.validator_set_root(),
+            height: proposal.height(),
+            round: proposal.round(),
+        };
+        match self.local_vote_locks.get(&slot) {
+            Some(digest) if *digest != proposal.block_digest() => {
+                return Err(ValidatorEngineError::ConflictingLocalVote);
+            }
+            Some(_) => {}
+            None if self.local_vote_locks.len() >= MAX_PERSISTED_VOTE_LOCKS => {
+                return Err(ValidatorEngineError::VoteLockLimit);
+            }
+            None => {
+                self.local_vote_locks.insert(slot, proposal.block_digest());
+            }
+        }
+        signer.sign_vote(&proposal, self.genesis_commitment, self.state.validator_set_root())
     }
     pub fn process(
         &mut self,
@@ -1366,7 +1584,11 @@ impl ValidatorEngine {
                     .ok_or(ValidatorEngineError::UnknownValidator)?;
                 admit_proposal(&self.state, &proposal, key)
                     .map_err(ValidatorEngineError::Proposal)?;
-                self.collector = Some(VoteCollector::new(proposal));
+                self.collector = Some(VoteCollector::new(
+                    proposal,
+                    self.genesis_commitment,
+                    self.state.validator_set_root(),
+                ));
                 Ok(None)
             }
             ConsensusMessage::Vote(vote) => {
@@ -1415,6 +1637,12 @@ impl ValidatorEngine {
     fn apply_certificate(&mut self, proof: &CertifiedBlock) -> Result<(), ValidatorEngineError> {
         let mut votes = Vec::with_capacity(proof.votes().len());
         for vote in proof.votes() {
+            if vote.genesis_commitment() != self.genesis_commitment
+                || vote.epoch() != self.state.epoch()
+                || vote.validator_set_root() != self.state.validator_set_root()
+            {
+                return Err(ValidatorEngineError::VoteDomainMismatch);
+            }
             let key = self
                 .public_keys
                 .get(&vote.validator())
@@ -1422,7 +1650,12 @@ impl ValidatorEngine {
             votes.push((key.as_slice(), vote.clone()));
         }
         finalize_round(&mut self.state, &self.validator_set, proof.certificate(), &votes)
-            .map_err(ValidatorEngineError::Runtime)
+            .map_err(ValidatorEngineError::Runtime)?;
+        self.local_vote_locks.retain(|slot, _| {
+            slot.epoch > self.state.epoch()
+                || (slot.epoch == self.state.epoch() && slot.height > self.state.finalized_height())
+        });
+        Ok(())
     }
 }
 
@@ -1432,10 +1665,17 @@ pub enum ValidatorEngineError {
     InvalidEpochTransition,
     GenesisEpochMismatch,
     GenesisRootMismatch,
+    SnapshotDomainMismatch,
+    SnapshotStateMismatch,
+    SnapshotUnknownSender,
     MissingValidatorKey,
     InvalidValidatorKey,
+    UnboundConsensusDomain,
     UnknownValidator,
     MissingProposal,
+    ConflictingLocalVote,
+    VoteDomainMismatch,
+    VoteLockLimit,
     Proposal(ProposalError),
     Vote(VoteCollectionError),
     Transport(TransportError),
@@ -1462,10 +1702,41 @@ impl ValidatorService {
             .iter()
             .enumerate()
             .map(|(index, entry)| ((index + 1) as u16, entry.public_key().to_vec()))
-            .collect();
+            .collect::<BTreeMap<_, _>>();
+        let mut engine = ValidatorEngine::from_genesis(state, genesis)?;
+        let mut replay = ReplayGuard::default();
+        match std::fs::read(&snapshot_path) {
+            Ok(bytes) => match decode_envelope::<PersistedValidatorState>(&bytes) {
+                Ok(persisted) => {
+                    if persisted.genesis_commitment != engine.genesis_commitment {
+                        return Err(ValidatorEngineError::SnapshotDomainMismatch);
+                    }
+                    if ConsensusState::from_snapshot(persisted.consensus) != state {
+                        return Err(ValidatorEngineError::SnapshotStateMismatch);
+                    }
+                    if persisted
+                        .replay_high_water
+                        .keys()
+                        .any(|sender| !sender_keys.contains_key(sender))
+                    {
+                        return Err(ValidatorEngineError::SnapshotUnknownSender);
+                    }
+                    engine.local_vote_locks = persisted.vote_locks;
+                    replay.highest = persisted.replay_high_water;
+                }
+                Err(_) if bytes.starts_with(&PersistedValidatorState::TYPE_TAG.to_be_bytes()) => {
+                    return Err(ValidatorEngineError::Snapshot(invalid_data(
+                        "validator safety snapshot is invalid",
+                    )));
+                }
+                Err(_) => {}
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(ValidatorEngineError::Snapshot(error)),
+        }
         Ok(Self {
-            engine: std::sync::Mutex::new(ValidatorEngine::from_genesis(state, genesis)?),
-            replay: std::sync::Mutex::new(ReplayGuard::default()),
+            engine: std::sync::Mutex::new(engine),
+            replay: std::sync::Mutex::new(replay),
             sender_keys,
             snapshot_path,
             metrics: std::sync::Arc::new(ValidatorMetrics::default()),
@@ -1479,11 +1750,17 @@ impl ValidatorService {
         transition: &EpochTransition,
         next_genesis: &ValidatorGenesis,
     ) -> Result<(), ValidatorServiceError> {
-        self.engine
-            .lock()
-            .map_err(|_| ValidatorServiceError::Poisoned)?
+        let mut engine = self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
+        let replay = self.replay.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
+        let mut candidate = engine.clone();
+        candidate
             .activate_finalized_validator_set(transition, next_genesis)
-            .map_err(ValidatorServiceError::Engine)
+            .map_err(ValidatorServiceError::Engine)?;
+        save_validator_snapshot(&self.snapshot_path, &candidate, &replay)
+            .map_err(ValidatorEngineError::Snapshot)
+            .map_err(ValidatorServiceError::Engine)?;
+        *engine = candidate;
+        Ok(())
     }
     pub fn metrics(&self) -> MetricsSnapshot {
         self.metrics.snapshot()
@@ -1505,17 +1782,26 @@ impl ValidatorService {
             .sender_keys
             .get(&message.envelope.sender())
             .ok_or(ValidatorServiceError::UnknownSender)?;
-        self.replay
-            .lock()
-            .map_err(|_| ValidatorServiceError::Poisoned)?
+        let mut engine = self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
+        let mut replay = self.replay.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
+        let mut candidate_replay = replay.clone();
+        candidate_replay
             .accept(&message.envelope, key)
             .map_err(ValidatorServiceError::Transport)?;
-        let result = self
-            .engine
-            .lock()
-            .map_err(|_| ValidatorServiceError::Poisoned)?
-            .process_and_save(message.message, &self.snapshot_path)
-            .map_err(ValidatorServiceError::Engine);
+        save_validator_snapshot(&self.snapshot_path, &engine, &candidate_replay)
+            .map_err(ValidatorEngineError::Snapshot)
+            .map_err(ValidatorServiceError::Engine)?;
+        *replay = candidate_replay;
+
+        let mut candidate_engine = engine.clone();
+        let result =
+            candidate_engine.process(message.message).map_err(ValidatorServiceError::Engine);
+        if result.is_ok() {
+            save_validator_snapshot(&self.snapshot_path, &candidate_engine, &replay)
+                .map_err(ValidatorEngineError::Snapshot)
+                .map_err(ValidatorServiceError::Engine)?;
+            *engine = candidate_engine;
+        }
         match &result {
             Ok(Some(_)) => {
                 self.metrics.finalized_certificates.fetch_add(1, Ordering::Relaxed);
@@ -1527,6 +1813,21 @@ impl ValidatorService {
         }
         result
     }
+
+    fn sign_current_vote_durably(
+        &self,
+        signer: &ValidatorSigner,
+    ) -> Result<ValidatorVote, ValidatorServiceError> {
+        let mut engine = self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
+        let replay = self.replay.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
+        let mut candidate = engine.clone();
+        let vote = candidate.sign_current_vote(signer).map_err(ValidatorServiceError::Engine)?;
+        save_validator_snapshot(&self.snapshot_path, &candidate, &replay)
+            .map_err(ValidatorEngineError::Snapshot)
+            .map_err(ValidatorServiceError::Engine)?;
+        *engine = candidate;
+        Ok(vote)
+    }
     pub fn process_proposal_and_sign_vote(
         &self,
         proposal: AuthenticatedConsensusMessage,
@@ -1534,12 +1835,7 @@ impl ValidatorService {
         sequence: u64,
     ) -> Result<AuthenticatedConsensusMessage, ValidatorServiceError> {
         self.process_message(proposal)?;
-        let vote = self
-            .engine
-            .lock()
-            .map_err(|_| ValidatorServiceError::Poisoned)?
-            .sign_current_vote(signer)
-            .map_err(ValidatorServiceError::Engine)?;
+        let vote = self.sign_current_vote_durably(signer)?;
         let sender = self
             .sender_keys
             .iter()
@@ -1567,12 +1863,7 @@ impl ValidatorService {
             .sign_envelope(sender, sequence, ConsensusMessage::Proposal(proposal))
             .map_err(ValidatorServiceError::Engine)?;
         self.process_message(proposal_message.clone())?;
-        let vote = self
-            .engine
-            .lock()
-            .map_err(|_| ValidatorServiceError::Poisoned)?
-            .sign_current_vote(signer)
-            .map_err(ValidatorServiceError::Engine)?;
+        let vote = self.sign_current_vote_durably(signer)?;
         let vote_message = signer
             .sign_envelope(sender, sequence.saturating_add(1), ConsensusMessage::Vote(vote))
             .map_err(ValidatorServiceError::Engine)?;
@@ -1931,6 +2222,8 @@ mod tests {
         let key = SigningKey::<MlDsa44>::from_seed(&Seed::from([7; 32]));
         let vote = ValidatorVote::new(
             activechain_protocol_types::PrincipalId::new(Digest384::new([3; 48])),
+            ConsensusVoteContext::new(Digest384::new([10; 48]), 1, Digest384::new([11; 48]))
+                .unwrap(),
             8,
             2,
             Digest384::new([4; 48]),
@@ -1957,6 +2250,8 @@ mod tests {
         let signature = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420]).unwrap();
         let vote = ValidatorVote::new(
             activechain_protocol_types::PrincipalId::new(Digest384::new([1; 48])),
+            ConsensusVoteContext::new(Digest384::new([10; 48]), 1, Digest384::new([11; 48]))
+                .unwrap(),
             1,
             1,
             Digest384::new([2; 48]),
@@ -2028,15 +2323,26 @@ mod tests {
         let proposal =
             BlockProposal::new(ids[0], 1, 1, 1, Digest384::new([5; 48]), placeholder.clone())
                 .unwrap();
-        let mut collector = VoteCollector::new(proposal);
+        let genesis_commitment = Digest384::new([50; 48]);
+        let validator_set_root = Digest384::new([51; 48]);
+        let vote_context =
+            ConsensusVoteContext::new(genesis_commitment, 1, validator_set_root).unwrap();
+        let mut collector = VoteCollector::new(proposal, genesis_commitment, validator_set_root);
         let mut votes = Vec::new();
         for (index, key) in keys.iter().enumerate() {
-            let unsigned =
-                ValidatorVote::new(ids[index], 1, 1, Digest384::new([5; 48]), placeholder.clone())
-                    .unwrap();
+            let unsigned = ValidatorVote::new(
+                ids[index],
+                vote_context,
+                1,
+                1,
+                Digest384::new([5; 48]),
+                placeholder.clone(),
+            )
+            .unwrap();
             let signature = key.sign(&unsigned.signing_payload());
             let vote = ValidatorVote::new(
                 ids[index],
+                vote_context,
                 1,
                 1,
                 Digest384::new([5; 48]),
@@ -2094,16 +2400,32 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-        let mut leader =
-            ValidatorEngine::new(ConsensusState::new(1), set.clone(), public_keys.clone()).unwrap();
+        let genesis_commitment = Digest384::new([50; 48]);
+        let validator_set_root = Digest384::new([51; 48]);
+        let vote_context =
+            ConsensusVoteContext::new(genesis_commitment, 1, validator_set_root).unwrap();
+        let mut leader = ValidatorEngine::new(
+            ConsensusState::new_with_validator_set_root(1, validator_set_root),
+            genesis_commitment,
+            set.clone(),
+            public_keys.clone(),
+        )
+        .unwrap();
         leader.process(ConsensusMessage::Proposal(proposal)).unwrap();
         let mut proof = None;
         for (key, id) in keys.iter().zip(ids.iter()) {
-            let unsigned =
-                ValidatorVote::new(*id, 1, 0, Digest384::new([8; 48]), placeholder.clone())
-                    .unwrap();
+            let unsigned = ValidatorVote::new(
+                *id,
+                vote_context,
+                1,
+                0,
+                Digest384::new([8; 48]),
+                placeholder.clone(),
+            )
+            .unwrap();
             let vote = ValidatorVote::new(
                 *id,
+                vote_context,
                 1,
                 0,
                 Digest384::new([8; 48]),
@@ -2125,7 +2447,13 @@ mod tests {
         );
         let path = std::env::temp_dir()
             .join(format!("activechain-validator-engine-{}.bin", std::process::id()));
-        let mut follower = ValidatorEngine::new(ConsensusState::new(1), set, public_keys).unwrap();
+        let mut follower = ValidatorEngine::new(
+            ConsensusState::new_with_validator_set_root(1, validator_set_root),
+            genesis_commitment,
+            set,
+            public_keys,
+        )
+        .unwrap();
         follower.process_and_save(ConsensusMessage::Certificate(proof), &path).unwrap();
         assert_eq!(load_snapshot(&path).unwrap().finalized_height(), 1);
         let _ = std::fs::remove_file(path);
@@ -2178,7 +2506,13 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-        let mut engine = ValidatorEngine::new(ConsensusState::new(1), set, keys).unwrap();
+        let mut engine = ValidatorEngine::new(
+            ConsensusState::new_with_validator_set_root(1, Digest384::new([51; 48])),
+            Digest384::new([50; 48]),
+            set,
+            keys,
+        )
+        .unwrap();
         engine.process(ConsensusMessage::Proposal(proposal)).unwrap();
         let vote = engine.sign_current_vote(&signer).unwrap();
         activechain_crypto_provider::verify_validator_vote(&signer.public_key(), &vote).unwrap();
@@ -2219,6 +2553,59 @@ mod tests {
                 .prometheus(1)
                 .contains("activechain_validator_finalized_certificates{validator=\"1\"} 1")
         );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn restart_restores_replay_high_water_and_conflicting_local_vote_lock() {
+        use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
+        let validator = PrincipalId::new(Digest384::new([61; 48]));
+        let signer = ValidatorSigner::from_seed(validator, [62; 32]);
+        let genesis = ValidatorGenesis::new(
+            1,
+            1,
+            vec![
+                ValidatorGenesisEntry::new(validator, 1, signer.public_key().try_into().unwrap())
+                    .unwrap(),
+            ],
+        )
+        .unwrap();
+        let path = std::env::temp_dir()
+            .join(format!("activechain-validator-safety-restart-{}.bin", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let state = ConsensusState::new_with_validator_set_root(1, genesis.validator_set_root());
+        let service = ValidatorService::from_genesis(state, &genesis, path.clone()).unwrap();
+        let first_proposal = signer.sign_proposal(1, 1, 0, Digest384::new([63; 48])).unwrap();
+        let first_message =
+            signer.sign_envelope(1, 7, ConsensusMessage::Proposal(first_proposal)).unwrap();
+        service.process_proposal_and_sign_vote(first_message.clone(), &signer, 8).unwrap();
+        drop(service);
+
+        let restored_state = load_snapshot(&path).unwrap();
+        let restarted =
+            ValidatorService::from_genesis(restored_state, &genesis, path.clone()).unwrap();
+        assert!(matches!(
+            restarted.process_message(first_message),
+            Err(ValidatorServiceError::Transport(TransportError::Replay))
+        ));
+
+        let same_proposal = signer.sign_proposal(1, 1, 0, Digest384::new([63; 48])).unwrap();
+        let same_message =
+            signer.sign_envelope(1, 9, ConsensusMessage::Proposal(same_proposal)).unwrap();
+        let repeated_vote =
+            restarted.process_proposal_and_sign_vote(same_message, &signer, 10).unwrap();
+        assert!(matches!(
+            repeated_vote.message,
+            ConsensusMessage::Vote(ref vote) if vote.block_digest() == Digest384::new([63; 48])
+        ));
+
+        let conflicting = signer.sign_proposal(1, 1, 0, Digest384::new([64; 48])).unwrap();
+        let conflicting_message =
+            signer.sign_envelope(1, 11, ConsensusMessage::Proposal(conflicting)).unwrap();
+        assert!(matches!(
+            restarted.process_proposal_and_sign_vote(conflicting_message, &signer, 12),
+            Err(ValidatorServiceError::Engine(ValidatorEngineError::ConflictingLocalVote))
+        ));
         std::fs::remove_file(path).unwrap();
     }
 
@@ -2681,11 +3068,17 @@ mod tests {
         let placeholder = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420]).unwrap();
         let proposal =
             BlockProposal::new(id, 1, 3, 0, Digest384::new([3; 48]), placeholder.clone()).unwrap();
+        let genesis_commitment = Digest384::new([50; 48]);
+        let validator_set_root = Digest384::new([51; 48]);
+        let vote_context =
+            ConsensusVoteContext::new(genesis_commitment, 1, validator_set_root).unwrap();
         let make_vote = |validator, height, digest| {
             let unsigned =
-                ValidatorVote::new(validator, height, 0, digest, placeholder.clone()).unwrap();
+                ValidatorVote::new(validator, vote_context, height, 0, digest, placeholder.clone())
+                    .unwrap();
             ValidatorVote::new(
                 validator,
+                vote_context,
                 height,
                 0,
                 digest,
@@ -2698,7 +3091,8 @@ mod tests {
             .unwrap()
         };
         let valid = make_vote(id, 3, Digest384::new([3; 48]));
-        let mut collector = VoteCollector::new(proposal.clone());
+        let mut collector =
+            VoteCollector::new(proposal.clone(), genesis_commitment, validator_set_root);
         assert_eq!(
             collector.add_vote(&set, key.verifying_key().encode().as_slice(), valid.clone()),
             Ok(())
@@ -2708,7 +3102,8 @@ mod tests {
             Err(VoteCollectionError::Duplicate)
         );
         assert_eq!(collector.finalize(1, &set), Err(VoteCollectionError::InsufficientStake));
-        let mut collector = VoteCollector::new(proposal.clone());
+        let mut collector =
+            VoteCollector::new(proposal.clone(), genesis_commitment, validator_set_root);
         assert_eq!(
             collector.add_vote(
                 &set,
@@ -2718,7 +3113,7 @@ mod tests {
             Err(VoteCollectionError::ContextMismatch)
         );
         let outsider = PrincipalId::new(Digest384::new([9; 48]));
-        let mut collector = VoteCollector::new(proposal);
+        let mut collector = VoteCollector::new(proposal, genesis_commitment, validator_set_root);
         assert_eq!(
             collector.add_vote(
                 &set,
