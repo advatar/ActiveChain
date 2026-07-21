@@ -10,12 +10,14 @@
 extern crate alloc;
 
 mod builder;
+mod network;
 mod protected;
 
 pub use builder::{
     BondSettlement, BuilderAuction, BuilderBid, BuilderOutcome, BuilderSettlementError,
     MAX_BUILDER_BIDS,
 };
+pub use network::{ProtectedDecryptionShare, ProtectedOrderedSet, ProtectedSetLock};
 
 pub use protected::{
     CommitteeKind, MAX_COMMITTEE_MEMBERS, MAX_ORDERING_ITEMS, OrderingError, ProtectedCommittee,

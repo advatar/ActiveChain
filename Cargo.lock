@@ -58,6 +58,7 @@ dependencies = [
  "activechain-crypto-provider",
  "activechain-data-availability",
  "activechain-object-vm",
+ "activechain-privacy-kernel",
  "activechain-protocol-types",
  "activechain-wallet-core",
  "ml-dsa",
