@@ -553,6 +553,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
                   from every ordered accepted mutation and verify it through the batched table.
                 - [ ] Benchmark and cap full-depth multi-mutation prover memory/time before enabling
                   authenticated SHAKE proofs at validator ingress.
+                  - [ ] Split authenticated paths into deterministic ordered STARK chunks with a
+                    hard per-chunk Keccak-permutation cap before allocating traces.
       - [x] Complete bounded-session enforcement and its CashAIR binding
         ([GitHub issue #72](https://github.com/advatar/ActiveChain/issues/72)).
         - [x] Add canonical ML-DSA session-grant envelopes, persistent spend budgets, strict
