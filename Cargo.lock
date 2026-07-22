@@ -57,8 +57,11 @@ dependencies = [
 name = "activechain-cash-air"
 version = "0.1.0"
 dependencies = [
+ "activechain-canonical-codec",
  "activechain-cash-kernel",
  "activechain-protocol-types",
+ "activechain-wallet-core",
+ "sha3 0.10.9",
  "winterfell",
 ]
 

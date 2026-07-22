@@ -10,7 +10,7 @@ mod cash_persistence;
 
 pub use cash_authorization::{
     AuthorizedCashSessionGrantV1, AuthorizedCashTransferV1, CashAuthorizationRequestV1,
-    CashSessionGrantV1, recipient_commitment,
+    CashSessionAdmissionWitnessV1, CashSessionGrantV1, recipient_commitment,
 };
 pub use cash_persistence::{
     FinalizedIdentityKeyProof, FinalizedIdentityKeyVerifier, authenticator_set_root,
@@ -425,6 +425,39 @@ impl TransactionIngress {
             .ok()
             .map(|index| lane.session_budgets[index])?;
         Some((session.spent, session.max_spend, session.valid_from, session.expires_at))
+    }
+
+    /// Executes the authoritative admission path on a clone and returns its exact budget witness.
+    pub fn preview_authorized_session_witness(
+        &self,
+        authorized: &AuthorizedCashTransferV1,
+        height: u64,
+    ) -> Result<CashSessionAdmissionWitnessV1, WalletError> {
+        let request = authorized.request();
+        let (pre_spent, max_spend, valid_from, expires_at) = self
+            .session_budget(request.signer(), request.session_id())
+            .ok_or(WalletError::UnknownSession)?;
+        let mut next = self.clone();
+        next.submit_authorized(authorized, height)?;
+        let (post_spent, post_max, post_valid_from, post_expires_at) = next
+            .session_budget(request.signer(), request.session_id())
+            .ok_or(WalletError::UnknownSession)?;
+        if (max_spend, valid_from, expires_at) != (post_max, post_valid_from, post_expires_at) {
+            return Err(WalletError::MalformedAuthorization);
+        }
+        CashSessionAdmissionWitnessV1::new(
+            request.chain_id(),
+            request.signer(),
+            request.session_id(),
+            height,
+            valid_from,
+            expires_at,
+            request.transfer().amount(),
+            request.transfer().fee(),
+            max_spend,
+            pre_spent,
+            post_spent,
+        )
     }
 
     /// Applies an already-decoded authoritative cash request atomically in memory.
@@ -1119,6 +1152,17 @@ mod tests {
         let intent_id = request.intent_id().unwrap();
         let signed = sign_cash_request(request, &key);
         let envelope = encode_envelope(&signed).unwrap();
+
+        let witness = ingress.preview_authorized_session_witness(&signed, 5).unwrap();
+        assert_eq!((witness.pre_spent(), witness.post_spent()), (0, 11));
+        assert_eq!((witness.amount(), witness.fee(), witness.max_spend()), (10, 1, 11));
+        assert_eq!(
+            activechain_canonical_codec::decode_envelope::<CashSessionAdmissionWitnessV1>(
+                &encode_envelope(&witness).unwrap()
+            )
+            .unwrap(),
+            witness
+        );
 
         ingress.submit_envelope(&envelope, 5).unwrap();
 
