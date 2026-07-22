@@ -66,10 +66,18 @@ every jump and branch still routes through private `require_target`. The interpr
 instruction prepayment, `AddU64`, and `BranchIf` through private `prepay_gas`, `checked_add`, and
 `select_branch_target` respectively.
 
-`execute_program` remains private. Its only non-test production caller is public
-`execute(&VerifiedProgram, ...)`, so an unchecked program cannot cross the public interpreter
-boundary. A differential regression invokes public `execute` and private `execute_program` with the
-same verified fixture and requires identical results.
+Successful verification now also publishes an immutable `VerifiedInstructionState` for every
+program counter. Each certificate contains the exact register-presence vector and the maximum
+prior-event count obtained from the verifier's flow merge. `execute(&VerifiedProgram, ...)` passes
+its concrete register presence and event count through the certificate's pure
+`admits_runtime_state` predicate before every instruction. A mismatch fails closed as an invariant
+violation before that instruction is charged or executed. An unchecked program still cannot cross
+the public interpreter boundary.
+
+The Lean model independently defines the same list-equality/event-bound certificate predicate and
+proves its exact iff characterization for arbitrary register lists and event counts. It also proves
+exact unit gas for arbitrary resource-action lists. This is a general semantic theorem, but not a
+compiler proof that Rust execution refines Lean.
 
 ## Mechanically checked properties
 
@@ -128,14 +136,17 @@ Ordinary production tests remain essential to the compositional argument:
   verifier;
 - a verified gas fixture exhaustively tests limits zero through seven and proves failure is reported
   before the unaffordable instruction, while six or more gas produces the exact event/result;
-- public `execute(&VerifiedProgram, ...)` is differentially equal to its private interpreter
-  delegate for a verified fixture;
+- the verifier's complete eight-instruction resource fixture publishes exact entry certificates at
+  every program counter; each correct concrete state is admitted while every single-bit presence
+  substitution, event overflow, and wrong register-vector length is rejected;
+- public execution checks those certificates on every visited instruction and repeated execution
+  of an identical verified invocation produces an identical result;
 - verified resource, addition, branch, overflow, input mismatch, evidence replay, and canonical
   result fixtures exercise the full interpreter; and
 - a property test runs identical verified addition invocations twice over bounded `u32`-range
   operands and requires identical complete results.
 
-At the recorded checkpoint, `activechain-bytecode-verifier` passes 9 tests and
+At the recorded checkpoint, `activechain-bytecode-verifier` passes 10 tests and
 `activechain-object-vm` passes 11 tests.
 
 ## Tested but unproved whole-program boundary
@@ -155,8 +166,9 @@ premises are independently proved, or an unbounded theorem-prover refinement.
 ## Deliberate limitations
 
 - This slice proves production helper obligations compositionally; it does not mechanically prove
-  that full `verify` establishes every premise consumed by every interpreter instruction in one
-  query.
+  in one Kani query that full `verify` establishes every premise consumed by every interpreter
+  instruction. The production certificate check makes disagreement explicit and fail-closed, but
+  absence of disagreement for every possible accepted program remains an open theorem.
 - It does not Kani-prove whole-run determinism. Determinism currently has executable branch,
   arithmetic, evidence-replay, differential, and property-test coverage.
 - Version 1 uses immediate `LoadU64`, `LoadBool`, and `LoadDigest` operands, not a constant pool, so
