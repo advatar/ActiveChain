@@ -53,6 +53,15 @@ theorem u32CanonicalWidthIsBounded
   split <;> try omega
   split <;> omega
 
+def canonicalLengthCases : List Nat :=
+  [0, 127, 128, 16383, 16384, 2097151, 2097152, 268435455, 268435456, maxU32]
+
+def canonicalLengthWidthTable : List (Nat × Nat) :=
+  canonicalLengthCases.map fun value => (value, canonicalLengthWidth value)
+
+theorem canonicalLengthWidthTableHasTenRows :
+    canonicalLengthWidthTable.length = 10 := rfl
+
 /-! ## Strict canonical-envelope inspection -/
 
 /-- Observable results of parsing the untrusted envelope bytes.  This is the
