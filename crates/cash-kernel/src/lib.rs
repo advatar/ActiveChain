@@ -9,11 +9,15 @@
 
 extern crate alloc;
 
+mod air;
 mod economics;
 mod partitioned;
 mod transition;
 mod types;
 
+pub use air::{
+    CashAirError, CashAirProof, CashAirPublicInputs, CashAirRow, prove_cash_air, verify_cash_air,
+};
 pub use economics::{
     ChallengeAssignment, DutyAssignment, DutyReceipt, EconomicsError, FeeMarket, FeeQuote,
     ObjectiveFault, RewardRedemption, RewardSettlement, SecurityPoolAllocation, SlashSplit,
@@ -215,6 +219,57 @@ mod tests {
         let receipt = ledger.apply_partitioned_batch(&batch, 99, 4).unwrap();
         assert_eq!((receipt.applied(), receipt.rejected()), (0, 2));
         assert_eq!(ledger, snapshot);
+    }
+
+    #[test]
+    fn transparent_cash_air_matches_direct_reexecution_and_binds_context() {
+        let (ledger, batch) = partitioned_fixture();
+        let (proof, expected_post) = super::prove_cash_air(&ledger, &batch, 3, 16).unwrap();
+        assert_eq!(
+            super::verify_cash_air(&ledger, &batch, &proof, 3, 16),
+            Ok(expected_post.clone())
+        );
+        assert_eq!(
+            super::verify_cash_air(&ledger, &batch, &proof, 4, 16),
+            Err(super::CashAirError::InvalidProof)
+        );
+        assert_eq!(
+            super::verify_cash_air(&ledger, &batch, &proof, 3, 8),
+            Err(super::CashAirError::InvalidProof)
+        );
+        assert!(super::verify_cash_air(&expected_post, &batch, &proof, 3, 16).is_err());
+        let bytes = encode_envelope(&proof).unwrap();
+        assert_eq!(decode_envelope::<super::CashAirProof>(&bytes), Ok(proof.clone()));
+        assert_eq!(proof.commitment().unwrap(), proof.commitment().unwrap());
+        assert_eq!(
+            proof.commitment().unwrap().as_bytes(),
+            &[
+                209, 21, 90, 11, 17, 218, 247, 101, 193, 252, 70, 128, 170, 126, 115, 229, 20, 134,
+                148, 253, 24, 171, 206, 81, 86, 52, 195, 19, 42, 158, 141, 168, 131, 113, 249, 155,
+                245, 80, 223, 192, 185, 149, 16, 77, 172, 18, 82, 141,
+            ]
+        );
+        assert!(include_str!("../../../testing/vectors/cash/cash-air-v1.txt")
+            .contains("proof_commitment_hex=d1155a0b11daf765c1fc4680aa7e73e5148694fd18abce515634c3132a9e8da88371f99bf550dfc0b995104dac12528d"));
+    }
+
+    #[test]
+    fn every_decodable_single_byte_cash_air_substitution_fails_reexecution() {
+        let (ledger, batch) = partitioned_fixture();
+        let (proof, _) = super::prove_cash_air(&ledger, &batch, 3, 16).unwrap();
+        let encoded = encode_envelope(&proof).unwrap();
+        for index in 8..encoded.len() {
+            let mut tampered = encoded.clone();
+            tampered[index] ^= 1;
+            if let Ok(candidate) = decode_envelope::<super::CashAirProof>(&tampered) {
+                assert_eq!(
+                    super::verify_cash_air(&ledger, &batch, &candidate, 3, 16),
+                    Err(super::CashAirError::InvalidProof),
+                    "substitution at byte {index} was accepted"
+                );
+            }
+        }
+        assert!(decode_envelope::<super::CashAirProof>(&encoded[..encoded.len() - 1]).is_err());
     }
 
     #[test]

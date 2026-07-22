@@ -82,6 +82,27 @@ an invalid or losing conflict publishes no scratch state, while earlier valid
 transfers remain committed. Planning locks are ephemeral and are never encoded
 inside `CashLedger`; restart therefore reconstructs them from the canonical batch.
 
+### Transparent CashAIR tranche
+
+The specialized version-1 cash trace consists of `CashAirPublicInputs` (type
+`0x0094`), bounded `CashAirRow` values (type `0x0095`), and `CashAirProof`
+(type `0x0096`). Public inputs bind the complete batch commitment, pre/post Coin
+Cell roots, pre/post supply roots, height, partition count, and accepted/rejected
+counts. Each row binds its transfer index, adjacent cell and supply roots, and
+outcome. Row order is exactly the partition plan's disjoint lane followed by its
+canonical conflict fallback.
+
+Verification regenerates the complete expected trace by direct execution from
+the supplied pre-ledger and batch and requires exact equality of the proof,
+including all intermediate roots and outcomes. The expected height and partition
+count are caller-supplied context, so a trace cannot be replayed under another
+execution context. A frozen vector commits the complete proof envelope.
+
+This tranche is a transparent, non-succinct trace verifier and differential
+oracle. It is **not** zero knowledge and does not claim STARK soundness. A later
+proof-system integration may prove the same constraints, but cannot replace the
+direct comparison until equivalent cryptographic and refinement evidence exists.
+
 ## Post-quantum boundary
 
 Authoritative transaction ingress accepts only a strict canonical
