@@ -630,6 +630,9 @@ pub struct CashTransferV1 {
 }
 
 impl CashTransferV1 {
+    pub const TYPE_TAG: u16 = 0x0091;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 2 + MAX_TRANSFER_BATCH * CoinTransfer::MAX_ENCODED_LEN;
     pub fn new(transfers: Vec<CoinTransfer>) -> Result<Self, NativeMoneyError> {
         if transfers.is_empty() || transfers.len() > MAX_TRANSFER_BATCH {
             return Err(NativeMoneyError::InvalidInputs);
@@ -648,6 +651,30 @@ impl CashTransferV1 {
     pub fn resource_units(&self) -> u64 {
         32 + self.transfers.iter().map(|t| 16 + t.inputs().len() as u64 * 4).sum::<u64>()
     }
+}
+impl CanonicalEncode for CashTransferV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        e.write_length(self.transfers.len(), MAX_TRANSFER_BATCH)?;
+        for transfer in &self.transfers {
+            transfer.encode(e)?;
+        }
+        Ok(())
+    }
+}
+impl CanonicalDecode for CashTransferV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let count = d.read_length(MAX_TRANSFER_BATCH)?;
+        let mut transfers = Vec::with_capacity(count);
+        for _ in 0..count {
+            transfers.push(CoinTransfer::decode(d)?);
+        }
+        Self::new(transfers).map_err(|_| DecodeError::InvalidValue("invalid cash batch"))
+    }
+}
+impl CanonicalType for CashTransferV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 impl CoinTransfer {
     pub const TYPE_TAG: u16 = 0x0086;
