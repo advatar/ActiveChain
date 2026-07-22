@@ -531,8 +531,11 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
   - [ ] Add specialized SHAKE, ML-DSA, membership, consumption, value/fee arithmetic,
     session-budget, and authenticated partition-root transition constraints.
     - [x] Arithmetize bounded per-row input/output/fee conservation and rejected-row zeroing.
-    - [ ] Arithmetize SHAKE, ML-DSA, authenticated membership/consumption, session budgets,
-      and authenticated partition-root transitions.
+      - [ ] Arithmetize SHAKE, ML-DSA, authenticated membership/consumption, session budgets,
+        and authenticated partition-root transitions.
+        - [ ] Add authenticated Coin Cell membership, one-time consumption, and partition/global
+          root transition constraints
+          ([GitHub issue #76](https://github.com/advatar/ActiveChain/issues/76)).
       - [x] Complete bounded-session enforcement and its CashAIR binding
         ([GitHub issue #72](https://github.com/advatar/ActiveChain/issues/72)).
         - [x] Add canonical ML-DSA session-grant envelopes, persistent spend budgets, strict
