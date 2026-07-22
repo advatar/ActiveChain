@@ -44,3 +44,16 @@ proofs, and verifies each digest slice in order. The cap is enforced before trac
 full path increases the number of bounded proofs instead of creating one unbounded trace. The value
 is a conservative implementation bound, not yet a validator service-level target; end-to-end timing
 still requires release-hardware benchmarking.
+
+The parent Winterfell CashAIR statement now has a domain-separated authenticated mode, public
+pre/post authenticated roots, and one public authenticated root for every execution row. The trace
+copies the exact ordered mutation-chain root after accepted rows and retains it after rejected rows;
+the AIR constrains mode stability and rejected-row root stability. Endpoint, row-root, and mode
+substitution each invalidate the parent proof. This closes the previous gap where SHAKE path proofs
+could verify without their root chain appearing in the parent CashAIR public statement.
+
+`AuthenticatedCashCompositeStarkProof` is the fail-closed composition boundary. It carries the
+authenticated parent proof and a row-aligned optional SHAKE proof: accepted mutation rows require
+one, rejected rows require none. Verification first matches the parent's complete public input
+vector to the canonical authenticated execution evidence, verifies the parent STARK, and then
+verifies every row-aligned SHAKE path proof. Missing, extra, or outcome-mismatched evidence fails.
