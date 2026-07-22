@@ -96,6 +96,11 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
   - [ ] Implement the typed Rust block/header and validator admission path that refines the complete
     predicate instead of finalizing an opaque digest, and persist proof jobs, acceptance, finality,
     and reward replay protection crash-atomically.
+    - [x] Define canonical bounded block/header, proof statement, proof job, and finalized-block values ([#37](https://github.com/advatar/ActiveChain/issues/37)).
+    - [x] Recompute authorization, execution, economics, state, DA, proof-input, revision, and header commitments at the admission boundary.
+    - [x] Add a typed production proposal entry point and require the QC digest to equal the admitted canonical header digest.
+    - [x] Persist jobs, retries/timeouts, accepted proofs, ordered finality, finalized block digests, and prover-reward replay state atomically.
+    - [ ] Freeze vectors and test every component mismatch, cross-job proof, restart, corruption, backpressure, and duplicate reward.
 - [ ] Prove the PQ-authenticated credential/capability/state-proof to APL decision to transition
   authorization chain, including multi-hop attenuation, revocation, budgets, and concurrency.
 - [ ] Complete APL evaluator, ObjectVM verifier/interpreter, state-tree, and codec refinement proofs;

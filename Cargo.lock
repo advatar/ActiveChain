@@ -53,13 +53,17 @@ dependencies = [
 name = "activechain-consensus-runtime"
 version = "0.1.0"
 dependencies = [
+ "activechain-action-kernel",
  "activechain-canonical-codec",
  "activechain-cash-kernel",
  "activechain-crypto-provider",
  "activechain-data-availability",
+ "activechain-devnet-kernel",
  "activechain-object-vm",
  "activechain-privacy-kernel",
  "activechain-protocol-types",
+ "activechain-state-tree",
+ "activechain-transition",
  "activechain-wallet-core",
  "ml-dsa",
  "sha3 0.10.9",
