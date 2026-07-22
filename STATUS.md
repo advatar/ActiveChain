@@ -234,6 +234,10 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
     authorization, execution, state, codec, identity, privacy, and availability domains.
   - [x] Pin the trace-conformance matrix and executable gate in self-hosted CI.
 - [ ] Run every Lean and Tamarin model on the self-hosted CI runner.
+  - [ ] Audit that every Lean source is reachable from the build root and every Tamarin theory is
+    discovered by the formal gate; tracked by GitHub issue #60.
+  - [ ] Require every declared Tamarin lemma to run exactly once, rejecting missing, duplicate,
+    and stale selectors before invoking the prover.
 - [ ] Publish proof scopes, assumptions, counterexamples, and explicit unverified boundaries.
 - [ ] Obtain independent external formal-methods review before any non-developmental launch claim.
 
