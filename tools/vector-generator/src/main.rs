@@ -1429,6 +1429,12 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    use activechain_canonical_codec::{DecodeError, inspect_canonical_envelope};
+
     use super::{
         render_apl_truth_table, render_apl_v1, render_authority_v1, render_credential_status_table,
         render_credential_v1, render_devnet_block_v1, render_epoch_upgrade_model_table,
@@ -1533,5 +1539,112 @@ mod tests {
     fn generated_privacy_vector_is_frozen() {
         let published = include_str!("../../../testing/vectors/privacy/privacy-v1.txt");
         assert_eq!(render_privacy_v1(), published);
+    }
+
+    fn vector_files(directory: &Path, output: &mut Vec<PathBuf>) {
+        for entry in fs::read_dir(directory).expect("vector directory is readable") {
+            let path = entry.expect("vector entry is readable").path();
+            if path.is_dir() {
+                vector_files(&path, output);
+            } else if path.extension().is_some_and(|extension| extension == "txt") {
+                output.push(path);
+            }
+        }
+    }
+
+    fn decode_hex(value: &str) -> Vec<u8> {
+        assert!(value.len().is_multiple_of(2), "hex length is even");
+        value
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|pair| {
+                let digit = |byte: u8| match byte {
+                    b'0'..=b'9' => byte - b'0',
+                    b'a'..=b'f' => byte - b'a' + 10,
+                    b'A'..=b'F' => byte - b'A' + 10,
+                    _ => panic!("invalid vector hex digit"),
+                };
+                (digit(pair[0]) << 4) | digit(pair[1])
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_published_envelope_has_strict_canonical_framing() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testing/vectors");
+        let mut files = Vec::new();
+        vector_files(&root, &mut files);
+        files.sort();
+        let mut checked = 0_usize;
+
+        for path in files {
+            let text = fs::read_to_string(&path).expect("text vector is UTF-8");
+            let fields: BTreeMap<_, _> = text
+                .lines()
+                .filter_map(|line| line.split_once('='))
+                .map(|(key, value)| (key.trim(), value.trim()))
+                .collect();
+            for (key, value) in &fields {
+                let Some(prefix) = key.strip_suffix("envelope_hex") else {
+                    continue;
+                };
+                let metadata_prefix = prefix.strip_suffix('_').unwrap_or(prefix);
+                let field = |suffix: &str| {
+                    if metadata_prefix.is_empty() {
+                        suffix.to_owned()
+                    } else {
+                        format!("{metadata_prefix}_{suffix}")
+                    }
+                };
+                let type_tag =
+                    u16::from_str_radix(fields[&*field("type_tag")].trim_start_matches("0x"), 16)
+                        .expect("published type tag is u16 hex");
+                let schema_version: u16 = fields[&*field("schema_version")]
+                    .parse()
+                    .expect("published schema version is u16");
+                let body_length: usize =
+                    fields[&*field("body_length")].parse().expect("published body length is usize");
+                let envelope = decode_hex(value);
+                let parsed =
+                    inspect_canonical_envelope(&envelope, type_tag, schema_version, body_length)
+                        .unwrap_or_else(|error| panic!("{} {key}: {error:?}", path.display()));
+                assert_eq!(parsed.body().len(), body_length, "{} {key}", path.display());
+
+                let truncated = &envelope[..envelope.len() - 1];
+                assert!(
+                    inspect_canonical_envelope(truncated, type_tag, schema_version, body_length)
+                        .is_err(),
+                    "{} {key} truncation",
+                    path.display()
+                );
+                let mut trailing = envelope.clone();
+                trailing.push(0);
+                assert!(matches!(
+                    inspect_canonical_envelope(&trailing, type_tag, schema_version, body_length),
+                    Err(DecodeError::TrailingData { remaining: 1 })
+                ));
+
+                let prefix_length = envelope.len() - 4 - body_length;
+                if prefix_length < 5 {
+                    let mut non_minimal = envelope[..4 + prefix_length].to_vec();
+                    *non_minimal.last_mut().expect("length prefix exists") |= 0x80;
+                    non_minimal.push(0);
+                    non_minimal.extend_from_slice(parsed.body());
+                    assert_eq!(
+                        inspect_canonical_envelope(
+                            &non_minimal,
+                            type_tag,
+                            schema_version,
+                            body_length
+                        ),
+                        Err(DecodeError::NonMinimalLength),
+                        "{} {key} redundant prefix",
+                        path.display()
+                    );
+                }
+                checked += 1;
+            }
+        }
+        assert!(checked >= 30, "expected the complete published envelope corpus");
     }
 }

@@ -1,6 +1,6 @@
 # Canonical Codec Kani Proof Scope
 
-Status: bounded verification slice implemented and passing on 2026-07-21.
+Status: production-linked refinement slice implemented and passing on 2026-07-22.
 
 This slice runs Kani against the production `activechain-canonical-codec` crate. It does not use a
 copied codec model. The proof harnesses are compiled only under `cfg(kani)` and exercise the same
@@ -60,7 +60,7 @@ The proof type has an exact two-byte body: one arbitrary `u8` and one arbitrary 
 canonical envelope has a fixed seven-byte encoding: two-byte type tag, two-byte schema version,
 one-byte minimal body length, and the two-byte body.
 
-Kani verifies seven harnesses:
+Kani verifies eight harnesses:
 
 1. Every value in the fixed proof type's state space survives strict envelope encode/decode and
    produces exactly seven bytes.
@@ -79,6 +79,8 @@ Kani verifies seven harnesses:
    `UnexpectedEnd` without advancing or indexing past the input.
 7. Two bounded symbolic appends to `Encoder` are memory-safe and the resulting buffer never exceeds
    its symbolic zero-through-eight-byte output limit.
+8. Every possible `u32` length is encoded with the exact one-through-five-byte width computed by
+   the production minimal-width function and decodes to the same value with no trailing bytes.
 
 Kani's default memory-safety, undefined-behavior, assertion, arithmetic-overflow, and unwinding
 checks remain enabled. The 16-iteration default unwind is sufficient for all reachable loops in
@@ -89,16 +91,24 @@ The passing run reported:
 
 ```text
 Manual Harness Summary:
-Complete - 7 successfully verified harnesses, 0 failures, 7 total.
+Complete - 8 successfully verified harnesses, 0 failures, 8 total.
 ```
 
 ## Deliberate limitations
 
-This is bounded model checking, not an unbounded proof of the codec or all protocol schemas.
+The framing implementation now has one shared `inspect_canonical_envelope` path used by typed
+`decode_envelope` and the language-neutral verifier API. The repository-wide vector test discovers
+all checked-in text vectors and validates all 39 published envelope instances against their exact
+tag, version, body length, truncation, trailing-data, and redundantly extended-prefix behavior.
+The Lean model separately proves unique canonical width and a one-through-five-byte bound for every
+`u32` value, in addition to its arbitrary-envelope fail-closed theorems.
 
-- The arbitrary strict-decode input is at most nine bytes and the proof type body is exactly two
-  bytes. Larger envelopes and all production `CanonicalType` implementations still require tests,
-  vectors, refinement work, and further harnesses.
+This remains bounded model checking plus differential evidence, not compiler extraction or an
+unbounded proof of every schema-specific body decoder.
+
+- The arbitrary strict-decode Kani input is at most nine bytes and the proof type body is exactly
+  two bytes. Larger published envelopes are covered by the dynamic vector corpus and their owning
+  Rust round-trip tests, not one symbolic whole-schema Kani query.
 - The length-prefix harness bounds its input to six bytes and its schema maximum to sixteen. It
   reaches every structural ULEB128 branch, but does not quantify over arbitrary enclosing schemas.
 - The encoder harness uses at most two four-byte writes and an eight-byte limit. It does not prove
@@ -112,7 +122,8 @@ This is bounded model checking, not an unbounded proof of the codec or all proto
   report different verification times.
 - Kani emits a compile-time warning that `caller_location` and foreign-function constructs exist in
   the compiled dependency graph. Kani fails a harness if an unsupported construct is
-  reachable; all seven harnesses completed successfully, so none blocked these bounded proofs.
+  reachable; all eight harnesses completed successfully, so none blocked these bounded proofs.
 
-Claims derived from this artifact must retain the words **bounded**, **two-byte proof body**, and
-**inputs up to nine bytes**. It must not be described as complete or unbounded codec verification.
+Claims derived from Kani must retain the words **bounded**, **two-byte proof body**, and **inputs up
+to nine bytes**. The all-`u32` prefix harness and 39-vector corpus may be stated separately; neither
+may be described as compiler extraction or unbounded schema-body verification.
