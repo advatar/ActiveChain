@@ -178,6 +178,56 @@ fn branch_program() -> activechain_bytecode_verifier::VerifiedProgram {
     .expect("branch program verifies")
 }
 
+fn complete_instruction_program(
+    immediate: u64,
+    branch: bool,
+) -> activechain_bytecode_verifier::VerifiedProgram {
+    verify(
+        VmProgram::new(
+            3,
+            vec![
+                VmValueType::Object,
+                VmValueType::Capability,
+                VmValueType::U64,
+                VmValueType::U64,
+                VmValueType::U64,
+                VmValueType::U64,
+                VmValueType::Bool,
+                VmValueType::Digest,
+                VmValueType::Object,
+                VmValueType::Bool,
+            ],
+            vec![VmValueType::Object, VmValueType::U64, VmValueType::Bool],
+            vec![
+                VmInstruction::Copy { destination: 3, source: 2 },
+                VmInstruction::LoadU64 { destination: 4, value: immediate },
+                VmInstruction::AddU64 { destination: 5, left: 3, right: 4 },
+                VmInstruction::EqU64 { destination: 6, left: 5, right: 4 },
+                VmInstruction::LoadBool { destination: 9, value: branch },
+                VmInstruction::BranchIf { condition: 9, target: 8 },
+                VmInstruction::LoadDigest { destination: 7, value: digest(0xa1) },
+                VmInstruction::Jump { target: 9 },
+                VmInstruction::LoadDigest { destination: 7, value: digest(0xb2) },
+                VmInstruction::Emit { source: 7 },
+                VmInstruction::ConsumeCapability { source: 1 },
+                VmInstruction::Move { destination: 8, source: 0 },
+                VmInstruction::Return { sources: vec![8, 5, 6] },
+            ],
+            1,
+        )
+        .expect("complete instruction program is structurally bounded"),
+    )
+    .expect("complete instruction program verifies")
+}
+
+fn complete_instruction_inputs(value: u64) -> Vec<VmValue> {
+    vec![
+        VmValue::Object(Box::new(object())),
+        VmValue::Capability(CapabilityId::new(digest(0x20))),
+        VmValue::U64(value),
+    ]
+}
+
 #[test]
 fn forward_branch_selection_is_deterministic() {
     let false_result =
@@ -248,5 +298,38 @@ proptest! {
         let first = execute(&addition_program(), inputs.clone(), 4).expect("bounded sum succeeds");
         let second = execute(&addition_program(), inputs, 4).expect("same invocation succeeds");
         prop_assert_eq!(first, second);
+    }
+
+    #[test]
+    fn full_verified_instruction_set_refines_the_independent_oracle(
+        input in any::<u64>(),
+        immediate in any::<u64>(),
+        branch in any::<bool>(),
+    ) {
+        let verified = complete_instruction_program(immediate, branch);
+        let inputs = complete_instruction_inputs(input);
+        let first = execute(&verified, inputs.clone(), 32);
+        let second = execute(&verified, inputs, 32);
+        prop_assert_eq!(&first, &second);
+
+        match input.checked_add(immediate) {
+            None => prop_assert_eq!(
+                first,
+                Err(VmExecutionError::ArithmeticOverflow { program_counter: 2 })
+            ),
+            Some(sum) => {
+                let result = first.expect("non-overflowing oracle execution succeeds");
+                prop_assert_eq!(result.gas_used(), if branch { 19 } else { 20 });
+                prop_assert_eq!(result.steps(), if branch { 11 } else { 12 });
+                prop_assert_eq!(
+                    result.outputs(),
+                    &[VmValue::Object(Box::new(object())), VmValue::U64(sum), VmValue::Bool(sum == immediate)]
+                );
+                prop_assert_eq!(
+                    result.events(),
+                    &[VmEventValue::Digest(if branch { digest(0xb2) } else { digest(0xa1) })]
+                );
+            }
+        }
     }
 }

@@ -41,6 +41,48 @@ def checkAction : Action → ValueKind → Verdict
 /-- All actions in the differential table have fixed version-1 cost one. -/
 def actionGasCost (_ : Action) : Nat := 1
 
+/-- Exact gas of an arbitrary straight-line sequence in the resource algebra. -/
+def programGas (actions : List Action) : Nat :=
+  (actions.map actionGasCost).sum
+
+theorem programGasExact (actions : List Action) :
+    programGas actions = actions.length := by
+  induction actions with
+  | nil => rfl
+  | cons action actions ih =>
+      unfold programGas at ih ⊢
+      cases action <;> simp [actionGasCost, ih, Nat.add_comm]
+
+/-- Production verifier certificate projected to runtime value presence. -/
+structure InstructionCertificate where
+  available : List Bool
+  maximumPriorEvents : Nat
+  deriving BEq, DecidableEq, Repr
+
+/-- Pure verifier/interpreter refinement predicate used at every instruction. -/
+def admitsRuntimeState
+    (certificate : InstructionCertificate)
+    (runtimeAvailable : List Bool)
+    (priorEvents : Nat) : Bool :=
+  decide (runtimeAvailable = certificate.available) &&
+    decide (priorEvents ≤ certificate.maximumPriorEvents)
+
+theorem admitsRuntimeStateIff
+    (certificate : InstructionCertificate)
+    (runtimeAvailable : List Bool)
+    (priorEvents : Nat) :
+    admitsRuntimeState certificate runtimeAvailable priorEvents = true ↔
+      runtimeAvailable = certificate.available ∧
+      priorEvents ≤ certificate.maximumPriorEvents := by
+  simp [admitsRuntimeState]
+
+@[simp] theorem exactCertificateAdmits
+    (certificate : InstructionCertificate)
+    (priorEvents : Nat)
+    (bounded : priorEvents ≤ certificate.maximumPriorEvents) :
+    admitsRuntimeState certificate certificate.available priorEvents = true := by
+  simp [admitsRuntimeState, bounded]
+
 @[simp] theorem objectCopyRejected :
     checkAction .copy .object = .copyRequiresCopyable := rfl
 

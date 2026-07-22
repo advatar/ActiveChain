@@ -1,9 +1,9 @@
 # ObjectVM Kani Proof Scope
 
-Status: compositional bounded verification slice implemented and passing on 2026-07-21.
+Status: compositional bounded verification slice implemented and passing on 2026-07-22.
 
 This artifact is deliberately **not** an end-to-end Kani proof of `verify(program)` followed by
-`execute(&VerifiedProgram, ...)`. It checks seven small, actual production predicates and semantic
+`execute(&VerifiedProgram, ...)`. It checks eight small, actual production predicates and semantic
 helpers with Kani, then uses ordinary exhaustive, differential, property, and fixture tests for the
 allocation-heavy whole-verifier/whole-interpreter composition. Claims must preserve that boundary.
 
@@ -66,10 +66,18 @@ every jump and branch still routes through private `require_target`. The interpr
 instruction prepayment, `AddU64`, and `BranchIf` through private `prepay_gas`, `checked_add`, and
 `select_branch_target` respectively.
 
-`execute_program` remains private. Its only non-test production caller is public
-`execute(&VerifiedProgram, ...)`, so an unchecked program cannot cross the public interpreter
-boundary. A differential regression invokes public `execute` and private `execute_program` with the
-same verified fixture and requires identical results.
+Successful verification now also publishes an immutable `VerifiedInstructionState` for every
+program counter. Each certificate contains the exact register-presence vector and the maximum
+prior-event count obtained from the verifier's flow merge. `execute(&VerifiedProgram, ...)` passes
+its concrete register presence and event count through the certificate's pure
+`admits_runtime_state` predicate before every instruction. A mismatch fails closed as an invariant
+violation before that instruction is charged or executed. An unchecked program still cannot cross
+the public interpreter boundary.
+
+The Lean model independently defines the same list-equality/event-bound certificate predicate and
+proves its exact iff characterization for arbitrary register lists and event counts. It also proves
+exact unit gas for arbitrary resource-action lists. This is a general semantic theorem, but not a
+compiler proof that Rust execution refines Lean.
 
 ## Mechanically checked properties
 
@@ -77,7 +85,7 @@ The bytecode-verifier invocation reported:
 
 ```text
 Manual Harness Summary:
-Complete - 3 successfully verified harnesses, 0 failures, 3 total.
+Complete - 4 successfully verified harnesses, 0 failures, 4 total.
 ```
 
 It establishes:
@@ -90,6 +98,9 @@ It establishes:
 3. Across the complete five-value P-050 type table, only `U64`, `Bool`, and `Digest` are copyable
    event scalars; `Object` alone is linear; and `Capability` alone is affine. These are the same
    production predicates used by copy, emit, return, and capability verification.
+4. For every pair of symbolic four-register presence vectors and every pair of `u8` prior/maximum
+   event counts, production certificate admission succeeds exactly when all presence bits match and
+   the concrete event count is within the certified maximum.
 
 The ObjectVM invocation reported:
 
@@ -98,23 +109,23 @@ Manual Harness Summary:
 Complete - 4 successfully verified harnesses, 0 failures, 4 total.
 ```
 
-It establishes:
+It establishes (continuing the numbering above):
 
-4. For every `u64` gas-used value, instruction cost, and gas limit at program counters zero through
+5. For every `u64` gas-used value, instruction cost, and gas limit at program counters zero through
    255, prepayment succeeds exactly when checked addition does not overflow and the complete next
    cost is within the limit. Every other case returns `GasExhausted` carrying the unchanged prior
    gas, exact cost, counter, and limit.
-5. For every pair of `u64` operands at counters zero through 255, ObjectVM checked addition agrees
+6. For every pair of `u64` operands at counters zero through 255, ObjectVM checked addition agrees
    with an `overflowing_add` oracle: a non-overflowing sum is exact and overflow returns the exact
    `ArithmeticOverflow` counter.
-6. For every Boolean condition and every program counter/target within the 256-instruction bound,
+7. For every Boolean condition and every program counter/target within the 256-instruction bound,
    branch selection chooses the target exactly when true and exact fallthrough `pc + 1` when false.
-7. Under verifier premises that both the explicit target and fallthrough exist and are strictly
+8. Under verifier premises that both the explicit target and fallthrough exist and are strictly
    later, either selected branch edge remains strictly forward and in bounds; the selected value is
    the explicit target or exact fallthrough according to the condition.
 
 Kani reports `caller_location` and a foreign-function construct elsewhere in the compiled
-dependency graph. Kani fails a harness if an unsupported construct is reachable. All seven
+dependency graph. Kani fails a harness if an unsupported construct is reachable. All eight
 harnesses completed, so those constructs do not block the checked paths.
 
 ## Executable whole-boundary evidence
@@ -128,15 +139,22 @@ Ordinary production tests remain essential to the compositional argument:
   verifier;
 - a verified gas fixture exhaustively tests limits zero through seven and proves failure is reported
   before the unaffordable instruction, while six or more gas produces the exact event/result;
-- public `execute(&VerifiedProgram, ...)` is differentially equal to its private interpreter
-  delegate for a verified fixture;
+- the verifier's complete eight-instruction resource fixture publishes exact entry certificates at
+  every program counter; each correct concrete state is admitted while every single-bit presence
+  substitution, event overflow, and wrong register-vector length is rejected;
+- public execution checks those certificates on every visited instruction and repeated execution
+  of an identical verified invocation produces an identical result;
 - verified resource, addition, branch, overflow, input mismatch, evidence replay, and canonical
   result fixtures exercise the full interpreter; and
+- a generated full-composition property constructs and verifies a program containing every v1
+  instruction family, explores arbitrary `u64` input/immediate pairs and both branch paths, and
+  compares deterministic replay, overflow, gas, steps, outputs, linear/affine handling, and events
+  against an independent oracle; and
 - a property test runs identical verified addition invocations twice over bounded `u32`-range
   operands and requires identical complete results.
 
-At the recorded checkpoint, `activechain-bytecode-verifier` passes 9 tests and
-`activechain-object-vm` passes 11 tests.
+At the recorded checkpoint, `activechain-bytecode-verifier` passes 10 tests and
+`activechain-object-vm` passes 12 tests.
 
 ## Tested but unproved whole-program boundary
 
@@ -148,15 +166,16 @@ Two stronger Kani formulations were attempted without disabling checks:
 
 Each exceeded the fixed 180-second per-harness budget while expanding allocation and enum dispatch.
 Neither produced a counterexample. A timeout is not evidence of correctness, so neither formulation
-is included in the seven passing claims. The whole-program refinement from arbitrary accepted
+is included in the eight passing claims. The whole-program refinement from arbitrary accepted
 `VmProgram` to `VmExecutionResult` remains open for a more scalable model checker, contracts whose
 premises are independently proved, or an unbounded theorem-prover refinement.
 
 ## Deliberate limitations
 
 - This slice proves production helper obligations compositionally; it does not mechanically prove
-  that full `verify` establishes every premise consumed by every interpreter instruction in one
-  query.
+  in one Kani query that full `verify` establishes every premise consumed by every interpreter
+  instruction. The production certificate check makes disagreement explicit and fail-closed, but
+  absence of disagreement for every possible accepted program remains an open theorem.
 - It does not Kani-prove whole-run determinism. Determinism currently has executable branch,
   arithmetic, evidence-replay, differential, and property-test coverage.
 - Version 1 uses immediate `LoadU64`, `LoadBool`, and `LoadDigest` operands, not a constant pool, so

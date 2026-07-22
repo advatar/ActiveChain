@@ -59,6 +59,34 @@ fn valid_typed_resource_program_verifies_and_round_trips() {
 }
 
 #[test]
+fn verifier_publishes_exact_runtime_entry_certificates() {
+    let verified = verify(valid_resource_program()).expect("program verifies");
+    let expected = [
+        [true, true, true, false, false, false, false, false],
+        [true, true, true, true, false, false, false, false],
+        [true, true, true, true, true, false, false, false],
+        [true, true, true, true, true, true, false, false],
+        [true, true, true, true, true, true, true, false],
+        [true, true, true, true, true, true, true, false],
+        [true, false, true, true, true, true, true, false],
+        [false, false, true, true, true, true, true, true],
+    ];
+    assert_eq!(verified.instruction_states().len(), expected.len());
+    for (program_counter, (certificate, availability)) in
+        verified.instruction_states().iter().zip(expected).enumerate()
+    {
+        let prior_events = usize::from(program_counter >= 5);
+        assert!(certificate.admits_runtime_state(availability, prior_events));
+        let mut wrong = availability;
+        let wrong_index = program_counter % wrong.len();
+        wrong[wrong_index] = !wrong[wrong_index];
+        assert!(!certificate.admits_runtime_state(wrong, prior_events));
+        assert!(!certificate.admits_runtime_state(availability, prior_events + 1));
+        assert!(!certificate.admits_runtime_state(availability[..7].iter().copied(), prior_events));
+    }
+}
+
+#[test]
 fn affine_and_linear_values_cannot_be_copied() {
     for resource_type in [VmValueType::Capability, VmValueType::Object] {
         let candidate = program(

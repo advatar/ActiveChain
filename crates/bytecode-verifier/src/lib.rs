@@ -12,7 +12,9 @@ pub use bytecode::{
     MAX_VM_EVENTS, MAX_VM_INPUTS, MAX_VM_INSTRUCTIONS, MAX_VM_OUTPUTS, MAX_VM_REGISTERS,
     VmInstruction, VmProgram, VmProgramValidationError, VmValueType,
 };
-pub use verify::{VerifiedProgram, VmVerificationError, verify};
+pub use verify::{
+    RegisterAvailability, VerifiedInstructionState, VerifiedProgram, VmVerificationError, verify,
+};
 
 #[cfg(test)]
 mod tests;

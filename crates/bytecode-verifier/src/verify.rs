@@ -12,6 +12,66 @@ enum RegisterState {
     Moved,
 }
 
+/// Public verifier certificate for one register at an instruction entry.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RegisterAvailability {
+    /// The register has never been initialized on this path.
+    Uninitialized,
+    /// The register contains one value of its declared static type.
+    Available,
+    /// An affine or linear value was moved or consumed.
+    Moved,
+}
+
+impl From<RegisterState> for RegisterAvailability {
+    fn from(state: RegisterState) -> Self {
+        match state {
+            RegisterState::Uninitialized => Self::Uninitialized,
+            RegisterState::Available => Self::Available,
+            RegisterState::Moved => Self::Moved,
+        }
+    }
+}
+
+/// Static state proved by the verifier at one reachable program counter.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VerifiedInstructionState {
+    registers: Vec<RegisterAvailability>,
+    maximum_prior_events: usize,
+}
+
+impl VerifiedInstructionState {
+    /// Borrows the exact register-availability certificate at instruction entry.
+    #[must_use]
+    pub fn registers(&self) -> &[RegisterAvailability] {
+        &self.registers
+    }
+
+    /// Returns the maximum number of events on any path reaching this instruction.
+    #[must_use]
+    pub const fn maximum_prior_events(&self) -> usize {
+        self.maximum_prior_events
+    }
+
+    /// Checks a concrete interpreter entry state against this static certificate.
+    ///
+    /// Runtime values remain owned by the interpreter; only presence is relevant
+    /// because their types are fixed by the program and checked at initialization.
+    #[must_use]
+    pub fn admits_runtime_state<I>(&self, availability: I, event_count: usize) -> bool
+    where
+        I: IntoIterator<Item = bool>,
+        I::IntoIter: ExactSizeIterator,
+    {
+        let concrete = availability.into_iter();
+        concrete.len() == self.registers.len()
+            && event_count <= self.maximum_prior_events
+            && self.registers.iter().zip(concrete).all(|(expected, actual)| {
+                matches!(expected, RegisterAvailability::Available) == actual
+            })
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct FlowState {
     registers: Vec<RegisterState>,
@@ -22,6 +82,7 @@ struct FlowState {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VerifiedProgram {
     program: VmProgram,
+    instruction_states: Vec<VerifiedInstructionState>,
 }
 
 impl VerifiedProgram {
@@ -29,6 +90,12 @@ impl VerifiedProgram {
     #[must_use]
     pub const fn program(&self) -> &VmProgram {
         &self.program
+    }
+
+    /// Borrows the verifier's entry-state certificate for every instruction.
+    #[must_use]
+    pub fn instruction_states(&self) -> &[VerifiedInstructionState] {
+        &self.instruction_states
     }
 }
 
@@ -176,7 +243,19 @@ pub fn verify(program: VmProgram) -> Result<VerifiedProgram, VmVerificationError
             }
         }
     }
-    Ok(VerifiedProgram { program })
+    let instruction_states = states
+        .into_iter()
+        .enumerate()
+        .map(|(program_counter, state)| {
+            let state =
+                state.ok_or(VmVerificationError::UnreachableInstruction { program_counter })?;
+            Ok(VerifiedInstructionState {
+                registers: state.registers.into_iter().map(RegisterAvailability::from).collect(),
+                maximum_prior_events: state.maximum_events,
+            })
+        })
+        .collect::<Result<Vec<_>, VmVerificationError>>()?;
+    Ok(VerifiedProgram { program, instruction_states })
 }
 
 fn require_register(
@@ -445,5 +524,31 @@ mod kani_proofs {
         } else {
             assert_eq!(result, Ok(target_index));
         }
+    }
+
+    #[kani::proof]
+    fn runtime_certificate_admission_is_exact_for_symbolic_states() {
+        let expected: [bool; 4] = kani::any();
+        let actual: [bool; 4] = kani::any();
+        let maximum_prior_events: u8 = kani::any();
+        let prior_events: u8 = kani::any();
+        let certificate = VerifiedInstructionState {
+            registers: expected
+                .into_iter()
+                .map(|available| {
+                    if available {
+                        RegisterAvailability::Available
+                    } else {
+                        RegisterAvailability::Uninitialized
+                    }
+                })
+                .collect(),
+            maximum_prior_events: usize::from(maximum_prior_events),
+        };
+
+        assert_eq!(
+            certificate.admits_runtime_state(actual, usize::from(prior_events)),
+            actual == expected && prior_events <= maximum_prior_events
+        );
     }
 }

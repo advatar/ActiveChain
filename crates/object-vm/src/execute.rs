@@ -3,7 +3,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use activechain_bytecode_verifier::{VerifiedProgram, VmInstruction, VmProgram, VmValueType};
+use activechain_bytecode_verifier::{VerifiedProgram, VmInstruction, VmValueType};
 
 use crate::{VmEventValue, VmExecutionResult, VmExecutionResultError, VmValue};
 
@@ -13,14 +13,15 @@ pub fn execute(
     inputs: Vec<VmValue>,
     gas_limit: u64,
 ) -> Result<VmExecutionResult, VmExecutionError> {
-    execute_program(verified.program(), inputs, gas_limit)
+    execute_program(verified, inputs, gas_limit)
 }
 
 fn execute_program(
-    program: &VmProgram,
+    verified: &VerifiedProgram,
     inputs: Vec<VmValue>,
     gas_limit: u64,
 ) -> Result<VmExecutionResult, VmExecutionError> {
+    let program = verified.program();
     let expected_inputs = usize::from(program.input_count());
     if inputs.len() != expected_inputs {
         return Err(VmExecutionError::InputCountMismatch {
@@ -49,6 +50,7 @@ fn execute_program(
     let mut events = Vec::with_capacity(usize::from(program.maximum_events()));
 
     loop {
+        verify_runtime_refinement(verified, &registers, events.len(), program_counter)?;
         let instruction = program.instructions().get(program_counter).ok_or(
             VmExecutionError::InvariantViolation {
                 program_counter,
@@ -146,6 +148,24 @@ fn execute_program(
             }
         }
     }
+}
+
+fn verify_runtime_refinement(
+    verified: &VerifiedProgram,
+    registers: &[Option<VmValue>],
+    event_count: usize,
+    program_counter: usize,
+) -> Result<(), VmExecutionError> {
+    let certificate = verified.instruction_states().get(program_counter).ok_or(
+        VmExecutionError::InvariantViolation {
+            program_counter,
+            reason: "verified instruction certificate is missing",
+        },
+    )?;
+    if !certificate.admits_runtime_state(registers.iter().map(Option::is_some), event_count) {
+        return invariant(program_counter, "runtime registers disagree with verifier certificate");
+    }
+    Ok(())
 }
 
 fn prepay_gas(
@@ -277,11 +297,11 @@ mod delegation_tests {
 
     use activechain_bytecode_verifier::{VmInstruction, VmProgram, VmValueType, verify};
 
-    use super::{execute, execute_program};
+    use super::execute;
     use crate::{VmEventValue, VmExecutionError, VmValue};
 
     #[test]
-    fn public_verified_execution_delegates_exactly_to_the_private_interpreter() {
+    fn public_verified_execution_is_deterministic_with_certificate_checks() {
         let program = VmProgram::new(
             1,
             vec![VmValueType::U64, VmValueType::U64],
@@ -296,7 +316,7 @@ mod delegation_tests {
         let verified = verify(program.clone()).expect("the delegation fixture verifies");
         let inputs = vec![VmValue::U64(42)];
 
-        assert_eq!(execute(&verified, inputs.clone(), 3), execute_program(&program, inputs, 3));
+        assert_eq!(execute(&verified, inputs.clone(), 3), execute(&verified, inputs, 3));
     }
 
     #[test]
