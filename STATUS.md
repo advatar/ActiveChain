@@ -52,6 +52,18 @@ Tracked by [GitHub issue #31](https://github.com/advatar/ActiveChain/issues/31).
   isolated landing-page branch and draft PR.
 - [x] Pass all repository gates, commit, push, and open an isolated stacked draft PR.
 
+## Active communication — why ActiveChain is a new L1
+
+Tracked by [GitHub issue #42](https://github.com/advatar/ActiveChain/issues/42).
+
+- [ ] Publish a primary-source comparison with Ethereum, Aztec, Logos, Solana, Starknet,
+  Cosmos SDK, and Polkadot.
+- [ ] Explain which combined protocol requirements motivate a coherent new L1 rather than an
+  unchanged deployment on an existing chain, rollup, or appchain framework.
+- [ ] Publish the engineering, security, ecosystem, liquidity, and interoperability costs of that
+  choice without superiority or first-to-market claims.
+- [ ] Pass the landing-page production build and review the comparison at mobile and desktop widths.
+
 ## Active launch gate — whole-system formal verification
 
 Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
