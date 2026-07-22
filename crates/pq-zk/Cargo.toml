@@ -8,7 +8,10 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+activechain-canonical-codec.workspace = true
+activechain-private-billboard.workspace = true
 activechain-pq-zk-methods = { path = "../pq-zk-methods" }
+activechain-protocol-types.workspace = true
 risc0-zkvm = { workspace = true, features = ["client", "disable-dev-mode", "prove"] }
 sha3.workspace = true
 

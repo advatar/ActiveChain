@@ -3,18 +3,22 @@ name = "activechain-private-billboard"
 description = "Reference private billboard vertical slice for ActiveChain"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+rust-version = "1.94"
 repository.workspace = true
 publish = false
 
 [dependencies]
 activechain-canonical-codec.workspace = true
-activechain-cash-kernel.workspace = true
-activechain-crypto-provider.workspace = true
-activechain-privacy-kernel.workspace = true
+activechain-cash-kernel = { workspace = true, optional = true }
+activechain-crypto-provider = { workspace = true, optional = true }
+activechain-privacy-kernel = { workspace = true, optional = true }
 activechain-protocol-commitment.workspace = true
 activechain-protocol-types.workspace = true
 sha3.workspace = true
+
+[features]
+default = ["runtime"]
+runtime = ["dep:activechain-cash-kernel", "dep:activechain-crypto-provider", "dep:activechain-privacy-kernel"]
 
 [dev-dependencies]
 proptest.workspace = true

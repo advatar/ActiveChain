@@ -1,0 +1,12 @@
+profile_id=ACTIVECHAIN-PQ-ZK-RISC0-STARK-V1
+post_image_id_u32_le=1479160789,4061568009,3373791349,2473479925,1135536606,771393440,3695444580,2872423700
+withdrawal_image_id_u32_le=1600984179,2339290501,2806848752,733905340,3854509388,1292605270,2837445947,1149651860
+post_relation=private-billboard-post-v1
+withdrawal_relation=private-billboard-withdrawal-v1
+canonical_input=activechain-canonical-codec-v1
+public_journal=domain-length-prefixed-domain,public-input-commitment,permit-commitment
+receipt_kind=succinct-stark
+dev_mode=disabled
+third_party_audit=pending
+performance_command=cargo test -p activechain-pq-zk billboard_guest_cycle_budget_is_reproducible -- --nocapture
+maximum_user_cycles_per_relation=4194304
