@@ -20,6 +20,7 @@ members = [
     "crates/policy-kernel",
     "crates/principal",
     "crates/privacy-kernel",
+    "crates/private-billboard",
     "crates/protocol-commitment",
     "crates/protocol-types",
     "crates/state-tree",
@@ -56,6 +57,7 @@ activechain-object-vm = { path = "crates/object-vm", version = "0.1.0" }
 activechain-policy-kernel = { path = "crates/policy-kernel", version = "0.1.0" }
 activechain-principal = { path = "crates/principal", version = "0.1.0" }
 activechain-privacy-kernel = { path = "crates/privacy-kernel", version = "0.1.0" }
+activechain-private-billboard = { path = "crates/private-billboard", version = "0.1.0" }
 activechain-protocol-types = { path = "crates/protocol-types", version = "0.1.0" }
 activechain-state-tree = { path = "crates/state-tree", version = "0.1.0" }
 activechain-transition = { path = "crates/transition", version = "0.1.0" }

@@ -936,6 +936,10 @@ impl ShieldIntent {
     pub const fn valid_until(&self) -> u64 {
         self.valid_until
     }
+    #[must_use]
+    pub fn output_commitments(&self) -> &[Digest384] {
+        &self.output_commitments
+    }
 }
 
 impl CanonicalEncode for ShieldIntent {
@@ -1077,6 +1081,10 @@ impl UnshieldIntent {
     #[must_use]
     pub fn nullifiers(&self) -> &[Digest384] {
         &self.nullifiers
+    }
+    #[must_use]
+    pub fn change_commitments(&self) -> &[Digest384] {
+        &self.change_commitments
     }
     #[must_use]
     pub const fn valid_until(&self) -> u64 {

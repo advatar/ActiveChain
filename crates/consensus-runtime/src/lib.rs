@@ -2307,6 +2307,14 @@ impl ValidatorService {
             .checked_add(1)
             .ok_or(ValidatorServiceError::Transport(TransportError::Replay))
     }
+    pub fn next_proposal_height(&self) -> Result<u64, ValidatorServiceError> {
+        self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned).map(|engine| {
+            engine.highest_qc.as_ref().map_or_else(
+                || engine.state().finalized_height().saturating_add(1),
+                |certificate| certificate.height().saturating_add(1),
+            )
+        })
+    }
     pub fn process_message(
         &self,
         message: AuthenticatedConsensusMessage,
@@ -2361,6 +2369,27 @@ impl ValidatorService {
             _ => {}
         }
         result
+    }
+    fn record_outbound_message(
+        &self,
+        message: &AuthenticatedConsensusMessage,
+    ) -> Result<(), ValidatorServiceError> {
+        let key = self
+            .sender_keys
+            .lock()
+            .map_err(|_| ValidatorServiceError::Poisoned)?
+            .get(&message.envelope.sender())
+            .cloned()
+            .ok_or(ValidatorServiceError::UnknownSender)?;
+        let engine = self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
+        let mut replay = self.replay.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
+        let mut candidate = replay.clone();
+        candidate.accept(&message.envelope, &key).map_err(ValidatorServiceError::Transport)?;
+        save_validator_snapshot(&self.snapshot_path, &engine, &candidate)
+            .map_err(ValidatorEngineError::Snapshot)
+            .map_err(ValidatorServiceError::Engine)?;
+        *replay = candidate;
+        Ok(())
     }
 
     fn sign_current_vote_durably(
@@ -2475,6 +2504,7 @@ impl ValidatorService {
             self.propose_round(signer, height, round, block_digest, sequence)?;
         peers.broadcast_message(&proposal).map_err(ValidatorServiceError::Io)?;
         peers.broadcast_message(&own_vote).map_err(ValidatorServiceError::Io)?;
+        let mut certified = None;
         for peer_id in peer_ids {
             let vote = peers.receive_verified(*peer_id).map_err(|error| match error {
                 PeerReceiveError::Io(io) => ValidatorServiceError::Io(io),
@@ -2483,7 +2513,20 @@ impl ValidatorService {
                 }
                 PeerReceiveError::UnknownPeer => ValidatorServiceError::UnknownSender,
             })?;
-            self.process_message(vote)?;
+            if let Some(proof) = self.process_message(vote)? {
+                certified = Some(proof);
+            }
+        }
+        if let Some(proof) = certified {
+            let certificate = signer
+                .sign_envelope(
+                    self.sender_for(signer)?,
+                    sequence.saturating_add(2),
+                    ConsensusMessage::Certificate(proof),
+                )
+                .map_err(ValidatorServiceError::Engine)?;
+            self.record_outbound_message(&certificate)?;
+            peers.broadcast_message(&certificate).map_err(ValidatorServiceError::Io)?;
         }
         self.state()
     }
@@ -3359,8 +3402,10 @@ mod tests {
             path.clone(),
         )
         .unwrap();
+        assert_eq!(service.next_proposal_height().unwrap(), 1);
         service.propose_round(&signer, 1, 0, Digest384::new([8; 48]), 1).unwrap();
         assert_eq!(service.state().unwrap().finalized_height(), 0);
+        assert_eq!(service.next_proposal_height().unwrap(), 2);
         let metrics = service.metrics();
         assert_eq!(metrics.proposals, 1);
         assert_eq!(metrics.votes, 1);
