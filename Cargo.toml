@@ -67,6 +67,19 @@ activechain-protocol-types = { path = "crates/protocol-types", version = "0.1.0"
 activechain-state-tree = { path = "crates/state-tree", version = "0.1.0" }
 activechain-transition = { path = "crates/transition", version = "0.1.0" }
 proptest = { version = "1.7.0", default-features = false, features = ["std"] }
+p3-air = "=0.6.2"
+p3-baby-bear = "=0.6.2"
+p3-challenger = "=0.6.2"
+p3-commit = "=0.6.2"
+p3-dft = "=0.6.2"
+p3-field = "=0.6.2"
+p3-fri = "=0.6.2"
+p3-keccak = "=0.6.2"
+p3-keccak-air = "=0.6.2"
+p3-merkle-tree = "=0.6.2"
+p3-sha256 = "=0.6.2"
+p3-symmetric = "=0.6.2"
+p3-uni-stark = "=0.6.2"
 sha3 = { version = "0.10.8", default-features = false }
 risc0-zkvm = { version = "=3.0.5", default-features = false }
 winterfell = "=0.13.1"

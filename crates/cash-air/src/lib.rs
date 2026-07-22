@@ -20,9 +20,13 @@ use winterfell::{
 };
 
 mod session;
+mod shake;
 pub use session::{
     CashSessionProofError, CashSessionStarkProof, prove_authorized_session, prove_session_budget,
     verify_session_budget,
+};
+pub use shake::{
+    MAX_CASH_SHAKE_MESSAGE, Shake256StarkProof, prove_shake256_384, verify_shake256_384,
 };
 
 const TRACE_WIDTH: usize = 11;
