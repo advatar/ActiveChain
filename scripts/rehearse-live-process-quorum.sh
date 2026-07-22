@@ -9,28 +9,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
-wait_for_port() {
+wait_for_listener() {
   local port="$1"
   local log="$2"
-  if ! python3 - "$port" <<'PY'
-import socket
-import sys
-import time
-
-port = int(sys.argv[1])
-deadline = time.monotonic() + 30
-while time.monotonic() < deadline:
-    try:
-        socket.create_connection(("127.0.0.1", port), timeout=1).close()
-        raise SystemExit(0)
-    except OSError:
-        time.sleep(0.1)
-raise SystemExit(f"validator on port {port} did not become ready")
-PY
-  then
-    cat "$log" >&2
-    return 1
-  fi
+  for _ in {1..300}; do
+    if rg --quiet --fixed-strings "activechain validator listening on 0.0.0.0:$port" "$log"; then
+      sleep 1
+      return 0
+    fi
+    sleep 0.1
+  done
+  cat "$log" >&2
+  return 1
 }
 
 cargo run --quiet -p activechain-consensus-runtime --bin genesis-tool -- "$genesis" 1 1 3 >/dev/null
@@ -41,8 +31,8 @@ pids+=("$!")
 cargo run --quiet -p activechain-consensus-runtime --bin validator-node -- \
   4512 "$workdir/v2.snapshot" "$genesis" 0 2 >"$workdir/v2.out" 2>&1 &
 pids+=("$!")
-wait_for_port 4511 "$workdir/v1.out"
-wait_for_port 4512 "$workdir/v2.out"
+wait_for_listener 4511 "$workdir/v1.out"
+wait_for_listener 4512 "$workdir/v2.out"
 
 python3 - <<'PY'
 import socket
@@ -76,11 +66,11 @@ PY
 cargo run --quiet -p activechain-consensus-runtime --bin validator-node -- \
   4512 "$workdir/v2.snapshot" "$genesis" 0 2 >"$workdir/v2-restart.out" 2>&1 &
 pids[1]="$!"
-wait_for_port 4512 "$workdir/v2-restart.out"
+wait_for_listener 4512 "$workdir/v2-restart.out"
 kill "${pids[0]}" 2>/dev/null || true
 cargo run --quiet -p activechain-consensus-runtime --bin validator-node -- \
   4511 "$workdir/v1.snapshot" "$genesis" 0 1 >"$workdir/v1-restart.out" 2>&1 &
 pids[0]="$!"
-wait_for_port 4511 "$workdir/v1-restart.out"
+wait_for_listener 4511 "$workdir/v1-restart.out"
 rg --fixed-strings "activechain validator listening on 0.0.0.0:4511" "$workdir/v1-restart.out"
 echo "live process quorum rehearsal passed"
