@@ -26,10 +26,10 @@ pub use session::{
     verify_session_budget,
 };
 pub use shake::{
-    AuthenticatedCashShakeStarkProof, BatchedShake256StarkProof, MAX_CASH_SHAKE_MESSAGE,
-    Shake256StarkProof, prove_authenticated_cash_shake, prove_shake256_384,
-    prove_shake256_384_batch, verify_authenticated_cash_shake, verify_shake256_384,
-    verify_shake256_384_batch,
+    AuthenticatedCashShakeStarkProof, BatchedShake256StarkProof,
+    MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_CHUNK, MAX_CASH_SHAKE_MESSAGE, Shake256StarkProof,
+    prove_authenticated_cash_shake, prove_shake256_384, prove_shake256_384_batch,
+    verify_authenticated_cash_shake, verify_shake256_384, verify_shake256_384_batch,
 };
 
 const TRACE_WIDTH: usize = 11;

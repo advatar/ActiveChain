@@ -35,6 +35,7 @@ const STATE_PUBLIC_VALUES: usize = STATE_LANES * LIMBS_PER_LANE;
 const TOTAL_PUBLIC_VALUES: usize = STATE_PUBLIC_VALUES * 2;
 const KECCAK_ROUNDS: usize = 24;
 pub const MAX_CASH_SHAKE_MESSAGE: usize = 512;
+pub const MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_CHUNK: usize = 64;
 
 type Val = BabyBear;
 type Challenge = BinomialExtensionField<Val, 4>;
@@ -163,13 +164,18 @@ pub struct BatchedShake256StarkProof {
 }
 
 pub struct AuthenticatedCashShakeStarkProof {
-    batch: BatchedShake256StarkProof,
+    batches: Vec<BatchedShake256StarkProof>,
 }
 
 impl AuthenticatedCashShakeStarkProof {
     #[must_use]
-    pub const fn permutation_count(&self) -> usize {
-        self.batch.permutation_count()
+    pub fn permutation_count(&self) -> usize {
+        self.batches.iter().map(BatchedShake256StarkProof::permutation_count).sum()
+    }
+
+    #[must_use]
+    pub fn chunk_count(&self) -> usize {
+        self.batches.len()
     }
 }
 
@@ -177,11 +183,19 @@ pub fn prove_authenticated_cash_shake(
     transition: &CoinCellTransitionWitness,
 ) -> Result<AuthenticatedCashShakeStarkProof, &'static str> {
     let (messages, expected) = authenticated_transition_batch(transition)?;
-    let batch = prove_shake256_384_batch(&messages)?;
-    if batch.digests() != expected {
-        return Err("authenticated cash SHAKE digest derivation mismatch");
+    let chunks = authenticated_chunks(&messages)?;
+    let mut batches = Vec::with_capacity(chunks.len());
+    let mut digest_offset = 0;
+    for chunk in chunks {
+        let batch = prove_shake256_384_batch(chunk)?;
+        let end = digest_offset + chunk.len();
+        if batch.digests() != &expected[digest_offset..end] {
+            return Err("authenticated cash SHAKE digest derivation mismatch");
+        }
+        batches.push(batch);
+        digest_offset = end;
     }
-    Ok(AuthenticatedCashShakeStarkProof { batch })
+    Ok(AuthenticatedCashShakeStarkProof { batches })
 }
 
 pub fn verify_authenticated_cash_shake(
@@ -189,7 +203,17 @@ pub fn verify_authenticated_cash_shake(
     transition: &CoinCellTransitionWitness,
 ) -> Result<(), &'static str> {
     let (messages, expected) = authenticated_transition_batch(transition)?;
-    verify_shake256_384_batch(&proof.batch, &messages, &expected)
+    let chunks = authenticated_chunks(&messages)?;
+    if proof.batches.len() != chunks.len() {
+        return Err("authenticated cash SHAKE chunk count mismatch");
+    }
+    let mut digest_offset = 0;
+    for (batch, chunk) in proof.batches.iter().zip(chunks) {
+        let end = digest_offset + chunk.len();
+        verify_shake256_384_batch(batch, chunk, &expected[digest_offset..end])?;
+        digest_offset = end;
+    }
+    Ok(())
 }
 
 impl BatchedShake256StarkProof {
@@ -382,6 +406,28 @@ fn authenticated_transition_batch(
         append_mutation_path(mutation, false, &mut messages, &mut digests)?;
     }
     Ok((messages, digests))
+}
+
+fn authenticated_chunks(messages: &[Vec<u8>]) -> Result<Vec<&[Vec<u8>]>, &'static str> {
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    let mut permutations = 0;
+    for (index, message) in messages.iter().enumerate() {
+        let message_permutations = padded_blocks(message)?.len();
+        if message_permutations > MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_CHUNK {
+            return Err("authenticated SHAKE message exceeds per-chunk permutation cap");
+        }
+        if permutations + message_permutations > MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_CHUNK {
+            chunks.push(&messages[start..index]);
+            start = index;
+            permutations = 0;
+        }
+        permutations += message_permutations;
+    }
+    if start < messages.len() {
+        chunks.push(&messages[start..]);
+    }
+    Ok(chunks)
 }
 
 fn append_mutation_path(
@@ -640,5 +686,18 @@ mod tests {
             digests.last().copied().unwrap(),
             mutation.post_root().into_digest().into_bytes()
         );
+    }
+
+    #[test]
+    fn authenticated_chunk_plan_is_ordered_and_strictly_permutation_bounded() {
+        let messages = (0_u8..40).map(|byte| vec![byte; RATE_BYTES + 2]).collect::<Vec<_>>();
+        let chunks = authenticated_chunks(&messages).unwrap();
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks.concat(), messages);
+        for chunk in chunks {
+            let permutations: usize =
+                chunk.iter().map(|message| padded_blocks(message).unwrap().len()).sum();
+            assert!(permutations <= MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_CHUNK);
+        }
     }
 }

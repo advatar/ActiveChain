@@ -37,3 +37,10 @@ It rejects a derived terminal root that differs from the mutation witness and fe
 ordered sequence to the single batch proof. A full-depth mutation contains 772 SHAKE messages, so
 validator ingress remains disabled until benchmark data establishes a safe mutation cap and memory
 budget and the resulting roots are bound into the parent CashAIR proof.
+
+Authenticated path proving is split deterministically at message boundaries into chunks of at most
+64 Keccak permutations. The verifier re-derives the same chunk plan, rejects missing or extra chunk
+proofs, and verifies each digest slice in order. The cap is enforced before trace allocation, so a
+full path increases the number of bounded proofs instead of creating one unbounded trace. The value
+is a conservative implementation bound, not yet a validator service-level target; end-to-end timing
+still requires release-hardware benchmarking.
