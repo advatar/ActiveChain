@@ -16,6 +16,7 @@ use sha3::{
 };
 
 pub const MAX_PROTECTED_PAYLOAD: usize = 64 * 1024;
+pub const MAX_THRESHOLD_RECIPIENTS: usize = 64;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProtectedEnvelope {
     ciphertext: Vec<u8>,
@@ -93,6 +94,250 @@ impl ProtectedEnvelope {
         })
     }
 }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EncryptedDecryptionShare {
+    member_index: u8,
+    envelope: ProtectedEnvelope,
+}
+
+impl EncryptedDecryptionShare {
+    #[must_use]
+    pub const fn member_index(&self) -> u8 {
+        self.member_index
+    }
+    #[must_use]
+    pub const fn envelope(&self) -> &ProtectedEnvelope {
+        &self.envelope
+    }
+
+    pub fn open(
+        &self,
+        recipient: &MlKem768Recipient,
+        associated_data: &[u8],
+    ) -> Result<DecryptionShare, KemError> {
+        let aad = threshold_share_aad(associated_data, self.member_index);
+        let plaintext = self.envelope.open(recipient, &aad)?;
+        if plaintext.len() != 33 || plaintext[0] != self.member_index {
+            return Err(KemError::InvalidShare);
+        }
+        let mut value = [0_u8; 32];
+        value.copy_from_slice(&plaintext[1..]);
+        Ok(DecryptionShare { member_index: self.member_index, value })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DecryptionShare {
+    member_index: u8,
+    value: [u8; 32],
+}
+
+impl DecryptionShare {
+    #[must_use]
+    pub const fn member_index(&self) -> u8 {
+        self.member_index
+    }
+}
+
+/// Multi-recipient payload requiring a declared number of ML-KEM-wrapped Shamir shares.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ThresholdProtectedEnvelope {
+    threshold: u8,
+    encrypted_shares: Vec<EncryptedDecryptionShare>,
+    encrypted_payload: Vec<u8>,
+    tag: [u8; 48],
+    share_set_context: [u8; 48],
+}
+
+impl ThresholdProtectedEnvelope {
+    /// Seals using 64 bytes supplied by the caller's CSPRNG.
+    pub fn seal(
+        seed: [u8; 64],
+        recipient_public_keys: &[Vec<u8>],
+        threshold: u8,
+        payload: &[u8],
+        associated_data: &[u8],
+    ) -> Result<Self, KemError> {
+        if payload.len() > MAX_PROTECTED_PAYLOAD {
+            return Err(KemError::PayloadTooLarge);
+        }
+        if recipient_public_keys.is_empty()
+            || recipient_public_keys.len() > MAX_THRESHOLD_RECIPIENTS
+            || threshold == 0
+            || usize::from(threshold) > recipient_public_keys.len()
+        {
+            return Err(KemError::InvalidThreshold);
+        }
+        let (content_key, coefficients) = threshold_material(&seed, threshold);
+        let mut encrypted_shares = Vec::with_capacity(recipient_public_keys.len());
+        for (offset, public_key) in recipient_public_keys.iter().enumerate() {
+            let member_index = u8::try_from(offset + 1).map_err(|_| KemError::InvalidThreshold)?;
+            let share = evaluate_share(content_key, &coefficients, member_index);
+            let mut plaintext = Vec::with_capacity(33);
+            plaintext.push(member_index);
+            plaintext.extend_from_slice(&share);
+            let aad = threshold_share_aad(associated_data, member_index);
+            encrypted_shares.push(EncryptedDecryptionShare {
+                member_index,
+                envelope: ProtectedEnvelope::seal(public_key, &plaintext, &aad)?,
+            });
+        }
+        let share_set_context = share_set_context(threshold, &encrypted_shares)?;
+        let encrypted_payload =
+            xor_stream(&content_key, &share_set_context, associated_data, payload);
+        let tag =
+            envelope_tag(&content_key, &share_set_context, associated_data, &encrypted_payload);
+        Ok(Self { threshold, encrypted_shares, encrypted_payload, tag, share_set_context })
+    }
+
+    #[must_use]
+    pub const fn threshold(&self) -> u8 {
+        self.threshold
+    }
+    #[must_use]
+    pub fn encrypted_shares(&self) -> &[EncryptedDecryptionShare] {
+        &self.encrypted_shares
+    }
+
+    pub fn open(
+        &self,
+        shares: &[DecryptionShare],
+        associated_data: &[u8],
+    ) -> Result<Vec<u8>, KemError> {
+        if shares.len() < usize::from(self.threshold) {
+            return Err(KemError::InsufficientShares);
+        }
+        let selected = &shares[..usize::from(self.threshold)];
+        for (position, share) in selected.iter().enumerate() {
+            if share.member_index == 0
+                || usize::from(share.member_index) > self.encrypted_shares.len()
+                || selected[..position].iter().any(|prior| prior.member_index == share.member_index)
+            {
+                return Err(KemError::InvalidShare);
+            }
+        }
+        let content_key = interpolate_zero(selected)?;
+        let expected = envelope_tag(
+            &content_key,
+            &self.share_set_context,
+            associated_data,
+            &self.encrypted_payload,
+        );
+        if !constant_time_equal(&expected, &self.tag) {
+            return Err(KemError::AuthenticationFailed);
+        }
+        Ok(xor_stream(
+            &content_key,
+            &self.share_set_context,
+            associated_data,
+            &self.encrypted_payload,
+        ))
+    }
+}
+
+fn threshold_material(seed: &[u8; 64], threshold: u8) -> ([u8; 32], Vec<[u8; 32]>) {
+    let mut hasher = Shake256::default();
+    hasher.update(b"ACTIVECHAIN-THRESHOLD-MATERIAL-V1");
+    hasher.update(seed);
+    hasher.update(&[threshold]);
+    let mut reader = hasher.finalize_xof();
+    let mut secret = [0_u8; 32];
+    reader.read(&mut secret);
+    let mut coefficients = Vec::with_capacity(usize::from(threshold.saturating_sub(1)));
+    for _ in 1..threshold {
+        let mut coefficient = [0_u8; 32];
+        reader.read(&mut coefficient);
+        coefficients.push(coefficient);
+    }
+    (secret, coefficients)
+}
+
+fn evaluate_share(secret: [u8; 32], coefficients: &[[u8; 32]], x: u8) -> [u8; 32] {
+    let mut output = secret;
+    for byte in 0..32 {
+        let mut power = x;
+        for coefficient in coefficients {
+            output[byte] ^= gf_mul(coefficient[byte], power);
+            power = gf_mul(power, x);
+        }
+    }
+    output
+}
+
+fn interpolate_zero(shares: &[DecryptionShare]) -> Result<[u8; 32], KemError> {
+    let mut secret = [0_u8; 32];
+    for (index, share) in shares.iter().enumerate() {
+        let x_i = share.member_index;
+        let mut numerator = 1_u8;
+        let mut denominator = 1_u8;
+        for (other_index, other) in shares.iter().enumerate() {
+            if index == other_index {
+                continue;
+            }
+            numerator = gf_mul(numerator, other.member_index);
+            denominator = gf_mul(denominator, other.member_index ^ x_i);
+        }
+        if denominator == 0 {
+            return Err(KemError::InvalidShare);
+        }
+        let basis = gf_mul(numerator, gf_inverse(denominator));
+        for (output, value) in secret.iter_mut().zip(share.value) {
+            *output ^= gf_mul(value, basis);
+        }
+    }
+    Ok(secret)
+}
+
+fn gf_mul(mut left: u8, mut right: u8) -> u8 {
+    let mut output = 0_u8;
+    for _ in 0..8 {
+        if right & 1 != 0 {
+            output ^= left;
+        }
+        let carry = left & 0x80;
+        left <<= 1;
+        if carry != 0 {
+            left ^= 0x1b;
+        }
+        right >>= 1;
+    }
+    output
+}
+
+fn gf_inverse(value: u8) -> u8 {
+    let mut output = 1_u8;
+    for _ in 0..254 {
+        output = gf_mul(output, value);
+    }
+    output
+}
+
+fn threshold_share_aad(associated_data: &[u8], member_index: u8) -> Vec<u8> {
+    let mut aad = Vec::with_capacity(associated_data.len() + 26);
+    aad.extend_from_slice(b"ACTIVECHAIN-THRESHOLD-SHARE-V1");
+    aad.push(member_index);
+    aad.extend_from_slice(associated_data);
+    aad
+}
+
+fn share_set_context(
+    threshold: u8,
+    shares: &[EncryptedDecryptionShare],
+) -> Result<[u8; 48], KemError> {
+    let mut hasher = Shake256::default();
+    hasher.update(b"ACTIVECHAIN-THRESHOLD-SHARE-SET-V1");
+    hasher.update(&[threshold]);
+    for share in shares {
+        hasher.update(&[share.member_index]);
+        let encoded = share.envelope.encode()?;
+        hasher.update(&(encoded.len() as u32).to_be_bytes());
+        hasher.update(&encoded);
+    }
+    let mut output = [0_u8; 48];
+    hasher.finalize_xof().read(&mut output);
+    Ok(output)
+}
 fn xor_stream(shared: &[u8; 32], ciphertext: &[u8], aad: &[u8], input: &[u8]) -> Vec<u8> {
     let mut reader = Shake256::default();
     reader.update(b"ACTIVECHAIN-MLKEM-STREAM-V1");
@@ -161,6 +406,9 @@ pub enum KemError {
     PayloadTooLarge,
     AuthenticationFailed,
     InvalidEnvelope,
+    InvalidThreshold,
+    InsufficientShares,
+    InvalidShare,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -462,5 +710,96 @@ mod tests {
         let mut tampered = envelope.clone();
         tampered.encrypted_payload[0] ^= 1;
         assert_eq!(tampered.open(&recipient, b"chain-1"), Err(KemError::AuthenticationFailed));
+    }
+
+    #[test]
+    fn threshold_envelope_requires_real_ml_kem_wrapped_quorum() {
+        let recipients = [
+            MlKem768Recipient::from_seed([21; 64]),
+            MlKem768Recipient::from_seed([22; 64]),
+            MlKem768Recipient::from_seed([23; 64]),
+            MlKem768Recipient::from_seed([24; 64]),
+        ];
+        let public_keys = recipients.iter().map(MlKem768Recipient::public_key).collect::<Vec<_>>();
+        let envelope = ThresholdProtectedEnvelope::seal(
+            [90; 64],
+            &public_keys,
+            3,
+            b"threshold protected payload",
+            b"chain-1/epoch-7",
+        )
+        .unwrap();
+        let shares = [0_usize, 1, 3]
+            .into_iter()
+            .map(|index| {
+                envelope.encrypted_shares()[index]
+                    .open(&recipients[index], b"chain-1/epoch-7")
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            envelope.open(&shares, b"chain-1/epoch-7").unwrap(),
+            b"threshold protected payload"
+        );
+        assert_eq!(
+            envelope.open(&shares[..2], b"chain-1/epoch-7"),
+            Err(KemError::InsufficientShares)
+        );
+        let all = recipients
+            .iter()
+            .enumerate()
+            .map(|(index, recipient)| {
+                envelope.encrypted_shares()[index].open(recipient, b"chain-1/epoch-7").unwrap()
+            })
+            .collect::<Vec<_>>();
+        for first in 0..all.len() {
+            assert_eq!(
+                envelope.open(&[all[first]], b"chain-1/epoch-7"),
+                Err(KemError::InsufficientShares)
+            );
+            for second in first + 1..all.len() {
+                assert_eq!(
+                    envelope.open(&[all[first], all[second]], b"chain-1/epoch-7"),
+                    Err(KemError::InsufficientShares)
+                );
+            }
+        }
+        for omitted in 0..all.len() {
+            let quorum = all
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| *index != omitted)
+                .map(|(_, share)| *share)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                envelope.open(&quorum, b"chain-1/epoch-7").unwrap(),
+                b"threshold protected payload"
+            );
+        }
+    }
+
+    #[test]
+    fn threshold_envelope_rejects_duplicate_wrong_and_tampered_shares() {
+        let recipients = [
+            MlKem768Recipient::from_seed([31; 64]),
+            MlKem768Recipient::from_seed([32; 64]),
+            MlKem768Recipient::from_seed([33; 64]),
+        ];
+        let keys = recipients.iter().map(MlKem768Recipient::public_key).collect::<Vec<_>>();
+        let envelope =
+            ThresholdProtectedEnvelope::seal([91; 64], &keys, 2, b"payload", b"context").unwrap();
+        let first = envelope.encrypted_shares()[0].open(&recipients[0], b"context").unwrap();
+        let second = envelope.encrypted_shares()[1].open(&recipients[1], b"context").unwrap();
+        assert_eq!(envelope.open(&[first, first], b"context"), Err(KemError::InvalidShare));
+        assert_eq!(
+            envelope.encrypted_shares()[0].open(&recipients[1], b"context"),
+            Err(KemError::AuthenticationFailed)
+        );
+        let mut tampered = second;
+        tampered.value[0] ^= 1;
+        assert_eq!(
+            envelope.open(&[first, tampered], b"context"),
+            Err(KemError::AuthenticationFailed)
+        );
     }
 }

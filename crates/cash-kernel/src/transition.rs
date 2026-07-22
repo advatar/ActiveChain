@@ -1,8 +1,11 @@
 use alloc::vec::Vec;
 
+use activechain_privacy_kernel::{
+    PrivacyError, ShieldIntent, ShieldedCashState, UnshieldIntent, VerifiedPrivacyProof,
+};
 use activechain_protocol_commitment::{
-    cash_transition_id, coin_cell_id, coin_cell_set_root, genesis_allocation_root, native_asset_id,
-    supply_root,
+    DomainTag, cash_transition_id, coin_cell_id, coin_cell_set_root, commit,
+    genesis_allocation_root, native_asset_id, supply_root,
 };
 use activechain_protocol_types::{
     CoinCellId, CoinCellSetRoot, GenesisAllocationRoot, Height, SupplyRoot, TransactionId,
@@ -21,6 +24,7 @@ pub struct CashLedger {
     definition: NativeAssetDefinition,
     supply: NativeSupply,
     cells: CoinCellSet,
+    shielded: ShieldedCashState,
 }
 
 impl CashLedger {
@@ -75,7 +79,12 @@ impl CashLedger {
             locked,
         )
         .map_err(CashTransitionError::Invalid)?;
-        let ledger = Self { definition: economy.definition().clone(), supply, cells };
+        let ledger = Self {
+            definition: economy.definition().clone(),
+            supply,
+            cells,
+            shielded: ShieldedCashState::default(),
+        };
         ledger.verify_invariants()?;
         Ok(ledger)
     }
@@ -91,6 +100,188 @@ impl CashLedger {
     #[must_use]
     pub const fn cells(&self) -> &CoinCellSet {
         &self.cells
+    }
+    #[must_use]
+    pub const fn shielded_state(&self) -> &ShieldedCashState {
+        &self.shielded
+    }
+
+    /// Atomically consumes public Coin Cells and credits the shielded native-value partition.
+    pub fn apply_shield(
+        &mut self,
+        intent: &ShieldIntent,
+        proof: VerifiedPrivacyProof,
+        height: Height,
+    ) -> Result<(), CashTransitionError> {
+        let mut next = self.clone();
+        next.apply_shield_inner(intent, proof, height)?;
+        *self = next;
+        Ok(())
+    }
+
+    fn apply_shield_inner(
+        &mut self,
+        intent: &ShieldIntent,
+        proof: VerifiedPrivacyProof,
+        height: Height,
+    ) -> Result<(), CashTransitionError> {
+        self.verify_privacy_context(
+            intent.chain_id(),
+            intent.asset_id(),
+            intent.valid_until(),
+            height,
+        )?;
+        let proof_commitment = verify_privacy_proof(intent, proof)?;
+        let mut total = 0_u128;
+        let mut spent = Vec::new();
+        for id in intent.inputs() {
+            let record = self
+                .find(*id)
+                .ok_or(CashTransitionError::Invalid(NativeMoneyError::MissingCell))?;
+            if record.cell().owner() != intent.owner() {
+                return Err(CashTransitionError::Invalid(NativeMoneyError::WrongOwner));
+            }
+            total = total
+                .checked_add(record.cell().amount())
+                .ok_or(CashTransitionError::Invalid(NativeMoneyError::AmountOverflow))?;
+            spent.push(record);
+        }
+        let reserve = self
+            .find(intent.fee_reserve())
+            .ok_or(CashTransitionError::Invalid(NativeMoneyError::MissingCell))?;
+        if reserve.cell().owner() != intent.owner() {
+            return Err(CashTransitionError::Invalid(NativeMoneyError::WrongOwner));
+        }
+        total = total
+            .checked_add(reserve.cell().amount())
+            .ok_or(CashTransitionError::Invalid(NativeMoneyError::AmountOverflow))?;
+        spent.push(reserve);
+        let required = intent
+            .amount()
+            .checked_add(intent.fee())
+            .ok_or(CashTransitionError::Invalid(NativeMoneyError::AmountOverflow))?;
+        if total < required {
+            return Err(CashTransitionError::Invalid(NativeMoneyError::InsufficientValue));
+        }
+        let transition_id = cash_transition_id(intent).map_err(CashTransitionError::Encoding)?;
+        let mut cells = self
+            .cells
+            .as_slice()
+            .iter()
+            .copied()
+            .filter(|record| !spent.iter().any(|item| item.id() == record.id()))
+            .collect::<Vec<_>>();
+        let change = total - required;
+        if change > 0 {
+            let cell = CoinCell::new(
+                CoinCellOrigin::new(transition_id, 0),
+                intent.owner(),
+                change,
+                height,
+            )
+            .map_err(CashTransitionError::Invalid)?;
+            let id = coin_cell_id(&cell.origin()).map_err(CashTransitionError::Encoding)?;
+            cells.push(CoinCellRecord::new(id, cell));
+        }
+        cells.sort_by_key(|record| record.id());
+        self.cells = CoinCellSet::new(cells).map_err(CashTransitionError::Invalid)?;
+        self.shielded
+            .credit(intent.amount(), proof_commitment)
+            .map_err(CashTransitionError::Privacy)?;
+        self.move_fee_to_reserve(intent.fee())?;
+        self.verify_invariants()
+    }
+
+    /// Atomically consumes shielded nullifiers and creates one public Coin Cell.
+    pub fn apply_unshield(
+        &mut self,
+        intent: &UnshieldIntent,
+        proof: VerifiedPrivacyProof,
+        height: Height,
+    ) -> Result<CoinCellId, CashTransitionError> {
+        let mut next = self.clone();
+        let output = next.apply_unshield_inner(intent, proof, height)?;
+        *self = next;
+        Ok(output)
+    }
+
+    fn apply_unshield_inner(
+        &mut self,
+        intent: &UnshieldIntent,
+        proof: VerifiedPrivacyProof,
+        height: Height,
+    ) -> Result<CoinCellId, CashTransitionError> {
+        self.verify_privacy_context(
+            intent.chain_id(),
+            intent.asset_id(),
+            intent.valid_until(),
+            height,
+        )?;
+        if intent.anchor() != self.shielded.anchor() {
+            return Err(CashTransitionError::Privacy(PrivacyError::WrongAnchor));
+        }
+        let proof_commitment = verify_privacy_proof(intent, proof)?;
+        let debit = intent
+            .amount()
+            .checked_add(intent.fee())
+            .ok_or(CashTransitionError::Invalid(NativeMoneyError::AmountOverflow))?;
+        self.shielded
+            .debit(debit, intent.nullifiers(), proof_commitment)
+            .map_err(CashTransitionError::Privacy)?;
+        let transition_id = cash_transition_id(intent).map_err(CashTransitionError::Encoding)?;
+        let cell = CoinCell::new(
+            CoinCellOrigin::new(transition_id, 0),
+            intent.recipient(),
+            intent.amount(),
+            height,
+        )
+        .map_err(CashTransitionError::Invalid)?;
+        let id = coin_cell_id(&cell.origin()).map_err(CashTransitionError::Encoding)?;
+        self.insert_new_cell(CoinCellRecord::new(id, cell))?;
+        self.move_fee_to_reserve(intent.fee())?;
+        self.verify_invariants()?;
+        Ok(id)
+    }
+
+    fn verify_privacy_context(
+        &self,
+        chain_id: activechain_protocol_types::ChainId,
+        asset_id: activechain_protocol_types::AssetId,
+        valid_until: Height,
+        height: Height,
+    ) -> Result<(), CashTransitionError> {
+        if chain_id != self.definition.chain_id() {
+            return Err(CashTransitionError::Privacy(PrivacyError::WrongChain));
+        }
+        if asset_id != self.asset_id()? {
+            return Err(CashTransitionError::Privacy(PrivacyError::PublicInputMismatch));
+        }
+        if height > valid_until {
+            return Err(CashTransitionError::Privacy(PrivacyError::Expired));
+        }
+        Ok(())
+    }
+
+    fn move_fee_to_reserve(&mut self, fee: u128) -> Result<(), CashTransitionError> {
+        self.supply = NativeSupply::new(
+            self.supply.genesis_supply(),
+            self.supply.cumulative_security_issuance(),
+            self.supply.cumulative_burn(),
+            self.supply.current_total_supply(),
+            self.supply
+                .circulating_supply()
+                .checked_sub(fee)
+                .ok_or(CashTransitionError::Invalid(NativeMoneyError::AmountOverflow))?,
+            self.supply.locked_vesting_supply(),
+            self.supply.staked_supply(),
+            self.supply
+                .security_reserve_balance()
+                .checked_add(fee)
+                .ok_or(CashTransitionError::Invalid(NativeMoneyError::AmountOverflow))?,
+            self.supply.last_settled_epoch(),
+        )
+        .map_err(CashTransitionError::Invalid)?;
+        Ok(())
     }
 
     /// Applies a deterministic epoch-security mint from the declared issuance authority.
@@ -337,7 +528,8 @@ impl CashLedger {
                 .ok_or(CashTransitionError::Invalid(NativeMoneyError::AmountOverflow))?;
         }
         let accounted = cell_total
-            .checked_add(self.supply.security_reserve_balance())
+            .checked_add(self.shielded.pool_balance())
+            .and_then(|v| v.checked_add(self.supply.security_reserve_balance()))
             .and_then(|v| v.checked_add(self.supply.locked_vesting_supply()))
             .and_then(|v| v.checked_add(self.supply.staked_supply()))
             .ok_or(CashTransitionError::Invalid(NativeMoneyError::AmountOverflow))?;
@@ -394,4 +586,20 @@ pub enum CashTransitionError {
     Invalid(NativeMoneyError),
     Encoding(activechain_canonical_codec::EncodeError),
     Invariant(NativeMoneyError),
+    Privacy(PrivacyError),
+}
+
+fn verify_privacy_proof<T: activechain_canonical_codec::CanonicalType>(
+    intent: &T,
+    proof: VerifiedPrivacyProof,
+) -> Result<activechain_protocol_types::Digest384, CashTransitionError> {
+    if !proof.verified {
+        return Err(CashTransitionError::Privacy(PrivacyError::ProofNotVerified));
+    }
+    let expected =
+        commit(DomainTag::PRIVACY_PUBLIC_INPUTS, intent).map_err(CashTransitionError::Encoding)?;
+    if expected != proof.public_inputs_commitment {
+        return Err(CashTransitionError::Privacy(PrivacyError::PublicInputMismatch));
+    }
+    Ok(expected)
 }

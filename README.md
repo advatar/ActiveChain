@@ -40,6 +40,8 @@ must not hold value anyone is unwilling to lose.
 - a minimal semantic-devnet host and an executable Lean nonce/replay model;
 - an executable Lean credential-status model with required/future/stale/revoked precedence;
 - deterministic principal, authority, credential, APL, transition, state-tree, ObjectVM, action, and block vectors;
+- canonical shielded-note, viewing-capability, persistent-nullifier, and atomic native
+  shield/unshield reference boundaries without production privacy claims;
 - unit and property tests for codec safety, authority, policy, transitions, proofs, bytecode, execution, admission, and block application.
 
 ## Workspace
@@ -52,6 +54,7 @@ crates/bytecode-verifier     typed ObjectVM bytecode and static verification
 crates/protocol-types        canonical IDs, principals, authenticators, capabilities
 crates/protocol-commitment   SHAKE256/384 commitment transcript
 crates/principal             pure principal lifecycle state machine
+crates/privacy-kernel        bounded privacy statements and nullifier admission
 crates/capability            mechanical delegation attenuation
 crates/credential            issuer/status-aware credential presentation verification
 crates/policy-kernel         bounded APL AST, requests, evaluation, decisions

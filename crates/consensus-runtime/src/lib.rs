@@ -9,6 +9,10 @@ use activechain_canonical_codec::{
 use activechain_crypto_provider::{
     VerificationError, verify_block_proposal, verify_quorum_certificate,
 };
+use activechain_privacy_kernel::{
+    ProtectedDecryptionShare, ProtectedEnvelope, ProtectedOrderedSet, ProtectedSetLock,
+    ProtectedStateSnapshot,
+};
 use activechain_protocol_types::{
     BlockProposal, ConsensusSnapshot, ConsensusState, ConsensusStateError,
     ConsensusUpgradeAuthorization, ConsensusVoteContext, CryptoSuiteId, Digest384, PrincipalId,
@@ -201,7 +205,7 @@ impl ValidatorSigner {
         )
         .map_err(|_| ValidatorEngineError::Signer)
     }
-    fn sign_envelope(
+    pub fn sign_envelope(
         &self,
         sender: u16,
         sequence: u64,
@@ -323,6 +327,10 @@ pub enum ConsensusMessage {
     Proposal(BlockProposal),
     Vote(ValidatorVote),
     Certificate(CertifiedBlock),
+    ProtectedSubmission(ProtectedEnvelope),
+    ProtectedSetLock(ProtectedSetLock),
+    ProtectedDecryptionShare(ProtectedDecryptionShare),
+    ProtectedOrderedSet(ProtectedOrderedSet),
 }
 impl ConsensusMessage {
     fn kind(&self) -> u8 {
@@ -330,6 +338,10 @@ impl ConsensusMessage {
             Self::Proposal(_) => 1,
             Self::Vote(_) => 2,
             Self::Certificate(_) => 3,
+            Self::ProtectedSubmission(_) => 4,
+            Self::ProtectedSetLock(_) => 5,
+            Self::ProtectedDecryptionShare(_) => 6,
+            Self::ProtectedOrderedSet(_) => 7,
         }
     }
     fn encode_body(&self) -> Result<Vec<u8>, TransportError> {
@@ -337,6 +349,10 @@ impl ConsensusMessage {
             Self::Proposal(value) => encode_envelope(value),
             Self::Vote(value) => encode_envelope(value),
             Self::Certificate(value) => return value.encode(),
+            Self::ProtectedSubmission(value) => encode_envelope(value),
+            Self::ProtectedSetLock(value) => encode_envelope(value),
+            Self::ProtectedDecryptionShare(value) => encode_envelope(value),
+            Self::ProtectedOrderedSet(value) => encode_envelope(value),
         }
         .map_err(|_| TransportError::InvalidBody)
     }
@@ -345,6 +361,10 @@ impl ConsensusMessage {
             1 => decode_envelope(body).map(Self::Proposal),
             2 => decode_envelope(body).map(Self::Vote),
             3 => return CertifiedBlock::decode(body).map(Self::Certificate),
+            4 => decode_envelope(body).map(Self::ProtectedSubmission),
+            5 => decode_envelope(body).map(Self::ProtectedSetLock),
+            6 => decode_envelope(body).map(Self::ProtectedDecryptionShare),
+            7 => decode_envelope(body).map(Self::ProtectedOrderedSet),
             _ => return Err(TransportError::InvalidMessageKind),
         }
         .map_err(|_| TransportError::InvalidBody)
@@ -359,6 +379,54 @@ impl ConsensusMessage {
         let mut digest = [0_u8; 48];
         hasher.finalize_xof().read(&mut digest);
         Ok(Digest384::new(digest))
+    }
+}
+
+/// Finalized context used to reject authenticated but out-of-domain protected traffic.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProtectedNetworkContext {
+    chain_id: activechain_protocol_types::ChainId,
+    committee_epoch: u64,
+    set_root: Option<Digest384>,
+}
+
+impl ProtectedNetworkContext {
+    pub const fn new(
+        chain_id: activechain_protocol_types::ChainId,
+        committee_epoch: u64,
+        set_root: Option<Digest384>,
+    ) -> Self {
+        Self { chain_id, committee_epoch, set_root }
+    }
+
+    pub fn validate(&self, sender: u16, message: &ConsensusMessage) -> Result<(), TransportError> {
+        let (chain_id, epoch, set_root) = match message {
+            ConsensusMessage::ProtectedSubmission(value) => {
+                (value.chain_id(), value.committee_epoch(), None)
+            }
+            ConsensusMessage::ProtectedSetLock(value) => {
+                (value.chain_id(), value.committee_epoch(), Some(value.set_root()))
+            }
+            ConsensusMessage::ProtectedDecryptionShare(value) => {
+                if value.member() != sender {
+                    return Err(TransportError::SenderMismatch);
+                }
+                (value.chain_id(), value.committee_epoch(), Some(value.set_root()))
+            }
+            ConsensusMessage::ProtectedOrderedSet(value) => {
+                (value.chain_id(), value.committee_epoch(), Some(value.set_root()))
+            }
+            _ => return Err(TransportError::InvalidMessageKind),
+        };
+        if chain_id != self.chain_id || epoch != self.committee_epoch {
+            return Err(TransportError::ContextMismatch);
+        }
+        if let (Some(expected), Some(actual)) = (self.set_root, set_root)
+            && expected != actual
+        {
+            return Err(TransportError::ContextMismatch);
+        }
+        Ok(())
     }
 }
 
@@ -571,6 +639,29 @@ impl PeerDirectory {
         }
         let (socket, key) = self.peers.get_mut(&peer_id).ok_or(PeerReceiveError::UnknownPeer)?;
         let message = socket.receive_message().map_err(PeerReceiveError::Io)?;
+        if message.envelope.sender() != peer_id {
+            return Err(PeerReceiveError::Transport(TransportError::SenderMismatch));
+        }
+        self.replay.accept(&message.envelope, key).map_err(PeerReceiveError::Transport)?;
+        Ok(message)
+    }
+    pub fn receive_protected_verified(
+        &mut self,
+        peer_id: u16,
+        context: &ProtectedNetworkContext,
+    ) -> Result<AuthenticatedConsensusMessage, PeerReceiveError> {
+        if !self.allow_receive(peer_id, Instant::now()) {
+            return Err(PeerReceiveError::Transport(TransportError::RateLimited));
+        }
+        let (socket, key) = self.peers.get_mut(&peer_id).ok_or(PeerReceiveError::UnknownPeer)?;
+        let message = socket.receive_message().map_err(PeerReceiveError::Io)?;
+        if message.envelope.sender() != peer_id {
+            return Err(PeerReceiveError::Transport(TransportError::SenderMismatch));
+        }
+        message.envelope.verify(key).map_err(PeerReceiveError::Transport)?;
+        context
+            .validate(message.envelope.sender(), &message.message)
+            .map_err(PeerReceiveError::Transport)?;
         self.replay.accept(&message.envelope, key).map_err(PeerReceiveError::Transport)?;
         Ok(message)
     }
@@ -931,6 +1022,22 @@ fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Atomically publishes a complete protected-ordering snapshot.
+pub fn save_protected_snapshot(
+    path: &std::path::Path,
+    state: &ProtectedStateSnapshot,
+) -> std::io::Result<()> {
+    let bytes =
+        encode_envelope(state).map_err(|_| invalid_data("protected snapshot encoding failed"))?;
+    write_atomic(path, &bytes)
+}
+
+/// Loads a protected snapshot, rejecting corruption, truncation, and non-canonical state.
+pub fn load_protected_snapshot(path: &std::path::Path) -> std::io::Result<ProtectedStateSnapshot> {
+    let bytes = std::fs::read(path)?;
+    decode_envelope(&bytes).map_err(|_| invalid_data("protected snapshot decoding failed"))
+}
+
 fn save_validator_snapshot(
     path: &std::path::Path,
     engine: &ValidatorEngine,
@@ -1184,6 +1291,8 @@ pub enum TransportError {
     Verification(VerificationError),
     Replay,
     RateLimited,
+    ContextMismatch,
+    SenderMismatch,
 }
 
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
@@ -1776,6 +1885,12 @@ impl ValidatorEngine {
                 self.collector = None;
                 Ok(None)
             }
+            ConsensusMessage::ProtectedSubmission(_)
+            | ConsensusMessage::ProtectedSetLock(_)
+            | ConsensusMessage::ProtectedDecryptionShare(_)
+            | ConsensusMessage::ProtectedOrderedSet(_) => {
+                Err(ValidatorEngineError::ProtectedMessage)
+            }
         }
     }
     pub fn process_and_save(
@@ -1849,6 +1964,7 @@ pub enum ValidatorEngineError {
     Runtime(RuntimeError),
     Snapshot(std::io::Error),
     Signer,
+    ProtectedMessage,
 }
 
 pub struct ValidatorService {
@@ -1970,6 +2086,17 @@ impl ValidatorService {
     pub fn metrics(&self) -> MetricsSnapshot {
         self.metrics.snapshot()
     }
+    pub fn next_sequence_for(&self, sender: u16) -> Result<u64, ValidatorServiceError> {
+        self.replay
+            .lock()
+            .map_err(|_| ValidatorServiceError::Poisoned)?
+            .highest
+            .get(&sender)
+            .copied()
+            .unwrap_or(0)
+            .checked_add(1)
+            .ok_or(ValidatorServiceError::Transport(TransportError::Replay))
+    }
     pub fn process_message(
         &self,
         message: AuthenticatedConsensusMessage,
@@ -1982,6 +2109,10 @@ impl ValidatorService {
                 self.metrics.votes.fetch_add(1, Ordering::Relaxed);
             }
             ConsensusMessage::Certificate(_) => {}
+            ConsensusMessage::ProtectedSubmission(_)
+            | ConsensusMessage::ProtectedSetLock(_)
+            | ConsensusMessage::ProtectedDecryptionShare(_)
+            | ConsensusMessage::ProtectedOrderedSet(_) => {}
         }
         let key = self
             .sender_keys
@@ -2409,6 +2540,84 @@ mod tests {
             Err(TransportError::Replay)
         );
         sender.join().unwrap();
+    }
+
+    #[test]
+    fn authenticated_protected_messages_round_trip_with_context_binding() {
+        let signer =
+            ValidatorSigner::from_seed(PrincipalId::new(Digest384::new([1; 48])), [21; 32]);
+        let chain = ChainId::new(Digest384::new([2; 48]));
+        let root = Digest384::new([3; 48]);
+        let envelope = ProtectedEnvelope::new(
+            chain,
+            Digest384::new([4; 48]),
+            CryptoSuiteId::ML_KEM_768,
+            7,
+            Digest384::new([5; 48]),
+            Digest384::new([6; 48]),
+            Digest384::new([7; 48]),
+            Digest384::new([8; 48]),
+            10,
+            30,
+            20,
+        )
+        .unwrap();
+        let messages = [
+            ConsensusMessage::ProtectedSubmission(envelope),
+            ConsensusMessage::ProtectedSetLock(
+                ProtectedSetLock::new(chain, 7, 11, root, vec![Digest384::new([4; 48])]).unwrap(),
+            ),
+            ConsensusMessage::ProtectedDecryptionShare(
+                ProtectedDecryptionShare::new(chain, 7, root, Digest384::new([4; 48]), 5, [9; 32])
+                    .unwrap(),
+            ),
+            ConsensusMessage::ProtectedOrderedSet(
+                ProtectedOrderedSet::new(
+                    chain,
+                    7,
+                    root,
+                    Digest384::new([10; 48]),
+                    vec![Digest384::new([4; 48])],
+                )
+                .unwrap(),
+            ),
+        ];
+        let signed: Vec<_> = messages
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(index, message)| signer.sign_envelope(5, index as u64 + 1, message).unwrap())
+            .collect();
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let outbound = signed.clone();
+        let sender = std::thread::spawn(move || {
+            let mut socket = PeerSocket::connect(TcpStream::connect(address).unwrap());
+            for message in &outbound {
+                socket.send_message(message).unwrap();
+            }
+        });
+        let (stream, _) = listener.accept().unwrap();
+        let mut peers = PeerDirectory::new();
+        peers.insert(5, PeerSocket::connect(stream), signer.public_key()).unwrap();
+        let context = ProtectedNetworkContext::new(chain, 7, Some(root));
+        for expected in signed {
+            assert_eq!(peers.receive_protected_verified(5, &context).unwrap(), expected);
+        }
+        sender.join().unwrap();
+
+        let share =
+            ProtectedDecryptionShare::new(chain, 7, root, Digest384::new([4; 48]), 5, [9; 32])
+                .unwrap();
+        assert_eq!(
+            context.validate(6, &ConsensusMessage::ProtectedDecryptionShare(share)),
+            Err(TransportError::SenderMismatch)
+        );
+        let wrong_context = ProtectedNetworkContext::new(chain, 8, Some(root));
+        assert_eq!(
+            wrong_context.validate(5, &ConsensusMessage::ProtectedDecryptionShare(share)),
+            Err(TransportError::ContextMismatch)
+        );
     }
 
     #[test]
@@ -3579,6 +3788,81 @@ mod tests {
         assert_eq!(restored.epoch(), 4);
         assert_eq!(restored.finalized_height(), 9);
         assert_eq!(restored.finalized_round(), 2);
+    }
+
+    #[test]
+    fn protected_state_snapshot_is_atomic_restart_safe_and_fail_closed() {
+        let chain = ChainId::new(Digest384::new([31; 48]));
+        let submission_id = Digest384::new([32; 48]);
+        let root = Digest384::new([33; 48]);
+        let queue = vec![
+            ProtectedEnvelope::new(
+                chain,
+                submission_id,
+                CryptoSuiteId::ML_KEM_768,
+                7,
+                Digest384::new([34; 48]),
+                Digest384::new([35; 48]),
+                Digest384::new([36; 48]),
+                Digest384::new([37; 48]),
+                10,
+                100,
+                50,
+            )
+            .unwrap(),
+        ];
+        let lock = ProtectedSetLock::new(chain, 7, 12, root, vec![submission_id]).unwrap();
+        let state = ProtectedStateSnapshot::new(
+            chain,
+            7,
+            queue,
+            Some(lock),
+            vec![
+                ProtectedDecryptionShare::new(chain, 7, root, submission_id, 1, [38; 32]).unwrap(),
+            ],
+            Some(
+                ProtectedOrderedSet::new(
+                    chain,
+                    7,
+                    root,
+                    Digest384::new([39; 48]),
+                    vec![submission_id],
+                )
+                .unwrap(),
+            ),
+            vec![activechain_privacy_kernel::BondSettlement {
+                bid_id: Digest384::new([40; 48]),
+                builder: PrincipalId::new(Digest384::new([41; 48])),
+                released_bond: 100,
+                slashed_bond: 0,
+                fee_paid: 5,
+            }],
+            vec![(1, 8), (2, 11)],
+        )
+        .unwrap();
+        let path = std::env::temp_dir()
+            .join(format!("activechain-protected-snapshot-{}.bin", std::process::id()));
+        let temporary = path.with_extension("tmp");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&temporary);
+        let _ = std::fs::remove_dir(&temporary);
+
+        save_protected_snapshot(&path, &state).unwrap();
+        assert_eq!(load_protected_snapshot(&path).unwrap(), state);
+
+        let original = std::fs::read(&path).unwrap();
+        std::fs::write(&path, &original[..original.len() - 1]).unwrap();
+        assert_eq!(
+            load_protected_snapshot(&path).unwrap_err().kind(),
+            std::io::ErrorKind::InvalidData
+        );
+        std::fs::write(&path, &original).unwrap();
+
+        std::fs::create_dir(&temporary).unwrap();
+        assert!(save_protected_snapshot(&path, &state).is_err());
+        assert_eq!(load_protected_snapshot(&path).unwrap(), state);
+        std::fs::remove_dir(temporary).unwrap();
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

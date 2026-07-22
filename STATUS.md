@@ -237,6 +237,34 @@ Tracked by [GitHub issue #4](https://github.com/advatar/ActiveChain/issues/4).
 - Proof-carrying execution and privacy profiles.
 - Protected ordering and the external compute plane.
 
+## Active milestone — Phase 4 privacy and protected ordering foundations
+
+Tracked by [GitHub issue #18](https://github.com/advatar/ActiveChain/issues/18).
+
+- [x] Implement the first bounded privacy-kernel slice.
+  - [x] Define canonical shielded-note commitments, nullifiers, viewing capabilities, and
+    shielded-transfer public inputs.
+  - [x] Enforce fail-closed admission binding chain, anchor, asset, balance, nullifiers, outputs,
+    fees, expiry, and proof public inputs.
+  - [x] Reject duplicate and previously spent nullifiers with atomic application semantics.
+  - [x] Publish deterministic vectors and unit, property, and malformed-input tests.
+- [x] Add persistent nullifier storage and atomic shield/unshield cash-ledger integration.
+- [x] Add domain pseudonym and private-credential presentation statements.
+- [x] Add private-object transition statements and scoped disclosure semantics.
+- [x] Add protected-envelope, committee, ordering, forced-inclusion, and public-lane isolation.
+  - [x] Define bounded ML-KEM protected-submission and decryption/beacon committee values.
+  - [x] Enforce post-lock commitment-only ordering and forced-inclusion deadlines.
+  - [x] Prove by executable tests that protected-lane failure cannot block public-lane draining.
+  - [x] Integrate threshold decryption shares, builder bids/bonds, networking, and persistence.
+    - [x] Wrap Shamir shares for committee members with real ML-KEM-768 and require the declared
+      threshold to reconstruct and authenticate protected payloads.
+    - [x] Add bounded builder bids, locked bonds, objective settlement, and penalty accounting.
+    - [x] Carry protected submissions, locks, shares, and ordered sets over authenticated peers,
+      with canonical bounds, ML-DSA sender authentication, replay protection, and finalized
+      chain/epoch/set validation.
+    - [x] Persist protected queues, locks, shares, settlements, and replay barriers atomically with
+      canonical cross-state validation and fail-closed restart loading.
+
 ## Active milestone — full PQ migration boundary
 
 Tracked by [GitHub issue #10](https://github.com/advatar/ActiveChain/issues/10).

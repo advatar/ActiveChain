@@ -43,6 +43,7 @@ name = "activechain-cash-kernel"
 version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
+ "activechain-privacy-kernel",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
  "proptest",
@@ -57,6 +58,7 @@ dependencies = [
  "activechain-crypto-provider",
  "activechain-data-availability",
  "activechain-object-vm",
+ "activechain-privacy-kernel",
  "activechain-protocol-types",
  "activechain-wallet-core",
  "ml-dsa",
@@ -142,6 +144,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-privacy-kernel"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-protocol-commitment",
+ "activechain-protocol-types",
+ "proptest",
+]
+
+[[package]]
 name = "activechain-protocol-commitment"
 version = "0.1.0"
 dependencies = [
@@ -205,6 +217,7 @@ dependencies = [
  "activechain-object-vm",
  "activechain-policy-kernel",
  "activechain-principal",
+ "activechain-privacy-kernel",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
  "activechain-state-tree",

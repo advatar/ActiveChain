@@ -18,6 +18,7 @@ activechain-object.workspace = true
 activechain-object-vm.workspace = true
 activechain-policy-kernel.workspace = true
 activechain-principal.workspace = true
+activechain-privacy-kernel.workspace = true
 activechain-protocol-types.workspace = true
 activechain-state-tree.workspace = true
 activechain-transition.workspace = true
