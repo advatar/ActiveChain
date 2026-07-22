@@ -20,9 +20,13 @@ argument connecting every exported `(pre_state, post_state)` tuple to the ordere
 table. Until that connection exists, direct SHAKE recomputation remains authoritative and the
 CashAIR membership gate stays open.
 
-The planned batch uses one Keccak trace and committed preprocessed binding columns. The verifier
+The implemented batch uses one Keccak trace and committed preprocessed binding columns. The verifier
 derives the ordered permutation input/output tuples from the mutation transcripts, constructs the
 same binding table, and verifies its commitment with the STARK. Every first and final round is
 constrained against its assigned slot; power-of-two padding slots are constrained to the zero-state
 permutation. This provides ordered equality directly and avoids relying on a fixed-challenge or
 unimplemented global permutation argument.
+
+`prove_shake256_384_batch` and `verify_shake256_384_batch` expose that ordered table for a bounded
+message sequence. The remaining issue #78 work is to derive that sequence inside the ordered
+mutation-path adapter and bind its resulting roots into the parent CashAIR public inputs.

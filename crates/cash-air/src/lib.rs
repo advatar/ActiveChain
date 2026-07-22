@@ -26,7 +26,8 @@ pub use session::{
     verify_session_budget,
 };
 pub use shake::{
-    MAX_CASH_SHAKE_MESSAGE, Shake256StarkProof, prove_shake256_384, verify_shake256_384,
+    BatchedShake256StarkProof, MAX_CASH_SHAKE_MESSAGE, Shake256StarkProof, prove_shake256_384,
+    prove_shake256_384_batch, verify_shake256_384, verify_shake256_384_batch,
 };
 
 const TRACE_WIDTH: usize = 11;

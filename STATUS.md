@@ -546,7 +546,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
                 chaining, and differential leaf/node/root transcript tests.
               - [ ] Batch path permutations and connect their exported digest tuples to ordered
                 mutation-path rows with a sound cross-table argument.
-                - [ ] Commit one Keccak trace and bind every 24-row slot to its verifier-derived,
+                - [x] Commit one Keccak trace and bind every 24-row slot to its verifier-derived,
                   ordered pre/post state tuple through committed preprocessed columns; bind padded
                   slots to the zero-state permutation and reject tuple/order substitution.
       - [x] Complete bounded-session enforcement and its CashAIR binding
