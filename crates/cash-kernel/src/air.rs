@@ -29,6 +29,25 @@ pub struct CashAirPublicInputs {
     rejected: u16,
 }
 
+impl CashAirPublicInputs {
+    #[must_use]
+    pub const fn pre_cells(&self) -> CoinCellSetRoot {
+        self.pre_cells
+    }
+    #[must_use]
+    pub const fn post_cells(&self) -> CoinCellSetRoot {
+        self.post_cells
+    }
+    #[must_use]
+    pub const fn applied(&self) -> u16 {
+        self.applied
+    }
+    #[must_use]
+    pub const fn rejected(&self) -> u16 {
+        self.rejected
+    }
+}
+
 impl CanonicalEncode for CashAirPublicInputs {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
         self.batch_commitment.encode(e)?;
@@ -81,6 +100,17 @@ pub struct CashAirRow {
     accepted: bool,
 }
 
+impl CashAirRow {
+    #[must_use]
+    pub const fn post_cells(&self) -> CoinCellSetRoot {
+        self.post_cells
+    }
+    #[must_use]
+    pub const fn accepted(&self) -> bool {
+        self.accepted
+    }
+}
+
 impl CanonicalEncode for CashAirRow {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
         self.transfer_index.encode(e)?;
@@ -122,6 +152,11 @@ impl CashAirProof {
     #[must_use]
     pub const fn public(&self) -> &CashAirPublicInputs {
         &self.public
+    }
+
+    #[must_use]
+    pub fn rows(&self) -> &[CashAirRow] {
+        &self.rows
     }
 
     pub fn commitment(&self) -> Result<Digest384, CashAirError> {

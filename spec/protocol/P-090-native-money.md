@@ -98,10 +98,17 @@ including all intermediate roots and outcomes. The expected height and partition
 count are caller-supplied context, so a trace cannot be replayed under another
 execution context. A frozen vector commits the complete proof envelope.
 
-This tranche is a transparent, non-succinct trace verifier and differential
-oracle. It is **not** zero knowledge and does not claim STARK soundness. A later
-proof-system integration may prove the same constraints, but cannot replace the
-direct comparison until equivalent cryptographic and refinement evidence exists.
+The `activechain-cash-air` companion crate proves the first algebraic subset with
+a Winterfell transparent STARK at a minimum 95-bit conjectured security policy:
+row progression, boolean activity/outcomes, one-way padding, accepted/rejected
+counts, failed-row root atomicity, and exact pre/post Coin Cell root binding. The
+STARK verifier and direct-reexecution oracle are independent gates; both must pass.
+
+This tranche is not zero knowledge. It also does not yet arithmetize SHAKE,
+ML-DSA, authenticated membership, successful value/fee transitions, session
+budgets, authenticated partition-root updates, or recursive aggregation. Those
+remain explicit CashAIR completion gates and no proof-finalized throughput claim
+is permitted until they are implemented and benchmarked.
 
 ## Post-quantum boundary
 
