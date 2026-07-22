@@ -68,10 +68,16 @@ impl PartitionedCashPlan {
     /// Stable partition mapping over the first two digest bytes.
     #[must_use]
     pub fn partition_for(&self, id: CoinCellId) -> u16 {
-        let bytes = id.into_digest();
-        let prefix = u16::from_be_bytes([bytes.as_bytes()[0], bytes.as_bytes()[1]]);
-        prefix % self.partitions
+        cash_partition_for(id, self.partitions)
     }
+}
+
+/// Canonical cash-state partition mapping used by planning, authenticated roots, and CashAIR.
+#[must_use]
+pub fn cash_partition_for(id: CoinCellId, partitions: u16) -> u16 {
+    let bytes = id.into_digest();
+    let prefix = u16::from_be_bytes([bytes.as_bytes()[0], bytes.as_bytes()[1]]);
+    prefix % partitions
 }
 
 impl CanonicalEncode for PartitionedCashPlan {
