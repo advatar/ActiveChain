@@ -228,6 +228,83 @@ pub fn authenticated_coin_cell_root(
     Ok(hash_root(cells.as_slice().len(), tree))
 }
 
+pub fn authenticated_coin_cell_leaf_transcript(
+    record: &CoinCellRecord,
+) -> Result<Vec<u8>, CoinCellMutationError> {
+    if !record_has_canonical_id(*record) {
+        return Err(CoinCellMutationError::WrongRecord);
+    }
+    let mut encoder = Encoder::new(CoinCellRecord::MAX_ENCODED_LEN);
+    record.encode(&mut encoder).map_err(|_| CoinCellMutationError::Encoding)?;
+    let bytes = encoder.finish();
+    let mut transcript = transcript_prefix(LEAF_KIND);
+    transcript.extend_from_slice(record.id().into_digest().as_bytes());
+    transcript.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
+    transcript.extend_from_slice(&bytes);
+    Ok(transcript)
+}
+
+#[must_use]
+pub fn authenticated_empty_coin_cell_leaf_transcript() -> Vec<u8> {
+    transcript_prefix(EMPTY_LEAF_KIND)
+}
+
+pub fn authenticated_coin_cell_node_transcript(
+    depth: usize,
+    left: Digest384,
+    right: Digest384,
+) -> Result<Vec<u8>, CoinCellMutationError> {
+    if depth >= AUTHENTICATED_CASH_DEPTH {
+        return Err(CoinCellMutationError::InvalidShape);
+    }
+    let mut transcript = transcript_prefix(NODE_KIND);
+    transcript.extend_from_slice(&(depth as u16).to_be_bytes());
+    transcript.extend_from_slice(left.as_bytes());
+    transcript.extend_from_slice(right.as_bytes());
+    Ok(transcript)
+}
+
+pub fn authenticated_coin_cell_root_transcript(
+    count: usize,
+    tree: Digest384,
+) -> Result<Vec<u8>, CoinCellMutationError> {
+    if count > MAX_COIN_CELLS {
+        return Err(CoinCellMutationError::Capacity);
+    }
+    let mut transcript = transcript_prefix(ROOT_KIND);
+    transcript.extend_from_slice(&(count as u32).to_be_bytes());
+    transcript.extend_from_slice(tree.as_bytes());
+    Ok(transcript)
+}
+
+pub fn authenticated_coin_cell_leaf_hash(
+    record: &CoinCellRecord,
+) -> Result<Digest384, CoinCellMutationError> {
+    authenticated_coin_cell_leaf_transcript(record).map(|transcript| hash_transcript(&transcript))
+}
+
+#[must_use]
+pub fn authenticated_empty_coin_cell_leaf_hash() -> Digest384 {
+    hash_transcript(&authenticated_empty_coin_cell_leaf_transcript())
+}
+
+pub fn authenticated_coin_cell_node_hash(
+    depth: usize,
+    left: Digest384,
+    right: Digest384,
+) -> Result<Digest384, CoinCellMutationError> {
+    authenticated_coin_cell_node_transcript(depth, left, right)
+        .map(|transcript| hash_transcript(&transcript))
+}
+
+pub fn authenticated_coin_cell_count_root_hash(
+    count: usize,
+    tree: Digest384,
+) -> Result<AuthenticatedCoinCellRoot, CoinCellMutationError> {
+    authenticated_coin_cell_root_transcript(count, tree)
+        .map(|transcript| AuthenticatedCoinCellRoot(hash_transcript(&transcript)))
+}
+
 pub fn prove_coin_cell_mutation(
     cells: &CoinCellSet,
     id: CoinCellId,
@@ -489,29 +566,17 @@ fn reconstruct_tree(
 }
 
 fn hash_leaf(record: &CoinCellRecord) -> Result<Digest384, CoinCellMutationError> {
-    let mut encoder = Encoder::new(CoinCellRecord::MAX_ENCODED_LEN);
-    record.encode(&mut encoder).map_err(|_| CoinCellMutationError::Encoding)?;
-    let bytes = encoder.finish();
-    let mut hasher = transcript(LEAF_KIND);
-    hasher.update(record.id().into_digest().as_bytes());
-    hasher.update(&(bytes.len() as u32).to_be_bytes());
-    hasher.update(&bytes);
-    Ok(finish(hasher))
+    authenticated_coin_cell_leaf_hash(record)
 }
 
 fn hash_node(depth: usize, left: Digest384, right: Digest384) -> Digest384 {
-    let mut hasher = transcript(NODE_KIND);
-    hasher.update(&(depth as u16).to_be_bytes());
-    hasher.update(left.as_bytes());
-    hasher.update(right.as_bytes());
-    finish(hasher)
+    authenticated_coin_cell_node_hash(depth, left, right)
+        .expect("internal authenticated cash depth is bounded")
 }
 
 fn hash_root(count: usize, tree: Digest384) -> AuthenticatedCoinCellRoot {
-    let mut hasher = transcript(ROOT_KIND);
-    hasher.update(&(count as u32).to_be_bytes());
-    hasher.update(tree.as_bytes());
-    AuthenticatedCoinCellRoot(finish(hasher))
+    authenticated_coin_cell_count_root_hash(count, tree)
+        .expect("internal authenticated cash count is bounded")
 }
 
 fn empty_hashes() -> [Digest384; AUTHENTICATED_CASH_DEPTH + 1] {
@@ -524,7 +589,7 @@ fn empty_hashes() -> [Digest384; AUTHENTICATED_CASH_DEPTH + 1] {
 }
 
 fn empty_leaf() -> Digest384 {
-    finish(transcript(EMPTY_LEAF_KIND))
+    authenticated_empty_coin_cell_leaf_hash()
 }
 
 fn encode_record_option(
@@ -542,15 +607,17 @@ fn decode_record_option(decoder: &mut Decoder<'_>) -> Result<Option<CoinCellReco
     if bool::decode(decoder)? { Ok(Some(CoinCellRecord::decode(decoder)?)) } else { Ok(None) }
 }
 
-fn transcript(kind: u8) -> Shake256 {
-    let mut hasher = Shake256::default();
-    hasher.update(TRANSCRIPT_PREFIX);
-    hasher.update(&TRANSCRIPT_VERSION.to_be_bytes());
-    hasher.update(&[kind]);
-    hasher
+fn transcript_prefix(kind: u8) -> Vec<u8> {
+    let mut transcript = Vec::with_capacity(TRANSCRIPT_PREFIX.len() + 3);
+    transcript.extend_from_slice(TRANSCRIPT_PREFIX);
+    transcript.extend_from_slice(&TRANSCRIPT_VERSION.to_be_bytes());
+    transcript.push(kind);
+    transcript
 }
 
-fn finish(hasher: Shake256) -> Digest384 {
+fn hash_transcript(transcript: &[u8]) -> Digest384 {
+    let mut hasher = Shake256::default();
+    hasher.update(transcript);
     let mut output = [0_u8; DIGEST_LENGTH];
     hasher.finalize_xof().read(&mut output);
     Digest384::new(output)

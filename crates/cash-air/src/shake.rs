@@ -189,6 +189,13 @@ fn squeeze_384(state: &[u64; STATE_LANES]) -> [u8; 48] {
 
 #[cfg(test)]
 mod tests {
+    use activechain_cash_kernel::{
+        CashLedger, GenesisAllocation, GenesisEconomy, NativeAssetDefinition,
+        authenticated_coin_cell_count_root_hash, authenticated_coin_cell_leaf_hash,
+        authenticated_coin_cell_leaf_transcript, authenticated_coin_cell_node_hash,
+        authenticated_coin_cell_node_transcript, authenticated_coin_cell_root_transcript,
+    };
+    use activechain_protocol_types::{ChainId, Digest384, PrincipalId};
     use sha3::{
         Shake256,
         digest::{ExtendableOutput, Update, XofReader},
@@ -202,6 +209,31 @@ mod tests {
         let mut output = [0_u8; 48];
         hasher.finalize_xof().read(&mut output);
         output
+    }
+
+    fn digest(byte: u8) -> Digest384 {
+        Digest384::new([byte; 48])
+    }
+
+    fn cash_record() -> activechain_cash_kernel::CoinCellRecord {
+        let definition = NativeAssetDefinition::new(
+            ChainId::new(digest(1)),
+            b"ACT".to_vec(),
+            18,
+            100,
+            150,
+            digest(2),
+            digest(3),
+            digest(4),
+        )
+        .unwrap();
+        let economy = GenesisEconomy::new(
+            definition,
+            vec![GenesisAllocation::new(PrincipalId::new(digest(5)), 100, 0).unwrap()],
+            0,
+        )
+        .unwrap();
+        CashLedger::from_genesis(&economy).unwrap().cells().as_slice()[0]
     }
 
     #[test]
@@ -235,6 +267,34 @@ mod tests {
         let mut substituted = message;
         substituted[RATE_BYTES] ^= 1;
         assert!(verify_shake256_384(&proof, &substituted, expected).is_err());
+    }
+
+    #[test]
+    fn authenticated_cash_leaf_and_node_transcripts_match_specialized_shake_air() {
+        let record = cash_record();
+        let leaf_transcript = authenticated_coin_cell_leaf_transcript(&record).unwrap();
+        let leaf_digest = authenticated_coin_cell_leaf_hash(&record).unwrap().into_bytes();
+        let leaf_proof = prove_shake256_384(&leaf_transcript).unwrap();
+        verify_shake256_384(&leaf_proof, &leaf_transcript, leaf_digest).unwrap();
+
+        let sibling = Digest384::new([0x5a; 48]);
+        let node_transcript =
+            authenticated_coin_cell_node_transcript(383, Digest384::new(leaf_digest), sibling)
+                .unwrap();
+        let node_digest =
+            authenticated_coin_cell_node_hash(383, Digest384::new(leaf_digest), sibling)
+                .unwrap()
+                .into_bytes();
+        let node_proof = prove_shake256_384(&node_transcript).unwrap();
+        verify_shake256_384(&node_proof, &node_transcript, node_digest).unwrap();
+        assert_eq!(node_proof.permutation_count(), 2);
+
+        let tree = Digest384::new(node_digest);
+        let root_transcript = authenticated_coin_cell_root_transcript(1, tree).unwrap();
+        let root_digest =
+            authenticated_coin_cell_count_root_hash(1, tree).unwrap().into_digest().into_bytes();
+        let root_proof = prove_shake256_384(&root_transcript).unwrap();
+        verify_shake256_384(&root_proof, &root_transcript, root_digest).unwrap();
     }
 
     #[test]
