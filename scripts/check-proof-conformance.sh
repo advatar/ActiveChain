@@ -5,6 +5,8 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 matrix="$root/testing/proof-conformance-v1.tsv"
 manifest="$root/testing/vectors/manifest-v1.json"
 
+python3 "$root/scripts/check-proof-scopes.py"
+
 python3 - "$root" "$matrix" "$manifest" <<'PY'
 import csv, hashlib, json, pathlib, sys
 

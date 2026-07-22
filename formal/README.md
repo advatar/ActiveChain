@@ -3,6 +3,10 @@
 Formal verification is a launch gate. These artifacts are scoped models with explicit assumptions;
 they are not a certificate that the complete implementation is correct.
 
+The canonical publication index is `proof-scope-index-v1.tsv`. Its CI audit requires every
+conformance domain to name a scope, assumptions, an unverified boundary, and a counterexample
+policy, and requires every explicitly unproved Tamarin target to remain discoverable.
+
 ## Tooling
 
 - Lean 4 models executable semantics and algebraic invariants.

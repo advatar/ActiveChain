@@ -1,0 +1,28 @@
+domain	scope	assumptions	boundary	counterexample_policy
+apl	formal/APL_REFINEMENT_PROOF_SCOPE.md	Lean semantics and production predicate mapping	compiler correspondence	retain-minimize-fix-claim
+authorization	formal/AUTHORIZATION_CHAIN_PROOF_SCOPE.md	authenticated finalized inputs	external finality provenance	retain-minimize-fix-claim
+block-composition	formal/BLOCK_COMPOSITION_PROOF_SCOPE.md	proof verifier soundness	prover and DA availability	retain-minimize-fix-claim
+cash	formal/CASH_AUTHORIZATION_PROOF_SCOPE.md	finalized authority evidence	external finality refinement	retain-minimize-fix-claim
+cash-authorization	formal/CASH_AUTHORIZATION_PROOF_SCOPE.md	ML-DSA authenticity	cryptographic internals	retain-minimize-fix-claim
+consensus-auth	formal/CONSENSUS_PROOF_SCOPE.md	Dolev-Yao perfect cryptography	conflicting-QC composition target	timeout-explicit-unproved
+consensus-safety	formal/CONSENSUS_TLA_PROOF_SCOPE.md	bounded validators and views	unbounded refinement	retain-minimize-fix-claim
+credential	formal/TRACE_CONFORMANCE_SCOPE.md	preverified issuer and status evidence	issuer and registry provenance	retain-minimize-fix-claim
+data-availability	formal/DA_PROOF_SCOPE.md	honest shard threshold	production state-machine refinement	retain-minimize-fix-claim
+envelope	formal/ENVELOPE_PROOF_SCOPE.md	canonical primitive semantics	foreign memory and compiler correspondence	retain-minimize-fix-claim
+epoch-upgrade	formal/EPOCH_UPGRADE_PROOF_SCOPE.md	finalized upgrade authorization	trace refinement only	retain-minimize-fix-claim
+identity	formal/IDENTITY_PROOF_SCOPE.md	authenticated controller evidence	upstream signature provenance	retain-minimize-fix-claim
+kani-codec	formal/KANI_CODEC_PROOF_SCOPE.md	finite unwind and allocation success	larger arbitrary schemas	retain-minimize-fix-claim
+kani-ffi	formal/KANI_VERIFIER_FFI_PROOF_SCOPE.md	readable foreign memory	arbitrary pointer validity	retain-minimize-fix-claim
+kani-object-vm	formal/KANI_OBJECT_VM_PROOF_SCOPE.md	bounded helper composition	whole interpreter timeout	timeout-explicit-unproved
+kani-protocol	formal/KANI_PROTOCOL_TYPES_PROOF_SCOPE.md	fixed digest contents	cryptographic and filesystem internals	retain-minimize-fix-claim
+nonce	formal/TRACE_CONFORMANCE_SCOPE.md	finite model table	compiler correspondence	retain-minimize-fix-claim
+object	formal/TRACE_CONFORMANCE_SCOPE.md	frozen transition table	unbounded refinement	retain-minimize-fix-claim
+object-vm	formal/KANI_OBJECT_VM_PROOF_SCOPE.md	verified bytecode admission	whole-run composition	timeout-explicit-unproved
+pq-session	formal/PQ_SESSION_PROOF_SCOPE.md	Dolev-Yao cryptography	KDF and primitive internals	retain-minimize-fix-claim
+pq-zk	formal/TRACE_CONFORMANCE_SCOPE.md	proof-system soundness	guest compiler and cryptographic soundness	external-assumption
+proof-pipeline	formal/PROOF_PIPELINE_TLA_PROOF_SCOPE.md	proof-system soundness	crash liveness and Rust refinement	external-assumption
+reconfiguration-liveness	formal/RECONFIGURATION_LIVENESS_TLA_PROOF_SCOPE.md	fair delivery and honest leader	real network scheduler	external-assumption
+state-tree	formal/STATE_TREE_REFINEMENT_PROOF_SCOPE.md	SHAKE256 collision resistance	compiler correspondence	retain-minimize-fix-claim
+verified-arithmetic	formal/VERUS_ARITHMETIC_PROOF_SCOPE.md	Verus toolchain soundness	Rust-Verus compiler correspondence	retain-minimize-fix-claim
+wallet	formal/WALLET_PROOF_SCOPE.md	trusted user approval event	mobile secure storage	retain-minimize-fix-claim
+weighted-consensus	formal/WEIGHTED_CONSENSUS_PROOF_SCOPE.md	less than one-third Byzantine stake	vote-lock refinement	retain-minimize-fix-claim
