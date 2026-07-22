@@ -7,6 +7,7 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
 
+mod admission;
 mod authority;
 mod checked_arithmetic;
 mod consensus;
@@ -17,6 +18,7 @@ mod migration;
 mod object;
 mod package;
 
+pub use admission::{exact_frame_layout, fresh_sequence, length_prefixed_range};
 pub use authority::{
     BoundedActionSet, BoundedActionSetError, CapabilityGrant, CapabilityGrantFields,
     CapabilityValidationError, DataSelector, HolderBinding, RateLimit, RateLimitError,

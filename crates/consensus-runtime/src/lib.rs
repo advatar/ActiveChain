@@ -362,11 +362,15 @@ fn take_length_prefixed<'a>(bytes: &mut &'a [u8]) -> Result<&'a [u8], TransportE
         return Err(TransportError::InvalidBody);
     }
     let length = u32::from_be_bytes(bytes[..4].try_into().unwrap()) as usize;
-    if length > MAX_PEER_FRAME_LEN || bytes.len() < 4 + length {
-        return Err(TransportError::InvalidBody);
-    }
-    let value = &bytes[4..4 + length];
-    *bytes = &bytes[4 + length..];
+    let (_, end) = activechain_protocol_types::length_prefixed_range(
+        bytes.len(),
+        4,
+        length,
+        MAX_PEER_FRAME_LEN,
+    )
+    .ok_or(TransportError::InvalidBody)?;
+    let value = &bytes[4..end];
+    *bytes = &bytes[end..];
     Ok(value)
 }
 
@@ -1112,6 +1116,60 @@ fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
     Ok(())
 }
 
+const DURABLE_BLOB_MAGIC: [u8; 4] = *b"ACDS";
+const DURABLE_BLOB_VERSION: u16 = 1;
+const DURABLE_BLOB_HEADER_LEN: usize = 4 + 2 + 4 + 48;
+const MAX_DURABLE_BLOB_LEN: usize = 16 * 1024 * 1024;
+
+fn durable_checksum(payload: &[u8]) -> [u8; 48] {
+    let mut hasher = Shake256::default();
+    hasher.update(b"ACTIVECHAIN-DURABLE-SNAPSHOT-V1");
+    hasher.update(&(payload.len() as u64).to_be_bytes());
+    hasher.update(payload);
+    let mut checksum = [0_u8; 48];
+    hasher.finalize_xof().read(&mut checksum);
+    checksum
+}
+
+fn encode_durable_blob(payload: &[u8]) -> std::io::Result<Vec<u8>> {
+    let length = u32::try_from(payload.len()).map_err(|_| invalid_data("snapshot too large"))?;
+    if payload.len() > MAX_DURABLE_BLOB_LEN {
+        return Err(invalid_data("snapshot too large"));
+    }
+    let mut blob = Vec::with_capacity(DURABLE_BLOB_HEADER_LEN + payload.len());
+    blob.extend_from_slice(&DURABLE_BLOB_MAGIC);
+    blob.extend_from_slice(&DURABLE_BLOB_VERSION.to_be_bytes());
+    blob.extend_from_slice(&length.to_be_bytes());
+    blob.extend_from_slice(&durable_checksum(payload));
+    blob.extend_from_slice(payload);
+    Ok(blob)
+}
+
+fn decode_durable_blob(blob: &[u8]) -> std::io::Result<&[u8]> {
+    if blob.len() < DURABLE_BLOB_HEADER_LEN
+        || blob[..4] != DURABLE_BLOB_MAGIC
+        || u16::from_be_bytes(blob[4..6].try_into().unwrap()) != DURABLE_BLOB_VERSION
+    {
+        return Err(invalid_data("invalid durable snapshot header"));
+    }
+    let length = u32::from_be_bytes(blob[6..10].try_into().unwrap()) as usize;
+    let (_, end) = activechain_protocol_types::length_prefixed_range(
+        blob.len(),
+        DURABLE_BLOB_HEADER_LEN,
+        length,
+        MAX_DURABLE_BLOB_LEN,
+    )
+    .ok_or_else(|| invalid_data("invalid durable snapshot length"))?;
+    if end != blob.len() {
+        return Err(invalid_data("trailing durable snapshot bytes"));
+    }
+    let payload = &blob[DURABLE_BLOB_HEADER_LEN..end];
+    if blob[10..DURABLE_BLOB_HEADER_LEN] != durable_checksum(payload) {
+        return Err(invalid_data("durable snapshot checksum mismatch"));
+    }
+    Ok(payload)
+}
+
 /// Atomically publishes a complete protected-ordering snapshot.
 pub fn save_protected_snapshot(
     path: &std::path::Path,
@@ -1119,13 +1177,14 @@ pub fn save_protected_snapshot(
 ) -> std::io::Result<()> {
     let bytes =
         encode_envelope(state).map_err(|_| invalid_data("protected snapshot encoding failed"))?;
-    write_atomic(path, &bytes)
+    write_atomic(path, &encode_durable_blob(&bytes)?)
 }
 
 /// Loads a protected snapshot, rejecting corruption, truncation, and non-canonical state.
 pub fn load_protected_snapshot(path: &std::path::Path) -> std::io::Result<ProtectedStateSnapshot> {
     let bytes = std::fs::read(path)?;
-    decode_envelope(&bytes).map_err(|_| invalid_data("protected snapshot decoding failed"))
+    let payload = decode_durable_blob(&bytes)?;
+    decode_envelope(payload).map_err(|_| invalid_data("protected snapshot decoding failed"))
 }
 
 fn save_validator_snapshot(
@@ -1270,7 +1329,7 @@ impl PeerSocket {
         let sequence = u64::from_be_bytes(frame[2..10].try_into().unwrap());
         let body_digest = Digest384::new(frame[10..58].try_into().unwrap());
         let signature_len = u16::from_be_bytes([frame[58], frame[59]]) as usize;
-        if frame.len() != 60 + signature_len {
+        if !activechain_protocol_types::exact_frame_layout(frame.len(), 60, signature_len, 0, 0) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "peer signature length mismatch",
@@ -1327,7 +1386,13 @@ impl PeerSocket {
         }
         let body_len =
             u32::from_be_bytes(frame[kind_offset + 1..body_offset].try_into().unwrap()) as usize;
-        if frame.len() != body_offset + body_len {
+        if !activechain_protocol_types::exact_frame_layout(
+            frame.len(),
+            60,
+            signature_len,
+            5,
+            body_len,
+        ) {
             return Err(invalid_data("consensus body length mismatch"));
         }
         let signature =
@@ -1398,11 +1463,10 @@ impl ReplayGuard {
         public_key: &[u8],
     ) -> Result<(), TransportError> {
         envelope.verify(public_key)?;
-        if self
-            .highest
-            .get(&envelope.sender())
-            .is_some_and(|highest| envelope.sequence() <= *highest)
-        {
+        if !activechain_protocol_types::fresh_sequence(
+            self.highest.get(&envelope.sender()).copied(),
+            envelope.sequence(),
+        ) {
             return Err(TransportError::Replay);
         }
         self.highest.insert(envelope.sender(), envelope.sequence());
@@ -4263,6 +4327,22 @@ mod tests {
 
         let original = std::fs::read(&path).unwrap();
         std::fs::write(&path, &original[..original.len() - 1]).unwrap();
+        assert_eq!(
+            load_protected_snapshot(&path).unwrap_err().kind(),
+            std::io::ErrorKind::InvalidData
+        );
+        std::fs::write(&path, &original).unwrap();
+
+        let mut corrupted = original.clone();
+        *corrupted.last_mut().unwrap() ^= 1;
+        std::fs::write(&path, &corrupted).unwrap();
+        assert_eq!(
+            load_protected_snapshot(&path).unwrap_err().kind(),
+            std::io::ErrorKind::InvalidData
+        );
+        let mut trailing = original.clone();
+        trailing.push(0);
+        std::fs::write(&path, &trailing).unwrap();
         assert_eq!(
             load_protected_snapshot(&path).unwrap_err().kind(),
             std::io::ErrorKind::InvalidData
