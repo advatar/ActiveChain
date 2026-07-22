@@ -47,21 +47,21 @@ impl WalletTransactionGateway {
         &mut self,
         envelope: &[u8],
         height: u64,
+        snapshot_path: &std::path::Path,
     ) -> Result<(), activechain_wallet_core::WalletError> {
-        self.ingress.submit_envelope(envelope, height)
+        self.ingress.submit_envelope_durable(envelope, height, snapshot_path)
     }
 
-    /// Registers one sender's finalized ML-DSA-44 cash-session key and initial nonce.
-    ///
-    /// The caller is responsible for deriving this mapping from finalized identity and
-    /// authorization state; the gateway never accepts a key from a transaction request.
-    pub fn register_authorization_key(
+    /// Installs one sender's finalized ML-DSA-44 cash-session key and provenance.
+    pub fn install_finalized_authorization_key<
+        V: activechain_wallet_core::FinalizedIdentityKeyVerifier,
+    >(
         &mut self,
-        sender: PrincipalId,
-        public_key: [u8; activechain_protocol_types::ML_DSA44_PUBLIC_KEY_LENGTH],
+        proof: &activechain_wallet_core::FinalizedIdentityKeyProof,
         initial_nonce: u64,
+        verifier: &V,
     ) -> Result<(), activechain_wallet_core::WalletError> {
-        self.ingress.register_authorization_key(sender, public_key, initial_nonce)
+        self.ingress.install_finalized_authorization_key(proof, initial_nonce, verifier)
     }
 
     pub fn ledger(&self) -> &activechain_cash_kernel::CashLedger {
@@ -2633,13 +2633,48 @@ mod tests {
         .unwrap();
         let mut gateway = WalletTransactionGateway::from_genesis(&economy).unwrap();
         let cash_key = SigningKey::<MlDsa44>::from_seed(&Seed::from([91; 32]));
-        gateway
-            .register_authorization_key(
-                owner,
-                cash_key.verifying_key().encode().as_slice().try_into().unwrap(),
-                0,
-            )
-            .unwrap();
+        let authenticator = activechain_protocol_types::AuthenticatorDescriptor::new(
+            activechain_protocol_types::AuthenticatorId::new(digest(90)),
+            CryptoSuiteId::ML_DSA_44,
+            cash_key.verifying_key().encode().as_slice().to_vec(),
+            activechain_protocol_types::AuthenticatorPurpose::Session,
+            1,
+            None,
+            None,
+        )
+        .unwrap();
+        let principal = activechain_protocol_types::Principal::new(
+            owner,
+            activechain_protocol_types::PrincipalKind::Human,
+            digest(91),
+            digest(92),
+            activechain_wallet_core::authenticator_set_root(core::slice::from_ref(&authenticator))
+                .unwrap(),
+            0,
+            activechain_protocol_types::FreezeState::Active,
+            digest(93),
+            1,
+            1,
+            1,
+        )
+        .unwrap();
+        let identity_proof = activechain_wallet_core::FinalizedIdentityKeyProof::new(
+            principal,
+            authenticator,
+            digest(94),
+            1,
+            digest(95),
+        );
+        struct Finality;
+        impl activechain_wallet_core::FinalizedIdentityKeyVerifier for Finality {
+            fn verify_finalized_identity_key(
+                &self,
+                _proof: &activechain_wallet_core::FinalizedIdentityKeyProof,
+            ) -> bool {
+                true
+            }
+        }
+        gateway.install_finalized_authorization_key(&identity_proof, 0, &Finality).unwrap();
         let cells = gateway.ledger().cells().as_slice();
         let transfer = CoinTransfer::new(
             owner,
@@ -2671,8 +2706,12 @@ mod tests {
         )
         .unwrap();
         let envelope = encode_envelope(&authorized).unwrap();
-        gateway.submit_envelope(&envelope, 1).unwrap();
-        assert!(gateway.submit_envelope(&envelope, 1).is_err());
+        let path = std::env::temp_dir()
+            .join(format!("activechain-wallet-gateway-{}.bin", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        gateway.submit_envelope(&envelope, 1, &path).unwrap();
+        assert!(gateway.submit_envelope(&envelope, 1, &path).is_err());
+        std::fs::remove_file(path).unwrap();
     }
     #[test]
     fn runtime_rejects_without_verified_votes() {

@@ -6,9 +6,13 @@
 extern crate alloc;
 
 mod cash_authorization;
+mod cash_persistence;
 
 pub use cash_authorization::{
     AuthorizedCashTransferV1, CashAuthorizationRequestV1, recipient_commitment,
+};
+pub use cash_persistence::{
+    FinalizedIdentityKeyProof, FinalizedIdentityKeyVerifier, authenticator_set_root,
 };
 
 use activechain_canonical_codec::decode_envelope;
@@ -16,7 +20,8 @@ use activechain_cash_kernel::{CashLedger, CashTransitionError, GenesisEconomy};
 use activechain_cash_kernel::{CoinCellRecord, CoinTransfer, FeeQuote};
 use activechain_protocol_commitment::cash_transition_id;
 use activechain_protocol_types::{
-    ChainId, CoinCellId, Digest384, ML_DSA44_PUBLIC_KEY_LENGTH, PrincipalId, TransactionId,
+    AuthenticatorId, ChainId, CoinCellId, Digest384, ML_DSA44_PUBLIC_KEY_LENGTH, PrincipalId,
+    TransactionId,
 };
 use alloc::vec::Vec;
 use std::io::{Read, Write};
@@ -195,6 +200,10 @@ pub enum WalletError {
     UnknownAuthorizationKey,
     InvalidAuthorizationKey,
     InvalidSignature,
+    InvalidIdentityProof,
+    StaleIdentityProof,
+    StateLimit,
+    Persistence,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -203,6 +212,11 @@ struct CashAuthorizationLane {
     public_key: [u8; ML_DSA44_PUBLIC_KEY_LENGTH],
     next_nonce: u64,
     consumed_sessions: Vec<Digest384>,
+    identity_sequence: u64,
+    authenticator_id: AuthenticatorId,
+    finalized_state_root: Digest384,
+    finalized_height: u64,
+    finality_proof: Digest384,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -276,19 +290,40 @@ impl TransactionIngress {
         })
     }
 
-    /// Installs the finalized identity key for one sender-local nonce lane.
-    ///
-    /// A sender can be registered only once. Key rotation must be represented by a future
-    /// finalized identity transition rather than silently replacing this admission key.
-    pub fn register_authorization_key(
+    /// Installs or rotates a cash key only after verifying finalized identity provenance.
+    pub fn install_finalized_authorization_key<V: FinalizedIdentityKeyVerifier>(
         &mut self,
-        sender: PrincipalId,
-        public_key: [u8; ML_DSA44_PUBLIC_KEY_LENGTH],
+        proof: &FinalizedIdentityKeyProof,
         initial_nonce: u64,
+        verifier: &V,
     ) -> Result<(), WalletError> {
+        proof.validate(verifier)?;
+        let sender = proof.principal().principal_id();
+        let public_key: [u8; ML_DSA44_PUBLIC_KEY_LENGTH] = proof
+            .authenticator()
+            .verification_key()
+            .try_into()
+            .map_err(|_| WalletError::InvalidAuthorizationKey)?;
         match self.authorization_lanes.binary_search_by_key(&sender, |lane| lane.sender) {
-            Ok(_) => Err(WalletError::AuthorizationKeyExists),
+            Ok(position) => {
+                let lane = &mut self.authorization_lanes[position];
+                if proof.principal().sequence() <= lane.identity_sequence
+                    || proof.finalized_height() < lane.finalized_height
+                {
+                    return Err(WalletError::StaleIdentityProof);
+                }
+                lane.public_key = public_key;
+                lane.identity_sequence = proof.principal().sequence();
+                lane.authenticator_id = proof.authenticator().authenticator_id();
+                lane.finalized_state_root = proof.finalized_state_root();
+                lane.finalized_height = proof.finalized_height();
+                lane.finality_proof = proof.finality_proof();
+                Ok(())
+            }
             Err(position) => {
+                if self.authorization_lanes.len() == cash_persistence::MAX_AUTHORIZATION_LANES {
+                    return Err(WalletError::StateLimit);
+                }
                 self.authorization_lanes.insert(
                     position,
                     CashAuthorizationLane {
@@ -296,6 +331,11 @@ impl TransactionIngress {
                         public_key,
                         next_nonce: initial_nonce,
                         consumed_sessions: Vec::new(),
+                        identity_sequence: proof.principal().sequence(),
+                        authenticator_id: proof.authenticator().authenticator_id(),
+                        finalized_state_root: proof.finalized_state_root(),
+                        finalized_height: proof.finalized_height(),
+                        finality_proof: proof.finality_proof(),
                     },
                 );
                 Ok(())
@@ -334,6 +374,12 @@ impl TransactionIngress {
         if lane.consumed_sessions.contains(&request.session_id()) {
             return Err(WalletError::SessionReplay);
         }
+        if lane.consumed_sessions.len() == cash_persistence::MAX_CONSUMED_SESSIONS_PER_LANE
+            || self.consumed_inputs.len().saturating_add(transfer.inputs().len() + 1)
+                > cash_persistence::MAX_CONSUMED_INPUTS
+        {
+            return Err(WalletError::StateLimit);
+        }
         if transfer
             .inputs()
             .iter()
@@ -352,8 +398,10 @@ impl TransactionIngress {
         let lane = &mut next.authorization_lanes[lane_index];
         lane.next_nonce = next_nonce;
         lane.consumed_sessions.push(request.session_id());
+        lane.consumed_sessions.sort_unstable();
         next.consumed_inputs.extend_from_slice(transfer.inputs());
         next.consumed_inputs.push(transfer.fee_reserve());
+        next.consumed_inputs.sort_unstable();
         *self = next;
         Ok(())
     }
@@ -377,8 +425,13 @@ impl TransactionIngress {
         if self.non_authoritative_accepted.contains(&id) {
             return Err(WalletError::Replay);
         }
+        if self.non_authoritative_accepted.len() == cash_persistence::MAX_NON_AUTHORITATIVE_ACCEPTED
+        {
+            return Err(WalletError::StateLimit);
+        }
         self.ledger.apply_transfer(transfer, height).map_err(|_| WalletError::InsufficientFunds)?;
         self.non_authoritative_accepted.push(id);
+        self.non_authoritative_accepted.sort_unstable();
         Ok(())
     }
 
@@ -401,7 +454,12 @@ impl TransactionIngress {
         )
     }
 
-    pub fn serve_once(&mut self, listener: &TcpListener, height: u64) -> Result<(), IngressError> {
+    pub fn serve_once(
+        &mut self,
+        listener: &TcpListener,
+        height: u64,
+        snapshot_path: &std::path::Path,
+    ) -> Result<(), IngressError> {
         let (mut stream, _) = listener.accept().map_err(|_| IngressError::Io)?;
         let mut header = [0_u8; 4];
         stream.read_exact(&mut header).map_err(|_| IngressError::Io)?;
@@ -411,7 +469,9 @@ impl TransactionIngress {
         }
         let mut frame = alloc::vec![0_u8; length];
         stream.read_exact(&mut frame).map_err(|_| IngressError::Io)?;
-        let result = self.submit_envelope(&frame, height).map_err(|_| IngressError::Rejected);
+        let result = self
+            .submit_envelope_durable(&frame, height, snapshot_path)
+            .map_err(|_| IngressError::Rejected);
         let response = if result.is_ok() { [1_u8, 0, 0, 0] } else { [0_u8, 0, 0, 1] };
         stream.write_all(&response).map_err(|_| IngressError::Io)?;
         result
@@ -606,7 +666,10 @@ mod tests {
     use activechain_cash_kernel::{
         CoinCell, CoinCellOrigin, GenesisAllocation, NativeAssetDefinition,
     };
-    use activechain_protocol_types::{CryptoSuiteId, ProtocolSignature, TransactionId};
+    use activechain_protocol_types::{
+        AuthenticatorDescriptor, AuthenticatorId, AuthenticatorPurpose, CryptoSuiteId, FreezeState,
+        Principal, PrincipalKind, ProtocolSignature, TransactionId,
+    };
     use alloc::vec;
     use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
 
@@ -660,9 +723,8 @@ mod tests {
         let key = SigningKey::<MlDsa44>::from_seed(&Seed::from([key_seed; 32]));
         let economy = test_economy(owner);
         let mut ingress = TransactionIngress::from_genesis(&economy).unwrap();
-        let public_key: [u8; ML_DSA44_PUBLIC_KEY_LENGTH] =
-            key.verifying_key().encode().as_slice().try_into().unwrap();
-        ingress.register_authorization_key(owner, public_key, 0).unwrap();
+        let proof = identity_key_proof(owner, &key, 0, 1, 30);
+        ingress.install_finalized_authorization_key(&proof, 0, &AcceptFinality).unwrap();
         let input = ingress
             .ledger()
             .cells()
@@ -680,6 +742,53 @@ mod tests {
             .unwrap()
             .id();
         (ingress, key, owner, input, reserve)
+    }
+
+    fn identity_key_proof(
+        owner: PrincipalId,
+        key: &SigningKey<MlDsa44>,
+        sequence: u64,
+        finalized_height: u64,
+        authenticator_byte: u8,
+    ) -> FinalizedIdentityKeyProof {
+        let authenticator = AuthenticatorDescriptor::new(
+            AuthenticatorId::new(digest(authenticator_byte)),
+            CryptoSuiteId::ML_DSA_44,
+            key.verifying_key().encode().as_slice().to_vec(),
+            AuthenticatorPurpose::Session,
+            1,
+            None,
+            None,
+        )
+        .unwrap();
+        let identity = Principal::new(
+            owner,
+            PrincipalKind::Human,
+            digest(31),
+            digest(32),
+            authenticator_set_root(core::slice::from_ref(&authenticator)).unwrap(),
+            sequence,
+            FreezeState::Active,
+            digest(33),
+            1,
+            1,
+            finalized_height,
+        )
+        .unwrap();
+        FinalizedIdentityKeyProof::new(
+            identity,
+            authenticator,
+            digest(34),
+            finalized_height,
+            digest(35),
+        )
+    }
+
+    struct AcceptFinality;
+    impl FinalizedIdentityKeyVerifier for AcceptFinality {
+        fn verify_finalized_identity_key(&self, _proof: &FinalizedIdentityKeyProof) -> bool {
+            true
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1006,5 +1115,90 @@ mod tests {
         ingress.submit_authorized(&affordable, 5).unwrap();
         assert_eq!(ingress.next_nonce(owner), Some(1));
         assert!(ingress.session_consumed(owner, session));
+    }
+
+    #[test]
+    fn cash_keys_require_finality_and_rotate_only_from_newer_identity_state() {
+        struct RejectFinality;
+        impl FinalizedIdentityKeyVerifier for RejectFinality {
+            fn verify_finalized_identity_key(&self, _proof: &FinalizedIdentityKeyProof) -> bool {
+                false
+            }
+        }
+
+        let owner = principal(10);
+        let first = SigningKey::<MlDsa44>::from_seed(&Seed::from([41; 32]));
+        let replacement = SigningKey::<MlDsa44>::from_seed(&Seed::from([42; 32]));
+        let mut ingress = TransactionIngress::from_genesis(&test_economy(owner)).unwrap();
+        let initial = identity_key_proof(owner, &first, 0, 1, 40);
+        assert_eq!(
+            ingress.install_finalized_authorization_key(&initial, 0, &RejectFinality),
+            Err(WalletError::InvalidIdentityProof)
+        );
+        ingress.install_finalized_authorization_key(&initial, 0, &AcceptFinality).unwrap();
+        assert_eq!(
+            ingress.install_finalized_authorization_key(&initial, 0, &AcceptFinality),
+            Err(WalletError::StaleIdentityProof)
+        );
+        let rotated = identity_key_proof(owner, &replacement, 1, 2, 41);
+        ingress.install_finalized_authorization_key(&rotated, 99, &AcceptFinality).unwrap();
+        assert_eq!(ingress.next_nonce(owner), Some(0), "rotation preserves the cash nonce lane");
+    }
+
+    #[test]
+    fn durable_cash_admission_survives_restart_and_rejects_corruption_and_replay() {
+        let (mut ingress, key, owner, input, reserve) = setup_authorized_ingress(43);
+        let session = digest(44);
+        let signed = sign_cash_request(
+            cash_request(ChainId::new(digest(1)), owner, 0, session, 15, input, reserve, 10),
+            &key,
+        );
+        let envelope = encode_envelope(&signed).unwrap();
+        let path = std::env::temp_dir()
+            .join(format!("activechain-cash-ingress-{}.bin", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        ingress.submit_envelope_durable(&envelope, 5, &path).unwrap();
+
+        let mut restored = TransactionIngress::load(&path, ChainId::new(digest(1))).unwrap();
+        assert_eq!(restored.next_nonce(owner), Some(1));
+        assert!(restored.session_consumed(owner, session));
+        assert_eq!(restored.ledger(), ingress.ledger());
+        assert_eq!(restored.submit_envelope(&envelope, 5), Err(WalletError::InvalidNonce));
+        assert_eq!(
+            TransactionIngress::load(&path, ChainId::new(digest(99))),
+            Err(WalletError::WrongChain)
+        );
+
+        let mut corrupted = std::fs::read(&path).unwrap();
+        let last = corrupted.len() - 1;
+        corrupted[last] ^= 1;
+        std::fs::write(&path, corrupted).unwrap();
+        assert_eq!(
+            TransactionIngress::load(&path, ChainId::new(digest(1))),
+            Err(WalletError::Persistence)
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn failed_cash_snapshot_publish_exposes_no_ledger_or_replay_mutation() {
+        let (mut ingress, key, owner, input, reserve) = setup_authorized_ingress(45);
+        let session = digest(46);
+        let signed = sign_cash_request(
+            cash_request(ChainId::new(digest(1)), owner, 0, session, 15, input, reserve, 10),
+            &key,
+        );
+        let envelope = encode_envelope(&signed).unwrap();
+        let directory = std::env::temp_dir()
+            .join(format!("activechain-cash-publish-failure-{}", std::process::id()));
+        let _ = std::fs::remove_dir(&directory);
+        std::fs::create_dir(&directory).unwrap();
+        assert_eq!(
+            ingress.submit_envelope_durable(&envelope, 5, &directory),
+            Err(WalletError::Persistence)
+        );
+        assert_eq!(ingress.next_nonce(owner), Some(0));
+        assert!(!ingress.session_consumed(owner, session));
+        std::fs::remove_dir(directory).unwrap();
     }
 }

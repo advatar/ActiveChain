@@ -53,9 +53,13 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
     atomic replay barriers in Lean.
   - [x] Replace authoritative bare-transfer ingress with a strict ML-DSA-44 envelope bound to the
     chain, sender, exact transfer, recipient, nonce, session, expiry, and consumed inputs.
-  - [ ] Derive authorization keys from finalized identity state and persist the cash ledger, nonce,
+  - [x] Derive authorization keys from finalized identity state and persist the cash ledger, nonce,
     session, and input-replay barriers in one crash-atomic state transition. The unkeyed legacy
     `PaymentSession` remains a local compatibility helper and is not accepted by network ingress.
+    - [x] Require verified finalized principal/authenticator provenance for authoritative cash keys ([#29](https://github.com/advatar/ActiveChain/issues/29)).
+    - [x] Canonically snapshot the ledger, key provenance, nonces, sessions, and input barriers.
+    - [x] Persist successful authoritative admission atomically before acknowledgement and fail closed on corrupt state.
+    - [x] Test rotation/provenance rejection, restart replay safety, corruption, and failed-write atomicity.
 - [x] Prove DA reconstruction bounds and fail-closed light-client trust transitions in Lean.
 - [x] Prove canonical envelope rejection, commitment binding, and FFI precondition invariants in Lean.
 - [x] Prove bounded principal rotation/recovery/deactivation and direct-delegation attenuation properties.
