@@ -282,6 +282,21 @@ pub enum StateProofVerificationError {
     RootMismatch,
 }
 
+/// Authenticated single-key state-update failures.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StateProofUpdateError {
+    /// The supplied proof does not open the claimed pre-state leaf.
+    InvalidPreState(StateProofVerificationError),
+    /// The replacement object does not use the proof's exact key.
+    AfterObjectIdMismatch,
+    /// A replacement membership leaf could not be encoded.
+    ObjectEncoding(EncodeError),
+    /// Inserting into an already maximal object count would wrap.
+    ObjectCountOverflow,
+    /// Deleting from a zero-count commitment is contradictory.
+    ObjectCountUnderflow,
+}
+
 /// Verifies a canonical object membership proof.
 pub fn verify_membership(
     commitment: StateCommitment,
@@ -314,11 +329,13 @@ pub fn verify_non_membership(
     verify_fold(commitment, proof, empty[STATE_TREE_DEPTH])
 }
 
-fn verify_fold(
-    commitment: StateCommitment,
-    proof: &StateProof,
-    mut accumulator: Digest384,
-) -> Result<(), StateProofVerificationError> {
+/// Reconstructs the unwrapped sparse-tree root from a canonical proof and leaf hash.
+///
+/// Callers must separately establish whether `leaf` is the membership hash for the
+/// proof key or the canonical empty leaf. The public membership/non-membership and
+/// update entry points perform that binding before using this fold.
+#[must_use]
+pub fn reconstruct_tree_root(proof: &StateProof, mut accumulator: Digest384) -> Digest384 {
     let empty = empty_hashes();
     for depth in (0..STATE_TREE_DEPTH).rev() {
         let level = &proof.levels[depth];
@@ -334,6 +351,58 @@ fn verify_fold(
         children[path_child] = accumulator;
         accumulator = hash_node(depth, &children);
     }
+    accumulator
+}
+
+/// Applies one proof-authenticated insert, replacement, or deletion to a state root.
+///
+/// This derives the post-root without trusting mutable tree storage: the exact pre
+/// leaf is first verified against `commitment`, the same canonical sibling path is
+/// folded with the replacement leaf, and object count changes exactly for
+/// absence-to-membership or membership-to-absence transitions.
+pub fn apply_single_key_update(
+    commitment: StateCommitment,
+    proof: &StateProof,
+    before: Option<&Object>,
+    after: Option<&Object>,
+) -> Result<StateCommitment, StateProofUpdateError> {
+    match before {
+        Some(object) => verify_membership(commitment, object, proof),
+        None => verify_non_membership(commitment, proof.object_id, proof),
+    }
+    .map_err(StateProofUpdateError::InvalidPreState)?;
+
+    if let Some(object) = after
+        && object.object_id() != proof.object_id
+    {
+        return Err(StateProofUpdateError::AfterObjectIdMismatch);
+    }
+
+    let object_count = match (before.is_some(), after.is_some()) {
+        (false, true) => commitment
+            .object_count
+            .checked_add(1)
+            .ok_or(StateProofUpdateError::ObjectCountOverflow)?,
+        (true, false) => commitment
+            .object_count
+            .checked_sub(1)
+            .ok_or(StateProofUpdateError::ObjectCountUnderflow)?,
+        (false, false) | (true, true) => commitment.object_count,
+    };
+    let replacement_leaf = match after {
+        Some(object) => hash_leaf(object).map_err(StateProofUpdateError::ObjectEncoding)?,
+        None => empty_hashes()[STATE_TREE_DEPTH],
+    };
+    let tree_root = reconstruct_tree_root(proof, replacement_leaf);
+    Ok(StateCommitment::new(hash_state_root(object_count, tree_root), object_count))
+}
+
+fn verify_fold(
+    commitment: StateCommitment,
+    proof: &StateProof,
+    mut accumulator: Digest384,
+) -> Result<(), StateProofVerificationError> {
+    accumulator = reconstruct_tree_root(proof, accumulator);
     let root = hash_state_root(commitment.object_count, accumulator);
     if root == commitment.root { Ok(()) } else { Err(StateProofVerificationError::RootMismatch) }
 }

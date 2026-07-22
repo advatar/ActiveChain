@@ -10,8 +10,9 @@ mod proof;
 mod tree;
 
 pub use proof::{
-    StateCommitment, StateProof, StateProofKind, StateProofLevel, StateProofValidationError,
-    StateProofVerificationError, verify_membership, verify_non_membership,
+    StateCommitment, StateProof, StateProofKind, StateProofLevel, StateProofUpdateError,
+    StateProofValidationError, StateProofVerificationError, apply_single_key_update,
+    reconstruct_tree_root, verify_membership, verify_non_membership,
 };
 pub use tree::{
     MAX_REFERENCE_STATE_OBJECTS, STATE_TREE_ARITY, STATE_TREE_DEPTH, StateTreeError,

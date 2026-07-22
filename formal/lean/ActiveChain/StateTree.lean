@@ -75,6 +75,60 @@ def foldProof
   rootToLeaf.reverse.foldl (fun accumulator level =>
     foldLevel hashNode level accumulator) leaf
 
+/-- Structural verification is equality with the canonical bottom-up fold. -/
+def verifiesProof
+    [BEq α]
+    (hashNode : Nat → Children α → α)
+    (rootToLeaf : List (ProofLevel α))
+    (leaf root : α) : Bool :=
+  foldProof hashNode rootToLeaf leaf == root
+
+/-- Reuse an authenticated sibling path with one replacement leaf. -/
+def updateTreeRoot
+    (hashNode : Nat → Children α → α)
+    (rootToLeaf : List (ProofLevel α))
+    (replacementLeaf : α) : α :=
+  foldProof hashNode rootToLeaf replacementLeaf
+
+@[simp] theorem updatedRootVerifies
+    [BEq α] [LawfulBEq α]
+    (hashNode : Nat → Children α → α)
+    (rootToLeaf : List (ProofLevel α))
+    (replacementLeaf : α) :
+    verifiesProof hashNode rootToLeaf replacementLeaf
+      (updateTreeRoot hashNode rootToLeaf replacementLeaf) = true := by
+  simp [verifiesProof, updateTreeRoot]
+
+theorem foldProofDeterministic
+    (hashNode : Nat → Children α → α)
+    (rootToLeaf : List (ProofLevel α))
+    (leaf first second : α)
+    (firstFold : foldProof hashNode rootToLeaf leaf = first)
+    (secondFold : foldProof hashNode rootToLeaf leaf = second) :
+    first = second := by
+  rw [← firstFold, ← secondFold]
+
+inductive LeafPresence where
+  | absent
+  | present
+  deriving BEq, DecidableEq, Repr
+
+/-- Exact object-count transition for absence/presence changes. -/
+def updateCount : Nat → LeafPresence → LeafPresence → Nat
+  | count, .absent, .present => count + 1
+  | count, .present, .absent => count - 1
+  | count, _, _ => count
+
+@[simp] theorem insertionIncrementsCount (count : Nat) :
+    updateCount count .absent .present = count + 1 := rfl
+
+@[simp] theorem replacementPreservesCount (count : Nat) :
+    updateCount count .present .present = count := rfl
+
+theorem deletionDecrementsPositiveCount (count : Nat) (positive : 0 < count) :
+    updateCount count .present .absent + 1 = count := by
+  simp [updateCount, Nat.sub_add_cancel (Nat.one_le_iff_ne_zero.mpr (Nat.ne_of_gt positive))]
+
 @[simp] theorem emptyProofPreservesLeaf (hashNode : Nat → Children α → α) (leaf : α) :
     foldProof hashNode [] leaf = leaf := rfl
 
