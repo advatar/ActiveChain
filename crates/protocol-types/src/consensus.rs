@@ -21,6 +21,73 @@ pub struct ValidatorVote {
     signature: ProtocolSignature,
 }
 
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+    use activechain_canonical_codec::{decode_envelope, encode_envelope};
+
+    fn digest(first: u8) -> Digest384 {
+        let mut bytes = [0_u8; 48];
+        bytes[0] = first;
+        Digest384::new(bytes)
+    }
+
+    #[kani::proof]
+    fn production_qc_round_trips_for_arbitrary_numeric_fields() {
+        let epoch: u64 = kani::any();
+        let height: u64 = kani::any();
+        let round: u64 = kani::any();
+        let revision: u64 = kani::any();
+        kani::assume(revision > 0);
+        let context =
+            ConsensusVoteContext::new_with_revision(digest(1), epoch, digest(2), revision)
+                .expect("fixed nonzero domains are valid");
+        let qc = QuorumCertificate::new(context, height, round, digest(3), digest(4), 3, 3)
+            .expect("three of three is a strict quorum");
+        let encoded = encode_envelope(&qc).expect("fixed production QC fits its bound");
+        assert_eq!(decode_envelope::<QuorumCertificate>(&encoded), Ok(qc));
+    }
+
+    #[kani::proof]
+    fn production_qc_rejects_any_truncation() {
+        let context = ConsensusVoteContext::new(digest(1), 1, digest(2)).unwrap();
+        let qc = QuorumCertificate::new(context, 2, 3, digest(3), digest(4), 3, 3).unwrap();
+        let encoded = encode_envelope(&qc).unwrap();
+        let length: usize = kani::any();
+        kani::assume(length < encoded.len());
+        assert!(decode_envelope::<QuorumCertificate>(&encoded[..length]).is_err());
+    }
+
+    #[kani::proof]
+    fn production_qc_rejects_a_trailing_byte() {
+        let context = ConsensusVoteContext::new(digest(1), 1, digest(2)).unwrap();
+        let qc = QuorumCertificate::new(context, 2, 3, digest(3), digest(4), 3, 3).unwrap();
+        let mut encoded = encode_envelope(&qc).unwrap();
+        encoded.push(kani::any());
+        assert!(decode_envelope::<QuorumCertificate>(&encoded).is_err());
+    }
+
+    #[kani::proof]
+    fn production_qc_rejects_type_or_version_substitution() {
+        let context = ConsensusVoteContext::new(digest(1), 1, digest(2)).unwrap();
+        let qc = QuorumCertificate::new(context, 2, 3, digest(3), digest(4), 3, 3).unwrap();
+        let mut encoded = encode_envelope(&qc).unwrap();
+        let header_index: usize = kani::any();
+        kani::assume(header_index < 4);
+        encoded[header_index] ^= 1;
+        assert!(decode_envelope::<QuorumCertificate>(&encoded).is_err());
+    }
+
+    #[kani::proof]
+    fn shared_strict_quorum_matches_mathematical_checked_comparison() {
+        let signer: u128 = kani::any();
+        let total: u128 = kani::any();
+        let expected =
+            signer.checked_mul(3).and_then(|left| total.checked_mul(2).map(|right| left > right));
+        assert_eq!(crate::strict_two_thirds(signer, total), expected);
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ConsensusVoteContext {
     genesis_commitment: Digest384,
@@ -492,8 +559,8 @@ impl QuorumCertificate {
         if total_stake == 0 || signer_stake > total_stake {
             return Err(QuorumCertificateError::InvalidStake);
         }
-        if signer_stake.checked_mul(3).ok_or(QuorumCertificateError::StakeOverflow)?
-            <= total_stake.checked_mul(2).ok_or(QuorumCertificateError::StakeOverflow)?
+        if !crate::strict_two_thirds(signer_stake, total_stake)
+            .ok_or(QuorumCertificateError::StakeOverflow)?
         {
             return Err(QuorumCertificateError::InsufficientStake);
         }

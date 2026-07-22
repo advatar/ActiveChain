@@ -198,7 +198,7 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
       explicit fairness sufficient for a bounded progress property.
     - [x] Freeze the safety and liveness configurations, publish the exact proof scope, and run
       both configurations in the formal CI gate.
-  - [ ] Add Verus refinement and Kani bounded-checking gates for the concrete Rust boundaries.
+  - [x] Add Verus refinement and Kani bounded-checking gates for the concrete Rust boundaries.
     - [x] Add the first Kani gate over the production canonical codec: seven bounded harnesses for
       strict round trips, truncation, trailing bytes, adversarial decode, length prefixes, raw
       reads, and bounded encoder writes.
@@ -213,9 +213,18 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
     - [x] Prove checked fee totals, strict-quorum arithmetic, base-fee adjustment, supply equations,
       partition accounting, and capped issuance in Verus, with a locked finite parity executable
       against the production cash and consensus crates.
-    - [ ] Move the verified arithmetic behind a shared production implementation or add an
+    - [x] Move the verified arithmetic behind a shared production implementation or add an
       all-input refinement bridge, and extend Kani coverage to larger production schemas,
       persistence, commitment internals, and network admission.
+      - [x] Centralize the cash/consensus checked arithmetic in a shared production module and
+        add arbitrary-input property comparisons to an independent checked oracle; tracked by
+        issue #56.
+      - [x] Bound a representative larger canonical production schema with strict round-trip,
+        truncation, substitution, and trailing-byte Kani harnesses.
+      - [x] Bound durable snapshot framing/checksum/fail-closed behavior and commitment
+        domain/input binding, retaining hash internals as an explicit assumption.
+      - [x] Bound authenticated network frame length/layout and sequence admission, retain
+        peer/version binding in production integration tests, and pin every new harness in CI.
 - [ ] Add implementation-trace and differential conformance checks for every proof domain.
 - [ ] Run every Lean and Tamarin model on the self-hosted CI runner.
 - [ ] Publish proof scopes, assumptions, counterexamples, and explicit unverified boundaries.

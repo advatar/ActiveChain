@@ -7,7 +7,9 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
 
+mod admission;
 mod authority;
+mod checked_arithmetic;
 mod consensus;
 mod consensus_state;
 mod credential;
@@ -16,10 +18,14 @@ mod migration;
 mod object;
 mod package;
 
+pub use admission::{exact_frame_layout, fresh_sequence, length_prefixed_range};
 pub use authority::{
     BoundedActionSet, BoundedActionSetError, CapabilityGrant, CapabilityGrantFields,
     CapabilityValidationError, DataSelector, HolderBinding, RateLimit, RateLimitError,
     RecoveryRequest, RecoveryRequestError, ResourceSelector, ScopeSelector, ScopeSelectorError,
+};
+pub use checked_arithmetic::{
+    authorized_issuance, fee_total, next_base_fee, partition_total, post_supply, strict_two_thirds,
 };
 pub use consensus::{
     BlockProposal, ConsensusUpgradeAuthorization, ConsensusUpgradeAuthorizationError,
