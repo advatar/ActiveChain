@@ -7,7 +7,9 @@ use activechain_action_kernel::{
 use activechain_bytecode_verifier::{
     VmInstruction, VmProgram, VmValueType, VmVerificationError, verify,
 };
-use activechain_canonical_codec::{CanonicalType, encode_body, encode_envelope};
+use activechain_canonical_codec::{
+    CanonicalType, canonical_length_prefix_len, encode_body, encode_envelope,
+};
 use activechain_capability::verify_attenuation;
 use activechain_credential::{
     CredentialStatus, CredentialVerificationError, PresentationContext, PreverifiedIssuerEvidence,
@@ -192,6 +194,16 @@ fn render_epoch_upgrade_model_table() -> String {
     let auth = upgrade_authorization(&full, full.epoch() + 1, repeated_digest(200), 1);
     let accepted = full.apply_upgrade(&auth).is_ok();
     output.push_str(&render_upgrade_result("history_full", full, accepted));
+    output
+}
+
+fn render_codec_length_table() -> String {
+    let mut output = String::new();
+    for value in
+        [0_u32, 127, 128, 16_383, 16_384, 2_097_151, 2_097_152, 268_435_455, 268_435_456, u32::MAX]
+    {
+        output.push_str(&format!("{value},{}\n", canonical_length_prefix_len(value)));
+    }
     output
 }
 
@@ -1411,6 +1423,7 @@ fn main() {
         "devnet-block-v1" => print!("{}", render_devnet_block_v1()),
         "nonce-model-table" => print!("{}", render_nonce_model_table()),
         "epoch-upgrade-model-table" => print!("{}", render_epoch_upgrade_model_table()),
+        "codec-length-table" => print!("{}", render_codec_length_table()),
         "credential-v1" => print!("{}", render_credential_v1()),
         "credential-status-table" => print!("{}", render_credential_status_table()),
         "privacy-v1" => print!("{}", render_privacy_v1()),
@@ -1419,7 +1432,7 @@ fn main() {
                 "unknown vector {unknown}; expected principal-v1, authority-v1, apl-v1, or \
                  apl-truth-table, object-transition-v1, object-model-table, state-tree-v1, or \
                  state-tree-model-table, object-vm-v1, object-vm-model-table, devnet-block-v1, or \
-                 nonce-model-table, epoch-upgrade-model-table, credential-v1, \
+                 nonce-model-table, epoch-upgrade-model-table, codec-length-table, credential-v1, \
                  credential-status-table, or privacy-v1"
             );
             std::process::exit(2);
@@ -1436,11 +1449,12 @@ mod tests {
     use activechain_canonical_codec::{DecodeError, inspect_canonical_envelope};
 
     use super::{
-        render_apl_truth_table, render_apl_v1, render_authority_v1, render_credential_status_table,
-        render_credential_v1, render_devnet_block_v1, render_epoch_upgrade_model_table,
-        render_nonce_model_table, render_object_model_table, render_object_transition_v1,
-        render_object_vm_model_table, render_object_vm_v1, render_principal_v1, render_privacy_v1,
-        render_state_tree_model_table, render_state_tree_v1,
+        render_apl_truth_table, render_apl_v1, render_authority_v1, render_codec_length_table,
+        render_credential_status_table, render_credential_v1, render_devnet_block_v1,
+        render_epoch_upgrade_model_table, render_nonce_model_table, render_object_model_table,
+        render_object_transition_v1, render_object_vm_model_table, render_object_vm_v1,
+        render_principal_v1, render_privacy_v1, render_state_tree_model_table,
+        render_state_tree_v1,
     };
 
     #[test]
@@ -1520,6 +1534,12 @@ mod tests {
         let published =
             include_str!("../../../testing/vectors/consensus/epoch-upgrade-model-table.txt");
         assert_eq!(render_epoch_upgrade_model_table(), published);
+    }
+
+    #[test]
+    fn rust_codec_length_table_matches_the_frozen_lean_table() {
+        let published = include_str!("../../../testing/vectors/canonical/length-prefix-table.txt");
+        assert_eq!(render_codec_length_table(), published);
     }
 
     #[test]
