@@ -51,6 +51,7 @@ code and serialized values to the formal state and assumptions.
 
 ```bash
 bash scripts/check-formal-models.sh
+bash scripts/check-proof-conformance.sh
 bash scripts/check-tla-proof-pipeline.sh
 bash scripts/check-kani-codec.sh
 bash scripts/check-kani-verifier-ffi.sh

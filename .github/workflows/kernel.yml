@@ -79,6 +79,8 @@ jobs:
         run: bash scripts/check-kani-commitment.sh
       - name: Prove consensus and economics arithmetic contracts
         run: formal/verus/verify.sh
+      - name: Audit implementation traces and differential conformance
+        run: bash scripts/check-proof-conformance.sh
       - name: Run tests
         run: cargo test --locked --workspace --all-features
       - name: Run documentation tests
