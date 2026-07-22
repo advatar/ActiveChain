@@ -7,7 +7,11 @@ use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{CoinCellSetRoot, Digest384, Height, SupplyRoot};
 
 use crate::types::MAX_TRANSFER_BATCH;
-use crate::{CashLedger, CashTransferV1, CashTransitionError, PartitionedCashPlan};
+use crate::{
+    AuthenticatedCoinCellRoot, CashLedger, CashTransferV1, CashTransitionError,
+    CoinCellTransitionWitness, PartitionedCashPlan, authenticated_coin_cell_root,
+    prove_coin_cell_transition, verify_coin_cell_transition,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CashAirError {
@@ -225,6 +229,83 @@ impl CanonicalType for CashAirProof {
         + MAX_TRANSFER_BATCH * CashAirRow::MAX_ENCODED_LEN;
 }
 
+/// Direct-reexecution CashAIR evidence augmented with local authenticated Coin Cell mutations.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthenticatedCashAirProofV1 {
+    execution: CashAirProof,
+    pre_root: AuthenticatedCoinCellRoot,
+    post_root: AuthenticatedCoinCellRoot,
+    mutations: Vec<Option<CoinCellTransitionWitness>>,
+}
+
+impl AuthenticatedCashAirProofV1 {
+    #[must_use]
+    pub const fn execution(&self) -> &CashAirProof {
+        &self.execution
+    }
+
+    #[must_use]
+    pub const fn pre_root(&self) -> AuthenticatedCoinCellRoot {
+        self.pre_root
+    }
+
+    #[must_use]
+    pub const fn post_root(&self) -> AuthenticatedCoinCellRoot {
+        self.post_root
+    }
+
+    #[must_use]
+    pub fn mutations(&self) -> &[Option<CoinCellTransitionWitness>] {
+        &self.mutations
+    }
+}
+
+impl CanonicalEncode for AuthenticatedCashAirProofV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.execution.encode(encoder)?;
+        self.pre_root.encode(encoder)?;
+        self.post_root.encode(encoder)?;
+        encoder.write_length(self.mutations.len(), MAX_TRANSFER_BATCH)?;
+        for mutation in &self.mutations {
+            encoder.write_bool(mutation.is_some())?;
+            if let Some(mutation) = mutation {
+                mutation.encode(encoder)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for AuthenticatedCashAirProofV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let execution = CashAirProof::decode(decoder)?;
+        let pre_root = AuthenticatedCoinCellRoot::decode(decoder)?;
+        let post_root = AuthenticatedCoinCellRoot::decode(decoder)?;
+        let count = decoder.read_length(MAX_TRANSFER_BATCH)?;
+        let mut mutations = Vec::with_capacity(count);
+        for _ in 0..count {
+            mutations.push(if bool::decode(decoder)? {
+                Some(CoinCellTransitionWitness::decode(decoder)?)
+            } else {
+                None
+            });
+        }
+        let proof = Self { execution, pre_root, post_root, mutations };
+        validate_authenticated_shape(&proof)
+            .map_err(|_| DecodeError::InvalidValue("invalid authenticated CashAIR evidence"))?;
+        Ok(proof)
+    }
+}
+
+impl CanonicalType for AuthenticatedCashAirProofV1 {
+    const TYPE_TAG: u16 = 0x009d;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = CashAirProof::MAX_ENCODED_LEN
+        + AuthenticatedCoinCellRoot::MAX_ENCODED_LEN * 2
+        + 1
+        + MAX_TRANSFER_BATCH * (1 + CoinCellTransitionWitness::MAX_ENCODED_LEN);
+}
+
 pub fn prove_cash_air(
     pre: &CashLedger,
     batch: &CashTransferV1,
@@ -291,6 +372,88 @@ pub fn verify_cash_air(
         return Err(CashAirError::InvalidProof);
     }
     Ok(post)
+}
+
+pub fn prove_authenticated_cash_air(
+    pre: &CashLedger,
+    batch: &CashTransferV1,
+    height: Height,
+    partitions: u16,
+) -> Result<(AuthenticatedCashAirProofV1, CashLedger), CashAirError> {
+    let (execution, expected_post) = prove_cash_air(pre, batch, height, partitions)?;
+    let mut state = pre.clone();
+    let mut mutations = Vec::with_capacity(execution.rows.len());
+    for (row, index) in
+        execution.rows.iter().zip(execution.plan.parallel().iter().chain(execution.plan.fallback()))
+    {
+        let transfer = &batch.transfers()[usize::from(*index)];
+        let before = state.cells().clone();
+        let accepted = state.apply_transfer(transfer, height).is_ok();
+        if accepted != row.accepted {
+            return Err(CashAirError::InvalidProof);
+        }
+        mutations.push(if accepted {
+            Some(
+                prove_coin_cell_transition(&before, state.cells())
+                    .map_err(|_| CashAirError::Transition)?,
+            )
+        } else {
+            None
+        });
+    }
+    if state != expected_post {
+        return Err(CashAirError::InvalidProof);
+    }
+    let proof = AuthenticatedCashAirProofV1 {
+        execution,
+        pre_root: authenticated_coin_cell_root(pre.cells())
+            .map_err(|_| CashAirError::Transition)?,
+        post_root: authenticated_coin_cell_root(state.cells())
+            .map_err(|_| CashAirError::Transition)?,
+        mutations,
+    };
+    validate_authenticated_shape(&proof)?;
+    Ok((proof, state))
+}
+
+pub fn verify_authenticated_cash_air(
+    pre: &CashLedger,
+    batch: &CashTransferV1,
+    proof: &AuthenticatedCashAirProofV1,
+    expected_height: Height,
+    expected_partitions: u16,
+) -> Result<CashLedger, CashAirError> {
+    validate_authenticated_shape(proof)?;
+    let (expected, post) =
+        prove_authenticated_cash_air(pre, batch, expected_height, expected_partitions)?;
+    if expected != *proof {
+        return Err(CashAirError::InvalidProof);
+    }
+    Ok(post)
+}
+
+fn validate_authenticated_shape(proof: &AuthenticatedCashAirProofV1) -> Result<(), CashAirError> {
+    if proof.mutations.len() != proof.execution.rows.len() {
+        return Err(CashAirError::InvalidProof);
+    }
+    let mut current = proof.pre_root;
+    for (row, mutation) in proof.execution.rows.iter().zip(&proof.mutations) {
+        match (row.accepted, mutation) {
+            (true, Some(mutation)) => {
+                verify_coin_cell_transition(mutation).map_err(|_| CashAirError::InvalidProof)?;
+                if mutation.pre_root() != current {
+                    return Err(CashAirError::InvalidProof);
+                }
+                current = mutation.post_root();
+            }
+            (false, None) => {}
+            _ => return Err(CashAirError::InvalidProof),
+        }
+    }
+    if current != proof.post_root {
+        return Err(CashAirError::InvalidProof);
+    }
+    Ok(())
 }
 
 fn map_transition(_: CashTransitionError) -> CashAirError {

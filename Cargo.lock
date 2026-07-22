@@ -74,6 +74,7 @@ dependencies = [
  "activechain-protocol-commitment",
  "activechain-protocol-types",
  "proptest",
+ "sha3 0.10.9",
 ]
 
 [[package]]

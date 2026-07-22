@@ -10,13 +10,21 @@
 extern crate alloc;
 
 mod air;
+mod authenticated;
 mod economics;
 mod partitioned;
 mod transition;
 mod types;
 
 pub use air::{
-    CashAirError, CashAirProof, CashAirPublicInputs, CashAirRow, prove_cash_air, verify_cash_air,
+    AuthenticatedCashAirProofV1, CashAirError, CashAirProof, CashAirPublicInputs, CashAirRow,
+    prove_authenticated_cash_air, prove_cash_air, verify_authenticated_cash_air, verify_cash_air,
+};
+pub use authenticated::{
+    AUTHENTICATED_CASH_DEPTH, AuthenticatedCoinCellRoot, CoinCellMutationError,
+    CoinCellMutationWitness, CoinCellTransitionWitness, MAX_AUTHENTICATED_CASH_MUTATIONS,
+    authenticated_coin_cell_root, prove_coin_cell_mutation, prove_coin_cell_transition,
+    verify_coin_cell_mutation, verify_coin_cell_transition,
 };
 pub use economics::{
     ChallengeAssignment, DutyAssignment, DutyReceipt, EconomicsError, FeeMarket, FeeQuote,
@@ -262,6 +270,37 @@ mod tests {
         );
         assert!(include_str!("../../../testing/vectors/cash/cash-air-v1.txt")
             .contains("proof_commitment_hex=0e69d5c6c412443dd0524e9a930d83bbdff87d575269688bd527d23cb74b8e83e2ab9a0c12900553b972810496193e2a"));
+    }
+
+    #[test]
+    fn authenticated_cash_air_chains_exact_membership_and_consumption_updates() {
+        let (ledger, batch) = partitioned_fixture();
+        let (proof, expected_post) =
+            super::prove_authenticated_cash_air(&ledger, &batch, 3, 16).unwrap();
+        assert_eq!(
+            super::verify_authenticated_cash_air(&ledger, &batch, &proof, 3, 16),
+            Ok(expected_post.clone())
+        );
+        assert_eq!(proof.pre_root(), super::authenticated_coin_cell_root(ledger.cells()).unwrap());
+        assert_eq!(
+            proof.post_root(),
+            super::authenticated_coin_cell_root(expected_post.cells()).unwrap()
+        );
+        for (row, mutation) in proof.execution().rows().iter().zip(proof.mutations()) {
+            assert_eq!(mutation.is_some(), row.accepted());
+        }
+        let encoded = encode_envelope(&proof).unwrap();
+        assert_eq!(
+            decode_envelope::<super::AuthenticatedCashAirProofV1>(&encoded),
+            Ok(proof.clone())
+        );
+        assert_eq!(
+            super::verify_authenticated_cash_air(&ledger, &batch, &proof, 3, 8),
+            Err(super::CashAirError::InvalidProof)
+        );
+        assert!(
+            super::verify_authenticated_cash_air(&expected_post, &batch, &proof, 3, 16).is_err()
+        );
     }
 
     #[test]
