@@ -34,10 +34,11 @@ use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
     AccessManifest, AccessManifestFields, ActionId, AuthenticatorDescriptor, AuthenticatorId,
     AuthenticatorPurpose, BoundedActionSet, CREDENTIAL_FORMAT_VERSION, CapabilityGrant,
-    CapabilityGrantFields, CapabilityId, ChainId, Credential, CredentialAcceptancePolicy,
-    CredentialId, CredentialStatement, CredentialStatusRegistry, CryptoSuiteId, DataSelector,
-    Digest384, FreezeState, HolderBinding, Object, ObjectFields, ObjectFlags, ObjectId,
-    ObjectOwner, ObjectVersionRef, Principal, PrincipalId, PrincipalKind, ProtocolSignature,
+    CapabilityGrantFields, CapabilityId, ChainId, ConsensusState, ConsensusUpgradeAuthorization,
+    ConsensusVoteContext, Credential, CredentialAcceptancePolicy, CredentialId,
+    CredentialStatement, CredentialStatusRegistry, CryptoSuiteId, DataSelector, Digest384,
+    FreezeState, HolderBinding, Object, ObjectFields, ObjectFlags, ObjectId, ObjectOwner,
+    ObjectVersionRef, Principal, PrincipalId, PrincipalKind, ProtocolSignature, QuorumCertificate,
     RateLimit, RecoveryRequest, ResourceSelector,
 };
 use activechain_state_tree::{
@@ -51,6 +52,147 @@ use activechain_transition::{
 
 fn repeated_digest(byte: u8) -> Digest384 {
     Digest384::new([byte; 48])
+}
+
+fn certify_upgrade_height(state: &mut ConsensusState, height: u64) {
+    let context = ConsensusVoteContext::new_with_revision(
+        repeated_digest(0xfe),
+        state.epoch(),
+        state.validator_set_root(),
+        state.protocol_revision(),
+    )
+    .expect("upgrade trace context is bound");
+    let qc = QuorumCertificate::new(
+        context,
+        height,
+        height,
+        repeated_digest((height as u8).wrapping_add(1)),
+        repeated_digest((height as u8).wrapping_add(2)),
+        1,
+        1,
+    )
+    .expect("single validator trace QC is a strict quorum");
+    state.apply_qc(&qc).expect("trace QC advances the production state");
+}
+
+fn upgrade_authorization(
+    state: &ConsensusState,
+    next_epoch: u64,
+    next_root: Digest384,
+    next_revision: u64,
+) -> ConsensusUpgradeAuthorization {
+    ConsensusUpgradeAuthorization::new(
+        state.finalized_height(),
+        state.finalized_height() + 1,
+        state.epoch(),
+        next_epoch,
+        state.validator_set_root(),
+        next_root,
+        state.protocol_revision(),
+        next_revision,
+    )
+    .expect("upgrade trace authorization is structurally valid")
+}
+
+fn render_upgrade_result(name: &str, state: ConsensusState, accepted: bool) -> String {
+    if accepted {
+        format!(
+            "{name},accept,{},{},{}\n",
+            state.epoch(),
+            state.protocol_revision(),
+            state.retired_validator_set_roots().len()
+        )
+    } else {
+        format!("{name},reject,-,-,-\n")
+    }
+}
+
+fn render_epoch_upgrade_model_table() -> String {
+    let base = || {
+        let mut state = ConsensusState::new_with_validator_set_root(1, repeated_digest(1));
+        certify_upgrade_height(&mut state, 1);
+        state
+    };
+    let mut output = String::new();
+
+    let mut validator = base();
+    let auth = upgrade_authorization(&validator, 2, repeated_digest(2), 1);
+    let accepted = validator.apply_upgrade(&auth).is_ok();
+    output.push_str(&render_upgrade_result("validator_set", validator, accepted));
+
+    let mut protocol = base();
+    let auth = upgrade_authorization(&protocol, 1, repeated_digest(1), 2);
+    let accepted = protocol.apply_upgrade(&auth).is_ok();
+    output.push_str(&render_upgrade_result("protocol", protocol, accepted));
+
+    let mut combined = base();
+    let auth = upgrade_authorization(&combined, 2, repeated_digest(2), 2);
+    let accepted = combined.apply_upgrade(&auth).is_ok();
+    output.push_str(&render_upgrade_result("combined", combined, accepted));
+
+    let mut wrong_height = base();
+    let auth = ConsensusUpgradeAuthorization::new(
+        1,
+        3,
+        1,
+        2,
+        repeated_digest(1),
+        repeated_digest(2),
+        1,
+        1,
+    )
+    .unwrap();
+    let accepted = wrong_height.apply_upgrade(&auth).is_ok();
+    output.push_str(&render_upgrade_result("wrong_height", wrong_height, accepted));
+
+    let mut stale_context = base();
+    let auth = ConsensusUpgradeAuthorization::new(
+        1,
+        2,
+        1,
+        2,
+        repeated_digest(9),
+        repeated_digest(2),
+        1,
+        1,
+    )
+    .unwrap();
+    let accepted = stale_context.apply_upgrade(&auth).is_ok();
+    output.push_str(&render_upgrade_result("stale_context", stale_context, accepted));
+
+    let downgrade = ConsensusUpgradeAuthorization::new(
+        1,
+        2,
+        1,
+        1,
+        repeated_digest(1),
+        repeated_digest(1),
+        2,
+        1,
+    )
+    .is_ok();
+    output.push_str(&render_upgrade_result("revision_downgrade", base(), downgrade));
+
+    let mut retired = base();
+    let first = upgrade_authorization(&retired, 2, repeated_digest(2), 1);
+    retired.apply_upgrade(&first).unwrap();
+    certify_upgrade_height(&mut retired, 2);
+    let reactivation = upgrade_authorization(&retired, 3, repeated_digest(1), 1);
+    let accepted = retired.apply_upgrade(&reactivation).is_ok();
+    output.push_str(&render_upgrade_result("retired_root", retired, accepted));
+
+    let mut full = base();
+    for index in 0..activechain_protocol_types::MAX_RETIRED_VALIDATOR_SET_ROOTS {
+        let next_epoch = full.epoch() + 1;
+        let next_root = repeated_digest((index as u8).wrapping_add(2));
+        let auth = upgrade_authorization(&full, next_epoch, next_root, 1);
+        full.apply_upgrade(&auth).unwrap();
+        certify_upgrade_height(&mut full, index as u64 + 2);
+    }
+    let auth = upgrade_authorization(&full, full.epoch() + 1, repeated_digest(200), 1);
+    let accepted = full.apply_upgrade(&auth).is_ok();
+    output.push_str(&render_upgrade_result("history_full", full, accepted));
+    output
 }
 
 fn principal_v1() -> Principal {
@@ -1268,6 +1410,7 @@ fn main() {
         "object-vm-model-table" => print!("{}", render_object_vm_model_table()),
         "devnet-block-v1" => print!("{}", render_devnet_block_v1()),
         "nonce-model-table" => print!("{}", render_nonce_model_table()),
+        "epoch-upgrade-model-table" => print!("{}", render_epoch_upgrade_model_table()),
         "credential-v1" => print!("{}", render_credential_v1()),
         "credential-status-table" => print!("{}", render_credential_status_table()),
         "privacy-v1" => print!("{}", render_privacy_v1()),
@@ -1276,7 +1419,8 @@ fn main() {
                 "unknown vector {unknown}; expected principal-v1, authority-v1, apl-v1, or \
                  apl-truth-table, object-transition-v1, object-model-table, state-tree-v1, or \
                  state-tree-model-table, object-vm-v1, object-vm-model-table, devnet-block-v1, or \
-                 nonce-model-table, credential-v1, credential-status-table, or privacy-v1"
+                 nonce-model-table, epoch-upgrade-model-table, credential-v1, \
+                 credential-status-table, or privacy-v1"
             );
             std::process::exit(2);
         }
@@ -1287,10 +1431,10 @@ fn main() {
 mod tests {
     use super::{
         render_apl_truth_table, render_apl_v1, render_authority_v1, render_credential_status_table,
-        render_credential_v1, render_devnet_block_v1, render_nonce_model_table,
-        render_object_model_table, render_object_transition_v1, render_object_vm_model_table,
-        render_object_vm_v1, render_principal_v1, render_privacy_v1, render_state_tree_model_table,
-        render_state_tree_v1,
+        render_credential_v1, render_devnet_block_v1, render_epoch_upgrade_model_table,
+        render_nonce_model_table, render_object_model_table, render_object_transition_v1,
+        render_object_vm_model_table, render_object_vm_v1, render_principal_v1, render_privacy_v1,
+        render_state_tree_model_table, render_state_tree_v1,
     };
 
     #[test]
@@ -1363,6 +1507,13 @@ mod tests {
     fn rust_nonce_table_matches_the_frozen_lean_table() {
         let published = include_str!("../../../testing/vectors/devnet/nonce-model-table.txt");
         assert_eq!(render_nonce_model_table(), published);
+    }
+
+    #[test]
+    fn rust_epoch_upgrade_table_matches_the_frozen_lean_table() {
+        let published =
+            include_str!("../../../testing/vectors/consensus/epoch-upgrade-model-table.txt");
+        assert_eq!(render_epoch_upgrade_model_table(), published);
     }
 
     #[test]

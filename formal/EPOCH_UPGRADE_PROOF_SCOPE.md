@@ -31,13 +31,14 @@ The model contains no unchecked proof escape hatches or additional logical assum
 
 | Model element | Rust/specification boundary |
 | --- | --- |
-| `ValidatorSetAuthorization` | `EpochTransition` plus its finalized on-chain authorization evidence |
-| consecutive `fromEpoch`/`toEpoch` | `EpochTransition::new` in `crates/protocol-types/src/consensus.rs` |
+| `ValidatorSetAuthorization` | canonical `ConsensusUpgradeAuthorization` plus its QC-certified commitment proof |
+| consecutive `fromEpoch`/`toEpoch` | `ConsensusUpgradeAuthorization::new` in `crates/protocol-types/src/consensus.rs` |
 | validator root binding | `ValidatorGenesis::validator_set_root` and `ConsensusState::validator_set_root` |
 | `advance` | `ValidatorEngine::activate_finalized_validator_set` and durable snapshot update |
 | `verifyCertificateContext` | epoch/root checks in `ValidatorEngine::apply_certificate`, extended with revision binding |
-| `ProtocolUpgradeAuthorization` | P-110 finalized version gate; runtime implementation is still required |
-| retired roots | durable validator-set history required by the light client and runtime |
+| `ProtocolUpgradeAuthorization` | the revision fields of `ConsensusUpgradeAuthorization`, verified against a finalized authorization block before exact-height activation |
+| retired roots | bounded, canonical `ConsensusSnapshot` history; exhaustion and reactivation both fail closed |
+| executable refinement | `epoch-upgrade-model-table.txt`, emitted independently by production Rust and `EpochUpgradeTable.lean` and compared byte-for-byte in CI |
 
 ## Assumptions and refinement boundary
 
@@ -55,31 +56,25 @@ The model contains no unchecked proof escape hatches or additional logical assum
 - Package-manifest compatibility, schema migration, execution semantics, and retained historical
   verification rules remain separate proof obligations.
 
-## Rust conformance gaps exposed by the model
+## Rust conformance result and remaining boundary
 
-The checked contract is currently stronger than the implementation in these launch-critical areas:
+The runtime now verifies a prior QC-certified authorization commitment, activates only at the exact
+next height, checks the next genesis activation/root/revision, atomically replaces validator keys,
+binds votes and QCs to the active revision, and durably rejects retired-root reuse or bounded-history
+exhaustion. The checked differential matrix exercises validator-only, revision-only, combined,
+wrong-height, stale-context, downgrade, retired-root, and 64-entry history-full cases through both
+the Rust transition and Lean `advance`.
 
-1. `ValidatorEngine::activate_finalized_validator_set` accepts activation after
-   `finalized_height >= activation_height`; it does not enforce execution at the exact height.
-2. The engine does not require `next_genesis.activation_height()` to equal the transition's
-   activation height.
-3. The method accepts a caller-provided `EpochTransition` after a height check but does not verify a
-   finalized on-chain authorization commitment for that exact transition.
-4. Consensus state does not yet carry a protocol revision or a finalized revision-upgrade record.
-5. Consensus snapshots do not retain validator-set-root history, so the runtime cannot reject an
-   explicitly reintroduced retired root using durable history alone.
-6. Certificate context checks bind epoch and validator-set root, but no runtime protocol-revision
-   field exists to reject a downgrade at consensus admission.
-
-These are implementation blockers, not properties proved about the deployed Rust node. The formal
-result may be described as a verified activation contract only until each gap has conformance tests
-and a traceable implementation mapping.
+This is a bounded executable refinement, not a proof that arbitrary Rust executions simulate every
+Lean natural-number state. QC unforgeability, snapshot rollback resistance, governance validity,
+and heterogeneous-client deployment remain separate assumptions and operational gates.
 
 ## Local reproduction
 
 ```bash
-cd formal/lean
-lake env lean ActiveChain/EpochUpgrade.lean
+(cd formal/lean && lake env lean ActiveChain/EpochUpgrade.lean)
+(cd formal/lean && lake exe epochUpgradeTable)
+cargo run --locked --quiet -p activechain-vector-generator -- epoch-upgrade-model-table
 ```
 
 Acceptance requires a successful Lean run and a source scan confirming that the model contains no

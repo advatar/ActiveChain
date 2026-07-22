@@ -1,0 +1,8 @@
+validator_set,accept,2,1,1
+protocol,accept,1,2,0
+combined,accept,2,2,1
+wrong_height,reject,-,-,-
+stale_context,reject,-,-,-
+revision_downgrade,reject,-,-,-
+retired_root,reject,-,-,-
+history_full,reject,-,-,-

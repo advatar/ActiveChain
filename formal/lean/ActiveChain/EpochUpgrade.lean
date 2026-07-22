@@ -19,6 +19,8 @@ abbrev Digest := Nat
 abbrev Epoch := Nat
 abbrev Revision := Nat
 
+def maxRetiredValidatorSetRoots : Nat := 64
+
 /-- Durable control-plane state needed to reject rollback and retired sets. -/
 structure ChainState where
   height : Nat
@@ -78,7 +80,8 @@ def ValidatorSetAllowed
       authorization.previousRoot = current.validatorSetRoot ∧
       authorization.nextRoot = candidate.validatorSetRoot ∧
       candidate.validatorSetRoot ≠ current.validatorSetRoot ∧
-      candidate.validatorSetRoot ∉ current.retiredValidatorSetRoots)
+      candidate.validatorSetRoot ∉ current.retiredValidatorSetRoots ∧
+      current.retiredValidatorSetRoots.length < maxRetiredValidatorSetRoots)
 
 /-- A protocol revision is unchanged, or changes exactly at the activation
 height under prior finalized authorization to a strictly greater revision. -/
@@ -365,7 +368,7 @@ theorem retiredValidatorSetCannotReactivate
       have valid := (verifyTransition_iff current candidate evidence).mp verified
       rcases valid.2.1 with unchanged | activated
       · exact False.elim (changed unchanged.2)
-      · exact False.elim (activated.2.2.2.2.2.2.2.2.2.2 retired)
+      · exact False.elim (activated.2.2.2.2.2.2.2.2.2.2.1 retired)
 
 /-! ## Active certificate-context rejection -/
 

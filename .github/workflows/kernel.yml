@@ -109,3 +109,5 @@ jobs:
           (cd formal/lean && lake exe objectVMTable) | diff -u testing/vectors/vm/object-vm-model-table.txt -
           cargo run --locked --quiet -p activechain-vector-generator -- nonce-model-table | diff -u testing/vectors/devnet/nonce-model-table.txt -
           (cd formal/lean && lake exe nonceTable) | diff -u testing/vectors/devnet/nonce-model-table.txt -
+          cargo run --locked --quiet -p activechain-vector-generator -- epoch-upgrade-model-table | diff -u testing/vectors/consensus/epoch-upgrade-model-table.txt -
+          (cd formal/lean && lake exe epochUpgradeTable) | diff -u testing/vectors/consensus/epoch-upgrade-model-table.txt -
