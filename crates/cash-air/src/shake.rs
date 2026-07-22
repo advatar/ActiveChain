@@ -36,6 +36,7 @@ const TOTAL_PUBLIC_VALUES: usize = STATE_PUBLIC_VALUES * 2;
 const KECCAK_ROUNDS: usize = 24;
 pub const MAX_CASH_SHAKE_MESSAGE: usize = 512;
 pub const MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_CHUNK: usize = 64;
+pub const MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_COMPOSITE: usize = 16_384;
 
 type Val = BabyBear;
 type Challenge = BinomialExtensionField<Val, 4>;
@@ -196,6 +197,17 @@ pub fn prove_authenticated_cash_shake(
         digest_offset = end;
     }
     Ok(AuthenticatedCashShakeStarkProof { batches })
+}
+
+pub fn authenticated_cash_shake_permutation_count(
+    transition: &CoinCellTransitionWitness,
+) -> Result<usize, &'static str> {
+    let (messages, _) = authenticated_transition_batch(transition)?;
+    messages.iter().try_fold(0_usize, |total, message| {
+        total
+            .checked_add(padded_blocks(message)?.len())
+            .ok_or("authenticated SHAKE permutation count overflow")
+    })
 }
 
 pub fn verify_authenticated_cash_shake(
