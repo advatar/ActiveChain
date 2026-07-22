@@ -1,0 +1,6 @@
+domain=ACTIVECHAIN-PQ-SESSION-V1
+dsa_suite=0x0101
+kem_suite=0x0201
+kem_public_key_len=1184
+kem_ciphertext_len=1088
+signature_len=2420

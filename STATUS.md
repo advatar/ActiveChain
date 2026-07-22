@@ -75,13 +75,17 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
     - [x] Include exact-height, stale-context, retired-root, and bounded history-exhaustion cases.
     - [x] Freeze the trace and enforce byte-for-byte Rust/Lean comparisons in CI.
 - [x] Prove the scoped PQ-session downgrade, context, key-confirmation, and bounded replay target in Tamarin.
-- [ ] Implement the modeled PQ transcript/session boundary and prove full agreement, secrecy under
+- [x] Implement the modeled PQ transcript/session boundary and prove full agreement, secrecy under
   stated compromise assumptions, durable sequence handling, and parser conformance.
   - [x] Prove exact prior-event peer correspondence, first-message origin, and honest-session
     symbolic secrecy, and bind the session KDF to the complete signed transcript after a discovered
     cross-session alias counterexample.
-  - [ ] Implement that transcript/KDF/key-confirmation state machine in Rust with durable sequences
+  - [x] Implement that transcript/KDF/key-confirmation state machine in Rust with durable sequences
     and canonical parser/vector conformance.
+    - [x] Replace the live challenge-only handshake with canonical chain/epoch/peer/suite/KEM transcript messages ([#35](https://github.com/advatar/ActiveChain/issues/35)).
+    - [x] Derive keys from the complete transcript, authenticate both finishes, and verify responder confirmation.
+    - [x] Persist accepted session IDs and protected-message sequences atomically across restart.
+    - [x] Freeze parser/transcript vectors and test downgrade, alias, replay, corruption, and peer mismatch.
 - [ ] Prove canonical finalized-block composition: decode, authorization, execution, fees/supply,
   post-state root, DA commitment, proof evidence, and protocol revision all bind the same block.
   - [x] Prove the fail-closed composition contract, deterministic finalization, component mismatch

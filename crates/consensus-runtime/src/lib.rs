@@ -30,6 +30,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::time::{Duration, Instant};
 
+mod pq_session;
+pub use pq_session::{PqPeerSession, PqSessionContext, PqSessionStore};
+
 /// Canonical wallet transaction admission owned by the validator runtime.
 /// Authenticated network handlers can delegate here after peer/session checks.
 pub struct WalletTransactionGateway {
@@ -118,6 +121,9 @@ impl ValidatorSigner {
     }
     pub fn public_key(&self) -> Vec<u8> {
         self.key.verifying_key().encode().to_vec()
+    }
+    fn sign_session_payload(&self, payload: &[u8]) -> Vec<u8> {
+        self.key.sign(payload).encode().to_vec()
     }
     pub fn sign_handshake(
         &self,
@@ -866,6 +872,48 @@ impl PeerConnector {
                                 format!("peer registration failed: {error:?}"),
                             ),
                         ));
+                    }
+                }
+                Err(error) => failures.push((endpoint.id, error)),
+            }
+        }
+        (directory, failures)
+    }
+    /// Connects all configured validators through the production PQ session boundary.
+    pub fn connect_all_with_pq_sessions(
+        &self,
+        local_peer_id: u16,
+        signer: &ValidatorSigner,
+        chain: Digest384,
+        epoch: u64,
+        client_nonce: [u8; 32],
+        kem_seed: [u8; 64],
+    ) -> (PeerDirectory, Vec<(u16, std::io::Error)>) {
+        let mut directory = PeerDirectory::new();
+        let mut failures = Vec::new();
+        for endpoint in &self.endpoints {
+            let result = self.reconnect(endpoint).and_then(|mut socket| {
+                let mut peer_seed = kem_seed;
+                peer_seed[0] ^= (endpoint.id >> 8) as u8;
+                peer_seed[1] ^= endpoint.id as u8;
+                socket.initiate_pq_session(
+                    PqSessionContext {
+                        chain,
+                        epoch,
+                        initiator: local_peer_id,
+                        responder: endpoint.id,
+                        client_nonce,
+                    },
+                    signer,
+                    &endpoint.public_key,
+                    peer_seed,
+                )?;
+                Ok(socket)
+            });
+            match result {
+                Ok(socket) => {
+                    if directory.insert(endpoint.id, socket, endpoint.public_key.clone()).is_err() {
+                        failures.push((endpoint.id, invalid_data("PQ peer registration failed")));
                     }
                 }
                 Err(error) => failures.push((endpoint.id, error)),
@@ -2456,6 +2504,56 @@ impl ValidatorService {
             .map_err(|_| invalid_data("handshake signing failed"))?;
         peer.send_handshake(&response)?;
         self.serve_peer(peer)
+    }
+    /// Authenticates a live inbound validator with the canonical PQ transcript and durably
+    /// records its session identifier before admitting consensus traffic.
+    pub fn serve_pq_genesis_peer_with_voting(
+        &self,
+        mut peer: PeerSocket,
+        local_peer_id: u16,
+        signer: &ValidatorSigner,
+        server_nonce: [u8; 32],
+    ) -> std::io::Result<()> {
+        let (chain, epoch) = {
+            let engine =
+                self.engine.lock().map_err(|_| invalid_data("validator engine lock poisoned"))?;
+            (engine.genesis_commitment, engine.state().epoch())
+        };
+        let keys = self
+            .sender_keys
+            .lock()
+            .map_err(|_| invalid_data("validator sender-key lock poisoned"))?
+            .clone();
+        let session =
+            peer.accept_pq_session(chain, epoch, local_peer_id, signer, &keys, server_nonce)?;
+        let session_path = self.snapshot_path.with_extension("pq-sessions");
+        let mut store = match PqSessionStore::load(&session_path) {
+            Ok(store) => store,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => PqSessionStore::default(),
+            Err(error) => return Err(error),
+        };
+        store.accept(&session)?;
+        store.save(&session_path)?;
+        loop {
+            let message = match peer.receive_message() {
+                Ok(message) => message,
+                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
+                Err(error) => return Err(error),
+            };
+            if let ConsensusMessage::Proposal(_) = &message.message {
+                let vote = self
+                    .process_proposal_and_sign_vote(
+                        message.clone(),
+                        signer,
+                        message.envelope.sequence().saturating_add(1),
+                    )
+                    .map_err(|_| invalid_data("proposal admission failed"))?;
+                peer.send_message(&vote)?;
+            } else {
+                self.process_message(message)
+                    .map_err(|_| invalid_data("consensus admission failed"))?;
+            }
+        }
     }
     pub fn serve_authenticated_genesis_peer(
         &self,

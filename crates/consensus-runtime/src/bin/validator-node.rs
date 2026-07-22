@@ -104,7 +104,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let _ = listener.spawn_accept_loop(move |peer| {
                     let service = std::sync::Arc::clone(&listener_thread_service);
                     let signer = std::sync::Arc::clone(&listener_thread_signer);
-                    let _ = service.serve_authenticated_genesis_peer_with_voting(
+                    let _ = service.serve_pq_genesis_peer_with_voting(
                         peer,
                         local_peer_id,
                         &signer,
@@ -131,9 +131,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             let connector = activechain_consensus_runtime::PeerConnector::new(endpoints)
                 .map_err(|_| "invalid peer configuration")?;
-            let challenge = [23; 32];
-            let (mut peers, failures) =
-                connector.connect_all_with_handshake(local_peer_id, &signer, challenge);
+            let (mut peers, failures) = connector.connect_all_with_pq_sessions(
+                local_peer_id,
+                &signer,
+                chain_genesis_commitment.ok_or("missing immutable chain genesis commitment")?,
+                genesis.epoch(),
+                [23; 32],
+                {
+                    let mut kem_seed = [0_u8; 64];
+                    kem_seed[..32].copy_from_slice(&seed);
+                    kem_seed[32..].copy_from_slice(&seed);
+                    kem_seed
+                },
+            );
             if !failures.is_empty() {
                 return Err(format!("peer connection failures: {failures:?}").into());
             }
