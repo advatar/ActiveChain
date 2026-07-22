@@ -1,0 +1,5 @@
+type_tag=0x007d
+schema_version=1
+credential_count=1
+capability_depth=2
+envelope_commitment=7a8f0893ed3cef3288a21d09ae9a80786a4f17e9cd7a3d2c8ae684942ec8a3823b8b096977edd9f7228bcd0d909c0760

@@ -15,6 +15,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-authorization-kernel"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-capability",
+ "activechain-credential",
+ "activechain-object",
+ "activechain-policy-kernel",
+ "activechain-protocol-commitment",
+ "activechain-protocol-types",
+ "activechain-transition",
+ "sha3 0.10.9",
+]
+
+[[package]]
 name = "activechain-bytecode-verifier"
 version = "0.1.0"
 dependencies = [
