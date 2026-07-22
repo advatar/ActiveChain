@@ -555,10 +555,15 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
                   slots to the zero-state permutation and reject tuple/order substitution.
                 - [x] Derive the exact pre-leaf/path/root and post-leaf/path/root transcript sequence
                   from every ordered accepted mutation and verify it through the batched table.
-                - [ ] Benchmark and cap full-depth multi-mutation prover memory/time before enabling
+                - [x] Benchmark and cap full-depth multi-mutation prover memory/time before enabling
                   authenticated SHAKE proofs at validator ingress.
                   - [x] Split authenticated paths into deterministic ordered STARK chunks with a
                     hard per-chunk Keccak-permutation cap before allocating traces.
+                  - [x] Run the full two-row authenticated composite in optimized mode on the local
+                    ARM64 release runner: 88.58 s proof/verification, 661,585,920-byte maximum RSS,
+                    no swaps (2026-07-22).
+                  - [ ] Reject composites exceeding a fixed total Keccak-permutation budget before
+                    parent or chunk proving begins.
       - [x] Complete bounded-session enforcement and its CashAIR binding
         ([GitHub issue #72](https://github.com/advatar/ActiveChain/issues/72)).
         - [x] Add canonical ML-DSA session-grant envelopes, persistent spend budgets, strict

@@ -45,6 +45,12 @@ full path increases the number of bounded proofs instead of creating one unbound
 is a conservative implementation bound, not yet a validator service-level target; end-to-end timing
 still requires release-hardware benchmarking.
 
+The first release-runner benchmark completed on 2026-07-22 with the full two-accepted-row composite
+fixture: optimized proof plus verification took 88.58 seconds, maximum resident memory was
+661,585,920 bytes, and the process performed no swaps. Including the one-time optimized build, the
+measured command took 176.87 seconds. This establishes that chunking bounds live memory, while also
+showing that a separate total-permutation admission cap is required to bound validator CPU work.
+
 The parent Winterfell CashAIR statement now has a domain-separated authenticated mode, public
 pre/post authenticated roots, and one public authenticated root for every execution row. The trace
 copies the exact ordered mutation-chain root after accepted rows and retains it after rejected rows;
