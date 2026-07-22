@@ -55,13 +55,13 @@ Tracked by [GitHub issue #31](https://github.com/advatar/ActiveChain/issues/31).
 - [x] Freeze a transparent STARK/FRI profile, transcript, parameters, proof envelope, and security assumptions.
 - [x] Implement and verify the first real witness-hiding preimage relation with a pinned guest image,
   no trusted setup, no Groth16 receipt, and development receipts disabled.
-- [ ] Compile the complete private-billboard post and withdrawal relations into pinned guest images
+- [x] Compile the complete private-billboard post and withdrawal relations into pinned guest images
   with canonical private inputs and public journals; tracked by GitHub issue #64.
-- [ ] Differentially test the proof relation against the private billboard reference verifier,
+- [x] Differentially test the proof relation against the private billboard reference verifier,
   including valid, invalid, substituted-image, substituted-journal, and replay cases.
-- [ ] Publish deterministic vectors, malformed/substitution/replay tests, and reproducible performance evidence.
+- [x] Publish deterministic vectors, malformed/substitution/replay tests, and reproducible performance evidence.
 - [x] Machine-check exact image/journal binding, fail-closed admission, and one-shot nullifier admission.
-- [ ] Machine-check billboard conservation, successor, cooldown/penalty, and admission-composition invariants.
+- [x] Machine-check billboard conservation, successor, cooldown/penalty, and admission-composition invariants.
 - [x] Publish qualified formal-verification evidence and third-party-audit-pending status on an
   isolated landing-page branch and draft PR.
 - [x] Pass all repository gates, commit, push, and open an isolated stacked draft PR.

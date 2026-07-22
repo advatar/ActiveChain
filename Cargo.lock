@@ -158,7 +158,10 @@ dependencies = [
 name = "activechain-pq-zk"
 version = "0.1.0"
 dependencies = [
+ "activechain-canonical-codec",
  "activechain-pq-zk-methods",
+ "activechain-private-billboard",
+ "activechain-protocol-types",
  "proptest",
  "risc0-zkvm",
  "sha3 0.10.9",

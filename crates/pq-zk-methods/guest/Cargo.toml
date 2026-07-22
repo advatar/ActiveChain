@@ -7,5 +7,19 @@ publish = false
 [workspace]
 
 [dependencies]
+activechain-canonical-codec = { path = "../../canonical-codec" }
+activechain-private-billboard = { path = "../../private-billboard", default-features = false }
 risc0-zkvm = { version = "=3.0.5", default-features = false, features = ["std"] }
 sha3 = { version = "0.10.8", default-features = false }
+
+[[bin]]
+name = "activechain-pq-zk-guest"
+path = "src/main.rs"
+
+[[bin]]
+name = "billboard-post"
+path = "src/bin/billboard_post.rs"
+
+[[bin]]
+name = "billboard-withdraw"
+path = "src/bin/billboard_withdraw.rs"

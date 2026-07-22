@@ -7,13 +7,19 @@
 //! This reference verifier validates semantics directly; a production deployment must replace it
 //! with a zero-knowledge verifier while preserving the same public statement.
 
+#[cfg(feature = "runtime")]
+use activechain_canonical_codec::decode_envelope;
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
-    decode_envelope, encode_envelope,
+    encode_envelope,
 };
+#[cfg(feature = "runtime")]
 use activechain_cash_kernel::{CashLedger, CashTransitionError};
+#[cfg(feature = "runtime")]
 use activechain_crypto_provider::{KemError, MlKem768Recipient, ProtectedEnvelope};
+#[cfg(feature = "runtime")]
 use activechain_privacy_kernel::{ShieldIntent, UnshieldIntent, VerifiedPrivacyProof};
+#[cfg(feature = "runtime")]
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{AssetId, ChainId, Digest384, PrincipalId};
 use sha3::{
@@ -22,11 +28,15 @@ use sha3::{
 };
 
 pub const MAX_MESSAGE_BYTES: usize = 280;
+/// A permit carries at most two pending screening decisions.
+pub const MAX_RELATION_DECISIONS: usize = 2;
 pub const MAX_POSTS: usize = 4_096;
 pub const MAX_DECISIONS: usize = 4_096;
 pub const MAX_PERMITS: usize = 4_096;
 pub const MAX_NULLIFIERS: usize = 4_096;
+#[cfg(feature = "runtime")]
 const NOTE_AAD: &[u8] = b"ACTIVECHAIN-PRIVATE-BILLBOARD-NOTE-V1";
+#[cfg(feature = "runtime")]
 const POST_AAD: &[u8] = b"ACTIVECHAIN-PRIVATE-BILLBOARD-POST-V1";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -55,6 +65,7 @@ pub enum BillboardError {
     CashTransition,
 }
 
+#[cfg(feature = "runtime")]
 impl From<CashTransitionError> for BillboardError {
     fn from(_: CashTransitionError) -> Self {
         Self::CashTransition
@@ -130,6 +141,43 @@ impl BillboardConfig {
     }
 }
 
+impl CanonicalEncode for BillboardConfig {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain_id.encode(e)?;
+        self.asset_id.encode(e)?;
+        self.minimum_deposit.encode(e)?;
+        self.base_cooldown.encode(e)?;
+        self.maximum_save_up.encode(e)?;
+        self.penalty_slots.encode(e)?;
+        self.screening_window.encode(e)?;
+        self.post_fee.encode(e)?;
+        self.policy_revision.encode(e)
+    }
+}
+
+impl CanonicalDecode for BillboardConfig {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            ChainId::decode(d)?,
+            AssetId::decode(d)?,
+            u128::decode(d)?,
+            u64::decode(d)?,
+            u8::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            u128::decode(d)?,
+            u64::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid billboard configuration"))
+    }
+}
+
+impl CanonicalType for BillboardConfig {
+    const TYPE_TAG: u16 = 0x00b3;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 * 2 + 16 * 2 + 8 * 4 + 1;
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PendingScreen {
     post_id: Digest384,
@@ -194,7 +242,7 @@ impl BillboardPermit {
         )
     }
 
-    fn nullifier(&self, nullifier_key: Digest384) -> Result<Digest384, BillboardError> {
+    pub fn nullifier(&self, nullifier_key: Digest384) -> Result<Digest384, BillboardError> {
         hash_parts(
             b"ACTIVECHAIN-BILLBOARD-NULLIFIER-V1",
             &[self.commitment()?.as_bytes(), nullifier_key.as_bytes()],
@@ -277,6 +325,24 @@ pub struct ModerationDecision {
     pub post_id: Digest384,
     pub policy_revision: u64,
     pub flagged: bool,
+}
+
+impl CanonicalEncode for ModerationDecision {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.post_id.encode(e)?;
+        self.policy_revision.encode(e)?;
+        self.flagged.encode(e)
+    }
+}
+
+impl CanonicalDecode for ModerationDecision {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Ok(Self {
+            post_id: Digest384::decode(d)?,
+            policy_revision: u64::decode(d)?,
+            flagged: bool::decode(d)?,
+        })
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -374,6 +440,7 @@ pub struct EncryptedPostSubmission {
     envelope: Vec<u8>,
 }
 
+#[cfg(feature = "runtime")]
 impl EncryptedPostSubmission {
     pub fn seal(
         public: &PostPublicInputs,
@@ -404,6 +471,24 @@ pub struct PostWitness {
     pub prior: BillboardPermit,
     pub successor: BillboardPermit,
     pub nullifier_key: Digest384,
+}
+
+impl CanonicalEncode for PostWitness {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.prior.encode(e)?;
+        self.successor.encode(e)?;
+        self.nullifier_key.encode(e)
+    }
+}
+
+impl CanonicalDecode for PostWitness {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Ok(Self {
+            prior: BillboardPermit::decode(d)?,
+            successor: BillboardPermit::decode(d)?,
+            nullifier_key: Digest384::decode(d)?,
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -446,13 +531,168 @@ pub struct WithdrawalWitness {
     pub nullifier_key: Digest384,
 }
 
+impl CanonicalEncode for WithdrawalPublicInputs {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain_id.encode(e)?;
+        self.asset_id.encode(e)?;
+        self.anchor.encode(e)?;
+        self.nullifier.encode(e)?;
+        self.recipient.encode(e)?;
+        self.amount.encode(e)?;
+        self.fee.encode(e)?;
+        self.height.encode(e)?;
+        self.policy_revision.encode(e)
+    }
+}
+
+impl CanonicalDecode for WithdrawalPublicInputs {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Ok(Self {
+            chain_id: ChainId::decode(d)?,
+            asset_id: AssetId::decode(d)?,
+            anchor: Digest384::decode(d)?,
+            nullifier: Digest384::decode(d)?,
+            recipient: PrincipalId::decode(d)?,
+            amount: u128::decode(d)?,
+            fee: u128::decode(d)?,
+            height: u64::decode(d)?,
+            policy_revision: u64::decode(d)?,
+        })
+    }
+}
+
+impl CanonicalType for WithdrawalPublicInputs {
+    const TYPE_TAG: u16 = 0x00b2;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 * 5 + 16 * 2 + 8 * 2;
+}
+
+impl CanonicalEncode for WithdrawalWitness {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.permit.encode(e)?;
+        self.nullifier_key.encode(e)
+    }
+}
+
+impl CanonicalDecode for WithdrawalWitness {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Ok(Self { permit: BillboardPermit::decode(d)?, nullifier_key: Digest384::decode(d)? })
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct PostRelationInput {
+    pub config: BillboardConfig,
+    pub public: PostPublicInputs,
+    pub witness: PostWitness,
+    pub decisions: Vec<ModerationDecision>,
+}
+
+#[derive(Clone, Debug)]
+pub struct WithdrawalRelationInput {
+    pub config: BillboardConfig,
+    pub public: WithdrawalPublicInputs,
+    pub witness: WithdrawalWitness,
+    pub decisions: Vec<ModerationDecision>,
+}
+
+macro_rules! relation_codec {
+    ($ty:ty, $tag:expr, $public:ty, $witness:ty) => {
+        impl CanonicalEncode for $ty {
+            fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+                self.config.encode(e)?;
+                self.public.encode(e)?;
+                self.witness.encode(e)?;
+                e.write_length(self.decisions.len(), MAX_RELATION_DECISIONS)?;
+                for decision in &self.decisions {
+                    decision.encode(e)?;
+                }
+                Ok(())
+            }
+        }
+        impl CanonicalDecode for $ty {
+            fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+                let config = BillboardConfig::decode(d)?;
+                let public = <$public>::decode(d)?;
+                let witness = <$witness>::decode(d)?;
+                let count = d.read_length(MAX_RELATION_DECISIONS)?;
+                let mut decisions = Vec::with_capacity(count);
+                for _ in 0..count {
+                    decisions.push(ModerationDecision::decode(d)?);
+                }
+                Ok(Self { config, public, witness, decisions })
+            }
+        }
+        impl CanonicalType for $ty {
+            const TYPE_TAG: u16 = $tag;
+            const SCHEMA_VERSION: u16 = 1;
+            const MAX_ENCODED_LEN: usize = 4096;
+        }
+    };
+}
+
+relation_codec!(PostRelationInput, 0x00b4, PostPublicInputs, PostWitness);
+relation_codec!(WithdrawalRelationInput, 0x00b5, WithdrawalPublicInputs, WithdrawalWitness);
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VerifiedBillboardProof {
     public_inputs_commitment: Digest384,
     permit_commitment: Digest384,
 }
 
+impl VerifiedBillboardProof {
+    #[must_use]
+    pub const fn public_inputs_commitment(self) -> Digest384 {
+        self.public_inputs_commitment
+    }
+
+    #[must_use]
+    pub const fn permit_commitment(self) -> Digest384 {
+        self.permit_commitment
+    }
+}
+
 pub struct BillboardVerifier;
+
+pub fn derive_post_successor(
+    config: BillboardConfig,
+    prior: &BillboardPermit,
+    content: &[u8],
+    post_id: Digest384,
+    height: u64,
+    blinding: Digest384,
+    decisions: &[ModerationDecision],
+) -> Result<BillboardPermit, BillboardError> {
+    let mut expected = prior.clone();
+    screen_matured(&mut expected, decisions, height, config.penalty_slots)?;
+    accrue_save_up(&mut expected, config, height)?;
+    if expected.saved_posts == 0 || height < expected.next_allowed_height {
+        return Err(BillboardError::Cooldown);
+    }
+    if expected.amount < config.post_fee {
+        return Err(BillboardError::InsufficientValue);
+    }
+    expected.amount -= config.post_fee;
+    expected.saved_posts -= 1;
+    expected.sequence =
+        expected.sequence.checked_add(1).ok_or(BillboardError::ArithmeticOverflow)?;
+    expected.next_allowed_height = height
+        .checked_add(config.cooldown(expected.amount.max(config.minimum_deposit))?)
+        .ok_or(BillboardError::ArithmeticOverflow)?;
+    if !content.is_empty() {
+        if expected.pending.len() >= MAX_RELATION_DECISIONS {
+            return Err(BillboardError::ScreeningRequired);
+        }
+        expected.pending.push(PendingScreen {
+            post_id,
+            eligible_at: height
+                .checked_add(config.screening_window)
+                .ok_or(BillboardError::ArithmeticOverflow)?,
+        });
+    }
+    expected.blinding = blinding;
+    Ok(expected)
+}
 
 impl BillboardVerifier {
     pub fn verify_post(
@@ -483,36 +723,18 @@ impl BillboardVerifier {
         {
             return Err(BillboardError::WrongPermit);
         }
-        let mut expected = prior.clone();
-        screen_matured(&mut expected, decisions, public.height, config.penalty_slots)?;
-        accrue_save_up(&mut expected, config, public.height)?;
-        if expected.saved_posts == 0 || public.height < expected.next_allowed_height {
-            return Err(BillboardError::Cooldown);
-        }
-        if expected.amount < public.fee || public.fee != config.post_fee {
+        if public.fee != config.post_fee {
             return Err(BillboardError::InsufficientValue);
         }
-        expected.amount -= public.fee;
-        expected.saved_posts -= 1;
-        expected.sequence =
-            expected.sequence.checked_add(1).ok_or(BillboardError::ArithmeticOverflow)?;
-        expected.next_allowed_height = public
-            .height
-            .checked_add(config.cooldown(expected.amount.max(config.minimum_deposit))?)
-            .ok_or(BillboardError::ArithmeticOverflow)?;
-        if !public.dummy {
-            if expected.pending.len() >= 2 {
-                return Err(BillboardError::ScreeningRequired);
-            }
-            expected.pending.push(PendingScreen {
-                post_id: public.post_id,
-                eligible_at: public
-                    .height
-                    .checked_add(config.screening_window)
-                    .ok_or(BillboardError::ArithmeticOverflow)?,
-            });
-        }
-        expected.blinding = successor.blinding;
+        let expected = derive_post_successor(
+            config,
+            prior,
+            if public.dummy { &[] } else { &public.content },
+            public.post_id,
+            public.height,
+            successor.blinding,
+            decisions,
+        )?;
         if expected != *successor {
             return Err(BillboardError::WrongPermit);
         }
@@ -547,6 +769,7 @@ impl BillboardVerifier {
     }
 }
 
+#[cfg(feature = "runtime")]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BillboardState {
     config: BillboardConfig,
@@ -561,12 +784,14 @@ pub struct BillboardState {
 }
 
 /// Atomic composition of the public native ledger and private billboard application state.
+#[cfg(feature = "runtime")]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NativeBillboardLedger {
     cash: CashLedger,
     billboard: BillboardState,
 }
 
+#[cfg(feature = "runtime")]
 impl NativeBillboardLedger {
     #[must_use]
     pub fn new(cash: CashLedger, config: BillboardConfig) -> Self {
@@ -670,6 +895,7 @@ impl NativeBillboardLedger {
     }
 }
 
+#[cfg(feature = "runtime")]
 impl BillboardState {
     #[must_use]
     pub fn new(config: BillboardConfig) -> Self {
@@ -821,12 +1047,14 @@ impl BillboardState {
     }
 }
 
+#[cfg(feature = "runtime")]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EncryptedPermit {
     commitment: Digest384,
     envelope: Vec<u8>,
 }
 
+#[cfg(feature = "runtime")]
 impl EncryptedPermit {
     pub fn seal(
         permit: &BillboardPermit,
@@ -841,12 +1069,14 @@ impl EncryptedPermit {
     }
 }
 
+#[cfg(feature = "runtime")]
 pub struct BillboardWallet {
     recipient: MlKem768Recipient,
     permits: Vec<BillboardPermit>,
     spent: Vec<Digest384>,
 }
 
+#[cfg(feature = "runtime")]
 impl BillboardWallet {
     #[must_use]
     pub fn from_seed(seed: [u8; 64]) -> Self {
@@ -914,6 +1144,7 @@ impl BillboardWallet {
     }
 }
 
+#[cfg(feature = "runtime")]
 impl From<KemError> for BillboardError {
     fn from(_: KemError) -> Self {
         Self::NoteEncryption
@@ -986,6 +1217,7 @@ fn screen_matured(
     Ok(())
 }
 
+#[cfg(feature = "runtime")]
 fn insert_unique(
     values: &mut Vec<Digest384>,
     value: Digest384,
@@ -1003,10 +1235,12 @@ fn insert_unique(
     }
 }
 
+#[cfg(feature = "runtime")]
 fn flatten_digests(values: &[Digest384]) -> Vec<u8> {
     values.iter().flat_map(|value| value.as_bytes().iter().copied()).collect()
 }
 
+#[cfg(feature = "runtime")]
 fn privacy_receipt<T: CanonicalType>(
     statement: &T,
 ) -> Result<VerifiedPrivacyProof, BillboardError> {

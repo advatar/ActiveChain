@@ -3,10 +3,43 @@
 version = 4
 
 [[package]]
+name = "activechain-canonical-codec"
+version = "0.1.0"
+
+[[package]]
 name = "activechain-pq-zk-guest"
 version = "0.1.0"
 dependencies = [
+ "activechain-canonical-codec",
+ "activechain-private-billboard",
  "risc0-zkvm",
+ "sha3",
+]
+
+[[package]]
+name = "activechain-private-billboard"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-protocol-commitment",
+ "activechain-protocol-types",
+ "sha3",
+]
+
+[[package]]
+name = "activechain-protocol-commitment"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-protocol-types",
+ "sha3",
+]
+
+[[package]]
+name = "activechain-protocol-types"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
  "sha3",
 ]
 
