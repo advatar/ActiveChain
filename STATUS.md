@@ -562,7 +562,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
                   - [x] Run the full two-row authenticated composite in optimized mode on the local
                     ARM64 release runner: 88.58 s proof/verification, 661,585,920-byte maximum RSS,
                     no swaps (2026-07-22).
-                  - [ ] Reject composites exceeding a fixed total Keccak-permutation budget before
+                  - [x] Reject composites exceeding a fixed total Keccak-permutation budget before
                     parent or chunk proving begins.
       - [x] Complete bounded-session enforcement and its CashAIR binding
         ([GitHub issue #72](https://github.com/advatar/ActiveChain/issues/72)).

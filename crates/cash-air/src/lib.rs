@@ -27,9 +27,11 @@ pub use session::{
 };
 pub use shake::{
     AuthenticatedCashShakeStarkProof, BatchedShake256StarkProof,
-    MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_CHUNK, MAX_CASH_SHAKE_MESSAGE, Shake256StarkProof,
-    prove_authenticated_cash_shake, prove_shake256_384, prove_shake256_384_batch,
-    verify_authenticated_cash_shake, verify_shake256_384, verify_shake256_384_batch,
+    MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_CHUNK,
+    MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_COMPOSITE, MAX_CASH_SHAKE_MESSAGE, Shake256StarkProof,
+    authenticated_cash_shake_permutation_count, prove_authenticated_cash_shake, prove_shake256_384,
+    prove_shake256_384_batch, verify_authenticated_cash_shake, verify_shake256_384,
+    verify_shake256_384_batch,
 };
 
 const TRACE_WIDTH: usize = 15;
@@ -309,6 +311,7 @@ pub fn prove_authenticated_parent(
 pub fn prove_authenticated_composite(
     trace: &AuthenticatedCashAirProofV1,
 ) -> Result<AuthenticatedCashCompositeStarkProof, &'static str> {
+    enforce_authenticated_composite_permutation_limit(trace)?;
     let parent = prove_authenticated_parent(trace)?;
     let mut mutation_shake = Vec::with_capacity(trace.mutations().len());
     for mutation in trace.mutations() {
@@ -321,6 +324,7 @@ pub fn verify_authenticated_composite(
     proof: AuthenticatedCashCompositeStarkProof,
     trace: &AuthenticatedCashAirProofV1,
 ) -> Result<(), &'static str> {
+    enforce_authenticated_composite_permutation_limit(trace)?;
     if proof.mutation_shake.len() != trace.mutations().len() {
         return Err("authenticated CashAIR composite row count mismatch");
     }
@@ -339,6 +343,25 @@ pub fn verify_authenticated_composite(
         }
     }
     Ok(())
+}
+
+fn enforce_authenticated_composite_permutation_limit(
+    trace: &AuthenticatedCashAirProofV1,
+) -> Result<usize, &'static str> {
+    let total = trace.mutations().iter().flatten().try_fold(0_usize, |total, mutation| {
+        total
+            .checked_add(authenticated_cash_shake_permutation_count(mutation)?)
+            .ok_or("authenticated CashAIR permutation count overflow")
+    })?;
+    ensure_authenticated_composite_permutation_total(total)
+}
+
+fn ensure_authenticated_composite_permutation_total(total: usize) -> Result<usize, &'static str> {
+    if total > MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_COMPOSITE {
+        Err("authenticated CashAIR composite exceeds permutation budget")
+    } else {
+        Ok(total)
+    }
 }
 
 pub fn verify(proof: CashStarkProof) -> Result<(), &'static str> {
@@ -652,6 +675,21 @@ mod tests {
             mutation_shake: trace.mutations().iter().map(|_| None).collect(),
         };
         assert!(verify_authenticated_composite(missing_proofs, &trace).is_err());
+    }
+
+    #[test]
+    fn authenticated_composite_budget_is_preflighted_before_proving() {
+        let (ledger, batch) = fixture();
+        let (trace, _) = prove_authenticated_cash_air(&ledger, &batch, 3, 16).unwrap();
+        let total = super::enforce_authenticated_composite_permutation_limit(&trace).unwrap();
+        assert!(total > super::MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_CHUNK);
+        assert!(total <= super::MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_COMPOSITE);
+        assert!(
+            super::ensure_authenticated_composite_permutation_total(
+                super::MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_COMPOSITE + 1,
+            )
+            .is_err()
+        );
     }
 
     #[test]

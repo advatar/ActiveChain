@@ -50,6 +50,10 @@ fixture: optimized proof plus verification took 88.58 seconds, maximum resident 
 661,585,920 bytes, and the process performed no swaps. Including the one-time optimized build, the
 measured command took 176.87 seconds. This establishes that chunking bounds live memory, while also
 showing that a separate total-permutation admission cap is required to bound validator CPU work.
+The composite prover and verifier now preflight the canonical mutation transcript count and reject
+more than 16,384 Keccak permutations before parent proving or chunk allocation begins. Checked
+addition fails closed on count overflow. Together with the 64-permutation chunk cap, this bounds
+both aggregate CPU admission and live trace memory.
 
 The parent Winterfell CashAIR statement now has a domain-separated authenticated mode, public
 pre/post authenticated roots, and one public authenticated root for every execution row. The trace
