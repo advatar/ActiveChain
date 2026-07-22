@@ -536,7 +536,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
         - [ ] Add authenticated Coin Cell membership, one-time consumption, and partition/global
           root transition constraints
           ([GitHub issue #76](https://github.com/advatar/ActiveChain/issues/76)).
-          - [ ] Replace whole-set-only evidence with a canonical sparse Coin Cell accumulator and
+          - [x] Replace whole-set-only evidence with a canonical sparse Coin Cell accumulator and
             locally verifiable membership/non-membership mutation witnesses.
           - [ ] Arithmetize ordered mutation paths and bind their chained pre/post roots into
             CashAIR public inputs.
