@@ -12,9 +12,9 @@ use proptest::prelude::*;
 use crate::hash::empty_hashes;
 use crate::{
     MAX_REFERENCE_STATE_OBJECTS, STATE_TREE_ARITY, STATE_TREE_DEPTH, StateProof, StateProofKind,
-    StateProofLevel, StateProofValidationError, StateProofVerificationError, StateTreeError,
-    commit_objects, partition_id, path_nibble, prove_object, verify_membership,
-    verify_non_membership,
+    StateProofLevel, StateProofUpdateError, StateProofValidationError, StateProofVerificationError,
+    StateTreeError, apply_single_key_update, commit_objects, partition_id, path_nibble,
+    prove_object, verify_membership, verify_non_membership,
 };
 
 fn digest(byte: u8) -> Digest384 {
@@ -103,6 +103,48 @@ fn membership_and_non_membership_proofs_verify_and_round_trip() {
 
     let proof_bytes = encode_envelope(&member).expect("proof fits its bound");
     assert_eq!(decode_envelope(&proof_bytes), Ok(member));
+}
+
+#[test]
+fn authenticated_single_key_updates_match_full_tree_recomputation() {
+    let first = object(object_id_with_ends(0x10, 0x10), 7);
+    let second = object(object_id_with_ends(0x20, 0x20), 8);
+    let objects = vec![first.clone(), second.clone()];
+    let commitment = commit_objects(&objects).expect("state commits");
+
+    let replacement = object(first.object_id(), 9);
+    let member_proof = prove_object(&objects, first.object_id()).expect("membership proof");
+    let replaced =
+        apply_single_key_update(commitment, &member_proof, Some(&first), Some(&replacement))
+            .expect("replacement authenticates");
+    assert_eq!(replaced, commit_objects(&[replacement.clone(), second.clone()]).unwrap());
+    assert_eq!(replaced.object_count(), commitment.object_count());
+
+    let deletion_proof = prove_object(&objects, second.object_id()).expect("deletion proof");
+    let deleted = apply_single_key_update(commitment, &deletion_proof, Some(&second), None)
+        .expect("deletion authenticates");
+    assert_eq!(deleted, commit_objects(core::slice::from_ref(&first)).unwrap());
+    assert_eq!(deleted.object_count(), commitment.object_count() - 1);
+
+    let inserted_object = object(object_id_with_ends(0x30, 0x30), 10);
+    let insertion_proof =
+        prove_object(&objects, inserted_object.object_id()).expect("non-membership proof");
+    let inserted =
+        apply_single_key_update(commitment, &insertion_proof, None, Some(&inserted_object))
+            .expect("insertion authenticates");
+    assert_eq!(inserted, commit_objects(&[first, second, inserted_object]).unwrap());
+    assert_eq!(inserted.object_count(), commitment.object_count() + 1);
+
+    let wrong_key = object(object_id_with_ends(0x40, 0x40), 1);
+    assert_eq!(
+        apply_single_key_update(
+            commitment,
+            &member_proof,
+            Some(&object(object_id_with_ends(0x10, 0x10), 7)),
+            Some(&wrong_key)
+        ),
+        Err(StateProofUpdateError::AfterObjectIdMismatch)
+    );
 }
 
 #[test]
@@ -198,6 +240,23 @@ fn worst_case_proof_body_matches_the_published_bound() {
 
 proptest! {
     #[test]
+    fn every_key_depth_refines_the_independent_nibble_and_partition_oracle(
+        bytes in any::<[u8; 48]>(),
+        depth in 0_usize..STATE_TREE_DEPTH,
+    ) {
+        let object_id = ObjectId::new(Digest384::new(bytes));
+        let byte = bytes[depth / 2];
+        let expected = if depth.is_multiple_of(2) { byte >> 4 } else { byte & 0x0f };
+        prop_assert_eq!(path_nibble(object_id, depth), Some(expected));
+        prop_assert!(expected < STATE_TREE_ARITY as u8);
+        prop_assert_eq!(
+            partition_id(object_id),
+            (u16::from(bytes[0]) << 4) | (u16::from(bytes[1]) >> 4)
+        );
+        prop_assert_eq!(path_nibble(object_id, STATE_TREE_DEPTH), None);
+    }
+
+    #[test]
     fn changing_an_object_version_changes_the_state_root(version in 0_u64..u64::MAX) {
         let object_id = object_id_with_ends(0x10, 0x10);
         let before = object(object_id, version);
@@ -205,5 +264,22 @@ proptest! {
         let before_root = commit_objects(&[before]).expect("state commits");
         let after_root = commit_objects(&[after]).expect("state commits");
         prop_assert_ne!(before_root, after_root);
+    }
+
+
+    #[test]
+    fn authenticated_replacement_refines_full_recomputation(
+        before_version in any::<u64>(),
+        after_version in any::<u64>(),
+    ) {
+        let object_id = object_id_with_ends(0x10, 0x10);
+        let before = object(object_id, before_version);
+        let after = object(object_id, after_version);
+        let pre = commit_objects(core::slice::from_ref(&before)).expect("state commits");
+        let proof = prove_object(core::slice::from_ref(&before), object_id).expect("proof");
+        let incremental = apply_single_key_update(pre, &proof, Some(&before), Some(&after))
+            .expect("authenticated replacement");
+        let recomputed = commit_objects(core::slice::from_ref(&after)).expect("state commits");
+        prop_assert_eq!(incremental, recomputed);
     }
 }

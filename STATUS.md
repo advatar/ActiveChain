@@ -130,7 +130,7 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
     for ObjectVM, with executable conformance witnesses.
     - [x] Carry verifier-produced register/event certificates into production execution and reject any
       per-instruction runtime disagreement before charging or mutation ([#44](https://github.com/advatar/ActiveChain/issues/44)).
-  - [ ] Generalize state-tree path, membership, non-membership, and root-update proofs and compare them
+  - [x] Generalize state-tree path, membership, non-membership, and root-update proofs and compare them
     against the production implementation.
   - [ ] Generalize canonical envelope and minimal-length decoding proofs and bind them to production
     encoder/decoder traces across every published schema.
