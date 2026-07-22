@@ -9,6 +9,17 @@ tla_url="https://github.com/tlaplus/tlaplus/releases/download/v${tla_version}/tl
 tla_jar="$tool_cache/tla2tools-${tla_version}.jar"
 java_image='eclipse-temurin@sha256:db1689535962d757a5adabf57387584ed543d38c0b9d1fe870123ea362ad73b0'
 workers=${ACTIVECHAIN_TLC_WORKERS:-auto}
+module=${1:-ActiveChainConsensus}
+config=${2:-${module}.cfg}
+
+if [[ "$module" == */* || "$config" == */* || "$module" == *..* || "$config" == *..* ]]; then
+  echo "TLA+ module and configuration must be filenames under formal/tla" >&2
+  exit 1
+fi
+if [[ ! -f "$root/formal/tla/${module}.tla" || ! -f "$root/formal/tla/$config" ]]; then
+  echo "missing TLA+ module or configuration: $module / $config" >&2
+  exit 1
+fi
 
 sha256_file() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -58,5 +69,5 @@ docker run --rm \
     -seed 20260721 \
     -fp 0 \
     -workers "$workers" \
-    -config ActiveChainConsensus.cfg \
-    ActiveChainConsensus.tla
+    -config "$config" \
+    "${module}.tla"
