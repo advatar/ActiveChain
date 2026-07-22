@@ -64,6 +64,14 @@ impl WalletTransactionGateway {
         self.ingress.submit_envelope_durable(envelope, height, snapshot_path)
     }
 
+    pub fn register_session_envelope(
+        &mut self,
+        envelope: &[u8],
+        snapshot_path: &std::path::Path,
+    ) -> Result<(), activechain_wallet_core::WalletError> {
+        self.ingress.register_session_envelope_durable(envelope, snapshot_path)
+    }
+
     /// Installs one sender's finalized ML-DSA-44 cash-session key and provenance.
     pub fn install_finalized_authorization_key<
         V: activechain_wallet_core::FinalizedIdentityKeyVerifier,
@@ -2923,6 +2931,25 @@ mod tests {
             transfer,
         )
         .unwrap();
+        let grant = activechain_wallet_core::CashSessionGrantV1::new(
+            ChainId::new(digest(1)),
+            owner,
+            digest(12),
+            1,
+            10,
+            11,
+        )
+        .unwrap();
+        let grant_signature = cash_key.sign(&grant.signing_payload().unwrap());
+        let authorized_grant = activechain_wallet_core::AuthorizedCashSessionGrantV1::new(
+            grant,
+            ProtocolSignature::new(
+                CryptoSuiteId::ML_DSA_44,
+                grant_signature.encode().as_slice().to_vec(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
         let signature = cash_key.sign(&request.signing_payload().unwrap());
         let authorized = activechain_wallet_core::AuthorizedCashTransferV1::new(
             request,
@@ -2937,6 +2964,9 @@ mod tests {
         let path = std::env::temp_dir()
             .join(format!("activechain-wallet-gateway-{}.bin", std::process::id()));
         let _ = std::fs::remove_file(&path);
+        gateway
+            .register_session_envelope(&encode_envelope(&authorized_grant).unwrap(), &path)
+            .unwrap();
         gateway.submit_envelope(&envelope, 1, &path).unwrap();
         assert!(gateway.submit_envelope(&envelope, 1, &path).is_err());
         std::fs::remove_file(path).unwrap();

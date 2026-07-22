@@ -19,6 +19,7 @@ use crate::{CashAuthorizationLane, TransactionIngress, WalletError};
 const AUTHENTICATOR_SET_DOMAIN: &[u8] = b"ACTIVECHAIN-AUTHENTICATOR-SET-V1";
 pub(crate) const MAX_AUTHORIZATION_LANES: usize = 256;
 pub(crate) const MAX_CONSUMED_SESSIONS_PER_LANE: usize = 4_096;
+pub(crate) const MAX_SESSION_BUDGETS_PER_LANE: usize = 4_096;
 pub(crate) const MAX_CONSUMED_INPUTS: usize = 65_535;
 pub(crate) const MAX_NON_AUTHORITATIVE_ACCEPTED: usize = 65_535;
 
@@ -161,6 +162,19 @@ impl TransactionIngress {
         *self = next;
         Ok(())
     }
+
+    /// Registers a session grant only after its complete next state is durably published.
+    pub fn register_session_envelope_durable(
+        &mut self,
+        bytes: &[u8],
+        path: &Path,
+    ) -> Result<(), WalletError> {
+        let mut next = self.clone();
+        next.register_session_envelope(bytes)?;
+        next.save_atomic(path)?;
+        *self = next;
+        Ok(())
+    }
 }
 
 impl CanonicalEncode for TransactionIngress {
@@ -175,6 +189,14 @@ impl CanonicalEncode for TransactionIngress {
             encoder.write_length(lane.consumed_sessions.len(), MAX_CONSUMED_SESSIONS_PER_LANE)?;
             for session in &lane.consumed_sessions {
                 session.encode(encoder)?;
+            }
+            encoder.write_length(lane.session_budgets.len(), MAX_SESSION_BUDGETS_PER_LANE)?;
+            for session in &lane.session_budgets {
+                session.session_id.encode(encoder)?;
+                session.valid_from.encode(encoder)?;
+                session.expires_at.encode(encoder)?;
+                session.max_spend.encode(encoder)?;
+                session.spent.encode(encoder)?;
             }
             lane.identity_sequence.encode(encoder)?;
             lane.authenticator_id.encode(encoder)?;
@@ -226,6 +248,33 @@ impl CanonicalDecode for TransactionIngress {
                 consumed_sessions.push(session);
                 previous_session = Some(session);
             }
+            let budget_count = decoder.read_length(MAX_SESSION_BUDGETS_PER_LANE)?;
+            let mut session_budgets = Vec::with_capacity(budget_count);
+            let mut previous_budget = None;
+            for _ in 0..budget_count {
+                let session_id = Digest384::decode(decoder)?;
+                if previous_budget.is_some_and(|previous| session_id <= previous) {
+                    return Err(DecodeError::InvalidValue(
+                        "cash session budgets are not strictly ordered",
+                    ));
+                }
+                let valid_from = u64::decode(decoder)?;
+                let expires_at = u64::decode(decoder)?;
+                let max_spend = u128::decode(decoder)?;
+                let spent = u128::decode(decoder)?;
+                if valid_from > expires_at || expires_at == 0 || max_spend == 0 || spent > max_spend
+                {
+                    return Err(DecodeError::InvalidValue("invalid cash session budget"));
+                }
+                session_budgets.push(crate::CashSessionBudget {
+                    session_id,
+                    valid_from,
+                    expires_at,
+                    max_spend,
+                    spent,
+                });
+                previous_budget = Some(session_id);
+            }
             let identity_sequence = u64::decode(decoder)?;
             let authenticator_id = activechain_protocol_types::AuthenticatorId::decode(decoder)?;
             let finalized_state_root = Digest384::decode(decoder)?;
@@ -239,6 +288,7 @@ impl CanonicalDecode for TransactionIngress {
                 public_key,
                 next_nonce,
                 consumed_sessions,
+                session_budgets,
                 identity_sequence,
                 authenticator_id,
                 finalized_state_root,
@@ -280,7 +330,7 @@ where
 
 impl CanonicalType for TransactionIngress {
     const TYPE_TAG: u16 = 0x0090;
-    const SCHEMA_VERSION: u16 = 1;
+    const SCHEMA_VERSION: u16 = 2;
     const MAX_ENCODED_LEN: usize = activechain_cash_kernel::CashLedger::MAX_ENCODED_LEN
         + 48
         + 2
@@ -290,6 +340,8 @@ impl CanonicalType for TransactionIngress {
                 + 8
                 + 2
                 + MAX_CONSUMED_SESSIONS_PER_LANE * 48
+                + 2
+                + MAX_SESSION_BUDGETS_PER_LANE * (48 + 8 + 8 + 16 + 16)
                 + 8
                 + 48
                 + 48
