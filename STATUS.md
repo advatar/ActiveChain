@@ -538,17 +538,17 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
           ([GitHub issue #76](https://github.com/advatar/ActiveChain/issues/76)).
           - [x] Replace whole-set-only evidence with a canonical sparse Coin Cell accumulator and
             locally verifiable membership/non-membership mutation witnesses.
-          - [ ] Arithmetize ordered mutation paths and bind their chained pre/post roots into
+          - [x] Arithmetize ordered mutation paths and bind their chained pre/post roots into
             CashAIR public inputs.
             - [x] Add authenticated-mode pre/post root public inputs and trace columns to the
               parent CashAIR STARK, with rejected-row stability and exact mutation-chain rows.
             - [x] Compose the authenticated parent proof with exactly one bounded SHAKE proof set
               per accepted row and reject missing, extra, or rejected-row SHAKE evidence.
-            - [ ] Add a bit-constrained SHAKE256/Keccak table for leaf, node, and root transcripts
+            - [x] Add a bit-constrained SHAKE256/Keccak table for leaf, node, and root transcripts
               ([GitHub issue #78](https://github.com/advatar/ActiveChain/issues/78)).
               - [x] Add public-input-bound Keccak-f permutation proofs, SHAKE padding/absorption
                 chaining, and differential leaf/node/root transcript tests.
-              - [ ] Batch path permutations and connect their exported digest tuples to ordered
+              - [x] Batch path permutations and connect their exported digest tuples to ordered
                 mutation-path rows with a sound cross-table argument.
                 - [x] Commit one Keccak trace and bind every 24-row slot to its verifier-derived,
                   ordered pre/post state tuple through committed preprocessed columns; bind padded
