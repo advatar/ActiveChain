@@ -45,10 +45,13 @@ theorem minimalLengthWidthUnique
   exact first.2.trans second.2.symm
 
 theorem u32CanonicalWidthIsBounded
-    (value : Nat) (fits : value ≤ maxU32) :
+    (value : Nat) (_fits : value ≤ maxU32) :
     1 ≤ canonicalLengthWidth value ∧ canonicalLengthWidth value ≤ 5 := by
   unfold canonicalLengthWidth
-  split <;> split <;> split <;> split <;> omega
+  split <;> try omega
+  split <;> try omega
+  split <;> try omega
+  split <;> omega
 
 /-! ## Strict canonical-envelope inspection -/
 
