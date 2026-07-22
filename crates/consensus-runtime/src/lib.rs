@@ -38,7 +38,9 @@ pub use finalized_block::{
     FinalizedBlockHeader, FinalizedBlockVerifier, ProofPublicInputs, VerifiedExecutionProof,
 };
 mod proof_pipeline;
-pub use proof_pipeline::{DurableProofPipeline, ProofJobStatus, ProofPipelineError};
+pub use proof_pipeline::{
+    DurableFinalizedState, DurableProofPipeline, ProofJobStatus, ProofPipelineError,
+};
 
 /// Canonical wallet transaction admission owned by the validator runtime.
 /// Authenticated network handlers can delegate here after peer/session checks.

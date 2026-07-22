@@ -1,12 +1,14 @@
 //! Crash-atomic bounded proof-job and one-time prover-reward state.
 
 use super::{
-    ExecutionProofVerifier, ProofPublicInputs, VerifiedExecutionProof, invalid_data, write_atomic,
+    ExecutionProofVerifier, FinalizedBlock, FinalizedBlockHeader, ProofPublicInputs,
+    VerifiedExecutionProof, invalid_data, write_atomic,
 };
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     decode_envelope, encode_envelope,
 };
+use activechain_devnet_kernel::{BlockReceipt, ChainState};
 use activechain_protocol_types::{Digest384, PrincipalId};
 use sha3::{
     Shake256,
@@ -199,6 +201,29 @@ impl DurableProofPipeline {
         job.rewarded = true;
         job.prover.ok_or(ProofPipelineError::State)
     }
+    /// Publishes executed chain state, fee/supply result, DA/proof/header metadata, proof finality,
+    /// and reward replay state in one fsync+rename snapshot.
+    pub fn commit_finalized(
+        &mut self,
+        id: Digest384,
+        block: &FinalizedBlock,
+        path: &Path,
+    ) -> Result<(), ProofPipelineError> {
+        let mut next = self.clone();
+        next.finalize(id, block.header.inputs.height(), block.block_digest)?;
+        let snapshot = DurableFinalizedState {
+            pipeline: next.clone(),
+            chain_state: block.next_state.clone(),
+            header: block.header,
+            receipt: block.receipt.clone(),
+            block_digest: block.block_digest,
+            proof_statement: block.proof_statement_commitment,
+            post_supply: block.post_supply,
+        };
+        snapshot.save(path).map_err(|_| ProofPipelineError::Persistence)?;
+        *self = next;
+        Ok(())
+    }
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
         let mut bytes =
             encode_envelope(self).map_err(|_| invalid_data("proof pipeline encoding failed"))?;
@@ -227,6 +252,94 @@ impl DurableProofPipeline {
         decode_envelope(&bytes[..body_len])
             .map_err(|_| invalid_data("proof pipeline snapshot invalid"))
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DurableFinalizedState {
+    pub pipeline: DurableProofPipeline,
+    pub chain_state: ChainState,
+    pub header: FinalizedBlockHeader,
+    pub receipt: BlockReceipt,
+    pub block_digest: Digest384,
+    pub proof_statement: Digest384,
+    pub post_supply: u128,
+}
+impl DurableFinalizedState {
+    pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        let mut bytes =
+            encode_envelope(self).map_err(|_| invalid_data("finalized state encoding failed"))?;
+        let mut h = Shake256::default();
+        h.update(b"ACTIVECHAIN-DURABLE-FINALIZED-STATE-V1");
+        h.update(&bytes);
+        let mut tag = [0_u8; 32];
+        h.finalize_xof().read(&mut tag);
+        bytes.extend_from_slice(&tag);
+        write_atomic(path, &bytes)
+    }
+    pub fn load(path: &Path) -> std::io::Result<Self> {
+        let bytes = std::fs::read(path)?;
+        if bytes.len() < 32 {
+            return Err(invalid_data("finalized state snapshot invalid"));
+        }
+        let body = bytes.len() - 32;
+        let mut h = Shake256::default();
+        h.update(b"ACTIVECHAIN-DURABLE-FINALIZED-STATE-V1");
+        h.update(&bytes[..body]);
+        let mut tag = [0_u8; 32];
+        h.finalize_xof().read(&mut tag);
+        if tag != bytes[body..] {
+            return Err(invalid_data("finalized state snapshot corrupt"));
+        }
+        decode_envelope(&bytes[..body])
+            .map_err(|_| invalid_data("finalized state snapshot invalid"))
+    }
+}
+impl CanonicalEncode for DurableFinalizedState {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.pipeline.encode(e)?;
+        self.chain_state.encode(e)?;
+        self.header.encode(e)?;
+        self.receipt.encode(e)?;
+        self.block_digest.encode(e)?;
+        self.proof_statement.encode(e)?;
+        self.post_supply.encode(e)
+    }
+}
+impl CanonicalDecode for DurableFinalizedState {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let value = Self {
+            pipeline: DurableProofPipeline::decode(d)?,
+            chain_state: ChainState::decode(d)?,
+            header: FinalizedBlockHeader::decode(d)?,
+            receipt: BlockReceipt::decode(d)?,
+            block_digest: Digest384::decode(d)?,
+            proof_statement: Digest384::decode(d)?,
+            post_supply: u128::decode(d)?,
+        };
+        if value
+            .header
+            .digest()
+            .map_err(|_| DecodeError::InvalidValue("invalid finalized header"))?
+            != value.block_digest
+            || value.header.proof_statement_commitment != value.proof_statement
+            || value.chain_state.height() != value.receipt.height()
+            || value.receipt.post_state() != value.header.inputs.post_state()
+        {
+            return Err(DecodeError::InvalidValue("inconsistent finalized state snapshot"));
+        }
+        Ok(value)
+    }
+}
+impl CanonicalType for DurableFinalizedState {
+    const TYPE_TAG: u16 = 0x007c;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = DurableProofPipeline::MAX_ENCODED_LEN
+        + ChainState::MAX_ENCODED_LEN
+        + FinalizedBlockHeader::MAX_ENCODED_LEN
+        + BlockReceipt::MAX_ENCODED_LEN
+        + 48
+        + 48
+        + 16;
 }
 impl CanonicalEncode for DurableProofPipeline {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
@@ -317,4 +430,5 @@ pub enum ProofPipelineError {
     CrossJob,
     InvalidProof,
     Order,
+    Persistence,
 }

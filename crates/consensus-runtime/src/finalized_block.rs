@@ -53,6 +53,9 @@ impl ProofPublicInputs {
     pub const fn height(&self) -> u64 {
         self.height
     }
+    pub const fn post_state(&self) -> StateCommitment {
+        self.post_state
+    }
 
     #[allow(clippy::too_many_arguments)]
     pub fn derive(
@@ -66,7 +69,7 @@ impl ProofPublicInputs {
         burn: u128,
         data_shards: usize,
         parity_shards: usize,
-    ) -> Result<(Self, BlockReceipt, Vec<u8>), FinalizedBlockAdmissionError> {
+    ) -> Result<(Self, ChainState, BlockReceipt, Vec<u8>), FinalizedBlockAdmissionError> {
         let encoded =
             encode_envelope(block).map_err(|_| FinalizedBlockAdmissionError::CanonicalBlock)?;
         let output =
@@ -120,6 +123,7 @@ impl ProofPublicInputs {
                 receipt_root: output.receipt_root(),
                 data_availability_commitment: da,
             },
+            output.state().clone(),
             output.receipt().clone(),
             encoded,
         ))
@@ -253,6 +257,8 @@ pub struct FinalizedBlock {
     pub block_digest: Digest384,
     pub block: DevnetBlock,
     pub receipt: BlockReceipt,
+    pub next_state: ChainState,
+    pub post_supply: u128,
     pub availability_payload: Vec<u8>,
     pub proof_statement_commitment: Digest384,
     pub prover: PrincipalId,
@@ -300,7 +306,7 @@ impl FinalizedBlockCandidate {
         if block.actions().iter().any(|action| !verifier.verify_authorization(action)) {
             return Err(FinalizedBlockAdmissionError::Authorization);
         }
-        let (inputs, receipt, _) = ProofPublicInputs::derive(
+        let (inputs, next_state, receipt, _) = ProofPublicInputs::derive(
             state,
             &block,
             epoch,
@@ -340,6 +346,8 @@ impl FinalizedBlockCandidate {
             block_digest: digest,
             block,
             receipt,
+            next_state,
+            post_supply: inputs.post_supply,
             availability_payload: self.encoded_block,
             proof_statement_commitment: statement,
             prover: self.proof.prover,
@@ -364,7 +372,7 @@ pub enum FinalizedBlockAdmissionError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DurableProofPipeline, ProofPipelineError};
+    use crate::{DurableFinalizedState, DurableProofPipeline, ProofPipelineError};
     use activechain_action_kernel::ResourcePrices;
     use activechain_protocol_types::ConsensusVoteContext;
     use activechain_state_tree::commit_objects;
@@ -403,7 +411,7 @@ mod tests {
         let block = DevnetBlock::new(chain, 1, Digest384::ZERO, pre_state, vec![]).unwrap();
         let root = Digest384::new([2; 48]);
         let genesis = Digest384::new([3; 48]);
-        let (inputs, _, _) =
+        let (inputs, _, _, _) =
             ProofPublicInputs::derive(&state, &block, 7, 4, root, 100, 3, 2, 1, 1).unwrap();
         let proof = VerifiedExecutionProof {
             inputs,
@@ -422,6 +430,18 @@ mod tests {
     fn typed_finalization_recomputes_every_binding_and_rejects_substitution() {
         let (state, block, _inputs, proof, header, genesis, root) = fixture();
         let digest = header.digest().unwrap();
+        assert_eq!(
+            digest,
+            Digest384::new([
+                47, 108, 251, 90, 68, 209, 25, 59, 165, 223, 214, 130, 0, 116, 134, 147, 239, 216,
+                109, 205, 217, 49, 158, 138, 196, 207, 215, 228, 163, 166, 46, 145, 101, 120, 226,
+                54, 131, 237, 133, 127, 135, 245, 127, 148, 44, 40, 131, 255,
+            ])
+        );
+        assert_eq!(
+            include_str!("../../../testing/vectors/consensus/finalized-block-v1.txt"),
+            "header_type_tag=0x0079\nheader_schema_version=1\nproof_inputs_type_tag=0x0078\nproof_inputs_schema_version=1\nheader_digest=2f6cfb5a44d1193ba5dfd68200748693efd86dcdd9319e8ac4cfd7e4a3a62e916578e23683ed857f87f57f942c2883ff\n"
+        );
         let context = ConsensusVoteContext::new_with_revision(genesis, 7, root, 4).unwrap();
         let certificate =
             QuorumCertificate::new(context, 1, 0, digest, Digest384::new([5; 48]), 1, 1).unwrap();
@@ -447,8 +467,8 @@ mod tests {
                 inputs: ProofPublicInputs { burn: 3, ..header.inputs },
                 ..header
             },
-            proof,
-            certificate,
+            proof: proof.clone(),
+            certificate: certificate.clone(),
             data_shards: 1,
             parity_shards: 1,
         };
@@ -456,11 +476,60 @@ mod tests {
             wrong.admit(&state, genesis, 7, 4, root, 100, 3, 2, &AcceptAll),
             Err(FinalizedBlockAdmissionError::ComponentMismatch)
         );
+
+        for mutated in [
+            ProofPublicInputs { authorization_root: Digest384::new([21; 48]), ..header.inputs },
+            ProofPublicInputs { action_root: Digest384::new([22; 48]), ..header.inputs },
+            ProofPublicInputs { execution_order_root: Digest384::new([23; 48]), ..header.inputs },
+            ProofPublicInputs { receipt_root: Digest384::new([24; 48]), ..header.inputs },
+            ProofPublicInputs {
+                data_availability_commitment: Digest384::new([25; 48]),
+                ..header.inputs
+            },
+            ProofPublicInputs {
+                post_state: StateCommitment::new(Digest384::new([26; 48]), 0),
+                ..header.inputs
+            },
+            ProofPublicInputs { protocol_revision: 5, ..header.inputs },
+        ] {
+            let candidate = FinalizedBlockCandidate {
+                encoded_block: encode_envelope(&block).unwrap(),
+                claimed_header: FinalizedBlockHeader { inputs: mutated, ..header },
+                proof: proof.clone(),
+                certificate: certificate.clone(),
+                data_shards: 1,
+                parity_shards: 1,
+            };
+            assert_eq!(
+                candidate.admit(&state, genesis, 7, 4, root, 100, 3, 2, &AcceptAll),
+                Err(FinalizedBlockAdmissionError::ComponentMismatch)
+            );
+        }
     }
 
     #[test]
     fn proof_pipeline_is_ordered_durable_and_reward_replay_safe() {
-        let (_state, _block, inputs, proof, _header, _genesis, _root) = fixture();
+        let (state, block, inputs, proof, header, genesis, root) = fixture();
+        let certificate = QuorumCertificate::new(
+            ConsensusVoteContext::new_with_revision(genesis, 7, root, 4).unwrap(),
+            1,
+            0,
+            header.digest().unwrap(),
+            Digest384::new([5; 48]),
+            1,
+            1,
+        )
+        .unwrap();
+        let finalized = FinalizedBlockCandidate {
+            encoded_block: encode_envelope(&block).unwrap(),
+            claimed_header: header,
+            proof: proof.clone(),
+            certificate,
+            data_shards: 1,
+            parity_shards: 1,
+        }
+        .admit(&state, genesis, 7, 4, root, 100, 3, 2, &AcceptAll)
+        .unwrap();
         let mut pipeline = DurableProofPipeline::default();
         let id = pipeline.enqueue(inputs).unwrap();
         assert_eq!(pipeline.enqueue(inputs), Err(ProofPipelineError::Replay));
@@ -471,7 +540,13 @@ mod tests {
             pipeline.finalize(id, 2, Digest384::new([8; 48])),
             Err(ProofPipelineError::Order)
         );
-        pipeline.finalize(id, 1, Digest384::new([8; 48])).unwrap();
+        let finalized_path = std::env::temp_dir()
+            .join(format!("activechain-finalized-state-{}.snapshot", std::process::id()));
+        pipeline.commit_finalized(id, &finalized, &finalized_path).unwrap();
+        let durable = DurableFinalizedState::load(&finalized_path).unwrap();
+        assert_eq!(durable.chain_state, finalized.next_state);
+        assert_eq!(durable.post_supply, 101);
+        let _ = std::fs::remove_file(finalized_path);
         let path = std::env::temp_dir()
             .join(format!("activechain-proof-pipeline-{}.snapshot", std::process::id()));
         pipeline.save(&path).unwrap();
@@ -484,5 +559,21 @@ mod tests {
         std::fs::write(&path, corrupt).unwrap();
         assert!(DurableProofPipeline::load(&path).is_err());
         let _ = std::fs::remove_file(path);
+
+        let mut retries = DurableProofPipeline::default();
+        let retry_id = retries.enqueue(inputs).unwrap();
+        retries.dispatch(retry_id, 1, 1).unwrap();
+        retries.dispatch(retry_id, 3, 1).unwrap();
+        retries.dispatch(retry_id, 5, 1).unwrap();
+        assert_eq!(retries.dispatch(retry_id, 7, 1), Err(ProofPipelineError::RetriesExhausted));
+
+        let mut bounded = DurableProofPipeline::default();
+        for height in 1..=64 {
+            bounded.enqueue(ProofPublicInputs { height, ..inputs }).unwrap();
+        }
+        assert_eq!(
+            bounded.enqueue(ProofPublicInputs { height: 65, ..inputs }),
+            Err(ProofPipelineError::Backpressure)
+        );
     }
 }
