@@ -161,6 +161,147 @@ impl CanonicalType for AuthorizedCashSessionGrantV1 {
         CashSessionGrantV1::MAX_ENCODED_LEN + ProtocolSignature::MAX_ENCODED_LEN;
 }
 
+/// Canonical pre/post budget values produced by successful authoritative admission.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CashSessionAdmissionWitnessV1 {
+    chain_id: ChainId,
+    signer: PrincipalId,
+    session_id: Digest384,
+    height: u64,
+    valid_from: u64,
+    expires_at: u64,
+    amount: u128,
+    fee: u128,
+    max_spend: u128,
+    pre_spent: u128,
+    post_spent: u128,
+}
+
+impl CashSessionAdmissionWitnessV1 {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        chain_id: ChainId,
+        signer: PrincipalId,
+        session_id: Digest384,
+        height: u64,
+        valid_from: u64,
+        expires_at: u64,
+        amount: u128,
+        fee: u128,
+        max_spend: u128,
+        pre_spent: u128,
+        post_spent: u128,
+    ) -> Result<Self, WalletError> {
+        let spend = amount.checked_add(fee).ok_or(WalletError::SessionBudgetExceeded)?;
+        if height < valid_from
+            || height > expires_at
+            || pre_spent.checked_add(spend) != Some(post_spent)
+            || post_spent > max_spend
+        {
+            return Err(WalletError::SessionBudgetExceeded);
+        }
+        Ok(Self {
+            chain_id,
+            signer,
+            session_id,
+            height,
+            valid_from,
+            expires_at,
+            amount,
+            fee,
+            max_spend,
+            pre_spent,
+            post_spent,
+        })
+    }
+
+    #[must_use]
+    pub const fn chain_id(&self) -> ChainId {
+        self.chain_id
+    }
+    #[must_use]
+    pub const fn signer(&self) -> PrincipalId {
+        self.signer
+    }
+    #[must_use]
+    pub const fn session_id(&self) -> Digest384 {
+        self.session_id
+    }
+    #[must_use]
+    pub const fn height(&self) -> u64 {
+        self.height
+    }
+    #[must_use]
+    pub const fn valid_from(&self) -> u64 {
+        self.valid_from
+    }
+    #[must_use]
+    pub const fn expires_at(&self) -> u64 {
+        self.expires_at
+    }
+    #[must_use]
+    pub const fn amount(&self) -> u128 {
+        self.amount
+    }
+    #[must_use]
+    pub const fn fee(&self) -> u128 {
+        self.fee
+    }
+    #[must_use]
+    pub const fn max_spend(&self) -> u128 {
+        self.max_spend
+    }
+    #[must_use]
+    pub const fn pre_spent(&self) -> u128 {
+        self.pre_spent
+    }
+    #[must_use]
+    pub const fn post_spent(&self) -> u128 {
+        self.post_spent
+    }
+}
+
+impl CanonicalEncode for CashSessionAdmissionWitnessV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain_id.encode(e)?;
+        self.signer.encode(e)?;
+        self.session_id.encode(e)?;
+        self.height.encode(e)?;
+        self.valid_from.encode(e)?;
+        self.expires_at.encode(e)?;
+        self.amount.encode(e)?;
+        self.fee.encode(e)?;
+        self.max_spend.encode(e)?;
+        self.pre_spent.encode(e)?;
+        self.post_spent.encode(e)
+    }
+}
+
+impl CanonicalDecode for CashSessionAdmissionWitnessV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            ChainId::decode(d)?,
+            PrincipalId::decode(d)?,
+            Digest384::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            u128::decode(d)?,
+            u128::decode(d)?,
+            u128::decode(d)?,
+            u128::decode(d)?,
+            u128::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid cash session admission witness"))
+    }
+}
+
+impl CanonicalType for CashSessionAdmissionWitnessV1 {
+    const TYPE_TAG: u16 = 0x0099;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 * 3 + 8 * 3 + 16 * 5;
+}
+
 /// The exact canonical value authorized by an ML-DSA cash signature.
 ///
 /// The recipient commitment is carried on the wire for policy interoperability, but strict

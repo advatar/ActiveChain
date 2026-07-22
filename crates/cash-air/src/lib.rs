@@ -19,6 +19,9 @@ use winterfell::{
     matrix::ColMatrix,
 };
 
+mod session;
+pub use session::{CashSessionStarkProof, prove_session_budget, verify_session_budget};
+
 const TRACE_WIDTH: usize = 11;
 const STEP: usize = 0;
 const APPLIED: usize = 1;
