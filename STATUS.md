@@ -110,6 +110,17 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
   - [x] Freeze vectors and test stale/revoked/amplified/substituted evidence, exhaustion, concurrent replay, restart, and corruption.
 - [ ] Complete APL evaluator, ObjectVM verifier/interpreter, state-tree, and codec refinement proofs;
   the current executable Lean tables cover only bounded semantic slices.
+  - [ ] Route each production boundary through an explicit pure semantic kernel and document the
+    refinement relation ([#44](https://github.com/advatar/ActiveChain/issues/44)).
+  - [ ] Replace table-only APL evidence with general evaluator theorems and production differential tests.
+  - [ ] Prove verifier/interpreter agreement, whole-run determinism, gas accounting, and failure atomicity
+    for ObjectVM, with executable conformance witnesses.
+  - [ ] Generalize state-tree path, membership, non-membership, and root-update proofs and compare them
+    against the production implementation.
+  - [ ] Generalize canonical envelope and minimal-length decoding proofs and bind them to production
+    encoder/decoder traces across every published schema.
+  - [ ] Freeze cross-language witnesses, publish the exact remaining assumptions, and pass all formal,
+    workspace, lint, and applicable bounded-checking gates.
   - [x] Add seven compositional Kani harnesses over the production bytecode-verifier and ObjectVM
     helpers for bounded register/target admission, the complete resource-class table, prepaid gas,
     checked addition, and forward branch selection. Full verifier-to-interpreter composition and
