@@ -56,13 +56,15 @@ Tracked by [GitHub issue #31](https://github.com/advatar/ActiveChain/issues/31).
 
 Tracked by [GitHub issue #42](https://github.com/advatar/ActiveChain/issues/42).
 
-- [ ] Publish a primary-source comparison with Ethereum, Aztec, Logos, Solana, Starknet,
+- [x] Publish a primary-source comparison with Ethereum, Aztec, Logos, Solana, Starknet,
   Cosmos SDK, and Polkadot.
-- [ ] Explain which combined protocol requirements motivate a coherent new L1 rather than an
+- [x] Explain which combined protocol requirements motivate a coherent new L1 rather than an
   unchanged deployment on an existing chain, rollup, or appchain framework.
-- [ ] Publish the engineering, security, ecosystem, liquidity, and interoperability costs of that
+- [x] Publish the engineering, security, ecosystem, liquidity, and interoperability costs of that
   choice without superiority or first-to-market claims.
-- [ ] Pass the landing-page production build and review the comparison at mobile and desktop widths.
+- [x] Pass the landing-page production build, changed-file lint/format checks, and responsive CSS review.
+- [ ] Complete screenshot-based mobile and desktop review; the in-app browser runtime failed to
+  initialize in the implementation session, so this remains an explicit PR review gate.
 
 ## Active launch gate — whole-system formal verification
 
