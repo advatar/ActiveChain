@@ -34,8 +34,9 @@ def noteRule (state : Bool × Bool) (rule : RuleObservation) : Bool × Bool :=
     | .forbid => (state.1, true)
 
 /-- Scan all rule results without order-sensitive effect combination. -/
-def collectEffects (rules : List RuleObservation) : Bool × Bool :=
-  rules.foldl noteRule (false, false)
+def collectEffects : List RuleObservation → Bool × Bool
+  | [] => (false, false)
+  | rule :: rules => noteRule (collectEffects rules) rule
 
 /-- P-023's complete default-deny, forbid-overrides decision table. -/
 def combineEffects (hasPermit hasForbid : Bool) : Decision :=
@@ -45,6 +46,26 @@ def combineEffects (hasPermit hasForbid : Bool) : Decision :=
 def evaluate (rules : List RuleObservation) : Decision :=
   let effects := collectEffects rules
   combineEffects effects.1 effects.2
+
+/-- Logical, order-independent specification of whether a matching effect exists. -/
+def hasMatchingEffect (effect : Effect) (rules : List RuleObservation) : Bool :=
+  rules.any fun rule => rule.matched && (rule.effect == effect)
+
+@[simp] theorem permitEqPermit : (Effect.permit == Effect.permit) = true := rfl
+@[simp] theorem permitNeForbid : (Effect.permit == Effect.forbid) = false := rfl
+@[simp] theorem forbidNePermit : (Effect.forbid == Effect.permit) = false := rfl
+@[simp] theorem forbidEqForbid : (Effect.forbid == Effect.forbid) = true := rfl
+
+theorem collectEffectsSpec (rules : List RuleObservation) :
+    collectEffects rules =
+      (hasMatchingEffect .permit rules, hasMatchingEffect .forbid rules) := by
+  induction rules with
+  | nil => rfl
+  | cons rule rules ih =>
+      cases rule with
+      | mk effect matched =>
+          cases effect <;> cases matched <;>
+            simp [collectEffects, noteRule, hasMatchingEffect, ih]
 
 @[simp] theorem defaultDeny : combineEffects false false = .deny := rfl
 
@@ -56,6 +77,14 @@ theorem permitIff (hasPermit hasForbid : Bool) :
     combineEffects hasPermit hasForbid = .permit ↔
       hasPermit = true ∧ hasForbid = false := by
   cases hasPermit <;> cases hasForbid <;> decide
+
+/-- A policy permits exactly when some permit matches and no forbid matches. -/
+theorem evaluatePermitIff (rules : List RuleObservation) :
+    evaluate rules = .permit ↔
+      hasMatchingEffect .permit rules = true ∧
+      hasMatchingEffect .forbid rules = false := by
+  rw [evaluate, collectEffectsSpec]
+  exact permitIff _ _
 
 @[simp] theorem emptyPolicyDenies : evaluate [] = .deny := rfl
 

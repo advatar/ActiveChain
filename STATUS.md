@@ -112,7 +112,7 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
   the current executable Lean tables cover only bounded semantic slices.
   - [ ] Route each production boundary through an explicit pure semantic kernel and document the
     refinement relation ([#44](https://github.com/advatar/ActiveChain/issues/44)).
-  - [ ] Replace table-only APL evidence with general evaluator theorems and production differential tests.
+  - [x] Replace table-only APL evidence with general evaluator theorems and production differential tests.
   - [ ] Prove verifier/interpreter agreement, whole-run determinism, gas accounting, and failure atomicity
     for ObjectVM, with executable conformance witnesses.
   - [ ] Generalize state-tree path, membership, non-membership, and root-update proofs and compare them
