@@ -540,6 +540,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
             locally verifiable membership/non-membership mutation witnesses.
           - [ ] Arithmetize ordered mutation paths and bind their chained pre/post roots into
             CashAIR public inputs.
+            - [ ] Add authenticated-mode pre/post root public inputs and trace columns to the
+              parent CashAIR STARK, with rejected-row stability and exact mutation-chain rows.
             - [ ] Add a bit-constrained SHAKE256/Keccak table for leaf, node, and root transcripts
               ([GitHub issue #78](https://github.com/advatar/ActiveChain/issues/78)).
               - [x] Add public-input-bound Keccak-f permutation proofs, SHAKE padding/absorption
