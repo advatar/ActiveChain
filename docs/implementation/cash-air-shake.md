@@ -19,3 +19,21 @@ contain hundreds of permutations. The remaining step is a batched trace plus a s
 argument connecting every exported `(pre_state, post_state)` tuple to the ordered mutation-path
 table. Until that connection exists, direct SHAKE recomputation remains authoritative and the
 CashAIR membership gate stays open.
+
+The implemented batch uses one Keccak trace and committed preprocessed binding columns. The verifier
+derives the ordered permutation input/output tuples from the mutation transcripts, constructs the
+same binding table, and verifies its commitment with the STARK. Every first and final round is
+constrained against its assigned slot; power-of-two padding slots are constrained to the zero-state
+permutation. This provides ordered equality directly and avoids relying on a fixed-challenge or
+unimplemented global permutation argument.
+
+`prove_shake256_384_batch` and `verify_shake256_384_batch` expose that ordered table for a bounded
+message sequence. The remaining issue #78 work is to derive that sequence inside the ordered
+mutation-path adapter and bind its resulting roots into the parent CashAIR public inputs.
+
+The authenticated adapter now expands every ordered mutation into its exact pre-state leaf, 384
+depth-bound nodes, count-bound root, post-state leaf, 384 depth-bound nodes, and count-bound root.
+It rejects a derived terminal root that differs from the mutation witness and feeds the complete
+ordered sequence to the single batch proof. A full-depth mutation contains 772 SHAKE messages, so
+validator ingress remains disabled until benchmark data establishes a safe mutation cap and memory
+budget and the resulting roots are bound into the parent CashAIR proof.
