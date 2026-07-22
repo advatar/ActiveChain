@@ -41,6 +41,56 @@ def checkAction : Action → ValueKind → Verdict
 /-- All actions in the differential table have fixed version-1 cost one. -/
 def actionGasCost (_ : Action) : Nat := 1
 
+/-- Total outcome of an arbitrary resource-action trace. Every attempted action
+is prepaid, including the first rejected action. -/
+def executeActions : List (Action × ValueKind) → Verdict × Nat
+  | [] => (.accept, 0)
+  | (action, kind) :: actions =>
+      let verdict := checkAction action kind
+      match verdict with
+      | .accept =>
+          let tail := executeActions actions
+          (tail.1, actionGasCost action + tail.2)
+      | .copyRequiresCopyable | .typeMismatch =>
+          (verdict, actionGasCost action)
+
+theorem executeActionsDeterministic
+    (actions : List (Action × ValueKind))
+    (first second : Verdict × Nat)
+    (firstRun : executeActions actions = first)
+    (secondRun : executeActions actions = second) :
+    first = second := by
+  rw [← firstRun, ← secondRun]
+
+theorem successfulActionsUseExactGas
+    (actions : List (Action × ValueKind))
+    (gas : Nat)
+    (accepted : executeActions actions = (.accept, gas)) :
+    gas = actions.length := by
+  induction actions generalizing gas with
+  | nil => simp [executeActions] at accepted; exact accepted.symm
+  | cons instruction actions ih =>
+      rcases instruction with ⟨action, kind⟩
+      generalize outcomeEq : executeActions actions = outcome at accepted
+      rcases outcome with ⟨tailVerdict, tailGas⟩
+      cases tailVerdict <;> cases action <;> cases kind <;>
+        simp_all [executeActions, checkAction, isCopyable, actionGasCost, Nat.add_comm]
+
+/-- Atomic publication wrapper: rejected execution cannot expose scratch state. -/
+def publishState (preState postState : Nat) (outcome : Verdict × Nat) : Nat :=
+  match outcome.1 with
+  | .accept => postState
+  | .copyRequiresCopyable | .typeMismatch => preState
+
+theorem rejectedExecutionIsAtomic
+    (preState postState : Nat)
+    (outcome : Verdict × Nat)
+    (rejected : outcome.1 ≠ .accept) :
+    publishState preState postState outcome = preState := by
+  cases outcome with
+  | mk verdict gas =>
+      cases verdict <;> simp_all [publishState]
+
 /-- Exact gas of an arbitrary straight-line sequence in the resource algebra. -/
 def programGas (actions : List Action) : Nat :=
   (actions.map actionGasCost).sum

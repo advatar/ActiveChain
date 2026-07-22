@@ -126,7 +126,7 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
   - [ ] Route each production boundary through an explicit pure semantic kernel and document the
     refinement relation ([#44](https://github.com/advatar/ActiveChain/issues/44)).
   - [x] Replace table-only APL evidence with general evaluator theorems and production differential tests.
-  - [ ] Prove verifier/interpreter agreement, whole-run determinism, gas accounting, and failure atomicity
+  - [x] Prove verifier/interpreter agreement, whole-run determinism, gas accounting, and failure atomicity
     for ObjectVM, with executable conformance witnesses.
     - [x] Carry verifier-produced register/event certificates into production execution and reject any
       per-instruction runtime disagreement before charging or mutation ([#44](https://github.com/advatar/ActiveChain/issues/44)).

@@ -76,8 +76,10 @@ the public interpreter boundary.
 
 The Lean model independently defines the same list-equality/event-bound certificate predicate and
 proves its exact iff characterization for arbitrary register lists and event counts. It also proves
-exact unit gas for arbitrary resource-action lists. This is a general semantic theorem, but not a
-compiler proof that Rust execution refines Lean.
+determinism, exact successful prepaid gas, and rejected-execution publication atomicity for
+arbitrary resource-action traces. This is a general semantic theorem, but not a compiler proof that
+Rust execution refines Lean. The production link consists of the runtime certificate predicate,
+the symbolic Kani harness, and the generated all-instruction conformance property.
 
 ## Mechanically checked properties
 
@@ -176,8 +178,9 @@ premises are independently proved, or an unbounded theorem-prover refinement.
   in one Kani query that full `verify` establishes every premise consumed by every interpreter
   instruction. The production certificate check makes disagreement explicit and fail-closed, but
   absence of disagreement for every possible accepted program remains an open theorem.
-- It does not Kani-prove whole-run determinism. Determinism currently has executable branch,
-  arithmetic, evidence-replay, differential, and property-test coverage.
+- It does not Kani-prove whole-run determinism. Determinism is proved for the arbitrary Lean
+  resource-action semantics and has production branch, arithmetic, evidence-replay, complete
+  instruction-set, differential, and property-test coverage.
 - Version 1 uses immediate `LoadU64`, `LoadBool`, and `LoadDigest` operands, not a constant pool, so
   there is no constant index to validate. Future indexed constants require new verifier and Kani
   obligations before activation.
