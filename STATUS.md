@@ -538,7 +538,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
         - [x] Add canonical ML-DSA session-grant envelopes, persistent spend budgets, strict
           validator ingress, and crash-atomic budget consumption with transfer admission.
         - [ ] Bind the exact runtime pre/post session-budget witness into specialized AIR range and
-          monotonic-spend constraints.
+          monotonic-spend constraints
+          ([GitHub issue #74](https://github.com/advatar/ActiveChain/issues/74)).
   - [ ] Add recursive microbatch, partition, cash-slot, and global-transition aggregation.
 - [ ] Add the cash-specific capacity and fee market, refundable deposits, sponsorship, and paymasters.
 - [x] Implement the first accountable verifier-duty kernel: role-scoped bond lots, one-shot assignments, fixed rewards, receipt validation, and bounded objective penalties.
