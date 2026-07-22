@@ -270,6 +270,18 @@ pub struct CashStarkProof {
     public: CashStarkPublicInputs,
 }
 
+pub struct AuthenticatedCashCompositeStarkProof {
+    parent: CashStarkProof,
+    mutation_shake: Vec<Option<AuthenticatedCashShakeStarkProof>>,
+}
+
+impl AuthenticatedCashCompositeStarkProof {
+    #[must_use]
+    pub fn mutation_proof_count(&self) -> usize {
+        self.mutation_shake.iter().filter(|proof| proof.is_some()).count()
+    }
+}
+
 impl CashStarkProof {
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -293,6 +305,41 @@ pub fn prove_authenticated_parent(
     let prover = CashProver { options: proof_options() };
     let proof = prover.prove(execution).map_err(|_| "authenticated CashAIR proving failed")?;
     Ok(CashStarkProof { proof, public })
+}
+
+pub fn prove_authenticated_composite(
+    trace: &AuthenticatedCashAirProofV1,
+) -> Result<AuthenticatedCashCompositeStarkProof, &'static str> {
+    let parent = prove_authenticated_parent(trace)?;
+    let mut mutation_shake = Vec::with_capacity(trace.mutations().len());
+    for mutation in trace.mutations() {
+        mutation_shake.push(mutation.as_ref().map(prove_authenticated_cash_shake).transpose()?);
+    }
+    Ok(AuthenticatedCashCompositeStarkProof { parent, mutation_shake })
+}
+
+pub fn verify_authenticated_composite(
+    proof: AuthenticatedCashCompositeStarkProof,
+    trace: &AuthenticatedCashAirProofV1,
+) -> Result<(), &'static str> {
+    if proof.mutation_shake.len() != trace.mutations().len() {
+        return Err("authenticated CashAIR composite row count mismatch");
+    }
+    let expected_public = authenticated_public_inputs(trace);
+    if proof.parent.public.to_elements() != expected_public.to_elements() {
+        return Err("authenticated CashAIR parent public inputs mismatch");
+    }
+    verify(proof.parent)?;
+    for (row_proof, mutation) in proof.mutation_shake.iter().zip(trace.mutations()) {
+        match (row_proof, mutation) {
+            (Some(row_proof), Some(mutation)) => {
+                verify_authenticated_cash_shake(row_proof, mutation)?;
+            }
+            (None, None) => {}
+            _ => return Err("authenticated CashAIR composite row/proof mismatch"),
+        }
+    }
+    Ok(())
 }
 
 pub fn verify(proof: CashStarkProof) -> Result<(), &'static str> {
@@ -460,7 +507,10 @@ mod tests {
     };
     use activechain_protocol_types::{ChainId, CoinCellId, Digest384, PrincipalId};
 
-    use super::{BaseElement, prove, prove_authenticated_parent, verify};
+    use super::{
+        BaseElement, prove, prove_authenticated_composite, prove_authenticated_parent, verify,
+        verify_authenticated_composite,
+    };
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
@@ -589,5 +639,27 @@ mod tests {
         let mut wrong_row = prove_authenticated_parent(&trace).unwrap();
         wrong_row.public.authenticated_row_roots[0][0] += BaseElement::new(1);
         assert!(verify(wrong_row).is_err());
+    }
+
+    #[test]
+    fn authenticated_composite_requires_exact_accepted_row_shape() {
+        let (ledger, batch) = fixture();
+        let (trace, _) = prove_authenticated_cash_air(&ledger, &batch, 3, 16).unwrap();
+        let parent = prove_authenticated_parent(&trace).unwrap();
+        let missing_proofs = super::AuthenticatedCashCompositeStarkProof {
+            parent,
+            mutation_shake: trace.mutations().iter().map(|_| None).collect(),
+        };
+        assert!(verify_authenticated_composite(missing_proofs, &trace).is_err());
+    }
+
+    #[test]
+    #[ignore = "full-depth authenticated SHAKE timing is an explicit release benchmark gate"]
+    fn full_authenticated_composite_proves_and_verifies() {
+        let (ledger, batch) = fixture();
+        let (trace, _) = prove_authenticated_cash_air(&ledger, &batch, 3, 16).unwrap();
+        let proof = prove_authenticated_composite(&trace).unwrap();
+        assert_eq!(proof.mutation_proof_count(), 2);
+        verify_authenticated_composite(proof, &trace).unwrap();
     }
 }
