@@ -1,7 +1,7 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
-use activechain_canonical_codec::{DecodeError, Decoder};
+use activechain_canonical_codec::{DecodeError, inspect_canonical_envelope};
 use activechain_protocol_types::Digest384;
 use sha3::{
     Shake256,
@@ -70,18 +70,18 @@ pub fn inspect_envelope(
     if bytes.len() > MAX_ENVELOPE_LENGTH {
         return Err(VerifyError::TooLarge);
     }
-    let mut decoder = Decoder::new(bytes);
-    let type_tag = decoder.read_u16().map_err(VerifyError::Decode)?;
-    let schema_version = decoder.read_u16().map_err(VerifyError::Decode)?;
-    if type_tag != expected_type {
-        return Err(VerifyError::TypeMismatch);
-    }
-    if schema_version != expected_version {
-        return Err(VerifyError::VersionMismatch);
-    }
-    let body = decoder.read_bytes(MAX_ENVELOPE_LENGTH).map_err(VerifyError::Decode)?;
-    decoder.finish().map_err(VerifyError::Decode)?;
-    Ok(EnvelopeMetadata { type_tag, schema_version, body_length: body.len() })
+    let envelope =
+        inspect_canonical_envelope(bytes, expected_type, expected_version, MAX_ENVELOPE_LENGTH)
+            .map_err(|error| match error {
+                DecodeError::InvalidTypeTag { .. } => VerifyError::TypeMismatch,
+                DecodeError::UnsupportedSchemaVersion { .. } => VerifyError::VersionMismatch,
+                error => VerifyError::Decode(error),
+            })?;
+    Ok(EnvelopeMetadata {
+        type_tag: envelope.type_tag(),
+        schema_version: envelope.schema_version(),
+        body_length: envelope.body().len(),
+    })
 }
 
 #[cfg(test)]

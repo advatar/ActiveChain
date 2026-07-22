@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 
 use super::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
-    decode_envelope, encode_envelope,
+    canonical_length_prefix_len, decode_envelope, encode_envelope,
 };
 
 const COMPLETE_ENVELOPE_LENGTH: usize = 7;
@@ -138,4 +138,19 @@ fn bounded_encoder_appends_are_safe_and_never_exceed_the_limit() {
     let _ = encoder.write_raw(&second[..second_length]);
     let output: Vec<u8> = encoder.finish();
     assert!(output.len() <= maximum);
+}
+
+#[kani::proof]
+fn every_u32_length_has_one_exact_minimal_prefix_width() {
+    let value: u32 = kani::any();
+    let mut encoder = Encoder::new(5);
+    encoder
+        .write_length(value as usize, u32::MAX as usize)
+        .expect("every u32 length fits the protocol length space");
+    let bytes = encoder.finish();
+    assert_eq!(bytes.len(), canonical_length_prefix_len(value));
+
+    let mut decoder = Decoder::new(&bytes);
+    assert_eq!(decoder.read_length(u32::MAX as usize), Ok(value as usize));
+    assert_eq!(decoder.finish(), Ok(()));
 }

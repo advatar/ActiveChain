@@ -162,7 +162,7 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
       per-instruction runtime disagreement before charging or mutation ([#44](https://github.com/advatar/ActiveChain/issues/44)).
   - [x] Generalize state-tree path, membership, non-membership, and root-update proofs and compare them
     against the production implementation.
-  - [ ] Generalize canonical envelope and minimal-length decoding proofs and bind them to production
+  - [x] Generalize canonical envelope and minimal-length decoding proofs and bind them to production
     encoder/decoder traces across every published schema.
   - [ ] Freeze cross-language witnesses, publish the exact remaining assumptions, and pass all formal,
     workspace, lint, and applicable bounded-checking gates.

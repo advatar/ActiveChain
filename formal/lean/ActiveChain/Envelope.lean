@@ -26,6 +26,33 @@ abbrev Digest := Nat
 def maxEnvelopeLength : Nat := 256 * 1024
 def maxU32 : Nat := 4294967295
 
+/-- Unique ULEB128 width for every protocol `u32` length. -/
+def canonicalLengthWidth (value : Nat) : Nat :=
+  if value < 2^7 then 1
+  else if value < 2^14 then 2
+  else if value < 2^21 then 3
+  else if value < 2^28 then 4
+  else 5
+
+def MinimalLengthPrefix (value encodedWidth : Nat) : Prop :=
+  value ≤ maxU32 ∧ encodedWidth = canonicalLengthWidth value
+
+theorem minimalLengthWidthUnique
+    (value firstWidth secondWidth : Nat)
+    (first : MinimalLengthPrefix value firstWidth)
+    (second : MinimalLengthPrefix value secondWidth) :
+    firstWidth = secondWidth := by
+  exact first.2.trans second.2.symm
+
+theorem u32CanonicalWidthIsBounded
+    (value : Nat) (_fits : value ≤ maxU32) :
+    1 ≤ canonicalLengthWidth value ∧ canonicalLengthWidth value ≤ 5 := by
+  unfold canonicalLengthWidth
+  split <;> try omega
+  split <;> try omega
+  split <;> try omega
+  split <;> omega
+
 /-! ## Strict canonical-envelope inspection -/
 
 /-- Observable results of parsing the untrusted envelope bytes.  This is the

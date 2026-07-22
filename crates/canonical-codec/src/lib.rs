@@ -19,6 +19,17 @@ const TYPE_TAG_LENGTH: usize = core::mem::size_of::<u16>();
 const SCHEMA_VERSION_LENGTH: usize = core::mem::size_of::<u16>();
 const MAX_LENGTH_PREFIX_LENGTH: usize = 5;
 
+/// Returns the unique canonical ULEB128 width of one protocol length.
+#[must_use]
+pub const fn canonical_length_prefix_len(mut value: u32) -> usize {
+    let mut length = 1;
+    while value >= 0x80 {
+        value >>= 7;
+        length += 1;
+    }
+    length
+}
+
 /// A failure while producing canonical bytes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EncodeError {
@@ -307,7 +318,7 @@ impl<'input> Decoder<'input> {
 
             value |= u32::from(byte & 0x7f) << (index * 7);
             if byte & 0x80 == 0 {
-                if index > 0 && byte == 0 {
+                if canonical_length_prefix_len(value) != index + 1 {
                     return Err(DecodeError::NonMinimalLength);
                 }
                 let length = value as usize;
@@ -331,6 +342,63 @@ impl<'input> Decoder<'input> {
         let remaining = self.remaining();
         if remaining == 0 { Ok(()) } else { Err(DecodeError::TrailingData { remaining }) }
     }
+}
+
+/// A strictly parsed canonical envelope borrowing its exact body bytes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CanonicalEnvelopeRef<'input> {
+    type_tag: u16,
+    schema_version: u16,
+    body: &'input [u8],
+}
+
+impl<'input> CanonicalEnvelopeRef<'input> {
+    /// Returns the registered top-level type tag.
+    #[must_use]
+    pub const fn type_tag(self) -> u16 {
+        self.type_tag
+    }
+
+    /// Returns the exact schema version selected by the caller.
+    #[must_use]
+    pub const fn schema_version(self) -> u16 {
+        self.schema_version
+    }
+
+    /// Borrows the exact declared body after strict outer consumption.
+    #[must_use]
+    pub const fn body(self) -> &'input [u8] {
+        self.body
+    }
+}
+
+/// Strictly parses one canonical envelope without decoding its schema-specific body.
+///
+/// Type and version are checked before the minimal bounded length prefix, matching
+/// the typed decoder and verifier API failure order. Both outer and body lengths
+/// are consumed exactly, so a successful result is the unique canonical framing.
+pub fn inspect_canonical_envelope(
+    input: &[u8],
+    expected_type: u16,
+    expected_version: u16,
+    maximum_body_length: usize,
+) -> Result<CanonicalEnvelopeRef<'_>, DecodeError> {
+    let mut envelope = Decoder::new(input);
+    let type_tag = envelope.read_u16()?;
+    if type_tag != expected_type {
+        return Err(DecodeError::InvalidTypeTag { expected: expected_type, actual: type_tag });
+    }
+    let schema_version = envelope.read_u16()?;
+    if schema_version != expected_version {
+        return Err(DecodeError::UnsupportedSchemaVersion {
+            expected: expected_version,
+            actual: schema_version,
+        });
+    }
+    let body_length = envelope.read_length(maximum_body_length)?;
+    let body = envelope.read_raw(body_length)?;
+    envelope.finish()?;
+    Ok(CanonicalEnvelopeRef { type_tag, schema_version, body })
 }
 
 /// Encodes only the canonical body of a typed value.
@@ -362,26 +430,9 @@ pub fn encode_envelope<T: CanonicalType>(value: &T) -> Result<Vec<u8>, EncodeErr
 
 /// Strictly decodes exactly one enveloped value of `T`.
 pub fn decode_envelope<T: CanonicalType>(input: &[u8]) -> Result<T, DecodeError> {
-    let mut envelope = Decoder::new(input);
-
-    let type_tag = envelope.read_u16()?;
-    if type_tag != T::TYPE_TAG {
-        return Err(DecodeError::InvalidTypeTag { expected: T::TYPE_TAG, actual: type_tag });
-    }
-
-    let schema_version = envelope.read_u16()?;
-    if schema_version != T::SCHEMA_VERSION {
-        return Err(DecodeError::UnsupportedSchemaVersion {
-            expected: T::SCHEMA_VERSION,
-            actual: schema_version,
-        });
-    }
-
-    let body_length = envelope.read_length(T::MAX_ENCODED_LEN)?;
-    let body = envelope.read_raw(body_length)?;
-    envelope.finish()?;
-
-    let mut decoder = Decoder::new(body);
+    let envelope =
+        inspect_canonical_envelope(input, T::TYPE_TAG, T::SCHEMA_VERSION, T::MAX_ENCODED_LEN)?;
+    let mut decoder = Decoder::new(envelope.body());
     let value = T::decode(&mut decoder)?;
     decoder.finish()?;
     Ok(value)
@@ -468,7 +519,8 @@ mod tests {
 
     use super::{
         CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError,
-        Encoder, decode_envelope, encode_envelope,
+        Encoder, canonical_length_prefix_len, decode_envelope, encode_envelope,
+        inspect_canonical_envelope,
     };
 
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -544,6 +596,41 @@ mod tests {
     }
 
     #[test]
+    fn length_prefix_boundaries_have_unique_widths() {
+        for (value, expected_width) in [
+            (0_u32, 1),
+            (0x7f, 1),
+            (0x80, 2),
+            (0x3fff, 2),
+            (0x4000, 3),
+            (0x1f_ffff, 3),
+            (0x20_0000, 4),
+            (0x0fff_ffff, 4),
+            (0x1000_0000, 5),
+            (u32::MAX, 5),
+        ] {
+            assert_eq!(canonical_length_prefix_len(value), expected_width);
+            let mut encoder = Encoder::new(5);
+            encoder.write_length(value as usize, u32::MAX as usize).unwrap();
+            let bytes = encoder.finish();
+            assert_eq!(bytes.len(), expected_width);
+            let mut decoder = Decoder::new(&bytes);
+            assert_eq!(decoder.read_length(u32::MAX as usize), Ok(value as usize));
+            assert_eq!(decoder.finish(), Ok(()));
+        }
+    }
+
+    #[test]
+    fn shared_envelope_inspector_selects_the_exact_body() {
+        let encoded = encode_envelope(&Example { number: 7, enabled: true }).unwrap();
+        let envelope = inspect_canonical_envelope(&encoded, 0x1234, 1, 9).unwrap();
+        assert_eq!(envelope.type_tag(), 0x1234);
+        assert_eq!(envelope.schema_version(), 1);
+        assert_eq!(envelope.body(), &encoded[5..]);
+        assert_eq!(envelope.body().len(), 9);
+    }
+
+    #[test]
     fn byte_strings_are_bounded_before_their_payload_is_read() {
         let mut decoder = Decoder::new(&[0x04, 1, 2, 3, 4]);
         assert_eq!(
@@ -572,6 +659,29 @@ mod tests {
             let value = Example { number, enabled };
             let bytes = encode_envelope(&value).expect("fixed-size value fits its bound");
             prop_assert_eq!(decode_envelope::<Example>(&bytes), Ok(value));
+        }
+
+
+        #[test]
+        fn every_u32_length_round_trips_with_its_unique_minimal_prefix(value in any::<u32>()) {
+            let mut encoder = Encoder::new(5);
+            encoder.write_length(value as usize, u32::MAX as usize).unwrap();
+            let bytes = encoder.finish();
+            prop_assert_eq!(bytes.len(), canonical_length_prefix_len(value));
+            let mut decoder = Decoder::new(&bytes);
+            prop_assert_eq!(decoder.read_length(u32::MAX as usize), Ok(value as usize));
+            prop_assert_eq!(decoder.finish(), Ok(()));
+        }
+
+        #[test]
+        fn every_redundantly_extended_prefix_is_rejected(value in 0_u32..0x1000_0000) {
+            let mut encoder = Encoder::new(5);
+            encoder.write_length(value as usize, u32::MAX as usize).unwrap();
+            let mut bytes = encoder.finish();
+            *bytes.last_mut().unwrap() |= 0x80;
+            bytes.push(0);
+            let mut decoder = Decoder::new(&bytes);
+            prop_assert_eq!(decoder.read_length(u32::MAX as usize), Err(DecodeError::NonMinimalLength));
         }
     }
 }
