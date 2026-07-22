@@ -18,7 +18,7 @@ pub use economics::{
     ObjectiveFault, RewardRedemption, RewardSettlement, SecurityPoolAllocation, SlashSplit,
     VerifierRole, assign_challenge, register_assignment, resolve_challenge, settle_duty,
 };
-pub use transition::{CashLedger, CashTransitionError};
+pub use transition::{CashLedger, CashTransitionError, MAX_REDEEMED_REWARDS};
 pub use types::{
     CashTransferV1, CoinBurnTransition, CoinCell, CoinCellOrigin, CoinCellRecord, CoinCellSet,
     CoinMintTransition, CoinTransfer, EpochEconomicsTransition, GenesisAllocation, GenesisEconomy,
@@ -39,7 +39,7 @@ mod tests {
     use super::{
         CashLedger, CashTransferV1, CashTransitionError, CoinBurnTransition, CoinMintTransition,
         CoinTransfer, EpochEconomicsTransition, GenesisAllocation, GenesisEconomy,
-        NativeAssetDefinition, NativeMoneyError, NativeSupply,
+        NativeAssetDefinition, NativeMoneyError, NativeSupply, RewardRedemption, RewardSettlement,
     };
 
     fn digest(byte: u8) -> Digest384 {
@@ -335,6 +335,128 @@ mod tests {
     }
 
     #[test]
+    fn reward_and_shield_sources_are_one_shot_and_atomic_across_paths() {
+        let economy = economy();
+        let mut ledger = CashLedger::from_genesis(&economy).unwrap();
+        let fee_reserve = ledger
+            .apply_mint(
+                &CoinMintTransition::new(digest(2), principal(10), 50, 1, 1).unwrap(),
+                &settlement(1_000, 50, 1),
+            )
+            .unwrap();
+        let pool_cell = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .find(|record| record.cell().owner() == principal(10) && record.id() != fee_reserve)
+            .unwrap()
+            .id();
+        let reward = RewardSettlement {
+            assignment: digest(90),
+            verifier: principal(12),
+            reward: 100,
+            bond_return: 0,
+            slash_amount: 0,
+        };
+        let redemption = RewardRedemption {
+            settlement: reward.assignment,
+            pool_owner: principal(10),
+            pool_cell,
+            fee_reserve,
+            height: 2,
+        };
+        let supply_before = ledger.supply().current_total_supply();
+        ledger.redeem_reward(&reward, &redemption).unwrap();
+        assert_eq!(ledger.supply().current_total_supply(), supply_before);
+        assert_eq!(ledger.redeemed_rewards(), &[reward.assignment]);
+
+        let paid = ledger.clone();
+        assert_eq!(
+            ledger.redeem_reward(&reward, &redemption),
+            Err(CashTransitionError::Invalid(NativeMoneyError::RewardAlreadyRedeemed))
+        );
+        assert_eq!(ledger, paid);
+
+        let mut restarted: CashLedger =
+            decode_envelope(&encode_envelope(&ledger).unwrap()).unwrap();
+        assert_eq!(restarted.redeemed_rewards(), &[reward.assignment]);
+        assert_eq!(
+            restarted.redeem_reward(&reward, &redemption),
+            Err(CashTransitionError::Invalid(NativeMoneyError::RewardAlreadyRedeemed))
+        );
+        assert_eq!(restarted, ledger);
+
+        let spent_shield = ShieldIntent::new(
+            economy.definition().chain_id(),
+            ledger.asset_id().unwrap(),
+            principal(10),
+            vec![pool_cell],
+            fee_reserve,
+            100,
+            0,
+            vec![digest(91)],
+            20,
+        )
+        .unwrap();
+        let spent_proof = VerifiedPrivacyProof {
+            public_inputs_commitment: commit(DomainTag::PRIVACY_PUBLIC_INPUTS, &spent_shield)
+                .unwrap(),
+            verified: true,
+        };
+        assert_eq!(
+            ledger.apply_shield(&spent_shield, spent_proof, 3),
+            Err(CashTransitionError::Invalid(NativeMoneyError::MissingCell))
+        );
+        assert_eq!(ledger, paid);
+
+        let mut shield_first = CashLedger::from_genesis(&economy).unwrap();
+        let shield_fee = shield_first
+            .apply_mint(
+                &CoinMintTransition::new(digest(2), principal(10), 50, 1, 1).unwrap(),
+                &settlement(1_000, 50, 1),
+            )
+            .unwrap();
+        let shield_input = shield_first
+            .cells()
+            .as_slice()
+            .iter()
+            .find(|record| record.cell().owner() == principal(10) && record.id() != shield_fee)
+            .unwrap()
+            .id();
+        let shield = ShieldIntent::new(
+            economy.definition().chain_id(),
+            shield_first.asset_id().unwrap(),
+            principal(10),
+            vec![shield_input],
+            shield_fee,
+            400,
+            0,
+            vec![digest(92)],
+            20,
+        )
+        .unwrap();
+        let shield_proof = VerifiedPrivacyProof {
+            public_inputs_commitment: commit(DomainTag::PRIVACY_PUBLIC_INPUTS, &shield).unwrap(),
+            verified: true,
+        };
+        shield_first.apply_shield(&shield, shield_proof, 2).unwrap();
+        let shielded = shield_first.clone();
+        let unavailable = RewardRedemption {
+            settlement: reward.assignment,
+            pool_owner: principal(10),
+            pool_cell: shield_input,
+            fee_reserve: shield_fee,
+            height: 3,
+        };
+        assert_eq!(
+            shield_first.redeem_reward(&reward, &unavailable),
+            Err(CashTransitionError::Invalid(NativeMoneyError::MissingCell))
+        );
+        assert!(shield_first.redeemed_rewards().is_empty());
+        assert_eq!(shield_first, shielded);
+    }
+
+    #[test]
     fn rejected_shield_proof_consumes_no_public_cells() {
         let economy = economy();
         let mut ledger = CashLedger::from_genesis(&economy).unwrap();
@@ -426,6 +548,50 @@ mod tests {
                 let supply = NativeSupply::new(total + burned - issuance, issuance, burned, total, total, 0, 0, 0, 0);
                 prop_assert!(supply.is_ok());
             }
+        }
+
+        #[test]
+        fn every_reward_amount_moves_value_once_without_changing_total_supply(
+            reward_amount in 1_u128..=500,
+        ) {
+            let economy = economy();
+            let mut ledger = CashLedger::from_genesis(&economy).unwrap();
+            let fee_reserve = ledger
+                .apply_mint(
+                    &CoinMintTransition::new(digest(2), principal(10), 50, 1, 1).unwrap(),
+                    &settlement(1_000, 50, 1),
+                )
+                .unwrap();
+            let pool_cell = ledger
+                .cells()
+                .as_slice()
+                .iter()
+                .find(|record| record.cell().owner() == principal(10) && record.id() != fee_reserve)
+                .unwrap()
+                .id();
+            let reward = RewardSettlement {
+                assignment: digest(93),
+                verifier: principal(12),
+                reward: reward_amount,
+                bond_return: 0,
+                slash_amount: 0,
+            };
+            let redemption = RewardRedemption {
+                settlement: reward.assignment,
+                pool_owner: principal(10),
+                pool_cell,
+                fee_reserve,
+                height: 2,
+            };
+            let supply = ledger.supply().current_total_supply();
+            ledger.redeem_reward(&reward, &redemption).unwrap();
+            prop_assert_eq!(ledger.supply().current_total_supply(), supply);
+            let paid = ledger.clone();
+            prop_assert_eq!(
+                ledger.redeem_reward(&reward, &redemption),
+                Err(CashTransitionError::Invalid(NativeMoneyError::RewardAlreadyRedeemed))
+            );
+            prop_assert_eq!(ledger, paid);
         }
     }
 }

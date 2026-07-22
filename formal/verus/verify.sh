@@ -71,12 +71,22 @@ if [ "$ARCHIVE_SHA256" != "$VERUS_ARCHIVE_SHA256" ]; then
     exit 1
 fi
 
-if [ ! -x "$VERUS_BINARY" ]; then
+install_verus_distribution() {
+    rm -rf "$VERUS_UNPACK_ROOT"
     mkdir -p "$VERUS_UNPACK_ROOT"
     unzip -q -o "$VERUS_ARCHIVE_PATH" -d "$VERUS_UNPACK_ROOT"
+}
+
+if [ ! -x "$VERUS_BINARY" ]; then
+    install_verus_distribution
 fi
 
-VERUS_VERSION_OUTPUT=$("$VERUS_BINARY" --version)
+VERUS_VERSION_OUTPUT=$("$VERUS_BINARY" --version 2>/dev/null || true)
+if ! printf '%s\n' "$VERUS_VERSION_OUTPUT" | grep -F "Version: $VERUS_VERSION" >/dev/null; then
+    echo "cached Verus distribution is invalid; re-extracting pinned archive" >&2
+    install_verus_distribution
+    VERUS_VERSION_OUTPUT=$("$VERUS_BINARY" --version)
+fi
 printf '%s\n' "$VERUS_VERSION_OUTPUT" | grep -F "Version: $VERUS_VERSION" >/dev/null
 
 mkdir -p "$VERUS_BUILD_ROOT" "$PARITY_TARGET_ROOT"

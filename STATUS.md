@@ -382,7 +382,9 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [x] Implement canonical native-asset, genesis-allocation, Coin Cell, transfer, mint, burn, and supply schemas.
 - [x] Restrict native creation to one-time deterministic genesis allocation and bounded epoch security issuance; reject discretionary mint paths.
 - [x] Track genesis supply, cumulative security issuance, cumulative burn, circulating supply, locked/staked supply, security reserve, and last settled epoch.
-- [ ] Ensure reward credits/redemptions and shielding/unshielding never mint native value twice.
+- [x] Ensure reward credits/redemptions and shielding/unshielding never mint native value twice.
+  - [x] Bind reward redemption and shield/unshield movements to one-shot source identifiers.
+  - [x] Prove duplicate and cross-path replay rejection preserves supply and all owned state.
 - [x] Route verifier reward redemption through an explicit pool-owned Coin Cell transfer intent.
 - [x] Derive domain-separated Coin Cell identifiers, Coin Cell set roots, supply roots, and genesis allocation roots.
 - [x] Implement a pure `no_std` native-money transition kernel outside ObjectVM.

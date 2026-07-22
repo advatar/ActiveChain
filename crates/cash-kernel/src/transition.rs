@@ -1,5 +1,8 @@
 use alloc::vec::Vec;
 
+use activechain_canonical_codec::{
+    CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
+};
 use activechain_privacy_kernel::{
     PrivacyError, ShieldIntent, ShieldedCashState, UnshieldIntent, VerifiedPrivacyProof,
 };
@@ -25,7 +28,10 @@ pub struct CashLedger {
     supply: NativeSupply,
     cells: CoinCellSet,
     shielded: ShieldedCashState,
+    redeemed_rewards: Vec<activechain_protocol_types::Digest384>,
 }
+
+pub const MAX_REDEEMED_REWARDS: usize = 4_096;
 
 impl CashLedger {
     pub fn redeem_reward(
@@ -35,6 +41,14 @@ impl CashLedger {
     ) -> Result<(), CashTransitionError> {
         if redemption.settlement != settlement.assignment || settlement.reward == 0 {
             return Err(CashTransitionError::Invalid(NativeMoneyError::ZeroAmount));
+        }
+        if self.redeemed_rewards.binary_search(&settlement.assignment).is_ok() {
+            return Err(CashTransitionError::Invalid(NativeMoneyError::RewardAlreadyRedeemed));
+        }
+        if self.redeemed_rewards.len() >= MAX_REDEEMED_REWARDS {
+            return Err(CashTransitionError::Invalid(
+                NativeMoneyError::RewardRedemptionCapacityExceeded,
+            ));
         }
         let transfer = CoinTransfer::new(
             redemption.pool_owner,
@@ -46,7 +60,16 @@ impl CashLedger {
             redemption.height,
         )
         .map_err(CashTransitionError::Invalid)?;
-        self.apply_transfer(&transfer, redemption.height)
+        let mut next = self.clone();
+        next.apply_transfer_inner(&transfer, redemption.height)?;
+        let position = next
+            .redeemed_rewards
+            .binary_search(&settlement.assignment)
+            .unwrap_or_else(|position| position);
+        next.redeemed_rewards.insert(position, settlement.assignment);
+        next.verify_invariants()?;
+        *self = next;
+        Ok(())
     }
     /// Creates a ledger from a validated one-time genesis economy.
     pub fn from_genesis(economy: &GenesisEconomy) -> Result<Self, CashTransitionError> {
@@ -84,6 +107,7 @@ impl CashLedger {
             supply,
             cells,
             shielded: ShieldedCashState::default(),
+            redeemed_rewards: Vec::new(),
         };
         ledger.verify_invariants()?;
         Ok(ledger)
@@ -104,6 +128,10 @@ impl CashLedger {
     #[must_use]
     pub const fn shielded_state(&self) -> &ShieldedCashState {
         &self.shielded
+    }
+    #[must_use]
+    pub fn redeemed_rewards(&self) -> &[activechain_protocol_types::Digest384] {
+        &self.redeemed_rewards
     }
 
     /// Atomically consumes public Coin Cells and credits the shielded native-value partition.
@@ -349,6 +377,17 @@ impl CashLedger {
         transfer: &CoinTransfer,
         height: Height,
     ) -> Result<(), CashTransitionError> {
+        let mut next = self.clone();
+        next.apply_transfer_inner(transfer, height)?;
+        *self = next;
+        Ok(())
+    }
+
+    fn apply_transfer_inner(
+        &mut self,
+        transfer: &CoinTransfer,
+        height: Height,
+    ) -> Result<(), CashTransitionError> {
         if height > transfer.valid_until() {
             return Err(CashTransitionError::Invalid(NativeMoneyError::Expired));
         }
@@ -516,6 +555,13 @@ impl CashLedger {
     }
 
     pub fn verify_invariants(&self) -> Result<(), CashTransitionError> {
+        if self.redeemed_rewards.len() > MAX_REDEEMED_REWARDS
+            || self.redeemed_rewards.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err(CashTransitionError::Invariant(
+                NativeMoneyError::RewardRedemptionCapacityExceeded,
+            ));
+        }
         let mut cell_total = 0_u128;
         for record in self.cells.as_slice() {
             let expected =
@@ -571,6 +617,48 @@ impl CashLedger {
         self.cells = CoinCellSet::new(next).map_err(CashTransitionError::Invalid)?;
         Ok(())
     }
+}
+
+impl CanonicalEncode for CashLedger {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.definition.encode(e)?;
+        self.supply.encode(e)?;
+        self.cells.encode(e)?;
+        self.shielded.encode(e)?;
+        e.write_length(self.redeemed_rewards.len(), MAX_REDEEMED_REWARDS)?;
+        for settlement in &self.redeemed_rewards {
+            settlement.encode(e)?;
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for CashLedger {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let definition = NativeAssetDefinition::decode(d)?;
+        let supply = NativeSupply::decode(d)?;
+        let cells = CoinCellSet::decode(d)?;
+        let shielded = ShieldedCashState::decode(d)?;
+        let count = d.read_length(MAX_REDEEMED_REWARDS)?;
+        let mut redeemed_rewards = Vec::with_capacity(count);
+        for _ in 0..count {
+            redeemed_rewards.push(activechain_protocol_types::Digest384::decode(d)?);
+        }
+        let ledger = Self { definition, supply, cells, shielded, redeemed_rewards };
+        ledger.verify_invariants().map_err(|_| DecodeError::InvalidValue("invalid cash ledger"))?;
+        Ok(ledger)
+    }
+}
+
+impl CanonicalType for CashLedger {
+    const TYPE_TAG: u16 = 0x008a;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = NativeAssetDefinition::MAX_ENCODED_LEN
+        + NativeSupply::MAX_ENCODED_LEN
+        + CoinCellSet::MAX_ENCODED_LEN
+        + ShieldedCashState::MAX_ENCODED_LEN
+        + 2
+        + MAX_REDEEMED_REWARDS * 48;
 }
 
 fn economy_root_digest(
