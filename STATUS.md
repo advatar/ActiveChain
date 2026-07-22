@@ -121,9 +121,9 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
   - [x] Derive the exact APL request from verified facts and bind its permit/obligations to the exact transition.
   - [x] Crash-atomically consume invocation replay, use/money/compute/rate budgets, and transition state under concurrent admission.
   - [x] Freeze vectors and test stale/revoked/amplified/substituted evidence, exhaustion, concurrent replay, restart, and corruption.
-- [ ] Complete APL evaluator, ObjectVM verifier/interpreter, state-tree, and codec refinement proofs;
+- [x] Complete APL evaluator, ObjectVM verifier/interpreter, state-tree, and codec refinement proofs;
   the current executable Lean tables cover only bounded semantic slices.
-  - [ ] Route each production boundary through an explicit pure semantic kernel and document the
+  - [x] Route each production boundary through an explicit pure semantic kernel and document the
     refinement relation ([#44](https://github.com/advatar/ActiveChain/issues/44)).
   - [x] Replace table-only APL evidence with general evaluator theorems and production differential tests.
   - [x] Prove verifier/interpreter agreement, whole-run determinism, gas accounting, and failure atomicity
@@ -134,7 +134,7 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
     against the production implementation.
   - [x] Generalize canonical envelope and minimal-length decoding proofs and bind them to production
     encoder/decoder traces across every published schema.
-  - [ ] Freeze cross-language witnesses, publish the exact remaining assumptions, and pass all formal,
+  - [x] Freeze cross-language witnesses, publish the exact remaining assumptions, and pass all formal,
     workspace, lint, and applicable bounded-checking gates.
   - [x] Add seven compositional Kani harnesses over the production bytecode-verifier and ObjectVM
     helpers for bounded register/target admission, the complete resource-class table, prepaid gas,
