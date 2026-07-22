@@ -533,6 +533,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
     - [x] Arithmetize bounded per-row input/output/fee conservation and rejected-row zeroing.
     - [ ] Arithmetize SHAKE, ML-DSA, authenticated membership/consumption, session budgets,
       and authenticated partition-root transitions.
+      - [ ] Add authoritative ML-DSA session grants, persistent spend budgets, and atomic ingress
+        consumption as the runtime witness for CashAIR ([GitHub issue #72](https://github.com/advatar/ActiveChain/issues/72)).
   - [ ] Add recursive microbatch, partition, cash-slot, and global-transition aggregation.
 - [ ] Add the cash-specific capacity and fee market, refundable deposits, sponsorship, and paymasters.
 - [x] Implement the first accountable verifier-duty kernel: role-scoped bond lots, one-shot assignments, fixed rewards, receipt validation, and bounded objective penalties.
