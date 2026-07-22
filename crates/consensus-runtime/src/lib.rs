@@ -32,6 +32,15 @@ use std::time::{Duration, Instant};
 
 mod pq_session;
 pub use pq_session::{PqPeerSession, PqSessionContext, PqSessionStore};
+mod finalized_block;
+pub use finalized_block::{
+    ExecutionProofVerifier, FinalizedBlock, FinalizedBlockAdmissionError, FinalizedBlockCandidate,
+    FinalizedBlockHeader, FinalizedBlockVerifier, ProofPublicInputs, VerifiedExecutionProof,
+};
+mod proof_pipeline;
+pub use proof_pipeline::{
+    DurableFinalizedState, DurableProofPipeline, ProofJobStatus, ProofPipelineError,
+};
 
 /// Canonical wallet transaction admission owned by the validator runtime.
 /// Authenticated network handlers can delegate here after peer/session checks.
@@ -2419,6 +2428,20 @@ impl ValidatorService {
             .map_err(ValidatorServiceError::Engine)?;
         self.process_message(vote_message.clone())?;
         Ok((proposal_message, vote_message))
+    }
+    /// Proposes the digest of a canonical typed header, never a caller-selected opaque digest.
+    pub fn propose_typed_round(
+        &self,
+        signer: &ValidatorSigner,
+        round: u64,
+        header: &FinalizedBlockHeader,
+        sequence: u64,
+    ) -> Result<(AuthenticatedConsensusMessage, AuthenticatedConsensusMessage), ValidatorServiceError>
+    {
+        let digest = header
+            .digest()
+            .map_err(|_| ValidatorServiceError::Engine(ValidatorEngineError::ProtectedMessage))?;
+        self.propose_round(signer, header.inputs.height(), round, digest, sequence)
     }
     /// Propose, self-process, and fan out a complete round to authenticated peers.
     ///

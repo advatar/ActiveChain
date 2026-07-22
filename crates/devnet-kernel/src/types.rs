@@ -470,6 +470,67 @@ impl ChainState {
     }
 }
 
+impl CanonicalEncode for ChainState {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain_id.encode(encoder)?;
+        self.height.encode(encoder)?;
+        self.head_block_id.encode(encoder)?;
+        self.objects.encode(encoder)?;
+        encoder.write_length(self.nonce_channels.len(), MAX_NONCE_CHANNELS)?;
+        for channel in &self.nonce_channels {
+            channel.encode(encoder)?;
+        }
+        encoder.write_length(self.used_fee_tickets.len(), MAX_USED_FEE_TICKETS)?;
+        for ticket in &self.used_fee_tickets {
+            ticket.encode(encoder)?;
+        }
+        self.resource_prices.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for ChainState {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let chain_id = ChainId::decode(decoder)?;
+        let height = u64::decode(decoder)?;
+        let head_block_id = Digest384::decode(decoder)?;
+        let objects = ObjectState::decode(decoder)?;
+        let channel_count = decoder.read_length(MAX_NONCE_CHANNELS)?;
+        let mut channels = Vec::with_capacity(channel_count);
+        for _ in 0..channel_count {
+            channels.push(NonceChannel::decode(decoder)?);
+        }
+        let ticket_count = decoder.read_length(MAX_USED_FEE_TICKETS)?;
+        let mut tickets = Vec::with_capacity(ticket_count);
+        for _ in 0..ticket_count {
+            tickets.push(ObjectId::decode(decoder)?);
+        }
+        Self::new(
+            chain_id,
+            height,
+            head_block_id,
+            objects,
+            channels,
+            tickets,
+            ResourcePrices::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid durable chain state"))
+    }
+}
+
+impl CanonicalType for ChainState {
+    const TYPE_TAG: u16 = 0x007b;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48
+        + 8
+        + 48
+        + ObjectState::MAX_ENCODED_LEN
+        + 2
+        + MAX_NONCE_CHANNELS * NonceChannel::ENCODED_LENGTH
+        + 2
+        + MAX_USED_FEE_TICKETS * 48
+        + ResourcePrices::ENCODED_LENGTH;
+}
+
 pub(crate) fn nonce_key_order(left: &NonceChannel, right: &NonceChannel) -> Ordering {
     left.sender().cmp(&right.sender()).then_with(|| left.channel().cmp(&right.channel()))
 }

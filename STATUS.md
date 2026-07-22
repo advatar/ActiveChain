@@ -86,16 +86,21 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
     - [x] Derive keys from the complete transcript, authenticate both finishes, and verify responder confirmation.
     - [x] Persist accepted session IDs and protected-message sequences atomically across restart.
     - [x] Freeze parser/transcript vectors and test downgrade, alias, replay, corruption, and peer mismatch.
-- [ ] Prove canonical finalized-block composition: decode, authorization, execution, fees/supply,
+- [x] Prove canonical finalized-block composition: decode, authorization, execution, fees/supply,
   post-state root, DA commitment, proof evidence, and protocol revision all bind the same block.
   - [x] Prove the fail-closed composition contract, deterministic finalization, component mismatch
     rejection, and collision-conditional state/proof uniqueness in Lean.
   - [x] Exhaustively model-check the bounded proof-job pipeline with exact public-input binding,
     invalid/cross-job proof rejection, retry/timeout/backpressure, stale cleanup, deterministic
     sequential finalization, and one-time prover rewards in TLA+.
-  - [ ] Implement the typed Rust block/header and validator admission path that refines the complete
+  - [x] Implement the typed Rust block/header and validator admission path that refines the complete
     predicate instead of finalizing an opaque digest, and persist proof jobs, acceptance, finality,
     and reward replay protection crash-atomically.
+    - [x] Define canonical bounded block/header, proof statement, proof job, and finalized-block values ([#37](https://github.com/advatar/ActiveChain/issues/37)).
+    - [x] Recompute authorization, execution, economics, state, DA, proof-input, revision, and header commitments at the admission boundary.
+    - [x] Add a typed production proposal entry point and require the QC digest to equal the admitted canonical header digest.
+    - [x] Persist jobs, retries/timeouts, accepted proofs, ordered finality, finalized block digests, and prover-reward replay state atomically.
+    - [x] Freeze vectors and test every component mismatch, cross-job proof, restart, corruption, backpressure, and duplicate reward.
 - [ ] Prove the PQ-authenticated credential/capability/state-proof to APL decision to transition
   authorization chain, including multi-hop attenuation, revocation, budgets, and concurrency.
 - [ ] Complete APL evaluator, ObjectVM verifier/interpreter, state-tree, and codec refinement proofs;

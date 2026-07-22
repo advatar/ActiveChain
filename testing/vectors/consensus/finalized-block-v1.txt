@@ -1,0 +1,5 @@
+header_type_tag=0x0079
+header_schema_version=1
+proof_inputs_type_tag=0x0078
+proof_inputs_schema_version=1
+header_digest=2f6cfb5a44d1193ba5dfd68200748693efd86dcdd9319e8ac4cfd7e4a3a62e916578e23683ed857f87f57f942c2883ff

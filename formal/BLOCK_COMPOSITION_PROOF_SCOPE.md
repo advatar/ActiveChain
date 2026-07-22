@@ -92,40 +92,32 @@ Other explicit refinement boundaries are:
 - The model proves safety, not block production, proof generation, DA retrieval, network liveness,
   or validator availability.
 
-## Rust conformance gaps
+## Rust conformance implementation
 
-The repository currently has useful components, but no authoritative Rust type and admission path
-implements this complete composition predicate:
+Issue #37 added the authoritative Rust types and admission path for this composition predicate.
+The original gaps are retained below as the implementation checklist now covered by
+`consensus-runtime::finalized_block` and `consensus-runtime::proof_pipeline`:
 
-1. `consensus-runtime::CertifiedBlock` certifies an opaque `Digest384`. It does not decode a
-   canonical block and recompute that digest from the action batch, execution receipt, economics,
-   post-state, DA commitment, and proof statement before finality is applied.
-2. `protocol-types::BlockProposal` carries epoch/height/round and an opaque digest, while the
-   proposal signing payload does not itself expose the parent, pre-state, protocol revision,
-   validator-set root, execution commitments, or proof public inputs as one typed block header.
-3. `devnet-kernel::apply_block` provides a deterministic action/state/fee receipt path, but its
-   `BlockOutput` is not yet composed into the exact header digest voted on by
-   `consensus-runtime`.
-4. `action-kernel::ActionEnvelope` carries an authorization commitment, but block admission still
-   needs a finalized authorization result for every action and a canonical aggregate commitment
-   which is checked before execution.
-5. The DA batch and receipt roots are not yet bound into the same typed header whose digest receives
-   the QC. A validator must recompute DA commitment bytes from the canonical block payload rather
-   than accept a caller-declared digest.
-6. There is no production execution-proof statement/verifier path whose public inputs are
-   reconstructed from chain context, action/order roots, economics, post-state, and DA commitment.
-7. There is no atomic durable commit which publishes the QC, executed state, input locks/nonces,
-   fee/supply accounting, DA metadata, and proof result together, or rolls them all back together
-   after a crash.
-8. Cross-crate conformance vectors do not yet mutate each individual binding and establish that the
-   authoritative validator path rejects every mismatch before voting and again before applying a
-   received certificate.
-9. The concrete hash/codec refinements needed by the collision-conditional theorems have not yet
-   been connected to the domain-tagged Rust implementations with trace-equivalence or exhaustive
-   bounded checks.
+1. Strictly decode and re-encode the canonical `DevnetBlock` before deterministic execution.
+2. Materialize `ProofPublicInputs` and `FinalizedBlockHeader`; the typed proposal entry point derives
+   the only voteable digest from that header.
+3. Compose `devnet-kernel::apply_block` output into the exact receipt, economics, post-state, and
+   header digest checked at admission.
+4. Require a finalized authorization-verifier observation for every action and recompute the
+   canonical authorization aggregate.
+5. Recompute DA and receipt commitments from canonical bytes and bind both to the QC header.
+6. Reconstruct execution-proof public inputs and require the selected proof verifier to accept the
+   exact statement commitment.
+7. Crash-atomically publish proof finality, executed state, locks/nonces/tickets, fee/supply result,
+   DA/proof/header metadata, and finalized block digest in `DurableFinalizedState`.
+8. Freeze the header vector and reject authorization/action/order/receipt/state/DA/revision
+   substitution, cross-job proofs, replay, corruption, backpressure, and duplicate rewards.
+9. Keep cryptographic soundness and collision resistance as explicit assumptions; the Rust path
+   enforces the same concrete equality and strict-codec premises used by the Lean theorem.
 
-Until these gaps are closed, the result should be described as a mechanically checked canonical
-block-composition contract, not as proof that the current node finalizes executed blocks correctly.
+The concrete boundary now recomputes these bindings and rejects mismatch before materializing a
+`FinalizedBlock`. Cryptographic authorization, execution-proof, and weighted-QC soundness remain
+explicit verifier observations, matching the abstraction boundary of the Lean model.
 
 ## Local reproduction
 
