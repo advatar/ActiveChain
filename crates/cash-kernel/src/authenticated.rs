@@ -86,6 +86,16 @@ impl CoinCellMutationWitness {
     }
 
     #[must_use]
+    pub const fn pre_count(&self) -> u32 {
+        self.pre_count
+    }
+
+    #[must_use]
+    pub const fn post_count(&self) -> u32 {
+        self.post_count
+    }
+
+    #[must_use]
     pub const fn id(&self) -> CoinCellId {
         self.id
     }

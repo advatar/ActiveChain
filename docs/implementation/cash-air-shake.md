@@ -30,3 +30,10 @@ unimplemented global permutation argument.
 `prove_shake256_384_batch` and `verify_shake256_384_batch` expose that ordered table for a bounded
 message sequence. The remaining issue #78 work is to derive that sequence inside the ordered
 mutation-path adapter and bind its resulting roots into the parent CashAIR public inputs.
+
+The authenticated adapter now expands every ordered mutation into its exact pre-state leaf, 384
+depth-bound nodes, count-bound root, post-state leaf, 384 depth-bound nodes, and count-bound root.
+It rejects a derived terminal root that differs from the mutation witness and feeds the complete
+ordered sequence to the single batch proof. A full-depth mutation contains 772 SHAKE messages, so
+validator ingress remains disabled until benchmark data establishes a safe mutation cap and memory
+budget and the resulting roots are bound into the parent CashAIR proof.

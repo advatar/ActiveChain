@@ -18,6 +18,16 @@ use p3_uni_stark::{
     verify_with_preprocessed,
 };
 
+use activechain_cash_kernel::{
+    AUTHENTICATED_CASH_DEPTH, CoinCellMutationWitness, CoinCellTransitionWitness,
+    authenticated_coin_cell_count_root_hash, authenticated_coin_cell_leaf_hash,
+    authenticated_coin_cell_leaf_transcript, authenticated_coin_cell_node_hash,
+    authenticated_coin_cell_node_transcript, authenticated_coin_cell_root_transcript,
+    authenticated_empty_coin_cell_leaf_hash, authenticated_empty_coin_cell_leaf_transcript,
+    verify_coin_cell_transition,
+};
+use activechain_protocol_types::Digest384;
+
 const RATE_BYTES: usize = 136;
 const STATE_LANES: usize = 25;
 const LIMBS_PER_LANE: usize = 4;
@@ -150,6 +160,36 @@ pub struct BatchedShake256StarkProof {
     proof: Proof<Config>,
     digests: Vec<[u8; 48]>,
     permutation_count: usize,
+}
+
+pub struct AuthenticatedCashShakeStarkProof {
+    batch: BatchedShake256StarkProof,
+}
+
+impl AuthenticatedCashShakeStarkProof {
+    #[must_use]
+    pub const fn permutation_count(&self) -> usize {
+        self.batch.permutation_count()
+    }
+}
+
+pub fn prove_authenticated_cash_shake(
+    transition: &CoinCellTransitionWitness,
+) -> Result<AuthenticatedCashShakeStarkProof, &'static str> {
+    let (messages, expected) = authenticated_transition_batch(transition)?;
+    let batch = prove_shake256_384_batch(&messages)?;
+    if batch.digests() != expected {
+        return Err("authenticated cash SHAKE digest derivation mismatch");
+    }
+    Ok(AuthenticatedCashShakeStarkProof { batch })
+}
+
+pub fn verify_authenticated_cash_shake(
+    proof: &AuthenticatedCashShakeStarkProof,
+    transition: &CoinCellTransitionWitness,
+) -> Result<(), &'static str> {
+    let (messages, expected) = authenticated_transition_batch(transition)?;
+    verify_shake256_384_batch(&proof.batch, &messages, &expected)
 }
 
 impl BatchedShake256StarkProof {
@@ -311,6 +351,7 @@ fn permuted_state(mut state: [u64; STATE_LANES]) -> [u64; STATE_LANES] {
 
 type BatchWitness =
     (Vec<([u64; STATE_LANES], [u64; STATE_LANES])>, Vec<[u64; STATE_LANES]>, Vec<[u8; 48]>);
+type AuthenticatedTranscriptBatch = (Vec<Vec<u8>>, Vec<[u8; 48]>);
 
 fn batch_witness(messages: &[Vec<u8>]) -> Result<BatchWitness, &'static str> {
     let mut bindings = Vec::new();
@@ -330,6 +371,74 @@ fn batch_witness(messages: &[Vec<u8>]) -> Result<BatchWitness, &'static str> {
     Ok((bindings, inputs, digests))
 }
 
+fn authenticated_transition_batch(
+    transition: &CoinCellTransitionWitness,
+) -> Result<AuthenticatedTranscriptBatch, &'static str> {
+    verify_coin_cell_transition(transition).map_err(|_| "invalid authenticated cash transition")?;
+    let mut messages = Vec::new();
+    let mut digests = Vec::new();
+    for mutation in transition.mutations() {
+        append_mutation_path(mutation, true, &mut messages, &mut digests)?;
+        append_mutation_path(mutation, false, &mut messages, &mut digests)?;
+    }
+    Ok((messages, digests))
+}
+
+fn append_mutation_path(
+    mutation: &CoinCellMutationWitness,
+    pre: bool,
+    messages: &mut Vec<Vec<u8>>,
+    digests: &mut Vec<[u8; 48]>,
+) -> Result<(), &'static str> {
+    let record = if pre { mutation.previous() } else { mutation.next() };
+    let count = if pre { mutation.pre_count() } else { mutation.post_count() };
+    let (leaf_message, mut current) = if let Some(record) = record {
+        (
+            authenticated_coin_cell_leaf_transcript(&record)
+                .map_err(|_| "invalid authenticated cash leaf transcript")?,
+            authenticated_coin_cell_leaf_hash(&record)
+                .map_err(|_| "invalid authenticated cash leaf hash")?,
+        )
+    } else {
+        (authenticated_empty_coin_cell_leaf_transcript(), authenticated_empty_coin_cell_leaf_hash())
+    };
+    messages.push(leaf_message);
+    digests.push(current.into_bytes());
+
+    let key = mutation.id().into_digest();
+    for (offset, sibling) in mutation.siblings().iter().copied().enumerate() {
+        let depth = AUTHENTICATED_CASH_DEPTH - 1 - offset;
+        let (left, right) =
+            if digest_bit(key, depth) == 0 { (current, sibling) } else { (sibling, current) };
+        messages.push(
+            authenticated_coin_cell_node_transcript(depth, left, right)
+                .map_err(|_| "invalid authenticated cash node transcript")?,
+        );
+        current = authenticated_coin_cell_node_hash(depth, left, right)
+            .map_err(|_| "invalid authenticated cash node hash")?;
+        digests.push(current.into_bytes());
+    }
+
+    messages.push(
+        authenticated_coin_cell_root_transcript(count as usize, current)
+            .map_err(|_| "invalid authenticated cash root transcript")?,
+    );
+    let root = authenticated_coin_cell_count_root_hash(count as usize, current)
+        .map_err(|_| "invalid authenticated cash root hash")?;
+    let expected = if pre { mutation.pre_root() } else { mutation.post_root() };
+    if root != expected {
+        return Err("authenticated cash path root mismatch");
+    }
+    digests.push(root.into_digest().into_bytes());
+    Ok(())
+}
+
+fn digest_bit(digest: Digest384, depth: usize) -> u8 {
+    let byte = depth / 8;
+    let bit = 7 - depth % 8;
+    (digest.as_bytes()[byte] >> bit) & 1
+}
+
 fn squeeze_384(state: &[u64; STATE_LANES]) -> [u8; 48] {
     let mut output = [0_u8; 48];
     for (index, chunk) in output.chunks_exact_mut(8).enumerate() {
@@ -341,10 +450,11 @@ fn squeeze_384(state: &[u64; STATE_LANES]) -> [u8; 48] {
 #[cfg(test)]
 mod tests {
     use activechain_cash_kernel::{
-        CashLedger, GenesisAllocation, GenesisEconomy, NativeAssetDefinition,
+        CashLedger, CoinCellSet, GenesisAllocation, GenesisEconomy, NativeAssetDefinition,
         authenticated_coin_cell_count_root_hash, authenticated_coin_cell_leaf_hash,
         authenticated_coin_cell_leaf_transcript, authenticated_coin_cell_node_hash,
         authenticated_coin_cell_node_transcript, authenticated_coin_cell_root_transcript,
+        prove_coin_cell_mutation, prove_coin_cell_transition,
     };
     use activechain_protocol_types::{ChainId, Digest384, PrincipalId};
     use sha3::{
@@ -509,5 +619,26 @@ mod tests {
         extra.push(Vec::new());
         let extra_expected: Vec<_> = extra.iter().map(|message| reference(message)).collect();
         assert!(verify_shake256_384_batch(&proof, &extra, &extra_expected).is_err());
+    }
+
+    #[test]
+    fn authenticated_path_adapter_derives_both_ordered_root_chains() {
+        let record = cash_record();
+        let pre = CoinCellSet::new(vec![record]).unwrap();
+        let post = CoinCellSet::new(Vec::new()).unwrap();
+        let transition = prove_coin_cell_transition(&pre, &post).unwrap();
+        let mutation = prove_coin_cell_mutation(&pre, record.id(), None).unwrap();
+        let (messages, digests) = authenticated_transition_batch(&transition).unwrap();
+
+        assert_eq!(messages.len(), 2 * (AUTHENTICATED_CASH_DEPTH + 2));
+        assert_eq!(messages.len(), digests.len());
+        assert_eq!(
+            digests[AUTHENTICATED_CASH_DEPTH + 1],
+            mutation.pre_root().into_digest().into_bytes()
+        );
+        assert_eq!(
+            digests.last().copied().unwrap(),
+            mutation.post_root().into_digest().into_bytes()
+        );
     }
 }
