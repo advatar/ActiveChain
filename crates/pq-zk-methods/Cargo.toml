@@ -1,0 +1,17 @@
+[package]
+name = "activechain-pq-zk-methods"
+description = "Pinned RISC Zero guest image for ActiveChain PQ-ZK v1"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[build-dependencies]
+risc0-build = { version = "=3.0.5" }
+
+[package.metadata.risc0]
+methods = ["guest"]
+
+[lints]
+workspace = true

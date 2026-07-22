@@ -38,6 +38,36 @@ Tracked by [GitHub issue #27](https://github.com/advatar/ActiveChain/issues/27).
 - [x] Exercise the complete shield, discover, post, restart, and withdraw lifecycle with adversarial tests.
 - [x] Pass repository quality gates, commit the isolated changes, push, and open a draft PR.
 
+## Active implementation — ActiveChain PQ-ZK v1
+
+Tracked by [GitHub issue #31](https://github.com/advatar/ActiveChain/issues/31).
+
+- [x] Freeze a transparent STARK/FRI profile, transcript, parameters, proof envelope, and security assumptions.
+- [x] Implement and verify the first real witness-hiding preimage relation with a pinned guest image,
+  no trusted setup, no Groth16 receipt, and development receipts disabled.
+- [ ] Compile the complete private-billboard post and withdrawal relations into pinned guest images.
+- [ ] Differentially test the proof relation against the private billboard reference verifier.
+- [ ] Publish deterministic vectors, malformed/substitution/replay tests, and reproducible performance evidence.
+- [x] Machine-check exact image/journal binding, fail-closed admission, and one-shot nullifier admission.
+- [ ] Machine-check billboard conservation, successor, cooldown/penalty, and admission-composition invariants.
+- [x] Publish qualified formal-verification evidence and third-party-audit-pending status on an
+  isolated landing-page branch and draft PR.
+- [x] Pass all repository gates, commit, push, and open an isolated stacked draft PR.
+
+## Active communication — why ActiveChain is a new L1
+
+Tracked by [GitHub issue #42](https://github.com/advatar/ActiveChain/issues/42).
+
+- [x] Publish a primary-source comparison with Ethereum, Aztec, Logos, Solana, Starknet,
+  Cosmos SDK, and Polkadot.
+- [x] Explain which combined protocol requirements motivate a coherent new L1 rather than an
+  unchanged deployment on an existing chain, rollup, or appchain framework.
+- [x] Publish the engineering, security, ecosystem, liquidity, and interoperability costs of that
+  choice without superiority or first-to-market claims.
+- [x] Pass the landing-page production build, changed-file lint/format checks, and responsive CSS review.
+- [ ] Complete screenshot-based mobile and desktop review; the in-app browser runtime failed to
+  initialize in the implementation session, so this remains an explicit PR review gate.
+
 ## Active launch gate — whole-system formal verification
 
 Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).

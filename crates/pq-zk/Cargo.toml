@@ -1,0 +1,19 @@
+[package]
+name = "activechain-pq-zk"
+description = "ActiveChain transparent post-quantum zero-knowledge STARK profile"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+activechain-pq-zk-methods = { path = "../pq-zk-methods" }
+risc0-zkvm = { workspace = true, features = ["client", "disable-dev-mode", "prove"] }
+sha3.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true
