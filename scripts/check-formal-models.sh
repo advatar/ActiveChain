@@ -5,6 +5,8 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 derivcheck_timeout=${ACTIVECHAIN_TAMARIN_DERIVCHECK_TIMEOUT:-180}
 tamarin_process_timeout=${ACTIVECHAIN_TAMARIN_PROCESS_TIMEOUT:-300}
 
+python3 "$root/scripts/check-formal-coverage.py"
+
 if ! tamarin_version=$(tamarin-prover --version 2>&1); then
   echo "unable to run the pinned Tamarin prover" >&2
   exit 1
@@ -31,8 +33,16 @@ for model in "$root"/formal/tamarin/*.spthy; do
   if test -f "$lemma_file"; then
     while IFS= read -r lemma; do
       test -n "$lemma" || continue
+      lemma_output=$(mktemp "${TMPDIR:-/tmp}/activechain-tamarin-lemma.XXXXXX")
       perl -e '$seconds=shift; alarm $seconds; exec @ARGV' "$tamarin_process_timeout" \
-        tamarin-prover "$model" --prove="$lemma" "${tamarin_args[@]}" | tee -a "$output"
+        tamarin-prover "$model" --prove="$lemma" "${tamarin_args[@]}" \
+        | tee "$lemma_output" | tee -a "$output"
+      if ! grep -Eq "^[[:space:]]*${lemma} .*: verified" "$lemma_output"; then
+        echo "selected Tamarin lemma was not verified: $model / $lemma" >&2
+        rm -f "$lemma_output"
+        exit 1
+      fi
+      rm -f "$lemma_output"
     done < "$lemma_file"
   else
     perl -e '$seconds=shift; alarm $seconds; exec @ARGV' "$tamarin_process_timeout" \

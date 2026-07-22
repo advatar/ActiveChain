@@ -64,7 +64,12 @@ formal/verus/verify.sh
 The gates pin Lean through `formal/lean/lean-toolchain`, require Tamarin 1.12.0, require
 `cargo-kani` 0.67.0 with its bundled Rust 1.93 nightly and CBMC 6.8.0, and checksum-pin official
 Verus `0.2026.05.24.ecee80a`. A proof run is
-accepted only when each CI-selected lemma is `verified`, all well-formedness checks pass, and the
+preceded by `scripts/check-formal-coverage.py`, which accounts for all 24 Lean
+targets/modules and all 42 lemmas in four Tamarin theories. Selectors must be
+complete and unique; the timed-out `no_conflicting_qcs_for_one_slot` composition
+is retained in the theory and explicitly classified in
+`formal/tamarin/activechain_consensus.unproved` rather than silently skipped. A run is accepted
+only when each CI-selected lemma is `verified`, all well-formedness checks pass, and the
 proof-scope document records assumptions, implementation mapping, and deliberately excluded
 properties. The bounded consensus model retains one expensive composition target outside its
 selected lemma list; the corresponding weighted arithmetic and conditional composition are proved
