@@ -1,4 +1,4 @@
-use activechain_protocol_types::{CoinCellId, Digest384, PrincipalId};
+use activechain_protocol_types::{CoinCellId, Digest384, PrincipalId, fee_total, next_base_fee};
 use alloc::vec::Vec;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -76,9 +76,7 @@ pub struct FeeQuote {
 
 impl FeeQuote {
     pub fn total(self) -> Option<u128> {
-        self.base
-            .checked_add((self.resource_units as u128).checked_mul(self.resource_price)?)
-            .and_then(|v| v.checked_add(self.congestion_price))
+        fee_total(self.base, self.resource_units, self.resource_price, self.congestion_price)
     }
 }
 
@@ -148,14 +146,8 @@ impl FeeMarket {
         })
     }
     pub fn next(self, used_units: u64) -> Option<Self> {
-        let delta = self.base_fee.checked_mul(self.max_change_bps as u128)?.checked_div(10_000)?;
-        let next = if used_units > self.target_units {
-            self.base_fee.checked_add(delta)?
-        } else if used_units < self.target_units {
-            self.base_fee.saturating_sub(delta).max(1)
-        } else {
-            self.base_fee
-        };
+        let next =
+            next_base_fee(self.base_fee, self.target_units, self.max_change_bps, used_units)?;
         Some(Self { base_fee: next, ..self })
     }
 }

@@ -5,6 +5,8 @@ use activechain_canonical_codec::{
 };
 use activechain_protocol_types::{
     Amount, ChainId, CoinCellId, Digest384, Epoch, Height, PrincipalId, TransactionId,
+    authorized_issuance as compute_authorized_issuance, partition_total,
+    post_supply as compute_post_supply,
 };
 
 /// Maximum number of native cells in the first bounded reference ledger.
@@ -427,19 +429,21 @@ impl NativeSupply {
         security_reserve_balance: Amount,
         last_settled_epoch: Epoch,
     ) -> Result<Self, NativeMoneyError> {
-        let expected = genesis_supply
-            .checked_add(cumulative_security_issuance)
-            .and_then(|v| v.checked_sub(cumulative_burn))
-            .ok_or(NativeMoneyError::AmountOverflow)?;
+        let expected =
+            compute_post_supply(genesis_supply, cumulative_security_issuance, cumulative_burn)
+                .ok_or(NativeMoneyError::AmountOverflow)?;
         if expected != current_total_supply {
             return Err(NativeMoneyError::SupplyEquationMismatch);
         }
         let locked = locked_vesting_supply
             .checked_add(staked_supply)
             .ok_or(NativeMoneyError::AmountOverflow)?;
-        let partition = circulating_supply
-            .checked_add(locked)
-            .and_then(|v| v.checked_add(security_reserve_balance));
+        let partition = partition_total(
+            circulating_supply,
+            locked_vesting_supply,
+            staked_supply,
+            security_reserve_balance,
+        );
         if locked > current_total_supply
             || partition != Some(current_total_supply)
             || security_reserve_balance > current_total_supply
@@ -933,17 +937,13 @@ impl EpochEconomicsTransition {
         if epoch == 0 || effective_stake_bps > 10_000 {
             return Err(NativeMoneyError::InvalidEconomicsTransition);
         }
-        let covered = security_fee_revenue
-            .checked_add(reserve_draw)
-            .ok_or(NativeMoneyError::AmountOverflow)?;
-        if authorized_issuance != target_security_budget.saturating_sub(covered)
-            || authorized_issuance > issuance_cap
-        {
+        let expected_issuance =
+            compute_authorized_issuance(security_fee_revenue, reserve_draw, target_security_budget)
+                .ok_or(NativeMoneyError::AmountOverflow)?;
+        if authorized_issuance != expected_issuance || authorized_issuance > issuance_cap {
             return Err(NativeMoneyError::IssuanceFormulaMismatch);
         }
-        let expected_post = pre_supply
-            .checked_add(authorized_issuance)
-            .and_then(|value| value.checked_sub(burned_amount))
+        let expected_post = compute_post_supply(pre_supply, authorized_issuance, burned_amount)
             .ok_or(NativeMoneyError::AmountOverflow)?;
         if post_supply != expected_post {
             return Err(NativeMoneyError::SupplyEquationMismatch);

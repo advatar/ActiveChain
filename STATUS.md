@@ -216,8 +216,9 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
     - [ ] Move the verified arithmetic behind a shared production implementation or add an
       all-input refinement bridge, and extend Kani coverage to larger production schemas,
       persistence, commitment internals, and network admission.
-      - [ ] Centralize the cash/consensus checked arithmetic in a shared production module and
-        add all-input property comparisons to the Verus executable target; tracked by issue #56.
+      - [x] Centralize the cash/consensus checked arithmetic in a shared production module and
+        add arbitrary-input property comparisons to an independent checked oracle; tracked by
+        issue #56.
       - [ ] Bound a representative larger canonical production schema with strict round-trip,
         truncation, substitution, and trailing-byte Kani harnesses.
       - [ ] Bound durable snapshot framing/checksum/fail-closed behavior and commitment

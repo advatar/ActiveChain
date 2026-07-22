@@ -492,8 +492,8 @@ impl QuorumCertificate {
         if total_stake == 0 || signer_stake > total_stake {
             return Err(QuorumCertificateError::InvalidStake);
         }
-        if signer_stake.checked_mul(3).ok_or(QuorumCertificateError::StakeOverflow)?
-            <= total_stake.checked_mul(2).ok_or(QuorumCertificateError::StakeOverflow)?
+        if !crate::strict_two_thirds(signer_stake, total_stake)
+            .ok_or(QuorumCertificateError::StakeOverflow)?
         {
             return Err(QuorumCertificateError::InsufficientStake);
         }
