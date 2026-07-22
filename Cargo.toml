@@ -9,6 +9,7 @@ members = [
     "crates/data-availability",
     "crates/capability",
     "crates/cash-kernel",
+    "crates/cash-air",
     "crates/wallet-core",
     "crates/verifier-api",
     "crates/verifier-ffi",
@@ -47,6 +48,7 @@ activechain-crypto-provider = { path = "crates/crypto-provider", version = "0.1.
 activechain-data-availability = { path = "crates/data-availability", version = "0.1.0" }
 activechain-capability = { path = "crates/capability", version = "0.1.0" }
 activechain-cash-kernel = { path = "crates/cash-kernel", version = "0.1.0" }
+activechain-cash-air = { path = "crates/cash-air", version = "0.1.0" }
 activechain-protocol-commitment = { path = "crates/protocol-commitment", version = "0.1.0" }
 activechain-wallet-core = { path = "crates/wallet-core", version = "0.1.0" }
 activechain-wallet-ffi = { path = "crates/wallet-ffi", version = "0.1.0" }
@@ -67,6 +69,7 @@ activechain-transition = { path = "crates/transition", version = "0.1.0" }
 proptest = { version = "1.7.0", default-features = false, features = ["std"] }
 sha3 = { version = "0.10.8", default-features = false }
 risc0-zkvm = { version = "=3.0.5", default-features = false }
+winterfell = "=0.13.1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

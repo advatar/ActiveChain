@@ -1,0 +1,15 @@
+profile=ACTIVECHAIN-TRANSPARENT-CASH-AIR-V1
+batch_type=0x0091
+public_inputs_type=0x0094
+row_type=0x0095
+proof_type=0x0096
+height=3
+partitions=16
+transfers=2
+applied=2
+rejected=0
+proof_commitment_hex=d1155a0b11daf765c1fc4680aa7e73e5148694fd18abce515634c3132a9e8da88371f99bf550dfc0b995104dac12528d
+verification=exact-direct-reexecution
+succinct=false
+zero_knowledge=false
+third_party_audit=pending

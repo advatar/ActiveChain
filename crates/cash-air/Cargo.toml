@@ -1,0 +1,16 @@
+[package]
+name = "activechain-cash-air"
+description = "Transparent specialized STARK constraints for ActiveChain cash batches"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+activechain-cash-kernel.workspace = true
+activechain-protocol-types.workspace = true
+winterfell.workspace = true
+
+[lints]
+workspace = true

@@ -82,6 +82,34 @@ an invalid or losing conflict publishes no scratch state, while earlier valid
 transfers remain committed. Planning locks are ephemeral and are never encoded
 inside `CashLedger`; restart therefore reconstructs them from the canonical batch.
 
+### Transparent CashAIR tranche
+
+The specialized version-1 cash trace consists of `CashAirPublicInputs` (type
+`0x0094`), bounded `CashAirRow` values (type `0x0095`), and `CashAirProof`
+(type `0x0096`). Public inputs bind the complete batch commitment, pre/post Coin
+Cell roots, pre/post supply roots, height, partition count, and accepted/rejected
+counts. Each row binds its transfer index, adjacent cell and supply roots, and
+outcome. Row order is exactly the partition plan's disjoint lane followed by its
+canonical conflict fallback.
+
+Verification regenerates the complete expected trace by direct execution from
+the supplied pre-ledger and batch and requires exact equality of the proof,
+including all intermediate roots and outcomes. The expected height and partition
+count are caller-supplied context, so a trace cannot be replayed under another
+execution context. A frozen vector commits the complete proof envelope.
+
+The `activechain-cash-air` companion crate proves the first algebraic subset with
+a Winterfell transparent STARK at a minimum 95-bit conjectured security policy:
+row progression, boolean activity/outcomes, one-way padding, accepted/rejected
+counts, failed-row root atomicity, and exact pre/post Coin Cell root binding. The
+STARK verifier and direct-reexecution oracle are independent gates; both must pass.
+
+This tranche is not zero knowledge. It also does not yet arithmetize SHAKE,
+ML-DSA, authenticated membership, successful value/fee transitions, session
+budgets, authenticated partition-root updates, or recursive aggregation. Those
+remain explicit CashAIR completion gates and no proof-finalized throughput claim
+is permitted until they are implemented and benchmarked.
+
 ## Post-quantum boundary
 
 Authoritative transaction ingress accepts only a strict canonical

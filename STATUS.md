@@ -522,7 +522,15 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [x] Separate persistent canonical payment intents from short-lived PQ authorization witnesses.
 - [x] Add partitioned Coin Cell state, input locks, parallel execution, and conflict fallback
   ([GitHub issue #66](https://github.com/advatar/ActiveChain/issues/66)).
-- [ ] Implement the transparent specialized CashAIR and direct-reexecution comparison.
+- [ ] Implement the transparent specialized CashAIR and direct-reexecution comparison
+  ([GitHub issue #69](https://github.com/advatar/ActiveChain/issues/69)).
+  - [x] Freeze canonical bounded public inputs, execution rows, partition-plan binding, trace
+    commitment, malformed/substitution tests, and exact direct-reexecution comparison.
+  - [x] Add a dedicated transparent STARK prover/verifier for row progression, outcome booleanity,
+    failed-row atomicity, accepted/rejected counts, and pre/post Coin Cell root binding.
+  - [ ] Add specialized SHAKE, ML-DSA, membership, consumption, value/fee arithmetic,
+    session-budget, and authenticated partition-root transition constraints.
+  - [ ] Add recursive microbatch, partition, cash-slot, and global-transition aggregation.
 - [ ] Add the cash-specific capacity and fee market, refundable deposits, sponsorship, and paymasters.
 - [x] Implement the first accountable verifier-duty kernel: role-scoped bond lots, one-shot assignments, fixed rewards, receipt validation, and bounded objective penalties.
 - [ ] Add random audit assignments and commit/reveal challenge rewards without passive-verifier inflation.
