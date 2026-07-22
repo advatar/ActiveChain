@@ -64,13 +64,16 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
 - [x] Prove canonical envelope rejection, commitment binding, and FFI precondition invariants in Lean.
 - [x] Prove bounded principal rotation/recovery/deactivation and direct-delegation attenuation properties.
 - [x] Prove exact epoch/revision activation and retired-validator-set rejection in the abstract Lean model.
-- [ ] Implement and prove conformance for finalized epoch/revision authorization, exact activation,
+- [x] Implement and prove conformance for finalized epoch/revision authorization, exact activation,
   retired-set history, and revision-bound certificate admission.
   - [x] Implement canonical finalized upgrade authorizations, exact-height activation,
     revision-bound votes/QCs, bounded retired-root persistence, stale-certificate rejection, and
     atomic validator key/root replacement in Rust.
-  - [ ] Add an implementation trace or differential refinement from the Rust upgrade path to the
+  - [x] Add an implementation trace or differential refinement from the Rust upgrade path to the
     Lean transition model, including the bounded retired-root exhaustion case.
+    - [x] Emit matching Rust and Lean traces for unchanged, validator-set, protocol, combined, and rejected transitions ([#33](https://github.com/advatar/ActiveChain/issues/33)).
+    - [x] Include exact-height, stale-context, retired-root, and bounded history-exhaustion cases.
+    - [x] Freeze the trace and enforce byte-for-byte Rust/Lean comparisons in CI.
 - [x] Prove the scoped PQ-session downgrade, context, key-confirmation, and bounded replay target in Tamarin.
 - [ ] Implement the modeled PQ transcript/session boundary and prove full agreement, secrecy under
   stated compromise assumptions, durable sequence handling, and parser conformance.
