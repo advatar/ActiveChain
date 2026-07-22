@@ -239,6 +239,10 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
   - [x] Require every declared Tamarin lemma to be selected exactly once or listed as explicitly
     unproved, rejecting missing, duplicate, overlapping, and stale classifications.
 - [ ] Publish proof scopes, assumptions, counterexamples, and explicit unverified boundaries.
+  - [ ] Index every conformance-matrix domain to a published scope record; tracked by GitHub
+    issue #62.
+  - [ ] Fail CI on missing or stale scope artifacts and require every explicit unproved target to
+    remain discoverable from the index.
 - [ ] Obtain independent external formal-methods review before any non-developmental launch claim.
 
 ## Completed milestone — local CI and authority kernel
