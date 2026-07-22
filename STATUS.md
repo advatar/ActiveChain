@@ -226,6 +226,13 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
       - [x] Bound authenticated network frame length/layout and sequence admission, retain
         peer/version binding in production integration tests, and pin every new harness in CI.
 - [ ] Add implementation-trace and differential conformance checks for every proof domain.
+  - [ ] Inventory each formal artifact and bind it to a production trace, differential oracle, or
+    explicit external-only boundary; tracked by GitHub issue #58.
+  - [ ] Freeze a canonical trace schema and reject missing, duplicate, reordered, or substituted
+    inputs, decisions, state transitions, and commitments.
+  - [ ] Replay representative positive and negative traces across consensus, economics,
+    authorization, execution, state, codec, identity, privacy, and availability domains.
+  - [ ] Pin the trace-conformance matrix and executable gate in self-hosted CI.
 - [ ] Run every Lean and Tamarin model on the self-hosted CI runner.
 - [ ] Publish proof scopes, assumptions, counterexamples, and explicit unverified boundaries.
 - [ ] Obtain independent external formal-methods review before any non-developmental launch claim.
