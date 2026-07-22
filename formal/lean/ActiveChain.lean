@@ -8,6 +8,7 @@ import ActiveChain.Envelope
 import ActiveChain.EpochUpgrade
 import ActiveChain.Object
 import ActiveChain.ObjectVM
+import ActiveChain.PqZk
 import ActiveChain.Nonce
 import ActiveChain.StateTree
 import ActiveChain.WeightedConsensus

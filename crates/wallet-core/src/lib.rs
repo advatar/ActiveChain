@@ -166,7 +166,7 @@ impl PaymentSession {
         h.update(intent.as_bytes());
         h.update(&expires_at.to_be_bytes());
         let mut out = [0_u8; 48];
-        h.finalize_xof().read(&mut out);
+        XofReader::read(&mut h.finalize_xof(), &mut out);
         Digest384::new(out)
     }
 }
@@ -255,7 +255,7 @@ impl FaucetService {
         hasher.update(genesis_hash.as_bytes());
         hasher.update(&recipient_bytes);
         hasher.update(&amount.to_be_bytes());
-        hasher.finalize_xof().read(&mut bytes);
+        XofReader::read(&mut hasher.finalize_xof(), &mut bytes);
         let claim_id = Digest384::new(bytes);
         if self.claims.contains(&claim_id) {
             return Err(WalletError::Replay);

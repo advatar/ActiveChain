@@ -410,7 +410,7 @@ impl ConsensusMessage {
         hasher.update(&(body.len() as u32).to_be_bytes());
         hasher.update(&body);
         let mut digest = [0_u8; 48];
-        hasher.finalize_xof().read(&mut digest);
+        XofReader::read(&mut hasher.finalize_xof(), &mut digest);
         Ok(Digest384::new(digest))
     }
 }
@@ -1692,7 +1692,7 @@ impl VoteCollector {
             hasher.update(vote.signature().as_bytes());
         }
         let mut root = [0_u8; 48];
-        hasher.finalize_xof().read(&mut root);
+        XofReader::read(&mut hasher.finalize_xof(), &mut root);
         let context = ConsensusVoteContext::new_with_revision(
             self.genesis_commitment,
             epoch,
