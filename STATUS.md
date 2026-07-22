@@ -25,6 +25,16 @@ Tracked by [GitHub issue #17](https://github.com/advatar/ActiveChain/issues/17).
 - [x] Publish an ActiveChain-native architecture, feasibility verdict, implementation stages, and verification gates.
 - [x] Verify the investigation artifacts, commit them on the isolated worktree branch, and push the branch.
 
+## Active specification — Emerald-ambition private billboard
+
+Tracked by [GitHub issue #53](https://github.com/advatar/ActiveChain/issues/53).
+
+- [x] Extract Emerald's protocol ambitions, security boundaries, and unresolved areas as a benchmark.
+- [x] Define an independent ActiveChain-native architecture with equivalent outcome-level goals.
+- [x] Specify normative lifecycle, privacy, availability, moderation, economics, client, and recovery requirements.
+- [x] Publish measurable formal-verification, adversarial-test, performance, audit, and launch gates.
+- [x] Map the current vertical slice to staged implementation milestones and honest public claims.
+
 ## Active implementation — private billboard native-token vertical slice
 
 - [x] Make the live-process quorum rehearsal wait for validator readiness and exercise two-chain finality instead of relying on fixed startup sleeps (GitHub issue #45).
