@@ -203,12 +203,20 @@ mod tests {
         let plan = PartitionedCashPlan::build(&batch, 8).unwrap();
         assert_eq!(plan.parallel(), &[0]);
         assert_eq!(plan.fallback(), &[1]);
+        let pre = ledger.clone();
         let receipt = ledger.apply_partitioned_batch(&batch, 3, 8).unwrap();
         assert_eq!((receipt.applied(), receipt.rejected()), (1, 1));
         // A fresh plan can acquire the same identifiers: locks are not persistent ledger state.
         assert_eq!(PartitionedCashPlan::build(&batch, 8).unwrap(), plan);
         let encoded = encode_envelope(&ledger).unwrap();
         assert_eq!(decode_envelope::<CashLedger>(&encoded), Ok(ledger));
+        let (air, _) = super::prove_cash_air(&pre, &batch, 3, 8).unwrap();
+        assert!(air.rows()[0].accepted());
+        assert!(!air.rows()[1].accepted());
+        assert_eq!(
+            (air.rows()[1].input_value(), air.rows()[1].output_value(), air.rows()[1].fee()),
+            (0, 0, 0)
+        );
     }
 
     #[test]
@@ -225,6 +233,9 @@ mod tests {
     fn transparent_cash_air_matches_direct_reexecution_and_binds_context() {
         let (ledger, batch) = partitioned_fixture();
         let (proof, expected_post) = super::prove_cash_air(&ledger, &batch, 3, 16).unwrap();
+        for row in proof.rows() {
+            assert_eq!(row.input_value(), row.output_value() + row.fee());
+        }
         assert_eq!(
             super::verify_cash_air(&ledger, &batch, &proof, 3, 16),
             Ok(expected_post.clone())
@@ -244,13 +255,13 @@ mod tests {
         assert_eq!(
             proof.commitment().unwrap().as_bytes(),
             &[
-                209, 21, 90, 11, 17, 218, 247, 101, 193, 252, 70, 128, 170, 126, 115, 229, 20, 134,
-                148, 253, 24, 171, 206, 81, 86, 52, 195, 19, 42, 158, 141, 168, 131, 113, 249, 155,
-                245, 80, 223, 192, 185, 149, 16, 77, 172, 18, 82, 141,
+                14, 105, 213, 198, 196, 18, 68, 61, 208, 82, 78, 154, 147, 13, 131, 187, 223, 248,
+                125, 87, 82, 105, 104, 139, 213, 39, 210, 60, 183, 75, 142, 131, 226, 171, 154, 12,
+                18, 144, 5, 83, 185, 114, 129, 4, 150, 25, 62, 42,
             ]
         );
         assert!(include_str!("../../../testing/vectors/cash/cash-air-v1.txt")
-            .contains("proof_commitment_hex=d1155a0b11daf765c1fc4680aa7e73e5148694fd18abce515634c3132a9e8da88371f99bf550dfc0b995104dac12528d"));
+            .contains("proof_commitment_hex=0e69d5c6c412443dd0524e9a930d83bbdff87d575269688bd527d23cb74b8e83e2ab9a0c12900553b972810496193e2a"));
     }
 
     #[test]
@@ -270,6 +281,54 @@ mod tests {
             }
         }
         assert!(decode_envelope::<super::CashAirProof>(&encoded[..encoded.len() - 1]).is_err());
+    }
+
+    #[test]
+    fn cash_air_rejects_values_outside_its_non_wrapping_field_range() {
+        let large = u128::from(u64::MAX) + 1;
+        let definition = NativeAssetDefinition::new(
+            ChainId::new(digest(1)),
+            b"ACT".to_vec(),
+            18,
+            large + 1,
+            150,
+            digest(2),
+            digest(3),
+            digest(4),
+        )
+        .unwrap();
+        let economy = GenesisEconomy::new(
+            definition,
+            vec![
+                GenesisAllocation::new(principal(10), large, 0).unwrap(),
+                GenesisAllocation::new(principal(12), 1, 0).unwrap(),
+            ],
+            0,
+        )
+        .unwrap();
+        let mut ledger = CashLedger::from_genesis(&economy).unwrap();
+        let minted = ledger
+            .apply_mint(
+                &CoinMintTransition::new(digest(2), principal(10), 1, 1, 1).unwrap(),
+                &settlement(large + 1, 1, 1),
+            )
+            .unwrap();
+        let genesis = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .find(|record| record.cell().owner() == principal(10) && record.id() != minted)
+            .unwrap()
+            .id();
+        let batch = CashTransferV1::new(vec![
+            CoinTransfer::new(principal(10), principal(20), vec![genesis], minted, 1, 0, 20)
+                .unwrap(),
+        ])
+        .unwrap();
+        assert_eq!(
+            super::prove_cash_air(&ledger, &batch, 2, 8),
+            Err(super::CashAirError::UnsupportedRange)
+        );
     }
 
     #[test]

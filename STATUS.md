@@ -530,7 +530,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
     failed-row atomicity, accepted/rejected counts, and pre/post Coin Cell root binding.
   - [ ] Add specialized SHAKE, ML-DSA, membership, consumption, value/fee arithmetic,
     session-budget, and authenticated partition-root transition constraints.
-    - [ ] Arithmetize bounded per-row input/output/fee conservation and rejected-row zeroing.
+    - [x] Arithmetize bounded per-row input/output/fee conservation and rejected-row zeroing.
     - [ ] Arithmetize SHAKE, ML-DSA, authenticated membership/consumption, session budgets,
       and authenticated partition-root transitions.
   - [ ] Add recursive microbatch, partition, cash-slot, and global-transition aggregation.
