@@ -261,7 +261,7 @@ fn policy_decision_decode_error(error: PolicyDecisionError) -> DecodeError {
 mod tests {
     extern crate alloc;
 
-    use alloc::vec;
+    use alloc::{vec, vec::Vec};
 
     use activechain_canonical_codec::{decode_envelope, encode_envelope};
     use activechain_protocol_types::{
@@ -300,6 +300,72 @@ mod tests {
         assert_eq!(combine_effects(false, true), DecisionResult::Deny);
         assert_eq!(combine_effects(true, false), DecisionResult::Permit);
         assert_eq!(combine_effects(true, true), DecisionResult::Deny);
+    }
+
+    #[test]
+    fn production_evaluator_refines_the_general_effect_fold() {
+        fn check(observations: &[(PolicyEffect, bool)]) {
+            let mut expected_permits = 0_u8;
+            let mut expected_forbids = 0_u8;
+            let mut expected_obligations = Vec::new();
+            let mut rules = Vec::new();
+
+            for (index, (effect, matched)) in observations.iter().copied().enumerate() {
+                let predicates =
+                    if matched { vec![] } else { vec![PolicyPredicate::ValueAtMost(0)] };
+                let obligations = if effect == PolicyEffect::Permit {
+                    vec![PolicyObligation::EmitAuditCommitment(digest(index as u8 + 1))]
+                } else {
+                    vec![]
+                };
+                if matched {
+                    match effect {
+                        PolicyEffect::Permit => {
+                            expected_permits += 1;
+                            expected_obligations.extend_from_slice(&obligations);
+                        }
+                        PolicyEffect::Forbid => expected_forbids += 1,
+                    }
+                }
+                rules.push(PolicyRule::new(effect, predicates, obligations).expect("bounded rule"));
+            }
+
+            let policy = PolicySet::new(APL_LANGUAGE_VERSION, rules).expect("bounded policy");
+            let decision = evaluate(&policy, &request(10, 0x20));
+            let expected_result = combine_effects(expected_permits != 0, expected_forbids != 0);
+            assert_eq!(decision.result(), expected_result, "observations: {observations:?}");
+            assert_eq!(decision.matched_permit_rules(), expected_permits);
+            assert_eq!(decision.matched_forbid_rules(), expected_forbids);
+            assert_eq!(
+                decision.steps_used(),
+                observations.len() as u16 * 2
+                    - observations.iter().filter(|(_, matched)| *matched).count() as u16
+            );
+            if expected_result == DecisionResult::Permit {
+                assert_eq!(decision.obligations(), expected_obligations);
+            } else {
+                assert!(decision.obligations().is_empty());
+            }
+        }
+
+        fn enumerate(prefix: &mut Vec<(PolicyEffect, bool)>, remaining: usize) {
+            check(prefix);
+            if remaining == 0 {
+                return;
+            }
+            for observation in [
+                (PolicyEffect::Permit, false),
+                (PolicyEffect::Permit, true),
+                (PolicyEffect::Forbid, false),
+                (PolicyEffect::Forbid, true),
+            ] {
+                prefix.push(observation);
+                enumerate(prefix, remaining - 1);
+                prefix.pop();
+            }
+        }
+
+        enumerate(&mut Vec::new(), 6);
     }
 
     #[test]

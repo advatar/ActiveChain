@@ -17,6 +17,7 @@ they are not a certificate that the complete implementation is correct.
 | Domain | Tool | Primary artifact | Mechanically checked result | Implementation refinement |
 | --- | --- | --- | --- | --- |
 | APL, credentials, objects, ObjectVM, state tree, nonce | Lean 4 | `formal/lean/ActiveChain/` | bounded semantic slices and six finite differential tables | incomplete; these are not full evaluator, VM, tree, or codec proofs |
+| APL effect refinement | Lean 4 + Rust | `formal/lean/ActiveChain/Apl.lean`, `policy-kernel::eval` | arbitrary-list permit/forbid theorem plus exhaustive production differential enumeration through six rules | predicate-to-observation mapping remains a Rust-tested refinement boundary |
 | wallet-agent HITL and replay | Tamarin | `formal/tamarin/activechain_wallet.spthy` | scoped biometric approval and one-shot acceptance lemmas | not connected to the mobile mock bridges or secure storage |
 | bounded consensus traces | Tamarin | `formal/tamarin/activechain_consensus.spthy` | authentication, replay, non-equivocation, quorum intersection, and frontier lemmas | partial; no cross-round chain-prefix finality refinement |
 | weighted consensus arithmetic | Lean 4 | `formal/lean/ActiveChain/WeightedConsensus.lean` | arbitrary-weight intersection and conditional conflicting-QC exclusion | vote-lock and signer-set premises require Rust conformance |
