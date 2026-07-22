@@ -154,6 +154,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-private-billboard"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-cash-kernel",
+ "activechain-crypto-provider",
+ "activechain-privacy-kernel",
+ "activechain-protocol-commitment",
+ "activechain-protocol-types",
+ "proptest",
+ "sha3 0.10.9",
+]
+
+[[package]]
 name = "activechain-protocol-commitment"
 version = "0.1.0"
 dependencies = [

@@ -25,6 +25,17 @@ Tracked by [GitHub issue #17](https://github.com/advatar/ActiveChain/issues/17).
 - [x] Publish an ActiveChain-native architecture, feasibility verdict, implementation stages, and verification gates.
 - [x] Verify the investigation artifacts, commit them on the isolated worktree branch, and push the branch.
 
+## Active implementation — private billboard native-token vertical slice
+
+Tracked by [GitHub issue #27](https://github.com/advatar/ActiveChain/issues/27).
+
+- [x] Specify canonical billboard configuration, permit, post, moderation, and proof statements.
+- [x] Implement bounded cooldown, save-up, screening, penalty, dummy-post, and withdrawal semantics.
+- [x] Add verifier-issued evidence and atomic senderless action, nullifier, successor, fee, and public-output admission.
+- [x] Add encrypted permit delivery plus wallet discovery, spend tracking, and restart recovery.
+- [x] Exercise the complete shield, discover, post, restart, and withdraw lifecycle with adversarial tests.
+- [x] Pass repository quality gates, commit the isolated changes, push, and open a draft PR.
+
 ## Active launch gate — whole-system formal verification
 
 Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
