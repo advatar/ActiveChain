@@ -6,7 +6,7 @@
 //! atomicity, row count, and pre/post Coin Cell root binding. The cryptographic and membership
 //! tables required by `CASH.md` remain separate, explicit roadmap gates.
 
-use activechain_cash_kernel::CashAirProof;
+use activechain_cash_kernel::{AuthenticatedCashAirProofV1, CashAirProof};
 use activechain_protocol_types::{CoinCellSetRoot, Digest384};
 use winterfell::{
     AcceptableOptions, Air, AirContext, Assertion, AuxRandElements, BatchingMethod,
@@ -32,7 +32,7 @@ pub use shake::{
     verify_authenticated_cash_shake, verify_shake256_384, verify_shake256_384_batch,
 };
 
-const TRACE_WIDTH: usize = 11;
+const TRACE_WIDTH: usize = 15;
 const STEP: usize = 0;
 const APPLIED: usize = 1;
 const REJECTED: usize = 2;
@@ -42,6 +42,8 @@ const ROOT_0: usize = 5;
 const INPUT_VALUE: usize = 8;
 const OUTPUT_VALUE: usize = 9;
 const FEE: usize = 10;
+const AUTHENTICATED_MODE: usize = 11;
+const AUTHENTICATED_ROOT_0: usize = 12;
 
 #[derive(Clone, Debug)]
 pub struct CashStarkPublicInputs {
@@ -49,6 +51,10 @@ pub struct CashStarkPublicInputs {
     post_root: [BaseElement; 3],
     applied: BaseElement,
     rejected: BaseElement,
+    authenticated_mode: BaseElement,
+    authenticated_pre_root: [BaseElement; 3],
+    authenticated_post_root: [BaseElement; 3],
+    authenticated_row_roots: Vec<[BaseElement; 3]>,
 }
 
 impl ToElements<BaseElement> for CashStarkPublicInputs {
@@ -56,7 +62,10 @@ impl ToElements<BaseElement> for CashStarkPublicInputs {
         self.pre_root
             .into_iter()
             .chain(self.post_root)
-            .chain([self.applied, self.rejected])
+            .chain([self.applied, self.rejected, self.authenticated_mode])
+            .chain(self.authenticated_pre_root)
+            .chain(self.authenticated_post_root)
+            .chain(self.authenticated_row_roots.iter().flatten().copied())
             .collect()
     }
 }
@@ -87,9 +96,14 @@ impl Air for CashAir {
             TransitionConstraintDegree::new(2),
             TransitionConstraintDegree::new(2),
             TransitionConstraintDegree::new(2),
+            TransitionConstraintDegree::new(1),
+            TransitionConstraintDegree::new(2),
+            TransitionConstraintDegree::new(2),
+            TransitionConstraintDegree::new(2),
         ];
         degrees[10] = TransitionConstraintDegree::new(1);
-        Self { context: AirContext::new(trace_info, degrees, 14, options), public }
+        let assertions = 22 + public.authenticated_row_roots.len() * 3;
+        Self { context: AirContext::new(trace_info, degrees, assertions, options), public }
     }
 
     fn evaluate_transition<E: FieldElement<BaseField = Self::BaseField>>(
@@ -116,6 +130,12 @@ impl Air for CashAir {
         result[11] = rejected * next[INPUT_VALUE];
         result[12] = rejected * next[OUTPUT_VALUE];
         result[13] = rejected * next[FEE];
+        result[14] = next[AUTHENTICATED_MODE] - current[AUTHENTICATED_MODE];
+        for limb in 0..3 {
+            result[15 + limb] = current[AUTHENTICATED_MODE]
+                * rejected
+                * (next[AUTHENTICATED_ROOT_0 + limb] - current[AUTHENTICATED_ROOT_0 + limb]);
+        }
     }
 
     fn get_assertions(&self) -> Vec<Assertion<Self::BaseField>> {
@@ -129,10 +149,29 @@ impl Air for CashAir {
             Assertion::single(APPLIED, last, self.public.applied),
             Assertion::single(REJECTED, last, self.public.rejected),
             Assertion::single(ACTIVE, last, BaseElement::ZERO),
+            Assertion::single(AUTHENTICATED_MODE, 0, self.public.authenticated_mode),
+            Assertion::single(AUTHENTICATED_MODE, last, self.public.authenticated_mode),
         ];
         for limb in 0..3 {
             assertions.push(Assertion::single(ROOT_0 + limb, 0, self.public.pre_root[limb]));
             assertions.push(Assertion::single(ROOT_0 + limb, last, self.public.post_root[limb]));
+        }
+        for limb in 0..3 {
+            assertions.push(Assertion::single(
+                AUTHENTICATED_ROOT_0 + limb,
+                0,
+                self.public.authenticated_pre_root[limb],
+            ));
+            assertions.push(Assertion::single(
+                AUTHENTICATED_ROOT_0 + limb,
+                last,
+                self.public.authenticated_post_root[limb],
+            ));
+        }
+        for (offset, root) in self.public.authenticated_row_roots.iter().enumerate() {
+            for (limb, value) in root.iter().copied().enumerate() {
+                assertions.push(Assertion::single(AUTHENTICATED_ROOT_0 + limb, offset + 1, value));
+            }
         }
         assertions
     }
@@ -162,6 +201,16 @@ impl Prover for CashProver {
 
     fn get_pub_inputs(&self, trace: &Self::Trace) -> CashStarkPublicInputs {
         let last = trace.length() - 1;
+        let authenticated_mode = trace.get(AUTHENTICATED_MODE, 0);
+        let mut authenticated_row_roots = Vec::new();
+        if authenticated_mode == BaseElement::ONE {
+            let mut row = 1;
+            while row < last && trace.get(ACTIVE, row) == BaseElement::ONE {
+                authenticated_row_roots
+                    .push(core::array::from_fn(|limb| trace.get(AUTHENTICATED_ROOT_0 + limb, row)));
+                row += 1;
+            }
+        }
         CashStarkPublicInputs {
             pre_root: [trace.get(ROOT_0, 0), trace.get(ROOT_0 + 1, 0), trace.get(ROOT_0 + 2, 0)],
             post_root: [
@@ -171,6 +220,14 @@ impl Prover for CashProver {
             ],
             applied: trace.get(APPLIED, last),
             rejected: trace.get(REJECTED, last),
+            authenticated_mode,
+            authenticated_pre_root: core::array::from_fn(|limb| {
+                trace.get(AUTHENTICATED_ROOT_0 + limb, 0)
+            }),
+            authenticated_post_root: core::array::from_fn(|limb| {
+                trace.get(AUTHENTICATED_ROOT_0 + limb, last)
+            }),
+            authenticated_row_roots,
         }
     }
 
@@ -221,10 +278,20 @@ impl CashStarkProof {
 }
 
 pub fn prove(trace: &CashAirProof) -> Result<CashStarkProof, &'static str> {
-    let execution = build_trace(trace)?;
+    let execution = build_trace(trace, None)?;
     let public = public_inputs(trace.public());
     let prover = CashProver { options: proof_options() };
     let proof = prover.prove(execution).map_err(|_| "CashAIR proving failed")?;
+    Ok(CashStarkProof { proof, public })
+}
+
+pub fn prove_authenticated_parent(
+    trace: &AuthenticatedCashAirProofV1,
+) -> Result<CashStarkProof, &'static str> {
+    let execution = build_trace(trace.execution(), Some(trace))?;
+    let public = authenticated_public_inputs(trace);
+    let prover = CashProver { options: proof_options() };
+    let proof = prover.prove(execution).map_err(|_| "authenticated CashAIR proving failed")?;
     Ok(CashStarkProof { proof, public })
 }
 
@@ -243,7 +310,13 @@ pub fn verify_bytes(bytes: &[u8], trace: &CashAirProof) -> Result<(), &'static s
     verify(CashStarkProof { proof, public: public_inputs(trace.public()) })
 }
 
-fn build_trace(proof: &CashAirProof) -> Result<TraceTable<BaseElement>, &'static str> {
+fn build_trace(
+    proof: &CashAirProof,
+    authenticated: Option<&AuthenticatedCashAirProofV1>,
+) -> Result<TraceTable<BaseElement>, &'static str> {
+    if authenticated.is_some_and(|value| value.mutations().len() != proof.rows().len()) {
+        return Err("authenticated CashAIR mutation count mismatch");
+    }
     let length = (proof.rows().len() + 2).next_power_of_two().max(8);
     let mut trace = TraceTable::new(TRACE_WIDTH, length);
     let mut current_root = root_elements(proof.public().pre_cells());
@@ -256,6 +329,11 @@ fn build_trace(proof: &CashAirProof) -> Result<TraceTable<BaseElement>, &'static
     trace.set(OUTPUT_VALUE, 0, BaseElement::ZERO);
     trace.set(FEE, 0, BaseElement::ZERO);
     set_root(&mut trace, 0, current_root);
+    let authenticated_mode = BaseElement::new(u128::from(authenticated.is_some()));
+    let mut authenticated_root = authenticated
+        .map_or([BaseElement::ZERO; 3], |value| digest_elements(value.pre_root().into_digest()));
+    trace.set(AUTHENTICATED_MODE, 0, authenticated_mode);
+    set_authenticated_root(&mut trace, 0, authenticated_root);
     let mut applied = 0_u64;
     let mut rejected = 0_u64;
     for (offset, row) in proof.rows().iter().enumerate() {
@@ -275,6 +353,17 @@ fn build_trace(proof: &CashAirProof) -> Result<TraceTable<BaseElement>, &'static
         trace.set(OUTPUT_VALUE, index, BaseElement::new(row.output_value().into()));
         trace.set(FEE, index, BaseElement::new(row.fee().into()));
         set_root(&mut trace, index, current_root);
+        trace.set(AUTHENTICATED_MODE, index, authenticated_mode);
+        if let Some(authenticated) = authenticated {
+            match (row.accepted(), &authenticated.mutations()[offset]) {
+                (true, Some(mutation)) => {
+                    authenticated_root = digest_elements(mutation.post_root().into_digest())
+                }
+                (false, None) => {}
+                _ => return Err("authenticated CashAIR row/mutation mismatch"),
+            }
+        }
+        set_authenticated_root(&mut trace, index, authenticated_root);
     }
     for index in proof.rows().len() + 1..length {
         trace.set(STEP, index, BaseElement::new(proof.rows().len() as u128));
@@ -286,6 +375,8 @@ fn build_trace(proof: &CashAirProof) -> Result<TraceTable<BaseElement>, &'static
         trace.set(OUTPUT_VALUE, index, BaseElement::ZERO);
         trace.set(FEE, index, BaseElement::ZERO);
         set_root(&mut trace, index, current_root);
+        trace.set(AUTHENTICATED_MODE, index, authenticated_mode);
+        set_authenticated_root(&mut trace, index, authenticated_root);
     }
     Ok(trace)
 }
@@ -296,17 +387,49 @@ fn public_inputs(public: &activechain_cash_kernel::CashAirPublicInputs) -> CashS
         post_root: root_elements(public.post_cells()),
         applied: BaseElement::new(public.applied().into()),
         rejected: BaseElement::new(public.rejected().into()),
+        authenticated_mode: BaseElement::ZERO,
+        authenticated_pre_root: [BaseElement::ZERO; 3],
+        authenticated_post_root: [BaseElement::ZERO; 3],
+        authenticated_row_roots: Vec::new(),
     }
 }
 
+fn authenticated_public_inputs(proof: &AuthenticatedCashAirProofV1) -> CashStarkPublicInputs {
+    let mut public = public_inputs(proof.execution().public());
+    public.authenticated_mode = BaseElement::ONE;
+    public.authenticated_pre_root = digest_elements(proof.pre_root().into_digest());
+    public.authenticated_post_root = digest_elements(proof.post_root().into_digest());
+    let mut current = public.authenticated_pre_root;
+    public.authenticated_row_roots = proof
+        .mutations()
+        .iter()
+        .map(|mutation| {
+            if let Some(mutation) = mutation {
+                current = digest_elements(mutation.post_root().into_digest());
+            }
+            current
+        })
+        .collect();
+    public
+}
+
 fn root_elements(root: CoinCellSetRoot) -> [BaseElement; 3] {
-    let digest: Digest384 = root.into_digest();
+    digest_elements(root.into_digest())
+}
+
+fn digest_elements(digest: Digest384) -> [BaseElement; 3] {
     let bytes = digest.as_bytes();
     core::array::from_fn(|index| {
         let mut limb = [0_u8; 16];
         limb.copy_from_slice(&bytes[index * 16..(index + 1) * 16]);
         BaseElement::new(u128::from_be_bytes(limb))
     })
+}
+
+fn set_authenticated_root(trace: &mut TraceTable<BaseElement>, row: usize, root: [BaseElement; 3]) {
+    for (limb, value) in root.into_iter().enumerate() {
+        trace.set(AUTHENTICATED_ROOT_0 + limb, row, value);
+    }
 }
 
 fn set_root(trace: &mut TraceTable<BaseElement>, row: usize, root: [BaseElement; 3]) {
@@ -332,11 +455,12 @@ fn proof_options() -> ProofOptions {
 mod tests {
     use activechain_cash_kernel::{
         CashLedger, CashTransferV1, CoinMintTransition, CoinTransfer, EpochEconomicsTransition,
-        GenesisAllocation, GenesisEconomy, NativeAssetDefinition, prove_cash_air,
+        GenesisAllocation, GenesisEconomy, NativeAssetDefinition, prove_authenticated_cash_air,
+        prove_cash_air,
     };
     use activechain_protocol_types::{ChainId, CoinCellId, Digest384, PrincipalId};
 
-    use super::{BaseElement, prove, verify};
+    use super::{BaseElement, prove, prove_authenticated_parent, verify};
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
@@ -439,5 +563,31 @@ mod tests {
         let mut proof = prove(&trace).unwrap();
         proof.public.applied += BaseElement::new(1);
         assert!(verify(proof).is_err());
+    }
+
+    #[test]
+    fn authenticated_parent_stark_binds_exact_pre_and_post_roots() {
+        let (ledger, batch) = fixture();
+        let (trace, _) = prove_authenticated_cash_air(&ledger, &batch, 3, 16).unwrap();
+        let proof = prove_authenticated_parent(&trace).unwrap();
+        verify(proof).unwrap();
+    }
+
+    #[test]
+    fn authenticated_parent_rejects_root_and_mode_substitution() {
+        let (ledger, batch) = fixture();
+        let (trace, _) = prove_authenticated_cash_air(&ledger, &batch, 3, 16).unwrap();
+
+        let mut wrong_root = prove_authenticated_parent(&trace).unwrap();
+        wrong_root.public.authenticated_post_root[0] += BaseElement::new(1);
+        assert!(verify(wrong_root).is_err());
+
+        let mut wrong_mode = prove_authenticated_parent(&trace).unwrap();
+        wrong_mode.public.authenticated_mode = BaseElement::new(0);
+        assert!(verify(wrong_mode).is_err());
+
+        let mut wrong_row = prove_authenticated_parent(&trace).unwrap();
+        wrong_row.public.authenticated_row_roots[0][0] += BaseElement::new(1);
+        assert!(verify(wrong_row).is_err());
     }
 }
