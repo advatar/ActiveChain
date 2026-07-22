@@ -14,6 +14,7 @@ pub enum CashAirError {
     Transition,
     Encoding,
     InvalidProof,
+    UnsupportedRange,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -98,6 +99,9 @@ pub struct CashAirRow {
     pre_supply: SupplyRoot,
     post_supply: SupplyRoot,
     accepted: bool,
+    input_value: u64,
+    output_value: u64,
+    fee: u64,
 }
 
 impl CashAirRow {
@@ -109,6 +113,18 @@ impl CashAirRow {
     pub const fn accepted(&self) -> bool {
         self.accepted
     }
+    #[must_use]
+    pub const fn input_value(&self) -> u64 {
+        self.input_value
+    }
+    #[must_use]
+    pub const fn output_value(&self) -> u64 {
+        self.output_value
+    }
+    #[must_use]
+    pub const fn fee(&self) -> u64 {
+        self.fee
+    }
 }
 
 impl CanonicalEncode for CashAirRow {
@@ -118,7 +134,10 @@ impl CanonicalEncode for CashAirRow {
         self.post_cells.encode(e)?;
         self.pre_supply.encode(e)?;
         self.post_supply.encode(e)?;
-        self.accepted.encode(e)
+        self.accepted.encode(e)?;
+        self.input_value.encode(e)?;
+        self.output_value.encode(e)?;
+        self.fee.encode(e)
     }
 }
 
@@ -131,6 +150,9 @@ impl CanonicalDecode for CashAirRow {
             pre_supply: SupplyRoot::decode(d)?,
             post_supply: SupplyRoot::decode(d)?,
             accepted: bool::decode(d)?,
+            input_value: u64::decode(d)?,
+            output_value: u64::decode(d)?,
+            fee: u64::decode(d)?,
         })
     }
 }
@@ -138,7 +160,7 @@ impl CanonicalDecode for CashAirRow {
 impl CanonicalType for CashAirRow {
     const TYPE_TAG: u16 = 0x0095;
     const SCHEMA_VERSION: u16 = 1;
-    const MAX_ENCODED_LEN: usize = 2 + 48 * 4 + 1;
+    const MAX_ENCODED_LEN: usize = 2 + 48 * 4 + 1 + 8 * 3;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -216,10 +238,11 @@ pub fn prove_cash_air(
     let mut applied = 0_u16;
     let mut rejected = 0_u16;
     for index in plan.parallel().iter().chain(plan.fallback()) {
+        let transfer = &batch.transfers()[usize::from(*index)];
         let pre_cells = state.cell_set_root().map_err(map_transition)?;
         let pre_supply = state.supply_root().map_err(map_transition)?;
-        let accepted =
-            state.apply_transfer(&batch.transfers()[usize::from(*index)], height).is_ok();
+        let values = bounded_values(&state, transfer)?;
+        let accepted = state.apply_transfer(transfer, height).is_ok();
         if accepted {
             applied += 1;
         } else {
@@ -232,6 +255,9 @@ pub fn prove_cash_air(
             pre_supply,
             post_supply: state.supply_root().map_err(map_transition)?,
             accepted,
+            input_value: if accepted { values.0 } else { 0 },
+            output_value: if accepted { values.1 } else { 0 },
+            fee: if accepted { values.2 } else { 0 },
         });
     }
     let public = CashAirPublicInputs {
@@ -269,4 +295,28 @@ pub fn verify_cash_air(
 
 fn map_transition(_: CashTransitionError) -> CashAirError {
     CashAirError::Transition
+}
+
+fn bounded_values(
+    ledger: &CashLedger,
+    transfer: &crate::CoinTransfer,
+) -> Result<(u64, u64, u64), CashAirError> {
+    let mut input = 0_u128;
+    for id in transfer.inputs().iter().chain(core::iter::once(&transfer.fee_reserve())) {
+        let amount = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .find(|record| record.id() == *id)
+            .map(|record| record.cell().amount())
+            .unwrap_or(0);
+        input = input.checked_add(amount).ok_or(CashAirError::UnsupportedRange)?;
+    }
+    let fee = transfer.fee();
+    let output = input.saturating_sub(fee);
+    Ok((
+        u64::try_from(input).map_err(|_| CashAirError::UnsupportedRange)?,
+        u64::try_from(output).map_err(|_| CashAirError::UnsupportedRange)?,
+        u64::try_from(fee).map_err(|_| CashAirError::UnsupportedRange)?,
+    ))
 }

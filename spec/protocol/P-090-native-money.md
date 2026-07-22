@@ -101,7 +101,11 @@ execution context. A frozen vector commits the complete proof envelope.
 The `activechain-cash-air` companion crate proves the first algebraic subset with
 a Winterfell transparent STARK at a minimum 95-bit conjectured security policy:
 row progression, boolean activity/outcomes, one-way padding, accepted/rejected
-counts, failed-row root atomicity, and exact pre/post Coin Cell root binding. The
+counts, failed-row root atomicity, exact pre/post Coin Cell root binding, and
+per-row input = output + fee conservation. Rejected rows constrain all three
+value columns to zero. Version 1 deliberately bounds each trace-row total and fee
+to `u64`; proof construction rejects a larger value instead of reducing it modulo
+the STARK field. The
 STARK verifier and direct-reexecution oracle are independent gates; both must pass.
 
 This tranche is not zero knowledge. It also does not yet arithmetize SHAKE,

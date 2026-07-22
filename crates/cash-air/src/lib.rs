@@ -19,13 +19,16 @@ use winterfell::{
     matrix::ColMatrix,
 };
 
-const TRACE_WIDTH: usize = 8;
+const TRACE_WIDTH: usize = 11;
 const STEP: usize = 0;
 const APPLIED: usize = 1;
 const REJECTED: usize = 2;
 const ACTIVE: usize = 3;
 const ACCEPTED: usize = 4;
 const ROOT_0: usize = 5;
+const INPUT_VALUE: usize = 8;
+const OUTPUT_VALUE: usize = 9;
+const FEE: usize = 10;
 
 #[derive(Clone, Debug)]
 pub struct CashStarkPublicInputs {
@@ -56,7 +59,7 @@ impl Air for CashAir {
 
     fn new(trace_info: TraceInfo, public: Self::PublicInputs, options: ProofOptions) -> Self {
         assert_eq!(trace_info.width(), TRACE_WIDTH);
-        let degrees = vec![
+        let mut degrees = vec![
             TransitionConstraintDegree::new(1),
             TransitionConstraintDegree::new(2),
             TransitionConstraintDegree::new(2),
@@ -67,7 +70,12 @@ impl Air for CashAir {
             TransitionConstraintDegree::new(2),
             TransitionConstraintDegree::new(2),
             TransitionConstraintDegree::new(2),
+            TransitionConstraintDegree::new(2),
+            TransitionConstraintDegree::new(2),
+            TransitionConstraintDegree::new(2),
+            TransitionConstraintDegree::new(2),
         ];
+        degrees[10] = TransitionConstraintDegree::new(1);
         Self { context: AirContext::new(trace_info, degrees, 14, options), public }
     }
 
@@ -91,6 +99,10 @@ impl Air for CashAir {
         for limb in 0..3 {
             result[7 + limb] = rejected * (next[ROOT_0 + limb] - current[ROOT_0 + limb]);
         }
+        result[10] = next[INPUT_VALUE] - next[OUTPUT_VALUE] - next[FEE];
+        result[11] = rejected * next[INPUT_VALUE];
+        result[12] = rejected * next[OUTPUT_VALUE];
+        result[13] = rejected * next[FEE];
     }
 
     fn get_assertions(&self) -> Vec<Assertion<Self::BaseField>> {
@@ -227,6 +239,9 @@ fn build_trace(proof: &CashAirProof) -> Result<TraceTable<BaseElement>, &'static
     trace.set(REJECTED, 0, BaseElement::ZERO);
     trace.set(ACTIVE, 0, BaseElement::ONE);
     trace.set(ACCEPTED, 0, BaseElement::ZERO);
+    trace.set(INPUT_VALUE, 0, BaseElement::ZERO);
+    trace.set(OUTPUT_VALUE, 0, BaseElement::ZERO);
+    trace.set(FEE, 0, BaseElement::ZERO);
     set_root(&mut trace, 0, current_root);
     let mut applied = 0_u64;
     let mut rejected = 0_u64;
@@ -243,6 +258,9 @@ fn build_trace(proof: &CashAirProof) -> Result<TraceTable<BaseElement>, &'static
         trace.set(REJECTED, index, BaseElement::new(rejected.into()));
         trace.set(ACTIVE, index, BaseElement::ONE);
         trace.set(ACCEPTED, index, BaseElement::new(u128::from(row.accepted())));
+        trace.set(INPUT_VALUE, index, BaseElement::new(row.input_value().into()));
+        trace.set(OUTPUT_VALUE, index, BaseElement::new(row.output_value().into()));
+        trace.set(FEE, index, BaseElement::new(row.fee().into()));
         set_root(&mut trace, index, current_root);
     }
     for index in proof.rows().len() + 1..length {
@@ -251,6 +269,9 @@ fn build_trace(proof: &CashAirProof) -> Result<TraceTable<BaseElement>, &'static
         trace.set(REJECTED, index, BaseElement::new(rejected.into()));
         trace.set(ACTIVE, index, BaseElement::ZERO);
         trace.set(ACCEPTED, index, BaseElement::ZERO);
+        trace.set(INPUT_VALUE, index, BaseElement::ZERO);
+        trace.set(OUTPUT_VALUE, index, BaseElement::ZERO);
+        trace.set(FEE, index, BaseElement::ZERO);
         set_root(&mut trace, index, current_root);
     }
     Ok(trace)
