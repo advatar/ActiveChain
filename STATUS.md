@@ -533,11 +533,11 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
     - [x] Arithmetize bounded per-row input/output/fee conservation and rejected-row zeroing.
     - [ ] Arithmetize SHAKE, ML-DSA, authenticated membership/consumption, session budgets,
       and authenticated partition-root transitions.
-      - [ ] Complete bounded-session enforcement and its CashAIR binding
+      - [x] Complete bounded-session enforcement and its CashAIR binding
         ([GitHub issue #72](https://github.com/advatar/ActiveChain/issues/72)).
         - [x] Add canonical ML-DSA session-grant envelopes, persistent spend budgets, strict
           validator ingress, and crash-atomic budget consumption with transfer admission.
-        - [ ] Bind the exact runtime pre/post session-budget witness into specialized AIR range and
+        - [x] Bind the exact runtime pre/post session-budget witness into specialized AIR range and
           monotonic-spend constraints
           ([GitHub issue #74](https://github.com/advatar/ActiveChain/issues/74)).
   - [ ] Add recursive microbatch, partition, cash-slot, and global-transition aggregation.

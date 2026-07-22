@@ -1,5 +1,7 @@
 use activechain_canonical_codec::encode_envelope;
-use activechain_wallet_core::CashSessionAdmissionWitnessV1;
+use activechain_wallet_core::{
+    AuthorizedCashTransferV1, CashSessionAdmissionWitnessV1, TransactionIngress, WalletError,
+};
 use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
@@ -173,6 +175,12 @@ pub struct CashSessionStarkProof {
     public: SessionPublicInputs,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CashSessionProofError {
+    Admission(WalletError),
+    Proving,
+}
+
 impl CashSessionStarkProof {
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -188,6 +196,19 @@ pub fn prove_session_budget(
     let prover = SessionProver { options: proof_options(), public: public.clone() };
     let proof = prover.prove(trace).map_err(|_| "cash session proving failed")?;
     Ok(CashSessionStarkProof { proof, public })
+}
+
+/// Reexecutes authoritative ingress on a clone and proves the exact resulting session witness.
+pub fn prove_authorized_session(
+    ingress: &TransactionIngress,
+    authorized: &AuthorizedCashTransferV1,
+    height: u64,
+) -> Result<(CashSessionStarkProof, CashSessionAdmissionWitnessV1), CashSessionProofError> {
+    let witness = ingress
+        .preview_authorized_session_witness(authorized, height)
+        .map_err(CashSessionProofError::Admission)?;
+    let proof = prove_session_budget(&witness).map_err(|_| CashSessionProofError::Proving)?;
+    Ok((proof, witness))
 }
 
 pub fn verify_session_budget(

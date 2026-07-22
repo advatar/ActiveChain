@@ -16,6 +16,10 @@ temporary file, `fsync`, and atomic rename before publishing it in memory. Resta
 restores the exact grant and consumed spend; malformed snapshots, wrong-chain snapshots, failed
 publishes, unknown sessions, wrong keys, expired grants, and over-budget spends fail closed.
 
-The remaining proof task is deliberately separate: CashAIR must bind these exact pre/post budget
-values and arithmetize non-wrapping bounded subtraction. Until that constraint table lands, the
-direct runtime check remains authoritative and the specialized CashAIR roadmap gate remains open.
+CashAIR derives its canonical admission witness by reexecuting this exact authoritative ingress on
+a clone. Its dedicated 128-row bit trace proves `amount + fee = spend`, `pre + spend = post`, and
+`post + remaining = signed maximum`. Boolean bit constraints and zero terminal carries rule out
+field-modulus aliases, integer overflow, and over-budget subtraction. Six exact 64-bit limbs of a
+domain-separated SHAKE commitment bind the remaining canonical witness context (chain, signer,
+session, height, and grant window) into the proof transcript. Direct runtime reexecution remains the
+authoritative comparison boundary while the other specialized CashAIR tables remain open.
