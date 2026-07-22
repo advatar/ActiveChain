@@ -87,12 +87,14 @@ The TLA+ variables and guards require concrete Rust behavior at these boundaries
 | `Crash` / `Restart` | Vote records, current view, lock, finalized head, replay high-water marks, epoch, set root, and revision must share an atomic recoverable snapshot or a proven write-ahead protocol. |
 | `ActivateNewValidatorSet` | Activation must be authorized by a block finalized by the old set, bind the next root, and preserve the activation checkpoint as the ancestor of every new-set certificate. The production exact-height rule is an additional obligation modeled in `EpochUpgrade.lean`, not in this TLA+ run. |
 
-The current Rust `BlockProposal` schema signs proposer, epoch, height, round, and digest but does not
-carry the direct parent digest or the justifying QC. Consequently, the model's parent/QC-binding and
-safe-vote checks are stronger than the deployed proposal path. The implementation must add those
-fields and checks, plus a persistent highest locked QC, before this result can be cited as evidence
-about the running node. Durable per-slot vote locks alone establish non-equivocation; they do not
-implement the cross-round safe-vote rule proved here.
+Rust `BlockProposal` schema version 2 signs proposer, epoch, height, round, digest, and the complete
+parent QC. The runtime admits a chained proposal only when that QC is the highest locally verified
+certificate, has the active genesis/epoch/root/revision domain, and certifies the immediately prior
+height. It persists both the highest verified QC and highest locked QC in the same atomic validator
+safety snapshot as replay and per-slot vote records. A child QC commits its certified parent; an
+unchained proposal is accepted only at the first height after genesis or an activated consensus
+context. This deliberately linear production rule is a conservative refinement of the model's
+ancestry-or-newer-QC safe-vote guard and consecutive two-QC commit rule.
 
 ## Explicit assumptions and exclusions
 

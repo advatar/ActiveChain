@@ -147,12 +147,20 @@ pub struct BlockProposal {
     height: u64,
     round: u64,
     block_digest: Digest384,
+    parent_qc: Option<QuorumCertificate>,
     signature: ProtocolSignature,
 }
 impl BlockProposal {
     pub const TYPE_TAG: u16 = 0x0068;
-    pub const SCHEMA_VERSION: u16 = 1;
-    pub const MAX_ENCODED_LEN: usize = 48 + 8 + 8 + 8 + 48 + ProtocolSignature::MAX_ENCODED_LEN;
+    pub const SCHEMA_VERSION: u16 = 2;
+    pub const MAX_ENCODED_LEN: usize = 48
+        + 8
+        + 8
+        + 8
+        + 48
+        + 1
+        + QuorumCertificate::ENCODED_LENGTH
+        + ProtocolSignature::MAX_ENCODED_LEN;
     pub fn new(
         proposer: PrincipalId,
         epoch: Epoch,
@@ -164,7 +172,29 @@ impl BlockProposal {
         if signature.suite() != CryptoSuiteId::ML_DSA_44 {
             return Err(ValidatorVoteError::InvalidConsensusSuite);
         }
-        Ok(Self { proposer, epoch, height, round, block_digest, signature })
+        Ok(Self { proposer, epoch, height, round, block_digest, parent_qc: None, signature })
+    }
+    pub fn new_chained(
+        proposer: PrincipalId,
+        epoch: Epoch,
+        height: u64,
+        round: u64,
+        block_digest: Digest384,
+        parent_qc: QuorumCertificate,
+        signature: ProtocolSignature,
+    ) -> Result<Self, ValidatorVoteError> {
+        if signature.suite() != CryptoSuiteId::ML_DSA_44 {
+            return Err(ValidatorVoteError::InvalidConsensusSuite);
+        }
+        Ok(Self {
+            proposer,
+            epoch,
+            height,
+            round,
+            block_digest,
+            parent_qc: Some(parent_qc),
+            signature,
+        })
     }
     pub const fn proposer(&self) -> PrincipalId {
         self.proposer
@@ -181,17 +211,29 @@ impl BlockProposal {
     pub const fn block_digest(&self) -> Digest384 {
         self.block_digest
     }
+    pub const fn parent_qc(&self) -> Option<&QuorumCertificate> {
+        self.parent_qc.as_ref()
+    }
     pub fn signature(&self) -> &ProtocolSignature {
         &self.signature
     }
     pub fn signing_payload(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(18 + 48 + 8 + 8 + 8 + 48);
-        bytes.extend_from_slice(b"ACTIVECHAIN-PROPOSAL-V1");
+        let mut bytes = Vec::with_capacity(Self::MAX_ENCODED_LEN);
+        bytes.extend_from_slice(b"ACTIVECHAIN-PROPOSAL-V2");
         bytes.extend_from_slice(self.proposer.digest().as_bytes());
         bytes.extend_from_slice(&self.epoch.to_be_bytes());
         bytes.extend_from_slice(&self.height.to_be_bytes());
         bytes.extend_from_slice(&self.round.to_be_bytes());
         bytes.extend_from_slice(self.block_digest.as_bytes());
+        match &self.parent_qc {
+            None => bytes.push(0),
+            Some(qc) => {
+                bytes.push(1);
+                let mut encoder = Encoder::new(QuorumCertificate::ENCODED_LENGTH);
+                qc.encode(&mut encoder).expect("QC canonical encoding is infallible");
+                bytes.extend_from_slice(&encoder.finish());
+            }
+        }
         bytes
     }
 }
@@ -539,19 +581,35 @@ impl CanonicalEncode for BlockProposal {
         self.height.encode(e)?;
         self.round.encode(e)?;
         self.block_digest.encode(e)?;
+        match &self.parent_qc {
+            None => 0_u8.encode(e)?,
+            Some(qc) => {
+                1_u8.encode(e)?;
+                qc.encode(e)?;
+            }
+        }
         self.signature.encode(e)
     }
 }
 impl CanonicalDecode for BlockProposal {
     fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
-        Self::new(
-            PrincipalId::decode(d)?,
-            u64::decode(d)?,
-            u64::decode(d)?,
-            u64::decode(d)?,
-            Digest384::decode(d)?,
-            ProtocolSignature::decode(d)?,
-        )
+        let proposer = PrincipalId::decode(d)?;
+        let epoch = u64::decode(d)?;
+        let height = u64::decode(d)?;
+        let round = u64::decode(d)?;
+        let block_digest = Digest384::decode(d)?;
+        let parent_qc = match u8::decode(d)? {
+            0 => None,
+            1 => Some(QuorumCertificate::decode(d)?),
+            _ => return Err(DecodeError::InvalidValue("invalid proposal parent-QC tag")),
+        };
+        let signature = ProtocolSignature::decode(d)?;
+        match parent_qc {
+            Some(qc) => {
+                Self::new_chained(proposer, epoch, height, round, block_digest, qc, signature)
+            }
+            None => Self::new(proposer, epoch, height, round, block_digest, signature),
+        }
         .map_err(|_| DecodeError::InvalidValue("invalid ML-DSA block proposal"))
     }
 }
@@ -913,6 +971,38 @@ mod tests {
         assert_ne!(baseline, make(digest(10), 4, digest(11), 1));
         assert_ne!(baseline, make(digest(10), 3, digest(12), 1));
         assert_ne!(baseline, make(digest(10), 3, digest(11), 2));
+    }
+    #[test]
+    fn chained_proposal_round_trips_and_signature_payload_binds_parent_qc() {
+        let context = ConsensusVoteContext::new(digest(10), 3, digest(11)).unwrap();
+        let parent = QuorumCertificate::new(context, 7, 2, digest(3), digest(4), 3, 3).unwrap();
+        let alternate = QuorumCertificate::new(context, 7, 2, digest(5), digest(6), 3, 3).unwrap();
+        let signature = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![7; 2420]).unwrap();
+        let proposal = BlockProposal::new_chained(
+            PrincipalId::new(digest(1)),
+            3,
+            8,
+            3,
+            digest(8),
+            parent,
+            signature.clone(),
+        )
+        .unwrap();
+        let changed_parent = BlockProposal::new_chained(
+            PrincipalId::new(digest(1)),
+            3,
+            8,
+            3,
+            digest(8),
+            alternate,
+            signature,
+        )
+        .unwrap();
+        assert_ne!(proposal.signing_payload(), changed_parent.signing_payload());
+        assert_eq!(
+            decode_envelope::<BlockProposal>(&encode_envelope(&proposal).unwrap()),
+            Ok(proposal)
+        );
     }
     #[test]
     fn quorum_certificate_requires_strict_two_thirds_stake() {

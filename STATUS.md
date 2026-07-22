@@ -37,7 +37,11 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
     composition theorem in Lean.
   - [x] Exhaustively model-check bounded parent/QC binding, durable locks, cross-view prefix
     finality, crash/restart, and one validator-root transition in TLA+.
-  - [ ] Implement and model parent/QC binding plus safe-vote, lock, and commit rules across rounds.
+  - [x] Implement and model parent/QC binding plus safe-vote, lock, and commit rules across rounds.
+    - [x] Bind every non-genesis proposal to its parent digest and justifying QC in the canonical signed payload ([#25](https://github.com/advatar/ActiveChain/issues/25)).
+    - [x] Enforce locked-branch safe voting and persist the highest locked QC across validator restart.
+    - [x] Apply consecutive chained-QC commit rules and reject conflicting finalized prefixes.
+    - [x] Cover valid chains, malformed/stale/conflicting proposals, serialization, and restart recovery with tests.
   - [ ] Prove any two finalized histories are prefix-comparable, including view changes, epoch
     changes, and restart recovery.
   - [x] Verify canonical signer ordering, vote-set-root recomputation, and checked stake arithmetic
