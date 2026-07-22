@@ -3,11 +3,14 @@
 
 //! Domain-separated SHAKE256 commitments over canonical protocol bodies.
 
+extern crate alloc;
+
 use activechain_canonical_codec::{CanonicalType, EncodeError, encode_body};
 use activechain_protocol_types::{
     AssetId, CoinCellId, CoinCellSetRoot, DIGEST_LENGTH, Digest384, GenesisAllocationRoot,
     PackageId, PackageManifest, SupplyRoot, TransactionId,
 };
+use alloc::vec::Vec;
 use sha3::{Shake256, digest::ExtendableOutput, digest::Update, digest::XofReader};
 
 const TRANSCRIPT_PREFIX: &[u8] = b"ACTIVECHAIN-COMMITMENT";
@@ -114,20 +117,57 @@ pub fn genesis_allocation_root<T: CanonicalType>(
 /// type tag and schema version already occupy unambiguous transcript fields.
 pub fn commit<T: CanonicalType>(domain: DomainTag, value: &T) -> Result<Digest384, EncodeError> {
     let body = encode_body(value)?;
-    let body_length = u64::try_from(body.len()).map_err(|_| EncodeError::LengthOverflow)?;
+    let transcript = commitment_transcript(domain, T::TYPE_TAG, T::SCHEMA_VERSION, &body)?;
 
     let mut hasher = Shake256::default();
-    hasher.update(TRANSCRIPT_PREFIX);
-    hasher.update(&TRANSCRIPT_VERSION.to_be_bytes());
-    hasher.update(&domain.as_u16().to_be_bytes());
-    hasher.update(&T::TYPE_TAG.to_be_bytes());
-    hasher.update(&T::SCHEMA_VERSION.to_be_bytes());
-    hasher.update(&body_length.to_be_bytes());
-    hasher.update(&body);
+    hasher.update(&transcript);
 
     let mut output = [0_u8; DIGEST_LENGTH];
     hasher.finalize_xof().read(&mut output);
     Ok(Digest384::new(output))
+}
+
+fn commitment_transcript(
+    domain: DomainTag,
+    type_tag: u16,
+    schema_version: u16,
+    body: &[u8],
+) -> Result<Vec<u8>, EncodeError> {
+    let body_length = u64::try_from(body.len()).map_err(|_| EncodeError::LengthOverflow)?;
+    let mut transcript = Vec::with_capacity(38 + body.len());
+    transcript.extend_from_slice(TRANSCRIPT_PREFIX);
+    transcript.extend_from_slice(&TRANSCRIPT_VERSION.to_be_bytes());
+    transcript.extend_from_slice(&domain.as_u16().to_be_bytes());
+    transcript.extend_from_slice(&type_tag.to_be_bytes());
+    transcript.extend_from_slice(&schema_version.to_be_bytes());
+    transcript.extend_from_slice(&body_length.to_be_bytes());
+    transcript.extend_from_slice(body);
+    Ok(transcript)
+}
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    #[kani::proof]
+    fn transcript_binds_every_header_field_and_bounded_body() {
+        let domain: u16 = kani::any();
+        let type_tag: u16 = kani::any();
+        let version: u16 = kani::any();
+        let bytes: [u8; 4] = kani::any();
+        let length: usize = kani::any();
+        kani::assume(length <= bytes.len());
+        let transcript =
+            commitment_transcript(DomainTag(domain), type_tag, version, &bytes[..length]).unwrap();
+        assert_eq!(transcript.len(), 38 + length);
+        assert_eq!(&transcript[..22], TRANSCRIPT_PREFIX);
+        assert_eq!(&transcript[22..24], &TRANSCRIPT_VERSION.to_be_bytes());
+        assert_eq!(&transcript[24..26], &domain.to_be_bytes());
+        assert_eq!(&transcript[26..28], &type_tag.to_be_bytes());
+        assert_eq!(&transcript[28..30], &version.to_be_bytes());
+        assert_eq!(&transcript[30..38], &(length as u64).to_be_bytes());
+        assert_eq!(&transcript[38..], &bytes[..length]);
+    }
 }
 
 #[cfg(test)]

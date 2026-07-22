@@ -72,6 +72,8 @@ jobs:
         run: bash scripts/check-kani-object-vm.sh
       - name: Bounded-model-check the production consensus schema and shared arithmetic
         run: bash scripts/check-kani-protocol-types.sh
+      - name: Bounded-model-check commitment transcript binding
+        run: bash scripts/check-kani-commitment.sh
       - name: Prove consensus and economics arithmetic contracts
         run: formal/verus/verify.sh
       - name: Run tests

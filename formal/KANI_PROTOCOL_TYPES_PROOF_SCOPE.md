@@ -13,3 +13,8 @@ failure, arbitrary schemas, and distributed consensus behavior are outside the
 claim. A 64-step unwind bound covers the fixed 48-byte digest comparisons. The
 crate pins an honest Rust 1.93 MSRV because Kani 0.67 embeds Rust 1.93; the
 workspace may use a newer compiler.
+
+The companion commitment harness proves that the production preimage builder
+places the fixed prefix, transcript version, domain, type, schema, exact body
+length, and every byte of a body through four bytes in distinct fixed fields.
+SHAKE256 itself remains an explicit cryptographic assumption.

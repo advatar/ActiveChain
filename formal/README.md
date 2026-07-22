@@ -37,6 +37,7 @@ they are not a certificate that the complete implementation is correct.
 | verifier C ABI | Kani | `crates/verifier-ffi/src/kani_proofs.rs` | five production-wrapper harnesses for null/oversized rejection, exact safe-API refinement, strict status codes, and commitment pointer gates | deliberately bounded to envelope inputs through nine bytes; arbitrary foreign readable memory and SHAKE256 internals are assumptions, not proved claims |
 | bytecode verifier and ObjectVM helpers | Kani | `crates/bytecode-verifier/src/verify.rs`, `crates/object-vm/src/execute/kani_proofs.rs` | seven production-helper harnesses over bounded registers/targets, the complete resource-class table, gas prepayment, checked addition, and forward branch selection | compositional only; full `verify`-to-`execute` and whole-interpreter queries timed out at 180 seconds and are not proved |
 | production QC schema and shared quorum arithmetic | Kani | `protocol-types::consensus::kani_proofs` | arbitrary numeric QC strict round-trip, every fixed-QC truncation rejected, and all-input checked strict-quorum equivalence | digest contents are fixed; signature/hash internals, allocation failure, and other schemas remain outside the bounded claim; see `KANI_PROTOCOL_TYPES_PROOF_SCOPE.md` |
+| commitment transcript binding | Kani | `protocol-commitment::kani_proofs` | production preimage construction binds every header field, exact length, and bodies through four symbolic bytes | SHAKE256 internals and collision resistance remain assumptions |
 | epoch and protocol upgrades | Lean 4 | `formal/lean/ActiveChain/EpochUpgrade.lean` | exact activation, monotonic revision, retired-set, and stale-context rejection | Rust now enforces signed prior authorization, exact activation, revision-bound QCs, and bounded retired-root persistence; trace/differential refinement remains open |
 | PQ peer sessions | Tamarin | `formal/tamarin/activechain_pq_session.spthy` | 11 symbolic suite/context/replay, exact peer-correspondence, first-message-origin, and honest-session-secrecy lemmas | transcript-bound KDF and session state are not implemented in the current Rust handshake |
 
@@ -54,6 +55,7 @@ bash scripts/check-kani-codec.sh
 bash scripts/check-kani-verifier-ffi.sh
 bash scripts/check-kani-object-vm.sh
 bash scripts/check-kani-protocol-types.sh
+bash scripts/check-kani-commitment.sh
 formal/verus/verify.sh
 ```
 
