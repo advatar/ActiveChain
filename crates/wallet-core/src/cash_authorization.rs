@@ -18,6 +18,148 @@ use crate::WalletError;
 const CASH_AUTHORIZATION_SIGNING_DOMAIN: &[u8] = b"ACTIVECHAIN-CASH-AUTHORIZATION-ML-DSA-44-V1";
 const CASH_INTENT_ID_DOMAIN: &[u8] = b"ACTIVECHAIN-CASH-INTENT-ID-V1";
 const RECIPIENT_COMMITMENT_DOMAIN: &[u8] = b"ACTIVECHAIN-CASH-RECIPIENT-V1";
+const CASH_SESSION_GRANT_SIGNING_DOMAIN: &[u8] = b"ACTIVECHAIN-CASH-SESSION-GRANT-ML-DSA-44-V1";
+
+/// A finalized cash key's bounded authorization for one short-lived payment session.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CashSessionGrantV1 {
+    chain_id: ChainId,
+    signer: PrincipalId,
+    session_id: Digest384,
+    valid_from: u64,
+    expires_at: u64,
+    max_spend: u128,
+}
+
+impl CashSessionGrantV1 {
+    pub fn new(
+        chain_id: ChainId,
+        signer: PrincipalId,
+        session_id: Digest384,
+        valid_from: u64,
+        expires_at: u64,
+        max_spend: u128,
+    ) -> Result<Self, WalletError> {
+        if valid_from > expires_at || expires_at == 0 || max_spend == 0 {
+            return Err(WalletError::Expired);
+        }
+        Ok(Self { chain_id, signer, session_id, valid_from, expires_at, max_spend })
+    }
+
+    #[must_use]
+    pub const fn chain_id(&self) -> ChainId {
+        self.chain_id
+    }
+    #[must_use]
+    pub const fn signer(&self) -> PrincipalId {
+        self.signer
+    }
+    #[must_use]
+    pub const fn session_id(&self) -> Digest384 {
+        self.session_id
+    }
+    #[must_use]
+    pub const fn valid_from(&self) -> u64 {
+        self.valid_from
+    }
+    #[must_use]
+    pub const fn expires_at(&self) -> u64 {
+        self.expires_at
+    }
+    #[must_use]
+    pub const fn max_spend(&self) -> u128 {
+        self.max_spend
+    }
+
+    pub fn signing_payload(&self) -> Result<Vec<u8>, EncodeError> {
+        let encoded = encode_envelope(self)?;
+        let mut payload =
+            Vec::with_capacity(CASH_SESSION_GRANT_SIGNING_DOMAIN.len() + 8 + encoded.len());
+        payload.extend_from_slice(CASH_SESSION_GRANT_SIGNING_DOMAIN);
+        payload.extend_from_slice(&(encoded.len() as u64).to_be_bytes());
+        payload.extend_from_slice(&encoded);
+        Ok(payload)
+    }
+}
+
+impl CanonicalEncode for CashSessionGrantV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain_id.encode(e)?;
+        self.signer.encode(e)?;
+        self.session_id.encode(e)?;
+        self.valid_from.encode(e)?;
+        self.expires_at.encode(e)?;
+        self.max_spend.encode(e)
+    }
+}
+
+impl CanonicalDecode for CashSessionGrantV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            ChainId::decode(d)?,
+            PrincipalId::decode(d)?,
+            Digest384::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            u128::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid cash session grant"))
+    }
+}
+
+impl CanonicalType for CashSessionGrantV1 {
+    const TYPE_TAG: u16 = 0x0097;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 * 3 + 8 * 2 + 16;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthorizedCashSessionGrantV1 {
+    grant: CashSessionGrantV1,
+    signature: ProtocolSignature,
+}
+
+impl AuthorizedCashSessionGrantV1 {
+    pub fn new(
+        grant: CashSessionGrantV1,
+        signature: ProtocolSignature,
+    ) -> Result<Self, WalletError> {
+        if signature.suite() != CryptoSuiteId::ML_DSA_44 {
+            return Err(WalletError::InvalidSignature);
+        }
+        Ok(Self { grant, signature })
+    }
+    #[must_use]
+    pub const fn grant(&self) -> &CashSessionGrantV1 {
+        &self.grant
+    }
+    pub fn verify(&self, public_key: &[u8]) -> Result<(), WalletError> {
+        let payload =
+            self.grant.signing_payload().map_err(|_| WalletError::MalformedAuthorization)?;
+        verify_ml_dsa(public_key, &self.signature, &payload)
+    }
+}
+
+impl CanonicalEncode for AuthorizedCashSessionGrantV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.grant.encode(e)?;
+        self.signature.encode(e)
+    }
+}
+
+impl CanonicalDecode for AuthorizedCashSessionGrantV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(CashSessionGrantV1::decode(d)?, ProtocolSignature::decode(d)?)
+            .map_err(|_| DecodeError::InvalidValue("invalid authorized cash session grant"))
+    }
+}
+
+impl CanonicalType for AuthorizedCashSessionGrantV1 {
+    const TYPE_TAG: u16 = 0x0098;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize =
+        CashSessionGrantV1::MAX_ENCODED_LEN + ProtocolSignature::MAX_ENCODED_LEN;
+}
 
 /// The exact canonical value authorized by an ML-DSA cash signature.
 ///
@@ -210,17 +352,25 @@ impl AuthorizedCashTransferV1 {
     }
 
     pub fn verify(&self, public_key: &[u8]) -> Result<(), WalletError> {
-        let key: EncodedVerifyingKey<MlDsa44> =
-            public_key.try_into().map_err(|_| WalletError::InvalidAuthorizationKey)?;
-        let signature: EncodedSignature<MlDsa44> =
-            self.signature.as_bytes().try_into().map_err(|_| WalletError::InvalidSignature)?;
-        let key = VerifyingKey::<MlDsa44>::decode(&key);
-        let signature =
-            Signature::<MlDsa44>::decode(&signature).ok_or(WalletError::InvalidSignature)?;
         let payload =
             self.request.signing_payload().map_err(|_| WalletError::MalformedAuthorization)?;
-        key.verify(&payload, &signature).map_err(|_| WalletError::InvalidSignature)
+        verify_ml_dsa(public_key, &self.signature, &payload)
     }
+}
+
+fn verify_ml_dsa(
+    public_key: &[u8],
+    signature: &ProtocolSignature,
+    payload: &[u8],
+) -> Result<(), WalletError> {
+    let key: EncodedVerifyingKey<MlDsa44> =
+        public_key.try_into().map_err(|_| WalletError::InvalidAuthorizationKey)?;
+    let signature: EncodedSignature<MlDsa44> =
+        signature.as_bytes().try_into().map_err(|_| WalletError::InvalidSignature)?;
+    let key = VerifyingKey::<MlDsa44>::decode(&key);
+    let signature =
+        Signature::<MlDsa44>::decode(&signature).ok_or(WalletError::InvalidSignature)?;
+    key.verify(payload, &signature).map_err(|_| WalletError::InvalidSignature)
 }
 
 impl CanonicalEncode for AuthorizedCashTransferV1 {

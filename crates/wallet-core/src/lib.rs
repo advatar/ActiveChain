@@ -9,7 +9,8 @@ mod cash_authorization;
 mod cash_persistence;
 
 pub use cash_authorization::{
-    AuthorizedCashTransferV1, CashAuthorizationRequestV1, recipient_commitment,
+    AuthorizedCashSessionGrantV1, AuthorizedCashTransferV1, CashAuthorizationRequestV1,
+    CashSessionGrantV1, recipient_commitment,
 };
 pub use cash_persistence::{
     FinalizedIdentityKeyProof, FinalizedIdentityKeyVerifier, authenticator_set_root,
@@ -195,6 +196,8 @@ pub enum WalletError {
     InvalidNonce,
     NonceExhausted,
     SessionReplay,
+    UnknownSession,
+    SessionBudgetExceeded,
     InputReplay,
     AuthorizationKeyExists,
     UnknownAuthorizationKey,
@@ -212,11 +215,21 @@ struct CashAuthorizationLane {
     public_key: [u8; ML_DSA44_PUBLIC_KEY_LENGTH],
     next_nonce: u64,
     consumed_sessions: Vec<Digest384>,
+    session_budgets: Vec<CashSessionBudget>,
     identity_sequence: u64,
     authenticator_id: AuthenticatorId,
     finalized_state_root: Digest384,
     finalized_height: u64,
     finality_proof: Digest384,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CashSessionBudget {
+    session_id: Digest384,
+    valid_from: u64,
+    expires_at: u64,
+    max_spend: u128,
+    spent: u128,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -331,6 +344,7 @@ impl TransactionIngress {
                         public_key,
                         next_nonce: initial_nonce,
                         consumed_sessions: Vec::new(),
+                        session_budgets: Vec::new(),
                         identity_sequence: proof.principal().sequence(),
                         authenticator_id: proof.authenticator().authenticator_id(),
                         finalized_state_root: proof.finalized_state_root(),
@@ -341,6 +355,76 @@ impl TransactionIngress {
                 Ok(())
             }
         }
+    }
+
+    /// Registers a bounded one-shot session under the lane's finalized ML-DSA cash key.
+    pub fn register_session(
+        &mut self,
+        authorized: &AuthorizedCashSessionGrantV1,
+    ) -> Result<(), WalletError> {
+        let grant = authorized.grant();
+        if grant.chain_id() != self.chain_id {
+            return Err(WalletError::WrongChain);
+        }
+        let lane_index = self
+            .authorization_lanes
+            .binary_search_by_key(&grant.signer(), |lane| lane.sender)
+            .map_err(|_| WalletError::UnknownAuthorizationKey)?;
+        let lane = &self.authorization_lanes[lane_index];
+        authorized.verify(&lane.public_key)?;
+        match lane
+            .session_budgets
+            .binary_search_by_key(&grant.session_id(), |session| session.session_id)
+        {
+            Ok(_) => return Err(WalletError::SessionReplay),
+            Err(_)
+                if lane.session_budgets.len() == cash_persistence::MAX_SESSION_BUDGETS_PER_LANE =>
+            {
+                return Err(WalletError::StateLimit);
+            }
+            Err(position) => {
+                let mut next = self.clone();
+                next.authorization_lanes[lane_index].session_budgets.insert(
+                    position,
+                    CashSessionBudget {
+                        session_id: grant.session_id(),
+                        valid_from: grant.valid_from(),
+                        expires_at: grant.expires_at(),
+                        max_spend: grant.max_spend(),
+                        spent: 0,
+                    },
+                );
+                *self = next;
+            }
+        }
+        Ok(())
+    }
+
+    /// Strict network admission for an ML-DSA-authorized bounded cash session.
+    pub fn register_session_envelope(&mut self, bytes: &[u8]) -> Result<(), WalletError> {
+        let authorized = decode_envelope::<AuthorizedCashSessionGrantV1>(bytes)
+            .map_err(|_| WalletError::MalformedAuthorization)?;
+        self.register_session(&authorized)
+    }
+
+    /// Returns `(spent, max_spend, valid_from, expires_at)` for an authoritative session.
+    #[must_use]
+    pub fn session_budget(
+        &self,
+        sender: PrincipalId,
+        session_id: Digest384,
+    ) -> Option<(u128, u128, u64, u64)> {
+        let lane = self
+            .authorization_lanes
+            .binary_search_by_key(&sender, |lane| lane.sender)
+            .ok()
+            .map(|index| &self.authorization_lanes[index])?;
+        let session = lane
+            .session_budgets
+            .binary_search_by_key(&session_id, |session| session.session_id)
+            .ok()
+            .map(|index| lane.session_budgets[index])?;
+        Some((session.spent, session.max_spend, session.valid_from, session.expires_at))
     }
 
     /// Applies an already-decoded authoritative cash request atomically in memory.
@@ -374,6 +458,26 @@ impl TransactionIngress {
         if lane.consumed_sessions.contains(&request.session_id()) {
             return Err(WalletError::SessionReplay);
         }
+        let session_index = lane
+            .session_budgets
+            .binary_search_by_key(&request.session_id(), |session| session.session_id)
+            .map_err(|_| WalletError::UnknownSession)?;
+        let session = lane.session_budgets[session_index];
+        if height < session.valid_from
+            || height > session.expires_at
+            || request.session_expires_at() > session.expires_at
+        {
+            return Err(WalletError::Expired);
+        }
+        let session_spend = transfer
+            .amount()
+            .checked_add(transfer.fee())
+            .ok_or(WalletError::SessionBudgetExceeded)?;
+        let next_session_spend =
+            session.spent.checked_add(session_spend).ok_or(WalletError::SessionBudgetExceeded)?;
+        if next_session_spend > session.max_spend {
+            return Err(WalletError::SessionBudgetExceeded);
+        }
         if lane.consumed_sessions.len() == cash_persistence::MAX_CONSUMED_SESSIONS_PER_LANE
             || self.consumed_inputs.len().saturating_add(transfer.inputs().len() + 1)
                 > cash_persistence::MAX_CONSUMED_INPUTS
@@ -397,6 +501,7 @@ impl TransactionIngress {
         next.ledger.apply_transfer(transfer, height).map_err(|_| WalletError::InsufficientFunds)?;
         let lane = &mut next.authorization_lanes[lane_index];
         lane.next_nonce = next_nonce;
+        lane.session_budgets[session_index].spent = next_session_spend;
         lane.consumed_sessions.push(request.session_id());
         lane.consumed_sessions.sort_unstable();
         next.consumed_inputs.extend_from_slice(transfer.inputs());
@@ -832,6 +937,41 @@ mod tests {
         .unwrap()
     }
 
+    fn sign_session_grant(
+        request: &CashAuthorizationRequestV1,
+        key: &SigningKey<MlDsa44>,
+        max_spend: u128,
+    ) -> AuthorizedCashSessionGrantV1 {
+        let grant = CashSessionGrantV1::new(
+            request.chain_id(),
+            request.signer(),
+            request.session_id(),
+            1,
+            request.session_expires_at(),
+            max_spend,
+        )
+        .unwrap();
+        let signature = key.sign(&grant.signing_payload().unwrap());
+        AuthorizedCashSessionGrantV1::new(
+            grant,
+            ProtocolSignature::new(
+                CryptoSuiteId::ML_DSA_44,
+                signature.encode().as_slice().to_vec(),
+            )
+            .unwrap(),
+        )
+        .unwrap()
+    }
+
+    fn register_request_session(
+        ingress: &mut TransactionIngress,
+        request: &CashAuthorizationRequestV1,
+        key: &SigningKey<MlDsa44>,
+        max_spend: u128,
+    ) {
+        ingress.register_session(&sign_session_grant(request, key, max_spend)).unwrap();
+    }
+
     #[test]
     fn policy_gates_intent_before_signing() {
         let policy = SpendPolicy {
@@ -975,6 +1115,7 @@ mod tests {
         let session = digest(30);
         let request =
             cash_request(ChainId::new(digest(1)), owner, 0, session, 15, input, reserve, 10);
+        register_request_session(&mut ingress, &request, &key, 11);
         let intent_id = request.intent_id().unwrap();
         let signed = sign_cash_request(request, &key);
         let envelope = encode_envelope(&signed).unwrap();
@@ -992,10 +1133,10 @@ mod tests {
         );
         assert_eq!(ingress.submit_authorized(&same_session, 5), Err(WalletError::SessionReplay));
 
-        let same_inputs = sign_cash_request(
-            cash_request(ChainId::new(digest(1)), owner, 1, digest(31), 15, input, reserve, 10),
-            &key,
-        );
+        let same_inputs_request =
+            cash_request(ChainId::new(digest(1)), owner, 1, digest(31), 15, input, reserve, 10);
+        register_request_session(&mut ingress, &same_inputs_request, &key, 11);
+        let same_inputs = sign_cash_request(same_inputs_request, &key);
         assert_eq!(ingress.submit_authorized(&same_inputs, 5), Err(WalletError::InputReplay));
     }
 
@@ -1058,6 +1199,7 @@ mod tests {
             cash_request(ChainId::new(digest(1)), owner, 0, digest(36), 15, input, reserve, 10),
             &other_key,
         );
+        register_request_session(&mut ingress, wrong_key.request(), &key, 11);
         assert_eq!(ingress.submit_authorized(&wrong_key, 5), Err(WalletError::InvalidSignature));
 
         let expired = sign_cash_request(
@@ -1072,6 +1214,7 @@ mod tests {
         let (mut ingress, key, owner, input, reserve) = setup_authorized_ingress(25);
         let original_request =
             cash_request(ChainId::new(digest(1)), owner, 0, digest(38), 15, input, reserve, 10);
+        register_request_session(&mut ingress, &original_request, &key, 12);
         let original = sign_cash_request(original_request, &key);
         let tampered_request =
             cash_request(ChainId::new(digest(1)), owner, 0, digest(38), 15, input, reserve, 11);
@@ -1097,10 +1240,10 @@ mod tests {
     fn failed_ledger_transition_does_not_consume_nonce_session_or_inputs() {
         let (mut ingress, key, owner, input, reserve) = setup_authorized_ingress(26);
         let session = digest(39);
-        let unaffordable = sign_cash_request(
-            cash_request(ChainId::new(digest(1)), owner, 0, session, 15, input, reserve, 901),
-            &key,
-        );
+        let unaffordable_request =
+            cash_request(ChainId::new(digest(1)), owner, 0, session, 15, input, reserve, 901);
+        register_request_session(&mut ingress, &unaffordable_request, &key, 1_000);
+        let unaffordable = sign_cash_request(unaffordable_request, &key);
         assert_eq!(
             ingress.submit_authorized(&unaffordable, 5),
             Err(WalletError::InsufficientFunds)
@@ -1146,6 +1289,42 @@ mod tests {
     }
 
     #[test]
+    fn signed_session_grants_enforce_key_window_budget_and_canonical_network_boundary() {
+        let (mut ingress, key, owner, input, reserve) = setup_authorized_ingress(47);
+        let request =
+            cash_request(ChainId::new(digest(1)), owner, 0, digest(48), 15, input, reserve, 10);
+        let grant = sign_session_grant(&request, &key, 10);
+        let envelope = encode_envelope(&grant).unwrap();
+        ingress.register_session_envelope(&envelope).unwrap();
+        assert_eq!(ingress.session_budget(owner, digest(48)), Some((0, 10, 1, 15)));
+        assert_eq!(ingress.register_session_envelope(&envelope), Err(WalletError::SessionReplay));
+
+        let transfer = sign_cash_request(request, &key);
+        assert_eq!(
+            ingress.submit_authorized(&transfer, 5),
+            Err(WalletError::SessionBudgetExceeded)
+        );
+        assert_eq!(ingress.session_budget(owner, digest(48)), Some((0, 10, 1, 15)));
+        assert_eq!(ingress.next_nonce(owner), Some(0));
+
+        let unknown_request =
+            cash_request(ChainId::new(digest(1)), owner, 0, digest(49), 15, input, reserve, 10);
+        assert_eq!(
+            ingress.submit_authorized(&sign_cash_request(unknown_request, &key), 5),
+            Err(WalletError::UnknownSession)
+        );
+
+        let other_key = SigningKey::<MlDsa44>::from_seed(&Seed::from([48; 32]));
+        let invalid = sign_session_grant(
+            &cash_request(ChainId::new(digest(1)), owner, 0, digest(50), 15, input, reserve, 10),
+            &other_key,
+            11,
+        );
+        assert_eq!(ingress.register_session(&invalid), Err(WalletError::InvalidSignature));
+        assert_eq!(ingress.session_budget(owner, digest(50)), None);
+    }
+
+    #[test]
     fn durable_cash_admission_survives_restart_and_rejects_corruption_and_replay() {
         let (mut ingress, key, owner, input, reserve) = setup_authorized_ingress(43);
         let session = digest(44);
@@ -1153,6 +1332,7 @@ mod tests {
             cash_request(ChainId::new(digest(1)), owner, 0, session, 15, input, reserve, 10),
             &key,
         );
+        register_request_session(&mut ingress, signed.request(), &key, 11);
         let envelope = encode_envelope(&signed).unwrap();
         let path = std::env::temp_dir()
             .join(format!("activechain-cash-ingress-{}.bin", std::process::id()));
@@ -1162,6 +1342,7 @@ mod tests {
         let mut restored = TransactionIngress::load(&path, ChainId::new(digest(1))).unwrap();
         assert_eq!(restored.next_nonce(owner), Some(1));
         assert!(restored.session_consumed(owner, session));
+        assert_eq!(restored.session_budget(owner, session), Some((11, 11, 1, 15)));
         assert_eq!(restored.ledger(), ingress.ledger());
         assert_eq!(restored.submit_envelope(&envelope, 5), Err(WalletError::InvalidNonce));
         assert_eq!(
@@ -1188,6 +1369,7 @@ mod tests {
             cash_request(ChainId::new(digest(1)), owner, 0, session, 15, input, reserve, 10),
             &key,
         );
+        register_request_session(&mut ingress, signed.request(), &key, 11);
         let envelope = encode_envelope(&signed).unwrap();
         let directory = std::env::temp_dir()
             .join(format!("activechain-cash-publish-failure-{}", std::process::id()));
