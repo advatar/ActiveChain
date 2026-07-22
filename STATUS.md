@@ -540,6 +540,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
             locally verifiable membership/non-membership mutation witnesses.
           - [ ] Arithmetize ordered mutation paths and bind their chained pre/post roots into
             CashAIR public inputs.
+            - [ ] Add a bit-constrained SHAKE256/Keccak table for leaf, node, and root transcripts
+              ([GitHub issue #78](https://github.com/advatar/ActiveChain/issues/78)).
       - [x] Complete bounded-session enforcement and its CashAIR binding
         ([GitHub issue #72](https://github.com/advatar/ActiveChain/issues/72)).
         - [x] Add canonical ML-DSA session-grant envelopes, persistent spend budgets, strict
