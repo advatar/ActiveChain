@@ -10,6 +10,7 @@
 extern crate alloc;
 
 mod economics;
+mod partitioned;
 mod transition;
 mod types;
 
@@ -18,6 +19,7 @@ pub use economics::{
     ObjectiveFault, RewardRedemption, RewardSettlement, SecurityPoolAllocation, SlashSplit,
     VerifierRole, assign_challenge, register_assignment, resolve_challenge, settle_duty,
 };
+pub use partitioned::{MAX_CASH_PARTITIONS, PartitionedCashPlan, PartitionedCashReceipt};
 pub use transition::{CashLedger, CashTransitionError, MAX_REDEEMED_REWARDS};
 pub use types::{
     CashTransferV1, CoinBurnTransition, CoinCell, CoinCellOrigin, CoinCellRecord, CoinCellSet,
@@ -39,7 +41,8 @@ mod tests {
     use super::{
         CashLedger, CashTransferV1, CashTransitionError, CoinBurnTransition, CoinMintTransition,
         CoinTransfer, EpochEconomicsTransition, GenesisAllocation, GenesisEconomy,
-        NativeAssetDefinition, NativeMoneyError, NativeSupply, RewardRedemption, RewardSettlement,
+        NativeAssetDefinition, NativeMoneyError, NativeSupply, PartitionedCashPlan,
+        RewardRedemption, RewardSettlement,
     };
 
     fn digest(byte: u8) -> Digest384 {
@@ -116,6 +119,102 @@ mod tests {
         let batch = CashTransferV1::new(vec![first, second]).unwrap();
         assert_eq!(batch.resource_units(), 72);
         assert!(CashTransferV1::new(batch.transfers().iter().cloned().rev().collect()).is_err());
+    }
+
+    fn partitioned_fixture() -> (CashLedger, CashTransferV1) {
+        let mut ledger = CashLedger::from_genesis(&economy()).unwrap();
+        ledger
+            .apply_mint(
+                &CoinMintTransition::new(digest(2), principal(10), 50, 1, 1).unwrap(),
+                &settlement(1_000, 50, 1),
+            )
+            .unwrap();
+        ledger
+            .apply_mint(
+                &CoinMintTransition::new(digest(2), principal(12), 50, 2, 2).unwrap(),
+                &settlement(1_050, 50, 2),
+            )
+            .unwrap();
+        let mut transfers = [principal(10), principal(12)]
+            .into_iter()
+            .map(|owner| {
+                let ids = ledger
+                    .cells()
+                    .as_slice()
+                    .iter()
+                    .filter(|record| record.cell().owner() == owner)
+                    .map(|record| record.id())
+                    .collect::<alloc::vec::Vec<_>>();
+                CoinTransfer::new(owner, principal(30), vec![ids[0]], ids[1], 25, 1, 20).unwrap()
+            })
+            .collect::<alloc::vec::Vec<_>>();
+        transfers.sort_by_key(|transfer| transfer.inputs()[0]);
+        (ledger, CashTransferV1::new(transfers).unwrap())
+    }
+
+    #[test]
+    fn partitioned_execution_matches_serial_for_disjoint_transfers() {
+        let (ledger, batch) = partitioned_fixture();
+        let mut serial = ledger.clone();
+        for transfer in batch.transfers() {
+            serial.apply_transfer(transfer, 3).unwrap();
+        }
+        let mut partitioned = ledger.clone();
+        let receipt = partitioned.apply_partitioned_batch(&batch, 3, 16).unwrap();
+        assert_eq!(receipt.applied(), 2);
+        assert_eq!(receipt.rejected(), 0);
+        assert_eq!(receipt.plan().parallel(), &[0, 1]);
+        assert!(receipt.plan().fallback().is_empty());
+        assert_eq!(partitioned, serial);
+        assert!(receipt.plan().locks().windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(receipt.plan().partition_for(receipt.plan().locks()[0]) < 16);
+        let batch_bytes = encode_envelope(&batch).unwrap();
+        assert_eq!(decode_envelope::<CashTransferV1>(&batch_bytes), Ok(batch.clone()));
+        let receipt_bytes = encode_envelope(&receipt).unwrap();
+        assert_eq!(decode_envelope::<super::PartitionedCashReceipt>(&receipt_bytes), Ok(receipt));
+        for partitions in 1..=super::MAX_CASH_PARTITIONS {
+            let mut candidate = ledger.clone();
+            candidate.apply_partitioned_batch(&batch, 3, partitions).unwrap();
+            assert_eq!(candidate, serial);
+        }
+    }
+
+    #[test]
+    fn conflicting_inputs_have_one_ordered_winner_and_release_all_runtime_locks() {
+        let (mut ledger, _) = partitioned_fixture();
+        let owner = principal(10);
+        let ids = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .filter(|record| record.cell().owner() == owner)
+            .map(|record| record.id())
+            .collect::<alloc::vec::Vec<_>>();
+        let mut transfers = vec![
+            CoinTransfer::new(owner, principal(31), vec![ids[0]], ids[1], 25, 1, 20).unwrap(),
+            CoinTransfer::new(owner, principal(32), vec![ids[1]], ids[0], 25, 1, 20).unwrap(),
+        ];
+        transfers.sort_by_key(|transfer| transfer.inputs()[0]);
+        let batch = CashTransferV1::new(transfers).unwrap();
+        let plan = PartitionedCashPlan::build(&batch, 8).unwrap();
+        assert_eq!(plan.parallel(), &[0]);
+        assert_eq!(plan.fallback(), &[1]);
+        let receipt = ledger.apply_partitioned_batch(&batch, 3, 8).unwrap();
+        assert_eq!((receipt.applied(), receipt.rejected()), (1, 1));
+        // A fresh plan can acquire the same identifiers: locks are not persistent ledger state.
+        assert_eq!(PartitionedCashPlan::build(&batch, 8).unwrap(), plan);
+        let encoded = encode_envelope(&ledger).unwrap();
+        assert_eq!(decode_envelope::<CashLedger>(&encoded), Ok(ledger));
+    }
+
+    #[test]
+    fn invalid_partition_count_and_all_failed_work_are_atomic() {
+        let (mut ledger, batch) = partitioned_fixture();
+        let snapshot = ledger.clone();
+        assert!(PartitionedCashPlan::build(&batch, 0).is_err());
+        let receipt = ledger.apply_partitioned_batch(&batch, 99, 4).unwrap();
+        assert_eq!((receipt.applied(), receipt.rejected()), (0, 2));
+        assert_eq!(ledger, snapshot);
     }
 
     #[test]

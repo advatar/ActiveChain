@@ -57,6 +57,8 @@ Tracked by [GitHub issue #31](https://github.com/advatar/ActiveChain/issues/31).
   no trusted setup, no Groth16 receipt, and development receipts disabled.
 - [x] Compile the complete private-billboard post and withdrawal relations into pinned guest images
   with canonical private inputs and public journals; tracked by GitHub issue #64.
+- [x] Stabilize guest release builds so unrelated workspace changes cannot move pinned image IDs;
+  tracked by GitHub issue #67.
 - [x] Differentially test the proof relation against the private billboard reference verifier,
   including valid, invalid, substituted-image, substituted-journal, and replay cases.
 - [x] Publish deterministic vectors, malformed/substitution/replay tests, and reproducible performance evidence.
@@ -518,7 +520,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [x] Implement `CashTransferV1` and deterministic cash batches with fixed resource charging.
 - [x] Add PQ payment sessions and compact authorization-key references.
 - [x] Separate persistent canonical payment intents from short-lived PQ authorization witnesses.
-- [ ] Add partitioned Coin Cell state, input locks, parallel execution, and conflict fallback.
+- [x] Add partitioned Coin Cell state, input locks, parallel execution, and conflict fallback
+  ([GitHub issue #66](https://github.com/advatar/ActiveChain/issues/66)).
 - [ ] Implement the transparent specialized CashAIR and direct-reexecution comparison.
 - [ ] Add the cash-specific capacity and fee market, refundable deposits, sponsorship, and paymasters.
 - [x] Implement the first accountable verifier-duty kernel: role-scoped bond lots, one-shot assignments, fixed rewards, receipt validation, and bounded objective penalties.

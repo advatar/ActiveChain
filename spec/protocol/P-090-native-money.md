@@ -62,6 +62,26 @@ it may create only unburned change. Replaying consumed inputs, using a wrong
 owner, exceeding checked sums, or violating a deadline is rejected before state
 mutation.
 
+### Partitioned batch execution
+
+`CashTransferV1` (type `0x0091`, schema version `1`) is a bounded batch of at
+most 64 transfers ordered by first input identifier. `PartitionedCashPlan`
+(type `0x0092`) maps every locked input and fee-reserve identifier to one of
+1–256 logical partitions using the first two digest bytes modulo the configured
+partition count. The mapping affects scheduling only and cannot change ownership,
+authorization, transition identifiers, or the committed Coin Cell set.
+
+The planner acquires identifiers in strict byte order. Transfers whose complete
+input sets are disjoint form the parallel lane. Any transfer intersecting an
+earlier lock is retained in original batch order in the conflict-fallback lane.
+The reference kernel applies the parallel lane followed by fallback and returns
+a canonical `PartitionedCashReceipt` (type `0x0093`). Because every later
+parallel transfer is disjoint from every earlier transfer, this ordering is
+equivalent to serial batch execution. Each transfer remains individually atomic:
+an invalid or losing conflict publishes no scratch state, while earlier valid
+transfers remain committed. Planning locks are ephemeral and are never encoded
+inside `CashLedger`; restart therefore reconstructs them from the canonical batch.
+
 ## Post-quantum boundary
 
 Authoritative transaction ingress accepts only a strict canonical
