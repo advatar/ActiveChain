@@ -101,8 +101,13 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
     - [x] Add a typed production proposal entry point and require the QC digest to equal the admitted canonical header digest.
     - [x] Persist jobs, retries/timeouts, accepted proofs, ordered finality, finalized block digests, and prover-reward replay state atomically.
     - [x] Freeze vectors and test every component mismatch, cross-job proof, restart, corruption, backpressure, and duplicate reward.
-- [ ] Prove the PQ-authenticated credential/capability/state-proof to APL decision to transition
+- [x] Prove the PQ-authenticated credential/capability/state-proof to APL decision to transition
   authorization chain, including multi-hop attenuation, revocation, budgets, and concurrency.
+  - [x] Define canonical joined authorization evidence and verified-fact adapters ([#41](https://github.com/advatar/ActiveChain/issues/41)).
+  - [x] Verify PQ actor/credential signatures, finalized issuance/status/state evidence, multi-hop attenuation, holder binding, and revocation.
+  - [x] Derive the exact APL request from verified facts and bind its permit/obligations to the exact transition.
+  - [x] Crash-atomically consume invocation replay, use/money/compute/rate budgets, and transition state under concurrent admission.
+  - [x] Freeze vectors and test stale/revoked/amplified/substituted evidence, exhaustion, concurrent replay, restart, and corruption.
 - [ ] Complete APL evaluator, ObjectVM verifier/interpreter, state-tree, and codec refinement proofs;
   the current executable Lean tables cover only bounded semantic slices.
   - [x] Add seven compositional Kani harnesses over the production bytecode-verifier and ObjectVM

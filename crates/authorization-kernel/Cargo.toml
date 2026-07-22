@@ -1,0 +1,24 @@
+[package]
+name = "activechain-authorization-kernel"
+description = "Joined credential, capability, APL, and transition authorization boundary"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+activechain-canonical-codec.workspace = true
+activechain-capability.workspace = true
+activechain-credential.workspace = true
+activechain-policy-kernel.workspace = true
+activechain-protocol-commitment.workspace = true
+activechain-protocol-types.workspace = true
+activechain-transition.workspace = true
+sha3.workspace = true
+
+[dev-dependencies]
+activechain-object.workspace = true
+
+[lints]
+workspace = true

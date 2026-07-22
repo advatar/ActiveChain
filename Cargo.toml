@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/action-kernel",
+    "crates/authorization-kernel",
     "crates/bytecode-verifier",
     "crates/canonical-codec",
     "crates/crypto-provider",
@@ -36,6 +37,7 @@ repository = "https://github.com/advatar/ActiveChain"
 
 [workspace.dependencies]
 activechain-action-kernel = { path = "crates/action-kernel", version = "0.1.0" }
+activechain-authorization-kernel = { path = "crates/authorization-kernel", version = "0.1.0" }
 activechain-bytecode-verifier = { path = "crates/bytecode-verifier", version = "0.1.0" }
 activechain-canonical-codec = { path = "crates/canonical-codec", version = "0.1.0" }
 activechain-crypto-provider = { path = "crates/crypto-provider", version = "0.1.0" }
