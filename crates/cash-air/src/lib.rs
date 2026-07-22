@@ -132,8 +132,7 @@ impl Air for CashAir {
         result[13] = rejected * next[FEE];
         result[14] = next[AUTHENTICATED_MODE] - current[AUTHENTICATED_MODE];
         for limb in 0..3 {
-            result[15 + limb] = current[AUTHENTICATED_MODE]
-                * rejected
+            result[15 + limb] = rejected
                 * (next[AUTHENTICATED_ROOT_0 + limb] - current[AUTHENTICATED_ROOT_0 + limb]);
         }
     }
@@ -377,8 +376,8 @@ fn build_trace(
     trace.set(FEE, 0, BaseElement::ZERO);
     set_root(&mut trace, 0, current_root);
     let authenticated_mode = BaseElement::new(u128::from(authenticated.is_some()));
-    let mut authenticated_root = authenticated
-        .map_or([BaseElement::ZERO; 3], |value| digest_elements(value.pre_root().into_digest()));
+    let mut authenticated_root =
+        authenticated.map_or(current_root, |value| digest_elements(value.pre_root().into_digest()));
     trace.set(AUTHENTICATED_MODE, 0, authenticated_mode);
     set_authenticated_root(&mut trace, 0, authenticated_root);
     let mut applied = 0_u64;
@@ -409,6 +408,8 @@ fn build_trace(
                 (false, None) => {}
                 _ => return Err("authenticated CashAIR row/mutation mismatch"),
             }
+        } else {
+            authenticated_root = current_root;
         }
         set_authenticated_root(&mut trace, index, authenticated_root);
     }
@@ -435,8 +436,8 @@ fn public_inputs(public: &activechain_cash_kernel::CashAirPublicInputs) -> CashS
         applied: BaseElement::new(public.applied().into()),
         rejected: BaseElement::new(public.rejected().into()),
         authenticated_mode: BaseElement::ZERO,
-        authenticated_pre_root: [BaseElement::ZERO; 3],
-        authenticated_post_root: [BaseElement::ZERO; 3],
+        authenticated_pre_root: root_elements(public.pre_cells()),
+        authenticated_post_root: root_elements(public.post_cells()),
         authenticated_row_roots: Vec::new(),
     }
 }
