@@ -525,4 +525,30 @@ mod kani_proofs {
             assert_eq!(result, Ok(target_index));
         }
     }
+
+    #[kani::proof]
+    fn runtime_certificate_admission_is_exact_for_symbolic_states() {
+        let expected: [bool; 4] = kani::any();
+        let actual: [bool; 4] = kani::any();
+        let maximum_prior_events: u8 = kani::any();
+        let prior_events: u8 = kani::any();
+        let certificate = VerifiedInstructionState {
+            registers: expected
+                .into_iter()
+                .map(|available| {
+                    if available {
+                        RegisterAvailability::Available
+                    } else {
+                        RegisterAvailability::Uninitialized
+                    }
+                })
+                .collect(),
+            maximum_prior_events: usize::from(maximum_prior_events),
+        };
+
+        assert_eq!(
+            certificate.admits_runtime_state(actual, usize::from(prior_events)),
+            actual == expected && prior_events <= maximum_prior_events
+        );
+    }
 }
