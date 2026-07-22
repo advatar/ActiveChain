@@ -216,6 +216,14 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
     - [ ] Move the verified arithmetic behind a shared production implementation or add an
       all-input refinement bridge, and extend Kani coverage to larger production schemas,
       persistence, commitment internals, and network admission.
+      - [ ] Centralize the cash/consensus checked arithmetic in a shared production module and
+        add all-input property comparisons to the Verus executable target; tracked by issue #56.
+      - [ ] Bound a representative larger canonical production schema with strict round-trip,
+        truncation, substitution, and trailing-byte Kani harnesses.
+      - [ ] Bound durable snapshot framing/checksum/fail-closed behavior and commitment
+        domain/input binding, retaining hash internals as an explicit assumption.
+      - [ ] Bound authenticated network frame length, version, peer, and sequence admission and
+        pin every new harness in the self-hosted formal CI gate.
 - [ ] Add implementation-trace and differential conformance checks for every proof domain.
 - [ ] Run every Lean and Tamarin model on the self-hosted CI runner.
 - [ ] Publish proof scopes, assumptions, counterexamples, and explicit unverified boundaries.
