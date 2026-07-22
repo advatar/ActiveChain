@@ -1127,7 +1127,7 @@ fn durable_checksum(payload: &[u8]) -> [u8; 48] {
     hasher.update(&(payload.len() as u64).to_be_bytes());
     hasher.update(payload);
     let mut checksum = [0_u8; 48];
-    hasher.finalize_xof().read(&mut checksum);
+    XofReader::read(&mut hasher.finalize_xof(), &mut checksum);
     checksum
 }
 

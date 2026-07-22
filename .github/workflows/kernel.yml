@@ -40,6 +40,9 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Check all targets
+        env:
+          # Clippy checks host code; the following test step builds the pinned guest image.
+          RISC0_SKIP_BUILD: "1"
         run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
       - name: Check no-std kernel target
         run: >-
