@@ -178,15 +178,15 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
   - [x] Add a second finite TLA+ model for hostile proof-pipeline scheduling and exact proof-input
     binding; liveness remains excluded until honest-prover, delivery, and fairness assumptions are
     specified.
-  - [ ] Generalize reconfiguration to membership churn and multiple transitions, and add a fair
+  - [x] Generalize reconfiguration to membership churn and multiple transitions, and add a fair
     timed liveness model before making liveness claims.
-    - [ ] Model two authorized membership transitions with validator joins, departures, and
+    - [x] Model two authorized membership transitions with validator joins, departures, and
       rejection of certificates from retired sets; tracked by GitHub issue #52.
-    - [ ] Preserve durable locks, quorum-certificate safety, and committed-prefix safety across
+    - [x] Preserve durable locks, quorum-certificate safety, and committed-prefix safety across
       view changes, crashes, restarts, and membership activation.
-    - [ ] Specify clocks, timeouts, honest-leader rotation, delivery/readiness assumptions, and
+    - [x] Specify clocks, timeouts, honest-leader rotation, delivery/readiness assumptions, and
       explicit fairness sufficient for a bounded progress property.
-    - [ ] Freeze the safety and liveness configurations, publish the exact proof scope, and run
+    - [x] Freeze the safety and liveness configurations, publish the exact proof scope, and run
       both configurations in the formal CI gate.
   - [ ] Add Verus refinement and Kani bounded-checking gates for the concrete Rust boundaries.
     - [x] Add the first Kani gate over the production canonical codec: seven bounded harnesses for
