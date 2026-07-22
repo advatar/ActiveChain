@@ -70,6 +70,8 @@ jobs:
         run: bash scripts/check-kani-verifier-ffi.sh
       - name: Bounded-model-check the bytecode verifier and ObjectVM helpers
         run: bash scripts/check-kani-object-vm.sh
+      - name: Bounded-model-check the production consensus schema and shared arithmetic
+        run: bash scripts/check-kani-protocol-types.sh
       - name: Prove consensus and economics arithmetic contracts
         run: formal/verus/verify.sh
       - name: Run tests

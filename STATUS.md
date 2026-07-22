@@ -219,7 +219,7 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
       - [x] Centralize the cash/consensus checked arithmetic in a shared production module and
         add arbitrary-input property comparisons to an independent checked oracle; tracked by
         issue #56.
-      - [ ] Bound a representative larger canonical production schema with strict round-trip,
+      - [x] Bound a representative larger canonical production schema with strict round-trip,
         truncation, substitution, and trailing-byte Kani harnesses.
       - [ ] Bound durable snapshot framing/checksum/fail-closed behavior and commitment
         domain/input binding, retaining hash internals as an explicit assumption.
