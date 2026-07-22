@@ -27,6 +27,8 @@ Tracked by [GitHub issue #17](https://github.com/advatar/ActiveChain/issues/17).
 
 ## Active implementation — private billboard native-token vertical slice
 
+- [x] Make the live-process quorum rehearsal wait for validator readiness and exercise two-chain finality instead of relying on fixed startup sleeps (GitHub issue #45).
+
 Tracked by [GitHub issue #27](https://github.com/advatar/ActiveChain/issues/27).
 
 - [x] Specify canonical billboard configuration, permit, post, moderation, and proof statements.
