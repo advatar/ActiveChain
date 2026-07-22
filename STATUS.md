@@ -180,6 +180,14 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
     specified.
   - [ ] Generalize reconfiguration to membership churn and multiple transitions, and add a fair
     timed liveness model before making liveness claims.
+    - [ ] Model two authorized membership transitions with validator joins, departures, and
+      rejection of certificates from retired sets; tracked by GitHub issue #52.
+    - [ ] Preserve durable locks, quorum-certificate safety, and committed-prefix safety across
+      view changes, crashes, restarts, and membership activation.
+    - [ ] Specify clocks, timeouts, honest-leader rotation, delivery/readiness assumptions, and
+      explicit fairness sufficient for a bounded progress property.
+    - [ ] Freeze the safety and liveness configurations, publish the exact proof scope, and run
+      both configurations in the formal CI gate.
   - [ ] Add Verus refinement and Kani bounded-checking gates for the concrete Rust boundaries.
     - [x] Add the first Kani gate over the production canonical codec: seven bounded harnesses for
       strict round trips, truncation, trailing bytes, adversarial decode, length prefixes, raw
