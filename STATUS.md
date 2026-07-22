@@ -25,6 +25,15 @@ Tracked by [GitHub issue #17](https://github.com/advatar/ActiveChain/issues/17).
 - [x] Publish an ActiveChain-native architecture, feasibility verdict, implementation stages, and verification gates.
 - [x] Verify the investigation artifacts, commit them on the isolated worktree branch, and push the branch.
 
+## Active reassessment — Aztec billboard parity after Phase 4
+
+Tracked by [GitHub issue #24](https://github.com/advatar/ActiveChain/issues/24).
+
+- [x] Inventory the merged Phase 4 privacy, shielded-cash, disclosure, and protected-ordering implementation.
+- [x] Re-evaluate every billboard parity property against current executable and specification evidence.
+- [x] Update the verdict, remaining gaps, implementation stages, acceptance gates, and validation record.
+- [x] Run repository quality gates, commit the reassessment, and publish it for review.
+
 ## Active launch gate — whole-system formal verification
 
 Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
