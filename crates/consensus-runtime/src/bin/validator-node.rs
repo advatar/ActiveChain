@@ -82,7 +82,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let signer =
             activechain_consensus_runtime::ValidatorSigner::from_seed(entry.validator(), seed);
         if run_once && !peer_specs.is_empty() {
-            let next_height = state.finalized_height().saturating_add(1);
             let service = std::sync::Arc::new(
                 ValidatorService::from_active_manifest(
                     state,
@@ -96,6 +95,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
                 .map_err(|error| format!("validator service configuration failed: {error:?}"))?,
             );
+            let next_height = service
+                .next_proposal_height()
+                .map_err(|error| format!("next proposal height unavailable: {error:?}"))?;
             let listener_thread_service = std::sync::Arc::clone(&service);
             let listener_thread_signer = std::sync::Arc::new(
                 activechain_consensus_runtime::ValidatorSigner::from_seed(entry.validator(), seed),
@@ -153,7 +155,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &peer_ids,
                 )
                 .map_err(|error| format!("network round failed: {error:?}"))?;
-            println!("completed network round: finalized_height={}", state.finalized_height());
+            let metrics = service.metrics();
+            println!(
+                "completed network round: finalized_height={} proposals={} votes={} rejected={}",
+                state.finalized_height(),
+                metrics.proposals,
+                metrics.votes,
+                metrics.rejected_messages
+            );
             return Ok(());
         }
         if run_once {
