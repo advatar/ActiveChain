@@ -8,6 +8,7 @@ repository.workspace = true
 publish = false
 
 [features]
+default = ["reproducible-build"]
 reproducible-build = ["activechain-pq-zk-methods/reproducible-build"]
 
 [dependencies]
