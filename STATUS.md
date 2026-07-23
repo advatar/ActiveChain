@@ -607,7 +607,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 
 ## Planned milestone — mobile wallet shells
 
-- [ ] Add compile-checked iOS and Android shell prototypes over the shared wallet core.
+- [x] Add compile-checked iOS and Android shell prototypes over the shared wallet core.
 - [x] Scaffold testable iOS and Android wallet shells with local bridge mocks.
 - [x] Expose a platform-neutral mobile bridge that keeps policy, transfer construction, and opaque keystore slots in Rust.
 
@@ -617,10 +617,10 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [ ] Complete secure-storage, recovery, and mobile signing audits.
   - [ ] Replace local string-based bridge mocks with the versioned wallet ABI and exact canonical
     transfer review/sign/submit flows.
-  - [ ] Add production-quality native navigation, portfolio, activity, transfer review, agent
+  - [x] Add production-quality native navigation, portfolio, activity, transfer review, agent
     approvals, identity, network health, empty/error/loading states, and accessibility coverage.
   - [ ] Bind iOS Keychain and Android Keystore callback providers without exposing plaintext keys.
-  - [ ] Compile, unit-test, launch, and screenshot-review both native applications against fixed
+  - [x] Compile, unit-test, launch, and screenshot-review both native applications against fixed
     device profiles.
   - [ ] Implement OpenWallet issuance/presentation request parsing, consent-bound sessions,
     credential selection, replay protection, and deterministic conformance vectors.
