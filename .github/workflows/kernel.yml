@@ -20,6 +20,9 @@ jobs:
     timeout-minutes: 120
     env:
       CARGO_TERM_COLOR: always
+      # The self-hosted runner persists its checkout between jobs. RISC0 guest artifacts must never
+      # survive a source revision change because their generated image IDs are release inputs.
+      CARGO_TARGET_DIR: ${{ runner.temp }}/activechain-target-${{ github.sha }}
       PATH: /Users/johansellstrom/.elan/bin:/opt/homebrew/opt/rustup/bin:/Users/johansellstrom/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
     steps:
       - name: Check out the exact revision
