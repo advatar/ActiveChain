@@ -33,6 +33,11 @@ core. Amounts, accumulated daily spend, and limits cross the C boundary as high/
 an optional recipient commitment pins the policy without introducing string or allocation
 ambiguity.
 
+`activechain_wallet_build_cash_intent` constructs the canonical
+`CashAuthorizationRequestV1` that approval UI and secure signing callbacks share. It supports a
+size query before allocation and publishes the complete request plus its intent identifier only
+when the caller's output buffer is large enough.
+
 ## iOS and Android
 
 - iOS stores encrypted key-slot material behind Keychain/Secure Enclave handles.
