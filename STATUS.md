@@ -633,7 +633,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
     ([GitHub issue #88](https://github.com/advatar/ActiveChain/issues/88)).
     - [x] Publish ABI, schema, and protocol revision queries plus an exact semantic Principal
       envelope verifier through matching Rust and C result codes.
-    - [ ] Add exact CapabilityGrant envelope and parent-child attenuation verification through
+    - [x] Add exact CapabilityGrant envelope and parent-child attenuation verification through
       matching Rust and C result codes.
     - [ ] Add APL decision, state-witness, finalized-block, receipt, and joined authorization-chain
       verifiers with complete positive and malformed vectors.
