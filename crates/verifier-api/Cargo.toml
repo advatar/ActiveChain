@@ -12,6 +12,7 @@ activechain-capability.workspace = true
 activechain-canonical-codec.workspace = true
 activechain-policy-kernel.workspace = true
 activechain-protocol-types.workspace = true
+activechain-state-tree.workspace = true
 sha3.workspace = true
 
 [lints]

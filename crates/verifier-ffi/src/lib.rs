@@ -140,6 +140,87 @@ pub unsafe extern "C" fn activechain_verify_policy_decision_code(
     activechain_verifier_api::verify_policy_decision_code(input)
 }
 
+#[unsafe(no_mangle)]
+/// # Safety
+/// The caller must provide readable buffers for all declared lengths. No pointer is retained.
+pub unsafe extern "C" fn activechain_verify_state_membership_code(
+    commitment: *const u8,
+    commitment_len: u32,
+    object: *const u8,
+    object_len: u32,
+    proof: *const u8,
+    proof_len: u32,
+) -> u32 {
+    if (commitment.is_null() && commitment_len != 0)
+        || (object.is_null() && object_len != 0)
+        || (proof.is_null() && proof_len != 0)
+    {
+        return NULL_POINTER;
+    }
+    if commitment_len
+        .checked_add(object_len)
+        .and_then(|length| length.checked_add(proof_len))
+        .is_none_or(|length| length > MAX_ENVELOPE_LENGTH)
+    {
+        return TOO_LARGE;
+    }
+    let commitment = if commitment_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(commitment, commitment_len as usize) }
+    };
+    let object = if object_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(object, object_len as usize) }
+    };
+    let proof = if proof_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(proof, proof_len as usize) }
+    };
+    activechain_verifier_api::verify_state_membership_code(commitment, object, proof)
+}
+
+#[unsafe(no_mangle)]
+/// # Safety
+/// The caller must provide readable commitment/proof buffers and a readable 48-byte object ID.
+pub unsafe extern "C" fn activechain_verify_state_non_membership_code(
+    commitment: *const u8,
+    commitment_len: u32,
+    object_id: *const u8,
+    proof: *const u8,
+    proof_len: u32,
+) -> u32 {
+    if (commitment.is_null() && commitment_len != 0)
+        || object_id.is_null()
+        || (proof.is_null() && proof_len != 0)
+    {
+        return NULL_POINTER;
+    }
+    if commitment_len.checked_add(proof_len).is_none_or(|length| length > MAX_ENVELOPE_LENGTH) {
+        return TOO_LARGE;
+    }
+    let commitment = if commitment_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(commitment, commitment_len as usize) }
+    };
+    let proof = if proof_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(proof, proof_len as usize) }
+    };
+    let id = unsafe { core::slice::from_raw_parts(object_id, 48) };
+    let mut id_bytes = [0_u8; 48];
+    id_bytes.copy_from_slice(id);
+    activechain_verifier_api::verify_state_non_membership_code(
+        commitment,
+        activechain_protocol_types::ObjectId::new(Digest384::new(id_bytes)),
+        proof,
+    )
+}
+
 #[cfg(kani)]
 mod kani_proofs;
 
@@ -186,9 +267,11 @@ mod tests {
     use activechain_policy_kernel::{DecisionResult, PolicyDecision};
     use activechain_protocol_types::{
         ActionId, BoundedActionSet, CapabilityGrant, CapabilityGrantFields, CapabilityId,
-        CryptoSuiteId, DataSelector, FreezeState, HolderBinding, Principal, PrincipalId,
-        PrincipalKind, ProtocolSignature, ResourceSelector,
+        CryptoSuiteId, DataSelector, FreezeState, HolderBinding, Object, ObjectFields, ObjectFlags,
+        ObjectId, ObjectOwner, Principal, PrincipalId, PrincipalKind, ProtocolSignature,
+        ResourceSelector,
     };
+    use activechain_state_tree::{commit_objects, prove_object};
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
@@ -325,6 +408,66 @@ mod tests {
                 activechain_verify_policy_decision_code(encoded.as_ptr(), encoded.len() as u32)
             },
             activechain_verifier_api::verify_policy_decision_code(&encoded)
+        );
+    }
+
+    #[test]
+    fn state_witness_abi_matches_rust_verifier_results() {
+        let object = Object::new(ObjectFields {
+            object_id: ObjectId::new(digest(21)),
+            object_version: 1,
+            type_id: digest(22),
+            owner: ObjectOwner::Shared,
+            control_policy_hash: digest(23),
+            use_policy_hash: digest(24),
+            disclosure_policy_hash: digest(25),
+            upgrade_policy_hash: digest(26),
+            package_id: None,
+            value_root: digest(27),
+            public_value: None,
+            lease_expiry_epoch: 10,
+            storage_deposit: 5,
+            flags: ObjectFlags::TRANSFERABLE,
+        })
+        .unwrap();
+        let objects = vec![object.clone()];
+        let commitment = encode_envelope(&commit_objects(&objects).unwrap()).unwrap();
+        let proof = encode_envelope(&prove_object(&objects, object.object_id()).unwrap()).unwrap();
+        let object_bytes = encode_envelope(&object).unwrap();
+        assert_eq!(
+            unsafe {
+                activechain_verify_state_membership_code(
+                    commitment.as_ptr(),
+                    commitment.len() as u32,
+                    object_bytes.as_ptr(),
+                    object_bytes.len() as u32,
+                    proof.as_ptr(),
+                    proof.len() as u32,
+                )
+            },
+            activechain_verifier_api::verify_state_membership_code(
+                &commitment,
+                &object_bytes,
+                &proof
+            )
+        );
+        let absent_id = ObjectId::new(digest(31));
+        let absent_proof = encode_envelope(&prove_object(&objects, absent_id).unwrap()).unwrap();
+        assert_eq!(
+            unsafe {
+                activechain_verify_state_non_membership_code(
+                    commitment.as_ptr(),
+                    commitment.len() as u32,
+                    absent_id.into_digest().as_bytes().as_ptr(),
+                    absent_proof.as_ptr(),
+                    absent_proof.len() as u32,
+                )
+            },
+            activechain_verifier_api::verify_state_non_membership_code(
+                &commitment,
+                absent_id,
+                &absent_proof
+            )
         );
     }
 

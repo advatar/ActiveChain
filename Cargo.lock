@@ -312,6 +312,7 @@ dependencies = [
  "activechain-capability",
  "activechain-policy-kernel",
  "activechain-protocol-types",
+ "activechain-state-tree",
  "sha3 0.10.9",
 ]
 
@@ -322,6 +323,7 @@ dependencies = [
  "activechain-canonical-codec",
  "activechain-policy-kernel",
  "activechain-protocol-types",
+ "activechain-state-tree",
  "activechain-verifier-api",
 ]
 
