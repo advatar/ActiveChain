@@ -44,3 +44,10 @@ and the ordered signed vote set. The verifier recomputes the header digest, gene
 set commitments, signed vote-set root, signer stake, and strict quorum while verifying every
 ML-DSA-44 vote. Context, order, signature, root, stake, framing, and version substitutions fail
 closed through the same Rust and C result code.
+
+Receipt verification accepts a finality bundle and the canonical `BlockReceipt`. It first verifies
+the complete finalized-header certificate relation, then recomputes the receipt's protocol
+commitment and requires the exact committed receipt root, height, pre-state, and post-state.
+Receipt substitution and attempts to move a valid receipt between finalized transitions therefore
+fail with the stable relation-mismatch code. Rust callers use `verify_block_receipt` or
+`verify_block_receipt_code`; C callers use `activechain_verify_block_receipt_code`.

@@ -4,8 +4,10 @@
 extern crate alloc;
 
 use activechain_canonical_codec::{DecodeError, decode_envelope, inspect_canonical_envelope};
+use activechain_devnet_kernel::BlockReceipt;
 use activechain_finality_types::FinalityCertificateBundle;
 use activechain_policy_kernel::PolicyDecision;
+use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
     CapabilityGrant, Digest384, INITIAL_PROTOCOL_REVISION, Object, ObjectId, Principal,
 };
@@ -200,6 +202,31 @@ pub fn verify_finality_bundle(bytes: &[u8]) -> Result<FinalityCertificateBundle,
     activechain_consensus_verifier::verify_quorum_certificate(certificate, &validator_set, &votes)
         .map_err(|_| VerifyError::RelationMismatch)?;
     Ok(bundle)
+}
+
+pub fn verify_block_receipt_code(finality: &[u8], receipt: &[u8]) -> u32 {
+    verify_block_receipt(finality, receipt).map_or_else(|error| error.code(), |_| VERIFY_OK)
+}
+
+pub fn verify_block_receipt(finality: &[u8], receipt: &[u8]) -> Result<BlockReceipt, VerifyError> {
+    if finality.len().checked_add(receipt.len()).is_none_or(|length| length > MAX_ENVELOPE_LENGTH) {
+        return Err(VerifyError::TooLarge);
+    }
+    let finality = verify_finality_bundle(finality)?;
+    inspect_envelope(receipt, BlockReceipt::TYPE_TAG, BlockReceipt::SCHEMA_VERSION)?;
+    let receipt = decode_envelope::<BlockReceipt>(receipt).map_err(VerifyError::Decode)?;
+    let inputs = finality.header().inputs;
+    let receipt_root = commit(DomainTag::CANONICAL_VALUE, &receipt).map_err(|_| {
+        VerifyError::Decode(DecodeError::InvalidValue("block receipt could not be encoded"))
+    })?;
+    if receipt_root != inputs.receipt_root
+        || receipt.height() != inputs.height
+        || receipt.pre_state() != inputs.pre_state
+        || receipt.post_state() != inputs.post_state
+    {
+        return Err(VerifyError::RelationMismatch);
+    }
+    Ok(receipt)
 }
 
 pub fn verify_shake_commitment(
@@ -468,7 +495,11 @@ mod tests {
         );
     }
 
-    fn finality_bundle() -> FinalityCertificateBundle {
+    fn finality_bundle_with_inputs(
+        receipt_root: Digest384,
+        pre_state: StateCommitment,
+        post_state: StateCommitment,
+    ) -> FinalityCertificateBundle {
         let keys = [
             SigningKey::<MlDsa44>::from_seed(&Seed::from([1; 32])),
             SigningKey::<MlDsa44>::from_seed(&Seed::from([2; 32])),
@@ -493,7 +524,7 @@ mod tests {
             protocol_revision: 4,
             validator_set_root: genesis.validator_set_root(),
             parent_block_id: digest(41),
-            pre_state: activechain_state_tree::StateCommitment::new(digest(42), 0),
+            pre_state,
             authorization_root: digest(43),
             action_root: digest(44),
             execution_order_root: digest(45),
@@ -502,8 +533,8 @@ mod tests {
             issuance: 0,
             burn: 0,
             post_supply: 0,
-            post_state: activechain_state_tree::StateCommitment::new(digest(46), 0),
-            receipt_root: digest(47),
+            post_state,
+            receipt_root,
             data_availability_commitment: digest(48),
         };
         let header = activechain_finality_types::FinalizedBlockHeader {
@@ -563,6 +594,14 @@ mod tests {
         FinalityCertificateBundle::new(header, genesis, certificate, votes).unwrap()
     }
 
+    fn finality_bundle() -> FinalityCertificateBundle {
+        finality_bundle_with_inputs(
+            digest(47),
+            StateCommitment::new(digest(42), 0),
+            StateCommitment::new(digest(46), 0),
+        )
+    }
+
     #[test]
     fn finality_bundle_verifies_header_context_quorum_and_real_pq_votes() {
         let bundle = finality_bundle();
@@ -597,6 +636,49 @@ mod tests {
         wrong_version[3] = 2;
         assert_eq!(
             verify_finality_bundle_code(&wrong_version),
+            VerifyError::VersionMismatch.code()
+        );
+    }
+
+    #[test]
+    fn block_receipt_verifier_binds_finality_root_height_and_state_transition() {
+        let pre_state = StateCommitment::new(digest(60), 2);
+        let post_state = StateCommitment::new(digest(61), 3);
+        let receipt = BlockReceipt::new(digest(62), 9, pre_state, post_state, vec![]).unwrap();
+        let receipt_root = commit(DomainTag::CANONICAL_VALUE, &receipt).unwrap();
+        let finality =
+            encode_envelope(&finality_bundle_with_inputs(receipt_root, pre_state, post_state))
+                .unwrap();
+        let encoded = encode_envelope(&receipt).unwrap();
+        assert_eq!(verify_block_receipt_code(&finality, &encoded), VERIFY_OK);
+        assert_eq!(verify_block_receipt(&finality, &encoded), Ok(receipt.clone()));
+
+        let substituted = encode_envelope(
+            &BlockReceipt::new(digest(63), 9, pre_state, post_state, vec![]).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            verify_block_receipt_code(&finality, &substituted),
+            VerifyError::RelationMismatch.code()
+        );
+        let wrong_height = encode_envelope(
+            &BlockReceipt::new(digest(62), 10, pre_state, post_state, vec![]).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            verify_block_receipt_code(&finality, &wrong_height),
+            VerifyError::RelationMismatch.code()
+        );
+        let mut truncated = encoded.clone();
+        truncated.pop();
+        assert_ne!(verify_block_receipt_code(&finality, &truncated), VERIFY_OK);
+        let mut trailing = encoded.clone();
+        trailing.push(0);
+        assert_ne!(verify_block_receipt_code(&finality, &trailing), VERIFY_OK);
+        let mut wrong_version = encoded;
+        wrong_version[3] = 2;
+        assert_eq!(
+            verify_block_receipt_code(&finality, &wrong_version),
             VerifyError::VersionMismatch.code()
         );
     }

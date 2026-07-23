@@ -16,7 +16,9 @@ activechain-verifier-api.workspace = true
 
 [dev-dependencies]
 activechain-canonical-codec.workspace = true
+activechain-devnet-kernel.workspace = true
 activechain-policy-kernel.workspace = true
+activechain-protocol-commitment = { path = "../protocol-commitment", version = "0.1.0" }
 activechain-state-tree.workspace = true
 activechain-finality-types.workspace = true
 ml-dsa = "0.1.1"

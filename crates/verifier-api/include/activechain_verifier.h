@@ -71,4 +71,10 @@ uint32_t activechain_verify_finality_bundle_code(
     const uint8_t *bytes,
     uint32_t bytes_len);
 
+uint32_t activechain_verify_block_receipt_code(
+    const uint8_t *finality,
+    uint32_t finality_len,
+    const uint8_t *receipt,
+    uint32_t receipt_len);
+
 #endif
