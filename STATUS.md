@@ -21,7 +21,7 @@ Phase 0 bootstrap is tracked by [GitHub issue #1](https://github.com/advatar/Act
 Tracked by [GitHub issue #129](https://github.com/advatar/ActiveChain/issues/129).
 
 - [x] Document that the generated Xcode project requires an exact-HEAD Apple distribution.
-- [ ] Build and verify the local wallet XCFramework and arm64 simulator app from a clean checkout.
+- [x] Build and verify the local wallet XCFramework and arm64 simulator app from a clean checkout.
 - [x] Preserve the shared Apple development-team ID in `project.yml` while keeping certificates,
   private keys, Xcode user data, and build state local.
 
