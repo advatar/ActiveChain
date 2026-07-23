@@ -8,6 +8,7 @@ canonical snapshot. Build its exact-HEAD XCFramework and app project from a clea
 scripts/build-ios-wallet-app.sh
 ```
 
-Other `LocalWalletBridge` paths and the Android agent registry remain deterministic integration
-mocks; they do not claim production cryptography or secure storage. The remaining work is the
-Android JNI/NDK bridge and platform keystore callback providers.
+The Android shell builds its arm64 JNI library as a Gradle prerequisite and persists the same
+canonical registry format. Other `LocalWalletBridge` paths remain deterministic integration mocks;
+they do not claim production cryptography or secure storage. Platform keystore callback providers
+remain a separate release gate.

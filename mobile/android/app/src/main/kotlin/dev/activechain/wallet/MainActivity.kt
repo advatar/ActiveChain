@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import java.io.File
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -40,24 +41,14 @@ class MainActivity : Activity() {
     private lateinit var content: FrameLayout
     private lateinit var nav: LinearLayout
     private var selected = WalletTab.WALLET
-    private val agents = AgentWalletStore().apply {
-        delegate(AgentDelegation(
-            "did:active:agent-research", "Research agent",
-            listOf("Pay approved providers", "Read public artifacts"), 50, 240000,
-            AgentConnection.THIRD_PARTY, spentToday = 18
-        ))
-        delegate(AgentDelegation(
-            "did:active:agent-travel", "Travel planner",
-            listOf("Request selected credentials"), 10, 210000,
-            AgentConnection.REMOTE
-        ))
-    }
+    private lateinit var agents: RustAgentRegistry
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Palette.ink
+        agents = RustAgentRegistry(File(filesDir, "agents-v1.bin"))
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL

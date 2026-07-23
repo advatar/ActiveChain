@@ -1,6 +1,5 @@
 import Foundation
 import LocalAuthentication
-import Combine
 
 public enum AgentConnection: String, Equatable {
     case walletOwned = "Wallet-owned"
@@ -43,53 +42,6 @@ public struct AgentDelegation: Identifiable, Equatable {
     public var revoked: Bool {
         if case .revoked = lifecycle { return true }
         return false
-    }
-}
-
-public struct PendingApproval: Identifiable, Equatable {
-    public let id: String
-    public let agentID: String
-    public let recipient: String
-    public let amount: UInt64
-    public let feeReserve: UInt64
-    public let networkID: String
-}
-
-public final class AgentWalletStore: ObservableObject {
-    @Published public private(set) var agents: [AgentDelegation] = []
-    @Published public private(set) var pending: [PendingApproval] = []
-
-    public init() {}
-
-    public func delegate(_ agent: AgentDelegation) -> Bool {
-        guard !agents.contains(where: { $0.id == agent.id }) else { return false }
-        agents.append(agent)
-        return true
-    }
-
-    public func enqueue(_ approval: PendingApproval) { pending.append(approval) }
-
-    public func revoke(agentID: String) {
-        guard let index = agents.firstIndex(where: { $0.id == agentID }) else { return }
-        agents[index].lifecycle = .revocationPending
-    }
-
-    public func finalizeRevocation(agentID: String, height: UInt64) {
-        guard height > 0, let index = agents.firstIndex(where: { $0.id == agentID }),
-              agents[index].lifecycle == .revocationPending else { return }
-        agents[index].lifecycle = .revoked(finalizedHeight: height)
-    }
-
-    public func pause(agentID: String) {
-        guard let index = agents.firstIndex(where: { $0.id == agentID }),
-              agents[index].lifecycle == .active else { return }
-        agents[index].lifecycle = .paused
-    }
-
-    public func resume(agentID: String) {
-        guard let index = agents.firstIndex(where: { $0.id == agentID }),
-              agents[index].lifecycle == .paused else { return }
-        agents[index].lifecycle = .active
     }
 }
 

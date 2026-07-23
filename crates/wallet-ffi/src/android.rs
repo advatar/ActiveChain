@@ -1,12 +1,12 @@
 use super::{
+    ActivechainWalletAgentSummary, WALLET_BUFFER_TOO_SMALL, WALLET_OK,
     activechain_wallet_agent_count, activechain_wallet_agent_register,
     activechain_wallet_agent_revoke, activechain_wallet_agent_set_paused,
-    activechain_wallet_agent_summary, ActivechainWalletAgentSummary, WALLET_BUFFER_TOO_SMALL,
-    WALLET_OK,
+    activechain_wallet_agent_summary,
 };
+use jni::JNIEnv;
 use jni::objects::{JByteArray, JClass, JString};
 use jni::sys::{jboolean, jbyteArray, jint, jlong, jstring};
-use jni::JNIEnv;
 
 fn snapshot(env: &JNIEnv<'_>, value: &JByteArray<'_>) -> Result<Vec<u8>, String> {
     env.convert_byte_array(value).map_err(|error| error.to_string())
@@ -64,10 +64,7 @@ pub extern "system" fn Java_dev_activechain_wallet_RustAgentRegistry_nativeRegis
         let current = snapshot(&env, &registry)?;
         let principal = [principal_byte as u8; 48];
         let capability = [capability_byte as u8; 48];
-        let label: String = env
-            .get_string(&label)
-            .map_err(|error| error.to_string())?
-            .into();
+        let label: String = env.get_string(&label).map_err(|error| error.to_string())?.into();
         transition(&current, |output, capacity, required| unsafe {
             activechain_wallet_agent_register(
                 current.as_ptr(),
@@ -210,25 +207,21 @@ pub extern "system" fn Java_dev_activechain_wallet_RustAgentRegistry_nativeSumma
             return Err(format!("wallet ABI summary failed with {code}"));
         }
         let label = String::from_utf8(label).map_err(|error| error.to_string())?;
-        let principal = summary
-            .principal
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
+        let principal =
+            summary.principal.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
         Ok(format!(
-            "{principal}\t{label}\t{}\t{}\t{}\t{}\t{}\t{}",
+            "{principal}\t{label}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
             summary.connection,
             summary.lifecycle,
             summary.capability_count,
             summary.budget_limit_low,
             summary.budget_spent_low,
             summary.expires_at,
+            summary.revocation_finalized_height,
         ))
     })();
     match result.and_then(|value| {
-        env.new_string(value)
-            .map(|string| string.into_raw())
-            .map_err(|error| error.to_string())
+        env.new_string(value).map(|string| string.into_raw()).map_err(|error| error.to_string())
     }) {
         Ok(string) => string,
         Err(error) => {

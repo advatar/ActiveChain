@@ -626,7 +626,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
     credential selection, replay protection, and deterministic conformance vectors.
   - [x] Run the seven-step wallet acceptance rehearsal through three persistent validators,
     transaction ingress, faucet, RPC finality, replay rejection, and validator restart.
-  - [ ] Ship enforceable agent management across wallet core and native shells.
+  - [x] Ship enforceable agent management across wallet core and native shells.
     - [x] Model agents as independently authenticated principals with bounded capabilities,
       budgets, expiry, pause, and finalized revocation state.
     - [x] Persist the local agent registry and replay state durably without storing agent or wallet
@@ -638,11 +638,11 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
     - [x] Document that arbitrary third-party app behavior is outside wallet authority; enforce
       ActiveChain actions at approval/signing and consensus boundaries instead of claiming OS-wide
       interception.
-    - [ ] Expose durable agent lifecycle/request operations through the wallet ABI and replace the
+    - [x] Expose durable agent lifecycle/request operations through the wallet ABI and replace the
       native demonstration stores with that shared implementation.
       - [x] Link the generated Apple XCFramework into the iOS shell and persist lifecycle
         transitions through the canonical Rust registry ABI.
-      - [ ] Link the Android shell through a reproducible JNI/NDK bridge and replace its
+      - [x] Link the Android shell through a reproducible JNI/NDK bridge and replace its
         demonstration registry.
     - [x] Add safe iOS App Intents for agent discovery and navigation; keep capability grants,
       approvals, budget increases, revocation, and signing inside authenticated wallet flows.
