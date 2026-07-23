@@ -713,6 +713,16 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
       independent security audit.
   - [ ] Stabilize browser/agent jobs, artifacts, evidence, manifests, and receipts
     ([GitHub issue #89](https://github.com/advatar/ActiveChain/issues/89)).
+    - [ ] Publish bounded canonical schemas for application manifests, artifacts, jobs,
+      delegated actions, execution evidence, and application receipts.
+    - [ ] Bind every lifecycle value to chain identity, requester/executor authority, resources,
+      fees, provenance, result commitments, validity windows, and replay domains.
+    - [ ] Implement deterministic job lifecycle validation covering acceptance, cancellation,
+      timeout, completion, and exactly-once fee settlement.
+    - [ ] Add verifier-facing receipt validation and finalized RPC lookup bindings.
+    - [ ] Freeze positive and malformed vectors for substitution, authority amplification,
+      duplicate/replay, invalid lifecycle, timeout, and settlement failures.
+    - [ ] Document the downstream integration boundary and compatibility revisions.
   - [ ] Pass downstream conformance against dBrowser while retaining the developmental and
     unaudited release status until the external security gate completes.
 
