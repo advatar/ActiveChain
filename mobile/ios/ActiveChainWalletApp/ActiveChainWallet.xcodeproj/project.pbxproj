@@ -160,6 +160,9 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					5A9189AF9FFFB212F868608E = {
+						DevelopmentTeam = L2AF8KFX35;
+					};
 				};
 			};
 			buildConfigurationList = 2E69B04C476133009F8E6C19 /* Build configuration list for PBXProject "ActiveChainWallet" */;
@@ -221,6 +224,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = L2AF8KFX35;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"\"../../../dist/apple/current\"",
@@ -396,6 +400,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = L2AF8KFX35;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"\"../../../dist/apple/current\"",
