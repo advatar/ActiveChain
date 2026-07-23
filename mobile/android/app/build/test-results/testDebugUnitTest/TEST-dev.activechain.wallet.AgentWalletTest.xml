@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="dev.activechain.wallet.AgentWalletTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-07-23T12:32:01.961Z" hostname="Pornhub-Max.local" time="0.017">
-  <properties/>
-  <testcase name="delegationIsReplaySafeAndRevocable" classname="dev.activechain.wallet.AgentWalletTest" time="0.012"/>
-  <system-out><![CDATA[]]></system-out>
-  <system-err><![CDATA[]]></system-err>
-</testsuite>
