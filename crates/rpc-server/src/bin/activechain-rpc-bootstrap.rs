@@ -1,6 +1,7 @@
 use activechain_canonical_codec::decode_envelope;
 use activechain_protocol_types::{ChainId, Digest384, ValidatorGenesis};
 use activechain_rpc_server::{DurableRpcStore, RpcIndex};
+use activechain_rpc_types::ProofKind;
 use std::{
     env, fs,
     path::{Path, PathBuf},
@@ -33,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         0,
         finalized_at,
         maximum_staleness_seconds,
-        Vec::new(),
+        vec![ProofKind::FinalityCertificate, ProofKind::ReceiptCommitment],
         Vec::new(),
     )
     .map_err(|error| format!("invalid bootstrap RPC index: {error:?}"))?;
