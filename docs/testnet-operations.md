@@ -34,6 +34,24 @@ sender key from finalized state and atomically applies the cash transition while
 nonce, session, payment inputs, and fee input. Bare transfers are test helpers only and MUST NOT be
 accepted by a network handler.
 
+## Bootstrap the RPC index
+
+The chain identifier is selected explicitly by the application/operator and is distinct from the
+immutable genesis commitment. Freeze it as 48 lowercase hexadecimal bytes in the signed testnet
+manifest, then create the initial empty durable index exactly once:
+
+```sh
+activechain-rpc-bootstrap \
+  ./testnet/genesis.bin \
+  "$ACTIVECHAIN_CHAIN_ID_HEX" \
+  ./testnet/rpc-index.snapshot \
+  300
+```
+
+The command decodes canonical validator genesis, binds its commitment and protocol revision into
+the index, rejects a zero or malformed chain ID, and never overwrites an existing snapshot.
+Finalized indexing must replace the initial empty index before proof queries are announced.
+
 ## Run the process rehearsal
 
 ```sh
