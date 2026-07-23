@@ -113,6 +113,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-consensus-verifier"
+version = "0.1.0"
+dependencies = [
+ "activechain-protocol-types",
+ "ml-dsa",
+ "sha3 0.10.9",
+]
+
+[[package]]
 name = "activechain-credential"
 version = "0.1.0"
 dependencies = [
@@ -127,6 +136,7 @@ dependencies = [
 name = "activechain-crypto-provider"
 version = "0.1.0"
 dependencies = [
+ "activechain-consensus-verifier",
  "activechain-protocol-types",
  "ml-dsa",
  "ml-kem",
@@ -321,9 +331,12 @@ version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
  "activechain-capability",
+ "activechain-consensus-verifier",
+ "activechain-finality-types",
  "activechain-policy-kernel",
  "activechain-protocol-types",
  "activechain-state-tree",
+ "ml-dsa",
  "sha3 0.10.9",
 ]
 
@@ -332,10 +345,13 @@ name = "activechain-verifier-ffi"
 version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
+ "activechain-finality-types",
  "activechain-policy-kernel",
  "activechain-protocol-types",
  "activechain-state-tree",
  "activechain-verifier-api",
+ "ml-dsa",
+ "sha3 0.10.9",
 ]
 
 [[package]]

@@ -6,6 +6,7 @@ members = [
     "crates/canonical-codec",
     "crates/crypto-provider",
     "crates/consensus-runtime",
+    "crates/consensus-verifier",
     "crates/data-availability",
     "crates/capability",
     "crates/cash-kernel",
@@ -46,6 +47,7 @@ activechain-authorization-kernel = { path = "crates/authorization-kernel", versi
 activechain-bytecode-verifier = { path = "crates/bytecode-verifier", version = "0.1.0" }
 activechain-canonical-codec = { path = "crates/canonical-codec", version = "0.1.0" }
 activechain-crypto-provider = { path = "crates/crypto-provider", version = "0.1.0" }
+activechain-consensus-verifier = { path = "crates/consensus-verifier", version = "0.1.0" }
 activechain-data-availability = { path = "crates/data-availability", version = "0.1.0" }
 activechain-capability = { path = "crates/capability", version = "0.1.0" }
 activechain-cash-kernel = { path = "crates/cash-kernel", version = "0.1.0" }

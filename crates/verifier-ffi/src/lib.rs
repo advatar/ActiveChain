@@ -221,6 +221,27 @@ pub unsafe extern "C" fn activechain_verify_state_non_membership_code(
     )
 }
 
+#[unsafe(no_mangle)]
+/// # Safety
+/// The caller must provide a readable canonical finality-bundle buffer. No pointer is retained.
+pub unsafe extern "C" fn activechain_verify_finality_bundle_code(
+    bytes: *const u8,
+    bytes_len: u32,
+) -> u32 {
+    if bytes.is_null() && bytes_len != 0 {
+        return NULL_POINTER;
+    }
+    if bytes_len > MAX_ENVELOPE_LENGTH {
+        return TOO_LARGE;
+    }
+    let input = if bytes_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(bytes, bytes_len as usize) }
+    };
+    activechain_verifier_api::verify_finality_bundle_code(input)
+}
+
 #[cfg(kani)]
 mod kani_proofs;
 
@@ -264,14 +285,23 @@ pub unsafe extern "C" fn activechain_verify_commitment_code(
 mod tests {
     use super::*;
     use activechain_canonical_codec::encode_envelope;
+    use activechain_finality_types::{
+        FinalityCertificateBundle, FinalizedBlockHeader, ProofPublicInputs,
+    };
     use activechain_policy_kernel::{DecisionResult, PolicyDecision};
     use activechain_protocol_types::{
         ActionId, BoundedActionSet, CapabilityGrant, CapabilityGrantFields, CapabilityId,
         CryptoSuiteId, DataSelector, FreezeState, HolderBinding, Object, ObjectFields, ObjectFlags,
         ObjectId, ObjectOwner, Principal, PrincipalId, PrincipalKind, ProtocolSignature,
-        ResourceSelector,
+        QuorumCertificate, ResourceSelector, ValidatorGenesis, ValidatorGenesisEntry,
+        ValidatorVote,
     };
     use activechain_state_tree::{commit_objects, prove_object};
+    use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
+    use sha3::{
+        Shake256,
+        digest::{ExtendableOutput, Update, XofReader},
+    };
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
@@ -468,6 +498,107 @@ mod tests {
                 absent_id,
                 &absent_proof
             )
+        );
+    }
+
+    #[test]
+    fn finality_bundle_abi_preserves_rust_error_codes_and_null_safety() {
+        let key = SigningKey::<MlDsa44>::from_seed(&Seed::from([1; 32]));
+        let validator = PrincipalId::new(digest(1));
+        let genesis = ValidatorGenesis::new_with_revision(
+            3,
+            1,
+            4,
+            vec![
+                ValidatorGenesisEntry::new(validator, 1, key.verifying_key().encode().into())
+                    .unwrap(),
+            ],
+        )
+        .unwrap();
+        let header = FinalizedBlockHeader {
+            inputs: ProofPublicInputs {
+                chain_id: activechain_protocol_types::ChainId::new(digest(40)),
+                epoch: 3,
+                height: 9,
+                protocol_revision: 4,
+                validator_set_root: genesis.validator_set_root(),
+                parent_block_id: digest(41),
+                pre_state: activechain_state_tree::StateCommitment::new(digest(42), 0),
+                authorization_root: digest(43),
+                action_root: digest(44),
+                execution_order_root: digest(45),
+                total_fees: 0,
+                pre_supply: 0,
+                issuance: 0,
+                burn: 0,
+                post_supply: 0,
+                post_state: activechain_state_tree::StateCommitment::new(digest(46), 0),
+                receipt_root: digest(47),
+                data_availability_commitment: digest(48),
+            },
+            proof_statement_commitment: digest(49),
+        };
+        let context = activechain_protocol_types::ConsensusVoteContext::new_with_revision(
+            genesis.genesis_commitment(),
+            3,
+            genesis.validator_set_root(),
+            4,
+        )
+        .unwrap();
+        let unsigned = ValidatorVote::new(
+            validator,
+            context,
+            9,
+            2,
+            header.digest().unwrap(),
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2_420]).unwrap(),
+        )
+        .unwrap();
+        let signature = key.sign(&unsigned.signing_payload());
+        let vote = ValidatorVote::new(
+            validator,
+            context,
+            9,
+            2,
+            header.digest().unwrap(),
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec()).unwrap(),
+        )
+        .unwrap();
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-VOTE-SET-V1");
+        hasher.update(key.verifying_key().encode().as_slice());
+        hasher.update(&vote.signing_payload());
+        hasher.update(vote.signature().as_bytes());
+        let mut root = [0; 48];
+        hasher.finalize_xof().read(&mut root);
+        let certificate = QuorumCertificate::new(
+            context,
+            9,
+            2,
+            header.digest().unwrap(),
+            Digest384::new(root),
+            1,
+            1,
+        )
+        .unwrap();
+        let valid = encode_envelope(
+            &FinalityCertificateBundle::new(header, genesis, certificate, vec![vote]).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            unsafe { activechain_verify_finality_bundle_code(valid.as_ptr(), valid.len() as u32) },
+            activechain_verifier_api::VERIFY_OK
+        );
+        let malformed = [0_u8; 1];
+        assert_eq!(
+            unsafe {
+                activechain_verify_finality_bundle_code(malformed.as_ptr(), malformed.len() as u32)
+            },
+            activechain_verifier_api::verify_finality_bundle_code(&malformed)
+        );
+        assert_eq!(
+            unsafe { activechain_verify_finality_bundle_code(core::ptr::null(), 1) },
+            NULL_POINTER
         );
     }
 
