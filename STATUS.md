@@ -711,8 +711,18 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
     - [x] Add a clean Swift consumer smoke test and fail-closed compatibility validation.
     - [x] Document reproducible local and CI distribution qualification without implying an
       independent security audit.
-  - [ ] Stabilize browser/agent jobs, artifacts, evidence, manifests, and receipts
+  - [x] Stabilize browser/agent jobs, artifacts, evidence, manifests, and receipts
     ([GitHub issue #89](https://github.com/advatar/ActiveChain/issues/89)).
+    - [x] Publish bounded canonical schemas for application manifests, artifacts, jobs,
+      delegated actions, execution evidence, and application receipts.
+    - [x] Bind every lifecycle value to chain identity, requester/executor authority, resources,
+      fees, provenance, result commitments, validity windows, and replay domains.
+    - [x] Implement deterministic job lifecycle validation covering acceptance, cancellation,
+      timeout, completion, and exactly-once fee settlement.
+    - [x] Add verifier-facing receipt validation and finalized RPC lookup bindings.
+    - [x] Freeze positive and malformed vectors for substitution, authority amplification,
+      duplicate/replay, invalid lifecycle, timeout, and settlement failures.
+    - [x] Document the downstream integration boundary and compatibility revisions.
   - [ ] Pass downstream conformance against dBrowser while retaining the developmental and
     unaudited release status until the external security gate completes.
 

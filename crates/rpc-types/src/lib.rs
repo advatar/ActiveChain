@@ -221,6 +221,7 @@ pub enum QueryKind {
     State = 0,
     Action = 1,
     Receipt = 2,
+    ApplicationReceipt = 3,
 }
 
 impl CanonicalEncode for QueryKind {
@@ -234,6 +235,7 @@ impl CanonicalDecode for QueryKind {
             0 => Ok(Self::State),
             1 => Ok(Self::Action),
             2 => Ok(Self::Receipt),
+            3 => Ok(Self::ApplicationReceipt),
             tag => Err(DecodeError::InvalidEnumTag { type_name: "QueryKind", tag }),
         }
     }

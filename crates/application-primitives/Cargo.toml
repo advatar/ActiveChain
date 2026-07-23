@@ -1,0 +1,22 @@
+[package]
+name = "activechain-application-primitives"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[features]
+default = ["std"]
+std = []
+
+[dependencies]
+activechain-canonical-codec.workspace = true
+activechain-protocol-commitment.workspace = true
+activechain-protocol-types.workspace = true
+activechain-rpc-types.workspace = true
+
+[dev-dependencies]
+tempfile = "3.20.0"
+
+[lints]
+workspace = true
