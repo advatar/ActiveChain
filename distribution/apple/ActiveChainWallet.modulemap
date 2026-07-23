@@ -1,0 +1,4 @@
+module ActiveChainWallet {
+  header "activechain_wallet.h"
+  export *
+}

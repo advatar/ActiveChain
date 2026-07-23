@@ -31,7 +31,9 @@ jobs:
       - name: Install pinned Rust toolchain
         run: |
           rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
-          rustup target add --toolchain 1.97.1 aarch64-apple-ios
+          rustup target add --toolchain 1.97.1 \
+            aarch64-apple-ios \
+            aarch64-apple-ios-sim
       - name: Install pinned Lean toolchain
         run: |
           if ! elan toolchain list | rg --fixed-strings --line-regexp 'leanprover/lean4:v4.32.0'; then
@@ -87,6 +89,10 @@ jobs:
         run: cargo test --locked --workspace --doc
       - name: Build release binaries and libraries
         run: cargo build --locked --workspace --release
+      - name: Reproduce and consume Apple distributions
+        run: |
+          cargo run --locked -p activechain-apple-distribution -- check-headers .
+          bash scripts/check-apple-reproducibility.sh "$GITHUB_SHA"
       - name: Run release tests
         run: cargo test --locked --workspace --release
       - name: Rehearse validator processes

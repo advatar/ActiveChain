@@ -701,8 +701,16 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
       header.
     - [x] Persist all trust state crash-safely and cover stale, forked, corrupt, restart, bad-proof,
       bad-DA, retired-set, and wrong-revision vectors.
-  - [ ] Ship reproducible Apple artifacts and a machine-readable compatibility manifest
+  - [x] Ship reproducible Apple artifacts and a machine-readable compatibility manifest
     ([GitHub issue #90](https://github.com/advatar/ActiveChain/issues/90)).
+    - [x] Generate and drift-check the verifier and wallet C headers from their Rust ABI exports.
+    - [x] Build macOS, iOS-device, and iOS-simulator static-library slices and package versioned
+      verifier and wallet XCFrameworks.
+    - [x] Emit deterministic artifact hashes and compatibility metadata covering source, ABI,
+      schemas, protocols, slices, certification status, and upgrade policy.
+    - [x] Add a clean Swift consumer smoke test and fail-closed compatibility validation.
+    - [x] Document reproducible local and CI distribution qualification without implying an
+      independent security audit.
   - [ ] Stabilize browser/agent jobs, artifacts, evidence, manifests, and receipts
     ([GitHub issue #89](https://github.com/advatar/ActiveChain/issues/89)).
   - [ ] Pass downstream conformance against dBrowser while retaining the developmental and

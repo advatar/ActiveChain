@@ -1,0 +1,4 @@
+module ActiveChainVerifier {
+  header "activechain_verifier.h"
+  export *
+}

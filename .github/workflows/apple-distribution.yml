@@ -1,0 +1,44 @@
+name: Apple distribution
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: [self-hosted, macOS, ARM64, activechain-ci]
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+      PATH: /opt/homebrew/opt/rustup/bin:/Users/johansellstrom/.cargo/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          clean: true
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Install pinned Rust toolchain and Apple targets
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup target add --toolchain 1.97.1 \
+            aarch64-apple-ios \
+            aarch64-apple-ios-sim
+      - name: Build and qualify exact-revision artifacts
+        run: |
+          scripts/build-apple-distribution.sh dist/ActiveChainKit "$GITHUB_SHA"
+          scripts/check-apple-distribution.sh dist/ActiveChainKit
+      - name: Archive qualified distribution
+        run: |
+          ditto -c -k --keepParent dist/ActiveChainKit "ActiveChainKit-${GITHUB_SHA}.zip"
+          shasum -a 256 "ActiveChainKit-${GITHUB_SHA}.zip" > "ActiveChainKit-${GITHUB_SHA}.sha256"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ActiveChainKit-${{ github.sha }}
+          path: |
+            ActiveChainKit-*.zip
+            ActiveChainKit-*.sha256
