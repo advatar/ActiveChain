@@ -39,10 +39,10 @@ Tracked by [GitHub issue #132](https://github.com/advatar/ActiveChain/issues/132
 
 Tracked by [GitHub issue #135](https://github.com/advatar/ActiveChain/issues/135).
 
-- [ ] Present receiving details from the shared macOS and iOS wallet interface.
-- [ ] Bind the receiving payload to the selected ActiveChain network.
-- [ ] Add QR, copy, share, and dismissal behavior.
-- [ ] Add unit coverage and pass macOS tests plus both application builds.
+- [x] Present receiving details from the shared macOS and iOS wallet interface.
+- [x] Bind the receiving payload to the selected ActiveChain network.
+- [x] Add QR, copy, share, and dismissal behavior.
+- [x] Add unit coverage and pass macOS tests plus both application builds.
 
 ## Active investigation — Aztec billboard parity
 
