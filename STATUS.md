@@ -44,6 +44,18 @@ Tracked by [GitHub issue #135](https://github.com/advatar/ActiveChain/issues/135
 - [x] Add QR, copy, share, and dismissal behavior.
 - [x] Add unit coverage and pass macOS tests plus both application builds.
 
+## Active deployment — Kanalen developmental RPC
+
+Tracked by [GitHub issue #137](https://github.com/advatar/ActiveChain/issues/137).
+
+- [x] Build and checksum a release bundle pinned to the deployed `main` revision.
+- [x] Install a revisioned deployment on the Kanalen Mac without disturbing unrelated services.
+- [x] Configure `rpc.kanalen.activechain.dev` with TLS 1.3 and automatic certificate renewal.
+- [x] Keep validator, faucet, and metrics ports private.
+- [x] Verify DNS, certificate identity, public TLS, existing HTTPS routing, and exposed ports.
+- [ ] Add a canonical operator path from genesis/finalized validator state to the durable RPC index,
+  then start the backend, verify a framed status request, and rehearse restart recovery.
+
 ## Active investigation — Aztec billboard parity
 
 Tracked by [GitHub issue #17](https://github.com/advatar/ActiveChain/issues/17).
