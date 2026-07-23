@@ -11,7 +11,7 @@ private enum WalletTab: Hashable {
     case home, activity, approvals, identity
 }
 
-private struct WalletPalette {
+struct WalletPalette {
     static let ink = Color(red: 0.035, green: 0.055, blue: 0.09)
     static let panel = Color(red: 0.075, green: 0.10, blue: 0.145)
     static let mint = Color(red: 0.45, green: 0.96, blue: 0.71)
@@ -24,11 +24,16 @@ struct WalletRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var selection: WalletTab = .home
     @State private var showingSend = false
+    @State private var showingReceive = false
 
     var body: some View {
         TabView(selection: $selection) {
             NavigationStack {
-                HomeView(showingSend: $showingSend, selection: $selection)
+                HomeView(
+                    showingSend: $showingSend,
+                    showingReceive: $showingReceive,
+                    selection: $selection
+                )
             }
             .tag(WalletTab.home)
             .tabItem { Label("Wallet", systemImage: "wallet.bifold.fill") }
@@ -52,6 +57,10 @@ struct WalletRootView: View {
             NavigationStack { SendFlowView() }
                 .presentationDetents([.large])
         }
+        .sheet(isPresented: $showingReceive) {
+            NavigationStack { ReceiveRequestView(request: .kanalen) }
+                .presentationDetents([.large])
+        }
         .onAppear(perform: consumeAgentIntentRoute)
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { consumeAgentIntentRoute() }
@@ -66,6 +75,7 @@ struct WalletRootView: View {
 
 private struct HomeView: View {
     @Binding var showingSend: Bool
+    @Binding var showingReceive: Bool
     @Binding var selection: WalletTab
 
     var body: some View {
@@ -74,7 +84,10 @@ private struct HomeView: View {
             ScrollView {
                 LazyVStack(spacing: 18) {
                     Header()
-                    BalanceCard(showingSend: $showingSend)
+                    BalanceCard(
+                        showingSend: $showingSend,
+                        showingReceive: $showingReceive
+                    )
                     NetworkCard()
                     ApprovalBanner { selection = .approvals }
                     AssetSection()
@@ -121,6 +134,7 @@ private struct Header: View {
 
 private struct BalanceCard: View {
     @Binding var showingSend: Bool
+    @Binding var showingReceive: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -157,7 +171,9 @@ private struct BalanceCard: View {
                 PrimaryAction(title: "Send", icon: "arrow.up.right", emphasized: true) {
                     showingSend = true
                 }
-                PrimaryAction(title: "Receive", icon: "arrow.down.left", emphasized: false) {}
+                PrimaryAction(title: "Receive", icon: "arrow.down.left", emphasized: false) {
+                    showingReceive = true
+                }
                 PrimaryAction(title: "Fund", icon: "plus", emphasized: false) {}
             }
         }
@@ -805,7 +821,7 @@ private struct SendFlowView: View {
     }
 }
 
-private struct WalletBackground: View {
+struct WalletBackground: View {
     var body: some View {
         WalletPalette.ink
             .overlay(alignment: .topTrailing) {
@@ -820,7 +836,7 @@ private struct WalletBackground: View {
     }
 }
 
-private extension View {
+extension View {
     func cardStyle() -> some View {
         padding(16)
             .background(
@@ -834,7 +850,7 @@ private extension View {
     }
 }
 
-private struct PrimaryWalletButton: ButtonStyle {
+struct PrimaryWalletButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.headline)
@@ -849,7 +865,7 @@ private struct PrimaryWalletButton: ButtonStyle {
     }
 }
 
-private struct SecondaryWalletButton: ButtonStyle {
+struct SecondaryWalletButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.headline)
