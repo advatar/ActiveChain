@@ -654,7 +654,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
           linkage, and leaf actor-binding verification through matching Rust and C result codes.
         - [ ] Join capability and actor signatures to principal controller keys proven against the
           finalized state root.
-  - [ ] Expose Coin Cell discovery, policy evaluation, canonical intents, approval-bound signing,
+  - [x] Expose Coin Cell discovery, policy evaluation, canonical intents, approval-bound signing,
     secure-key callbacks, and submission through the wallet ABI
     ([GitHub issue #87](https://github.com/advatar/ActiveChain/issues/87)).
     - [x] Expose deterministic Coin Cell selection from a canonical bounded cell-set envelope
@@ -666,6 +666,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
     - [x] Invoke opaque secure-key callbacks only over the canonical approval-bound signing
       transcript and verify the returned ML-DSA-44 signature before publishing an authorized
       envelope.
+    - [x] Reverify authorized envelopes before forwarding their exact canonical bytes through an
+      opaque caller-owned transport callback.
   - [ ] Publish a proof-bearing development-network query/RPC contract
     ([GitHub issue #91](https://github.com/advatar/ActiveChain/issues/91)).
   - [ ] Package an embeddable persistent light client
