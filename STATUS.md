@@ -640,6 +640,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
       interception.
     - [ ] Expose durable agent lifecycle/request operations through the wallet ABI and replace the
       native demonstration stores with that shared implementation.
+    - [ ] Add safe iOS App Intents for agent discovery and navigation; keep capability grants,
+      approvals, budget increases, revocation, and signing inside authenticated wallet flows.
 
 ## Active milestone — dBrowser verifier compatibility
 
