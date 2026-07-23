@@ -3,11 +3,13 @@
 use activechain_canonical_codec::{decode_envelope, encode_envelope};
 use activechain_cash_kernel::{CoinCellSet, CoinTransfer};
 use activechain_protocol_types::{
-    ChainId, CoinCellId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature,
+    CapabilityId, ChainId, CoinCellId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature,
+    TransactionId,
 };
 use activechain_wallet_core::{
-    AgentRegistryCommandV1, AgentRegistryV1, AuthorizedCashTransferV1, CashAuthorizationRequestV1,
-    OpenWalletConsentV1, OpenWalletCredentialOfferV1, OpenWalletPresentationRequestV1,
+    AgentConnectionKind, AgentLifecycle, AgentRegistryCommandV1, AgentRegistryV1,
+    AuthorizedCashTransferV1, CashAuthorizationRequestV1, ManagedAgentV1, OpenWalletConsentV1,
+    OpenWalletCredentialOfferV1, OpenWalletPresentationRequestV1,
 };
 use core::ffi::c_void;
 
@@ -45,6 +47,38 @@ pub type ActivechainWalletSignCallback = unsafe extern "C" fn(
 ) -> u32;
 pub type ActivechainWalletSubmitCallback =
     unsafe extern "C" fn(context: *mut c_void, envelope: *const u8, envelope_len: u32) -> u32;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ActivechainWalletAgentSummary {
+    pub principal: [u8; 48],
+    pub connection: u32,
+    pub lifecycle: u32,
+    pub capability_count: u32,
+    pub budget_limit_high: u64,
+    pub budget_limit_low: u64,
+    pub budget_spent_high: u64,
+    pub budget_spent_low: u64,
+    pub expires_at: u64,
+    pub revocation_finalized_height: u64,
+}
+
+impl Default for ActivechainWalletAgentSummary {
+    fn default() -> Self {
+        Self {
+            principal: [0; 48],
+            connection: 0,
+            lifecycle: 0,
+            capability_count: 0,
+            budget_limit_high: 0,
+            budget_limit_low: 0,
+            budget_spent_high: 0,
+            budget_spent_low: 0,
+            expires_at: 0,
+            revocation_finalized_height: 0,
+        }
+    }
+}
 
 /// Returns the ABI revision consumed by native wallet shells.
 #[unsafe(no_mangle)]
@@ -172,6 +206,266 @@ pub unsafe extern "C" fn activechain_wallet_agent_apply(
     }
     unsafe {
         core::ptr::copy_nonoverlapping(encoded.as_ptr(), output, encoded.len());
+    }
+    WALLET_OK
+}
+
+/// Registers one native agent and returns the complete canonical next registry.
+///
+/// Capabilities are a contiguous array of `capability_count * 48` bytes and must already be
+/// strictly ordered. The label must be non-empty UTF-8.
+///
+/// # Safety
+///
+/// All non-empty inputs and outputs must point to readable/writable buffers for their declared
+/// lengths. Fixed identifiers point to 48 bytes. No pointer is retained.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn activechain_wallet_agent_register(
+    registry: *const u8,
+    registry_len: u32,
+    principal: *const u8,
+    label: *const u8,
+    label_len: u32,
+    connection: u32,
+    capabilities: *const u8,
+    capability_count: u32,
+    budget_limit_high: u64,
+    budget_limit_low: u64,
+    expires_at: u64,
+    output: *mut u8,
+    output_capacity: u32,
+    required_len: *mut u32,
+) -> u32 {
+    if principal.is_null()
+        || label.is_null()
+        || label_len == 0
+        || capabilities.is_null()
+        || capability_count == 0
+    {
+        return WALLET_NULL_POINTER;
+    }
+    let Ok(label_len) = usize::try_from(label_len) else {
+        return WALLET_TOO_LARGE;
+    };
+    let Ok(capability_count) = usize::try_from(capability_count) else {
+        return WALLET_TOO_LARGE;
+    };
+    let Some(capabilities_len) = capability_count.checked_mul(48) else {
+        return WALLET_TOO_LARGE;
+    };
+    if label_len > activechain_wallet_core::MAX_AGENT_LABEL
+        || capability_count > activechain_wallet_core::MAX_AGENT_CAPABILITIES
+    {
+        return WALLET_TOO_LARGE;
+    }
+    let connection = match connection {
+        0 => AgentConnectionKind::SameTeamAppGroup,
+        1 => AgentConnectionKind::ThirdPartyProtocol,
+        2 => AgentConnectionKind::RemoteService,
+        3 => AgentConnectionKind::ManagedDeviceExtension,
+        _ => return WALLET_MALFORMED,
+    };
+    let label = unsafe { core::slice::from_raw_parts(label, label_len) }.to_vec();
+    let capability_bytes = unsafe { core::slice::from_raw_parts(capabilities, capabilities_len) };
+    let mut capability_ids = Vec::with_capacity(capability_count);
+    for bytes in capability_bytes.chunks_exact(48) {
+        let mut digest = [0; 48];
+        digest.copy_from_slice(bytes);
+        capability_ids.push(CapabilityId::new(Digest384::new(digest)));
+    }
+    let agent = match ManagedAgentV1::new(
+        PrincipalId::new(unsafe { read_digest(principal) }),
+        label,
+        connection,
+        capability_ids,
+        join_u128(budget_limit_high, budget_limit_low),
+        expires_at,
+    ) {
+        Ok(agent) => agent,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    unsafe {
+        apply_agent_command(
+            registry,
+            registry_len,
+            AgentRegistryCommandV1::Register(agent),
+            output,
+            output_capacity,
+            required_len,
+        )
+    }
+}
+
+/// Pauses or resumes one agent and returns the canonical next registry.
+///
+/// # Safety
+///
+/// `principal` points to 48 readable bytes; registry and output pointers follow
+/// `activechain_wallet_agent_apply`.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn activechain_wallet_agent_set_paused(
+    registry: *const u8,
+    registry_len: u32,
+    principal: *const u8,
+    paused: u32,
+    output: *mut u8,
+    output_capacity: u32,
+    required_len: *mut u32,
+) -> u32 {
+    if principal.is_null() || paused > 1 {
+        return WALLET_NULL_POINTER;
+    }
+    let principal = PrincipalId::new(unsafe { read_digest(principal) });
+    let command = if paused == 1 {
+        AgentRegistryCommandV1::Pause(principal)
+    } else {
+        AgentRegistryCommandV1::Resume(principal)
+    };
+    unsafe {
+        apply_agent_command(registry, registry_len, command, output, output_capacity, required_len)
+    }
+}
+
+/// Starts or finalizes an agent revocation and returns the canonical next registry.
+///
+/// Pass `finalized_height == 0` to begin revocation; a non-zero height finalizes the same
+/// transaction.
+///
+/// # Safety
+///
+/// Principal and transaction pointers each point to 48 readable bytes; other pointers follow
+/// `activechain_wallet_agent_apply`.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn activechain_wallet_agent_revoke(
+    registry: *const u8,
+    registry_len: u32,
+    principal: *const u8,
+    transaction: *const u8,
+    finalized_height: u64,
+    output: *mut u8,
+    output_capacity: u32,
+    required_len: *mut u32,
+) -> u32 {
+    if principal.is_null() || transaction.is_null() {
+        return WALLET_NULL_POINTER;
+    }
+    let principal = PrincipalId::new(unsafe { read_digest(principal) });
+    let transaction = TransactionId::new(unsafe { read_digest(transaction) });
+    let command = if finalized_height == 0 {
+        AgentRegistryCommandV1::BeginRevocation { principal, transaction }
+    } else {
+        AgentRegistryCommandV1::FinalizeRevocation { principal, transaction, finalized_height }
+    };
+    unsafe {
+        apply_agent_command(registry, registry_len, command, output, output_capacity, required_len)
+    }
+}
+
+/// Returns the number of agents in a canonical registry.
+///
+/// # Safety
+///
+/// Registry bytes must be readable and `count_out` writable. No pointer is retained.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn activechain_wallet_agent_count(
+    registry: *const u8,
+    registry_len: u32,
+    count_out: *mut u32,
+) -> u32 {
+    if registry.is_null() || registry_len == 0 || count_out.is_null() {
+        return WALLET_NULL_POINTER;
+    }
+    if registry_len > MAX_WALLET_INPUT {
+        return WALLET_TOO_LARGE;
+    }
+    let bytes = unsafe { core::slice::from_raw_parts(registry, registry_len as usize) };
+    let registry = match decode_envelope::<AgentRegistryV1>(bytes) {
+        Ok(registry) => registry,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    let Ok(count) = u32::try_from(registry.agents().len()) else {
+        return WALLET_TOO_LARGE;
+    };
+    unsafe {
+        *count_out = count;
+    }
+    WALLET_OK
+}
+
+/// Returns one agent summary and its UTF-8 label.
+///
+/// Label output supports the standard size-query pattern. The summary is not written unless the
+/// complete label fits, so callers never observe a partial record.
+///
+/// # Safety
+///
+/// Registry bytes must be readable, summary and required-length outputs writable, and `label_out`
+/// may be null only for a zero-capacity size query.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn activechain_wallet_agent_summary(
+    registry: *const u8,
+    registry_len: u32,
+    index: u32,
+    summary_out: *mut ActivechainWalletAgentSummary,
+    label_out: *mut u8,
+    label_capacity: u32,
+    label_required: *mut u32,
+) -> u32 {
+    if registry.is_null()
+        || registry_len == 0
+        || summary_out.is_null()
+        || label_required.is_null()
+        || (label_out.is_null() && label_capacity != 0)
+    {
+        return WALLET_NULL_POINTER;
+    }
+    if registry_len > MAX_WALLET_INPUT {
+        return WALLET_TOO_LARGE;
+    }
+    let bytes = unsafe { core::slice::from_raw_parts(registry, registry_len as usize) };
+    let registry = match decode_envelope::<AgentRegistryV1>(bytes) {
+        Ok(registry) => registry,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    let Some(agent) = registry.agents().get(index as usize) else {
+        return WALLET_MALFORMED;
+    };
+    let Ok(label_length) = u32::try_from(agent.label().len()) else {
+        return WALLET_TOO_LARGE;
+    };
+    unsafe {
+        *label_required = label_length;
+    }
+    if label_capacity < label_length {
+        return WALLET_BUFFER_TOO_SMALL;
+    }
+    let (lifecycle, revocation_finalized_height) = match agent.lifecycle() {
+        AgentLifecycle::Active => (0, 0),
+        AgentLifecycle::Paused => (1, 0),
+        AgentLifecycle::RevocationPending { .. } => (2, 0),
+        AgentLifecycle::Revoked { finalized_height, .. } => (3, finalized_height),
+    };
+    let principal = *agent.principal().into_digest().as_bytes();
+    let (budget_limit_high, budget_limit_low) = split_u128(agent.budget_limit());
+    let (budget_spent_high, budget_spent_low) = split_u128(agent.budget_spent());
+    let summary = ActivechainWalletAgentSummary {
+        principal,
+        connection: agent.connection() as u32,
+        lifecycle,
+        capability_count: agent.capabilities().len() as u32,
+        budget_limit_high,
+        budget_limit_low,
+        budget_spent_high,
+        budget_spent_low,
+        expires_at: agent.expires_at(),
+        revocation_finalized_height,
+    };
+    unsafe {
+        core::ptr::copy_nonoverlapping(agent.label().as_ptr(), label_out, agent.label().len());
+        *summary_out = summary;
     }
     WALLET_OK
 }
@@ -523,8 +817,60 @@ pub unsafe extern "C" fn activechain_wallet_submit_authorized(
     WALLET_OK
 }
 
+unsafe fn apply_agent_command(
+    registry: *const u8,
+    registry_len: u32,
+    command: AgentRegistryCommandV1,
+    output: *mut u8,
+    output_capacity: u32,
+    required_len: *mut u32,
+) -> u32 {
+    if (registry.is_null() && registry_len != 0)
+        || required_len.is_null()
+        || (output.is_null() && output_capacity != 0)
+    {
+        return WALLET_NULL_POINTER;
+    }
+    if registry_len > MAX_WALLET_INPUT {
+        return WALLET_TOO_LARGE;
+    }
+    let mut registry = if registry_len == 0 {
+        AgentRegistryV1::default()
+    } else {
+        let bytes = unsafe { core::slice::from_raw_parts(registry, registry_len as usize) };
+        match decode_envelope(bytes) {
+            Ok(registry) => registry,
+            Err(_) => return WALLET_MALFORMED,
+        }
+    };
+    if registry.apply(command).is_err() {
+        return WALLET_AGENT_REJECTED;
+    }
+    let encoded = match encode_envelope(&registry) {
+        Ok(encoded) => encoded,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    let Ok(length) = u32::try_from(encoded.len()) else {
+        return WALLET_TOO_LARGE;
+    };
+    unsafe {
+        *required_len = length;
+    }
+    if output_capacity < length {
+        return WALLET_BUFFER_TOO_SMALL;
+    }
+    unsafe {
+        core::ptr::copy_nonoverlapping(encoded.as_ptr(), output, encoded.len());
+    }
+    WALLET_OK
+}
+
 const fn join_u128(high: u64, low: u64) -> u128 {
     (high as u128) << 64 | low as u128
+}
+
+const fn split_u128(value: u128) -> (u64, u64) {
+    ((value >> 64) as u64, value as u64)
 }
 
 unsafe fn read_digest(input: *const u8) -> Digest384 {
@@ -663,6 +1009,50 @@ mod tests {
             },
             WALLET_OK
         );
+        let mut count = 0;
+        assert_eq!(
+            unsafe {
+                activechain_wallet_agent_count(registry.as_ptr(), registry.len() as u32, &mut count)
+            },
+            WALLET_OK
+        );
+        assert_eq!(count, 1);
+        let mut summary = ActivechainWalletAgentSummary::default();
+        let mut label_required = 0;
+        assert_eq!(
+            unsafe {
+                activechain_wallet_agent_summary(
+                    registry.as_ptr(),
+                    registry.len() as u32,
+                    0,
+                    &mut summary,
+                    core::ptr::null_mut(),
+                    0,
+                    &mut label_required,
+                )
+            },
+            WALLET_BUFFER_TOO_SMALL
+        );
+        let mut label = vec![0; label_required as usize];
+        assert_eq!(
+            unsafe {
+                activechain_wallet_agent_summary(
+                    registry.as_ptr(),
+                    registry.len() as u32,
+                    0,
+                    &mut summary,
+                    label.as_mut_ptr(),
+                    label.len() as u32,
+                    &mut label_required,
+                )
+            },
+            WALLET_OK
+        );
+        assert_eq!(label, b"Third-party research agent");
+        assert_eq!(summary.connection, 1);
+        assert_eq!(summary.lifecycle, 0);
+        assert_eq!(summary.capability_count, 1);
+        assert_eq!(summary.budget_limit_low, 100);
         let authorize = encode_envelope(&AgentRegistryCommandV1::Authorize {
             request: AgentActionRequestV1 {
                 request_id: digest(22),
