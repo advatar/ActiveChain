@@ -26,5 +26,10 @@ relation-mismatch result rather than being mistaken for a decoding failure.
 matched-rule bounds, deterministic step accounting, default deny and forbid precedence, and the
 rule that denied decisions carry no obligations.
 
-The remaining issue #88 entry points will follow this pattern for state witnesses, finalized
-blocks, receipts, and joined authorization chains. No function accepts secret material.
+State witness verification accepts bounded canonical state commitments, proofs, and membership
+objects (or a fixed-size non-membership key). It decodes each exact schema and folds the sparse
+proof to the supplied root. Proof-kind substitution, wrong keys, wrong objects, and substituted
+commitments return relation mismatch.
+
+The remaining issue #88 entry points will follow this pattern for finalized blocks, receipts, and
+joined authorization chains. No function accepts secret material.

@@ -4,7 +4,10 @@
 use activechain_canonical_codec::{DecodeError, decode_envelope, inspect_canonical_envelope};
 use activechain_policy_kernel::PolicyDecision;
 use activechain_protocol_types::{
-    CapabilityGrant, Digest384, INITIAL_PROTOCOL_REVISION, Principal,
+    CapabilityGrant, Digest384, INITIAL_PROTOCOL_REVISION, Object, ObjectId, Principal,
+};
+use activechain_state_tree::{
+    StateCommitment, StateProof, verify_membership, verify_non_membership,
 };
 use sha3::{
     Shake256,
@@ -98,6 +101,57 @@ pub fn verify_policy_decision(bytes: &[u8]) -> Result<PolicyDecision, VerifyErro
     decode_envelope::<PolicyDecision>(bytes).map_err(VerifyError::Decode)
 }
 
+pub fn verify_state_membership_code(commitment: &[u8], object: &[u8], proof: &[u8]) -> u32 {
+    verify_state_membership(commitment, object, proof)
+        .map_or_else(|error| error.code(), |_| VERIFY_OK)
+}
+
+pub fn verify_state_membership(
+    commitment: &[u8],
+    object: &[u8],
+    proof: &[u8],
+) -> Result<(), VerifyError> {
+    let total = commitment
+        .len()
+        .checked_add(object.len())
+        .and_then(|length| length.checked_add(proof.len()))
+        .ok_or(VerifyError::TooLarge)?;
+    if total > MAX_ENVELOPE_LENGTH {
+        return Err(VerifyError::TooLarge);
+    }
+    inspect_envelope(commitment, StateCommitment::TYPE_TAG, StateCommitment::SCHEMA_VERSION)?;
+    inspect_envelope(object, Object::TYPE_TAG, Object::SCHEMA_VERSION)?;
+    inspect_envelope(proof, StateProof::TYPE_TAG, StateProof::SCHEMA_VERSION)?;
+    let commitment = decode_envelope::<StateCommitment>(commitment).map_err(VerifyError::Decode)?;
+    let object = decode_envelope::<Object>(object).map_err(VerifyError::Decode)?;
+    let proof = decode_envelope::<StateProof>(proof).map_err(VerifyError::Decode)?;
+    verify_membership(commitment, &object, &proof).map_err(|_| VerifyError::RelationMismatch)
+}
+
+pub fn verify_state_non_membership_code(
+    commitment: &[u8],
+    object_id: ObjectId,
+    proof: &[u8],
+) -> u32 {
+    verify_state_non_membership(commitment, object_id, proof)
+        .map_or_else(|error| error.code(), |_| VERIFY_OK)
+}
+
+pub fn verify_state_non_membership(
+    commitment: &[u8],
+    object_id: ObjectId,
+    proof: &[u8],
+) -> Result<(), VerifyError> {
+    if commitment.len().checked_add(proof.len()).is_none_or(|length| length > MAX_ENVELOPE_LENGTH) {
+        return Err(VerifyError::TooLarge);
+    }
+    inspect_envelope(commitment, StateCommitment::TYPE_TAG, StateCommitment::SCHEMA_VERSION)?;
+    inspect_envelope(proof, StateProof::TYPE_TAG, StateProof::SCHEMA_VERSION)?;
+    let commitment = decode_envelope::<StateCommitment>(commitment).map_err(VerifyError::Decode)?;
+    let proof = decode_envelope::<StateProof>(proof).map_err(VerifyError::Decode)?;
+    verify_non_membership(commitment, object_id, &proof).map_err(|_| VerifyError::RelationMismatch)
+}
+
 pub fn verify_shake_commitment(
     domain: &[u8],
     body: &[u8],
@@ -145,9 +199,10 @@ mod tests {
     use activechain_policy_kernel::DecisionResult;
     use activechain_protocol_types::{
         ActionId, BoundedActionSet, CapabilityGrantFields, CapabilityId, CryptoSuiteId,
-        DataSelector, FreezeState, HolderBinding, PrincipalId, PrincipalKind, ProtocolSignature,
-        ResourceSelector,
+        DataSelector, FreezeState, HolderBinding, ObjectFields, ObjectFlags, ObjectOwner,
+        PrincipalId, PrincipalKind, ProtocolSignature, ResourceSelector,
     };
+    use activechain_state_tree::{commit_objects, prove_object};
     use alloc::{vec, vec::Vec};
 
     fn digest(byte: u8) -> Digest384 {
@@ -310,6 +365,54 @@ mod tests {
                 "policy result does not match matched effects"
             ))
             .code()
+        );
+    }
+
+    #[test]
+    fn state_witness_verifier_binds_root_key_object_and_proof_kind() {
+        let member = Object::new(ObjectFields {
+            object_id: ObjectId::new(digest(21)),
+            object_version: 1,
+            type_id: digest(22),
+            owner: ObjectOwner::Shared,
+            control_policy_hash: digest(23),
+            use_policy_hash: digest(24),
+            disclosure_policy_hash: digest(25),
+            upgrade_policy_hash: digest(26),
+            package_id: None,
+            value_root: digest(27),
+            public_value: None,
+            lease_expiry_epoch: 10,
+            storage_deposit: 5,
+            flags: ObjectFlags::TRANSFERABLE,
+        })
+        .unwrap();
+        let objects = vec![member.clone()];
+        let commitment = encode_envelope(&commit_objects(&objects).unwrap()).unwrap();
+        let member_proof =
+            encode_envelope(&prove_object(&objects, member.object_id()).unwrap()).unwrap();
+        let member_bytes = encode_envelope(&member).unwrap();
+        assert_eq!(
+            verify_state_membership_code(&commitment, &member_bytes, &member_proof),
+            VERIFY_OK
+        );
+
+        let absent_id = ObjectId::new(digest(31));
+        let absent_proof = encode_envelope(&prove_object(&objects, absent_id).unwrap()).unwrap();
+        assert_eq!(
+            verify_state_non_membership_code(&commitment, absent_id, &absent_proof),
+            VERIFY_OK
+        );
+        assert_eq!(
+            verify_state_non_membership_code(&commitment, ObjectId::new(digest(32)), &absent_proof),
+            VerifyError::RelationMismatch.code()
+        );
+        let mut substituted_commitment = commitment;
+        let last = substituted_commitment.len() - 1;
+        substituted_commitment[last] ^= 1;
+        assert_eq!(
+            verify_state_membership_code(&substituted_commitment, &member_bytes, &member_proof),
+            VerifyError::RelationMismatch.code()
         );
     }
 }

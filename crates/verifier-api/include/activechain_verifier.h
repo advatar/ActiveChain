@@ -52,4 +52,19 @@ uint32_t activechain_verify_policy_decision_code(
     const uint8_t *bytes,
     uint32_t bytes_len);
 
+uint32_t activechain_verify_state_membership_code(
+    const uint8_t *commitment,
+    uint32_t commitment_len,
+    const uint8_t *object,
+    uint32_t object_len,
+    const uint8_t *proof,
+    uint32_t proof_len);
+
+uint32_t activechain_verify_state_non_membership_code(
+    const uint8_t *commitment,
+    uint32_t commitment_len,
+    const uint8_t object_id[48],
+    const uint8_t *proof,
+    uint32_t proof_len);
+
 #endif

@@ -17,3 +17,4 @@ activechain-verifier-api.workspace = true
 [dev-dependencies]
 activechain-canonical-codec.workspace = true
 activechain-policy-kernel.workspace = true
+activechain-state-tree.workspace = true
