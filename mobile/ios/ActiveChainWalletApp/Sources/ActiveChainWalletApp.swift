@@ -796,7 +796,7 @@ private struct SendFlowView: View {
             }
         }
         .navigationTitle("Send ACT")
-        .navigationBarTitleDisplayMode(.inline)
+        .walletInlineNavigationTitle()
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Close") { dismiss() }
@@ -896,6 +896,15 @@ private extension View {
 #if os(iOS)
         textInputAutocapitalization(.never)
             .autocorrectionDisabled()
+#else
+        self
+#endif
+    }
+
+    @ViewBuilder
+    func walletInlineNavigationTitle() -> some View {
+#if os(iOS)
+        navigationBarTitleDisplayMode(.inline)
 #else
         self
 #endif
