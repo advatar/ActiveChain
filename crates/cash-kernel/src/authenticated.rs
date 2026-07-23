@@ -120,6 +120,133 @@ impl CanonicalType for AuthenticatedCoinCellPartitionRoots {
         2 + 2 + MAX_CASH_PARTITIONS as usize * DIGEST_LENGTH + DIGEST_LENGTH;
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CoinCellPartitionMutationWitness {
+    partition: u16,
+    transition: CoinCellTransitionWitness,
+}
+
+impl CoinCellPartitionMutationWitness {
+    #[must_use]
+    pub const fn partition(&self) -> u16 {
+        self.partition
+    }
+
+    #[must_use]
+    pub const fn transition(&self) -> &CoinCellTransitionWitness {
+        &self.transition
+    }
+}
+
+impl CanonicalEncode for CoinCellPartitionMutationWitness {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.partition.encode(encoder)?;
+        self.transition.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for CoinCellPartitionMutationWitness {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Ok(Self {
+            partition: u16::decode(decoder)?,
+            transition: CoinCellTransitionWitness::decode(decoder)?,
+        })
+    }
+}
+
+impl CanonicalType for CoinCellPartitionMutationWitness {
+    const TYPE_TAG: u16 = 0x009f;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 2 + CoinCellTransitionWitness::MAX_ENCODED_LEN;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CoinCellPartitionTransitionWitness {
+    partitions: u16,
+    pre_global_root: Digest384,
+    post_global_root: Digest384,
+    pre_roots: Vec<AuthenticatedCoinCellRoot>,
+    mutations: Vec<CoinCellPartitionMutationWitness>,
+}
+
+impl CoinCellPartitionTransitionWitness {
+    #[must_use]
+    pub const fn partitions(&self) -> u16 {
+        self.partitions
+    }
+
+    #[must_use]
+    pub const fn pre_global_root(&self) -> Digest384 {
+        self.pre_global_root
+    }
+
+    #[must_use]
+    pub const fn post_global_root(&self) -> Digest384 {
+        self.post_global_root
+    }
+
+    #[must_use]
+    pub fn pre_roots(&self) -> &[AuthenticatedCoinCellRoot] {
+        &self.pre_roots
+    }
+
+    #[must_use]
+    pub fn mutations(&self) -> &[CoinCellPartitionMutationWitness] {
+        &self.mutations
+    }
+}
+
+impl CanonicalEncode for CoinCellPartitionTransitionWitness {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.partitions.encode(encoder)?;
+        self.pre_global_root.encode(encoder)?;
+        self.post_global_root.encode(encoder)?;
+        encoder.write_length(self.pre_roots.len(), usize::from(MAX_CASH_PARTITIONS))?;
+        for root in &self.pre_roots {
+            root.encode(encoder)?;
+        }
+        encoder.write_length(self.mutations.len(), MAX_AUTHENTICATED_CASH_MUTATIONS)?;
+        for mutation in &self.mutations {
+            mutation.encode(encoder)?;
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for CoinCellPartitionTransitionWitness {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let partitions = u16::decode(decoder)?;
+        let pre_global_root = Digest384::decode(decoder)?;
+        let post_global_root = Digest384::decode(decoder)?;
+        let root_count = decoder.read_length(usize::from(MAX_CASH_PARTITIONS))?;
+        let mut pre_roots = Vec::with_capacity(root_count);
+        for _ in 0..root_count {
+            pre_roots.push(AuthenticatedCoinCellRoot::decode(decoder)?);
+        }
+        let mutation_count = decoder.read_length(MAX_AUTHENTICATED_CASH_MUTATIONS)?;
+        let mut mutations = Vec::with_capacity(mutation_count);
+        for _ in 0..mutation_count {
+            mutations.push(CoinCellPartitionMutationWitness::decode(decoder)?);
+        }
+        let witness = Self { partitions, pre_global_root, post_global_root, pre_roots, mutations };
+        verify_coin_cell_partition_transition(&witness).map_err(|_| {
+            DecodeError::InvalidValue("invalid authenticated cash partition transition")
+        })?;
+        Ok(witness)
+    }
+}
+
+impl CanonicalType for CoinCellPartitionTransitionWitness {
+    const TYPE_TAG: u16 = 0x00a0;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 2
+        + DIGEST_LENGTH * 2
+        + 2
+        + MAX_CASH_PARTITIONS as usize * DIGEST_LENGTH
+        + 2
+        + MAX_AUTHENTICATED_CASH_MUTATIONS * CoinCellPartitionMutationWitness::MAX_ENCODED_LEN;
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CoinCellMutationError {
     Encoding,
@@ -309,28 +436,27 @@ pub fn authenticated_coin_cell_partition_roots(
     cells: &CoinCellSet,
     partitions: u16,
 ) -> Result<AuthenticatedCoinCellPartitionRoots, CoinCellMutationError> {
+    let grouped = partition_coin_cell_sets(cells, partitions)?;
+    let roots = grouped.iter().map(authenticated_coin_cell_root).collect::<Result<Vec<_>, _>>()?;
+    let global_root = authenticated_coin_cell_partition_roots_hash(partitions, &roots);
+    Ok(AuthenticatedCoinCellPartitionRoots { partitions, roots, global_root })
+}
+
+fn partition_coin_cell_sets(
+    cells: &CoinCellSet,
+    partitions: u16,
+) -> Result<Vec<CoinCellSet>, CoinCellMutationError> {
     if partitions == 0 || partitions > MAX_CASH_PARTITIONS {
         return Err(CoinCellMutationError::InvalidShape);
     }
-    let empty = authenticated_coin_cell_root(
-        &CoinCellSet::new(Vec::new()).map_err(|_| CoinCellMutationError::InvalidShape)?,
-    )?;
     let mut grouped = vec![Vec::new(); usize::from(partitions)];
     for record in cells.as_slice() {
         grouped[usize::from(cash_partition_for(record.id(), partitions))].push(*record);
     }
-    let mut roots = Vec::with_capacity(usize::from(partitions));
-    for records in grouped {
-        roots.push(if records.is_empty() {
-            empty
-        } else {
-            authenticated_coin_cell_root(
-                &CoinCellSet::new(records).map_err(|_| CoinCellMutationError::WrongRecord)?,
-            )?
-        });
-    }
-    let global_root = authenticated_coin_cell_partition_roots_hash(partitions, &roots);
-    Ok(AuthenticatedCoinCellPartitionRoots { partitions, roots, global_root })
+    grouped
+        .into_iter()
+        .map(|records| CoinCellSet::new(records).map_err(|_| CoinCellMutationError::WrongRecord))
+        .collect()
 }
 
 #[must_use]
@@ -601,6 +727,82 @@ pub fn verify_coin_cell_transition(
         if index > 0 && witness.mutations[index - 1].post_root() != mutation.pre_root() {
             return Err(CoinCellMutationError::WrongRoot);
         }
+    }
+    Ok(())
+}
+
+pub fn prove_coin_cell_partition_transition(
+    pre: &CoinCellSet,
+    post: &CoinCellSet,
+    partitions: u16,
+) -> Result<CoinCellPartitionTransitionWitness, CoinCellMutationError> {
+    let pre_sets = partition_coin_cell_sets(pre, partitions)?;
+    let post_sets = partition_coin_cell_sets(post, partitions)?;
+    let pre_roots =
+        pre_sets.iter().map(authenticated_coin_cell_root).collect::<Result<Vec<_>, _>>()?;
+    let post_roots =
+        post_sets.iter().map(authenticated_coin_cell_root).collect::<Result<Vec<_>, _>>()?;
+    let mut mutations = Vec::new();
+    for (partition, (pre_set, post_set)) in pre_sets.iter().zip(&post_sets).enumerate() {
+        if pre_set != post_set {
+            mutations.push(CoinCellPartitionMutationWitness {
+                partition: u16::try_from(partition).map_err(|_| CoinCellMutationError::Capacity)?,
+                transition: prove_coin_cell_transition(pre_set, post_set)?,
+            });
+        }
+    }
+    if mutations.is_empty() || mutations.len() > MAX_AUTHENTICATED_CASH_MUTATIONS {
+        return Err(CoinCellMutationError::InvalidShape);
+    }
+    let witness = CoinCellPartitionTransitionWitness {
+        partitions,
+        pre_global_root: authenticated_coin_cell_partition_roots_hash(partitions, &pre_roots),
+        post_global_root: authenticated_coin_cell_partition_roots_hash(partitions, &post_roots),
+        pre_roots,
+        mutations,
+    };
+    verify_coin_cell_partition_transition(&witness)?;
+    Ok(witness)
+}
+
+pub fn verify_coin_cell_partition_transition(
+    witness: &CoinCellPartitionTransitionWitness,
+) -> Result<(), CoinCellMutationError> {
+    if witness.partitions == 0
+        || witness.partitions > MAX_CASH_PARTITIONS
+        || witness.pre_roots.len() != usize::from(witness.partitions)
+        || witness.mutations.is_empty()
+        || witness.mutations.len() > MAX_AUTHENTICATED_CASH_MUTATIONS
+        || witness.mutations.windows(2).any(|pair| pair[0].partition >= pair[1].partition)
+        || authenticated_coin_cell_partition_roots_hash(witness.partitions, &witness.pre_roots)
+            != witness.pre_global_root
+    {
+        return Err(CoinCellMutationError::InvalidShape);
+    }
+    let mut post_roots = witness.pre_roots.clone();
+    for mutation in &witness.mutations {
+        let partition = usize::from(mutation.partition);
+        if partition >= post_roots.len()
+            || mutation.transition.pre_root != witness.pre_roots[partition]
+            || mutation.transition.pre_root == mutation.transition.post_root
+        {
+            return Err(CoinCellMutationError::WrongRoot);
+        }
+        verify_coin_cell_transition(&mutation.transition)?;
+        if mutation
+            .transition
+            .mutations
+            .iter()
+            .any(|nested| cash_partition_for(nested.id(), witness.partitions) != mutation.partition)
+        {
+            return Err(CoinCellMutationError::WrongRecord);
+        }
+        post_roots[partition] = mutation.transition.post_root;
+    }
+    if authenticated_coin_cell_partition_roots_hash(witness.partitions, &post_roots)
+        != witness.post_global_root
+    {
+        return Err(CoinCellMutationError::WrongRoot);
     }
     Ok(())
 }
@@ -893,6 +1095,73 @@ mod tests {
         verify_coin_cell_transition(&transition).unwrap();
         let encoded = encode_envelope(&transition).unwrap();
         assert_eq!(decode_envelope::<CoinCellTransitionWitness>(&encoded), Ok(transition));
+    }
+
+    #[test]
+    fn partition_transition_authenticates_changed_partition_roots_and_round_trips() {
+        let first = record(1, 10);
+        let second = record(2, 20);
+        let third = record(3, 30);
+        let fourth = record(4, 40);
+        let pre = set(&[first, second, third]);
+        let post = set(&[first, third, fourth]);
+        let witness = prove_coin_cell_partition_transition(&pre, &post, 8).unwrap();
+        let pre_roots = authenticated_coin_cell_partition_roots(&pre, 8).unwrap();
+        let post_roots = authenticated_coin_cell_partition_roots(&post, 8).unwrap();
+
+        assert_eq!(witness.pre_global_root(), pre_roots.global_root());
+        assert_eq!(witness.post_global_root(), post_roots.global_root());
+        assert!(
+            witness.mutations().windows(2).all(|pair| pair[0].partition() < pair[1].partition())
+        );
+        for mutation in witness.mutations() {
+            assert!(mutation.transition().mutations().iter().all(|nested| {
+                cash_partition_for(nested.id(), witness.partitions()) == mutation.partition()
+            }));
+        }
+        verify_coin_cell_partition_transition(&witness).unwrap();
+        let encoded = encode_envelope(&witness).unwrap();
+        assert_eq!(decode_envelope::<CoinCellPartitionTransitionWitness>(&encoded), Ok(witness));
+    }
+
+    #[test]
+    fn partition_transition_rejects_wrong_partition_roots_order_and_encoding() {
+        let first = record(1, 10);
+        let second = record(2, 20);
+        let third = record(3, 30);
+        let fourth = record(4, 40);
+        let witness =
+            prove_coin_cell_partition_transition(&set(&[first, second]), &set(&[third, fourth]), 8)
+                .unwrap();
+
+        let mut wrong_partition = witness.clone();
+        wrong_partition.mutations[0].partition =
+            (wrong_partition.mutations[0].partition + 1) % wrong_partition.partitions;
+        assert!(verify_coin_cell_partition_transition(&wrong_partition).is_err());
+
+        let mut wrong_pre_root = witness.clone();
+        wrong_pre_root.pre_roots[0] = AuthenticatedCoinCellRoot::new(digest(71));
+        assert!(verify_coin_cell_partition_transition(&wrong_pre_root).is_err());
+
+        let mut substituted_global = witness.clone();
+        substituted_global.post_global_root = digest(72);
+        assert_eq!(
+            verify_coin_cell_partition_transition(&substituted_global),
+            Err(CoinCellMutationError::WrongRoot)
+        );
+
+        if witness.mutations().len() > 1 {
+            let mut wrong_order = witness.clone();
+            wrong_order.mutations.reverse();
+            assert_eq!(
+                verify_coin_cell_partition_transition(&wrong_order),
+                Err(CoinCellMutationError::InvalidShape)
+            );
+        }
+
+        let mut malformed = encode_envelope(&witness).unwrap();
+        *malformed.last_mut().unwrap() ^= 1;
+        assert!(decode_envelope::<CoinCellPartitionTransitionWitness>(&malformed).is_err());
     }
 
     #[test]

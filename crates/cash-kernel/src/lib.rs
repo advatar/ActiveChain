@@ -22,7 +22,8 @@ pub use air::{
 };
 pub use authenticated::{
     AUTHENTICATED_CASH_DEPTH, AuthenticatedCoinCellPartitionRoots, AuthenticatedCoinCellRoot,
-    CoinCellMutationError, CoinCellMutationWitness, CoinCellTransitionWitness,
+    CoinCellMutationError, CoinCellMutationWitness, CoinCellPartitionMutationWitness,
+    CoinCellPartitionTransitionWitness, CoinCellTransitionWitness,
     MAX_AUTHENTICATED_CASH_MUTATIONS, authenticated_coin_cell_count_root_hash,
     authenticated_coin_cell_leaf_hash, authenticated_coin_cell_leaf_transcript,
     authenticated_coin_cell_node_hash, authenticated_coin_cell_node_transcript,
@@ -30,7 +31,8 @@ pub use authenticated::{
     authenticated_coin_cell_partition_roots_transcript, authenticated_coin_cell_root,
     authenticated_coin_cell_root_transcript, authenticated_empty_coin_cell_leaf_hash,
     authenticated_empty_coin_cell_leaf_transcript, prove_coin_cell_mutation,
-    prove_coin_cell_transition, verify_coin_cell_mutation, verify_coin_cell_transition,
+    prove_coin_cell_partition_transition, prove_coin_cell_transition, verify_coin_cell_mutation,
+    verify_coin_cell_partition_transition, verify_coin_cell_transition,
 };
 pub use economics::{
     ChallengeAssignment, DutyAssignment, DutyReceipt, EconomicsError, FeeMarket, FeeQuote,
