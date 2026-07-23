@@ -67,12 +67,12 @@ Tracked by [GitHub issue #53](https://github.com/advatar/ActiveChain/issues/53).
 
 Tracked by [GitHub issue #138](https://github.com/advatar/ActiveChain/issues/138).
 
-- [ ] Establish Amber as the product name while retaining Emerald only as a research benchmark.
-- [ ] Add one shared SwiftUI source set with native iOS and macOS application targets.
-- [ ] Implement bounded board, thread, and post presentation models plus an adaptive retro imageboard shell.
-- [ ] Add unit coverage for identifiers, bounds, ordering, and platform-neutral view state.
-- [ ] Feature Amber honestly as the first reference application on the ActiveChain landing page.
-- [ ] Document and pass reproducible iOS Simulator and macOS builds.
+- [x] Establish Amber as the product name while retaining Emerald only as a research benchmark.
+- [x] Add one shared SwiftUI source set with native iOS and macOS application targets.
+- [x] Implement bounded board, thread, and post presentation models plus an adaptive retro imageboard shell.
+- [x] Add unit coverage for identifiers, bounds, ordering, and platform-neutral view state.
+- [x] Feature Amber honestly as the first reference application on the ActiveChain landing page.
+- [x] Document and pass reproducible iOS Simulator and macOS builds.
 
 ## Active implementation — private billboard native-token vertical slice
 
