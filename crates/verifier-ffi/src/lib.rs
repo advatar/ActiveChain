@@ -7,6 +7,21 @@ const NULL_POINTER: u32 = 6;
 const MAX_ENVELOPE_LENGTH: u32 = activechain_verifier_api::MAX_ENVELOPE_LENGTH as u32;
 
 #[unsafe(no_mangle)]
+pub extern "C" fn activechain_verifier_abi_revision() -> u32 {
+    activechain_verifier_api::VERIFIER_ABI_REVISION
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn activechain_verifier_schema_revision() -> u32 {
+    activechain_verifier_api::VERIFIER_SCHEMA_REVISION
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn activechain_verifier_protocol_revision() -> u64 {
+    activechain_verifier_api::VERIFIER_PROTOCOL_REVISION
+}
+
+#[unsafe(no_mangle)]
 /// # Safety
 /// For lengths through [`activechain_verifier_api::MAX_ENVELOPE_LENGTH`], the caller must provide a
 /// readable `bytes` buffer of `bytes_len` bytes, or a null pointer only when `bytes_len` is zero.
@@ -32,6 +47,28 @@ pub unsafe extern "C" fn activechain_inspect_envelope_code(
     activechain_verifier_api::inspect_envelope_code(input, expected_type, expected_version)
 }
 
+#[unsafe(no_mangle)]
+/// # Safety
+/// For lengths through [`activechain_verifier_api::MAX_ENVELOPE_LENGTH`], the caller must provide a
+/// readable `bytes` buffer of `bytes_len` bytes. The verifier does not retain or write through it.
+pub unsafe extern "C" fn activechain_verify_principal_code(
+    bytes: *const u8,
+    bytes_len: u32,
+) -> u32 {
+    if bytes.is_null() && bytes_len != 0 {
+        return NULL_POINTER;
+    }
+    if bytes_len > MAX_ENVELOPE_LENGTH {
+        return TOO_LARGE;
+    }
+    let input = if bytes_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(bytes, bytes_len as usize) }
+    };
+    activechain_verifier_api::verify_principal_code(input)
+}
+
 #[cfg(kani)]
 mod kani_proofs;
 
@@ -52,6 +89,9 @@ pub unsafe extern "C" fn activechain_verify_commitment_code(
     {
         return NULL_POINTER;
     }
+    if domain_len.checked_add(body_len).is_none_or(|length| length > MAX_ENVELOPE_LENGTH) {
+        return TOO_LARGE;
+    }
     let domain = if domain_len == 0 {
         &[]
     } else {
@@ -71,9 +111,18 @@ pub unsafe extern "C" fn activechain_verify_commitment_code(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use activechain_canonical_codec::encode_envelope;
+    use activechain_protocol_types::{FreezeState, Principal, PrincipalId, PrincipalKind};
+
+    fn digest(byte: u8) -> Digest384 {
+        Digest384::new([byte; 48])
+    }
 
     #[test]
     fn abi_rejects_null_and_accepts_canonical_envelopes() {
+        assert_eq!(activechain_verifier_abi_revision(), 1);
+        assert_eq!(activechain_verifier_schema_revision(), 1);
+        assert_eq!(activechain_verifier_protocol_revision(), 1);
         assert_eq!(
             unsafe { activechain_inspect_envelope_code(core::ptr::null(), 1, 0x1234, 1) },
             NULL_POINTER
@@ -95,6 +144,33 @@ mod tests {
                 )
             },
             TOO_LARGE
+        );
+    }
+
+    #[test]
+    fn principal_abi_matches_rust_verifier_codes() {
+        let principal = Principal::new(
+            PrincipalId::new(digest(1)),
+            PrincipalKind::Human,
+            digest(2),
+            digest(3),
+            digest(4),
+            7,
+            FreezeState::Active,
+            digest(5),
+            10,
+            11,
+            12,
+        )
+        .unwrap();
+        let encoded = encode_envelope(&principal).unwrap();
+        assert_eq!(
+            unsafe { activechain_verify_principal_code(encoded.as_ptr(), encoded.len() as u32) },
+            activechain_verifier_api::verify_principal_code(&encoded)
+        );
+        assert_eq!(
+            unsafe { activechain_verify_principal_code(core::ptr::null(), 1) },
+            NULL_POINTER
         );
     }
 
@@ -124,6 +200,18 @@ mod tests {
                 )
             },
             5
+        );
+        assert_eq!(
+            unsafe {
+                activechain_verify_commitment_code(
+                    core::ptr::NonNull::<u8>::dangling().as_ptr(),
+                    MAX_ENVELOPE_LENGTH,
+                    core::ptr::NonNull::<u8>::dangling().as_ptr(),
+                    1,
+                    digest.as_ptr(),
+                )
+            },
+            TOO_LARGE
         );
 
         let mut empty_digest = [

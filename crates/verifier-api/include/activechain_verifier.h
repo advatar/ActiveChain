@@ -12,6 +12,10 @@
 #define ACTIVECHAIN_VERIFY_COMMITMENT_MISMATCH 5u
 #define ACTIVECHAIN_VERIFY_NULL_POINTER 6u
 
+uint32_t activechain_verifier_abi_revision(void);
+uint32_t activechain_verifier_schema_revision(void);
+uint64_t activechain_verifier_protocol_revision(void);
+
 /*
  * Adapter contract. The adapter owns all input/output buffers; the verifier never
  * retains pointers, writes through them, or allocates unbounded memory.
@@ -28,5 +32,9 @@ uint32_t activechain_verify_commitment_code(
     const uint8_t *body,
     uint32_t body_len,
     const uint8_t expected_digest384[48]);
+
+uint32_t activechain_verify_principal_code(
+    const uint8_t *bytes,
+    uint32_t bytes_len);
 
 #endif
