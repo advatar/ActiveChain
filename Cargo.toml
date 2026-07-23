@@ -35,6 +35,7 @@ members = [
     "crates/transition",
     "node/semantic-devnet",
     "tools/vector-generator",
+    "tools/apple-distribution",
 ]
 resolver = "3"
 
