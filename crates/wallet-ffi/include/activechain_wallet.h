@@ -15,4 +15,14 @@ uint32_t activechain_wallet_select_cells(const uint8_t *cells,
                                          uint64_t fee_low,
                                          uint8_t payment_out[48],
                                          uint8_t fee_reserve_out[48]);
+uint32_t activechain_wallet_policy_allows(uint64_t daily_limit_high,
+                                          uint64_t daily_limit_low,
+                                          uint64_t max_single_high,
+                                          uint64_t max_single_low,
+                                          const uint8_t *allowed_recipient,
+                                          uint64_t amount_high,
+                                          uint64_t amount_low,
+                                          const uint8_t recipient[48],
+                                          uint64_t spent_high,
+                                          uint64_t spent_low);
 #endif

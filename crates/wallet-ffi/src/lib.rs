@@ -96,6 +96,55 @@ pub unsafe extern "C" fn activechain_wallet_select_cells(
     WALLET_OK
 }
 
+/// Evaluates the exact wallet-core spending policy without side effects.
+///
+/// # Safety
+///
+/// `recipient` must point to 48 readable bytes. `allowed_recipient` may be null to express an
+/// unpinned policy; otherwise it must point to 48 readable bytes. No pointer is retained.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn activechain_wallet_policy_allows(
+    daily_limit_high: u64,
+    daily_limit_low: u64,
+    max_single_high: u64,
+    max_single_low: u64,
+    allowed_recipient: *const u8,
+    amount_high: u64,
+    amount_low: u64,
+    recipient: *const u8,
+    spent_high: u64,
+    spent_low: u64,
+) -> u32 {
+    if recipient.is_null() {
+        return 0;
+    }
+    let policy = activechain_wallet_core::SpendPolicy {
+        daily_limit: join_u128(daily_limit_high, daily_limit_low),
+        max_single_payment: join_u128(max_single_high, max_single_low),
+        recipient_commitment: if allowed_recipient.is_null() {
+            None
+        } else {
+            Some(unsafe { read_digest(allowed_recipient) })
+        },
+    };
+    u32::from(policy.allows(
+        join_u128(amount_high, amount_low),
+        unsafe { read_digest(recipient) },
+        join_u128(spent_high, spent_low),
+    ))
+}
+
+const fn join_u128(high: u64, low: u64) -> u128 {
+    (high as u128) << 64 | low as u128
+}
+
+unsafe fn read_digest(input: *const u8) -> Digest384 {
+    let bytes = unsafe { core::slice::from_raw_parts(input, 48) };
+    let mut digest = [0; 48];
+    digest.copy_from_slice(bytes);
+    Digest384::new(digest)
+}
+
 unsafe fn write_cell_id(output: *mut u8, id: CoinCellId) {
     unsafe {
         core::ptr::copy_nonoverlapping(id.into_digest().as_bytes().as_ptr(), output, 48);
@@ -190,6 +239,79 @@ mod tests {
                 )
             },
             WALLET_MALFORMED
+        );
+    }
+
+    #[test]
+    fn policy_abi_matches_limits_and_optional_recipient_pinning() {
+        let recipient = digest(40);
+        assert_eq!(
+            unsafe {
+                activechain_wallet_policy_allows(
+                    0,
+                    100,
+                    0,
+                    60,
+                    recipient.as_bytes().as_ptr(),
+                    0,
+                    50,
+                    recipient.as_bytes().as_ptr(),
+                    0,
+                    40,
+                )
+            },
+            1
+        );
+        assert_eq!(
+            unsafe {
+                activechain_wallet_policy_allows(
+                    0,
+                    100,
+                    0,
+                    60,
+                    recipient.as_bytes().as_ptr(),
+                    0,
+                    50,
+                    digest(41).as_bytes().as_ptr(),
+                    0,
+                    40,
+                )
+            },
+            0
+        );
+        assert_eq!(
+            unsafe {
+                activechain_wallet_policy_allows(
+                    0,
+                    100,
+                    0,
+                    60,
+                    core::ptr::null(),
+                    0,
+                    50,
+                    recipient.as_bytes().as_ptr(),
+                    0,
+                    60,
+                )
+            },
+            0
+        );
+        assert_eq!(
+            unsafe {
+                activechain_wallet_policy_allows(
+                    0,
+                    100,
+                    0,
+                    60,
+                    core::ptr::null(),
+                    0,
+                    1,
+                    core::ptr::null(),
+                    0,
+                    0,
+                )
+            },
+            0
         );
     }
 }

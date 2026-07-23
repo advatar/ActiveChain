@@ -659,6 +659,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
     ([GitHub issue #87](https://github.com/advatar/ActiveChain/issues/87)).
     - [x] Expose deterministic Coin Cell selection from a canonical bounded cell-set envelope
       through a null-safe C ABI with distinct payment and fee-reserve outputs.
+    - [x] Expose pure spending-policy evaluation with exact 128-bit limits, daily accounting, and
+      optional recipient pinning through the C ABI.
   - [ ] Publish a proof-bearing development-network query/RPC contract
     ([GitHub issue #91](https://github.com/advatar/ActiveChain/issues/91)).
   - [ ] Package an embeddable persistent light client
