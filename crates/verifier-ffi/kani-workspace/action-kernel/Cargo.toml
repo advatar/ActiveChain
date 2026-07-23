@@ -1,0 +1,18 @@
+# Verification-only metadata shim. The library target is the production action-kernel source.
+[package]
+name = "activechain-action-kernel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+path = "../../../action-kernel/src/lib.rs"
+
+[dependencies]
+activechain-canonical-codec.workspace = true
+activechain-policy-kernel.workspace = true
+activechain-protocol-commitment.workspace = true
+activechain-protocol-types.workspace = true
+activechain-transition.workspace = true

@@ -210,6 +210,9 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
       rejection, exact safe-API refinement on inputs through nine bytes, strict error codes, and
       commitment-pointer preconditions; arbitrary foreign readable-memory validity and SHAKE256
       internals remain outside this bounded proof.
+      - [x] Keep the verifier-FFI Kani shadow workspace synchronized with every production verifier
+        API dependency and reject future manifest/source drift in preflight
+        ([GitHub issue #117](https://github.com/advatar/ActiveChain/issues/117)).
     - [x] Add seven Kani harnesses over actual private production bytecode-verifier/ObjectVM
       predicates for exact bounded register and target checks, resource classification, gas
       prepayment, checked addition, and forward branch selection, backed by whole-entry-point Rust

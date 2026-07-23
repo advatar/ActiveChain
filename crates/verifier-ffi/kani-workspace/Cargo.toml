@@ -1,5 +1,20 @@
 [workspace]
-members = ["api", "canonical-codec", "ffi", "protocol-types"]
+members = [
+    "action-kernel",
+    "api",
+    "canonical-codec",
+    "capability",
+    "consensus-verifier",
+    "devnet-kernel",
+    "ffi",
+    "finality-types",
+    "object",
+    "policy-kernel",
+    "protocol-commitment",
+    "protocol-types",
+    "state-tree",
+    "transition",
+]
 resolver = "3"
 
 [workspace.package]
@@ -9,7 +24,18 @@ rust-version = "1.93.0"
 repository = "https://github.com/advatar/ActiveChain"
 
 [workspace.dependencies]
+activechain-action-kernel = { path = "action-kernel", version = "0.1.0" }
 activechain-canonical-codec = { path = "canonical-codec", version = "0.1.0" }
+activechain-capability = { path = "capability", version = "0.1.0" }
+activechain-consensus-verifier = { path = "consensus-verifier", version = "0.1.0" }
+activechain-devnet-kernel = { path = "devnet-kernel", version = "0.1.0" }
+activechain-finality-types = { path = "finality-types", version = "0.1.0" }
+activechain-object = { path = "object", version = "0.1.0" }
+activechain-policy-kernel = { path = "policy-kernel", version = "0.1.0" }
+activechain-protocol-commitment = { path = "protocol-commitment", version = "0.1.0" }
 activechain-protocol-types = { path = "protocol-types", version = "0.1.0" }
+activechain-state-tree = { path = "state-tree", version = "0.1.0" }
+activechain-transition = { path = "transition", version = "0.1.0" }
 activechain-verifier-api = { path = "api", version = "0.1.0" }
+ml-dsa = "=0.1.1"
 sha3 = { version = "=0.10.9", default-features = false }

@@ -1,0 +1,19 @@
+# Verification-only metadata shim. The library target is the production devnet kernel source.
+[package]
+name = "activechain-devnet-kernel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+path = "../../../devnet-kernel/src/lib.rs"
+
+[dependencies]
+activechain-action-kernel.workspace = true
+activechain-canonical-codec.workspace = true
+activechain-protocol-commitment.workspace = true
+activechain-protocol-types.workspace = true
+activechain-state-tree.workspace = true
+activechain-transition.workspace = true

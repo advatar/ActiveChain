@@ -1,0 +1,14 @@
+# Verification-only metadata shim. The library target is the production object source.
+[package]
+name = "activechain-object"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+path = "../../../object/src/lib.rs"
+
+[dependencies]
+activechain-protocol-types.workspace = true
