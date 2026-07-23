@@ -31,6 +31,8 @@ dependencies = [
  "activechain-canonical-codec",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
+ "activechain-rpc-types",
+ "tempfile",
 ]
 
 [[package]]
@@ -312,6 +314,7 @@ name = "activechain-rpc-server"
 version = "0.1.0"
 dependencies = [
  "activechain-action-kernel",
+ "activechain-application-primitives",
  "activechain-canonical-codec",
  "activechain-consensus-verifier",
  "activechain-devnet-kernel",

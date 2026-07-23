@@ -8,6 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+activechain-application-primitives.workspace = true
 activechain-action-kernel.workspace = true
 activechain-canonical-codec.workspace = true
 activechain-consensus-verifier.workspace = true

@@ -12,7 +12,7 @@ use activechain_canonical_codec::{
     decode_envelope, encode_envelope,
 };
 use activechain_finality_types::commit_parts;
-use activechain_protocol_types::{ChainId, Digest384, Object};
+use activechain_protocol_types::{ChainId, Digest384, Object, TransactionId};
 use activechain_rpc_types::{
     ActionSetProof, Health, MAX_SUPPORTED_PROOFS, ProofKind, QueryKind, QueryPage, QueryRecord,
     RpcAccessRequest, RpcAccessResponse, RpcError, RpcRequest, RpcResponse, RpcStatus,
@@ -129,6 +129,27 @@ fn verify_query_record_with_finality(
                 || receipt.height() != record.finalized_height()
             {
                 return Err(RpcProofError::Key);
+            }
+            Ok(())
+        }
+        QueryKind::ApplicationReceipt => {
+            let receipt =
+                activechain_application_primitives::verify_finalized_receipt_record(record)
+                    .map_err(|_| RpcProofError::Malformed)?;
+            let commitment = receipt.commitment().map_err(|_| RpcProofError::Malformed)?;
+            let receipt_id = TransactionId::new(commitment);
+            let proof = decode_envelope::<ActionSetProof>(record.proof())
+                .map_err(|_| RpcProofError::Malformed)?;
+            if proof.transaction_ids().binary_search(&receipt_id).is_err() {
+                return Err(RpcProofError::Relation);
+            }
+            let mut ids = Vec::with_capacity(proof.transaction_ids().len() * 48);
+            for id in proof.transaction_ids() {
+                ids.extend_from_slice(id.digest().as_bytes());
+            }
+            let action_root = commit_parts(b"ACTIVECHAIN-BLOCK-ACTIONS-V1", &[&ids]);
+            if action_root != finality.header().inputs.action_root {
+                return Err(RpcProofError::Relation);
             }
             Ok(())
         }
@@ -505,6 +526,7 @@ mod tests {
     use activechain_action_kernel::{
         ACTION_PROTOCOL_VERSION, FeeTicket, ResourceVector, ValidityInterval,
     };
+    use activechain_application_primitives::{ApplicationReceipt, JobStatus};
     use activechain_devnet_kernel::BlockReceipt;
     use activechain_finality_types::{
         FinalityCertificateBundle, FinalizedBlockHeader, ProofPublicInputs,
@@ -515,7 +537,7 @@ mod tests {
     use activechain_protocol_commitment::{DomainTag, commit};
     use activechain_protocol_types::{
         AccessManifest, AccessManifestFields, ConsensusVoteContext, CryptoSuiteId, FreezeState,
-        ObjectFields, ObjectFlags, ObjectId, ObjectOwner, ObjectVersionRef, PrincipalId,
+        JobId, ObjectFields, ObjectFlags, ObjectId, ObjectOwner, ObjectVersionRef, PrincipalId,
         ProtocolSignature, QuorumCertificate, ValidatorGenesis, ValidatorGenesisEntry,
         ValidatorVote,
     };
@@ -635,6 +657,38 @@ mod tests {
             7,
             encode_envelope(&receipt).unwrap(),
             vec![],
+            finality,
+        )
+        .unwrap()
+    }
+    fn application_receipt_record() -> QueryRecord {
+        let pre_state = StateCommitment::new(digest(80), 0);
+        let post_state = StateCommitment::new(digest(81), 0);
+        let job = JobId::new(digest(31));
+        let receipt = ApplicationReceipt::new(
+            job,
+            digest(32),
+            JobStatus::Completed,
+            Some(digest(33)),
+            7,
+            7,
+            digest(34),
+        )
+        .unwrap();
+        let receipt_id = TransactionId::new(receipt.commitment().unwrap());
+        let proof = ActionSetProof::new(vec![receipt_id]).unwrap();
+        let ids = receipt_id.digest().as_bytes();
+        let action_root = commit_parts(b"ACTIVECHAIN-BLOCK-ACTIONS-V1", &[ids]);
+        let finality = signed_finality(
+            31,
+            ProofPublicInputs { action_root, ..public_inputs(pre_state, post_state) },
+        );
+        QueryRecord::new(
+            QueryKind::ApplicationReceipt,
+            job.into_digest(),
+            7,
+            encode_envelope(&receipt).unwrap(),
+            encode_envelope(&proof).unwrap(),
             finality,
         )
         .unwrap()
@@ -769,6 +823,23 @@ mod tests {
         std::fs::write(&path, corrupt).unwrap();
         assert!(matches!(DurableRpcStore::load(path.clone()), Err(RpcStoreError::Corrupt)));
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn application_receipt_lookup_is_bound_to_finalized_ordered_commitment() {
+        let record = application_receipt_record();
+        assert_eq!(verify_query_record(&record), Ok(()));
+
+        let substituted = QueryRecord::new(
+            record.kind(),
+            digest(99),
+            record.finalized_height(),
+            record.value().to_vec(),
+            record.proof().to_vec(),
+            record.finality().to_vec(),
+        )
+        .unwrap();
+        assert_eq!(verify_query_record(&substituted), Err(RpcProofError::Malformed));
     }
 
     #[test]

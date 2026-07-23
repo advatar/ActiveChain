@@ -4,6 +4,8 @@
 //! Stable, bounded application primitives for browser and delegated-agent jobs.
 
 extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
 
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
@@ -12,12 +14,14 @@ use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
     ActionId, Amount, CapabilityId, ChainId, Digest384, Height, JobId, PrincipalId, ResourceUnits,
 };
+use activechain_rpc_types::{QueryKind, QueryRecord};
 use alloc::{collections::BTreeMap, vec::Vec};
 
 pub const APPLICATION_PRIMITIVES_REVISION: u16 = 1;
 pub const MAX_ARTIFACTS: usize = 32;
 pub const MAX_MEDIA_TYPE_LENGTH: usize = 96;
 pub const MAX_ENTRYPOINT_LENGTH: usize = 128;
+pub const MAX_TRACKED_JOBS: usize = 4_096;
 
 macro_rules! canonical_type {
     ($type:ty, $tag:expr, $max:expr) => {
@@ -498,6 +502,12 @@ impl ApplicationReceipt {
     pub const fn fee_charged(&self) -> Amount {
         self.fee_charged
     }
+    pub const fn finalized_height(&self) -> Height {
+        self.finalized_height
+    }
+    pub fn commitment(&self) -> Result<Digest384, EncodeError> {
+        commit(DomainTag::CANONICAL_VALUE, self)
+    }
 }
 impl CanonicalEncode for ApplicationReceipt {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
@@ -648,6 +658,175 @@ impl JobLedger {
     pub fn receipt(&self, job: JobId) -> Option<&ApplicationReceipt> {
         self.receipts.get(&job)
     }
+
+    pub fn snapshot(&self) -> Result<Vec<u8>, ApplicationError> {
+        let snapshot = JobLedgerSnapshot {
+            active: self
+                .jobs
+                .iter()
+                .map(|(job, active)| (*job, active.action, active.action_commitment))
+                .collect(),
+            sequences: self
+                .last_sequence
+                .iter()
+                .map(|((principal, domain), sequence)| (*principal, *domain, *sequence))
+                .collect(),
+            receipts: self.receipts.iter().map(|(job, receipt)| (*job, *receipt)).collect(),
+        };
+        activechain_canonical_codec::encode_envelope(&snapshot)
+            .map_err(|_| ApplicationError::Encoding)
+    }
+
+    pub fn restore(bytes: &[u8]) -> Result<Self, ApplicationError> {
+        let snapshot = activechain_canonical_codec::decode_envelope::<JobLedgerSnapshot>(bytes)
+            .map_err(|_| ApplicationError::Persistence)?;
+        let mut jobs = BTreeMap::new();
+        for (job, action, action_commitment) in snapshot.active {
+            jobs.insert(job, ActiveJob { action, action_commitment });
+        }
+        let mut last_sequence = BTreeMap::new();
+        for (principal, domain, sequence) in snapshot.sequences {
+            last_sequence.insert((principal, domain), sequence);
+        }
+        let receipts = snapshot.receipts.into_iter().collect();
+        Ok(Self { jobs, last_sequence, receipts })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct JobLedgerSnapshot {
+    active: Vec<(JobId, DelegatedAction, Digest384)>,
+    sequences: Vec<(PrincipalId, Digest384, u64)>,
+    receipts: Vec<(JobId, ApplicationReceipt)>,
+}
+impl JobLedgerSnapshot {
+    fn validate(&self) -> Result<(), DecodeError> {
+        if self.active.len() > MAX_TRACKED_JOBS
+            || self.sequences.len() > MAX_TRACKED_JOBS
+            || self.receipts.len() > MAX_TRACKED_JOBS
+            || self.active.windows(2).any(|pair| pair[0].0 >= pair[1].0)
+            || self
+                .sequences
+                .windows(2)
+                .any(|pair| (pair[0].0, pair[0].1) >= (pair[1].0, pair[1].1))
+            || self.receipts.windows(2).any(|pair| pair[0].0 >= pair[1].0)
+            || self.active.iter().any(|(job, action, commitment)| {
+                *job != action.job()
+                    || action.commitment().ok() != Some(*commitment)
+                    || self.receipts.binary_search_by_key(job, |item| item.0).is_ok()
+            })
+            || self.receipts.iter().any(|(job, receipt)| *job != receipt.job())
+            || self.sequences.iter().any(|(_, _, sequence)| *sequence == 0)
+        {
+            return Err(DecodeError::InvalidValue("invalid application job snapshot"));
+        }
+        Ok(())
+    }
+}
+impl CanonicalEncode for JobLedgerSnapshot {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        e.write_length(self.active.len(), MAX_TRACKED_JOBS)?;
+        for (job, action, commitment) in &self.active {
+            job.encode(e)?;
+            action.encode(e)?;
+            commitment.encode(e)?;
+        }
+        e.write_length(self.sequences.len(), MAX_TRACKED_JOBS)?;
+        for (principal, domain, sequence) in &self.sequences {
+            principal.encode(e)?;
+            domain.encode(e)?;
+            sequence.encode(e)?;
+        }
+        e.write_length(self.receipts.len(), MAX_TRACKED_JOBS)?;
+        for (job, receipt) in &self.receipts {
+            job.encode(e)?;
+            receipt.encode(e)?;
+        }
+        Ok(())
+    }
+}
+impl CanonicalDecode for JobLedgerSnapshot {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let active_count = d.read_length(MAX_TRACKED_JOBS)?;
+        let mut active = Vec::with_capacity(active_count);
+        for _ in 0..active_count {
+            active.push((JobId::decode(d)?, DelegatedAction::decode(d)?, Digest384::decode(d)?));
+        }
+        let sequence_count = d.read_length(MAX_TRACKED_JOBS)?;
+        let mut sequences = Vec::with_capacity(sequence_count);
+        for _ in 0..sequence_count {
+            sequences.push((PrincipalId::decode(d)?, Digest384::decode(d)?, u64::decode(d)?));
+        }
+        let receipt_count = d.read_length(MAX_TRACKED_JOBS)?;
+        let mut receipts = Vec::with_capacity(receipt_count);
+        for _ in 0..receipt_count {
+            receipts.push((JobId::decode(d)?, ApplicationReceipt::decode(d)?));
+        }
+        let snapshot = Self { active, sequences, receipts };
+        snapshot.validate()?;
+        Ok(snapshot)
+    }
+}
+canonical_type!(
+    JobLedgerSnapshot,
+    0x00c5,
+    3 * 2
+        + MAX_TRACKED_JOBS
+            * (48
+                + DelegatedAction::MAX_ENCODED_LEN
+                + 48
+                + 48
+                + 48
+                + 8
+                + 48
+                + ApplicationReceipt::MAX_ENCODED_LEN)
+);
+
+#[cfg(feature = "std")]
+pub struct DurableJobLedger {
+    path: std::path::PathBuf,
+    ledger: JobLedger,
+}
+#[cfg(feature = "std")]
+impl DurableJobLedger {
+    pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self, ApplicationError> {
+        let path = path.as_ref().to_path_buf();
+        let ledger = match std::fs::read(&path) {
+            Ok(bytes) => JobLedger::restore(&bytes)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => JobLedger::default(),
+            Err(_) => return Err(ApplicationError::Persistence),
+        };
+        Ok(Self { path, ledger })
+    }
+    pub const fn ledger(&self) -> &JobLedger {
+        &self.ledger
+    }
+    pub fn update<T>(
+        &mut self,
+        operation: impl FnOnce(&mut JobLedger) -> Result<T, ApplicationError>,
+    ) -> Result<T, ApplicationError> {
+        let before = self.ledger.snapshot()?;
+        let result = operation(&mut self.ledger)?;
+        if self.persist().is_err() {
+            self.ledger = JobLedger::restore(&before)?;
+            return Err(ApplicationError::Persistence);
+        }
+        Ok(result)
+    }
+    fn persist(&self) -> Result<(), ApplicationError> {
+        use std::io::Write;
+        let bytes = self.ledger.snapshot()?;
+        let parent = self.path.parent().ok_or(ApplicationError::Persistence)?;
+        std::fs::create_dir_all(parent).map_err(|_| ApplicationError::Persistence)?;
+        let temporary = self.path.with_extension("tmp");
+        let mut file =
+            std::fs::File::create(&temporary).map_err(|_| ApplicationError::Persistence)?;
+        file.write_all(&bytes).map_err(|_| ApplicationError::Persistence)?;
+        file.sync_all().map_err(|_| ApplicationError::Persistence)?;
+        std::fs::rename(&temporary, &self.path).map_err(|_| ApplicationError::Persistence)?;
+        let directory = std::fs::File::open(parent).map_err(|_| ApplicationError::Persistence)?;
+        directory.sync_all().map_err(|_| ApplicationError::Persistence)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -662,6 +841,30 @@ pub enum ApplicationError {
     UnknownJob,
     NotTimedOut,
     Encoding,
+    Persistence,
+    InvalidFinalizedRecord,
+}
+
+/// Decodes an application receipt from the proof-bearing RPC boundary and checks every
+/// application-specific lookup binding. The caller must additionally verify `record.proof()` and
+/// `record.finality()` with the light client before treating the result as finalized.
+pub fn verify_finalized_receipt_record(
+    record: &QueryRecord,
+) -> Result<ApplicationReceipt, ApplicationError> {
+    if record.kind() != QueryKind::ApplicationReceipt {
+        return Err(ApplicationError::InvalidFinalizedRecord);
+    }
+    let receipt =
+        activechain_canonical_codec::decode_envelope::<ApplicationReceipt>(record.value())
+            .map_err(|_| ApplicationError::InvalidFinalizedRecord)?;
+    if record.key() != receipt.job().into_digest()
+        || record.finalized_height() != receipt.finalized_height()
+        || record.proof().is_empty()
+        || record.finality().is_empty()
+    {
+        return Err(ApplicationError::InvalidFinalizedRecord);
+    }
+    Ok(receipt)
 }
 
 #[cfg(test)]
@@ -819,5 +1022,62 @@ mod tests {
             ledger.cancel(second.job(), second.requester(), 11).unwrap().status(),
             JobStatus::Cancelled
         );
+    }
+
+    #[test]
+    fn finalized_rpc_lookup_binds_kind_job_height_and_proof_material() {
+        let manifest = manifest();
+        let action = action(&manifest);
+        let mut ledger = JobLedger::default();
+        ledger.accept(action, &manifest, action.executor(), action.capability(), 10).unwrap();
+        let receipt = ledger.complete(&evidence(&action), &manifest, 40, 20).unwrap();
+        let value = encode_envelope(&receipt).unwrap();
+        let record = QueryRecord::new(
+            QueryKind::ApplicationReceipt,
+            action.job().into_digest(),
+            20,
+            value.clone(),
+            vec![1],
+            vec![2],
+        )
+        .unwrap();
+        assert_eq!(verify_finalized_receipt_record(&record), Ok(receipt));
+        let substituted = QueryRecord::new(
+            QueryKind::ApplicationReceipt,
+            digest(99),
+            20,
+            value,
+            vec![1],
+            vec![2],
+        )
+        .unwrap();
+        assert_eq!(
+            verify_finalized_receipt_record(&substituted),
+            Err(ApplicationError::InvalidFinalizedRecord)
+        );
+    }
+
+    #[test]
+    fn durable_job_state_survives_restart_and_rejects_corruption() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("jobs.bin");
+        let manifest = manifest();
+        let action = action(&manifest);
+        {
+            let mut durable = DurableJobLedger::open(&path).unwrap();
+            durable
+                .update(|ledger| {
+                    ledger.accept(action, &manifest, action.executor(), action.capability(), 10)
+                })
+                .unwrap();
+        }
+        let mut durable = DurableJobLedger::open(&path).unwrap();
+        durable.update(|ledger| ledger.complete(&evidence(&action), &manifest, 40, 20)).unwrap();
+        assert_eq!(
+            DurableJobLedger::open(&path).unwrap().ledger().receipt(action.job()).unwrap().status(),
+            JobStatus::Completed
+        );
+        std::fs::write(&path, b"corrupt").unwrap();
+        assert!(matches!(DurableJobLedger::open(&path), Err(ApplicationError::Persistence)));
     }
 }
