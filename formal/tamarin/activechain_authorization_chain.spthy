@@ -1,0 +1,927 @@
+theory ActiveChainAuthorizationChain
+
+begin
+
+builtins: signing, hashing
+
+functions:
+  auth_context/14,
+  signing_keys/5,
+  credential_record/7,
+  capability_record/8,
+  object_record/6,
+  authority/8,
+  subset_actions/2,
+  subset_scope/2,
+  lower_limit/2,
+  later_start/2,
+  earlier_end/2,
+  lower_depth/2,
+  next_version/1,
+  context_chain/1, context_epoch/1, context_height/1, context_actor/1,
+  context_credential_issuer/1, context_root_issuer/1,
+  context_delegate_one/1, context_delegate_two/1, context_object/1,
+  context_version/1, context_policy/1, context_action/1,
+  context_schema/1, context_registry/1,
+  keys_actor/1, keys_credential/1, keys_root/1,
+  keys_delegate_one/1, keys_delegate_two/1,
+  credential_id_of/1, credential_issuer_of/1, credential_subject_of/1,
+  credential_schema_of/1, credential_registry_of/1,
+  credential_statement_of/1, credential_signature_of/1,
+  capability_id_of/1, capability_issuer_of/1, capability_holder_of/1,
+  capability_parent_of/1, capability_authority_of/1,
+  capability_registry_of/1, capability_grant_of/1,
+  capability_signature_of/1,
+  object_root_of/1, object_id_of/1, object_version_of/1,
+  object_policy_of/1, object_action_of/1, object_proof_of/1,
+  authority_actions_of/1, authority_scope_of/1, authority_money_of/1,
+  authority_use_of/1, authority_valid_from_of/1, authority_valid_until_of/1,
+  authority_depth_of/1, authority_constraint_of/1
+
+/* Public projections make every field intentionally pattern-matched inside
+ * a protocol-state record derivable for Tamarin's message-derivation check.
+ * Secret signing-key records are never emitted on the network. */
+equations:
+  context_chain(auth_context(a,b,c,d,e,f,g,h,i,j,k,l,m,n)) = a,
+  context_epoch(auth_context(a,b,c,d,e,f,g,h,i,j,k,l,m,n)) = b,
+  context_height(auth_context(a,b,c,d,e,f,g,h,i,j,k,l,m,n)) = c,
+  context_actor(auth_context(a,b,c,d,e,f,g,h,i,j,k,l,m,n)) = d,
+  context_credential_issuer(
+    auth_context(a,b,c,d,e,f,g,h,i,j,k,l,m,n)) = e,
+  context_root_issuer(auth_context(a,b,c,d,e,f,g,h,i,j,k,l,m,n)) = f,
+  context_delegate_one(auth_context(a,b,c,d,e,f,g,h,i,j,k,l,m,n)) = g,
+  context_delegate_two(auth_context(a,b,c,d,e,f,g,h,i,j,k,l,m,n)) = h,
+  context_object(auth_context(a,b,c,d,e,f,g,h,i,j,k,l,m,n)) = i,
+  context_version(auth_context(a,b,c,d,e,f,g,h,i,j,k,l,m,n)) = j,
+  context_policy(auth_context(a,b,c,d,e,f,g,h,i,j,k,l,m,n)) = k,
+  context_action(auth_context(a,b,c,d,e,f,g,h,i,j,k,l,m,n)) = l,
+  context_schema(auth_context(a,b,c,d,e,f,g,h,i,j,k,l,m,n)) = m,
+  context_registry(auth_context(a,b,c,d,e,f,g,h,i,j,k,l,m,n)) = n,
+  keys_actor(signing_keys(a,b,c,d,e)) = a,
+  keys_credential(signing_keys(a,b,c,d,e)) = b,
+  keys_root(signing_keys(a,b,c,d,e)) = c,
+  keys_delegate_one(signing_keys(a,b,c,d,e)) = d,
+  keys_delegate_two(signing_keys(a,b,c,d,e)) = e,
+  credential_id_of(credential_record(a,b,c,d,e,f,g)) = a,
+  credential_issuer_of(credential_record(a,b,c,d,e,f,g)) = b,
+  credential_subject_of(credential_record(a,b,c,d,e,f,g)) = c,
+  credential_schema_of(credential_record(a,b,c,d,e,f,g)) = d,
+  credential_registry_of(credential_record(a,b,c,d,e,f,g)) = e,
+  credential_statement_of(credential_record(a,b,c,d,e,f,g)) = f,
+  credential_signature_of(credential_record(a,b,c,d,e,f,g)) = g,
+  capability_id_of(capability_record(a,b,c,d,e,f,g,h)) = a,
+  capability_issuer_of(capability_record(a,b,c,d,e,f,g,h)) = b,
+  capability_holder_of(capability_record(a,b,c,d,e,f,g,h)) = c,
+  capability_parent_of(capability_record(a,b,c,d,e,f,g,h)) = d,
+  capability_authority_of(capability_record(a,b,c,d,e,f,g,h)) = e,
+  capability_registry_of(capability_record(a,b,c,d,e,f,g,h)) = f,
+  capability_grant_of(capability_record(a,b,c,d,e,f,g,h)) = g,
+  capability_signature_of(capability_record(a,b,c,d,e,f,g,h)) = h,
+  object_root_of(object_record(a,b,c,d,e,f)) = a,
+  object_id_of(object_record(a,b,c,d,e,f)) = b,
+  object_version_of(object_record(a,b,c,d,e,f)) = c,
+  object_policy_of(object_record(a,b,c,d,e,f)) = d,
+  object_action_of(object_record(a,b,c,d,e,f)) = e,
+  object_proof_of(object_record(a,b,c,d,e,f)) = f,
+  authority_actions_of(authority(a,b,c,d,e,f,g,h)) = a,
+  authority_scope_of(authority(a,b,c,d,e,f,g,h)) = b,
+  authority_money_of(authority(a,b,c,d,e,f,g,h)) = c,
+  authority_use_of(authority(a,b,c,d,e,f,g,h)) = d,
+  authority_valid_from_of(authority(a,b,c,d,e,f,g,h)) = e,
+  authority_valid_until_of(authority(a,b,c,d,e,f,g,h)) = f,
+  authority_depth_of(authority(a,b,c,d,e,f,g,h)) = g,
+  authority_constraint_of(authority(a,b,c,d,e,f,g,h)) = h
+
+/*
+ * A finite symbolic composition of the ActiveChain authorization boundary:
+ *
+ *   ML-DSA action authentication
+ *   -> credential verification and finalized status
+ *   -> two-hop capability verification and attenuation
+ *   -> finalized object-state membership
+ *   -> exact APL Permit
+ *   -> atomic single-use and object-version settlement.
+ *
+ * Tamarin's perfect signing primitive represents ML-DSA-65. The exact state
+ * proof term is checked against an honestly committed object record. That is
+ * an abstraction of the P-031 SHAKE256 tree verifier, not a cryptographic
+ * proof of SHAKE256 or Merkle binding. Two concurrent signed requests share
+ * one linear authorization snapshot, one leaf use, and one object write.
+ */
+
+/* ------------------------------------------------------------------------- */
+/* Bounded setup, issuance, and two-hop delegation                           */
+/* ------------------------------------------------------------------------- */
+
+rule InstallAuthorizationContext:
+  let context =
+        auth_context(
+          ~chain, ~epoch, ~height, ~actor, ~credential_issuer,
+          ~root_issuer, ~delegate_one, ~delegate_two,
+          ~object, ~version, ~policy, ~action, ~schema, ~registry)
+      keys =
+        signing_keys(
+          ~actor_key, ~credential_key, ~root_key,
+          ~delegate_one_key, ~delegate_two_key)
+  in
+  [ Fr(~chain), Fr(~epoch), Fr(~height),
+    Fr(~actor), Fr(~credential_issuer), Fr(~root_issuer),
+    Fr(~delegate_one), Fr(~delegate_two),
+    Fr(~object), Fr(~version), Fr(~policy), Fr(~action),
+    Fr(~schema), Fr(~registry),
+    Fr(~actor_key), Fr(~credential_key), Fr(~root_key),
+    Fr(~delegate_one_key), Fr(~delegate_two_key) ]
+  --[ AuthorizationContextInstalled(context),
+      SigningKeyRegistered(
+        ~chain, ~epoch, ~actor, pk(~actor_key), 'ML-DSA-65'),
+      SigningKeyRegistered(
+        ~chain, ~epoch, ~credential_issuer,
+        pk(~credential_key), 'ML-DSA-65'),
+      SigningKeyRegistered(
+        ~chain, ~epoch, ~root_issuer, pk(~root_key), 'ML-DSA-65'),
+      SigningKeyRegistered(
+        ~chain, ~epoch, ~delegate_one,
+        pk(~delegate_one_key), 'ML-DSA-65'),
+      SigningKeyRegistered(
+        ~chain, ~epoch, ~delegate_two,
+        pk(~delegate_two_key), 'ML-DSA-65') ]->
+  [ SetupCredential(context, keys),
+    Out(<context, pk(~actor_key), pk(~credential_key), pk(~root_key),
+         pk(~delegate_one_key), pk(~delegate_two_key)>) ]
+
+rule IssueCredential:
+  let context =
+        auth_context(
+          chain, epoch, height, actor, credential_issuer,
+          root_issuer, delegate_one, delegate_two,
+          object, version, policy, action, schema, registry)
+      keys =
+        signing_keys(
+          actor_key, credential_key, root_key,
+          delegate_one_key, delegate_two_key)
+      statement =
+        <'credential-statement-v1', credential_issuer, actor, schema,
+         height, height, registry, ~claims>
+      signing_payload =
+        <'ACTIVECHAIN-CREDENTIAL-ISSUANCE-V1', 'ML-DSA-65', statement>
+      signature = sign(signing_payload, credential_key)
+      credential_id =
+        h(<'ACTIVECHAIN-CREDENTIAL-ID-V1', statement, signature>)
+      credential =
+        credential_record(
+          credential_id, credential_issuer, actor, schema, registry,
+          statement, signature)
+  in
+  [ SetupCredential(context, keys), Fr(~claims) ]
+  --[ CredentialIssued(
+        credential_id, credential_issuer, actor, schema, registry,
+        statement, signature, 'ML-DSA-65') ]->
+  [ SetupRootCapability(context, keys, credential),
+    Out(<statement, signature>) ]
+
+rule IssueRootCapability:
+  let context =
+        auth_context(
+          chain, epoch, height, actor, credential_issuer,
+          root_issuer, delegate_one, delegate_two,
+          object, version, policy, action, schema, registry)
+      keys =
+        signing_keys(
+          actor_key, credential_key, root_key,
+          delegate_one_key, delegate_two_key)
+      root_authority =
+        authority(~actions, ~resource, ~money, 'single-use',
+                  ~valid_from, ~valid_until, 'depth-2', ~constraint)
+      root_grant =
+        <'capability-grant-v1', ~root, root_issuer, delegate_one,
+         'no-parent', root_authority, registry>
+      signature =
+        sign(<'ACTIVECHAIN-CAPABILITY-GRANT-V1', 'ML-DSA-65', root_grant>,
+             root_key)
+      root_record =
+        capability_record(
+          ~root, root_issuer, delegate_one, 'no-parent',
+          root_authority, registry, root_grant, signature)
+  in
+  [ SetupRootCapability(context, keys, credential),
+    Fr(~root), Fr(~actions), Fr(~resource), Fr(~money),
+    Fr(~valid_from), Fr(~valid_until), Fr(~constraint) ]
+  --[ RootCapabilityIssued(
+        ~root, root_issuer, delegate_one, root_authority, registry,
+        root_grant, signature, 'ML-DSA-65') ]->
+  [ SetupDelegationOne(context, keys, credential, root_record),
+    Out(<root_grant, signature>) ]
+
+rule DelegateCapabilityLevelOne:
+  let context =
+        auth_context(
+          chain, epoch, height, actor, credential_issuer,
+          root_issuer, delegate_one, delegate_two,
+          object, version, policy, action, schema, registry)
+      keys =
+        signing_keys(
+          actor_key, credential_key, root_key,
+          delegate_one_key, delegate_two_key)
+      root_authority =
+        authority(actions, resource, money, 'single-use',
+                  valid_from, valid_until, 'depth-2', constraint)
+      root_record =
+        capability_record(
+          root, root_issuer, delegate_one, 'no-parent',
+          root_authority, registry, root_grant, root_signature)
+      child_authority =
+        authority(
+          subset_actions(actions, ~action_restriction),
+          subset_scope(resource, ~resource_restriction),
+          lower_limit(money, ~money_restriction),
+          'single-use',
+          later_start(valid_from, ~start_restriction),
+          earlier_end(valid_until, ~end_restriction),
+          lower_depth('depth-2', ~depth_restriction),
+          constraint)
+      child_grant =
+        <'capability-grant-v1', ~child_one, delegate_one, delegate_two,
+         root, child_authority, registry>
+      signature =
+        sign(<'ACTIVECHAIN-CAPABILITY-GRANT-V1', 'ML-DSA-65', child_grant>,
+             delegate_one_key)
+      child_record =
+        capability_record(
+          ~child_one, delegate_one, delegate_two, root,
+          child_authority, registry, child_grant, signature)
+  in
+  [ SetupDelegationOne(context, keys, credential, root_record),
+    Fr(~child_one), Fr(~action_restriction), Fr(~resource_restriction),
+    Fr(~money_restriction), Fr(~start_restriction),
+    Fr(~end_restriction), Fr(~depth_restriction) ]
+  --[ CapabilityDelegatedLevelOne(
+        ~child_one, root, delegate_one, delegate_two,
+        child_authority, root_authority, registry,
+        child_grant, signature, 'ML-DSA-65') ]->
+  [ SetupDelegationTwo(
+      context, keys, credential, root_record, child_record),
+    Out(<child_grant, signature>) ]
+
+rule DelegateCapabilityLevelTwo:
+  let context =
+        auth_context(
+          chain, epoch, height, actor, credential_issuer,
+          root_issuer, delegate_one, delegate_two,
+          object, version, policy, action, schema, registry)
+      keys =
+        signing_keys(
+          actor_key, credential_key, root_key,
+          delegate_one_key, delegate_two_key)
+      child_record =
+        capability_record(
+          child_one, delegate_one, delegate_two, root,
+          authority(child_actions, child_resource, child_money, 'single-use',
+                    child_valid_from, child_valid_until, child_depth,
+                    child_constraint),
+          registry, child_grant, child_signature)
+      leaf_authority =
+        authority(
+          subset_actions(child_actions, ~action_restriction),
+          subset_scope(child_resource, ~resource_restriction),
+          lower_limit(child_money, ~money_restriction),
+          'single-use',
+          later_start(child_valid_from, ~start_restriction),
+          earlier_end(child_valid_until, ~end_restriction),
+          lower_depth(child_depth, ~depth_restriction),
+          child_constraint)
+      leaf_grant =
+        <'capability-grant-v1', ~leaf, delegate_two, actor,
+         child_one, leaf_authority, registry>
+      signature =
+        sign(<'ACTIVECHAIN-CAPABILITY-GRANT-V1', 'ML-DSA-65', leaf_grant>,
+             delegate_two_key)
+      leaf_record =
+        capability_record(
+          ~leaf, delegate_two, actor, child_one,
+          leaf_authority, registry, leaf_grant, signature)
+  in
+  [ SetupDelegationTwo(
+      context, keys, credential, root_record, child_record),
+    Fr(~leaf), Fr(~action_restriction), Fr(~resource_restriction),
+    Fr(~money_restriction), Fr(~start_restriction),
+    Fr(~end_restriction), Fr(~depth_restriction) ]
+  --[ CapabilityDelegatedLevelTwo(
+        ~leaf, child_one, delegate_two, actor,
+        leaf_authority,
+        authority(child_actions, child_resource, child_money, 'single-use',
+                  child_valid_from, child_valid_until, child_depth,
+                  child_constraint),
+        registry, leaf_grant, signature, 'ML-DSA-65') ]->
+  [ SetupObjectCommitment(
+      context, keys, credential, root_record, child_record, leaf_record),
+    Out(<leaf_grant, signature>) ]
+
+rule CommitObjectState:
+  let context =
+        auth_context(
+          chain, epoch, height, actor, credential_issuer,
+          root_issuer, delegate_one, delegate_two,
+          object, version, policy, action, schema, registry)
+      proof =
+        <'state-proof-v1', 'membership', chain, epoch, height, ~state_root,
+         object, version, policy, action>
+      committed_object =
+        object_record(~state_root, object, version, policy, action, proof)
+  in
+  [ SetupObjectCommitment(
+      context, keys, credential, root_record, child_record, leaf_record),
+    Fr(~state_root) ]
+  --[ ObjectStateCommitted(
+        chain, epoch, height, ~state_root,
+        object, version, policy, action, proof) ]->
+  [ ReadyForRequests(
+      context, keys, credential, root_record, child_record, leaf_record,
+      committed_object),
+    Out(proof) ]
+
+/* ------------------------------------------------------------------------- */
+/* Two concurrent, byte-replayable ML-DSA action requests                    */
+/* ------------------------------------------------------------------------- */
+
+rule CreateCompetingActionRequests:
+  let context =
+        auth_context(
+          chain, epoch, height, actor, credential_issuer,
+          root_issuer, delegate_one, delegate_two,
+          object, version, policy, action, schema, registry)
+      keys =
+        signing_keys(
+          actor_key, credential_key, root_key,
+          delegate_one_key, delegate_two_key)
+      credential =
+        credential_record(
+          credential_id, credential_issuer, actor, schema, registry,
+          credential_statement, credential_signature)
+      leaf_record =
+        capability_record(
+          leaf, delegate_two, actor, child_one,
+          leaf_authority, registry, leaf_grant, leaf_signature)
+      request_a =
+        <'action-request-v1', 'ACTIVECHAIN-AUTHORIZATION-V1',
+         chain, epoch, height, actor, action, object, version, policy,
+         credential_id, leaf, ~operation_a, ~nonce_a>
+      request_b =
+        <'action-request-v1', 'ACTIVECHAIN-AUTHORIZATION-V1',
+         chain, epoch, height, actor, action, object, version, policy,
+         credential_id, leaf, ~operation_b, ~nonce_b>
+      signature_a =
+        sign(<'ACTIVECHAIN-ACTION-AUTHORIZATION-V1', 'ML-DSA-65', request_a>,
+             actor_key)
+      signature_b =
+        sign(<'ACTIVECHAIN-ACTION-AUTHORIZATION-V1', 'ML-DSA-65', request_b>,
+             actor_key)
+  in
+  [ ReadyForRequests(
+      context, keys, credential, root_record, child_record, leaf_record,
+      committed_object),
+    Fr(~operation_a), Fr(~operation_b), Fr(~nonce_a), Fr(~nonce_b) ]
+  --[ ActionRequestSigned(
+        ~operation_a, chain, epoch, height, actor, action,
+        object, version, policy, credential_id, leaf,
+        request_a, signature_a, 'ML-DSA-65'),
+      ActionRequestSigned(
+        ~operation_b, chain, epoch, height, actor, action,
+        object, version, policy, credential_id, leaf,
+        request_b, signature_b, 'ML-DSA-65'),
+      CompetingRequestsCreated(~operation_a, ~operation_b, leaf) ]->
+  [ AuthorizationSnapshot(
+      context, keys, credential, root_record, child_record, leaf_record,
+      committed_object),
+    PendingActionRequest(
+      ~operation_a, context, actor_key, credential_id, leaf,
+      request_a, signature_a),
+    PendingActionRequest(
+      ~operation_b, context, actor_key, credential_id, leaf,
+      request_b, signature_b),
+    Out(<request_a, signature_a>),
+    Out(<request_b, signature_b>) ]
+
+rule AuthenticateActionRequest:
+  let context =
+        auth_context(
+          chain, epoch, height, actor, credential_issuer,
+          root_issuer, delegate_one, delegate_two,
+          object, version, policy, action, schema, registry)
+      signature =
+        sign(<'ACTIVECHAIN-ACTION-AUTHORIZATION-V1', 'ML-DSA-65', request>,
+             actor_key)
+  in
+  [ PendingActionRequest(
+      operation, context, actor_key, credential_id, leaf, request, signature),
+    In(<request, signature>) ]
+  --[ ActionRequestAuthenticated(
+        operation, chain, epoch, height, actor, action,
+        object, version, policy, credential_id, leaf,
+        request, signature, 'ML-DSA-65'),
+      PQSignatureAccepted('action', operation, 'ML-DSA-65') ]->
+  [ AuthenticatedCandidate(
+      operation, context, credential_id, leaf, request) ]
+
+/* ------------------------------------------------------------------------- */
+/* Exact verification and atomic settlement pipeline                         */
+/* ------------------------------------------------------------------------- */
+
+rule VerifyCredentialForRequest:
+  let context =
+        auth_context(
+          chain, epoch, height, actor, credential_issuer,
+          root_issuer, delegate_one, delegate_two,
+          object, version, policy, action, schema, registry)
+      keys =
+        signing_keys(
+          actor_key, credential_key, root_key,
+          delegate_one_key, delegate_two_key)
+      issuer_signature =
+        sign(<'ACTIVECHAIN-CREDENTIAL-ISSUANCE-V1', 'ML-DSA-65', statement>,
+             credential_key)
+      credential =
+        credential_record(
+          credential_id, credential_issuer, actor, schema, registry,
+          statement, issuer_signature)
+  in
+  [ AuthorizationSnapshot(
+      context, keys, credential, root_record, child_record, leaf_record,
+      committed_object),
+    AuthenticatedCandidate(operation, context, credential_id, leaf, request),
+    In(<statement, issuer_signature>) ]
+  --[ CredentialVerified(
+        operation, chain, epoch, height, actor, credential_id,
+        credential_issuer, schema, registry, statement,
+        issuer_signature, 'ML-DSA-65'),
+      PQSignatureAccepted('credential', operation, 'ML-DSA-65') ]->
+  [ AfterCredentialVerification(
+      operation, context, keys, credential, root_record, child_record,
+      leaf_record, committed_object, request) ]
+
+rule VerifyCapabilityChainForRequest:
+  let context =
+        auth_context(
+          chain, epoch, height, actor, credential_issuer,
+          root_issuer, delegate_one, delegate_two,
+          object, version, policy, action, schema, registry)
+      keys =
+        signing_keys(
+          actor_key, credential_key, root_key,
+          delegate_one_key, delegate_two_key)
+      credential =
+        credential_record(
+          credential_id, credential_issuer, actor, schema, registry,
+          credential_statement, credential_signature)
+      root_signature =
+        sign(<'ACTIVECHAIN-CAPABILITY-GRANT-V1', 'ML-DSA-65', root_grant>,
+             root_key)
+      root_record =
+        capability_record(
+          root, root_issuer, delegate_one, 'no-parent',
+          root_authority, registry, root_grant, root_signature)
+      child_signature =
+        sign(<'ACTIVECHAIN-CAPABILITY-GRANT-V1', 'ML-DSA-65', child_grant>,
+             delegate_one_key)
+      child_record =
+        capability_record(
+          child_one, delegate_one, delegate_two, root,
+          child_authority, registry, child_grant, child_signature)
+      leaf_signature =
+        sign(<'ACTIVECHAIN-CAPABILITY-GRANT-V1', 'ML-DSA-65', leaf_grant>,
+             delegate_two_key)
+      leaf_record =
+        capability_record(
+          leaf, delegate_two, actor, child_one,
+          leaf_authority, registry, leaf_grant, leaf_signature)
+  in
+  [ AfterCredentialVerification(
+      operation, context, keys, credential, root_record, child_record,
+      leaf_record, committed_object, request),
+    In(<root_grant, root_signature>),
+    In(<child_grant, child_signature>),
+    In(<leaf_grant, leaf_signature>) ]
+  --[ CapabilityChainVerified(
+        operation, chain, epoch, height, actor,
+        root, child_one, leaf,
+        root_authority, child_authority, leaf_authority, registry,
+        root_grant, root_signature,
+        child_grant, child_signature,
+        leaf_grant, leaf_signature, 'ML-DSA-65'),
+      CapabilitySingleUseReserved(leaf, operation),
+      PQSignatureAccepted('capability-chain', operation, 'ML-DSA-65') ]->
+  [ AfterCapabilityVerification(
+      operation, context, credential, root_record, child_record, leaf_record,
+      committed_object, request) ]
+
+rule VerifyStateProofForRequest:
+  let context =
+        auth_context(
+          chain, epoch, height, actor, credential_issuer,
+          root_issuer, delegate_one, delegate_two,
+          object, version, policy, action, schema, registry)
+      credential =
+        credential_record(
+          credential_id, credential_issuer, actor, schema, registry,
+          credential_statement, credential_signature)
+      leaf_record =
+        capability_record(
+          leaf, delegate_two, actor, child_one,
+          leaf_authority, registry, leaf_grant, leaf_signature)
+      committed_object =
+        object_record(state_root, object, version, policy, action, proof)
+  in
+  [ AfterCapabilityVerification(
+      operation, context, credential, root_record, child_record, leaf_record,
+      committed_object, request),
+    In(proof) ]
+  --[ StateProofVerified(
+        operation, chain, epoch, height, state_root,
+        object, version, policy, action, proof) ]->
+  [ AfterStateProofVerification(
+      operation, context, credential_id, schema,
+      root_record, child_record, leaf_record,
+      state_root, request) ]
+
+rule EvaluateExactAPLPermit:
+  let context =
+        auth_context(
+          chain, epoch, height, actor, credential_issuer,
+          root_issuer, delegate_one, delegate_two,
+          object, version, policy, action, schema, registry)
+      root_record =
+        capability_record(
+          root, root_issuer, delegate_one, 'no-parent',
+          root_authority, registry, root_grant, root_signature)
+      child_record =
+        capability_record(
+          child_one, delegate_one, delegate_two, root,
+          child_authority, registry, child_grant, child_signature)
+      leaf_record =
+        capability_record(
+          leaf, delegate_two, actor, child_one,
+          leaf_authority, registry, leaf_grant, leaf_signature)
+  in
+  [ AfterStateProofVerification(
+      operation, context, credential_id, schema,
+      root_record, child_record, leaf_record,
+      state_root, request) ]
+  --[ APLPermitDecision(
+        operation, chain, epoch, height, actor, action,
+        object, version, policy, credential_id, schema, leaf,
+        state_root, 'forbid-absent', 'consume-single-use') ]->
+  [ ExactAPLPermit(
+      operation, context, credential_id, schema,
+      root, child_one, leaf, state_root) ]
+
+rule CommitAuthorizedObjectTransition:
+  let context =
+        auth_context(
+          chain, epoch, height, actor, credential_issuer,
+          root_issuer, delegate_one, delegate_two,
+          object, version, policy, action, schema, registry)
+  in
+  [ ExactAPLPermit(
+      operation, context, credential_id, schema,
+      root, child_one, leaf, state_root) ]
+  --[ CapabilitySingleUseConsumed(leaf, operation),
+      ObjectTransitionAccepted(
+        operation, chain, epoch, height, actor, action,
+        object, version, next_version(version), policy,
+        credential_id, schema, root, child_one, leaf, state_root) ]->
+  [ ObjectAtNextVersion(object, next_version(version)) ]
+
+/* These four alternatives consume the same pre-authorization snapshot as
+ * verification. A finalized revocation cannot race behind a snapshot that
+ * has already been admitted; atomic snapshot acquisition is an assumption. */
+
+rule RevokeCredentialBeforeAuthorization:
+  let credential =
+        credential_record(
+          credential_id, credential_issuer, actor, schema, registry,
+          statement, signature)
+  in
+  [ AuthorizationSnapshot(
+      context, keys, credential, root_record, child_record, leaf_record,
+      committed_object) ]
+  --[ CredentialRevoked(credential_id, registry) ]->
+  [ RevokedAuthorizationSnapshot(credential_id) ]
+
+rule RevokeRootBeforeAuthorization:
+  let root_record =
+        capability_record(
+          root, root_issuer, delegate_one, 'no-parent',
+          root_authority, registry, root_grant, root_signature)
+  in
+  [ AuthorizationSnapshot(
+      context, keys, credential, root_record, child_record, leaf_record,
+      committed_object) ]
+  --[ CapabilityRevoked(root, registry) ]->
+  [ RevokedAuthorizationSnapshot(root) ]
+
+rule RevokeLevelOneBeforeAuthorization:
+  let child_record =
+        capability_record(
+          child_one, delegate_one, delegate_two, root,
+          child_authority, registry, child_grant, child_signature)
+  in
+  [ AuthorizationSnapshot(
+      context, keys, credential, root_record, child_record, leaf_record,
+      committed_object) ]
+  --[ CapabilityRevoked(child_one, registry) ]->
+  [ RevokedAuthorizationSnapshot(child_one) ]
+
+rule RevokeLeafBeforeAuthorization:
+  let leaf_record =
+        capability_record(
+          leaf, delegate_two, actor, child_one,
+          leaf_authority, registry, leaf_grant, leaf_signature)
+  in
+  [ AuthorizationSnapshot(
+      context, keys, credential, root_record, child_record, leaf_record,
+      committed_object) ]
+  --[ CapabilityRevoked(leaf, registry) ]->
+  [ RevokedAuthorizationSnapshot(leaf) ]
+
+rule ObserveReplayableBytes:
+  [ In(bytes) ]
+  --[ ReplayAttempt(bytes) ]->
+  [ ]
+
+/* ------------------------------------------------------------------------- */
+/* Exact context and provenance                                              */
+/* ------------------------------------------------------------------------- */
+
+lemma accepted_transition_has_complete_exact_authorization_chain:
+  "All operation chain epoch height actor action object version next policy
+       credential_id schema root child_one leaf state_root #t.
+     ObjectTransitionAccepted(
+       operation,chain,epoch,height,actor,action,object,version,next,policy,
+       credential_id,schema,root,child_one,leaf,state_root)@t
+     ==>
+       next = next_version(version)
+       & (Ex request action_signature credential_issuer registry
+              credential_statement credential_signature proof
+              root_authority child_authority leaf_authority
+              root_grant root_signature child_grant child_signature
+              leaf_grant leaf_signature #a #c #k #s #p.
+            ActionRequestAuthenticated(
+              operation,chain,epoch,height,actor,action,object,version,policy,
+              credential_id,leaf,request,action_signature,'ML-DSA-65')@a
+            & CredentialVerified(
+                operation,chain,epoch,height,actor,credential_id,
+                credential_issuer,schema,registry,credential_statement,
+                credential_signature,'ML-DSA-65')@c
+            & CapabilityChainVerified(
+                operation,chain,epoch,height,actor,root,child_one,leaf,
+                root_authority,child_authority,leaf_authority,registry,
+                root_grant,root_signature,child_grant,child_signature,
+                leaf_grant,leaf_signature,'ML-DSA-65')@k
+            & StateProofVerified(
+                operation,chain,epoch,height,state_root,object,version,
+                policy,action,proof)@s
+            & APLPermitDecision(
+                operation,chain,epoch,height,actor,action,object,version,
+                policy,credential_id,schema,leaf,state_root,
+                'forbid-absent','consume-single-use')@p
+            & #a < #c & #c < #k & #k < #s & #s < #p & #p < #t)"
+
+lemma action_authentication_has_exact_pq_signature_origin:
+  "All operation chain epoch height actor action object version policy
+       credential_id leaf request signature suite #i.
+     ActionRequestAuthenticated(
+       operation,chain,epoch,height,actor,action,object,version,policy,
+       credential_id,leaf,request,signature,suite)@i
+     ==>
+       suite = 'ML-DSA-65'
+       & (Ex #j.
+            ActionRequestSigned(
+              operation,chain,epoch,height,actor,action,object,version,policy,
+              credential_id,leaf,request,signature,'ML-DSA-65')@j
+            & #j < #i)"
+
+lemma credential_fact_has_exact_pq_issuance_provenance:
+  "All operation chain epoch height actor credential_id issuer schema registry
+       statement signature suite #i.
+     CredentialVerified(
+       operation,chain,epoch,height,actor,credential_id,issuer,schema,registry,
+       statement,signature,suite)@i
+     ==>
+       suite = 'ML-DSA-65'
+       & (Ex #j.
+            CredentialIssued(
+              credential_id,issuer,actor,schema,registry,statement,signature,
+              'ML-DSA-65')@j
+            & #j < #i)"
+
+lemma capability_chain_has_exact_pq_delegation_provenance:
+  "All operation chain epoch height actor root child_one leaf
+       root_authority child_authority leaf_authority registry
+       root_grant root_signature child_grant child_signature
+       leaf_grant leaf_signature suite #i.
+     CapabilityChainVerified(
+       operation,chain,epoch,height,actor,root,child_one,leaf,
+       root_authority,child_authority,leaf_authority,registry,
+       root_grant,root_signature,child_grant,child_signature,
+       leaf_grant,leaf_signature,suite)@i
+     ==>
+       suite = 'ML-DSA-65'
+       & (Ex root_issuer delegate_one delegate_two #r #c #l.
+            RootCapabilityIssued(
+              root,root_issuer,delegate_one,root_authority,registry,
+              root_grant,root_signature,'ML-DSA-65')@r
+            & CapabilityDelegatedLevelOne(
+                child_one,root,delegate_one,delegate_two,child_authority,
+                root_authority,registry,child_grant,child_signature,
+                'ML-DSA-65')@c
+            & CapabilityDelegatedLevelTwo(
+                leaf,child_one,delegate_two,actor,leaf_authority,
+                child_authority,registry,leaf_grant,leaf_signature,
+                'ML-DSA-65')@l
+            & #r < #c & #c < #l & #l < #i)"
+
+lemma two_hop_delegation_is_structurally_non_amplifying:
+  "All operation chain epoch height actor root child_one leaf
+       root_authority child_authority leaf_authority registry
+       root_grant root_signature child_grant child_signature
+       leaf_grant leaf_signature suite #i.
+     CapabilityChainVerified(
+       operation,chain,epoch,height,actor,root,child_one,leaf,
+       root_authority,child_authority,leaf_authority,registry,
+       root_grant,root_signature,child_grant,child_signature,
+       leaf_grant,leaf_signature,suite)@i
+     ==>
+       (Ex actions resource money valid_from valid_until constraint
+           action_restriction_one resource_restriction_one
+           money_restriction_one start_restriction_one
+           end_restriction_one depth_restriction_one
+           action_restriction_two resource_restriction_two
+           money_restriction_two start_restriction_two
+           end_restriction_two depth_restriction_two.
+          root_authority =
+            authority(actions,resource,money,'single-use',
+                      valid_from,valid_until,'depth-2',constraint)
+          & child_authority =
+              authority(
+                subset_actions(actions,action_restriction_one),
+                subset_scope(resource,resource_restriction_one),
+                lower_limit(money,money_restriction_one),'single-use',
+                later_start(valid_from,start_restriction_one),
+                earlier_end(valid_until,end_restriction_one),
+                lower_depth('depth-2',depth_restriction_one),constraint)
+          & leaf_authority =
+              authority(
+                subset_actions(
+                  subset_actions(actions,action_restriction_one),
+                  action_restriction_two),
+                subset_scope(
+                  subset_scope(resource,resource_restriction_one),
+                  resource_restriction_two),
+                lower_limit(
+                  lower_limit(money,money_restriction_one),
+                  money_restriction_two),
+                'single-use',
+                later_start(
+                  later_start(valid_from,start_restriction_one),
+                  start_restriction_two),
+                earlier_end(
+                  earlier_end(valid_until,end_restriction_one),
+                  end_restriction_two),
+                lower_depth(
+                  lower_depth('depth-2',depth_restriction_one),
+                  depth_restriction_two),
+                constraint))"
+
+lemma state_proof_has_exact_finalized_commitment_provenance:
+  "All operation chain epoch height state_root object version policy action
+       proof #i.
+     StateProofVerified(
+       operation,chain,epoch,height,state_root,object,version,policy,action,
+       proof)@i
+     ==>
+       (Ex #j.
+          ObjectStateCommitted(
+            chain,epoch,height,state_root,object,version,policy,action,proof)@j
+          & #j < #i)"
+
+lemma accepted_signature_suites_are_post_quantum_only:
+  "All kind operation suite #i.
+     PQSignatureAccepted(kind,operation,suite)@i
+     ==> suite = 'ML-DSA-65'"
+
+lemma transition_context_cannot_be_substituted:
+  "All operation chain_a epoch_a height_a actor_a action_a object_a version_a
+       next_a policy_a credential_a schema_a root_a child_a leaf_a state_root_a
+       chain_b epoch_b height_b actor_b action_b object_b version_b policy_b
+       credential_b leaf_b request_b signature_b suite_b #t #a.
+     ObjectTransitionAccepted(
+       operation,chain_a,epoch_a,height_a,actor_a,action_a,object_a,version_a,
+       next_a,policy_a,credential_a,schema_a,root_a,child_a,leaf_a,state_root_a)@t
+     & ActionRequestAuthenticated(
+         operation,chain_b,epoch_b,height_b,actor_b,action_b,object_b,version_b,
+         policy_b,credential_b,leaf_b,request_b,signature_b,suite_b)@a
+     ==>
+       chain_a = chain_b & epoch_a = epoch_b & height_a = height_b
+       & actor_a = actor_b & action_a = action_b & object_a = object_b
+       & version_a = version_b & policy_a = policy_b
+       & credential_a = credential_b & leaf_a = leaf_b"
+
+/* ------------------------------------------------------------------------- */
+/* Revocation, budget/concurrency, and replay                                */
+/* ------------------------------------------------------------------------- */
+
+lemma credential_revocation_blocks_later_transition:
+  "All credential_id registry operation chain epoch height actor action
+       object version next policy schema root child_one leaf state_root #r #t.
+     CredentialRevoked(credential_id,registry)@r
+     & ObjectTransitionAccepted(
+         operation,chain,epoch,height,actor,action,object,version,next,policy,
+         credential_id,schema,root,child_one,leaf,state_root)@t
+     ==> not (#r < #t)"
+
+lemma ancestor_or_leaf_revocation_blocks_later_transition:
+  "All capability registry operation chain epoch height actor action
+       object version next policy credential_id schema root child_one leaf
+       state_root #r #t.
+     CapabilityRevoked(capability,registry)@r
+     & ObjectTransitionAccepted(
+         operation,chain,epoch,height,actor,action,object,version,next,policy,
+         credential_id,schema,root,child_one,leaf,state_root)@t
+     & (capability = root | capability = child_one | capability = leaf)
+     ==> not (#r < #t)"
+
+lemma single_use_capability_is_reserved_for_one_operation [reuse, use_induction]:
+  "All leaf operation_a operation_b #i #j.
+     CapabilitySingleUseReserved(leaf,operation_a)@i
+     & CapabilitySingleUseReserved(leaf,operation_b)@j
+     ==> #i = #j & operation_a = operation_b"
+
+lemma one_operation_cannot_finalize_twice [use_induction]:
+  "All operation chain_a chain_b epoch_a epoch_b height_a height_b
+       actor_a actor_b action_a action_b object_a object_b
+       version_a version_b next_a next_b policy_a policy_b
+       credential_a credential_b schema_a schema_b root_a root_b
+       child_a child_b leaf_a leaf_b state_root_a state_root_b #i #j.
+     ObjectTransitionAccepted(
+       operation,chain_a,epoch_a,height_a,actor_a,action_a,object_a,version_a,
+       next_a,policy_a,credential_a,schema_a,root_a,child_a,leaf_a,state_root_a)@i
+     & ObjectTransitionAccepted(
+       operation,chain_b,epoch_b,height_b,actor_b,action_b,object_b,version_b,
+       next_b,policy_b,credential_b,schema_b,root_b,child_b,leaf_b,state_root_b)@j
+     ==> #i = #j"
+
+lemma one_object_version_write_finalizes_once [use_induction]:
+  "All object version operation_a operation_b chain_a chain_b epoch_a epoch_b
+       height_a height_b actor_a actor_b action_a action_b next_a next_b
+       policy_a policy_b credential_a credential_b schema_a schema_b
+       root_a root_b child_a child_b leaf_a leaf_b state_root_a state_root_b
+       #i #j.
+     ObjectTransitionAccepted(
+       operation_a,chain_a,epoch_a,height_a,actor_a,action_a,object,version,
+       next_a,policy_a,credential_a,schema_a,root_a,child_a,leaf_a,state_root_a)@i
+     & ObjectTransitionAccepted(
+       operation_b,chain_b,epoch_b,height_b,actor_b,action_b,object,version,
+       next_b,policy_b,credential_b,schema_b,root_b,child_b,leaf_b,state_root_b)@j
+     ==> #i = #j & operation_a = operation_b"
+
+/* Executability witnesses keep universal properties non-vacuous. */
+
+lemma exists_complete_authorized_transition: exists-trace
+  "Ex operation chain epoch height actor action object version next policy
+      credential_id schema root child_one leaf state_root #i.
+     ObjectTransitionAccepted(
+       operation,chain,epoch,height,actor,action,object,version,next,policy,
+       credential_id,schema,root,child_one,leaf,state_root)@i"
+
+lemma exists_competing_requests_with_one_winner: exists-trace
+  "Ex operation_a operation_b leaf chain epoch height actor action object
+      version next policy credential_id schema root child_one state_root
+      #c #t.
+     CompetingRequestsCreated(operation_a,operation_b,leaf)@c
+     & ObjectTransitionAccepted(
+         operation_a,chain,epoch,height,actor,action,object,version,next,policy,
+         credential_id,schema,root,child_one,leaf,state_root)@t
+     & #c < #t"
+
+lemma exists_credential_revocation: exists-trace
+  "Ex credential_id registry #i.
+     CredentialRevoked(credential_id,registry)@i"
+
+lemma exists_ancestor_revocation_after_delegation: exists-trace
+  "Ex root child_one delegate_one delegate_two child_authority root_authority
+      registry child_grant child_signature suite #d #r.
+     CapabilityDelegatedLevelOne(
+       child_one,root,delegate_one,delegate_two,child_authority,root_authority,
+       registry,child_grant,child_signature,suite)@d
+     & CapabilityRevoked(root,registry)@r
+     & #d < #r"
+
+lemma exists_leaf_revocation_after_two_hop_delegation: exists-trace
+  "Ex leaf child_one delegate_two actor leaf_authority child_authority
+      registry leaf_grant leaf_signature suite #d #r.
+     CapabilityDelegatedLevelTwo(
+       leaf,child_one,delegate_two,actor,leaf_authority,child_authority,
+       registry,leaf_grant,leaf_signature,suite)@d
+     & CapabilityRevoked(leaf,registry)@r
+     & #d < #r"
+
+end

@@ -348,6 +348,9 @@ Tracked by [GitHub issue #42](https://github.com/advatar/ActiveChain/issues/42).
 
 Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
 
+- [ ] Recover and reconcile the unpublished consensus-safety and authorization-chain proof work
+  against current `origin/main`
+  ([GitHub issue #127](https://github.com/advatar/ActiveChain/issues/127)).
 - [x] Prove the initial wallet-agent HITL and replay properties in Tamarin.
 - [ ] Prove consensus QC, chain-prefix finality, replay, equivocation, view-change, reconfiguration,
   and crash-recovery properties.
