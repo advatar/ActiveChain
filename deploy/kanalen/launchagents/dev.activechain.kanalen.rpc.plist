@@ -7,8 +7,8 @@
   <string>dev.activechain.kanalen.rpc</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Volumes/ActiveChain/testnet/current/bin/activechain-rpc-node</string>
-    <string>/Volumes/ActiveChain/testnet/rpc/rpc-index.snapshot</string>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/current/bin/activechain-rpc-node</string>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/rpc/rpc-index.snapshot</string>
     <string>0.0.0.0:49151</string>
   </array>
   <key>WorkingDirectory</key>
