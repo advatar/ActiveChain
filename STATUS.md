@@ -624,7 +624,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
     device profiles.
   - [ ] Implement OpenWallet issuance/presentation request parsing, consent-bound sessions,
     credential selection, replay protection, and deterministic conformance vectors.
-  - [ ] Run the seven-step wallet acceptance rehearsal through three persistent validators,
+  - [x] Run the seven-step wallet acceptance rehearsal through three persistent validators,
     transaction ingress, faucet, RPC finality, replay rejection, and validator restart.
 
 ## Active milestone — dBrowser verifier compatibility

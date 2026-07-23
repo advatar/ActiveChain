@@ -62,6 +62,16 @@ greater than zero is a release blocker.
 
 ## Operator gates
 
+Run the complete local wallet acceptance path before publishing any deployment:
+
+```sh
+scripts/rehearse-testnet-wallet-acceptance.sh
+```
+
+The rehearsal generates a three-validator genesis, derives an operator wallet, issues a
+genesis-bound faucet grant, admits a signed funded transfer, proves replay rejection, finalizes
+through three authenticated processes, and restarts each validator from durable state.
+
 - Do not admit a validator whose genesis public key does not match its derived
   signer.
 - Do not accept consensus frames before the ML-DSA peer handshake succeeds.

@@ -129,6 +129,7 @@ dependencies = [
  "activechain-state-tree",
  "activechain-transition",
  "activechain-wallet-core",
+ "getrandom 0.3.4",
  "ml-dsa",
  "sha3 0.10.9",
 ]
