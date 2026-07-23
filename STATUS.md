@@ -53,7 +53,7 @@ Tracked by [GitHub issue #137](https://github.com/advatar/ActiveChain/issues/137
 - [x] Configure `rpc.kanalen.activechain.dev` with TLS 1.3 and automatic certificate renewal.
 - [x] Keep validator, faucet, and metrics ports private.
 - [x] Verify DNS, certificate identity, public TLS, existing HTTPS routing, and exposed ports.
-- [ ] Add a canonical operator path from genesis/finalized validator state to the durable RPC index,
+- [x] Add a canonical operator path from genesis/finalized validator state to the durable RPC index,
   then start the backend, verify a framed status request, and rehearse restart recovery.
 
 ## Active investigation — Aztec billboard parity
