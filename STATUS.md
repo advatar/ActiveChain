@@ -35,6 +35,15 @@ Tracked by [GitHub issue #132](https://github.com/advatar/ActiveChain/issues/132
 - [x] Add platform-aware tests and document macOS build, run, and signing behavior.
 - [x] Pass formatting, script syntax, Swift tests, and both application builds.
 
+## Active implementation — wallet Receive flow
+
+Tracked by [GitHub issue #135](https://github.com/advatar/ActiveChain/issues/135).
+
+- [x] Present receiving details from the shared macOS and iOS wallet interface.
+- [x] Bind the receiving payload to the selected ActiveChain network.
+- [x] Add QR, copy, share, and dismissal behavior.
+- [x] Add unit coverage and pass macOS tests plus both application builds.
+
 ## Active investigation — Aztec billboard parity
 
 Tracked by [GitHub issue #17](https://github.com/advatar/ActiveChain/issues/17).

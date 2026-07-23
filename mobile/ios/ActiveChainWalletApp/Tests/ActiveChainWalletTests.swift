@@ -3,6 +3,32 @@ import Security
 @testable import ActiveChainWalletApp
 
 final class ActiveChainWalletTests: XCTestCase {
+    func testReceiveRequestBindsAddressToNetworkAndGenesis() throws {
+        let request = ReceiveRequest(
+            networkID: "roslagen",
+            genesis: "genesis-42",
+            address: "did:activechain:roslagen:alice"
+        )
+        let components = try XCTUnwrap(URLComponents(string: request.payload))
+        let values = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map {
+            ($0.name, $0.value)
+        })
+
+        XCTAssertEqual(components.scheme, "activechain")
+        XCTAssertEqual(components.host, "receive")
+        XCTAssertEqual(values["network"]!, "roslagen")
+        XCTAssertEqual(values["genesis"]!, "genesis-42")
+        XCTAssertEqual(values["address"]!, "did:activechain:roslagen:alice")
+    }
+
+    func testReceiveRequestPayloadChangesAcrossNetworks() {
+        let address = "did:activechain:wallet:alice"
+        let first = ReceiveRequest(networkID: "one", genesis: "g1", address: address)
+        let second = ReceiveRequest(networkID: "two", genesis: "g2", address: address)
+
+        XCTAssertNotEqual(first.payload, second.payload)
+    }
+
     func testSharedKeychainConfigurationIsExplicitAndOptInForSynchronization() throws {
         let group = "L2AF8KFX35.dev.activechain.wallet.shared"
         let configuration = try SharedKeychainConfiguration(accessGroup: group)
