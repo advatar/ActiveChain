@@ -321,7 +321,7 @@ fn snapshot_tag(bytes: &[u8]) -> [u8; 32] {
     hasher.update(b"ACTIVECHAIN-RPC-INDEX-SNAPSHOT-V1");
     hasher.update(bytes);
     let mut output = [0; 32];
-    hasher.finalize_xof().read(&mut output);
+    XofReader::read(&mut hasher.finalize_xof(), &mut output);
     output
 }
 
