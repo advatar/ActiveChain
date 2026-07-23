@@ -26,6 +26,25 @@ Operators enable the registry by setting `ACTIVECHAIN_ANCHOR_SNAPSHOT` for
 `activechain-rpc-node`, or by passing its optional final positional argument. Omitting it disables
 all mutation endpoints while leaving the proof-query RPC unchanged.
 
+Finalization is deliberately not a public RPC mutation. After the anchor action is included in a
+finalized block, an operator installs its canonical `AnchorFinalizedEvidenceV1` with:
+
+```text
+activechain-anchor-admin finalize <anchor-snapshot> <reference-hex> <evidence-envelope> \
+  <trusted-chain-hex> <trusted-genesis-hex> <protocol-revision> <verifier-revision>
+```
+
+The command runs the production finality-bundle and block-receipt verifier, requires the declared
+anchor transaction to occur in the verified receipt, and only then performs the durable one-shot
+`pending -> finalized` transition. Operators may terminally reject a pending request with
+`activechain-anchor-admin reject <anchor-snapshot> <reference-hex>`.
+
+Language-neutral clients call
+`activechain_verify_anchor_finalized_evidence_code` with the evidence, exact statement, and
+explicit trusted network parameters. This API does not accept a caller-provided success callback.
+ActiveChain remains developmental; successful verification proves consistency with the configured
+development-network trust roots, not production-network security.
+
 Batch clients submit the Merkle root as the statement digest and retain
 `AnchorBatchProofV1` for each MadeMark leaf. The canonical tree hashing and frozen vector are in
 `P-112` and `testing/vectors/application/external-anchor-v1.txt`.
