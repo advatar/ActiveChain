@@ -41,6 +41,27 @@ jobs:
           if ! elan toolchain list | rg --fixed-strings --line-regexp 'leanprover/lean4:v4.32.0'; then
             elan toolchain install leanprover/lean4:v4.32.0
           fi
+      - name: Isolate public Docker authentication
+        run: |
+          ci_docker_config="${RUNNER_TEMP}/activechain-docker-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "${ci_docker_config}/cli-plugins"
+          printf '{}\n' > "${ci_docker_config}/config.json"
+          for plugin in "${HOME}/.docker/cli-plugins/"*; do
+            if [[ -f "${plugin}" && -x "${plugin}" ]]; then
+              ln -s "${plugin}" "${ci_docker_config}/cli-plugins/$(basename "${plugin}")"
+            fi
+          done
+          echo "DOCKER_CONFIG=${ci_docker_config}" >> "${GITHUB_ENV}"
+      - name: Preflight pinned RISC0 guest builder
+        run: |
+          ci_builder="activechain-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker buildx create --name "${ci_builder}" --driver docker-container --use
+          echo "ACTIVECHAIN_CI_BUILDER=${ci_builder}" >> "${GITHUB_ENV}"
+          echo "BUILDX_BUILDER=${ci_builder}" >> "${GITHUB_ENV}"
+          docker buildx inspect --bootstrap
+          docker buildx version
+          docker pull \
+            risczero/risc0-guest-builder:r0.1.94.1@sha256:c2f63fdd720337c0727e05c5e1733083baba04c00a864a89b0e3f4f8d92617be
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Check all targets
@@ -130,3 +151,6 @@ jobs:
           (cd formal/lean && lake exe epochUpgradeTable) | diff -u testing/vectors/consensus/epoch-upgrade-model-table.txt -
           cargo run --locked --quiet -p activechain-vector-generator -- codec-length-table | diff -u testing/vectors/canonical/length-prefix-table.txt -
           (cd formal/lean && lake exe codecLengthTable) | diff -u testing/vectors/canonical/length-prefix-table.txt -
+      - name: Remove isolated BuildKit worker
+        if: always() && env.ACTIVECHAIN_CI_BUILDER != ''
+        run: docker buildx rm "${ACTIVECHAIN_CI_BUILDER}"

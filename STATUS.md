@@ -533,6 +533,9 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
   - [x] Reproduce the private-billboard guest image IDs and keep the published relation fixtures
     valid against both reference and guest execution
     ([GitHub issue #120](https://github.com/advatar/ActiveChain/issues/120)).
+    - [x] Prevent repeated reproducible guest builds from depending on a blocking Docker desktop
+      credential helper
+      ([GitHub issue #121](https://github.com/advatar/ActiveChain/issues/121)).
   - [x] Freeze canonical bounded public inputs, execution rows, partition-plan binding, trace
     commitment, malformed/substitution tests, and exact direct-reexecution comparison.
   - [x] Add a dedicated transparent STARK prover/verifier for row progression, outcome booleanity,
