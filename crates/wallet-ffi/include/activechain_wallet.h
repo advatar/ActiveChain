@@ -1,6 +1,12 @@
 #ifndef ACTIVECHAIN_WALLET_H
 #define ACTIVECHAIN_WALLET_H
 #include <stdint.h>
+typedef uint32_t (*activechain_wallet_sign_callback)(
+    void *context,
+    const uint8_t *payload,
+    uint32_t payload_len,
+    uint8_t *signature_out,
+    uint32_t signature_len);
 uint32_t activechain_wallet_ffi_revision(void);
 uint32_t activechain_wallet_session_valid(const uint8_t *session_id,
                                           const uint8_t *relying_party,
@@ -43,4 +49,13 @@ uint32_t activechain_wallet_build_cash_intent(
     uint32_t output_capacity,
     uint32_t *required_len,
     uint8_t intent_out[48]);
+uint32_t activechain_wallet_sign_cash_intent(
+    const uint8_t *request,
+    uint32_t request_len,
+    const uint8_t public_key[1312],
+    activechain_wallet_sign_callback callback,
+    void *callback_context,
+    uint8_t *output,
+    uint32_t output_capacity,
+    uint32_t *required_len);
 #endif

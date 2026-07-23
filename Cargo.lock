@@ -378,6 +378,7 @@ dependencies = [
  "activechain-cash-kernel",
  "activechain-protocol-types",
  "activechain-wallet-core",
+ "ml-dsa",
 ]
 
 [[package]]

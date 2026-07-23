@@ -663,6 +663,9 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
       optional recipient pinning through the C ABI.
     - [x] Construct the exact canonical cash authorization request and intent identifier through a
       size-query C ABI without exposing secret material.
+    - [x] Invoke opaque secure-key callbacks only over the canonical approval-bound signing
+      transcript and verify the returned ML-DSA-44 signature before publishing an authorized
+      envelope.
   - [ ] Publish a proof-bearing development-network query/RPC contract
     ([GitHub issue #91](https://github.com/advatar/ActiveChain/issues/91)).
   - [ ] Package an embeddable persistent light client
