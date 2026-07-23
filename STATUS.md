@@ -641,6 +641,9 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
       and C result codes.
     - [ ] Add finalized-block header/QC verification against the exact validator genesis and
       ordered signed vote set through matching Rust and C result codes.
+      - [x] Extract canonical execution-proof inputs and finalized-block headers from the
+        validator runtime into the bounded shared `activechain-finality-types` crate without
+        changing their registered tags, schemas, encoding, or digest domains.
     - [ ] Add receipt and joined authorization-chain verifiers with complete positive and
       malformed vectors.
   - [ ] Expose Coin Cell discovery, policy evaluation, canonical intents, approval-bound signing,

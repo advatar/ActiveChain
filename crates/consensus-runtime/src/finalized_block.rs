@@ -1,186 +1,79 @@
 //! Complete typed finalized-block composition boundary.
 
 use activechain_action_kernel::ActionEnvelope;
-use activechain_canonical_codec::{
-    CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
-    decode_envelope, encode_envelope,
-};
+use activechain_canonical_codec::{EncodeError, decode_envelope, encode_envelope};
 use activechain_data_availability::AvailabilityBatch;
 use activechain_devnet_kernel::{BlockReceipt, ChainState, DevnetBlock, apply_block};
-use activechain_protocol_types::{ChainId, Digest384, PrincipalId, QuorumCertificate};
-use activechain_state_tree::StateCommitment;
-use sha3::{
-    Shake256,
-    digest::{ExtendableOutput, Update, XofReader},
-};
+use activechain_finality_types::commit_parts as commitment;
+pub use activechain_finality_types::{FinalizedBlockHeader, ProofPublicInputs};
+use activechain_protocol_types::{Digest384, PrincipalId, QuorumCertificate};
 
-fn commitment(domain: &[u8], parts: &[&[u8]]) -> Digest384 {
-    let mut h = Shake256::default();
-    h.update(domain);
-    for part in parts {
-        h.update(&(part.len() as u64).to_be_bytes());
-        h.update(part);
-    }
-    let mut out = [0; 48];
-    h.finalize_xof().read(&mut out);
-    Digest384::new(out)
-}
-
-/// Exact public inputs that an execution proof must bind.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ProofPublicInputs {
-    chain_id: ChainId,
+#[allow(clippy::too_many_arguments)]
+fn derive_proof_public_inputs(
+    state: &ChainState,
+    block: &DevnetBlock,
     epoch: u64,
-    height: u64,
     protocol_revision: u64,
     validator_set_root: Digest384,
-    parent_block_id: Digest384,
-    pre_state: StateCommitment,
-    authorization_root: Digest384,
-    action_root: Digest384,
-    execution_order_root: Digest384,
-    total_fees: u128,
     pre_supply: u128,
     issuance: u128,
     burn: u128,
-    post_supply: u128,
-    post_state: StateCommitment,
-    receipt_root: Digest384,
-    data_availability_commitment: Digest384,
-}
-
-impl ProofPublicInputs {
-    pub const fn height(&self) -> u64 {
-        self.height
-    }
-    pub const fn post_state(&self) -> StateCommitment {
-        self.post_state
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn derive(
-        state: &ChainState,
-        block: &DevnetBlock,
-        epoch: u64,
-        protocol_revision: u64,
-        validator_set_root: Digest384,
-        pre_supply: u128,
-        issuance: u128,
-        burn: u128,
-        data_shards: usize,
-        parity_shards: usize,
-    ) -> Result<(Self, ChainState, BlockReceipt, Vec<u8>), FinalizedBlockAdmissionError> {
-        let encoded =
-            encode_envelope(block).map_err(|_| FinalizedBlockAdmissionError::CanonicalBlock)?;
-        let output =
-            apply_block(state, block).map_err(|_| FinalizedBlockAdmissionError::Execution)?;
-        let mut authorization = Vec::with_capacity(block.actions().len() * 48);
-        let mut actions = Vec::with_capacity(block.actions().len() * 48);
-        let mut total_fees = 0_u128;
-        for (action, receipt) in block.actions().iter().zip(output.receipt().action_receipts()) {
-            authorization.extend_from_slice(action.authorization_commitment().as_bytes());
-            actions.extend_from_slice(receipt.transaction_id().digest().as_bytes());
-            total_fees = total_fees
-                .checked_add(receipt.fee_charged())
-                .ok_or(FinalizedBlockAdmissionError::Economics)?;
-        }
-        let post_supply = pre_supply
-            .checked_add(issuance)
-            .and_then(|v| v.checked_sub(burn))
+    data_shards: usize,
+    parity_shards: usize,
+) -> Result<(ProofPublicInputs, ChainState, BlockReceipt, Vec<u8>), FinalizedBlockAdmissionError> {
+    let encoded =
+        encode_envelope(block).map_err(|_| FinalizedBlockAdmissionError::CanonicalBlock)?;
+    let output = apply_block(state, block).map_err(|_| FinalizedBlockAdmissionError::Execution)?;
+    let mut authorization = Vec::with_capacity(block.actions().len() * 48);
+    let mut actions = Vec::with_capacity(block.actions().len() * 48);
+    let mut total_fees = 0_u128;
+    for (action, receipt) in block.actions().iter().zip(output.receipt().action_receipts()) {
+        authorization.extend_from_slice(action.authorization_commitment().as_bytes());
+        actions.extend_from_slice(receipt.transaction_id().digest().as_bytes());
+        total_fees = total_fees
+            .checked_add(receipt.fee_charged())
             .ok_or(FinalizedBlockAdmissionError::Economics)?;
-        let availability = AvailabilityBatch::encode(&encoded, data_shards, parity_shards)
-            .map_err(|_| FinalizedBlockAdmissionError::Availability)?;
-        let da = Digest384::new(
-            *availability
-                .payload_commitment()
-                .map_err(|_| FinalizedBlockAdmissionError::Availability)?
-                .as_bytes(),
-        );
-        Ok((
-            Self {
-                chain_id: block.chain_id(),
-                epoch,
-                height: block.height(),
-                protocol_revision,
-                validator_set_root,
-                parent_block_id: block.parent_block_id(),
-                pre_state: block.pre_state(),
-                authorization_root: commitment(
-                    b"ACTIVECHAIN-BLOCK-AUTHORIZATION-V1",
-                    &[&authorization],
-                ),
-                action_root: commitment(b"ACTIVECHAIN-BLOCK-ACTIONS-V1", &[&actions]),
-                execution_order_root: commitment(
-                    b"ACTIVECHAIN-BLOCK-EXECUTION-ORDER-V1",
-                    &[&actions],
-                ),
-                total_fees,
-                pre_supply,
-                issuance,
-                burn,
-                post_supply,
-                post_state: output.receipt().post_state(),
-                receipt_root: output.receipt_root(),
-                data_availability_commitment: da,
-            },
-            output.state().clone(),
-            output.receipt().clone(),
-            encoded,
-        ))
     }
-}
-
-impl CanonicalEncode for ProofPublicInputs {
-    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
-        self.chain_id.encode(e)?;
-        self.epoch.encode(e)?;
-        self.height.encode(e)?;
-        self.protocol_revision.encode(e)?;
-        self.validator_set_root.encode(e)?;
-        self.parent_block_id.encode(e)?;
-        self.pre_state.encode(e)?;
-        self.authorization_root.encode(e)?;
-        self.action_root.encode(e)?;
-        self.execution_order_root.encode(e)?;
-        self.total_fees.encode(e)?;
-        self.pre_supply.encode(e)?;
-        self.issuance.encode(e)?;
-        self.burn.encode(e)?;
-        self.post_supply.encode(e)?;
-        self.post_state.encode(e)?;
-        self.receipt_root.encode(e)?;
-        self.data_availability_commitment.encode(e)
-    }
-}
-impl CanonicalDecode for ProofPublicInputs {
-    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
-        Ok(Self {
-            chain_id: ChainId::decode(d)?,
-            epoch: u64::decode(d)?,
-            height: u64::decode(d)?,
-            protocol_revision: u64::decode(d)?,
-            validator_set_root: Digest384::decode(d)?,
-            parent_block_id: Digest384::decode(d)?,
-            pre_state: StateCommitment::decode(d)?,
-            authorization_root: Digest384::decode(d)?,
-            action_root: Digest384::decode(d)?,
-            execution_order_root: Digest384::decode(d)?,
-            total_fees: u128::decode(d)?,
-            pre_supply: u128::decode(d)?,
-            issuance: u128::decode(d)?,
-            burn: u128::decode(d)?,
-            post_supply: u128::decode(d)?,
-            post_state: StateCommitment::decode(d)?,
-            receipt_root: Digest384::decode(d)?,
-            data_availability_commitment: Digest384::decode(d)?,
-        })
-    }
-}
-impl CanonicalType for ProofPublicInputs {
-    const TYPE_TAG: u16 = 0x0078;
-    const SCHEMA_VERSION: u16 = 1;
-    const MAX_ENCODED_LEN: usize =
-        48 + 8 + 8 + 8 + 48 + 48 + 56 + 48 + 48 + 48 + 16 * 5 + 56 + 48 + 48;
+    let post_supply = pre_supply
+        .checked_add(issuance)
+        .and_then(|v| v.checked_sub(burn))
+        .ok_or(FinalizedBlockAdmissionError::Economics)?;
+    let availability = AvailabilityBatch::encode(&encoded, data_shards, parity_shards)
+        .map_err(|_| FinalizedBlockAdmissionError::Availability)?;
+    let da = Digest384::new(
+        *availability
+            .payload_commitment()
+            .map_err(|_| FinalizedBlockAdmissionError::Availability)?
+            .as_bytes(),
+    );
+    Ok((
+        ProofPublicInputs {
+            chain_id: block.chain_id(),
+            epoch,
+            height: block.height(),
+            protocol_revision,
+            validator_set_root,
+            parent_block_id: block.parent_block_id(),
+            pre_state: block.pre_state(),
+            authorization_root: commitment(
+                b"ACTIVECHAIN-BLOCK-AUTHORIZATION-V1",
+                &[&authorization],
+            ),
+            action_root: commitment(b"ACTIVECHAIN-BLOCK-ACTIONS-V1", &[&actions]),
+            execution_order_root: commitment(b"ACTIVECHAIN-BLOCK-EXECUTION-ORDER-V1", &[&actions]),
+            total_fees,
+            pre_supply,
+            issuance,
+            burn,
+            post_supply,
+            post_state: output.receipt().post_state(),
+            receipt_root: output.receipt_root(),
+            data_availability_commitment: da,
+        },
+        output.state().clone(),
+        output.receipt().clone(),
+        encoded,
+    ))
 }
 
 /// A verifier-produced proof statement. Proof bytes are deliberately outside block identity.
@@ -200,44 +93,6 @@ impl VerifiedExecutionProof {
             &[&inputs, self.prover.digest().as_bytes(), &self.proof_system.to_be_bytes()],
         ))
     }
-}
-
-/// Canonical header whose digest is the only digest validators may vote for.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct FinalizedBlockHeader {
-    pub inputs: ProofPublicInputs,
-    pub proof_statement_commitment: Digest384,
-}
-impl FinalizedBlockHeader {
-    pub fn digest(&self) -> Result<Digest384, EncodeError> {
-        Ok(commitment(b"ACTIVECHAIN-FINALIZED-BLOCK-HEADER-V1", &[&encode_envelope(self)?]))
-    }
-}
-impl CanonicalEncode for FinalizedBlockHeader {
-    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
-        self.inputs.encode(e)?;
-        self.proof_statement_commitment.encode(e)
-    }
-}
-impl CanonicalDecode for FinalizedBlockHeader {
-    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
-        let value = Self {
-            inputs: ProofPublicInputs::decode(d)?,
-            proof_statement_commitment: Digest384::decode(d)?,
-        };
-        if value.inputs.protocol_revision == 0
-            || value.inputs.validator_set_root == Digest384::ZERO
-            || value.proof_statement_commitment == Digest384::ZERO
-        {
-            return Err(DecodeError::InvalidValue("unbound finalized block header"));
-        }
-        Ok(value)
-    }
-}
-impl CanonicalType for FinalizedBlockHeader {
-    const TYPE_TAG: u16 = 0x0079;
-    const SCHEMA_VERSION: u16 = 1;
-    const MAX_ENCODED_LEN: usize = ProofPublicInputs::MAX_ENCODED_LEN + 48;
 }
 
 /// Untrusted material supplied to the authoritative admission path.
@@ -306,7 +161,7 @@ impl FinalizedBlockCandidate {
         if block.actions().iter().any(|action| !verifier.verify_authorization(action)) {
             return Err(FinalizedBlockAdmissionError::Authorization);
         }
-        let (inputs, next_state, receipt, _) = ProofPublicInputs::derive(
+        let (inputs, next_state, receipt, _) = derive_proof_public_inputs(
             state,
             &block,
             epoch,
@@ -374,8 +229,8 @@ mod tests {
     use super::*;
     use crate::{DurableFinalizedState, DurableProofPipeline, ProofPipelineError};
     use activechain_action_kernel::ResourcePrices;
-    use activechain_protocol_types::ConsensusVoteContext;
-    use activechain_state_tree::commit_objects;
+    use activechain_protocol_types::{ChainId, ConsensusVoteContext};
+    use activechain_state_tree::{StateCommitment, commit_objects};
     use activechain_transition::ObjectState;
 
     struct AcceptAll;
@@ -412,7 +267,7 @@ mod tests {
         let root = Digest384::new([2; 48]);
         let genesis = Digest384::new([3; 48]);
         let (inputs, _, _, _) =
-            ProofPublicInputs::derive(&state, &block, 7, 4, root, 100, 3, 2, 1, 1).unwrap();
+            derive_proof_public_inputs(&state, &block, 7, 4, root, 100, 3, 2, 1, 1).unwrap();
         let proof = VerifiedExecutionProof {
             inputs,
             prover: PrincipalId::new(Digest384::new([4; 48])),
