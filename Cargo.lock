@@ -332,8 +332,10 @@ dependencies = [
  "activechain-canonical-codec",
  "activechain-capability",
  "activechain-consensus-verifier",
+ "activechain-devnet-kernel",
  "activechain-finality-types",
  "activechain-policy-kernel",
+ "activechain-protocol-commitment",
  "activechain-protocol-types",
  "activechain-state-tree",
  "ml-dsa",
@@ -345,8 +347,10 @@ name = "activechain-verifier-ffi"
 version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
+ "activechain-devnet-kernel",
  "activechain-finality-types",
  "activechain-policy-kernel",
+ "activechain-protocol-commitment",
  "activechain-protocol-types",
  "activechain-state-tree",
  "activechain-verifier-api",

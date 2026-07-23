@@ -242,6 +242,35 @@ pub unsafe extern "C" fn activechain_verify_finality_bundle_code(
     activechain_verifier_api::verify_finality_bundle_code(input)
 }
 
+#[unsafe(no_mangle)]
+/// # Safety
+/// The caller must provide readable canonical finality and receipt buffers for the declared
+/// lengths. Null pointers are permitted only for zero-length buffers. No pointer is retained.
+pub unsafe extern "C" fn activechain_verify_block_receipt_code(
+    finality: *const u8,
+    finality_len: u32,
+    receipt: *const u8,
+    receipt_len: u32,
+) -> u32 {
+    if (finality.is_null() && finality_len != 0) || (receipt.is_null() && receipt_len != 0) {
+        return NULL_POINTER;
+    }
+    if finality_len.checked_add(receipt_len).is_none_or(|length| length > MAX_ENVELOPE_LENGTH) {
+        return TOO_LARGE;
+    }
+    let finality = if finality_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(finality, finality_len as usize) }
+    };
+    let receipt = if receipt_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(receipt, receipt_len as usize) }
+    };
+    activechain_verifier_api::verify_block_receipt_code(finality, receipt)
+}
+
 #[cfg(kani)]
 mod kani_proofs;
 
@@ -285,10 +314,12 @@ pub unsafe extern "C" fn activechain_verify_commitment_code(
 mod tests {
     use super::*;
     use activechain_canonical_codec::encode_envelope;
+    use activechain_devnet_kernel::BlockReceipt;
     use activechain_finality_types::{
         FinalityCertificateBundle, FinalizedBlockHeader, ProofPublicInputs,
     };
     use activechain_policy_kernel::{DecisionResult, PolicyDecision};
+    use activechain_protocol_commitment::{DomainTag, commit};
     use activechain_protocol_types::{
         ActionId, BoundedActionSet, CapabilityGrant, CapabilityGrantFields, CapabilityId,
         CryptoSuiteId, DataSelector, FreezeState, HolderBinding, Object, ObjectFields, ObjectFlags,
@@ -598,6 +629,119 @@ mod tests {
         );
         assert_eq!(
             unsafe { activechain_verify_finality_bundle_code(core::ptr::null(), 1) },
+            NULL_POINTER
+        );
+    }
+
+    #[test]
+    fn block_receipt_abi_preserves_rust_relation_codes_and_null_safety() {
+        let key = SigningKey::<MlDsa44>::from_seed(&Seed::from([7; 32]));
+        let validator = PrincipalId::new(digest(1));
+        let genesis = ValidatorGenesis::new_with_revision(
+            3,
+            1,
+            4,
+            vec![
+                ValidatorGenesisEntry::new(validator, 1, key.verifying_key().encode().into())
+                    .unwrap(),
+            ],
+        )
+        .unwrap();
+        let pre_state = activechain_state_tree::StateCommitment::new(digest(42), 0);
+        let post_state = activechain_state_tree::StateCommitment::new(digest(46), 0);
+        let receipt = BlockReceipt::new(digest(50), 9, pre_state, post_state, vec![]).unwrap();
+        let receipt_root = commit(DomainTag::CANONICAL_VALUE, &receipt).unwrap();
+        let header = FinalizedBlockHeader {
+            inputs: ProofPublicInputs {
+                chain_id: activechain_protocol_types::ChainId::new(digest(40)),
+                epoch: 3,
+                height: 9,
+                protocol_revision: 4,
+                validator_set_root: genesis.validator_set_root(),
+                parent_block_id: digest(41),
+                pre_state,
+                authorization_root: digest(43),
+                action_root: digest(44),
+                execution_order_root: digest(45),
+                total_fees: 0,
+                pre_supply: 0,
+                issuance: 0,
+                burn: 0,
+                post_supply: 0,
+                post_state,
+                receipt_root,
+                data_availability_commitment: digest(48),
+            },
+            proof_statement_commitment: digest(49),
+        };
+        let context = activechain_protocol_types::ConsensusVoteContext::new_with_revision(
+            genesis.genesis_commitment(),
+            3,
+            genesis.validator_set_root(),
+            4,
+        )
+        .unwrap();
+        let unsigned = ValidatorVote::new(
+            validator,
+            context,
+            9,
+            2,
+            header.digest().unwrap(),
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2_420]).unwrap(),
+        )
+        .unwrap();
+        let signature = key.sign(&unsigned.signing_payload());
+        let vote = ValidatorVote::new(
+            validator,
+            context,
+            9,
+            2,
+            header.digest().unwrap(),
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec()).unwrap(),
+        )
+        .unwrap();
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-VOTE-SET-V1");
+        hasher.update(key.verifying_key().encode().as_slice());
+        hasher.update(&vote.signing_payload());
+        hasher.update(vote.signature().as_bytes());
+        let mut root = [0; 48];
+        hasher.finalize_xof().read(&mut root);
+        let certificate = QuorumCertificate::new(
+            context,
+            9,
+            2,
+            header.digest().unwrap(),
+            Digest384::new(root),
+            1,
+            1,
+        )
+        .unwrap();
+        let finality = encode_envelope(
+            &FinalityCertificateBundle::new(header, genesis, certificate, vec![vote]).unwrap(),
+        )
+        .unwrap();
+        let encoded_receipt = encode_envelope(&receipt).unwrap();
+        assert_eq!(
+            unsafe {
+                activechain_verify_block_receipt_code(
+                    finality.as_ptr(),
+                    finality.len() as u32,
+                    encoded_receipt.as_ptr(),
+                    encoded_receipt.len() as u32,
+                )
+            },
+            activechain_verifier_api::VERIFY_OK
+        );
+        assert_eq!(
+            unsafe {
+                activechain_verify_block_receipt_code(
+                    core::ptr::null(),
+                    1,
+                    encoded_receipt.as_ptr(),
+                    encoded_receipt.len() as u32,
+                )
+            },
             NULL_POINTER
         );
     }
