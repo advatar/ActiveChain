@@ -71,6 +71,7 @@ Tracked by [GitHub issue #138](https://github.com/advatar/ActiveChain/issues/138
 - [ ] Add one shared SwiftUI source set with native iOS and macOS application targets.
 - [ ] Implement bounded board, thread, and post presentation models plus an adaptive retro imageboard shell.
 - [ ] Add unit coverage for identifiers, bounds, ordering, and platform-neutral view state.
+- [ ] Feature Amber honestly as the first reference application on the ActiveChain landing page.
 - [ ] Document and pass reproducible iOS Simulator and macOS builds.
 
 ## Active implementation — private billboard native-token vertical slice
