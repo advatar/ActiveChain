@@ -7,6 +7,10 @@ typedef uint32_t (*activechain_wallet_sign_callback)(
     uint32_t payload_len,
     uint8_t *signature_out,
     uint32_t signature_len);
+typedef uint32_t (*activechain_wallet_submit_callback)(
+    void *context,
+    const uint8_t *envelope,
+    uint32_t envelope_len);
 uint32_t activechain_wallet_ffi_revision(void);
 uint32_t activechain_wallet_session_valid(const uint8_t *session_id,
                                           const uint8_t *relying_party,
@@ -58,4 +62,10 @@ uint32_t activechain_wallet_sign_cash_intent(
     uint8_t *output,
     uint32_t output_capacity,
     uint32_t *required_len);
+uint32_t activechain_wallet_submit_authorized(
+    const uint8_t *envelope,
+    uint32_t envelope_len,
+    const uint8_t public_key[1312],
+    activechain_wallet_submit_callback callback,
+    void *callback_context);
 #endif

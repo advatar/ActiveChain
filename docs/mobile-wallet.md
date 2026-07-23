@@ -43,6 +43,10 @@ decodes the approved request, derives its domain-separated signing payload, invo
 callback only after output capacity has been established, and verifies the returned ML-DSA-44
 signature before publishing a canonical `AuthorizedCashTransferV1`.
 
+`activechain_wallet_submit_authorized` strictly decodes and reverifies that authorized envelope
+before invoking a caller-owned transport callback with the exact bytes. This separates networking
+from key custody and ensures malformed or signature-substituted requests never reach transport.
+
 ## iOS and Android
 
 - iOS stores encrypted key-slot material behind Keychain/Secure Enclave handles.

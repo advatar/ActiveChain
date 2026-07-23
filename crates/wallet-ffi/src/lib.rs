@@ -27,6 +27,8 @@ pub type ActivechainWalletSignCallback = unsafe extern "C" fn(
     signature_out: *mut u8,
     signature_len: u32,
 ) -> u32;
+pub type ActivechainWalletSubmitCallback =
+    unsafe extern "C" fn(context: *mut c_void, envelope: *const u8, envelope_len: u32) -> u32;
 
 /// Returns the ABI revision consumed by native wallet shells.
 #[unsafe(no_mangle)]
@@ -335,6 +337,48 @@ pub unsafe extern "C" fn activechain_wallet_sign_cash_intent(
     debug_assert_eq!(encoded.len(), required);
     unsafe {
         core::ptr::copy_nonoverlapping(encoded.as_ptr(), output, encoded.len());
+    }
+    WALLET_OK
+}
+
+/// Verifies and forwards one exact authorized envelope to a caller-owned transport.
+///
+/// # Safety
+///
+/// `envelope` and `public_key` must be readable for their declared/fixed lengths. `callback` must
+/// obey its contract for the duration of the call. No pointer is retained.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn activechain_wallet_submit_authorized(
+    envelope: *const u8,
+    envelope_len: u32,
+    public_key: *const u8,
+    callback: Option<ActivechainWalletSubmitCallback>,
+    callback_context: *mut c_void,
+) -> u32 {
+    if (envelope.is_null() && envelope_len != 0) || public_key.is_null() || callback.is_none() {
+        return WALLET_NULL_POINTER;
+    }
+    if envelope_len > MAX_WALLET_INPUT {
+        return WALLET_TOO_LARGE;
+    }
+    let envelope = if envelope_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(envelope, envelope_len as usize) }
+    };
+    let authorized = match decode_envelope::<AuthorizedCashTransferV1>(envelope) {
+        Ok(authorized) => authorized,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    let public_key = unsafe { core::slice::from_raw_parts(public_key, ML_DSA44_PUBLIC_KEY_LENGTH) };
+    if authorized.verify(public_key).is_err() {
+        return WALLET_INVALID_SIGNATURE;
+    }
+    let callback_code = unsafe {
+        callback.expect("checked above")(callback_context, envelope.as_ptr(), envelope_len)
+    };
+    if callback_code != 0 {
+        return WALLET_CALLBACK_FAILED;
     }
     WALLET_OK
 }
@@ -713,5 +757,81 @@ mod tests {
             },
             WALLET_INVALID_SIGNATURE
         );
+    }
+
+    unsafe extern "C" fn submit_callback(
+        context: *mut c_void,
+        envelope: *const u8,
+        envelope_len: u32,
+    ) -> u32 {
+        if context.is_null() || envelope.is_null() || envelope_len == 0 {
+            return 1;
+        }
+        let count = unsafe { &mut *context.cast::<usize>() };
+        *count += 1;
+        0
+    }
+
+    #[test]
+    fn submission_reverifies_authorization_before_reaching_transport() {
+        let key = SigningKey::<MlDsa44>::from_seed(&ml_dsa::Seed::from([9; 32]));
+        let request = CashAuthorizationRequestV1::new(
+            ChainId::new(digest(1)),
+            PrincipalId::new(digest(2)),
+            7,
+            digest(6),
+            9,
+            CoinTransfer::new(
+                PrincipalId::new(digest(2)),
+                PrincipalId::new(digest(3)),
+                vec![CoinCellId::new(digest(4))],
+                CoinCellId::new(digest(5)),
+                50,
+                2,
+                10,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let signature = key.sign(&request.signing_payload().unwrap()).encode();
+        let authorized = AuthorizedCashTransferV1::new(
+            request,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.as_slice().to_vec())
+                .unwrap(),
+        )
+        .unwrap();
+        let encoded = encode_envelope(&authorized).unwrap();
+        let public_key = key.verifying_key().encode();
+        let mut submissions = 0_usize;
+        assert_eq!(
+            unsafe {
+                activechain_wallet_submit_authorized(
+                    encoded.as_ptr(),
+                    encoded.len() as u32,
+                    public_key.as_slice().as_ptr(),
+                    Some(submit_callback),
+                    (&mut submissions as *mut usize).cast(),
+                )
+            },
+            WALLET_OK
+        );
+        assert_eq!(submissions, 1);
+
+        let mut substituted = encoded;
+        let last = substituted.len() - 1;
+        substituted[last] ^= 1;
+        assert_eq!(
+            unsafe {
+                activechain_wallet_submit_authorized(
+                    substituted.as_ptr(),
+                    substituted.len() as u32,
+                    public_key.as_slice().as_ptr(),
+                    Some(submit_callback),
+                    (&mut submissions as *mut usize).cast(),
+                )
+            },
+            WALLET_INVALID_SIGNATURE
+        );
+        assert_eq!(submissions, 1);
     }
 }
