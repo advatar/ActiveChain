@@ -16,6 +16,17 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Phase 0 bootstrap is tracked by [GitHub issue #1](https://github.com/advatar/ActiveChain/issues/1).
 
+## Active recovery — consensus authorization safety work
+
+Tracked by [GitHub issue #127](https://github.com/advatar/ActiveChain/issues/127).
+
+- [x] Preserve the unpublished substantive work on a remote recovery branch.
+- [ ] Classify recovery changes as upstream-equivalent, obsolete, or genuinely missing.
+- [ ] Port proposal/QC binding, durable signing/sequence safety, chained-finality/reconfiguration,
+  and authorization-chain formal work without regressing current main.
+- [ ] Run formatting, strict Clippy, focused tests, formal gates, and the complete qualification pipeline.
+- [ ] Merge the verified integration, then remove recovery artifacts only after reachability checks.
+
 ## Active investigation — Aztec billboard parity
 
 Tracked by [GitHub issue #17](https://github.com/advatar/ActiveChain/issues/17).
