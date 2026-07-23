@@ -5,6 +5,15 @@ repo_root=$(cd "$(dirname "$0")/.." && pwd)
 output=${1:-"$repo_root/dist/apple"}
 source_revision=${2:-$(git -C "$repo_root" rev-parse HEAD)}
 head_revision=$(git -C "$repo_root" rev-parse HEAD)
+if [[ -n ${CARGO_TARGET_DIR:-} ]]; then
+  case "$CARGO_TARGET_DIR" in
+    /*) cargo_target_dir=$CARGO_TARGET_DIR ;;
+    *) cargo_target_dir="$PWD/$CARGO_TARGET_DIR" ;;
+  esac
+else
+  cargo_target_dir="$repo_root/target"
+fi
+export CARGO_TARGET_DIR=$cargo_target_dir
 
 if [[ "$source_revision" != "$head_revision" ]]; then
   echo "source revision must equal the checked-out HEAD ($head_revision)" >&2
@@ -66,20 +75,20 @@ for target in "${targets[@]}"; do
 done
 
 xcodebuild -create-xcframework \
-  -library "$repo_root/target/aarch64-apple-darwin/release/libactivechain_verifier_ffi.a" \
+  -library "$cargo_target_dir/aarch64-apple-darwin/release/libactivechain_verifier_ffi.a" \
   -headers "$verifier_headers" \
-  -library "$repo_root/target/aarch64-apple-ios/release/libactivechain_verifier_ffi.a" \
+  -library "$cargo_target_dir/aarch64-apple-ios/release/libactivechain_verifier_ffi.a" \
   -headers "$verifier_headers" \
-  -library "$repo_root/target/aarch64-apple-ios-sim/release/libactivechain_verifier_ffi.a" \
+  -library "$cargo_target_dir/aarch64-apple-ios-sim/release/libactivechain_verifier_ffi.a" \
   -headers "$verifier_headers" \
   -output "$staging/ActiveChainVerifier.xcframework"
 
 xcodebuild -create-xcframework \
-  -library "$repo_root/target/aarch64-apple-darwin/release/libactivechain_wallet_ffi.a" \
+  -library "$cargo_target_dir/aarch64-apple-darwin/release/libactivechain_wallet_ffi.a" \
   -headers "$wallet_headers" \
-  -library "$repo_root/target/aarch64-apple-ios/release/libactivechain_wallet_ffi.a" \
+  -library "$cargo_target_dir/aarch64-apple-ios/release/libactivechain_wallet_ffi.a" \
   -headers "$wallet_headers" \
-  -library "$repo_root/target/aarch64-apple-ios-sim/release/libactivechain_wallet_ffi.a" \
+  -library "$cargo_target_dir/aarch64-apple-ios-sim/release/libactivechain_wallet_ffi.a" \
   -headers "$wallet_headers" \
   -output "$staging/ActiveChainWallet.xcframework"
 
