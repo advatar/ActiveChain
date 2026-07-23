@@ -23,5 +23,7 @@ xcodebuild \
   -project "$project/ActiveChainWallet.xcodeproj" \
   -scheme ActiveChainWallet \
   -destination "$destination" \
+  ARCHS=arm64 \
+  ONLY_ACTIVE_ARCH=YES \
   CODE_SIGNING_ALLOWED=NO \
   build
