@@ -28,6 +28,11 @@ canonical bounded `CoinCellSet`, owner, amount, and fee as two-word unsigned val
 returns distinct deterministic payment and fee-reserve identifiers. Null, oversized, malformed,
 wrong-owner, and insufficient-funds inputs fail without publishing output state.
 
+`activechain_wallet_policy_allows` exposes the same pure `SpendPolicy` decision used by the Rust
+core. Amounts, accumulated daily spend, and limits cross the C boundary as high/low 64-bit words;
+an optional recipient commitment pins the policy without introducing string or allocation
+ambiguity.
+
 ## iOS and Android
 
 - iOS stores encrypted key-slot material behind Keychain/Secure Enclave handles.
