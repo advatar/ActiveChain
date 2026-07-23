@@ -1,12 +1,17 @@
 # ActiveChain Wallet iOS app
 
-Build and run the current developer wallet in the simulator:
+The generated Xcode project references the exact-HEAD Rust binary at
+`dist/apple/current/ActiveChainWallet.xcframework`. From the repository root, prepare that
+distribution, regenerate the project, and build the current developer wallet with:
 
 ```bash
-xcodegen generate
-xcodebuild -project ActiveChainWallet.xcodeproj -scheme ActiveChainWallet \
-  -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO build
+scripts/build-ios-wallet-app.sh
 ```
+
+Do not open the project and accept Xcode's recommended signing changes before running the script.
+`project.yml` is the source of truth; developer-team identifiers and Xcode user/build state are
+local and must not be committed. If Xcode reports that `ActiveChainWallet.xcframework` is missing,
+close it and rerun the script from a clean checkout.
 
 The app exercises policy-gated transfer preview/approval and OpenWallet credential/session
 replay rules. It uses deterministic local adapters until the Rust FFI library is linked into the

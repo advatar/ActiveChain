@@ -16,6 +16,14 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Phase 0 bootstrap is tracked by [GitHub issue #1](https://github.com/advatar/ActiveChain/issues/1).
 
+## Active developer setup — iOS wallet XCFramework
+
+Tracked by [GitHub issue #129](https://github.com/advatar/ActiveChain/issues/129).
+
+- [x] Document that the generated Xcode project requires an exact-HEAD Apple distribution.
+- [ ] Build and verify the local wallet XCFramework and simulator app from a clean checkout.
+- [ ] Keep developer signing IDs and Xcode user/build state out of the generated project.
+
 ## Active investigation — Aztec billboard parity
 
 Tracked by [GitHub issue #17](https://github.com/advatar/ActiveChain/issues/17).
