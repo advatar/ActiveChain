@@ -739,8 +739,7 @@ private struct SendFlowView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Recipient").font(.subheadline).foregroundStyle(WalletPalette.muted)
                         TextField("DID or address", text: $recipient)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
+                            .walletAddressInputBehavior()
                             .font(.callout.monospaced())
                         Divider().overlay(.white.opacity(0.1))
                         HStack {
@@ -887,6 +886,16 @@ private extension View {
     func walletDecimalKeyboard() -> some View {
 #if os(iOS)
         keyboardType(.decimalPad)
+#else
+        self
+#endif
+    }
+
+    @ViewBuilder
+    func walletAddressInputBehavior() -> some View {
+#if os(iOS)
+        textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
 #else
         self
 #endif
