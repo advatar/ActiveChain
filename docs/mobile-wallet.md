@@ -38,6 +38,11 @@ ambiguity.
 size query before allocation and publishes the complete request plus its intent identifier only
 when the caller's output buffer is large enough.
 
+`activechain_wallet_sign_cash_intent` keeps key custody in the native secure-key provider. Rust
+decodes the approved request, derives its domain-separated signing payload, invokes the opaque
+callback only after output capacity has been established, and verifies the returned ML-DSA-44
+signature before publishing a canonical `AuthorizedCashTransferV1`.
+
 ## iOS and Android
 
 - iOS stores encrypted key-slot material behind Keychain/Secure Enclave handles.

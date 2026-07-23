@@ -2,8 +2,11 @@
 
 use activechain_canonical_codec::{decode_envelope, encode_envelope};
 use activechain_cash_kernel::{CoinCellSet, CoinTransfer};
-use activechain_protocol_types::{ChainId, CoinCellId, Digest384, PrincipalId};
-use activechain_wallet_core::CashAuthorizationRequestV1;
+use activechain_protocol_types::{
+    ChainId, CoinCellId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature,
+};
+use activechain_wallet_core::{AuthorizedCashTransferV1, CashAuthorizationRequestV1};
+use core::ffi::c_void;
 
 const MAX_WALLET_INPUT: u32 = 256 * 1024;
 const WALLET_OK: u32 = 0;
@@ -12,6 +15,18 @@ const WALLET_TOO_LARGE: u32 = 2;
 const WALLET_MALFORMED: u32 = 3;
 const WALLET_INSUFFICIENT_FUNDS: u32 = 4;
 const WALLET_BUFFER_TOO_SMALL: u32 = 5;
+const WALLET_CALLBACK_FAILED: u32 = 6;
+const WALLET_INVALID_SIGNATURE: u32 = 7;
+const ML_DSA44_SIGNATURE_LENGTH: usize = 2_420;
+const ML_DSA44_PUBLIC_KEY_LENGTH: usize = 1_312;
+
+pub type ActivechainWalletSignCallback = unsafe extern "C" fn(
+    context: *mut c_void,
+    payload: *const u8,
+    payload_len: u32,
+    signature_out: *mut u8,
+    signature_len: u32,
+) -> u32;
 
 /// Returns the ABI revision consumed by native wallet shells.
 #[unsafe(no_mangle)]
@@ -228,6 +243,102 @@ pub unsafe extern "C" fn activechain_wallet_build_cash_intent(
     WALLET_OK
 }
 
+/// Invokes a secure-key callback for one exact canonical request and verifies its result.
+///
+/// # Safety
+///
+/// `request` and `public_key` must be readable for their fixed lengths. `callback` must obey its
+/// declared contract for the duration of the call. `output` may be null only for a zero-capacity
+/// size query; `required_len` must be writable. The callback is never retained.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn activechain_wallet_sign_cash_intent(
+    request: *const u8,
+    request_len: u32,
+    public_key: *const u8,
+    callback: Option<ActivechainWalletSignCallback>,
+    callback_context: *mut c_void,
+    output: *mut u8,
+    output_capacity: u32,
+    required_len: *mut u32,
+) -> u32 {
+    if (request.is_null() && request_len != 0)
+        || public_key.is_null()
+        || callback.is_none()
+        || required_len.is_null()
+        || (output.is_null() && output_capacity != 0)
+    {
+        return WALLET_NULL_POINTER;
+    }
+    if request_len > MAX_WALLET_INPUT {
+        return WALLET_TOO_LARGE;
+    }
+    let request_bytes = if request_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(request, request_len as usize) }
+    };
+    let request = match decode_envelope::<CashAuthorizationRequestV1>(request_bytes) {
+        Ok(request) => request,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    let placeholder =
+        ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; ML_DSA44_SIGNATURE_LENGTH])
+            .expect("the protocol publishes the ML-DSA-44 signature length");
+    let placeholder = AuthorizedCashTransferV1::new(request.clone(), placeholder)
+        .expect("ML-DSA-44 is the cash authorization suite");
+    let required = match encode_envelope(&placeholder) {
+        Ok(encoded) => encoded.len(),
+        Err(_) => return WALLET_MALFORMED,
+    };
+    let Ok(required_u32) = u32::try_from(required) else {
+        return WALLET_TOO_LARGE;
+    };
+    unsafe {
+        *required_len = required_u32;
+    }
+    if output_capacity < required_u32 {
+        return WALLET_BUFFER_TOO_SMALL;
+    }
+    let payload = match request.signing_payload() {
+        Ok(payload) => payload,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    let Ok(payload_len) = u32::try_from(payload.len()) else {
+        return WALLET_TOO_LARGE;
+    };
+    let mut signature = [0; ML_DSA44_SIGNATURE_LENGTH];
+    let callback_code = unsafe {
+        callback.expect("checked above")(
+            callback_context,
+            payload.as_ptr(),
+            payload_len,
+            signature.as_mut_ptr(),
+            ML_DSA44_SIGNATURE_LENGTH as u32,
+        )
+    };
+    if callback_code != 0 {
+        return WALLET_CALLBACK_FAILED;
+    }
+    let signature =
+        ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.to_vec()).expect("exact length");
+    let authorized = AuthorizedCashTransferV1::new(request, signature)
+        .expect("ML-DSA-44 is the cash authorization suite");
+    let public_key = unsafe { core::slice::from_raw_parts(public_key, ML_DSA44_PUBLIC_KEY_LENGTH) };
+    if authorized.verify(public_key).is_err() {
+        return WALLET_INVALID_SIGNATURE;
+    }
+    let encoded = match encode_envelope(&authorized) {
+        Ok(encoded) => encoded,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    debug_assert_eq!(encoded.len(), required);
+    unsafe {
+        core::ptr::copy_nonoverlapping(encoded.as_ptr(), output, encoded.len());
+    }
+    WALLET_OK
+}
+
 const fn join_u128(high: u64, low: u64) -> u128 {
     (high as u128) << 64 | low as u128
 }
@@ -251,6 +362,7 @@ mod tests {
     use activechain_canonical_codec::encode_envelope;
     use activechain_cash_kernel::{CoinCell, CoinCellOrigin, CoinCellRecord};
     use activechain_protocol_types::TransactionId;
+    use ml_dsa::{Keypair, MlDsa44, Signer, SigningKey};
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
@@ -496,6 +608,110 @@ mod tests {
                 )
             },
             WALLET_MALFORMED
+        );
+    }
+
+    unsafe extern "C" fn sign_callback(
+        context: *mut c_void,
+        payload: *const u8,
+        payload_len: u32,
+        signature_out: *mut u8,
+        signature_len: u32,
+    ) -> u32 {
+        if context.is_null()
+            || payload.is_null()
+            || signature_out.is_null()
+            || signature_len != ML_DSA44_SIGNATURE_LENGTH as u32
+        {
+            return 1;
+        }
+        let key = unsafe { &*context.cast::<SigningKey<MlDsa44>>() };
+        let payload = unsafe { core::slice::from_raw_parts(payload, payload_len as usize) };
+        let signature = key.sign(payload).encode();
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                signature.as_slice().as_ptr(),
+                signature_out,
+                signature.len(),
+            );
+        }
+        0
+    }
+
+    #[test]
+    fn secure_callback_signs_only_the_canonical_payload_and_is_verified_before_publication() {
+        let transfer = CoinTransfer::new(
+            PrincipalId::new(digest(2)),
+            PrincipalId::new(digest(3)),
+            vec![CoinCellId::new(digest(4))],
+            CoinCellId::new(digest(5)),
+            50,
+            2,
+            10,
+        )
+        .unwrap();
+        let request = CashAuthorizationRequestV1::new(
+            ChainId::new(digest(1)),
+            PrincipalId::new(digest(2)),
+            7,
+            digest(6),
+            9,
+            transfer,
+        )
+        .unwrap();
+        let request = encode_envelope(&request).unwrap();
+        let key = SigningKey::<MlDsa44>::from_seed(&ml_dsa::Seed::from([7; 32]));
+        let public_key = key.verifying_key().encode();
+        let mut required = 0;
+        assert_eq!(
+            unsafe {
+                activechain_wallet_sign_cash_intent(
+                    request.as_ptr(),
+                    request.len() as u32,
+                    public_key.as_slice().as_ptr(),
+                    Some(sign_callback),
+                    (&key as *const SigningKey<MlDsa44>).cast_mut().cast(),
+                    core::ptr::null_mut(),
+                    0,
+                    &mut required,
+                )
+            },
+            WALLET_BUFFER_TOO_SMALL
+        );
+        let mut output = vec![0; required as usize];
+        assert_eq!(
+            unsafe {
+                activechain_wallet_sign_cash_intent(
+                    request.as_ptr(),
+                    request.len() as u32,
+                    public_key.as_slice().as_ptr(),
+                    Some(sign_callback),
+                    (&key as *const SigningKey<MlDsa44>).cast_mut().cast(),
+                    output.as_mut_ptr(),
+                    required,
+                    &mut required,
+                )
+            },
+            WALLET_OK
+        );
+        let authorized = decode_envelope::<AuthorizedCashTransferV1>(&output).unwrap();
+        assert_eq!(authorized.verify(public_key.as_slice()), Ok(()));
+
+        let wrong_key = SigningKey::<MlDsa44>::from_seed(&ml_dsa::Seed::from([8; 32]));
+        assert_eq!(
+            unsafe {
+                activechain_wallet_sign_cash_intent(
+                    request.as_ptr(),
+                    request.len() as u32,
+                    wrong_key.verifying_key().encode().as_slice().as_ptr(),
+                    Some(sign_callback),
+                    (&key as *const SigningKey<MlDsa44>).cast_mut().cast(),
+                    output.as_mut_ptr(),
+                    required,
+                    &mut required,
+                )
+            },
+            WALLET_INVALID_SIGNATURE
         );
     }
 }
