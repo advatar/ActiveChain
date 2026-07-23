@@ -273,6 +273,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-rpc-server"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-protocol-types",
+ "activechain-rpc-types",
+ "sha3 0.10.9",
+]
+
+[[package]]
+name = "activechain-rpc-types"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-protocol-types",
+]
+
+[[package]]
 name = "activechain-semantic-devnet"
 version = "0.1.0"
 dependencies = [
