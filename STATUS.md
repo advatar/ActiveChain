@@ -621,12 +621,33 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [x] Freeze envelope type/version/body-length/trailing-byte rules in `P-110`.
 - [x] Publish the machine-readable `testing/vectors/manifest-v1.json` index.
 - [ ] Add complete envelope/commitment hashes for every published vector.
-- [ ] Add complete envelope/commitment hashes for every published vector.
 - [x] Verify the checked-in DA proof and payload commitment fixture directly through the DA kernel.
 - [ ] Implement a bounded language-neutral verifier API and structured failure codes.
 - [x] Add malformed/tampered/wrong-version/trailing-byte fixtures to CI.
 - [ ] Freeze light-client finality, checkpoint, state-sync, DA, and upgrade requirements.
 - [x] Add a local manifest checker for vector hashes and malformed fixtures.
+- [ ] Deliver the stable downstream integration contract required by dBrowser
+  ([GitHub epic #86](https://github.com/advatar/ActiveChain/issues/86)).
+  - [ ] Build a versioned verifier SDK for principals, capabilities, APL decisions, state
+    witnesses, finalized blocks, receipts, and authorization chains
+    ([GitHub issue #88](https://github.com/advatar/ActiveChain/issues/88)).
+    - [x] Publish ABI, schema, and protocol revision queries plus an exact semantic Principal
+      envelope verifier through matching Rust and C result codes.
+    - [ ] Add capability, APL decision, state-witness, finalized-block, receipt, and joined
+      authorization-chain verifiers with complete positive and malformed vectors.
+  - [ ] Expose Coin Cell discovery, policy evaluation, canonical intents, approval-bound signing,
+    secure-key callbacks, and submission through the wallet ABI
+    ([GitHub issue #87](https://github.com/advatar/ActiveChain/issues/87)).
+  - [ ] Publish a proof-bearing development-network query/RPC contract
+    ([GitHub issue #91](https://github.com/advatar/ActiveChain/issues/91)).
+  - [ ] Package an embeddable persistent light client
+    ([GitHub issue #92](https://github.com/advatar/ActiveChain/issues/92)).
+  - [ ] Ship reproducible Apple artifacts and a machine-readable compatibility manifest
+    ([GitHub issue #90](https://github.com/advatar/ActiveChain/issues/90)).
+  - [ ] Stabilize browser/agent jobs, artifacts, evidence, manifests, and receipts
+    ([GitHub issue #89](https://github.com/advatar/ActiveChain/issues/89)).
+  - [ ] Pass downstream conformance against dBrowser while retaining the developmental and
+    unaudited release status until the external security gate completes.
 
 ## Planned milestone — external pre-launch security audit
 

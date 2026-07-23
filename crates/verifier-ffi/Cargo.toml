@@ -13,3 +13,6 @@ crate-type = ["cdylib", "staticlib"]
 [dependencies]
 activechain-protocol-types.workspace = true
 activechain-verifier-api.workspace = true
+
+[dev-dependencies]
+activechain-canonical-codec.workspace = true
