@@ -13,3 +13,6 @@ The Android shell builds its arm64 JNI library as a Gradle prerequisite and pers
 canonical registry format. Other `LocalWalletBridge` paths remain deterministic integration mocks;
 they do not claim production cryptography or secure storage. Platform keystore callback providers
 remain a separate release gate.
+
+Amber, ActiveChain's first native reference application, lives in `apple/AmberApp`. It uses one
+shared SwiftUI source set for iOS and macOS and is deliberately separate from the wallet shell.
