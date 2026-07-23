@@ -376,11 +376,48 @@ private struct ActivityView: View {
 }
 
 private struct ApprovalsView: View {
+    @StateObject private var agents = AgentWalletStore()
+
+    init() {
+        let store = AgentWalletStore()
+        _ = store.delegate(AgentDelegation(
+            id: "did:active:agent-research", label: "Research agent",
+            capabilities: ["Pay approved providers", "Read public artifacts"],
+            dailyLimit: 50, expiresAt: 240_000, connection: .thirdParty, spentToday: 18
+        ))
+        _ = store.delegate(AgentDelegation(
+            id: "did:active:agent-travel", label: "Travel planner",
+            capabilities: ["Request selected credentials"], dailyLimit: 10,
+            expiresAt: 210_000, connection: .remote, spentToday: 0
+        ))
+        _agents = StateObject(wrappedValue: store)
+    }
+
     var body: some View {
         ZStack {
             WalletBackground()
             ScrollView {
                 VStack(spacing: 16) {
+                    NavigationLink {
+                        AgentInventoryView(store: agents)
+                    } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: "person.2.badge.gearshape.fill")
+                                .foregroundStyle(WalletPalette.mint)
+                                .frame(width: 42, height: 42)
+                                .background(WalletPalette.mint.opacity(0.13), in: Circle())
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Manage agents").font(.headline)
+                                Text("2 active · capabilities, budgets and revocation")
+                                    .font(.caption).foregroundStyle(WalletPalette.muted)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption.bold()).foregroundStyle(WalletPalette.muted)
+                        }
+                        .cardStyle()
+                    }
+                    .buttonStyle(.plain)
                     ApprovalCard(
                         agent: "Research agent",
                         action: "Pay data provider",
@@ -406,6 +443,158 @@ private struct ApprovalsView: View {
         }
         .navigationTitle("Approvals")
         .toolbarBackground(WalletPalette.ink, for: .navigationBar)
+    }
+}
+
+private struct AgentInventoryView: View {
+    @ObservedObject var store: AgentWalletStore
+
+    var body: some View {
+        ZStack {
+            WalletBackground()
+            ScrollView {
+                VStack(spacing: 14) {
+                    Text("Agents are authenticated principals, not apps the wallet can inspect. Controls below limit their ActiveChain authority.")
+                        .font(.caption)
+                        .foregroundStyle(WalletPalette.muted)
+                        .padding(16)
+                        .background(WalletPalette.violet.opacity(0.12),
+                                    in: RoundedRectangle(cornerRadius: 18))
+                    ForEach(store.agents) { agent in
+                        NavigationLink {
+                            AgentDetailView(store: store, agentID: agent.id)
+                        } label: {
+                            AgentRow(agent: agent)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(20)
+            }
+        }
+        .navigationTitle("Agents")
+        .toolbarBackground(WalletPalette.ink, for: .navigationBar)
+    }
+}
+
+private struct AgentRow: View {
+    let agent: AgentDelegation
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: agent.connection == .remote ? "cloud.fill" : "app.connected.to.app.below.fill")
+                .foregroundStyle(statusColor)
+                .frame(width: 44, height: 44)
+                .background(statusColor.opacity(0.14), in: Circle())
+            VStack(alignment: .leading, spacing: 4) {
+                Text(agent.label).font(.headline)
+                Text("\(agent.connection.rawValue) · \(agent.capabilities.count) capabilities")
+                    .font(.caption).foregroundStyle(WalletPalette.muted)
+                ProgressView(value: Double(agent.spentToday), total: Double(agent.dailyLimit))
+                    .tint(statusColor)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(statusLabel).font(.caption.bold()).foregroundStyle(statusColor)
+                Text("\(agent.spentToday)/\(agent.dailyLimit) ACT")
+                    .font(.caption2.monospacedDigit()).foregroundStyle(WalletPalette.muted)
+            }
+        }
+        .cardStyle()
+        .accessibilityElement(children: .combine)
+    }
+
+    private var statusLabel: String {
+        switch agent.lifecycle {
+        case .active: "Active"
+        case .paused: "Paused"
+        case .revocationPending: "Revoking"
+        case .revoked: "Revoked"
+        }
+    }
+
+    private var statusColor: Color {
+        switch agent.lifecycle {
+        case .active: WalletPalette.mint
+        case .paused: .orange
+        case .revocationPending: WalletPalette.violet
+        case .revoked: .red
+        }
+    }
+}
+
+private struct AgentDetailView: View {
+    @ObservedObject var store: AgentWalletStore
+    let agentID: String
+
+    private var agent: AgentDelegation? {
+        store.agents.first(where: { $0.id == agentID })
+    }
+
+    var body: some View {
+        ZStack {
+            WalletBackground()
+            if let agent {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        AgentRow(agent: agent)
+                        DetailSection(title: "Verified principal", values: [agent.id])
+                        DetailSection(title: "Granted capabilities", values: agent.capabilities)
+                        DetailSection(title: "Enforcement", values: [
+                            "Exact request and nonce binding",
+                            "Wallet approval before secure signing",
+                            "Validator capability and revocation checks"
+                        ])
+                        Text("This wallet can stop ActiveChain signing and revoke chain capabilities. It cannot monitor unrelated activity inside a third-party app.")
+                            .font(.caption).foregroundStyle(WalletPalette.muted)
+                        lifecycleControls(agent)
+                    }
+                    .padding(20)
+                }
+            }
+        }
+        .navigationTitle(agent?.label ?? "Agent")
+        .toolbarBackground(WalletPalette.ink, for: .navigationBar)
+    }
+
+    @ViewBuilder
+    private func lifecycleControls(_ agent: AgentDelegation) -> some View {
+        switch agent.lifecycle {
+        case .active:
+            Button("Pause agent") { store.pause(agentID: agent.id) }
+                .buttonStyle(SecondaryWalletButton())
+            Button("Revoke capabilities") { store.revoke(agentID: agent.id) }
+                .buttonStyle(PrimaryWalletButton())
+                .tint(.red)
+        case .paused:
+            Button("Resume agent") { store.resume(agentID: agent.id) }
+                .buttonStyle(PrimaryWalletButton())
+            Button("Revoke capabilities") { store.revoke(agentID: agent.id) }
+                .buttonStyle(SecondaryWalletButton())
+        case .revocationPending:
+            Label("Revocation submitted · awaiting finality", systemImage: "clock.badge.checkmark")
+                .font(.subheadline.weight(.semibold)).foregroundStyle(WalletPalette.violet)
+        case .revoked(let height):
+            Label("Revoked at finalized block \(height)", systemImage: "xmark.shield.fill")
+                .font(.subheadline.weight(.semibold)).foregroundStyle(.red)
+        }
+    }
+}
+
+private struct DetailSection: View {
+    let title: String
+    let values: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title).font(.subheadline.bold())
+            ForEach(values, id: \.self) { value in
+                Label(value, systemImage: "checkmark.circle.fill")
+                    .font(.caption).foregroundStyle(WalletPalette.muted)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardStyle()
     }
 }
 

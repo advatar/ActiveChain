@@ -40,6 +40,18 @@ class MainActivity : Activity() {
     private lateinit var content: FrameLayout
     private lateinit var nav: LinearLayout
     private var selected = WalletTab.WALLET
+    private val agents = AgentWalletStore().apply {
+        delegate(AgentDelegation(
+            "did:active:agent-research", "Research agent",
+            listOf("Pay approved providers", "Read public artifacts"), 50, 240000,
+            AgentConnection.THIRD_PARTY, spentToday = 18
+        ))
+        delegate(AgentDelegation(
+            "did:active:agent-travel", "Travel planner",
+            listOf("Request selected credentials"), 10, 210000,
+            AgentConnection.REMOTE
+        ))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -219,6 +231,14 @@ class MainActivity : Activity() {
 
     private fun approvalsScreen(): View = scrollColumn {
         addView(screenTitle("Approvals", "Exact, consent-bound actions"))
+        addView(rowCard(
+            badge("⚙", Palette.mint), "Manage agents",
+            "2 active · capabilities, budgets and revocation", "›", Palette.muted
+        ).apply {
+            isClickable = true
+            contentDescription = "Manage agents"
+            setOnClickListener { showAgentManager() }
+        }, marginTop = 12)
         addView(approvalCard("Research agent", "Pay data provider", "18.00 ACT + 0.08 fee", "Within daily limit", Palette.mint), marginTop = 12)
         addView(approvalCard("Travel planner", "Share identity credential", "Name · age over 18 · nationality", "3 claims requested", Palette.violet), marginTop = 14)
         addView(label("Every approval is bound to the exact action, recipient, fee, claims and expiry.", 12, Palette.muted).apply {
@@ -226,6 +246,91 @@ class MainActivity : Activity() {
             setPadding(dp(20), dp(22), dp(20), dp(20))
         })
     }
+
+    private fun showAgentManager() {
+        val dialog = android.app.Dialog(this)
+        val body = scrollColumn {
+            addView(screenTitle("Agents", "ActiveChain authority controls"))
+            addView(label(
+                "Agents are authenticated principals, not apps this wallet can inspect. These controls limit only their ActiveChain authority.",
+                12, Palette.muted
+            ).apply {
+                setPadding(dp(15), dp(15), dp(15), dp(15))
+                background = rounded(Color.argb(28, 156, 137, 250), 18)
+            }, marginTop = 14)
+            agents.agents.forEach { agent ->
+                addView(agentManagementCard(agent) { dialog.dismiss(); showAgentManager() },
+                    marginTop = 14)
+            }
+            addView(Button(context).apply {
+                text = "Done"
+                minimumHeight = dp(54)
+                setTextColor(Palette.ink)
+                typeface = Typeface.DEFAULT_BOLD
+                background = rounded(Palette.mint, 16)
+                setOnClickListener { dialog.dismiss() }
+            }, marginTop = 18)
+        }
+        dialog.setContentView(body)
+        dialog.show()
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.window?.setLayout(
+            (resources.displayMetrics.widthPixels * .94).toInt(),
+            (resources.displayMetrics.heightPixels * .88).toInt()
+        )
+    }
+
+    private fun agentManagementCard(agent: AgentDelegation, refresh: () -> Unit): View =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+            background = rounded(Palette.panel, 22, stroke = Color.argb(28, 255, 255, 255))
+            val status = when (val lifecycle = agent.lifecycle) {
+                AgentLifecycle.Active -> "Active"
+                AgentLifecycle.Paused -> "Paused"
+                AgentLifecycle.RevocationPending -> "Revocation pending"
+                is AgentLifecycle.Revoked -> "Revoked at block ${lifecycle.finalizedHeight}"
+            }
+            val statusColor = when (agent.lifecycle) {
+                AgentLifecycle.Active -> Palette.mint
+                AgentLifecycle.Paused -> Color.rgb(255, 177, 82)
+                AgentLifecycle.RevocationPending -> Palette.violet
+                is AgentLifecycle.Revoked -> Color.rgb(255, 96, 110)
+            }
+            addView(label("✦  ${agent.label}", 17, Palette.white, bold = true))
+            addView(label("${agent.connection.label} · $status", 12, statusColor, bold = true)
+                .apply { setPadding(0, dp(5), 0, 0) })
+            addView(label(agent.id, 11, Palette.muted).apply { setPadding(0, dp(6), 0, 0) })
+            addView(label(
+                "${agent.capabilities.joinToString(" · ")}\nBudget ${agent.spentToday}/${agent.dailyLimit} ACT",
+                12, Palette.muted
+            ).apply { setPadding(0, dp(12), 0, dp(14)) })
+            if (agent.lifecycle == AgentLifecycle.Active || agent.lifecycle == AgentLifecycle.Paused) {
+                addView(LinearLayout(context).apply {
+                    addView(Button(context).apply {
+                        text = if (agent.lifecycle == AgentLifecycle.Active) "Pause" else "Resume"
+                        setTextColor(Palette.white)
+                        background = rounded(Color.rgb(42, 50, 64), 15)
+                        setOnClickListener {
+                            if (agent.lifecycle == AgentLifecycle.Active) agents.pause(agent.id)
+                            else agents.resume(agent.id)
+                            refresh()
+                        }
+                    }, weighted())
+                    addView(Button(context).apply {
+                        text = "Revoke"
+                        setTextColor(Palette.ink)
+                        typeface = Typeface.DEFAULT_BOLD
+                        background = rounded(Color.rgb(255, 96, 110), 15)
+                        setOnClickListener { agents.revoke(agent.id); refresh() }
+                    }, weighted(10))
+                })
+            }
+            addView(label(
+                "Wallet signing and chain capabilities are enforceable; unrelated third-party app activity is not observable.",
+                11, Palette.muted
+            ).apply { setPadding(0, dp(14), 0, 0) })
+        }
 
     private fun identityScreen(): View = scrollColumn {
         addView(screenTitle("Identity", "OpenWallet credentials"))

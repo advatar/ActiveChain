@@ -627,17 +627,19 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
   - [x] Run the seven-step wallet acceptance rehearsal through three persistent validators,
     transaction ingress, faucet, RPC finality, replay rejection, and validator restart.
   - [ ] Ship enforceable agent management across wallet core and native shells.
-    - [ ] Model agents as independently authenticated principals with bounded capabilities,
+    - [x] Model agents as independently authenticated principals with bounded capabilities,
       budgets, expiry, pause, and finalized revocation state.
-    - [ ] Persist the local agent registry and replay state durably without storing agent or wallet
+    - [x] Persist the local agent registry and replay state durably without storing agent or wallet
       secret keys.
-    - [ ] Distinguish same-team app-group transports, third-party protocol clients, remote agents,
+    - [x] Distinguish same-team app-group transports, third-party protocol clients, remote agents,
       and device-managed network controls in the UI and documentation.
-    - [ ] Add native agent inventory, detail, pause/resume, revoke, pending-request, and risk-state
+    - [x] Add native agent inventory, detail, pause/resume, revoke, pending-request, and risk-state
       flows with unit coverage.
-    - [ ] Document that arbitrary third-party app behavior is outside wallet authority; enforce
+    - [x] Document that arbitrary third-party app behavior is outside wallet authority; enforce
       ActiveChain actions at approval/signing and consensus boundaries instead of claiming OS-wide
       interception.
+    - [ ] Expose durable agent lifecycle/request operations through the wallet ABI and replace the
+      native demonstration stores with that shared implementation.
 
 ## Active milestone — dBrowser verifier compatibility
 
