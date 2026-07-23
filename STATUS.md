@@ -660,7 +660,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
   - [x] Add positive, short-buffer, malformed framing, type/version, null-pointer, and oversized
     conformance coverage without changing the legacy verifier entry points.
 - [x] Add malformed/tampered/wrong-version/trailing-byte fixtures to CI.
-- [ ] Freeze light-client finality, checkpoint, state-sync, DA, and upgrade requirements.
+- [x] Freeze light-client finality, checkpoint, state-sync, DA, and upgrade requirements.
 - [x] Add a local manifest checker for vector hashes and malformed fixtures.
 - [ ] Deliver the stable downstream integration contract required by dBrowser
   ([GitHub epic #86](https://github.com/advatar/ActiveChain/issues/86)).
