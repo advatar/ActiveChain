@@ -90,11 +90,11 @@ Tracked by [GitHub issue #138](https://github.com/advatar/ActiveChain/issues/138
 
 Tracked by [GitHub issue #141](https://github.com/advatar/ActiveChain/issues/141).
 
-- [ ] Freeze distinct post-fee, refundable-bond, maximum-slash, and terminal-outcome semantics.
-- [ ] Add a fail-closed client quote and moderation settlement model with conservation tests.
-- [ ] Present the locked bond, moderation risk, and refund conditions in the native composer.
-- [ ] Keep emergency hiding separate from final economic slashing and document appeal requirements.
-- [ ] Pass native iOS and macOS tests, commit, push, and merge the qualified change.
+- [x] Freeze distinct post-fee, refundable-bond, maximum-slash, and terminal-outcome semantics.
+- [x] Add a fail-closed client quote and moderation settlement model with conservation tests.
+- [x] Present the locked bond, moderation risk, and refund conditions in the native composer.
+- [x] Keep emergency hiding separate from final economic slashing and document appeal requirements.
+- [x] Pass native iOS and macOS tests, commit, push, and merge the qualified change.
 
 ## Active implementation — private billboard native-token vertical slice
 

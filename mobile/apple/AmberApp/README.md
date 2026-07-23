@@ -8,6 +8,11 @@ The current application is an honest offline product shell. It renders bounded d
 state and displays the configured Kanalen testnet RPC endpoint, but it does not yet claim that RPC
 identity, state proofs, content shards, or privacy transport are connected.
 
+The composer presents posting as a bonded action, never a free action. Its testnet preview quote
+separates the spent posting fee, locked refundable post bond, and maximum moderation slash. The
+submit control intentionally fails closed until a verified wallet escrow and RPC submission path
+replace the preview values. Emergency hiding does not by itself finalize an economic penalty.
+
 Generate the Xcode project and run all tests and builds:
 
 ```text
