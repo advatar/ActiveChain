@@ -538,6 +538,9 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
           ([GitHub issue #76](https://github.com/advatar/ActiveChain/issues/76)).
           - [x] Define canonical count-bound per-partition authenticated roots and an ordered,
             partition-count-bound global partition root using the existing partition mapping.
+          - [ ] Add canonical row-level partition transition witnesses carrying the complete
+            pre-root vector plus sorted local authenticated transitions for exactly touched
+            partitions, with recomputed pre/post global roots.
           - [x] Replace whole-set-only evidence with a canonical sparse Coin Cell accumulator and
             locally verifiable membership/non-membership mutation witnesses.
           - [x] Arithmetize ordered mutation paths and bind their chained pre/post roots into
