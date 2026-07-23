@@ -21,6 +21,7 @@ private struct WalletPalette {
 }
 
 struct WalletRootView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selection: WalletTab = .home
     @State private var showingSend = false
 
@@ -51,6 +52,15 @@ struct WalletRootView: View {
             NavigationStack { SendFlowView() }
                 .presentationDetents([.large])
         }
+        .onAppear(perform: consumeAgentIntentRoute)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { consumeAgentIntentRoute() }
+        }
+    }
+
+    private func consumeAgentIntentRoute() {
+        guard AgentIntentRouter.consume() != nil else { return }
+        selection = .approvals
     }
 }
 

@@ -100,3 +100,16 @@ The wallet agent inventory must show:
 Pause/resume is appropriate for temporary control. Revoke is permanent for the named capability
 grant and requires a new attenuated grant to restore authority. Removing an app from the phone does
 not revoke a remote capability; uninstall detection must never substitute for on-chain revocation.
+
+## Siri, Shortcuts, and App Intents
+
+App Intents are invocation and navigation surfaces, not agent credentials. The iOS wallet exposes
+authenticated shortcuts to open agent management and pending approvals. These intents require
+device authentication and then open the wallet. They do not grant, expand, approve, revoke, sign,
+or submit authority-changing operations without the wallet's exact review flow.
+
+The system invocation identity must never be interpreted as an ActiveChain principal. The canonical
+agent command, wallet policy, secure signing callback, and validator authorization remain mandatory
+after an App Intent runs. Apple documents App Intents as actions discoverable by Siri, Shortcuts,
+Spotlight, widgets, and Apple Intelligence:
+<https://developer.apple.com/documentation/appintents>.

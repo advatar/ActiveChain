@@ -53,4 +53,13 @@ final class ActiveChainWalletTests: XCTestCase {
         XCTAssertEqual(store.agents[0].lifecycle, .revoked(finalizedHeight: 42))
         XCTAssertTrue(store.agents[0].revoked)
     }
+
+    func testAgentIntentRouteIsExplicitAndOneShot() {
+        let defaults = UserDefaults(suiteName: "agent-intent-test")!
+        defaults.removePersistentDomain(forName: "agent-intent-test")
+        XCTAssertNil(AgentIntentRouter.consume(defaults: defaults))
+        AgentIntentRouter.request(.management, defaults: defaults)
+        XCTAssertEqual(AgentIntentRouter.consume(defaults: defaults), .management)
+        XCTAssertNil(AgentIntentRouter.consume(defaults: defaults))
+    }
 }
