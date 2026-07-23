@@ -157,6 +157,12 @@ format requires a versioned protocol upgrade.
 
 ### 8.1 Post submission
 
+Amber posting MUST NOT be presented as free. Every non-dummy submission has two distinct economic
+effects: a non-refundable normalized posting fee and a shielded post bond locked in application
+escrow. Clients MUST display both amounts, the maximum possible slash, the governing policy
+revision, and the conditions for refund before requesting approval. A large wallet deposit or
+permit balance is not itself the per-post bond and MUST NOT obscure the amount placed at risk.
+
 A post proof MUST establish, without revealing the poster:
 
 1. ownership and one-shot consumption of a valid shielded native-token permit;
@@ -194,6 +200,19 @@ Claims MUST use private authorization notes, write-once public entitlement amoun
 nullifiers. No public claim record may contain the claimant address. Refund, residual bond, reward,
 and forfeiture paths MUST be mutually exclusive and value conserving. Withdrawal MAY produce a
 public native Coin Cell; operational guidance MUST warn that doing so can correlate the claimant.
+
+### 8.5 Removal and economic finality
+
+Content hiding, deletion, and economic slashing are separate transitions. A provider MAY refuse to
+serve content and an authorized emergency capability MAY hide content immediately, but neither
+action alone may initialize a slash entitlement. Economic settlement requires a final decision
+bound to the exact stable post identifier, board rule identifier, policy revision, adjudication
+round, and penalty bounded by the bond schedule.
+
+Rules describing unlawful content MUST name their jurisdiction and revision. The protocol does not
+pretend to determine universal legality without an authorized adjudication input. The configured
+appeal path MUST either expire unused or finalize before a post bond is slashed. Superseded,
+conflicting, repeated, or stale-policy decisions MUST fail closed.
 
 ## 9. Availability and custody protocol
 

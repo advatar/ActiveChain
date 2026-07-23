@@ -86,6 +86,16 @@ Tracked by [GitHub issue #138](https://github.com/advatar/ActiveChain/issues/138
 - [x] Feature Amber honestly as the first reference application on the ActiveChain landing page.
 - [x] Document and pass reproducible iOS Simulator and macOS builds.
 
+## Active implementation — Amber bonded posting
+
+Tracked by [GitHub issue #141](https://github.com/advatar/ActiveChain/issues/141).
+
+- [x] Freeze distinct post-fee, refundable-bond, maximum-slash, and terminal-outcome semantics.
+- [x] Add a fail-closed client quote and moderation settlement model with conservation tests.
+- [x] Present the locked bond, moderation risk, and refund conditions in the native composer.
+- [x] Keep emergency hiding separate from final economic slashing and document appeal requirements.
+- [x] Pass native iOS and macOS tests, commit, push, and merge the qualified change.
+
 ## Active implementation — private billboard native-token vertical slice
 
 - [x] Make the live-process quorum rehearsal wait for validator readiness and exercise two-chain finality instead of relying on fixed startup sleeps (GitHub issue #45).

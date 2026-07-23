@@ -4,6 +4,7 @@ struct AmberRootView: View {
     private let boards = AmberSampleData.boards
     @State private var selection: AmberBoardID?
     @State private var connection: AmberConnectionState = .offline
+    @State private var isComposerPresented = false
 
     var body: some View {
         NavigationSplitView {
@@ -18,6 +19,21 @@ struct AmberRootView: View {
         }
         .tint(AmberStyle.rust)
         .background(AmberStyle.paper)
+        .sheet(isPresented: $isComposerPresented) {
+            AmberComposerView(
+                board: boards.first(where: { $0.id == selection }),
+                quote: .kanalenPreview
+            )
+        }
+        .toolbar {
+            ToolbarItem {
+                Button {
+                    isComposerPresented = true
+                } label: {
+                    Label("New bonded post", systemImage: "square.and.pencil")
+                }
+            }
+        }
     }
 
     private var boardIndex: some View {
@@ -208,7 +224,7 @@ private struct NetworkStrip: View {
     }
 }
 
-private enum AmberStyle {
+enum AmberStyle {
     static let paper = Color(red: 0.96, green: 0.91, blue: 0.78)
     static let card = Color(red: 0.99, green: 0.96, blue: 0.87)
     static let imagePaper = Color(red: 0.90, green: 0.83, blue: 0.67)
