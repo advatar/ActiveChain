@@ -1,6 +1,7 @@
 {
   "manifest": "activechain-verifier-v1",
   "protocol_revision": "activechain-v1-dev",
+  "envelope_hash_manifest": "envelope-manifest-v1.json",
   "vectors": [
     {
       "id": "principal-v1",

@@ -651,7 +651,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 
 - [x] Freeze envelope type/version/body-length/trailing-byte rules in `P-110`.
 - [x] Publish the machine-readable `testing/vectors/manifest-v1.json` index.
-- [ ] Add complete envelope/commitment hashes for every published vector.
+- [x] Add complete envelope/commitment hashes for every published vector
+  ([GitHub issue #116](https://github.com/advatar/ActiveChain/issues/116)).
 - [x] Verify the checked-in DA proof and payload commitment fixture directly through the DA kernel.
 - [ ] Implement a bounded language-neutral verifier API and structured failure codes.
 - [x] Add malformed/tampered/wrong-version/trailing-byte fixtures to CI.

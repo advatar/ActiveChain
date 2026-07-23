@@ -23,6 +23,8 @@ activechain-protocol-types.workspace = true
 activechain-state-tree.workspace = true
 activechain-transition.workspace = true
 activechain-protocol-commitment = { path = "../../crates/protocol-commitment", version = "0.1.0" }
+sha2 = "0.10.9"
+sha3.workspace = true
 
 [lints]
 workspace = true
