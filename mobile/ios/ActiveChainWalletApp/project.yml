@@ -12,10 +12,14 @@ targets:
       - path: ../ActiveChainWallet/Sources/ActiveChainWallet
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: dev.activechain.wallet
+      PRODUCT_MODULE_NAME: ActiveChainWalletApp
       SWIFT_VERSION: "5.9"
       GENERATE_INFOPLIST_FILE: YES
       INFOPLIST_KEY_CFBundleDisplayName: ActiveChain Wallet
       INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.finance
+    dependencies:
+      - framework: ../../../dist/apple/current/ActiveChainWallet.xcframework
+        embed: false
     scheme:
       testTargets:
         - ActiveChainWalletTests

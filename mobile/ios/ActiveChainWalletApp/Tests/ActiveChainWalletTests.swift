@@ -1,5 +1,5 @@
 import XCTest
-@testable import ActiveChainWallet
+@testable import ActiveChainWalletApp
 
 final class ActiveChainWalletTests: XCTestCase {
     func testLocalApproval() throws {
@@ -52,6 +52,32 @@ final class ActiveChainWalletTests: XCTestCase {
         store.finalizeRevocation(agentID: "agent-1", height: 42)
         XCTAssertEqual(store.agents[0].lifecycle, .revoked(finalizedHeight: 42))
         XCTAssertTrue(store.agents[0].revoked)
+    }
+
+    func testRustAgentRegistryPersistsLifecycleTransitions() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let snapshot = directory.appendingPathComponent("agents-v1.bin")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let initial = RustAgentRegistryStore(snapshotURL: snapshot)
+        XCTAssertEqual(initial.agents.count, 2)
+        let agentID = try XCTUnwrap(initial.agents.first?.id)
+
+        initial.pause(agentID: agentID)
+        XCTAssertEqual(initial.agents.first?.lifecycle, .paused)
+
+        let restored = RustAgentRegistryStore(snapshotURL: snapshot)
+        XCTAssertEqual(restored.agents.first?.lifecycle, .paused)
+        restored.resume(agentID: agentID)
+        XCTAssertEqual(restored.agents.first?.lifecycle, .active)
+        restored.revoke(agentID: agentID)
+        XCTAssertEqual(restored.agents.first?.lifecycle, .revocationPending)
+        restored.finalizeRevocation(agentID: agentID, height: 42)
+        XCTAssertEqual(restored.agents.first?.lifecycle, .revoked(finalizedHeight: 42))
+
+        let finalized = RustAgentRegistryStore(snapshotURL: snapshot)
+        XCTAssertEqual(finalized.agents.first?.lifecycle, .revoked(finalizedHeight: 42))
     }
 
     func testAgentIntentRouteIsExplicitAndOneShot() {

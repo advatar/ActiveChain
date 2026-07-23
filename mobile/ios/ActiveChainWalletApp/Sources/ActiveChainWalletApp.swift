@@ -386,22 +386,7 @@ private struct ActivityView: View {
 }
 
 private struct ApprovalsView: View {
-    @StateObject private var agents = AgentWalletStore()
-
-    init() {
-        let store = AgentWalletStore()
-        _ = store.delegate(AgentDelegation(
-            id: "did:active:agent-research", label: "Research agent",
-            capabilities: ["Pay approved providers", "Read public artifacts"],
-            dailyLimit: 50, expiresAt: 240_000, connection: .thirdParty, spentToday: 18
-        ))
-        _ = store.delegate(AgentDelegation(
-            id: "did:active:agent-travel", label: "Travel planner",
-            capabilities: ["Request selected credentials"], dailyLimit: 10,
-            expiresAt: 210_000, connection: .remote, spentToday: 0
-        ))
-        _agents = StateObject(wrappedValue: store)
-    }
+    @StateObject private var agents = RustAgentRegistryStore()
 
     var body: some View {
         ZStack {
@@ -457,7 +442,7 @@ private struct ApprovalsView: View {
 }
 
 private struct AgentInventoryView: View {
-    @ObservedObject var store: AgentWalletStore
+    @ObservedObject var store: RustAgentRegistryStore
 
     var body: some View {
         ZStack {
@@ -534,7 +519,7 @@ private struct AgentRow: View {
 }
 
 private struct AgentDetailView: View {
-    @ObservedObject var store: AgentWalletStore
+    @ObservedObject var store: RustAgentRegistryStore
     let agentID: String
 
     private var agent: AgentDelegation? {
