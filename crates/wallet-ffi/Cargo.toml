@@ -15,5 +15,8 @@ activechain-cash-kernel.workspace = true
 activechain-wallet-core.workspace = true
 activechain-protocol-types.workspace = true
 
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21.1"
+
 [dev-dependencies]
 ml-dsa = "0.1.1"

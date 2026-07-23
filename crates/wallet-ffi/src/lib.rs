@@ -11,6 +11,9 @@ use activechain_wallet_core::{
     AuthorizedCashTransferV1, CashAuthorizationRequestV1, ManagedAgentV1, OpenWalletConsentV1,
     OpenWalletCredentialOfferV1, OpenWalletPresentationRequestV1,
 };
+
+#[cfg(target_os = "android")]
+mod android;
 use core::ffi::c_void;
 
 const MAX_WALLET_INPUT: u32 = 256 * 1024;
