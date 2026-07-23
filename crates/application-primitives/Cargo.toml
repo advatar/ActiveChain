@@ -1,0 +1,14 @@
+[package]
+name = "activechain-application-primitives"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+activechain-canonical-codec.workspace = true
+activechain-protocol-commitment.workspace = true
+activechain-protocol-types.workspace = true
+
+[lints]
+workspace = true

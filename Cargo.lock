@@ -25,6 +25,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-application-primitives"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-protocol-commitment",
+ "activechain-protocol-types",
+]
+
+[[package]]
 name = "activechain-authorization-kernel"
 version = "0.1.0"
 dependencies = [
