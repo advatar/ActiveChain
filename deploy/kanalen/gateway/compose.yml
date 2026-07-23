@@ -1,0 +1,18 @@
+services:
+  edge:
+    image: traefik:v3.5
+    container_name: activechain-kanalen-edge
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    volumes:
+      - ./traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - ./letsencrypt:/letsencrypt
+    networks:
+      - public
+
+networks:
+  public:
+    external: true
+    name: providehr_default

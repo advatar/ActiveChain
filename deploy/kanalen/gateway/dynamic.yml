@@ -1,0 +1,30 @@
+tcp:
+  routers:
+    activechain-rpc:
+      entryPoints:
+        - websecure
+      rule: HostSNI(`rpc.kanalen.activechain.dev`)
+      priority: 100
+      service: activechain-rpc
+      tls:
+        certResolver: letsencrypt
+
+    existing-https:
+      entryPoints:
+        - websecure
+      rule: HostSNI(`*`)
+      priority: 1
+      service: existing-caddy
+      tls:
+        passthrough: true
+
+  services:
+    activechain-rpc:
+      loadBalancer:
+        servers:
+          - address: host.lima.internal:49151
+
+    existing-caddy:
+      loadBalancer:
+        servers:
+          - address: providehr-caddy:443
