@@ -1,5 +1,9 @@
 //! Generates the frozen development vectors from typed protocol values.
 
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+
 use activechain_action_kernel::{
     ACTION_PROTOCOL_VERSION, ActionEnvelope, FeeTicket, NonceAdvanceError, NonceChannel,
     ResourcePrices, ResourceVector, ValidityInterval, action_id,
@@ -51,6 +55,145 @@ use activechain_transition::{
     ObjectState, ReceiptResult, TRANSFER_OBJECT_ACTION_ID, TransferCommand, TransferTransaction,
     TransitionReceipt, apply_transfer_transaction,
 };
+use sha2::{Digest as Sha2Digest, Sha256};
+use sha3::{Shake256, digest::ExtendableOutput, digest::Update, digest::XofReader};
+
+fn vector_files(directory: &Path, output: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(directory).expect("vector directory is readable") {
+        let path = entry.expect("vector entry is readable").path();
+        if path.is_dir() {
+            vector_files(&path, output);
+        } else if path.extension().is_some_and(|extension| extension == "txt") {
+            output.push(path);
+        }
+    }
+}
+
+fn decode_hex(value: &str) -> Vec<u8> {
+    assert!(value.len().is_multiple_of(2), "hex length is even");
+    value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let digit = |byte: u8| match byte {
+                b'0'..=b'9' => byte - b'0',
+                b'a'..=b'f' => byte - b'a' + 10,
+                b'A'..=b'F' => byte - b'A' + 10,
+                _ => panic!("invalid vector hex digit"),
+            };
+            (digit(pair[0]) << 4) | digit(pair[1])
+        })
+        .collect()
+}
+
+fn commitment_from_envelope(
+    envelope: &[u8],
+    type_tag: u16,
+    schema_version: u16,
+    body_length: usize,
+) -> [u8; 48] {
+    let body = activechain_canonical_codec::inspect_canonical_envelope(
+        envelope,
+        type_tag,
+        schema_version,
+        body_length,
+    )
+    .expect("published envelope has strict framing")
+    .body();
+    let mut transcript = Vec::with_capacity(38 + body.len());
+    transcript.extend_from_slice(b"ACTIVECHAIN-COMMITMENT");
+    transcript.extend_from_slice(&1_u16.to_be_bytes());
+    transcript.extend_from_slice(&DomainTag::CANONICAL_VALUE.as_u16().to_be_bytes());
+    transcript.extend_from_slice(&type_tag.to_be_bytes());
+    transcript.extend_from_slice(&schema_version.to_be_bytes());
+    transcript.extend_from_slice(&(body.len() as u64).to_be_bytes());
+    transcript.extend_from_slice(body);
+    let mut hasher = Shake256::default();
+    hasher.update(&transcript);
+    let mut commitment = [0; 48];
+    hasher.finalize_xof().read(&mut commitment);
+    commitment
+}
+
+fn render_envelope_manifest_v1() -> String {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testing/vectors");
+    let mut files = Vec::new();
+    vector_files(&root, &mut files);
+    files.sort();
+    let mut entries = Vec::new();
+
+    for path in files {
+        let text = fs::read_to_string(&path).expect("text vector is UTF-8");
+        let fields: BTreeMap<_, _> = text
+            .lines()
+            .filter_map(|line| line.split_once('='))
+            .map(|(key, value)| (key.trim(), value.trim()))
+            .collect();
+        for (key, value) in &fields {
+            let Some(prefix) = key.strip_suffix("envelope_hex") else {
+                continue;
+            };
+            let metadata_prefix = prefix.strip_suffix('_').unwrap_or(prefix);
+            let field = |suffix: &str| {
+                if metadata_prefix.is_empty() {
+                    suffix.to_owned()
+                } else {
+                    format!("{metadata_prefix}_{suffix}")
+                }
+            };
+            let type_tag_text = fields[&*field("type_tag")];
+            let type_tag = u16::from_str_radix(type_tag_text.trim_start_matches("0x"), 16).unwrap();
+            let schema_version: u16 = fields[&*field("schema_version")].parse().unwrap();
+            let body_length: usize = fields[&*field("body_length")].parse().unwrap();
+            let envelope = decode_hex(value);
+            let commitment_key = field("canonical_value_commitment_hex");
+            let commitment = fields
+                .get(commitment_key.as_str())
+                .unwrap_or_else(|| panic!("{} {key} has no commitment", path.display()));
+            assert_eq!(
+                hexadecimal(&commitment_from_envelope(
+                    &envelope,
+                    type_tag,
+                    schema_version,
+                    body_length,
+                )),
+                *commitment,
+                "{} {key} commitment drift",
+                path.display()
+            );
+            let source = path
+                .strip_prefix(&root)
+                .expect("vector is below root")
+                .to_string_lossy()
+                .replace('\\', "/");
+            let envelope_sha256 = hexadecimal(&Sha256::digest(&envelope));
+            entries.push((
+                source,
+                (*key).to_owned(),
+                type_tag_text.to_owned(),
+                schema_version,
+                envelope_sha256,
+                (*commitment).to_owned(),
+            ));
+        }
+    }
+    entries.sort();
+    let mut output = String::from(
+        "{\n  \"manifest\": \"activechain-envelope-hashes-v1\",\n  \"envelopes\": [\n",
+    );
+    for (index, (source, field, type_tag, schema, sha256, commitment)) in entries.iter().enumerate()
+    {
+        output.push_str(&format!(
+            "    {{\n      \"source\": \"{source}\",\n      \"field\": \"{field}\",\n      \
+             \"type_tag\": \"{type_tag}\",\n      \"schema_version\": {schema},\n      \
+             \"envelope_sha256\": \"{sha256}\",\n      \
+             \"canonical_value_commitment\": \"{commitment}\"\n    }}{}\n",
+            if index + 1 == entries.len() { "" } else { "," }
+        ));
+    }
+    output.push_str("  ]\n}\n");
+    output
+}
 
 fn repeated_digest(byte: u8) -> Digest384 {
     Digest384::new([byte; 48])
@@ -1427,13 +1570,14 @@ fn main() {
         "credential-v1" => print!("{}", render_credential_v1()),
         "credential-status-table" => print!("{}", render_credential_status_table()),
         "privacy-v1" => print!("{}", render_privacy_v1()),
+        "envelope-manifest-v1" => print!("{}", render_envelope_manifest_v1()),
         unknown => {
             eprintln!(
                 "unknown vector {unknown}; expected principal-v1, authority-v1, apl-v1, or \
                  apl-truth-table, object-transition-v1, object-model-table, state-tree-v1, or \
                  state-tree-model-table, object-vm-v1, object-vm-model-table, devnet-block-v1, or \
                  nonce-model-table, epoch-upgrade-model-table, codec-length-table, credential-v1, \
-                 credential-status-table, or privacy-v1"
+                 credential-status-table, privacy-v1, or envelope-manifest-v1"
             );
             std::process::exit(2);
         }
@@ -1451,9 +1595,9 @@ mod tests {
     use super::{
         render_apl_truth_table, render_apl_v1, render_authority_v1, render_codec_length_table,
         render_credential_status_table, render_credential_v1, render_devnet_block_v1,
-        render_epoch_upgrade_model_table, render_nonce_model_table, render_object_model_table,
-        render_object_transition_v1, render_object_vm_model_table, render_object_vm_v1,
-        render_principal_v1, render_privacy_v1, render_state_tree_model_table,
+        render_envelope_manifest_v1, render_epoch_upgrade_model_table, render_nonce_model_table,
+        render_object_model_table, render_object_transition_v1, render_object_vm_model_table,
+        render_object_vm_v1, render_principal_v1, render_privacy_v1, render_state_tree_model_table,
         render_state_tree_v1,
     };
 
@@ -1559,6 +1703,18 @@ mod tests {
     fn generated_privacy_vector_is_frozen() {
         let published = include_str!("../../../testing/vectors/privacy/privacy-v1.txt");
         assert_eq!(render_privacy_v1(), published);
+    }
+
+    #[test]
+    fn complete_envelope_hash_manifest_is_frozen() {
+        let published = include_str!("../../../testing/vectors/envelope-manifest-v1.json");
+        let generated = render_envelope_manifest_v1();
+        assert_eq!(generated, published);
+        assert_eq!(
+            generated.matches("\"envelope_sha256\"").count(),
+            39,
+            "every published envelope must be enumerated exactly once"
+        );
     }
 
     fn vector_files(directory: &Path, output: &mut Vec<PathBuf>) {

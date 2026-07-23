@@ -1,0 +1,317 @@
+{
+  "manifest": "activechain-envelope-hashes-v1",
+  "envelopes": [
+    {
+      "source": "authority/authority-v1.txt",
+      "field": "authenticator_envelope_hex",
+      "type_tag": "0x0021",
+      "schema_version": 1,
+      "envelope_sha256": "b628aa96dbcc46e8e3b27dc9e35e867940e266937a5b7a5bd98820d59be0ba95",
+      "canonical_value_commitment": "5c4cac432f4a2432e83dc5297e6ed6ca8900f852b5b26ba9ab939b253a5bf70ed2abcbf6cbf08c6be4a212f68629b658"
+    },
+    {
+      "source": "authority/authority-v1.txt",
+      "field": "child_capability_envelope_hex",
+      "type_tag": "0x0030",
+      "schema_version": 1,
+      "envelope_sha256": "91a261fda0e4b84dd119ff38ba74e5a753fc5abb46030943347885ab6c592a24",
+      "canonical_value_commitment": "4aa243ecfe9d777be8acc2946fa80e400cc15092c1c3c0097a8f90985027c08a486ce9a0ecccf06f2af86d045c5d3fce"
+    },
+    {
+      "source": "authority/authority-v1.txt",
+      "field": "created_principal_envelope_hex",
+      "type_tag": "0x0020",
+      "schema_version": 1,
+      "envelope_sha256": "3171605e14a20cf551adf26be7acdc81df0fd1526e0ca9d0b1f3d5dc8f4e9712",
+      "canonical_value_commitment": "d4bff7b8bcfdcb14eee04b17b87e375aa19096b115d64ab8cff872861540eab90d81bd3c9fed8fdf8ddda57c9ea2ad60"
+    },
+    {
+      "source": "authority/authority-v1.txt",
+      "field": "parent_capability_envelope_hex",
+      "type_tag": "0x0030",
+      "schema_version": 1,
+      "envelope_sha256": "d8b7bfee5e2d2a0b6d748448a4b355621bda3e0fc0e63cbbe3630d70366c7ffd",
+      "canonical_value_commitment": "694fda6e5d863407acbc94b217840541f1ae7d8eef59907f15f5afa4c998746bdad1315c07112cb09795501193d3f9a4"
+    },
+    {
+      "source": "authority/authority-v1.txt",
+      "field": "recovery_pending_principal_envelope_hex",
+      "type_tag": "0x0020",
+      "schema_version": 1,
+      "envelope_sha256": "7220c5a80bcfa3d754360ff10f297579a337df1e860ec95593f185505c14fe49",
+      "canonical_value_commitment": "72314a64c5077752c82acca4e497de66d23b110a9f425e28b1b11502089a2bf64e5b0e826f69807b81256b9da5ca0f5f"
+    },
+    {
+      "source": "authority/authority-v1.txt",
+      "field": "recovery_request_envelope_hex",
+      "type_tag": "0x0022",
+      "schema_version": 1,
+      "envelope_sha256": "72c74dfef0407511063ba7f370d13e87bf5294cdc79faf789ecdab29bc7ec586",
+      "canonical_value_commitment": "4b7400e0dd3c6047bdab8190ce9679671e8e2e4d77034ccb49bff6abd9b909e55a29aac6e90bb55fef3947db6bbab6ca"
+    },
+    {
+      "source": "authority/authority-v1.txt",
+      "field": "rotated_principal_envelope_hex",
+      "type_tag": "0x0020",
+      "schema_version": 1,
+      "envelope_sha256": "644e7e671e7df9deb9f73b1d47eaf4fbf3bd4601150829a1095e4d80034ad061",
+      "canonical_value_commitment": "c4f394112b753031d068b0ad0e13d25a62da911fc23219628e043a4c002e4e2479c7509dc481f6d89d4c4dc24ec238eb"
+    },
+    {
+      "source": "canonical/principal-v1.txt",
+      "field": "envelope_hex",
+      "type_tag": "0x0020",
+      "schema_version": 1,
+      "envelope_sha256": "dbc1798c7523dcfb1a94a3a81c05b15db709835beab9efef62b8378ffdb17aaf",
+      "canonical_value_commitment": "b6c77990f3022379a463939d0c7a44300d8d575fc50c0df6e770e55e5456d3b5c2a059630c31a7e4ec859a8ad4b2a843"
+    },
+    {
+      "source": "credential/credential-v1.txt",
+      "field": "acceptance_policy_envelope_hex",
+      "type_tag": "0x0026",
+      "schema_version": 1,
+      "envelope_sha256": "7093a8b1174ef7bc72a7cdf68e60fb2ffd2eee51aa88657009548b1012d93cc8",
+      "canonical_value_commitment": "799e9d7eaf3385e8af8db787a8d1665ddf037cdc6506a5b4575a2a152bc0d21d8a31fda576126479b25b27f46fdd79e0"
+    },
+    {
+      "source": "credential/credential-v1.txt",
+      "field": "credential_envelope_hex",
+      "type_tag": "0x0024",
+      "schema_version": 1,
+      "envelope_sha256": "70c990fed5dfc4f279ce603ef990ffa949dd2035ea836ec6d6fc5ba807c44e7f",
+      "canonical_value_commitment": "3f7183571afa4cbcabc7be290711773ba7a6aa38da687d2fd335dcac291957662d7a5b2f099ccb8254e6dc3d134d91b6"
+    },
+    {
+      "source": "credential/credential-v1.txt",
+      "field": "credential_statement_envelope_hex",
+      "type_tag": "0x0023",
+      "schema_version": 1,
+      "envelope_sha256": "4de4ada1c0062b16c0eed398849640c9c24dae38b8316472b5096c18c36183e6",
+      "canonical_value_commitment": "d4422a3a4274deeffa9546ff440e612e245465d3b1088072625f2cffb0702af046bc1ce1f986d9c99277a318ecc87360"
+    },
+    {
+      "source": "credential/credential-v1.txt",
+      "field": "status_registry_envelope_hex",
+      "type_tag": "0x0025",
+      "schema_version": 1,
+      "envelope_sha256": "5d579456c150fee954275aed8b1dde4a2f517b73c3de947767a94666ce22dee3",
+      "canonical_value_commitment": "ea5462048b52add852a8612f000082060766c1381f9882facb8f78781085519d66be534236ff6f907c701ba6fd1f7491"
+    },
+    {
+      "source": "devnet/devnet-block-v1.txt",
+      "field": "action_envelope_envelope_hex",
+      "type_tag": "0x0071",
+      "schema_version": 1,
+      "envelope_sha256": "95ff992f2d120d1f8c9c5add891cdd0eda3ada2c5592fa22b52ad9dbadda4961",
+      "canonical_value_commitment": "17a3d145cc1354f245ef3e9ecee7108f5244665091b48222f6eddc41b44b8635fefb535289284de4f87d010880410ddb"
+    },
+    {
+      "source": "devnet/devnet-block-v1.txt",
+      "field": "block_receipt_envelope_hex",
+      "type_tag": "0x0074",
+      "schema_version": 1,
+      "envelope_sha256": "ce652c12c1025b2b75dca9cf86d4646d002fb4da42355927303e331cc3970d58",
+      "canonical_value_commitment": "e2e18203eaf7243907f857171c0ce9ca8f6eed058ef164cd5ae2327f0cf8f1cc1f41bd4b8ded70ef6d7a12fd30ff7f2d"
+    },
+    {
+      "source": "devnet/devnet-block-v1.txt",
+      "field": "devnet_block_envelope_hex",
+      "type_tag": "0x0073",
+      "schema_version": 1,
+      "envelope_sha256": "92ea733d5d733ccf611dd6e5091cd9b44ee356364b1d9b77896b30c3bc0b3823",
+      "canonical_value_commitment": "4255020fc33b0c4d9910ed1e8ea702e850b23f9e8f25be2c4fb82d4a3d5895082ad7df063c79193871c2877d11adbecb"
+    },
+    {
+      "source": "devnet/devnet-block-v1.txt",
+      "field": "fee_ticket_envelope_hex",
+      "type_tag": "0x0070",
+      "schema_version": 1,
+      "envelope_sha256": "be6082cfa62e5a1a54191a3cfe7a198d57c87562795085689d64f85b28f93e4b",
+      "canonical_value_commitment": "fdb6597ec4ee54d44a309a03d191e8107d0aa73672a432b27f29fa44b20ac234506612e5ef1d8c2a5e4846908eec6663"
+    },
+    {
+      "source": "devnet/devnet-block-v1.txt",
+      "field": "nonce_channel_envelope_hex",
+      "type_tag": "0x0072",
+      "schema_version": 1,
+      "envelope_sha256": "c4fc448d5ff966a92913aa92364723b14be28db65ac1ebb5cfa7809971630928",
+      "canonical_value_commitment": "c0151f039db64e0a66e4608b7937c13e9e54febfcc1327d46a3c33ed18fe238b45a217d8c92e3b1b8d58b42fd8e1efaa"
+    },
+    {
+      "source": "object/object-transition-v1.txt",
+      "field": "access_manifest_envelope_hex",
+      "type_tag": "0x0051",
+      "schema_version": 1,
+      "envelope_sha256": "b1948f6f9d2d1fd53e93002d9e66ff06b04664670d41d1c8ded503e256f6770d",
+      "canonical_value_commitment": "4268a3938173b542c48a01f313a58c0597b40bdff61602228eba0254b88a52ba1aef627223cc916febc81cba57345ba7"
+    },
+    {
+      "source": "object/object-transition-v1.txt",
+      "field": "object_after_envelope_hex",
+      "type_tag": "0x0050",
+      "schema_version": 1,
+      "envelope_sha256": "2647a68610d94d4090ad8d8fe2aef0d8818929b90c13876928b89b0d91e61677",
+      "canonical_value_commitment": "23f36b73377fafa4bdfb371a66c1f313872d6eb991fea675a6bc4b9d1be85820dec489ee32bf91bcfa143f1e176eed33"
+    },
+    {
+      "source": "object/object-transition-v1.txt",
+      "field": "object_before_envelope_hex",
+      "type_tag": "0x0050",
+      "schema_version": 1,
+      "envelope_sha256": "1984d37bf9c95e0b6d44df7c948632a4f65c108bf0b99a4d623a9d614874265d",
+      "canonical_value_commitment": "c9f2ebf19f1e44f6946e0626783e2f6f950d3705f2a6e0e1c88ac094fbbe4afb0aab963dd99bbddf6c555b4331c01c00"
+    },
+    {
+      "source": "object/object-transition-v1.txt",
+      "field": "post_state_envelope_hex",
+      "type_tag": "0x0054",
+      "schema_version": 1,
+      "envelope_sha256": "2498e31be77b91501cda70e98c2a56e5a20a91b1de6f5b3ea0f078657822a9c9",
+      "canonical_value_commitment": "0946769ada8330a2cbf53d926a479d464d58ea7ded22435d432cd096156517e1ba30af376a54ee7b7ff3d42d52ac2338"
+    },
+    {
+      "source": "object/object-transition-v1.txt",
+      "field": "pre_state_envelope_hex",
+      "type_tag": "0x0054",
+      "schema_version": 1,
+      "envelope_sha256": "2122f462596a3165b4b9ea911d3b4ad74f3e35f9ffd7202a7d0310d946e37123",
+      "canonical_value_commitment": "58242803185a36bc32434662b6bec664d8016be79f9d2df421f5c212a44d84f2dff2602cafba70b077a424505a16e484"
+    },
+    {
+      "source": "object/object-transition-v1.txt",
+      "field": "transfer_transaction_envelope_hex",
+      "type_tag": "0x0052",
+      "schema_version": 1,
+      "envelope_sha256": "3290b44d2c3f5dc6ae9e6846b2ff9596667571e35c3554b1da5beef235d9a4d0",
+      "canonical_value_commitment": "2ba86702715a68a7a8d432ad6bd438685a94a9c668fee00c57798765f36d8525d3ab12815c1cbb365f58f2a3cdb92a5c"
+    },
+    {
+      "source": "object/object-transition-v1.txt",
+      "field": "transition_receipt_envelope_hex",
+      "type_tag": "0x0053",
+      "schema_version": 1,
+      "envelope_sha256": "ca94ed3787655435337b1955526e5b8b600fe76864adb02f57398fb5aa524bbd",
+      "canonical_value_commitment": "3e6c8aacb560805fcc17d9fc2e7a59c2d5822ae629ac44af2e6fc51be7d76062763f2ba0e8180ad0d34463f59f2f711b"
+    },
+    {
+      "source": "policy/apl-v1.txt",
+      "field": "decision_envelope_hex",
+      "type_tag": "0x0042",
+      "schema_version": 1,
+      "envelope_sha256": "c335a55961701b7391e24eba2d29ba3ca427ba24071bf6af96709958b4951e08",
+      "canonical_value_commitment": "2a6a3cf88001e1faf995300ed0199bfdb4666bdc01ce6076398315bd176ff6e187584e9a8a38c62d6ce7b298acee1759"
+    },
+    {
+      "source": "policy/apl-v1.txt",
+      "field": "policy_envelope_hex",
+      "type_tag": "0x0040",
+      "schema_version": 1,
+      "envelope_sha256": "92bd264d5ab9e00e4fca7d34fa06e8b3c6cf9d942df865cc3e90c8ec6871f8e9",
+      "canonical_value_commitment": "2310d9f19d5fcedf7738a621fcbaa49a73995b37eaec1512d893e8b3377469628aa8a63accfe323e5fe9f18b3951dc78"
+    },
+    {
+      "source": "policy/apl-v1.txt",
+      "field": "request_envelope_hex",
+      "type_tag": "0x0041",
+      "schema_version": 1,
+      "envelope_sha256": "22140c401b6cf98ed6a5d74f1b314751709cca054cba22804e6b6647fafe5679",
+      "canonical_value_commitment": "fe8db11055497edd1fe3da67ede7417fecdc4661053feda444bd447c48aa497827bb0be68913c4a657ea93d5befeb2d4"
+    },
+    {
+      "source": "privacy/privacy-v1.txt",
+      "field": "note_envelope_hex",
+      "type_tag": "0x00a0",
+      "schema_version": 1,
+      "envelope_sha256": "0eee46ee28600b360b984d694ed7ed5bf5216223d09b64b4e0e998a43f6bba22",
+      "canonical_value_commitment": "0fcb13945ca61b98faa4a2f9655de52f1a2c3cbb830257b32aaf875b441aaa080319482d4583b5a66eb2b35617d70a54"
+    },
+    {
+      "source": "privacy/privacy-v1.txt",
+      "field": "private_credential_envelope_hex",
+      "type_tag": "0x00a9",
+      "schema_version": 1,
+      "envelope_sha256": "e47dd1b0e25457b5d6d70bdbc8fdd0bf13c9bbde2e0b5de47d100d5cab31c2c5",
+      "canonical_value_commitment": "98be66d6d8603d5b0feb39930bdad306b76d22151d45b80a69ee7d43199d81b3283e1f5880c525ecc171b72db75c2268"
+    },
+    {
+      "source": "privacy/privacy-v1.txt",
+      "field": "public_inputs_envelope_hex",
+      "type_tag": "0x00a3",
+      "schema_version": 1,
+      "envelope_sha256": "c59fd5b8c79fc6a0ef86ccfe4ab22b83fcd8c7f3674d1e9081009fa07359aab6",
+      "canonical_value_commitment": "1bd110ec875e76d699b64a554c662440b86b1dc0b5119fd2e9261d4eaf6f6292e4f15ec66f383f2e418f07042d3ebbae"
+    },
+    {
+      "source": "privacy/privacy-v1.txt",
+      "field": "shielded_state_envelope_hex",
+      "type_tag": "0x00a5",
+      "schema_version": 1,
+      "envelope_sha256": "907bda77e8b674c0b1666d1d1b514315b32252434525db65449f5f7ed7c66180",
+      "canonical_value_commitment": "341c11a19116ab2c5bd14023c8c8f824b9c5bb0cc1bb8c635697979b69d6af64a5892b2e88a174637f52b0f0e7c5ff5e"
+    },
+    {
+      "source": "state/state-tree-v1.txt",
+      "field": "empty_state_commitment_envelope_hex",
+      "type_tag": "0x0056",
+      "schema_version": 1,
+      "envelope_sha256": "d8b40adbd4947f9d34e1c4cfca626704ceb0d882f0d39ec2c107460de9ed5913",
+      "canonical_value_commitment": "e779a28a3f2c738371f2d962918f5ab1c5b02f1ae36c4f2e93d7576d4fb5b6e58a783c2e34ea32eb579ac46e2b0a99cb"
+    },
+    {
+      "source": "state/state-tree-v1.txt",
+      "field": "member_object_envelope_hex",
+      "type_tag": "0x0050",
+      "schema_version": 1,
+      "envelope_sha256": "1984d37bf9c95e0b6d44df7c948632a4f65c108bf0b99a4d623a9d614874265d",
+      "canonical_value_commitment": "c9f2ebf19f1e44f6946e0626783e2f6f950d3705f2a6e0e1c88ac094fbbe4afb0aab963dd99bbddf6c555b4331c01c00"
+    },
+    {
+      "source": "state/state-tree-v1.txt",
+      "field": "membership_proof_envelope_hex",
+      "type_tag": "0x0055",
+      "schema_version": 1,
+      "envelope_sha256": "c4014ca9a492b89b911292853b126792061d6de7416bace104661b204c3194d8",
+      "canonical_value_commitment": "f2796fa9922386c4edcc7b2037ea80e335410e8e9a22dc8d259bad3f5110416b7c5cf6dd10552469c28dd48d3498224e"
+    },
+    {
+      "source": "state/state-tree-v1.txt",
+      "field": "non_membership_proof_envelope_hex",
+      "type_tag": "0x0055",
+      "schema_version": 1,
+      "envelope_sha256": "69df2a7992ed2233c908fecf822ed262887bea137b58f3ca3f038d1ba1db0fce",
+      "canonical_value_commitment": "2414b824cb395435b515f9ba9e9c31bc66dc8d4825b06249e6a7898c708a41be9fc6bee4e3b497f1899f567f720a915d"
+    },
+    {
+      "source": "state/state-tree-v1.txt",
+      "field": "state_commitment_envelope_hex",
+      "type_tag": "0x0056",
+      "schema_version": 1,
+      "envelope_sha256": "448c3d0ead08a3fafda14cd6cc99fc36a51ec512873935466b0e0858cd4e563a",
+      "canonical_value_commitment": "fe178141750ca2238b6f4f724d911902bda0bcbb605d2c15e87432a889d6627acdbf9d2e1ecf1779a19b1cb85047fc80"
+    },
+    {
+      "source": "vm/object-vm-v1.txt",
+      "field": "execution_result_envelope_hex",
+      "type_tag": "0x0061",
+      "schema_version": 1,
+      "envelope_sha256": "f2713a047d5694f4ec141452435312d72939bb5429878a7a0f6e0ac5b8453491",
+      "canonical_value_commitment": "b2a153861c5d3c21c731c62cea1cf728382d9d11656d5be6144a8c9795d0e42e01ff86cba6538d0d64346d69dc4482d5"
+    },
+    {
+      "source": "vm/object-vm-v1.txt",
+      "field": "input_object_envelope_hex",
+      "type_tag": "0x0050",
+      "schema_version": 1,
+      "envelope_sha256": "1984d37bf9c95e0b6d44df7c948632a4f65c108bf0b99a4d623a9d614874265d",
+      "canonical_value_commitment": "c9f2ebf19f1e44f6946e0626783e2f6f950d3705f2a6e0e1c88ac094fbbe4afb0aab963dd99bbddf6c555b4331c01c00"
+    },
+    {
+      "source": "vm/object-vm-v1.txt",
+      "field": "program_envelope_hex",
+      "type_tag": "0x0060",
+      "schema_version": 1,
+      "envelope_sha256": "e6ad9b8782ae2c4fcedce7ec3f3f9e74e0781af4b02e5e98407111eb6530269a",
+      "canonical_value_commitment": "fc6cdc4174237098cb4ff3618adc957a252063f9cb2814c5c8414d1922a59862354bc396ca72dcd094025b781653056b"
+    }
+  ]
+}

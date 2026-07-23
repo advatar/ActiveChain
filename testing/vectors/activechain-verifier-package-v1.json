@@ -4,6 +4,7 @@
   "rust_crate": "activechain-verifier-api",
   "ffi_crate": "activechain-verifier-ffi",
   "envelope_manifest": "manifest-v1.json",
+  "envelope_hash_manifest": "envelope-manifest-v1.json",
   "light_client_manifest": "light-client-v1.json",
   "failure_codes": {
     "ok": 0,
@@ -12,7 +13,9 @@
     "type_mismatch": 3,
     "version_mismatch": 4,
     "commitment_mismatch": 5,
-    "null_pointer": 6
+    "null_pointer": 6,
+    "relation_mismatch": 7,
+    "buffer_too_small": 8
   },
   "status": "development-integration",
   "production_certified": false,

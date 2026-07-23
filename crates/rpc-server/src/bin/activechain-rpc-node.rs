@@ -1,3 +1,4 @@
+use activechain_application_primitives::DurableAnchorRegistry;
 use activechain_rpc_server::{
     DurableRpcStore, RpcAccessController, RpcServer, load_access_terms, verify_access_terms,
 };
@@ -14,11 +15,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut arguments = env::args().skip(1);
     let snapshot = PathBuf::from(arguments.next().ok_or(
         "usage: activechain-rpc-node <rpc-index-snapshot> [bind-address] \
-                 [access-terms] [usage-snapshot]",
+                 [access-terms] [usage-snapshot] [anchor-snapshot]",
     )?);
     let address = arguments.next().unwrap_or_else(|| "127.0.0.1:49151".to_owned());
     let access_terms = arguments.next().map(PathBuf::from);
     let usage_snapshot = arguments.next().map(PathBuf::from);
+    let anchor_snapshot = arguments
+        .next()
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("ACTIVECHAIN_ANCHOR_SNAPSHOT").map(PathBuf::from));
     if arguments.next().is_some() {
         return Err("unexpected argument".into());
     }
@@ -66,6 +71,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err("usage snapshot requires access terms".into());
         }
         RpcServer::new(store)
+    };
+    let server = if let Some(anchor_path) = anchor_snapshot {
+        server.with_anchor_registry(
+            DurableAnchorRegistry::open(anchor_path)
+                .map_err(|error| format!("could not initialize anchor registry: {error:?}"))?,
+        )
+    } else {
+        server
     };
     loop {
         let now = SystemTime::now()

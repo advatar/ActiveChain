@@ -1,0 +1,16 @@
+# Verification-only metadata shim. The library target is the production consensus verifier source.
+[package]
+name = "activechain-consensus-verifier"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+path = "../../../consensus-verifier/src/lib.rs"
+
+[dependencies]
+activechain-protocol-types.workspace = true
+ml-dsa.workspace = true
+sha3.workspace = true

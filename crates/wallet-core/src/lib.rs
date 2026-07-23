@@ -5,15 +5,26 @@
 
 extern crate alloc;
 
+mod agent_management;
 mod cash_authorization;
 mod cash_persistence;
+mod openwallet;
 
+pub use agent_management::{
+    AgentActionRequestV1, AgentConnectionKind, AgentLifecycle, AgentRegistryCommandV1,
+    AgentRegistryV1, MAX_AGENT_CAPABILITIES, MAX_AGENT_LABEL, ManagedAgentV1,
+};
 pub use cash_authorization::{
     AuthorizedCashSessionGrantV1, AuthorizedCashTransferV1, CashAuthorizationRequestV1,
     CashSessionAdmissionWitnessV1, CashSessionGrantV1, recipient_commitment,
 };
 pub use cash_persistence::{
     FinalizedIdentityKeyProof, FinalizedIdentityKeyVerifier, authenticator_set_root,
+};
+pub use openwallet::{
+    CredentialFormat, IssuanceSessionState, OpenWalletAdapterV1, OpenWalletConsentV1,
+    OpenWalletCredentialOfferV1, OpenWalletCredentialRefV1, OpenWalletPresentationRequestV1,
+    OpenWalletSessionV1, PresentationResponseMode, RequestedCredentialV1,
 };
 
 use activechain_canonical_codec::decode_envelope;
@@ -70,66 +81,6 @@ pub struct AuthorizationWitness {
     pub intent_id: Digest384,
     pub expires_at: u64,
     pub witness: Digest384,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct OpenWalletSessionV1 {
-    pub session_id: Digest384,
-    pub relying_party: Digest384,
-    pub expires_at: u64,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct OpenWalletCredentialRefV1 {
-    pub credential_id: Digest384,
-    pub schema_id: Digest384,
-    pub issuer: Digest384,
-}
-
-#[derive(Default)]
-pub struct OpenWalletAdapterV1 {
-    sessions: Vec<OpenWalletSessionV1>,
-    credentials: Vec<OpenWalletCredentialRefV1>,
-}
-
-impl OpenWalletAdapterV1 {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn register_credential(
-        &mut self,
-        credential: OpenWalletCredentialRefV1,
-    ) -> Result<(), WalletError> {
-        if self.credentials.iter().any(|item| item.credential_id == credential.credential_id) {
-            return Err(WalletError::DuplicateIntent);
-        }
-        self.credentials.push(credential);
-        self.credentials.sort_by_key(|item| item.credential_id);
-        Ok(())
-    }
-
-    pub fn open_session(
-        &mut self,
-        session: OpenWalletSessionV1,
-        height: u64,
-    ) -> Result<(), WalletError> {
-        if session.expires_at < height
-            || self.sessions.iter().any(|item| item.session_id == session.session_id)
-        {
-            return Err(WalletError::Expired);
-        }
-        self.sessions.push(session);
-        self.sessions.sort_by_key(|item| item.session_id);
-        Ok(())
-    }
-
-    pub fn credentials(&self) -> &[OpenWalletCredentialRefV1] {
-        &self.credentials
-    }
-    pub fn sessions(&self) -> &[OpenWalletSessionV1] {
-        &self.sessions
-    }
 }
 
 impl PaymentSession {
@@ -207,6 +158,12 @@ pub enum WalletError {
     StaleIdentityProof,
     StateLimit,
     Persistence,
+    AgentExists,
+    UnknownAgent,
+    AgentPaused,
+    AgentRevoked,
+    AgentBudgetExceeded,
+    MissingCapability,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -210,6 +210,9 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
       rejection, exact safe-API refinement on inputs through nine bytes, strict error codes, and
       commitment-pointer preconditions; arbitrary foreign readable-memory validity and SHAKE256
       internals remain outside this bounded proof.
+      - [x] Keep the verifier-FFI Kani shadow workspace synchronized with every production verifier
+        API dependency and reject future manifest/source drift in preflight
+        ([GitHub issue #117](https://github.com/advatar/ActiveChain/issues/117)).
     - [x] Add seven Kani harnesses over actual private production bytecode-verifier/ObjectVM
       predicates for exact bounded register and target checks, resource classification, gas
       prepayment, checked addition, and forward branch selection, backed by whole-entry-point Rust
@@ -217,6 +220,9 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
     - [x] Prove checked fee totals, strict-quorum arithmetic, base-fee adjustment, supply equations,
       partition accounting, and capped issuance in Verus, with a locked finite parity executable
       against the production cash and consensus crates.
+      - [x] Keep the isolated Verus production-parity lockfile synchronized and validate it
+        offline before proof execution
+        ([GitHub issue #119](https://github.com/advatar/ActiveChain/issues/119)).
     - [x] Move the verified arithmetic behind a shared production implementation or add an
       all-input refinement bridge, and extend Kani coverage to larger production schemas,
       persistence, commitment internals, and network admission.
@@ -524,6 +530,17 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
   ([GitHub issue #66](https://github.com/advatar/ActiveChain/issues/66)).
 - [ ] Implement the transparent specialized CashAIR and direct-reexecution comparison
   ([GitHub issue #69](https://github.com/advatar/ActiveChain/issues/69)).
+  - [x] Reproduce the private-billboard guest image IDs and keep the published relation fixtures
+    valid against both reference and guest execution
+    ([GitHub issue #120](https://github.com/advatar/ActiveChain/issues/120)).
+    - [x] Prevent repeated reproducible guest builds from depending on a blocking Docker desktop
+      credential helper
+      ([GitHub issue #121](https://github.com/advatar/ActiveChain/issues/121)).
+    - [x] Make Apple distribution qualification honor the exact configured Cargo target directory
+      instead of reading stale default-target libraries
+      ([GitHub issue #123](https://github.com/advatar/ActiveChain/issues/123)).
+    - [x] Enforce the anchor RPC size invariant without failing workspace-wide strict Clippy
+      ([GitHub issue #124](https://github.com/advatar/ActiveChain/issues/124)).
   - [x] Freeze canonical bounded public inputs, execution rows, partition-plan binding, trace
     commitment, malformed/substitution tests, and exact direct-reexecution comparison.
   - [x] Add a dedicated transparent STARK prover/verifier for row progression, outcome booleanity,
@@ -607,7 +624,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 
 ## Planned milestone — mobile wallet shells
 
-- [ ] Add compile-checked iOS and Android shell prototypes over the shared wallet core.
+- [x] Add compile-checked iOS and Android shell prototypes over the shared wallet core.
 - [x] Scaffold testable iOS and Android wallet shells with local bridge mocks.
 - [x] Expose a platform-neutral mobile bridge that keeps policy, transfer construction, and opaque keystore slots in Rust.
 
@@ -615,16 +632,56 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [ ] Publish versioned Rust FFI types and golden vectors.
 - [ ] Build iOS and Android local three-validator prototypes.
 - [ ] Complete secure-storage, recovery, and mobile signing audits.
+  - [ ] Replace local string-based bridge mocks with the versioned wallet ABI and exact canonical
+    transfer review/sign/submit flows.
+  - [x] Add production-quality native navigation, portfolio, activity, transfer review, agent
+    approvals, identity, network health, empty/error/loading states, and accessibility coverage.
+  - [ ] Bind iOS Keychain and Android Keystore callback providers without exposing plaintext keys.
+  - [x] Compile, unit-test, launch, and screenshot-review both native applications against fixed
+    device profiles.
+  - [ ] Implement OpenWallet issuance/presentation request parsing, consent-bound sessions,
+    credential selection, replay protection, and deterministic conformance vectors.
+  - [x] Run the seven-step wallet acceptance rehearsal through three persistent validators,
+    transaction ingress, faucet, RPC finality, replay rejection, and validator restart.
+  - [x] Ship enforceable agent management across wallet core and native shells.
+    - [x] Model agents as independently authenticated principals with bounded capabilities,
+      budgets, expiry, pause, and finalized revocation state.
+    - [x] Persist the local agent registry and replay state durably without storing agent or wallet
+      secret keys.
+    - [x] Distinguish same-team app-group transports, third-party protocol clients, remote agents,
+      and device-managed network controls in the UI and documentation.
+    - [x] Add native agent inventory, detail, pause/resume, revoke, pending-request, and risk-state
+      flows with unit coverage.
+    - [x] Document that arbitrary third-party app behavior is outside wallet authority; enforce
+      ActiveChain actions at approval/signing and consensus boundaries instead of claiming OS-wide
+      interception.
+    - [x] Expose durable agent lifecycle/request operations through the wallet ABI and replace the
+      native demonstration stores with that shared implementation.
+      - [x] Link the generated Apple XCFramework into the iOS shell and persist lifecycle
+        transitions through the canonical Rust registry ABI.
+      - [x] Link the Android shell through a reproducible JNI/NDK bridge and replace its
+        demonstration registry.
+    - [x] Add safe iOS App Intents for agent discovery and navigation; keep capability grants,
+      approvals, budget increases, revocation, and signing inside authenticated wallet flows.
 
 ## Active milestone — dBrowser verifier compatibility
 
+- [x] Expose an idempotent, proof-bearing external digest-anchoring contract for MadeMark,
+  including canonical single and Merkle-batch statements, durable submit/resolve state,
+  independently verifiable finalized evidence, RPC operations, and deterministic vectors
+  ([GitHub issue #122](https://github.com/advatar/ActiveChain/issues/122)).
 - [x] Freeze envelope type/version/body-length/trailing-byte rules in `P-110`.
 - [x] Publish the machine-readable `testing/vectors/manifest-v1.json` index.
-- [ ] Add complete envelope/commitment hashes for every published vector.
+- [x] Add complete envelope/commitment hashes for every published vector
+  ([GitHub issue #116](https://github.com/advatar/ActiveChain/issues/116)).
 - [x] Verify the checked-in DA proof and payload commitment fixture directly through the DA kernel.
-- [ ] Implement a bounded language-neutral verifier API and structured failure codes.
+- [x] Implement a bounded language-neutral verifier API and structured failure codes.
+  - [x] Return canonical body metadata, required output length, commitment, failure offset, and
+    machine-readable detail through a null-safe caller-owned C result descriptor.
+  - [x] Add positive, short-buffer, malformed framing, type/version, null-pointer, and oversized
+    conformance coverage without changing the legacy verifier entry points.
 - [x] Add malformed/tampered/wrong-version/trailing-byte fixtures to CI.
-- [ ] Freeze light-client finality, checkpoint, state-sync, DA, and upgrade requirements.
+- [x] Freeze light-client finality, checkpoint, state-sync, DA, and upgrade requirements.
 - [x] Add a local manifest checker for vector hashes and malformed fixtures.
 - [ ] Deliver the stable downstream integration contract required by dBrowser
   ([GitHub epic #86](https://github.com/advatar/ActiveChain/issues/86)).
@@ -725,6 +782,9 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
     - [x] Document the downstream integration boundary and compatibility revisions.
   - [ ] Pass downstream conformance against dBrowser while retaining the developmental and
     unaudited release status until the external security gate completes.
+  - [ ] Consolidate verified release branches into `main`, retire superseded branches, and enforce
+    a single active implementation branch per issue
+    ([GitHub issue #125](https://github.com/advatar/ActiveChain/issues/125)).
 
 ## Planned milestone — external pre-launch security audit
 

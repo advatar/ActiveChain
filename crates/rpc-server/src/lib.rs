@@ -7,6 +7,7 @@ pub use access::{
 };
 
 use activechain_action_kernel::{ActionEnvelope, action_id};
+use activechain_application_primitives::{DigestAnchorStatementV1, DurableAnchorRegistry};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     decode_envelope, encode_envelope,
@@ -360,6 +361,9 @@ impl DurableRpcStore {
             RpcRequest::List { kind, after, limit } => index
                 .list(kind, after, limit)
                 .map_or(RpcResponse::Error(RpcError::Internal), RpcResponse::Page),
+            RpcRequest::SubmitAnchor { .. } | RpcRequest::ResolveAnchor { .. } => {
+                RpcResponse::Error(RpcError::InvalidRequest)
+            }
         }
     }
 
@@ -371,10 +375,16 @@ impl DurableRpcStore {
 pub struct RpcServer {
     store: Arc<DurableRpcStore>,
     access: Option<Arc<RpcAccessController>>,
+    anchors: Option<Arc<RwLock<DurableAnchorRegistry>>>,
 }
 impl RpcServer {
     pub fn new(store: Arc<DurableRpcStore>) -> Self {
-        Self { store, access: None }
+        Self { store, access: None, anchors: None }
+    }
+
+    pub fn with_anchor_registry(mut self, anchors: DurableAnchorRegistry) -> Self {
+        self.anchors = Some(Arc::new(RwLock::new(anchors)));
+        self
     }
 
     pub fn with_access(
@@ -384,7 +394,43 @@ impl RpcServer {
         if store.chain_id()? != access.terms().chain_id() {
             return Err(RpcStoreError::Invalid);
         }
-        Ok(Self { store, access: Some(access) })
+        Ok(Self { store, access: Some(access), anchors: None })
+    }
+
+    fn handle(&self, request: RpcRequest, now: u64) -> RpcResponse {
+        match request {
+            RpcRequest::SubmitAnchor { statement } => {
+                let Some(anchors) = &self.anchors else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let Ok(statement) = decode_envelope::<DigestAnchorStatementV1>(&statement) else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let Ok(mut anchors) = anchors.write() else {
+                    return RpcResponse::Error(RpcError::Internal);
+                };
+                match anchors.update(|registry| registry.submit(statement)) {
+                    Ok(reference) => RpcResponse::AnchorSubmission(reference),
+                    Err(_) => RpcResponse::Error(RpcError::Internal),
+                }
+            }
+            RpcRequest::ResolveAnchor { reference } => {
+                let Some(anchors) = &self.anchors else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let Ok(anchors) = anchors.read() else {
+                    return RpcResponse::Error(RpcError::Internal);
+                };
+                let Some(record) = anchors.registry().resolve(reference) else {
+                    return RpcResponse::Error(RpcError::NotFound);
+                };
+                match encode_envelope(record) {
+                    Ok(record) => RpcResponse::AnchorRecord(record),
+                    Err(_) => RpcResponse::Error(RpcError::Internal),
+                }
+            }
+            request => self.store.handle(request, now),
+        }
     }
 
     pub fn serve_once(&self, listener: &TcpListener, now: u64) -> Result<(), RpcStoreError> {
@@ -413,7 +459,7 @@ impl RpcServer {
                         AccessCharge::free()
                     };
                     RpcAccessResponse::Response {
-                        response: self.store.handle(request, now),
+                        response: self.handle(request, now),
                         charged_units: charge.charged_units(),
                         remaining_units: charge.remaining_units(),
                     }
@@ -428,7 +474,7 @@ impl RpcServer {
             {
                 RpcResponse::Error(RpcError::InvalidRequest)
             } else {
-                self.store.handle(request, now)
+                self.handle(request, now)
             };
             encode_envelope(&response).map_err(|_| RpcStoreError::Invalid)?
         };
@@ -526,7 +572,9 @@ mod tests {
     use activechain_action_kernel::{
         ACTION_PROTOCOL_VERSION, FeeTicket, ResourceVector, ValidityInterval,
     };
-    use activechain_application_primitives::{ApplicationReceipt, JobStatus};
+    use activechain_application_primitives::{
+        AnchorRecord, AnchorStatus, ApplicationReceipt, DigestAnchorStatementV1, JobStatus,
+    };
     use activechain_devnet_kernel::BlockReceipt;
     use activechain_finality_types::{
         FinalityCertificateBundle, FinalizedBlockHeader, ProofPublicInputs,
@@ -823,6 +871,45 @@ mod tests {
         std::fs::write(&path, corrupt).unwrap();
         assert!(matches!(DurableRpcStore::load(path.clone()), Err(RpcStoreError::Corrupt)));
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn anchor_rpc_submit_is_idempotent_and_survives_restart() {
+        let index_path = temporary("anchor-index");
+        let anchor_path = temporary("anchors");
+        let _ = std::fs::remove_file(&index_path);
+        let _ = std::fs::remove_file(&anchor_path);
+        let store = Arc::new(DurableRpcStore::create(index_path.clone(), index()).unwrap());
+        let server = RpcServer::new(store)
+            .with_anchor_registry(DurableAnchorRegistry::open(&anchor_path).unwrap());
+        let statement = DigestAnchorStatementV1::new(
+            b"mademark.external-anchor.statement.v1".to_vec(),
+            [42; 32],
+        )
+        .unwrap();
+        let request = RpcRequest::SubmitAnchor { statement: encode_envelope(&statement).unwrap() };
+        let RpcResponse::AnchorSubmission(reference) = server.handle(request.clone(), 105) else {
+            panic!("anchor submission expected")
+        };
+        assert_eq!(server.handle(request, 105), RpcResponse::AnchorSubmission(reference));
+        let RpcResponse::AnchorRecord(record) =
+            server.handle(RpcRequest::ResolveAnchor { reference }, 105)
+        else {
+            panic!("anchor record expected")
+        };
+        let record = decode_envelope::<AnchorRecord>(&record).unwrap();
+        assert_eq!(record.status(), AnchorStatus::Pending);
+        drop(server);
+
+        let store = Arc::new(DurableRpcStore::load(index_path.clone()).unwrap());
+        let restarted = RpcServer::new(store)
+            .with_anchor_registry(DurableAnchorRegistry::open(&anchor_path).unwrap());
+        assert!(matches!(
+            restarted.handle(RpcRequest::ResolveAnchor { reference }, 105),
+            RpcResponse::AnchorRecord(_)
+        ));
+        let _ = std::fs::remove_file(index_path);
+        let _ = std::fs::remove_file(anchor_path);
     }
 
     #[test]

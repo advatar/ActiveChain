@@ -22,10 +22,11 @@ MUST operate on the canonical body, never on a caller-provided digest.
 
 ## Machine-readable vectors
 
-`testing/vectors/manifest-v1.json` is the compatibility index. Each entry contains a vector ID,
-protocol revision, type tag, schema version, envelope hex, expected commitment(s), and SHA-256 hash.
-Malformed, tampered, wrong-version, and trailing-byte cases are first-class entries with structured
-expected failures.
+`testing/vectors/manifest-v1.json` is the compatibility index. It identifies each vector source,
+protocol revision, type tag, schema version, and source-file SHA-256, and links
+`envelope-manifest-v1.json`. The linked manifest enumerates every envelope field with its exact
+envelope SHA-256 and expected canonical-value commitment. Malformed, tampered, wrong-version, and
+trailing-byte cases are first-class entries with structured expected failures.
 
 ## Stable verifier surface
 
@@ -36,12 +37,33 @@ verify_envelope(bytes, expected_type, expected_version)
   -> { canonical_body, commitments[] } | { code, offset, detail }
 ```
 
-An eventual C ABI MUST preserve this result shape, use caller-owned buffers, require explicit output
+The C ABI MUST preserve this result shape, use caller-owned buffers, require explicit output
 lengths, and never panic or allocate without a published bound.
 
 The checked-in header `crates/verifier-api/include/activechain_verifier.h` freezes the adapter
 function signatures and numeric result codes. Bindings MUST reject null pointers, lengths above the
 published bound, and integer truncation before calling the Rust implementation.
+
+`activechain_verify_envelope_v1` implements this boundary with a caller-owned canonical-body
+buffer and `ActivechainVerifierResult`. A zero-capacity null body pointer performs a size query.
+Success returns the exact type, schema, required body length, canonical body, and the P-001
+canonical-value commitment. Failures return a stable primary code, byte offset, and decode detail:
+
+| Detail | Meaning |
+| ---: | --- |
+| 0 | no decode subcategory |
+| 1 | unexpected end |
+| 2 | non-minimal length |
+| 3 | length overflow |
+| 4 | declared length exceeds the bound |
+| 5 | invalid Boolean |
+| 6 | invalid enum discriminant |
+| 7 | schema invariant violation |
+| 8 | trailing data |
+
+Offsets identify the start of the failing envelope field where it is statically knowable: type at
+0, schema at 2, length at 4, and body at 5. Unexpected-end points to the end of input and
+trailing-data points to the first trailing byte. No error string crosses the ABI.
 
 ## Light-client requirements
 

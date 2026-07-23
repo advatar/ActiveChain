@@ -1,14 +1,23 @@
 package dev.activechain.wallet
 
-data class AgentDelegation(val id: String, val label: String, val capabilities: List<String>,
-                           val dailyLimit: Long, val expiresAt: Long, var revoked: Boolean = false)
-data class PendingApproval(val id: String, val agentId: String, val recipient: String,
-                           val amount: Long, val feeReserve: Long, val networkId: String)
+enum class AgentConnection(val label: String) {
+    WALLET_OWNED("Wallet-owned"),
+    THIRD_PARTY("Third-party"),
+    REMOTE("Remote"),
+    MANAGED_DEVICE("Managed device")
+}
 
-class AgentWalletStore {
-    val agents = mutableListOf<AgentDelegation>()
-    val pending = mutableListOf<PendingApproval>()
-    fun delegate(agent: AgentDelegation): Boolean { if (agents.any { it.id == agent.id }) return false; agents += agent; return true }
-    fun enqueue(approval: PendingApproval) { pending += approval }
-    fun revoke(id: String) { agents.firstOrNull { it.id == id }?.revoked = true }
+sealed class AgentLifecycle {
+    data object Active : AgentLifecycle()
+    data object Paused : AgentLifecycle()
+    data object RevocationPending : AgentLifecycle()
+    data class Revoked(val finalizedHeight: Long) : AgentLifecycle()
+}
+
+data class AgentDelegation(val id: String, val label: String, val capabilities: List<String>,
+                           val dailyLimit: Long, val expiresAt: Long,
+                           val connection: AgentConnection = AgentConnection.THIRD_PARTY,
+                           var spentToday: Long = 0,
+                           var lifecycle: AgentLifecycle = AgentLifecycle.Active) {
+    val revoked: Boolean get() = lifecycle is AgentLifecycle.Revoked
 }

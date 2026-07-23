@@ -1,6 +1,19 @@
 import Foundation
 import LocalAuthentication
-import Combine
+
+public enum AgentConnection: String, Equatable {
+    case walletOwned = "Wallet-owned"
+    case thirdParty = "Third-party"
+    case remote = "Remote"
+    case managedDevice = "Managed device"
+}
+
+public enum AgentLifecycle: Equatable {
+    case active
+    case paused
+    case revocationPending
+    case revoked(finalizedHeight: UInt64)
+}
 
 public struct AgentDelegation: Identifiable, Equatable {
     public let id: String
@@ -8,35 +21,27 @@ public struct AgentDelegation: Identifiable, Equatable {
     public let capabilities: [String]
     public let dailyLimit: UInt64
     public let expiresAt: UInt64
-    public var revoked: Bool
-}
+    public let connection: AgentConnection
+    public var spentToday: UInt64
+    public var lifecycle: AgentLifecycle
 
-public struct PendingApproval: Identifiable, Equatable {
-    public let id: String
-    public let agentID: String
-    public let recipient: String
-    public let amount: UInt64
-    public let feeReserve: UInt64
-    public let networkID: String
-}
-
-public final class AgentWalletStore: ObservableObject {
-    @Published public private(set) var agents: [AgentDelegation] = []
-    @Published public private(set) var pending: [PendingApproval] = []
-
-    public init() {}
-
-    public func delegate(_ agent: AgentDelegation) -> Bool {
-        guard !agents.contains(where: { $0.id == agent.id }) else { return false }
-        agents.append(agent)
-        return true
+    public init(id: String, label: String, capabilities: [String], dailyLimit: UInt64,
+                expiresAt: UInt64, revoked: Bool = false,
+                connection: AgentConnection = .thirdParty, spentToday: UInt64 = 0,
+                lifecycle: AgentLifecycle? = nil) {
+        self.id = id
+        self.label = label
+        self.capabilities = capabilities
+        self.dailyLimit = dailyLimit
+        self.expiresAt = expiresAt
+        self.connection = connection
+        self.spentToday = spentToday
+        self.lifecycle = lifecycle ?? (revoked ? .revoked(finalizedHeight: 1) : .active)
     }
 
-    public func enqueue(_ approval: PendingApproval) { pending.append(approval) }
-
-    public func revoke(agentID: String) {
-        guard let index = agents.firstIndex(where: { $0.id == agentID }) else { return }
-        agents[index].revoked = true
+    public var revoked: Bool {
+        if case .revoked = lifecycle { return true }
+        return false
     }
 }
 

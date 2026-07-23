@@ -25,6 +25,14 @@
 
 #define ACTIVECHAIN_WALLET_INVALID_SIGNATURE 7
 
+#define ACTIVECHAIN_WALLET_AGENT_REJECTED 8
+
+#define ACTIVECHAIN_WALLET_OPENWALLET_OFFER 1
+
+#define ACTIVECHAIN_WALLET_OPENWALLET_PRESENTATION_REQUEST 2
+
+#define ACTIVECHAIN_WALLET_OPENWALLET_CONSENT 3
+
 typedef uint32_t (*activechain_wallet_sign_callback)(
     void *context,
     const uint8_t *payload,
@@ -38,6 +46,19 @@ typedef uint32_t (*activechain_wallet_submit_callback)(
     uint32_t envelope_len);
 
 
+typedef struct ActivechainWalletAgentSummary {
+  uint8_t principal[48];
+  uint32_t connection;
+  uint32_t lifecycle;
+  uint32_t capability_count;
+  uint64_t budget_limit_high;
+  uint64_t budget_limit_low;
+  uint64_t budget_spent_high;
+  uint64_t budget_spent_low;
+  uint64_t expires_at;
+  uint64_t revocation_finalized_height;
+} ActivechainWalletAgentSummary;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -46,6 +67,135 @@ extern "C" {
  * Returns the ABI revision consumed by native wallet shells.
  */
 uint32_t activechain_wallet_ffi_revision(void);
+
+/**
+ * Validates one canonical OpenWallet envelope and returns its protocol commitment.
+ *
+ * `kind` must be one of the `ACTIVECHAIN_WALLET_OPENWALLET_*` constants. This boundary
+ * deliberately accepts canonical ActiveChain envelopes rather than JSON so native transport
+ * adapters cannot silently reinterpret a consent or presentation request.
+ *
+ * # Safety
+ *
+ * `envelope` must be readable for `envelope_len` bytes and `commitment_out` must point to a
+ * writable 48-byte buffer. Neither pointer is retained.
+ */
+uint32_t activechain_wallet_openwallet_validate(uint32_t kind,
+                                                const uint8_t *envelope,
+                                                uint32_t envelope_len,
+                                                uint8_t *commitment_out);
+
+/**
+ * Applies one canonical agent-registry command and returns the complete next registry snapshot.
+ *
+ * Pass an empty registry buffer to start from the canonical empty registry. The input registry is
+ * never modified, and no output bytes are published unless the complete next state fits.
+ *
+ * # Safety
+ *
+ * Non-empty inputs must point to readable buffers for their declared lengths. `required_len` must
+ * be writable. `output` may be null only when `output_capacity` is zero for a size query. No
+ * pointer is retained.
+ */
+uint32_t activechain_wallet_agent_apply(const uint8_t *registry,
+                                        uint32_t registry_len,
+                                        const uint8_t *command,
+                                        uint32_t command_len,
+                                        uint8_t *output,
+                                        uint32_t output_capacity,
+                                        uint32_t *required_len);
+
+/**
+ * Registers one native agent and returns the complete canonical next registry.
+ *
+ * Capabilities are a contiguous array of `capability_count * 48` bytes and must already be
+ * strictly ordered. The label must be non-empty UTF-8.
+ *
+ * # Safety
+ *
+ * All non-empty inputs and outputs must point to readable/writable buffers for their declared
+ * lengths. Fixed identifiers point to 48 bytes. No pointer is retained.
+ */
+uint32_t activechain_wallet_agent_register(const uint8_t *registry,
+                                           uint32_t registry_len,
+                                           const uint8_t *principal,
+                                           const uint8_t *label,
+                                           uint32_t label_len,
+                                           uint32_t connection,
+                                           const uint8_t *capabilities,
+                                           uint32_t capability_count,
+                                           uint64_t budget_limit_high,
+                                           uint64_t budget_limit_low,
+                                           uint64_t expires_at,
+                                           uint8_t *output,
+                                           uint32_t output_capacity,
+                                           uint32_t *required_len);
+
+/**
+ * Pauses or resumes one agent and returns the canonical next registry.
+ *
+ * # Safety
+ *
+ * `principal` points to 48 readable bytes; registry and output pointers follow
+ * `activechain_wallet_agent_apply`.
+ */
+uint32_t activechain_wallet_agent_set_paused(const uint8_t *registry,
+                                             uint32_t registry_len,
+                                             const uint8_t *principal,
+                                             uint32_t paused,
+                                             uint8_t *output,
+                                             uint32_t output_capacity,
+                                             uint32_t *required_len);
+
+/**
+ * Starts or finalizes an agent revocation and returns the canonical next registry.
+ *
+ * Pass `finalized_height == 0` to begin revocation; a non-zero height finalizes the same
+ * transaction.
+ *
+ * # Safety
+ *
+ * Principal and transaction pointers each point to 48 readable bytes; other pointers follow
+ * `activechain_wallet_agent_apply`.
+ */
+uint32_t activechain_wallet_agent_revoke(const uint8_t *registry,
+                                         uint32_t registry_len,
+                                         const uint8_t *principal,
+                                         const uint8_t *transaction,
+                                         uint64_t finalized_height,
+                                         uint8_t *output,
+                                         uint32_t output_capacity,
+                                         uint32_t *required_len);
+
+/**
+ * Returns the number of agents in a canonical registry.
+ *
+ * # Safety
+ *
+ * Registry bytes must be readable and `count_out` writable. No pointer is retained.
+ */
+uint32_t activechain_wallet_agent_count(const uint8_t *registry,
+                                        uint32_t registry_len,
+                                        uint32_t *count_out);
+
+/**
+ * Returns one agent summary and its UTF-8 label.
+ *
+ * Label output supports the standard size-query pattern. The summary is not written unless the
+ * complete label fits, so callers never observe a partial record.
+ *
+ * # Safety
+ *
+ * Registry bytes must be readable, summary and required-length outputs writable, and `label_out`
+ * may be null only for a zero-capacity size query.
+ */
+uint32_t activechain_wallet_agent_summary(const uint8_t *registry,
+                                          uint32_t registry_len,
+                                          uint32_t index,
+                                          struct ActivechainWalletAgentSummary *summary_out,
+                                          uint8_t *label_out,
+                                          uint32_t label_capacity,
+                                          uint32_t *label_required);
 
 /**
  * Validates a bounded OpenWallet session tuple without accepting secret material.

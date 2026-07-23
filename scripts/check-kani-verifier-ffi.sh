@@ -37,7 +37,7 @@ import tomllib
 
 root = Path(sys.argv[1]).resolve()
 manifest = Path(sys.argv[2]).resolve()
-metadata = json.loads(
+proof_metadata = json.loads(
     subprocess.check_output(
         [
             "cargo",
@@ -53,25 +53,77 @@ metadata = json.loads(
     )
 )
 
-expected_sources = {
-    "activechain-canonical-codec": root / "crates/canonical-codec/src/lib.rs",
-    "activechain-protocol-types": root / "crates/protocol-types/src/lib.rs",
-    "activechain-verifier-api": root / "crates/verifier-api/src/lib.rs",
-    "activechain-verifier-ffi": root / "crates/verifier-ffi/src/lib.rs",
+production_metadata = json.loads(
+    subprocess.check_output(
+        [
+            "cargo",
+            "metadata",
+            "--manifest-path",
+            str(root / "Cargo.toml"),
+            "--locked",
+            "--no-deps",
+            "--format-version",
+            "1",
+        ],
+        text=True,
+    )
+)
+production_packages = {
+    package["name"]: package for package in production_metadata["packages"]
 }
-packages = {package["name"]: package for package in metadata["packages"]}
-if set(packages) != set(expected_sources):
+local_names = set(production_packages)
+expected_names = set()
+pending = ["activechain-verifier-ffi"]
+while pending:
+    name = pending.pop()
+    if name in expected_names:
+        continue
+    expected_names.add(name)
+    pending.extend(
+        dependency["name"]
+        for dependency in production_packages[name]["dependencies"]
+        if dependency["name"] in local_names and dependency["kind"] != "dev"
+    )
+
+packages = {package["name"]: package for package in proof_metadata["packages"]}
+if set(packages) != expected_names:
     raise SystemExit(
         "verifier-FFI Kani workspace package set diverged: "
-        f"expected {sorted(expected_sources)}, found {sorted(packages)}"
+        f"expected {sorted(expected_names)}, found {sorted(packages)}"
     )
-for name, expected in expected_sources.items():
+for name in sorted(expected_names):
+    production = production_packages[name]
+    production_local_dependencies = {
+        dependency["name"]
+        for dependency in production["dependencies"]
+        if dependency["name"] in local_names and dependency["kind"] != "dev"
+    }
     package = packages[name]
-    sources = {Path(target["src_path"]).resolve() for target in package["targets"]}
-    if expected.resolve() not in sources:
+    proof_local_dependencies = {
+        dependency["name"]
+        for dependency in package["dependencies"]
+        if dependency["name"] in expected_names and dependency["kind"] != "dev"
+    }
+    if proof_local_dependencies != production_local_dependencies:
         raise SystemExit(
-            f"{name} proof targets are {sorted(map(str, sources))}, "
-            f"expected production source {expected}"
+            f"{name} local dependency drift: expected "
+            f"{sorted(production_local_dependencies)}, found "
+            f"{sorted(proof_local_dependencies)}"
+        )
+    expected_sources = {
+        Path(target["src_path"]).resolve()
+        for target in production["targets"]
+        if "lib" in target["kind"]
+    }
+    sources = {
+        Path(target["src_path"]).resolve()
+        for target in package["targets"]
+        if "lib" in target["kind"]
+    }
+    if sources != expected_sources:
+        raise SystemExit(
+            f"{name} proof library targets are {sorted(map(str, sources))}, "
+            f"expected production sources {sorted(map(str, expected_sources))}"
         )
     if package["rust_version"] != "1.93.0":
         raise SystemExit(f"{name} proof metadata must remain pinned to Rust 1.93.0")

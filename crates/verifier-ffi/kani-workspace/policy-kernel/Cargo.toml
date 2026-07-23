@@ -1,0 +1,15 @@
+# Verification-only metadata shim. The library target is the production policy-kernel source.
+[package]
+name = "activechain-policy-kernel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+path = "../../../policy-kernel/src/lib.rs"
+
+[dependencies]
+activechain-canonical-codec.workspace = true
+activechain-protocol-types.workspace = true

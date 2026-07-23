@@ -1,0 +1,14 @@
+# Verification-only metadata shim. The library target is the production capability source.
+[package]
+name = "activechain-capability"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+path = "../../../capability/src/lib.rs"
+
+[dependencies]
+activechain-protocol-types.workspace = true

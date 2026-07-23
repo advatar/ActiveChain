@@ -309,23 +309,28 @@ mod tests {
         assert!(super::execute_post_relation(&post).is_err());
     }
 
+    #[cfg(feature = "reproducible-build")]
     #[test]
     fn billboard_image_ids_match_the_published_vector() {
+        fn published_id(vector: &str, key: &str) -> [u32; 8] {
+            let value = vector
+                .lines()
+                .find_map(|line| line.strip_prefix(key))
+                .expect("published image ID entry");
+            let words: Vec<u32> =
+                value.split(',').map(|word| word.parse().expect("decimal image ID word")).collect();
+            words.try_into().expect("exact eight-word image ID")
+        }
+
+        let vector = include_str!("../../../testing/vectors/pq-zk/billboard-relations-v1.txt");
         assert_eq!(
             activechain_pq_zk_methods::BILLBOARD_POST_ID,
-            [
-                2359650203, 825427449, 803873494, 7228888, 2393724673, 1052239005, 3492680221,
-                851485700
-            ]
+            published_id(vector, "post_image_id_u32_le=")
         );
         assert_eq!(
             activechain_pq_zk_methods::BILLBOARD_WITHDRAW_ID,
-            [
-                792537467, 1516337779, 2206555091, 3776183473, 2265041217, 2279639786, 2725943854,
-                2442665847
-            ]
+            published_id(vector, "withdrawal_image_id_u32_le=")
         );
-        let vector = include_str!("../../../testing/vectors/pq-zk/billboard-relations-v1.txt");
         assert!(vector.contains("post_relation=private-billboard-post-v1"));
         assert!(vector.contains("withdrawal_relation=private-billboard-withdrawal-v1"));
     }

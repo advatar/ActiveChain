@@ -1,0 +1,18 @@
+# Verification-only metadata shim. The library target is the production transition source.
+[package]
+name = "activechain-transition"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+path = "../../../transition/src/lib.rs"
+
+[dependencies]
+activechain-canonical-codec.workspace = true
+activechain-object.workspace = true
+activechain-policy-kernel.workspace = true
+activechain-protocol-commitment.workspace = true
+activechain-protocol-types.workspace = true

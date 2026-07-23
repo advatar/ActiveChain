@@ -7,7 +7,19 @@ pids=()
 cleanup() {
   for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null || true; done
 }
-trap cleanup EXIT
+diagnose() {
+  status=$?
+  if (( status != 0 )); then
+    for log in "$workdir"/*.out; do
+      test -f "$log" || continue
+      echo "=== $log ===" >&2
+      tail -n 80 "$log" >&2
+    done
+  fi
+  cleanup
+  exit "$status"
+}
+trap diagnose EXIT
 
 wait_for_listener() {
   local port="$1"
@@ -34,6 +46,12 @@ pids+=("$!")
 wait_for_listener 4511 "$workdir/v1.out"
 wait_for_listener 4512 "$workdir/v2.out"
 
+cargo run --quiet -p activechain-consensus-runtime --bin validator-node -- \
+  4510 "$workdir/v0.snapshot" "$genesis" 0 0 --once \
+  --peer=2@127.0.0.1:4511 --peer=3@127.0.0.1:4512 | tee "$workdir/proposer.out"
+
+rg --fixed-strings "completed network round: finalized_height=0" "$workdir/proposer.out"
+rg --fixed-strings "votes=3" "$workdir/proposer.out"
 python3 - <<'PY'
 import socket
 for _ in range(32):
@@ -41,13 +59,6 @@ for _ in range(32):
     sock.sendall((16 * 1024 + 1).to_bytes(4, "big"))
     sock.close()
 PY
-
-cargo run --quiet -p activechain-consensus-runtime --bin validator-node -- \
-  4510 "$workdir/v0.snapshot" "$genesis" 0 0 --once \
-  --peer=2@127.0.0.1:4511 --peer=3@127.0.0.1:4512 | tee "$workdir/proposer.out"
-
-rg --fixed-strings "completed network round: finalized_height=0" "$workdir/proposer.out"
-rg --fixed-strings "votes=3" "$workdir/proposer.out"
 cargo run --quiet -p activechain-consensus-runtime --bin validator-node -- \
   4510 "$workdir/v0.snapshot" "$genesis" 0 0 --once \
   --peer=2@127.0.0.1:4511 --peer=3@127.0.0.1:4512 | tee "$workdir/proposer-child.out"
