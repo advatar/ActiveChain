@@ -22,5 +22,9 @@ and mechanically proves every authority dimension is attenuated. A well-formed c
 actions, scope, limits, validity, delegation, constraints, or revocation state returns the stable
 relation-mismatch result rather than being mistaken for a decoding failure.
 
-The remaining issue #88 entry points will follow this pattern for APL decisions, state witnesses,
-finalized blocks, receipts, and joined authorization chains. No function accepts secret material.
+`activechain_verify_policy_decision_code` validates APL decisions as semantic values, including
+matched-rule bounds, deterministic step accounting, default deny and forbid precedence, and the
+rule that denied decisions carry no obligations.
+
+The remaining issue #88 entry points will follow this pattern for state witnesses, finalized
+blocks, receipts, and joined authorization chains. No function accepts secret material.

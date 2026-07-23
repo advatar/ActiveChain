@@ -310,6 +310,7 @@ version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
  "activechain-capability",
+ "activechain-policy-kernel",
  "activechain-protocol-types",
  "sha3 0.10.9",
 ]
@@ -319,6 +320,7 @@ name = "activechain-verifier-ffi"
 version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
+ "activechain-policy-kernel",
  "activechain-protocol-types",
  "activechain-verifier-api",
 ]

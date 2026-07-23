@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 use activechain_canonical_codec::{DecodeError, decode_envelope, inspect_canonical_envelope};
+use activechain_policy_kernel::PolicyDecision;
 use activechain_protocol_types::{
     CapabilityGrant, Digest384, INITIAL_PROTOCOL_REVISION, Principal,
 };
@@ -88,6 +89,15 @@ pub fn verify_capability_attenuation(parent: &[u8], child: &[u8]) -> Result<(), 
         .map_err(|_| VerifyError::RelationMismatch)
 }
 
+pub fn verify_policy_decision_code(bytes: &[u8]) -> u32 {
+    verify_policy_decision(bytes).map_or_else(|error| error.code(), |_| VERIFY_OK)
+}
+
+pub fn verify_policy_decision(bytes: &[u8]) -> Result<PolicyDecision, VerifyError> {
+    inspect_envelope(bytes, PolicyDecision::TYPE_TAG, PolicyDecision::SCHEMA_VERSION)?;
+    decode_envelope::<PolicyDecision>(bytes).map_err(VerifyError::Decode)
+}
+
 pub fn verify_shake_commitment(
     domain: &[u8],
     body: &[u8],
@@ -132,6 +142,7 @@ mod tests {
 
     use super::*;
     use activechain_canonical_codec::encode_envelope;
+    use activechain_policy_kernel::DecisionResult;
     use activechain_protocol_types::{
         ActionId, BoundedActionSet, CapabilityGrantFields, CapabilityId, CryptoSuiteId,
         DataSelector, FreezeState, HolderBinding, PrincipalId, PrincipalKind, ProtocolSignature,
@@ -281,6 +292,24 @@ mod tests {
         assert_eq!(
             verify_capability_attenuation_code(&parent, &truncated),
             VerifyError::Decode(DecodeError::UnexpectedEnd { needed: 1, remaining: 0 }).code()
+        );
+    }
+
+    #[test]
+    fn policy_decision_verifier_enforces_default_deny_effect_consistency() {
+        let deny =
+            encode_envelope(&PolicyDecision::new(DecisionResult::Deny, 0, 0, 0, vec![]).unwrap())
+                .unwrap();
+        assert_eq!(verify_policy_decision_code(&deny), VERIFY_OK);
+        let mut inconsistent = deny;
+        let body_start = inconsistent.len() - 6;
+        inconsistent[body_start] = DecisionResult::Permit as u8;
+        assert_eq!(
+            verify_policy_decision_code(&inconsistent),
+            VerifyError::Decode(DecodeError::InvalidValue(
+                "policy result does not match matched effects"
+            ))
+            .code()
         );
     }
 }

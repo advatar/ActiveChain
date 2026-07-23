@@ -48,4 +48,8 @@ uint32_t activechain_verify_capability_attenuation_code(
     const uint8_t *child,
     uint32_t child_len);
 
+uint32_t activechain_verify_policy_decision_code(
+    const uint8_t *bytes,
+    uint32_t bytes_len);
+
 #endif

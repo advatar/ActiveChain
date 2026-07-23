@@ -119,6 +119,27 @@ pub unsafe extern "C" fn activechain_verify_capability_attenuation_code(
     activechain_verifier_api::verify_capability_attenuation_code(parent, child)
 }
 
+#[unsafe(no_mangle)]
+/// # Safety
+/// The caller must provide a readable `bytes` buffer of `bytes_len` bytes. No pointer is retained.
+pub unsafe extern "C" fn activechain_verify_policy_decision_code(
+    bytes: *const u8,
+    bytes_len: u32,
+) -> u32 {
+    if bytes.is_null() && bytes_len != 0 {
+        return NULL_POINTER;
+    }
+    if bytes_len > MAX_ENVELOPE_LENGTH {
+        return TOO_LARGE;
+    }
+    let input = if bytes_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(bytes, bytes_len as usize) }
+    };
+    activechain_verifier_api::verify_policy_decision_code(input)
+}
+
 #[cfg(kani)]
 mod kani_proofs;
 
@@ -162,6 +183,7 @@ pub unsafe extern "C" fn activechain_verify_commitment_code(
 mod tests {
     use super::*;
     use activechain_canonical_codec::encode_envelope;
+    use activechain_policy_kernel::{DecisionResult, PolicyDecision};
     use activechain_protocol_types::{
         ActionId, BoundedActionSet, CapabilityGrant, CapabilityGrantFields, CapabilityId,
         CryptoSuiteId, DataSelector, FreezeState, HolderBinding, Principal, PrincipalId,
@@ -290,6 +312,19 @@ mod tests {
                 )
             },
             NULL_POINTER
+        );
+    }
+
+    #[test]
+    fn policy_decision_abi_matches_rust_verifier_result() {
+        let encoded =
+            encode_envelope(&PolicyDecision::new(DecisionResult::Deny, 0, 0, 0, vec![]).unwrap())
+                .unwrap();
+        assert_eq!(
+            unsafe {
+                activechain_verify_policy_decision_code(encoded.as_ptr(), encoded.len() as u32)
+            },
+            activechain_verifier_api::verify_policy_decision_code(&encoded)
         );
     }
 
