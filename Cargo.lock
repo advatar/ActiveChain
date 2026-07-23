@@ -400,6 +400,8 @@ dependencies = [
 name = "activechain-verifier-api"
 version = "0.1.0"
 dependencies = [
+ "activechain-action-kernel",
+ "activechain-application-primitives",
  "activechain-canonical-codec",
  "activechain-capability",
  "activechain-consensus-verifier",

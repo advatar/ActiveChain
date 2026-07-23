@@ -412,6 +412,56 @@ pub unsafe extern "C" fn activechain_verify_block_receipt_code(
     activechain_verifier_api::verify_block_receipt_code(finality, receipt)
 }
 
+#[unsafe(no_mangle)]
+/// Verifies canonical finalized anchor evidence against explicit trusted network parameters.
+///
+/// # Safety
+/// Evidence and statement buffers must be readable for their declared lengths. `chain_id` and
+/// `genesis` must each point to readable 48-byte values. No pointer is retained.
+pub unsafe extern "C" fn activechain_verify_anchor_finalized_evidence_code(
+    evidence: *const u8,
+    evidence_len: u32,
+    statement: *const u8,
+    statement_len: u32,
+    chain_id: *const u8,
+    genesis: *const u8,
+    protocol_revision: u64,
+    verifier_revision: u32,
+) -> u32 {
+    if (evidence.is_null() && evidence_len != 0)
+        || (statement.is_null() && statement_len != 0)
+        || chain_id.is_null()
+        || genesis.is_null()
+    {
+        return NULL_POINTER;
+    }
+    if evidence_len.checked_add(statement_len).is_none_or(|length| length > MAX_ENVELOPE_LENGTH) {
+        return TOO_LARGE;
+    }
+    let evidence = if evidence_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(evidence, evidence_len as usize) }
+    };
+    let statement = if statement_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(statement, statement_len as usize) }
+    };
+    let mut chain_bytes = [0_u8; 48];
+    chain_bytes.copy_from_slice(unsafe { core::slice::from_raw_parts(chain_id, 48) });
+    let mut genesis_bytes = [0_u8; 48];
+    genesis_bytes.copy_from_slice(unsafe { core::slice::from_raw_parts(genesis, 48) });
+    activechain_verifier_api::verify_anchor_finalized_evidence_code(
+        evidence,
+        statement,
+        activechain_protocol_types::ChainId::new(Digest384::new(chain_bytes)),
+        Digest384::new(genesis_bytes),
+        protocol_revision,
+        verifier_revision,
+    )
+}
+
 #[cfg(kani)]
 mod kani_proofs;
 
@@ -1039,6 +1089,41 @@ mod tests {
                 )
             },
             NULL_POINTER
+        );
+    }
+
+    #[test]
+    fn finalized_anchor_abi_rejects_null_and_oversized_inputs_before_dereference() {
+        assert_eq!(
+            unsafe {
+                activechain_verify_anchor_finalized_evidence_code(
+                    core::ptr::null(),
+                    0,
+                    core::ptr::null(),
+                    0,
+                    core::ptr::null(),
+                    core::ptr::null(),
+                    1,
+                    1,
+                )
+            },
+            NULL_POINTER
+        );
+        let trusted = [0_u8; 48];
+        assert_eq!(
+            unsafe {
+                activechain_verify_anchor_finalized_evidence_code(
+                    core::ptr::NonNull::<u8>::dangling().as_ptr(),
+                    MAX_ENVELOPE_LENGTH,
+                    core::ptr::NonNull::<u8>::dangling().as_ptr(),
+                    1,
+                    trusted.as_ptr(),
+                    trusted.as_ptr(),
+                    1,
+                    1,
+                )
+            },
+            TOO_LARGE
         );
     }
 
