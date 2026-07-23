@@ -668,7 +668,9 @@ mod tests {
 
     #[test]
     fn finalized_evidence_round_trip_binds_exact_statement() {
-        assert!(AnchorRecord::MAX_ENCODED_LEN <= activechain_rpc_types::MAX_RPC_BLOB_LENGTH);
+        const {
+            assert!(AnchorRecord::MAX_ENCODED_LEN <= activechain_rpc_types::MAX_RPC_BLOB_LENGTH);
+        }
         let evidence = AnchorFinalizedEvidenceV1::new(
             ChainId::new(Digest384::new([1; 48])),
             Digest384::new([2; 48]),

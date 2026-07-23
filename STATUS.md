@@ -539,6 +539,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
     - [x] Make Apple distribution qualification honor the exact configured Cargo target directory
       instead of reading stale default-target libraries
       ([GitHub issue #123](https://github.com/advatar/ActiveChain/issues/123)).
+    - [x] Enforce the anchor RPC size invariant without failing workspace-wide strict Clippy
+      ([GitHub issue #124](https://github.com/advatar/ActiveChain/issues/124)).
   - [x] Freeze canonical bounded public inputs, execution rows, partition-plan binding, trace
     commitment, malformed/substitution tests, and exact direct-reexecution comparison.
   - [x] Add a dedicated transparent STARK prover/verifier for row progression, outcome booleanity,
