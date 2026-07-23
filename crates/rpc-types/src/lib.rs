@@ -8,13 +8,14 @@ extern crate alloc;
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
-use activechain_protocol_types::{ChainId, Digest384};
+use activechain_protocol_types::{ChainId, Digest384, TransactionId};
 use alloc::vec::Vec;
 
 pub const RPC_SCHEMA_REVISION: u32 = 1;
 pub const MAX_RPC_BLOB_LENGTH: usize = 256 * 1024;
 pub const MAX_RPC_PAGE_SIZE: u16 = 4;
 pub const MAX_SUPPORTED_PROOFS: usize = 8;
+pub const MAX_ACTIONS_PER_PROOF: usize = 32;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
@@ -284,6 +285,55 @@ impl CanonicalType for RpcRequest {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ActionSetProof {
+    transaction_ids: Vec<TransactionId>,
+}
+impl ActionSetProof {
+    pub const TYPE_TAG: u16 = 0x00a3;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 1 + MAX_ACTIONS_PER_PROOF * 48;
+
+    pub fn new(transaction_ids: Vec<TransactionId>) -> Result<Self, DecodeError> {
+        if transaction_ids.is_empty()
+            || transaction_ids.len() > MAX_ACTIONS_PER_PROOF
+            || transaction_ids.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err(DecodeError::InvalidValue(
+                "action proof transaction IDs are not a bounded ordered set",
+            ));
+        }
+        Ok(Self { transaction_ids })
+    }
+    pub fn transaction_ids(&self) -> &[TransactionId] {
+        &self.transaction_ids
+    }
+}
+impl CanonicalEncode for ActionSetProof {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        encoder.write_length(self.transaction_ids.len(), MAX_ACTIONS_PER_PROOF)?;
+        for transaction_id in &self.transaction_ids {
+            transaction_id.encode(encoder)?;
+        }
+        Ok(())
+    }
+}
+impl CanonicalDecode for ActionSetProof {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let count = decoder.read_length(MAX_ACTIONS_PER_PROOF)?;
+        let mut transaction_ids = Vec::with_capacity(count);
+        for _ in 0..count {
+            transaction_ids.push(TransactionId::decode(decoder)?);
+        }
+        Self::new(transaction_ids)
+    }
+}
+impl CanonicalType for ActionSetProof {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct QueryRecord {
     kind: QueryKind,
     key: Digest384,
@@ -304,7 +354,7 @@ impl QueryRecord {
     ) -> Result<Self, DecodeError> {
         if key == Digest384::ZERO
             || value.is_empty()
-            || proof.is_empty()
+            || (kind != QueryKind::Receipt && proof.is_empty())
             || finality.is_empty()
             || value.len() > MAX_RPC_BLOB_LENGTH
             || proof.len() > MAX_RPC_BLOB_LENGTH

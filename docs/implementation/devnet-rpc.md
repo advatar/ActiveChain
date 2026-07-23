@@ -19,6 +19,12 @@ read/write deadlines. Requests and responses must be exact canonical envelopes. 
 available when stale; proof queries fail closed with `RpcError::Stale`. Pages contain at most four
 records and use the final returned key as the exclusive cursor for the next request.
 
-The remaining issue #91 work is semantic: adapters must construct and verify state, action, and
-receipt records against the finalized header rather than trusting opaque proof bytes. The public
-network service must then be wired into the validator/indexer process.
+`verify_query_record` now provides that semantic boundary. State records verify the object and
+sparse proof against the cryptographically finalized post-state. Action records recompute the
+canonical action identifier and both finalized ordered action roots from a bounded
+`ActionSetProof`. Receipt records reuse the finalized receipt verifier and require the exact
+committed root, height, and state transition. The durable index rejects any record that fails.
+
+`activechain-rpc-node <rpc-index-snapshot> [bind-address]` serves the durable index continuously.
+It defaults to the documented local RPC port `127.0.0.1:49151`; malformed connections are rejected
+without terminating the service.
