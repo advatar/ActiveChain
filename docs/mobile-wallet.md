@@ -23,6 +23,11 @@ or performs network calls while holding decrypted key material longer than neces
 The current Rust bridge is `activechain_wallet_core::WalletBridge`; native shells bind to its
 policy-gated `approve_and_build` operation and pass only opaque `KeySlot` ciphertext handles.
 
+Wallet ABI revision 1 now exposes `activechain_wallet_select_cells`. Native callers pass a
+canonical bounded `CoinCellSet`, owner, amount, and fee as two-word unsigned values; the core
+returns distinct deterministic payment and fee-reserve identifiers. Null, oversized, malformed,
+wrong-owner, and insufficient-funds inputs fail without publishing output state.
+
 ## iOS and Android
 
 - iOS stores encrypted key-slot material behind Keychain/Secure Enclave handles.

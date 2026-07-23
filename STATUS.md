@@ -657,6 +657,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
   - [ ] Expose Coin Cell discovery, policy evaluation, canonical intents, approval-bound signing,
     secure-key callbacks, and submission through the wallet ABI
     ([GitHub issue #87](https://github.com/advatar/ActiveChain/issues/87)).
+    - [x] Expose deterministic Coin Cell selection from a canonical bounded cell-set envelope
+      through a null-safe C ABI with distinct payment and fee-reserve outputs.
   - [ ] Publish a proof-bearing development-network query/RPC contract
     ([GitHub issue #91](https://github.com/advatar/ActiveChain/issues/91)).
   - [ ] Package an embeddable persistent light client
