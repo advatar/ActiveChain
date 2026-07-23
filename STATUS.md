@@ -29,11 +29,11 @@ Tracked by [GitHub issue #129](https://github.com/advatar/ActiveChain/issues/129
 
 Tracked by [GitHub issue #132](https://github.com/advatar/ActiveChain/issues/132).
 
-- [ ] Audit and adapt shared SwiftUI wallet sources for macOS.
-- [ ] Add an XcodeGen macOS application target linked to the exact-HEAD wallet XCFramework.
-- [ ] Extend local build qualification to cover both macOS and iOS.
-- [ ] Add platform-aware tests and document macOS build, run, and signing behavior.
-- [ ] Pass formatting, script syntax, Swift tests, and both application builds.
+- [x] Audit and adapt shared SwiftUI wallet sources for macOS.
+- [x] Add an XcodeGen macOS application target linked to the exact-HEAD wallet XCFramework.
+- [x] Extend local build qualification to cover both macOS and iOS.
+- [x] Add platform-aware tests and document macOS build, run, and signing behavior.
+- [x] Pass formatting, script syntax, Swift tests, and both application builds.
 
 ## Active investigation — Aztec billboard parity
 
