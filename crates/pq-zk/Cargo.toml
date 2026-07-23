@@ -7,6 +7,9 @@ rust-version.workspace = true
 repository.workspace = true
 publish = false
 
+[features]
+reproducible-build = ["activechain-pq-zk-methods/reproducible-build"]
+
 [dependencies]
 activechain-canonical-codec.workspace = true
 activechain-private-billboard.workspace = true

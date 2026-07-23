@@ -309,6 +309,7 @@ mod tests {
         assert!(super::execute_post_relation(&post).is_err());
     }
 
+    #[cfg(feature = "reproducible-build")]
     #[test]
     fn billboard_image_ids_match_the_published_vector() {
         fn published_id(vector: &str, key: &str) -> [u32; 8] {

@@ -10,6 +10,9 @@ publish = false
 [build-dependencies]
 risc0-build = { version = "=3.0.5" }
 
+[features]
+reproducible-build = ["risc0-build/docker"]
+
 [package.metadata.risc0]
 methods = ["guest"]
 
