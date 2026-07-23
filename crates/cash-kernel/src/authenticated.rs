@@ -3,13 +3,16 @@ use activechain_canonical_codec::{
 };
 use activechain_protocol_commitment::coin_cell_id;
 use activechain_protocol_types::{CoinCellId, DIGEST_LENGTH, Digest384};
-use alloc::{collections::BTreeMap, vec::Vec};
+use alloc::{collections::BTreeMap, vec, vec::Vec};
 use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
 };
 
-use crate::{CoinCellRecord, CoinCellSet, MAX_COIN_CELLS, MAX_TRANSFER_INPUTS};
+use crate::{
+    CoinCellRecord, CoinCellSet, MAX_CASH_PARTITIONS, MAX_COIN_CELLS, MAX_TRANSFER_INPUTS,
+    cash_partition_for,
+};
 
 pub const AUTHENTICATED_CASH_DEPTH: usize = DIGEST_LENGTH * 8;
 const TRANSCRIPT_PREFIX: &[u8] = b"ACTIVECHAIN-AUTHENTICATED-COIN-CELLS";
@@ -18,6 +21,7 @@ const LEAF_KIND: u8 = 0;
 const EMPTY_LEAF_KIND: u8 = 1;
 const NODE_KIND: u8 = 2;
 const ROOT_KIND: u8 = 3;
+const PARTITION_ROOTS_KIND: u8 = 4;
 pub const MAX_AUTHENTICATED_CASH_MUTATIONS: usize = MAX_TRANSFER_INPUTS + 4;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -51,6 +55,69 @@ impl CanonicalType for AuthenticatedCoinCellRoot {
     const TYPE_TAG: u16 = 0x009a;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = DIGEST_LENGTH;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthenticatedCoinCellPartitionRoots {
+    partitions: u16,
+    roots: Vec<AuthenticatedCoinCellRoot>,
+    global_root: Digest384,
+}
+
+impl AuthenticatedCoinCellPartitionRoots {
+    #[must_use]
+    pub const fn partitions(&self) -> u16 {
+        self.partitions
+    }
+
+    #[must_use]
+    pub fn roots(&self) -> &[AuthenticatedCoinCellRoot] {
+        &self.roots
+    }
+
+    #[must_use]
+    pub const fn global_root(&self) -> Digest384 {
+        self.global_root
+    }
+}
+
+impl CanonicalEncode for AuthenticatedCoinCellPartitionRoots {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.partitions.encode(encoder)?;
+        encoder.write_length(self.roots.len(), usize::from(MAX_CASH_PARTITIONS))?;
+        for root in &self.roots {
+            root.encode(encoder)?;
+        }
+        self.global_root.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for AuthenticatedCoinCellPartitionRoots {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let partitions = u16::decode(decoder)?;
+        let count = decoder.read_length(usize::from(MAX_CASH_PARTITIONS))?;
+        if partitions == 0 || partitions > MAX_CASH_PARTITIONS || count != usize::from(partitions) {
+            return Err(DecodeError::InvalidValue("invalid authenticated cash partition roots"));
+        }
+        let mut roots = Vec::with_capacity(count);
+        for _ in 0..count {
+            roots.push(AuthenticatedCoinCellRoot::decode(decoder)?);
+        }
+        let global_root = Digest384::decode(decoder)?;
+        if authenticated_coin_cell_partition_roots_hash(partitions, &roots) != global_root {
+            return Err(DecodeError::InvalidValue(
+                "wrong authenticated cash global partition root",
+            ));
+        }
+        Ok(Self { partitions, roots, global_root })
+    }
+}
+
+impl CanonicalType for AuthenticatedCoinCellPartitionRoots {
+    const TYPE_TAG: u16 = 0x009e;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize =
+        2 + 2 + MAX_CASH_PARTITIONS as usize * DIGEST_LENGTH + DIGEST_LENGTH;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -236,6 +303,56 @@ pub fn authenticated_coin_cell_root(
 ) -> Result<AuthenticatedCoinCellRoot, CoinCellMutationError> {
     let tree = build_tree(cells, None)?.0;
     Ok(hash_root(cells.as_slice().len(), tree))
+}
+
+pub fn authenticated_coin_cell_partition_roots(
+    cells: &CoinCellSet,
+    partitions: u16,
+) -> Result<AuthenticatedCoinCellPartitionRoots, CoinCellMutationError> {
+    if partitions == 0 || partitions > MAX_CASH_PARTITIONS {
+        return Err(CoinCellMutationError::InvalidShape);
+    }
+    let empty = authenticated_coin_cell_root(
+        &CoinCellSet::new(Vec::new()).map_err(|_| CoinCellMutationError::InvalidShape)?,
+    )?;
+    let mut grouped = vec![Vec::new(); usize::from(partitions)];
+    for record in cells.as_slice() {
+        grouped[usize::from(cash_partition_for(record.id(), partitions))].push(*record);
+    }
+    let mut roots = Vec::with_capacity(usize::from(partitions));
+    for records in grouped {
+        roots.push(if records.is_empty() {
+            empty
+        } else {
+            authenticated_coin_cell_root(
+                &CoinCellSet::new(records).map_err(|_| CoinCellMutationError::WrongRecord)?,
+            )?
+        });
+    }
+    let global_root = authenticated_coin_cell_partition_roots_hash(partitions, &roots);
+    Ok(AuthenticatedCoinCellPartitionRoots { partitions, roots, global_root })
+}
+
+#[must_use]
+pub fn authenticated_coin_cell_partition_roots_transcript(
+    partitions: u16,
+    roots: &[AuthenticatedCoinCellRoot],
+) -> Vec<u8> {
+    let mut transcript = transcript_prefix(PARTITION_ROOTS_KIND);
+    transcript.extend_from_slice(&partitions.to_be_bytes());
+    for (index, root) in roots.iter().enumerate() {
+        transcript.extend_from_slice(&(index as u16).to_be_bytes());
+        transcript.extend_from_slice(root.into_digest().as_bytes());
+    }
+    transcript
+}
+
+#[must_use]
+pub fn authenticated_coin_cell_partition_roots_hash(
+    partitions: u16,
+    roots: &[AuthenticatedCoinCellRoot],
+) -> Digest384 {
+    hash_transcript(&authenticated_coin_cell_partition_roots_transcript(partitions, roots))
 }
 
 pub fn authenticated_coin_cell_leaf_transcript(
@@ -697,6 +814,66 @@ mod tests {
         assert_eq!(
             insertion.post_root(),
             authenticated_coin_cell_root(&set(&[first, third, fourth])).unwrap()
+        );
+    }
+
+    #[test]
+    fn partition_roots_use_canonical_mapping_and_bind_order_and_count() {
+        let first = record(1, 10);
+        let second = record(2, 20);
+        let third = record(3, 30);
+        let initial = set(&[first, second, third]);
+        let roots = authenticated_coin_cell_partition_roots(&initial, 8).unwrap();
+        assert_eq!(roots.partitions(), 8);
+        assert_eq!(roots.roots().len(), 8);
+        for record in initial.as_slice() {
+            let partition = usize::from(cash_partition_for(record.id(), 8));
+            let local = set(&[*record]);
+            if initial
+                .as_slice()
+                .iter()
+                .filter(|candidate| cash_partition_for(candidate.id(), 8) == partition as u16)
+                .count()
+                == 1
+            {
+                assert_eq!(roots.roots()[partition], authenticated_coin_cell_root(&local).unwrap());
+            }
+        }
+
+        let replacement = record(2, 25);
+        let changed =
+            authenticated_coin_cell_partition_roots(&set(&[first, replacement, third]), 8).unwrap();
+        assert_eq!(
+            roots.roots().iter().zip(changed.roots()).filter(|(left, right)| left != right).count(),
+            1
+        );
+        assert_ne!(roots.global_root(), changed.global_root());
+        assert_ne!(
+            roots.global_root(),
+            authenticated_coin_cell_partition_roots(&initial, 4).unwrap().global_root()
+        );
+        let mut reordered = roots.roots().to_vec();
+        let left = reordered
+            .iter()
+            .enumerate()
+            .find_map(|(index, root)| {
+                reordered.iter().position(|candidate| candidate != root).map(|right| (index, right))
+            })
+            .unwrap();
+        reordered.swap(left.0, left.1);
+        assert_ne!(
+            roots.global_root(),
+            authenticated_coin_cell_partition_roots_hash(8, &reordered)
+        );
+
+        let encoded = encode_envelope(&roots).unwrap();
+        assert_eq!(decode_envelope(&encoded), Ok(roots.clone()));
+        let mut tampered = encoded;
+        *tampered.last_mut().unwrap() ^= 1;
+        assert!(decode_envelope::<AuthenticatedCoinCellPartitionRoots>(&tampered).is_err());
+        assert_eq!(
+            authenticated_coin_cell_partition_roots(&initial, 0),
+            Err(CoinCellMutationError::InvalidShape)
         );
     }
 
