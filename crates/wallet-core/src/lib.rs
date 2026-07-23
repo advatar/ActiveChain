@@ -5,10 +5,14 @@
 
 extern crate alloc;
 
+mod agent_management;
 mod cash_authorization;
 mod cash_persistence;
 mod openwallet;
 
+pub use agent_management::{
+    AgentActionRequestV1, AgentConnectionKind, AgentLifecycle, AgentRegistryV1, ManagedAgentV1,
+};
 pub use cash_authorization::{
     AuthorizedCashSessionGrantV1, AuthorizedCashTransferV1, CashAuthorizationRequestV1,
     CashSessionAdmissionWitnessV1, CashSessionGrantV1, recipient_commitment,
@@ -153,6 +157,12 @@ pub enum WalletError {
     StaleIdentityProof,
     StateLimit,
     Persistence,
+    AgentExists,
+    UnknownAgent,
+    AgentPaused,
+    AgentRevoked,
+    AgentBudgetExceeded,
+    MissingCapability,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
