@@ -218,6 +218,125 @@ impl AgentActionRequestV1 {
     }
 }
 
+impl CanonicalEncode for AgentActionRequestV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.request_id.encode(encoder)?;
+        self.agent.encode(encoder)?;
+        self.capability.encode(encoder)?;
+        self.budget.encode(encoder)?;
+        self.expires_at.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for AgentActionRequestV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let request = Self {
+            request_id: Digest384::decode(decoder)?,
+            agent: PrincipalId::decode(decoder)?,
+            capability: CapabilityId::decode(decoder)?,
+            budget: u128::decode(decoder)?,
+            expires_at: u64::decode(decoder)?,
+        };
+        request
+            .validate()
+            .map_err(|_| DecodeError::InvalidValue("invalid agent action request"))?;
+        Ok(request)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AgentRegistryCommandV1 {
+    Register(ManagedAgentV1),
+    Pause(PrincipalId),
+    Resume(PrincipalId),
+    BeginRevocation { principal: PrincipalId, transaction: TransactionId },
+    FinalizeRevocation { principal: PrincipalId, transaction: TransactionId, finalized_height: u64 },
+    Authorize { request: AgentActionRequestV1, current_height: u64 },
+}
+
+impl CanonicalEncode for AgentRegistryCommandV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        match self {
+            Self::Register(agent) => {
+                0_u8.encode(encoder)?;
+                agent.encode(encoder)
+            }
+            Self::Pause(principal) => {
+                1_u8.encode(encoder)?;
+                principal.encode(encoder)
+            }
+            Self::Resume(principal) => {
+                2_u8.encode(encoder)?;
+                principal.encode(encoder)
+            }
+            Self::BeginRevocation { principal, transaction } => {
+                3_u8.encode(encoder)?;
+                principal.encode(encoder)?;
+                transaction.encode(encoder)
+            }
+            Self::FinalizeRevocation { principal, transaction, finalized_height } => {
+                4_u8.encode(encoder)?;
+                principal.encode(encoder)?;
+                transaction.encode(encoder)?;
+                finalized_height.encode(encoder)
+            }
+            Self::Authorize { request, current_height } => {
+                5_u8.encode(encoder)?;
+                request.encode(encoder)?;
+                current_height.encode(encoder)
+            }
+        }
+    }
+}
+
+impl CanonicalDecode for AgentRegistryCommandV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(decoder)? {
+            0 => Ok(Self::Register(ManagedAgentV1::decode(decoder)?)),
+            1 => Ok(Self::Pause(PrincipalId::decode(decoder)?)),
+            2 => Ok(Self::Resume(PrincipalId::decode(decoder)?)),
+            3 => Ok(Self::BeginRevocation {
+                principal: PrincipalId::decode(decoder)?,
+                transaction: TransactionId::decode(decoder)?,
+            }),
+            4 => {
+                let principal = PrincipalId::decode(decoder)?;
+                let transaction = TransactionId::decode(decoder)?;
+                let finalized_height = u64::decode(decoder)?;
+                if finalized_height == 0 {
+                    return Err(DecodeError::InvalidValue(
+                        "agent revocation finality height is zero",
+                    ));
+                }
+                Ok(Self::FinalizeRevocation { principal, transaction, finalized_height })
+            }
+            5 => Ok(Self::Authorize {
+                request: AgentActionRequestV1::decode(decoder)?,
+                current_height: u64::decode(decoder)?,
+            }),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "AgentRegistryCommandV1", tag }),
+        }
+    }
+}
+
+impl CanonicalType for AgentRegistryCommandV1 {
+    const TYPE_TAG: u16 = 0x00d4;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 1
+        + 48
+        + 3
+        + MAX_AGENT_LABEL
+        + 1
+        + 1
+        + MAX_AGENT_CAPABILITIES * 48
+        + 16
+        + 16
+        + 8
+        + 1
+        + 48
+        + 8;
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct AgentRegistryV1 {
     agents: Vec<ManagedAgentV1>,
@@ -236,6 +355,25 @@ impl AgentRegistryV1 {
             Err(index) => {
                 self.agents.insert(index, agent);
                 Ok(())
+            }
+        }
+    }
+
+    pub fn apply(&mut self, command: AgentRegistryCommandV1) -> Result<(), WalletError> {
+        match command {
+            AgentRegistryCommandV1::Register(agent) => self.register(agent),
+            AgentRegistryCommandV1::Pause(principal) => self.pause(principal),
+            AgentRegistryCommandV1::Resume(principal) => self.resume(principal),
+            AgentRegistryCommandV1::BeginRevocation { principal, transaction } => {
+                self.begin_revocation(principal, transaction)
+            }
+            AgentRegistryCommandV1::FinalizeRevocation {
+                principal,
+                transaction,
+                finalized_height,
+            } => self.finalize_revocation(principal, transaction, finalized_height),
+            AgentRegistryCommandV1::Authorize { request, current_height } => {
+                self.authorize_and_record(request, current_height)
             }
         }
     }

@@ -6,8 +6,8 @@ use activechain_protocol_types::{
     ChainId, CoinCellId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature,
 };
 use activechain_wallet_core::{
-    AuthorizedCashTransferV1, CashAuthorizationRequestV1, OpenWalletConsentV1,
-    OpenWalletCredentialOfferV1, OpenWalletPresentationRequestV1,
+    AgentRegistryCommandV1, AgentRegistryV1, AuthorizedCashTransferV1, CashAuthorizationRequestV1,
+    OpenWalletConsentV1, OpenWalletCredentialOfferV1, OpenWalletPresentationRequestV1,
 };
 use core::ffi::c_void;
 
@@ -20,6 +20,7 @@ pub const ACTIVECHAIN_WALLET_INSUFFICIENT_FUNDS: u32 = 4;
 pub const ACTIVECHAIN_WALLET_BUFFER_TOO_SMALL: u32 = 5;
 pub const ACTIVECHAIN_WALLET_CALLBACK_FAILED: u32 = 6;
 pub const ACTIVECHAIN_WALLET_INVALID_SIGNATURE: u32 = 7;
+pub const ACTIVECHAIN_WALLET_AGENT_REJECTED: u32 = 8;
 pub const ACTIVECHAIN_WALLET_OPENWALLET_OFFER: u32 = 1;
 pub const ACTIVECHAIN_WALLET_OPENWALLET_PRESENTATION_REQUEST: u32 = 2;
 pub const ACTIVECHAIN_WALLET_OPENWALLET_CONSENT: u32 = 3;
@@ -31,6 +32,7 @@ const WALLET_INSUFFICIENT_FUNDS: u32 = ACTIVECHAIN_WALLET_INSUFFICIENT_FUNDS;
 const WALLET_BUFFER_TOO_SMALL: u32 = ACTIVECHAIN_WALLET_BUFFER_TOO_SMALL;
 const WALLET_CALLBACK_FAILED: u32 = ACTIVECHAIN_WALLET_CALLBACK_FAILED;
 const WALLET_INVALID_SIGNATURE: u32 = ACTIVECHAIN_WALLET_INVALID_SIGNATURE;
+const WALLET_AGENT_REJECTED: u32 = ACTIVECHAIN_WALLET_AGENT_REJECTED;
 const ML_DSA44_SIGNATURE_LENGTH: usize = 2_420;
 const ML_DSA44_PUBLIC_KEY_LENGTH: usize = 1_312;
 
@@ -103,6 +105,73 @@ pub unsafe extern "C" fn activechain_wallet_openwallet_validate(
             commitment_out,
             commitment.as_bytes().len(),
         );
+    }
+    WALLET_OK
+}
+
+/// Applies one canonical agent-registry command and returns the complete next registry snapshot.
+///
+/// Pass an empty registry buffer to start from the canonical empty registry. The input registry is
+/// never modified, and no output bytes are published unless the complete next state fits.
+///
+/// # Safety
+///
+/// Non-empty inputs must point to readable buffers for their declared lengths. `required_len` must
+/// be writable. `output` may be null only when `output_capacity` is zero for a size query. No
+/// pointer is retained.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn activechain_wallet_agent_apply(
+    registry: *const u8,
+    registry_len: u32,
+    command: *const u8,
+    command_len: u32,
+    output: *mut u8,
+    output_capacity: u32,
+    required_len: *mut u32,
+) -> u32 {
+    if (registry.is_null() && registry_len != 0)
+        || (command.is_null() && command_len != 0)
+        || command_len == 0
+        || required_len.is_null()
+        || (output.is_null() && output_capacity != 0)
+    {
+        return WALLET_NULL_POINTER;
+    }
+    if registry_len > MAX_WALLET_INPUT || command_len > MAX_WALLET_INPUT {
+        return WALLET_TOO_LARGE;
+    }
+    let mut registry = if registry_len == 0 {
+        AgentRegistryV1::default()
+    } else {
+        let bytes = unsafe { core::slice::from_raw_parts(registry, registry_len as usize) };
+        match decode_envelope(bytes) {
+            Ok(registry) => registry,
+            Err(_) => return WALLET_MALFORMED,
+        }
+    };
+    let command_bytes = unsafe { core::slice::from_raw_parts(command, command_len as usize) };
+    let command = match decode_envelope::<AgentRegistryCommandV1>(command_bytes) {
+        Ok(command) => command,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    if registry.apply(command).is_err() {
+        return WALLET_AGENT_REJECTED;
+    }
+    let encoded = match encode_envelope(&registry) {
+        Ok(encoded) => encoded,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    let Ok(length) = u32::try_from(encoded.len()) else {
+        return WALLET_TOO_LARGE;
+    };
+    unsafe {
+        *required_len = length;
+    }
+    if output_capacity < length {
+        return WALLET_BUFFER_TOO_SMALL;
+    }
+    unsafe {
+        core::ptr::copy_nonoverlapping(encoded.as_ptr(), output, encoded.len());
     }
     WALLET_OK
 }
@@ -542,6 +611,112 @@ mod tests {
                 )
             },
             WALLET_MALFORMED
+        );
+    }
+
+    #[test]
+    fn agent_abi_applies_canonical_commands_and_preserves_replay_state() {
+        use activechain_protocol_types::{CapabilityId, PrincipalId};
+        use activechain_wallet_core::{AgentActionRequestV1, AgentConnectionKind, ManagedAgentV1};
+
+        let principal = PrincipalId::new(digest(20));
+        let capability = CapabilityId::new(digest(21));
+        let register = encode_envelope(&AgentRegistryCommandV1::Register(
+            ManagedAgentV1::new(
+                principal,
+                b"Third-party research agent".to_vec(),
+                AgentConnectionKind::ThirdPartyProtocol,
+                vec![capability],
+                100,
+                100,
+            )
+            .unwrap(),
+        ))
+        .unwrap();
+        let mut required = 0;
+        assert_eq!(
+            unsafe {
+                activechain_wallet_agent_apply(
+                    core::ptr::null(),
+                    0,
+                    register.as_ptr(),
+                    register.len() as u32,
+                    core::ptr::null_mut(),
+                    0,
+                    &mut required,
+                )
+            },
+            WALLET_BUFFER_TOO_SMALL
+        );
+        let mut registry = vec![0; required as usize];
+        assert_eq!(
+            unsafe {
+                activechain_wallet_agent_apply(
+                    core::ptr::null(),
+                    0,
+                    register.as_ptr(),
+                    register.len() as u32,
+                    registry.as_mut_ptr(),
+                    registry.len() as u32,
+                    &mut required,
+                )
+            },
+            WALLET_OK
+        );
+        let authorize = encode_envelope(&AgentRegistryCommandV1::Authorize {
+            request: AgentActionRequestV1 {
+                request_id: digest(22),
+                agent: principal,
+                capability,
+                budget: 10,
+                expires_at: 50,
+            },
+            current_height: 10,
+        })
+        .unwrap();
+        let mut next_required = 0;
+        assert_eq!(
+            unsafe {
+                activechain_wallet_agent_apply(
+                    registry.as_ptr(),
+                    registry.len() as u32,
+                    authorize.as_ptr(),
+                    authorize.len() as u32,
+                    core::ptr::null_mut(),
+                    0,
+                    &mut next_required,
+                )
+            },
+            WALLET_BUFFER_TOO_SMALL
+        );
+        let mut next = vec![0; next_required as usize];
+        assert_eq!(
+            unsafe {
+                activechain_wallet_agent_apply(
+                    registry.as_ptr(),
+                    registry.len() as u32,
+                    authorize.as_ptr(),
+                    authorize.len() as u32,
+                    next.as_mut_ptr(),
+                    next.len() as u32,
+                    &mut next_required,
+                )
+            },
+            WALLET_OK
+        );
+        assert_eq!(
+            unsafe {
+                activechain_wallet_agent_apply(
+                    next.as_ptr(),
+                    next.len() as u32,
+                    authorize.as_ptr(),
+                    authorize.len() as u32,
+                    core::ptr::null_mut(),
+                    0,
+                    &mut next_required,
+                )
+            },
+            WALLET_AGENT_REJECTED
         );
     }
 

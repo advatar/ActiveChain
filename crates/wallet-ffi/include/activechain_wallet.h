@@ -25,6 +25,8 @@
 
 #define ACTIVECHAIN_WALLET_INVALID_SIGNATURE 7
 
+#define ACTIVECHAIN_WALLET_AGENT_REJECTED 8
+
 #define ACTIVECHAIN_WALLET_OPENWALLET_OFFER 1
 
 #define ACTIVECHAIN_WALLET_OPENWALLET_PRESENTATION_REQUEST 2
@@ -69,6 +71,26 @@ uint32_t activechain_wallet_openwallet_validate(uint32_t kind,
                                                 const uint8_t *envelope,
                                                 uint32_t envelope_len,
                                                 uint8_t *commitment_out);
+
+/**
+ * Applies one canonical agent-registry command and returns the complete next registry snapshot.
+ *
+ * Pass an empty registry buffer to start from the canonical empty registry. The input registry is
+ * never modified, and no output bytes are published unless the complete next state fits.
+ *
+ * # Safety
+ *
+ * Non-empty inputs must point to readable buffers for their declared lengths. `required_len` must
+ * be writable. `output` may be null only when `output_capacity` is zero for a size query. No
+ * pointer is retained.
+ */
+uint32_t activechain_wallet_agent_apply(const uint8_t *registry,
+                                        uint32_t registry_len,
+                                        const uint8_t *command,
+                                        uint32_t command_len,
+                                        uint8_t *output,
+                                        uint32_t output_capacity,
+                                        uint32_t *required_len);
 
 /**
  * Validates a bounded OpenWallet session tuple without accepting secret material.
