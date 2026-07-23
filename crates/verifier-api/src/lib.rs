@@ -3,13 +3,16 @@
 
 extern crate alloc;
 
-use activechain_canonical_codec::{DecodeError, decode_envelope, inspect_canonical_envelope};
+use activechain_canonical_codec::{
+    CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
+    decode_envelope, inspect_canonical_envelope,
+};
 use activechain_devnet_kernel::BlockReceipt;
 use activechain_finality_types::FinalityCertificateBundle;
 use activechain_policy_kernel::PolicyDecision;
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
-    CapabilityGrant, Digest384, INITIAL_PROTOCOL_REVISION, Object, ObjectId, Principal,
+    CapabilityGrant, Digest384, INITIAL_PROTOCOL_REVISION, Object, ObjectId, Principal, PrincipalId,
 };
 use activechain_state_tree::{
     StateCommitment, StateProof, verify_membership, verify_non_membership,
@@ -56,6 +59,78 @@ impl VerifyError {
 }
 
 pub const VERIFY_OK: u32 = 0;
+pub const MAX_AUTHORIZATION_CHAIN_DEPTH: usize = 16;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthorizationChain {
+    actor: PrincipalId,
+    height: u64,
+    capabilities: Vec<CapabilityGrant>,
+}
+
+impl AuthorizationChain {
+    pub const TYPE_TAG: u16 = 0x007f;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize =
+        48 + 8 + 1 + MAX_AUTHORIZATION_CHAIN_DEPTH * CapabilityGrant::MAX_ENCODED_LEN;
+
+    pub fn new(
+        actor: PrincipalId,
+        height: u64,
+        capabilities: Vec<CapabilityGrant>,
+    ) -> Result<Self, DecodeError> {
+        if capabilities.is_empty() || capabilities.len() > MAX_AUTHORIZATION_CHAIN_DEPTH {
+            return Err(DecodeError::InvalidValue("authorization chain depth is out of bounds"));
+        }
+        Ok(Self { actor, height, capabilities })
+    }
+
+    #[must_use]
+    pub const fn actor(&self) -> PrincipalId {
+        self.actor
+    }
+
+    #[must_use]
+    pub const fn height(&self) -> u64 {
+        self.height
+    }
+
+    #[must_use]
+    pub fn capabilities(&self) -> &[CapabilityGrant] {
+        &self.capabilities
+    }
+}
+
+impl CanonicalEncode for AuthorizationChain {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.actor.encode(encoder)?;
+        self.height.encode(encoder)?;
+        encoder.write_length(self.capabilities.len(), MAX_AUTHORIZATION_CHAIN_DEPTH)?;
+        for capability in &self.capabilities {
+            capability.encode(encoder)?;
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for AuthorizationChain {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let actor = PrincipalId::decode(decoder)?;
+        let height = u64::decode(decoder)?;
+        let count = decoder.read_length(MAX_AUTHORIZATION_CHAIN_DEPTH)?;
+        let mut capabilities = Vec::with_capacity(count);
+        for _ in 0..count {
+            capabilities.push(CapabilityGrant::decode(decoder)?);
+        }
+        Self::new(actor, height, capabilities)
+    }
+}
+
+impl CanonicalType for AuthorizationChain {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
 
 pub fn inspect_envelope_code(bytes: &[u8], expected_type: u16, expected_version: u16) -> u32 {
     inspect_envelope(bytes, expected_type, expected_version)
@@ -96,6 +171,38 @@ pub fn verify_capability_attenuation(parent: &[u8], child: &[u8]) -> Result<(), 
     let child = verify_capability(child)?;
     activechain_capability::verify_attenuation(&parent, &child)
         .map_err(|_| VerifyError::RelationMismatch)
+}
+
+pub fn verify_authorization_chain_code(bytes: &[u8]) -> u32 {
+    verify_authorization_chain(bytes).map_or_else(|error| error.code(), |_| VERIFY_OK)
+}
+
+pub fn verify_authorization_chain(bytes: &[u8]) -> Result<AuthorizationChain, VerifyError> {
+    inspect_envelope(bytes, AuthorizationChain::TYPE_TAG, AuthorizationChain::SCHEMA_VERSION)?;
+    let chain = decode_envelope::<AuthorizationChain>(bytes).map_err(VerifyError::Decode)?;
+    let capabilities = chain.capabilities();
+    if capabilities[0].fields().parent_capability.is_some() {
+        return Err(VerifyError::RelationMismatch);
+    }
+    for (index, capability) in capabilities.iter().enumerate() {
+        let fields = capability.fields();
+        if chain.height < fields.valid_from
+            || fields.valid_until.is_some_and(|end| chain.height > end)
+        {
+            return Err(VerifyError::RelationMismatch);
+        }
+        if index > 0 {
+            activechain_capability::verify_attenuation(&capabilities[index - 1], capability)
+                .map_err(|_| VerifyError::RelationMismatch)?;
+        }
+    }
+    if capabilities.last().is_none_or(|leaf| {
+        leaf.fields().holder_binding
+            != activechain_protocol_types::HolderBinding::Principal(chain.actor)
+    }) {
+        return Err(VerifyError::RelationMismatch);
+    }
+    Ok(chain)
 }
 
 pub fn verify_policy_decision_code(bytes: &[u8]) -> u32 {
@@ -427,6 +534,47 @@ mod tests {
             verify_capability_attenuation_code(&parent, &truncated),
             VerifyError::Decode(DecodeError::UnexpectedEnd { needed: 1, remaining: 0 }).code()
         );
+    }
+
+    #[test]
+    fn authorization_chain_verifier_checks_every_hop_height_and_actor_binding() {
+        let parent = capability(10, 2, 3, None, &[1, 2], 1, true);
+        let child = capability(11, 3, 4, Some(10), &[1], 0, false);
+        let chain = AuthorizationChain::new(
+            PrincipalId::new(digest(4)),
+            10,
+            vec![parent.clone(), child.clone()],
+        )
+        .unwrap();
+        let encoded = encode_envelope(&chain).unwrap();
+        assert_eq!(verify_authorization_chain_code(&encoded), VERIFY_OK);
+        assert_eq!(verify_authorization_chain(&encoded), Ok(chain));
+
+        let wrong_actor = encode_envelope(
+            &AuthorizationChain::new(PrincipalId::new(digest(5)), 10, vec![parent.clone(), child])
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            verify_authorization_chain_code(&wrong_actor),
+            VerifyError::RelationMismatch.code()
+        );
+        let parented_root = encode_envelope(
+            &AuthorizationChain::new(
+                PrincipalId::new(digest(4)),
+                10,
+                vec![capability(12, 2, 4, Some(9), &[1], 0, false)],
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            verify_authorization_chain_code(&parented_root),
+            VerifyError::RelationMismatch.code()
+        );
+        let mut trailing = encoded;
+        trailing.push(0);
+        assert_ne!(verify_authorization_chain_code(&trailing), VERIFY_OK);
     }
 
     #[test]

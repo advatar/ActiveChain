@@ -649,6 +649,11 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
       - [x] Verify canonical block receipts against a cryptographically verified finality bundle,
         exact receipt commitment, height, and pre/post state transition through matching Rust and
         C result codes.
+      - [ ] Verify joined authorization chains.
+        - [x] Publish bounded canonical whole-chain attenuation, finalized-height validity, root
+          linkage, and leaf actor-binding verification through matching Rust and C result codes.
+        - [ ] Join capability and actor signatures to principal controller keys proven against the
+          finalized state root.
   - [ ] Expose Coin Cell discovery, policy evaluation, canonical intents, approval-bound signing,
     secure-key callbacks, and submission through the wallet ABI
     ([GitHub issue #87](https://github.com/advatar/ActiveChain/issues/87)).

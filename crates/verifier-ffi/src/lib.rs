@@ -121,6 +121,27 @@ pub unsafe extern "C" fn activechain_verify_capability_attenuation_code(
 
 #[unsafe(no_mangle)]
 /// # Safety
+/// The caller must provide a readable canonical authorization-chain buffer. No pointer is retained.
+pub unsafe extern "C" fn activechain_verify_authorization_chain_code(
+    bytes: *const u8,
+    bytes_len: u32,
+) -> u32 {
+    if bytes.is_null() && bytes_len != 0 {
+        return NULL_POINTER;
+    }
+    if bytes_len > MAX_ENVELOPE_LENGTH {
+        return TOO_LARGE;
+    }
+    let input = if bytes_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(bytes, bytes_len as usize) }
+    };
+    activechain_verifier_api::verify_authorization_chain_code(input)
+}
+
+#[unsafe(no_mangle)]
+/// # Safety
 /// The caller must provide a readable `bytes` buffer of `bytes_len` bytes. No pointer is retained.
 pub unsafe extern "C" fn activechain_verify_policy_decision_code(
     bytes: *const u8,
@@ -455,6 +476,27 @@ mod tests {
                     child.len() as u32,
                 )
             },
+            NULL_POINTER
+        );
+    }
+
+    #[test]
+    fn authorization_chain_abi_matches_rust_results_and_null_safety() {
+        let chain = activechain_verifier_api::AuthorizationChain::new(
+            PrincipalId::new(digest(4)),
+            10,
+            vec![capability(10, 2, 3, None, 1, true), capability(11, 3, 4, Some(10), 0, false)],
+        )
+        .unwrap();
+        let encoded = encode_envelope(&chain).unwrap();
+        assert_eq!(
+            unsafe {
+                activechain_verify_authorization_chain_code(encoded.as_ptr(), encoded.len() as u32)
+            },
+            activechain_verifier_api::verify_authorization_chain_code(&encoded)
+        );
+        assert_eq!(
+            unsafe { activechain_verify_authorization_chain_code(core::ptr::null(), 1) },
             NULL_POINTER
         );
     }

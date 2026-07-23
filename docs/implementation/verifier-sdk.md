@@ -51,3 +51,10 @@ commitment and requires the exact committed receipt root, height, pre-state, and
 Receipt substitution and attempts to move a valid receipt between finalized transitions therefore
 fail with the stable relation-mismatch code. Rust callers use `verify_block_receipt` or
 `verify_block_receipt_code`; C callers use `activechain_verify_block_receipt_code`.
+
+`AuthorizationChain` is the bounded downstream DTO for an ordered capability delegation path.
+Its verifier requires an unparented root, checks mechanical attenuation at every hop, evaluates
+every grant at the supplied finalized height, and binds the leaf holder to the requested actor.
+The cryptographic join from grant and actor signatures to controller keys proven in finalized state
+remains an explicit issue #88 task; callers must not interpret structural chain acceptance as that
+still-missing key authorization proof.
