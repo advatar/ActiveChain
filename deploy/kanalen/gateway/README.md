@@ -11,6 +11,8 @@ port 443 while this gateway is active. Its host mapping is `8443:443` for rollba
 host port 80 remains with Caddy for its existing HTTP sites.
 
 The gateway does not expose consensus (`49150`), faucet (`49152`), or metrics (`49153`).
+The companion `kanalen.Caddyfile` fragment gives `kanalen.activechain.dev` a TLS-backed
+developmental-status response through the existing Caddy service.
 
 Deploy only after validating the current Caddy configuration and taking backups:
 
