@@ -668,15 +668,15 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
       envelope.
     - [x] Reverify authorized envelopes before forwarding their exact canonical bytes through an
       opaque caller-owned transport callback.
-  - [ ] Publish a proof-bearing development-network query/RPC contract
+  - [x] Publish a proof-bearing development-network query/RPC contract
     ([GitHub issue #91](https://github.com/advatar/ActiveChain/issues/91)).
     - [x] Freeze canonical bounded RPC status, query, proof, page, and typed-error schemas.
     - [x] Expose chain identity, immutable genesis commitment, protocol/schema revisions,
       finalized height, supported proof kinds, health, and staleness.
-    - [ ] Serve proof-bearing state, action, and receipt queries over a bounded local network
+    - [x] Serve proof-bearing state, action, and receipt queries over a bounded local network
       protocol with deadlines and pagination.
     - [x] Persist indexed finalized query material atomically and verify restart recovery.
-    - [ ] Add malformed/oversized/stale vectors and an end-to-end client query verified against
+    - [x] Add malformed/oversized/stale vectors and an end-to-end client query verified against
       finalized state.
   - [ ] Package an embeddable persistent light client
     ([GitHub issue #92](https://github.com/advatar/ActiveChain/issues/92)).

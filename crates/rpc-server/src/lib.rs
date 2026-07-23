@@ -1,13 +1,15 @@
 #![forbid(unsafe_code)]
 
+use activechain_action_kernel::{ActionEnvelope, action_id};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     decode_envelope, encode_envelope,
 };
-use activechain_protocol_types::{ChainId, Digest384};
+use activechain_finality_types::commit_parts;
+use activechain_protocol_types::{ChainId, Digest384, Object};
 use activechain_rpc_types::{
-    Health, MAX_SUPPORTED_PROOFS, ProofKind, QueryKind, QueryPage, QueryRecord, RpcError,
-    RpcRequest, RpcResponse, RpcStatus,
+    ActionSetProof, Health, MAX_SUPPORTED_PROOFS, ProofKind, QueryKind, QueryPage, QueryRecord,
+    RpcError, RpcRequest, RpcResponse, RpcStatus,
 };
 use sha3::{
     Shake256,
@@ -25,6 +27,80 @@ use std::{
 pub const MAX_RPC_FRAME: usize = 4 * 1024 * 1024;
 pub const RPC_IO_TIMEOUT: Duration = Duration::from_secs(2);
 pub const MAX_INDEXED_RECORDS: usize = 65_535;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RpcProofError {
+    WrongKind,
+    Malformed,
+    Finality,
+    Height,
+    Key,
+    Relation,
+}
+
+pub fn verify_query_record(record: &QueryRecord) -> Result<(), RpcProofError> {
+    let finality = activechain_verifier_api::verify_finality_bundle(record.finality())
+        .map_err(|_| RpcProofError::Finality)?;
+    if finality.header().inputs.height != record.finalized_height() {
+        return Err(RpcProofError::Height);
+    }
+    match record.kind() {
+        QueryKind::State => {
+            let object =
+                decode_envelope::<Object>(record.value()).map_err(|_| RpcProofError::Malformed)?;
+            if object.object_id().into_digest() != record.key() {
+                return Err(RpcProofError::Key);
+            }
+            let commitment = encode_envelope(&finality.header().inputs.post_state)
+                .map_err(|_| RpcProofError::Malformed)?;
+            activechain_verifier_api::verify_state_membership(
+                &commitment,
+                record.value(),
+                record.proof(),
+            )
+            .map_err(|_| RpcProofError::Relation)
+        }
+        QueryKind::Action => {
+            let action = decode_envelope::<ActionEnvelope>(record.value())
+                .map_err(|_| RpcProofError::Malformed)?;
+            let transaction_id = action_id(&action).map_err(|_| RpcProofError::Malformed)?;
+            if *transaction_id.digest() != record.key() {
+                return Err(RpcProofError::Key);
+            }
+            let proof = decode_envelope::<ActionSetProof>(record.proof())
+                .map_err(|_| RpcProofError::Malformed)?;
+            if proof.transaction_ids().binary_search(&transaction_id).is_err() {
+                return Err(RpcProofError::Relation);
+            }
+            let mut ids = Vec::with_capacity(proof.transaction_ids().len() * 48);
+            for id in proof.transaction_ids() {
+                ids.extend_from_slice(id.digest().as_bytes());
+            }
+            let action_root = commit_parts(b"ACTIVECHAIN-BLOCK-ACTIONS-V1", &[&ids]);
+            let execution_root = commit_parts(b"ACTIVECHAIN-BLOCK-EXECUTION-ORDER-V1", &[&ids]);
+            if action_root != finality.header().inputs.action_root
+                || execution_root != finality.header().inputs.execution_order_root
+            {
+                return Err(RpcProofError::Relation);
+            }
+            Ok(())
+        }
+        QueryKind::Receipt => {
+            if !record.proof().is_empty() {
+                return Err(RpcProofError::Malformed);
+            }
+            let receipt =
+                activechain_verifier_api::verify_block_receipt(record.finality(), record.value())
+                    .map_err(|_| RpcProofError::Relation)?;
+            if finality.header().inputs.receipt_root != record.key()
+                || receipt.height() != record.finalized_height()
+            {
+                return Err(RpcProofError::Key);
+            }
+            Ok(())
+        }
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RpcIndex {
@@ -63,6 +139,7 @@ impl RpcIndex {
         .map_err(|_| RpcStoreError::Invalid)?;
         if records.len() > MAX_INDEXED_RECORDS
             || records.iter().any(|record| record.finalized_height() > finalized_height)
+            || records.iter().any(|record| verify_query_record(record).is_err())
             || records
                 .windows(2)
                 .any(|pair| (pair[0].kind(), pair[0].key()) >= (pair[1].kind(), pair[1].key()))
@@ -328,16 +405,213 @@ fn snapshot_tag(bytes: &[u8]) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use activechain_rpc_types::{MAX_RPC_PAGE_SIZE, RPC_SCHEMA_REVISION};
+    use activechain_action_kernel::{
+        ACTION_PROTOCOL_VERSION, FeeTicket, ResourceVector, ValidityInterval,
+    };
+    use activechain_devnet_kernel::BlockReceipt;
+    use activechain_finality_types::{
+        FinalityCertificateBundle, FinalizedBlockHeader, ProofPublicInputs,
+    };
+    use activechain_policy_kernel::{
+        APL_LANGUAGE_VERSION, ActorBinding, PolicyRequest, PolicyRequestFields, PolicySet,
+    };
+    use activechain_protocol_commitment::{DomainTag, commit};
+    use activechain_protocol_types::{
+        AccessManifest, AccessManifestFields, ConsensusVoteContext, CryptoSuiteId, FreezeState,
+        ObjectFields, ObjectFlags, ObjectId, ObjectOwner, ObjectVersionRef, PrincipalId,
+        ProtocolSignature, QuorumCertificate, ValidatorGenesis, ValidatorGenesisEntry,
+        ValidatorVote,
+    };
+    use activechain_rpc_types::{ActionSetProof, MAX_RPC_PAGE_SIZE, RPC_SCHEMA_REVISION};
+    use activechain_state_tree::{StateCommitment, commit_objects, prove_object};
+    use activechain_transition::{TRANSFER_OBJECT_ACTION_ID, TransferCommand, TransferTransaction};
+    use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
     use std::thread;
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
     }
-    fn record(kind: QueryKind, byte: u8) -> QueryRecord {
-        QueryRecord::new(kind, digest(byte), 7, vec![byte], vec![byte + 1], vec![byte + 2]).unwrap()
+    fn signed_finality(byte: u8, inputs: ProofPublicInputs) -> Vec<u8> {
+        let key = SigningKey::<MlDsa44>::from_seed(&Seed::from([byte; 32]));
+        let validator = PrincipalId::new(digest(70));
+        let genesis = ValidatorGenesis::new_with_revision(
+            3,
+            1,
+            4,
+            vec![
+                ValidatorGenesisEntry::new(validator, 1, key.verifying_key().encode().into())
+                    .unwrap(),
+            ],
+        )
+        .unwrap();
+        let header = FinalizedBlockHeader {
+            inputs: ProofPublicInputs {
+                validator_set_root: genesis.validator_set_root(),
+                ..inputs
+            },
+            proof_statement_commitment: digest(76),
+        };
+        let context = ConsensusVoteContext::new_with_revision(
+            genesis.genesis_commitment(),
+            genesis.epoch(),
+            genesis.validator_set_root(),
+            genesis.protocol_revision(),
+        )
+        .unwrap();
+        let unsigned = ValidatorVote::new(
+            validator,
+            context,
+            7,
+            2,
+            header.digest().unwrap(),
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2_420]).unwrap(),
+        )
+        .unwrap();
+        let signature = key.sign(&unsigned.signing_payload());
+        let vote = ValidatorVote::new(
+            validator,
+            context,
+            7,
+            2,
+            header.digest().unwrap(),
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec()).unwrap(),
+        )
+        .unwrap();
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-VOTE-SET-V1");
+        hasher.update(key.verifying_key().encode().as_slice());
+        hasher.update(&vote.signing_payload());
+        hasher.update(vote.signature().as_bytes());
+        let mut vote_root = [0; 48];
+        XofReader::read(&mut hasher.finalize_xof(), &mut vote_root);
+        let certificate = QuorumCertificate::new(
+            context,
+            7,
+            2,
+            header.digest().unwrap(),
+            Digest384::new(vote_root),
+            1,
+            1,
+        )
+        .unwrap();
+        encode_envelope(
+            &FinalityCertificateBundle::new(header, genesis, certificate, vec![vote]).unwrap(),
+        )
+        .unwrap()
+    }
+    fn public_inputs(pre_state: StateCommitment, post_state: StateCommitment) -> ProofPublicInputs {
+        ProofPublicInputs {
+            chain_id: ChainId::new(digest(1)),
+            epoch: 3,
+            height: 7,
+            protocol_revision: 4,
+            validator_set_root: digest(69),
+            parent_block_id: digest(71),
+            pre_state,
+            authorization_root: digest(72),
+            action_root: digest(73),
+            execution_order_root: digest(74),
+            total_fees: 0,
+            pre_supply: 0,
+            issuance: 0,
+            burn: 0,
+            post_supply: 0,
+            post_state,
+            receipt_root: digest(77),
+            data_availability_commitment: digest(75),
+        }
+    }
+    fn receipt_record(byte: u8) -> QueryRecord {
+        let pre_state = StateCommitment::new(digest(80), 0);
+        let post_state = StateCommitment::new(digest(81), 0);
+        let receipt = BlockReceipt::new(digest(byte), 7, pre_state, post_state, vec![]).unwrap();
+        let receipt_root = commit(DomainTag::CANONICAL_VALUE, &receipt).unwrap();
+        let finality = signed_finality(
+            byte,
+            ProofPublicInputs { receipt_root, ..public_inputs(pre_state, post_state) },
+        );
+        QueryRecord::new(
+            QueryKind::Receipt,
+            receipt_root,
+            7,
+            encode_envelope(&receipt).unwrap(),
+            vec![],
+            finality,
+        )
+        .unwrap()
+    }
+    fn action_envelope() -> ActionEnvelope {
+        let actor = PrincipalId::new(digest(50));
+        let object_id = ObjectId::new(digest(51));
+        let input = ObjectVersionRef::new(object_id, 1);
+        let manifest = AccessManifest::new(AccessManifestFields {
+            exact_reads: vec![],
+            exact_writes: vec![input],
+            immutable_reads: vec![],
+            creation_namespaces: vec![],
+            maximum_created_objects: 0,
+            maximum_dynamic_reads: 0,
+            dynamic_read_policy: None,
+        })
+        .unwrap();
+        let request = PolicyRequest::new(PolicyRequestFields {
+            actor: ActorBinding::Principal(actor),
+            action: TRANSFER_OBJECT_ACTION_ID,
+            resource: object_id,
+            height: 7,
+            value: 0,
+            freeze_state: FreezeState::Active,
+            declared_purpose: None,
+            credential_schemas: vec![],
+            capabilities: vec![],
+            approvals: vec![],
+        })
+        .unwrap();
+        let transaction = TransferTransaction::new(
+            7,
+            manifest,
+            vec![TransferCommand::new(
+                input,
+                ObjectOwner::Shared,
+                PolicySet::new(APL_LANGUAGE_VERSION, vec![]).unwrap(),
+                request,
+            )],
+        )
+        .unwrap();
+        let resources = ResourceVector::new(100, 0, 1, 0, 0, 2_000);
+        ActionEnvelope::new(
+            ACTION_PROTOCOL_VERSION,
+            ChainId::new(digest(1)),
+            actor,
+            FeeTicket::new(
+                ObjectId::new(digest(52)),
+                PrincipalId::new(digest(53)),
+                100_000,
+                100,
+                9,
+                resources,
+            )
+            .unwrap(),
+            2,
+            5,
+            ValidityInterval::new(1, 10).unwrap(),
+            resources,
+            commit(DomainTag::CANONICAL_VALUE, &transaction).unwrap(),
+            transaction,
+            digest(54),
+        )
+        .unwrap()
     }
     fn index() -> RpcIndex {
+        let mut records = vec![
+            receipt_record(10),
+            receipt_record(11),
+            receipt_record(12),
+            receipt_record(13),
+            receipt_record(14),
+            receipt_record(20),
+        ];
+        records.sort_by_key(|record| (record.kind(), record.key()));
         RpcIndex::new(
             ChainId::new(digest(1)),
             digest(2),
@@ -345,15 +619,8 @@ mod tests {
             7,
             100,
             10,
-            vec![ProofKind::StateSparseMerkle, ProofKind::FinalityCertificate],
-            vec![
-                record(QueryKind::State, 10),
-                record(QueryKind::State, 11),
-                record(QueryKind::State, 12),
-                record(QueryKind::State, 13),
-                record(QueryKind::State, 14),
-                record(QueryKind::Receipt, 20),
-            ],
+            vec![ProofKind::FinalityCertificate, ProofKind::ReceiptCommitment],
+            records,
         )
         .unwrap()
     }
@@ -371,7 +638,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let store = DurableRpcStore::create(path.clone(), index()).unwrap();
         let page = store.handle(
-            RpcRequest::List { kind: QueryKind::State, after: None, limit: MAX_RPC_PAGE_SIZE },
+            RpcRequest::List { kind: QueryKind::Receipt, after: None, limit: MAX_RPC_PAGE_SIZE },
             105,
         );
         let RpcResponse::Page(page) = page else { panic!("page expected") };
@@ -379,7 +646,7 @@ mod tests {
         let cursor = page.next().unwrap();
         let RpcResponse::Page(next) = store.handle(
             RpcRequest::List {
-                kind: QueryKind::State,
+                kind: QueryKind::Receipt,
                 after: Some(cursor),
                 limit: MAX_RPC_PAGE_SIZE,
             },
@@ -387,11 +654,15 @@ mod tests {
         ) else {
             panic!("next page expected")
         };
-        assert_eq!(next.records()[0].key(), digest(14));
+        assert!(!next.records().is_empty());
+        assert!(next.records().iter().all(|record| verify_query_record(record) == Ok(())));
         drop(store);
         let restarted = DurableRpcStore::load(path.clone()).unwrap();
         assert!(matches!(
-            restarted.handle(RpcRequest::Get { kind: QueryKind::Receipt, key: digest(20) }, 105),
+            restarted.handle(
+                RpcRequest::Get { kind: QueryKind::Receipt, key: receipt_record(20).key() },
+                105
+            ),
             RpcResponse::Record(_)
         ));
         let mut corrupt = std::fs::read(&path).unwrap();
@@ -411,7 +682,10 @@ mod tests {
             RpcResponse::Status(status) if status.health() == Health::Stale
         ));
         assert_eq!(
-            store.handle(RpcRequest::Get { kind: QueryKind::State, key: digest(10) }, 111),
+            store.handle(
+                RpcRequest::Get { kind: QueryKind::Receipt, key: receipt_record(10).key() },
+                111
+            ),
             RpcResponse::Error(RpcError::Stale)
         );
         let _ = std::fs::remove_file(path);
@@ -426,12 +700,14 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let server = RpcServer::new(store);
         let thread = thread::spawn(move || server.serve_once(&listener, 105));
-        let response =
-            query(address, &RpcRequest::Get { kind: QueryKind::State, key: digest(10) }).unwrap();
+        let response = query(
+            address,
+            &RpcRequest::Get { kind: QueryKind::Receipt, key: receipt_record(10).key() },
+        )
+        .unwrap();
         assert!(matches!(
             response,
-            RpcResponse::Record(record)
-                if record.value() == [10] && record.proof() == [11] && record.finality() == [12]
+            RpcResponse::Record(record) if verify_query_record(&record) == Ok(())
         ));
         thread.join().unwrap().unwrap();
         let _ = std::fs::remove_file(path);
@@ -455,5 +731,95 @@ mod tests {
     #[test]
     fn published_revisions_are_stable() {
         assert_eq!(RPC_SCHEMA_REVISION, 1);
+    }
+
+    #[test]
+    fn state_record_verifies_sparse_membership_against_cryptographic_finality() {
+        let object = Object::new(ObjectFields {
+            object_id: ObjectId::new(digest(30)),
+            object_version: 1,
+            type_id: digest(31),
+            owner: ObjectOwner::Shared,
+            control_policy_hash: digest(32),
+            use_policy_hash: digest(33),
+            disclosure_policy_hash: digest(34),
+            upgrade_policy_hash: digest(35),
+            package_id: None,
+            value_root: digest(36),
+            public_value: None,
+            lease_expiry_epoch: 10,
+            storage_deposit: 5,
+            flags: ObjectFlags::TRANSFERABLE,
+        })
+        .unwrap();
+        let objects = vec![object.clone()];
+        let post_state = commit_objects(&objects).unwrap();
+        let proof = prove_object(&objects, object.object_id()).unwrap();
+        let inputs = ProofPublicInputs {
+            post_state,
+            ..public_inputs(commit_objects(&[]).unwrap(), post_state)
+        };
+        let record = QueryRecord::new(
+            QueryKind::State,
+            object.object_id().into_digest(),
+            7,
+            encode_envelope(&object).unwrap(),
+            encode_envelope(&proof).unwrap(),
+            signed_finality(42, inputs),
+        )
+        .unwrap();
+        assert_eq!(verify_query_record(&record), Ok(()));
+        let substituted = QueryRecord::new(
+            QueryKind::State,
+            ObjectId::new(digest(43)).into_digest(),
+            7,
+            record.value().to_vec(),
+            record.proof().to_vec(),
+            record.finality().to_vec(),
+        )
+        .unwrap();
+        assert_eq!(verify_query_record(&substituted), Err(RpcProofError::Key));
+    }
+
+    #[test]
+    fn action_record_verifies_full_ordered_set_against_both_finalized_roots() {
+        let action = action_envelope();
+        let id = action_id(&action).unwrap();
+        let proof = ActionSetProof::new(vec![id]).unwrap();
+        let mut id_bytes = Vec::new();
+        id_bytes.extend_from_slice(id.digest().as_bytes());
+        let empty = commit_objects(&[]).unwrap();
+        let inputs = ProofPublicInputs {
+            action_root: commit_parts(b"ACTIVECHAIN-BLOCK-ACTIONS-V1", &[&id_bytes]),
+            execution_order_root: commit_parts(
+                b"ACTIVECHAIN-BLOCK-EXECUTION-ORDER-V1",
+                &[&id_bytes],
+            ),
+            ..public_inputs(empty, empty)
+        };
+        let record = QueryRecord::new(
+            QueryKind::Action,
+            *id.digest(),
+            7,
+            encode_envelope(&action).unwrap(),
+            encode_envelope(&proof).unwrap(),
+            signed_finality(55, inputs),
+        )
+        .unwrap();
+        assert_eq!(verify_query_record(&record), Ok(()));
+
+        let wrong =
+            ActionSetProof::new(vec![activechain_protocol_types::TransactionId::new(digest(56))])
+                .unwrap();
+        let substituted = QueryRecord::new(
+            QueryKind::Action,
+            *id.digest(),
+            7,
+            record.value().to_vec(),
+            encode_envelope(&wrong).unwrap(),
+            record.finality().to_vec(),
+        )
+        .unwrap();
+        assert_eq!(verify_query_record(&substituted), Err(RpcProofError::Relation));
     }
 }

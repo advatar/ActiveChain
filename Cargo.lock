@@ -276,9 +276,18 @@ dependencies = [
 name = "activechain-rpc-server"
 version = "0.1.0"
 dependencies = [
+ "activechain-action-kernel",
  "activechain-canonical-codec",
+ "activechain-devnet-kernel",
+ "activechain-finality-types",
+ "activechain-policy-kernel",
+ "activechain-protocol-commitment",
  "activechain-protocol-types",
  "activechain-rpc-types",
+ "activechain-state-tree",
+ "activechain-transition",
+ "activechain-verifier-api",
+ "ml-dsa",
  "sha3 0.10.9",
 ]
 
