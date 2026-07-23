@@ -15,10 +15,10 @@ The gateway does not expose consensus (`49150`), faucet (`49152`), or metrics (`
 Deploy only after validating the current Caddy configuration and taking backups:
 
 ```sh
-mkdir -p /Volumes/ActiveChain/testnet/gateway/letsencrypt
-chmod 700 /Volumes/ActiveChain/testnet/gateway/letsencrypt
-docker compose -f /Volumes/ActiveChain/testnet/gateway/compose.yml config
-docker compose -f /Volumes/ActiveChain/testnet/gateway/compose.yml up -d
+mkdir -p "$HOME/activechain-deploy/kanalen/gateway/letsencrypt"
+chmod 700 "$HOME/activechain-deploy/kanalen/gateway/letsencrypt"
+docker compose -f "$HOME/activechain-deploy/kanalen/gateway/compose.yml" config
+docker compose -f "$HOME/activechain-deploy/kanalen/gateway/compose.yml" up -d
 ```
 
 Rollback by stopping this compose project and restoring the existing Caddy `443:443` host
