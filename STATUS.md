@@ -635,8 +635,10 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
       envelope verifier through matching Rust and C result codes.
     - [x] Add exact CapabilityGrant envelope and parent-child attenuation verification through
       matching Rust and C result codes.
-    - [ ] Add APL decision, state-witness, finalized-block, receipt, and joined authorization-chain
-      verifiers with complete positive and malformed vectors.
+    - [ ] Add exact APL PolicyDecision envelope verification through matching Rust and C result
+      codes.
+    - [ ] Add state-witness, finalized-block, receipt, and joined authorization-chain verifiers
+      with complete positive and malformed vectors.
   - [ ] Expose Coin Cell discovery, policy evaluation, canonical intents, approval-bound signing,
     secure-key callbacks, and submission through the wallet ABI
     ([GitHub issue #87](https://github.com/advatar/ActiveChain/issues/87)).
