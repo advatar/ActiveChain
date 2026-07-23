@@ -176,6 +176,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-light-client"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-consensus-verifier",
+ "activechain-data-availability",
+ "activechain-finality-types",
+ "activechain-protocol-types",
+ "activechain-rpc-server",
+ "activechain-rpc-types",
+ "activechain-state-tree",
+ "ml-dsa",
+ "sha3 0.10.9",
+]
+
+[[package]]
 name = "activechain-object"
 version = "0.1.0"
 dependencies = [

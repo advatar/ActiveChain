@@ -41,6 +41,26 @@ pub enum RpcProofError {
 pub fn verify_query_record(record: &QueryRecord) -> Result<(), RpcProofError> {
     let finality = activechain_verifier_api::verify_finality_bundle(record.finality())
         .map_err(|_| RpcProofError::Finality)?;
+    verify_query_record_with_finality(record, finality, None)
+}
+
+pub fn verify_query_record_with_chain_genesis(
+    record: &QueryRecord,
+    chain_genesis: Digest384,
+) -> Result<(), RpcProofError> {
+    let finality = activechain_verifier_api::verify_finality_bundle_with_chain_genesis(
+        record.finality(),
+        chain_genesis,
+    )
+    .map_err(|_| RpcProofError::Finality)?;
+    verify_query_record_with_finality(record, finality, Some(chain_genesis))
+}
+
+fn verify_query_record_with_finality(
+    record: &QueryRecord,
+    finality: activechain_finality_types::FinalityCertificateBundle,
+    chain_genesis: Option<Digest384>,
+) -> Result<(), RpcProofError> {
     if finality.header().inputs.height != record.finalized_height() {
         return Err(RpcProofError::Height);
     }
@@ -89,9 +109,16 @@ pub fn verify_query_record(record: &QueryRecord) -> Result<(), RpcProofError> {
             if !record.proof().is_empty() {
                 return Err(RpcProofError::Malformed);
             }
-            let receipt =
+            let receipt = if let Some(chain_genesis) = chain_genesis {
+                activechain_verifier_api::verify_block_receipt_with_chain_genesis(
+                    record.finality(),
+                    record.value(),
+                    chain_genesis,
+                )
+            } else {
                 activechain_verifier_api::verify_block_receipt(record.finality(), record.value())
-                    .map_err(|_| RpcProofError::Relation)?;
+            }
+            .map_err(|_| RpcProofError::Relation)?;
             if finality.header().inputs.receipt_root != record.key()
                 || receipt.height() != record.finalized_height()
             {
