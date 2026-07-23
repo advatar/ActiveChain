@@ -82,7 +82,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let signer =
             activechain_consensus_runtime::ValidatorSigner::from_seed(entry.validator(), seed);
         if run_once && !peer_specs.is_empty() {
-            let next_height = state.finalized_height().saturating_add(1);
             let service = std::sync::Arc::new(
                 ValidatorService::from_active_manifest(
                     state,
@@ -138,14 +137,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Err(format!("peer connection failures: {failures:?}").into());
             }
             let peer_ids: Vec<u16> = peers.peers().map(|(id, _)| *id).collect();
-            let block_digest = Digest384::new([index as u8 + 120; 48]);
+            let (next_height, next_round) = service
+                .next_proposal_position()
+                .map_err(|error| format!("cannot derive next proposal position: {error:?}"))?;
+            let sequence = service
+                .next_sequence(local_peer_id)
+                .map_err(|error| format!("cannot reserve next sequence: {error:?}"))?;
+            let block_digest = {
+                let mut digest = [0_u8; 48];
+                let mut hasher = Shake256::default();
+                hasher.update(b"ACTIVECHAIN-TESTNET-NETWORK-ROUND-V2");
+                hasher.update(genesis.validator_set_root().as_bytes());
+                hasher.update(&next_height.to_be_bytes());
+                hasher.update(&next_round.to_be_bytes());
+                hasher.finalize_xof().read(&mut digest);
+                Digest384::new(digest)
+            };
             let state = service
                 .propose_round_collect_votes(
                     &signer,
                     next_height,
-                    0,
+                    next_round,
                     block_digest,
-                    1,
+                    sequence,
                     &mut peers,
                     &peer_ids,
                 )
@@ -154,7 +168,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Ok(());
         }
         if run_once {
-            let next_height = state.finalized_height().saturating_add(1);
             let service = ValidatorService::from_active_manifest(
                 state,
                 genesis,
@@ -166,16 +179,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .to_path_buf(),
             )
             .map_err(|error| format!("validator service configuration failed: {error:?}"))?;
+            let (next_height, next_round) = service
+                .next_proposal_position()
+                .map_err(|error| format!("cannot derive next proposal position: {error:?}"))?;
+            let sequence = service
+                .next_sequence(local_peer_id)
+                .map_err(|error| format!("cannot reserve next sequence: {error:?}"))?;
             let block_digest = {
                 let mut digest = [0_u8; 48];
                 let mut hasher = Shake256::default();
-                hasher.update(b"ACTIVECHAIN-TESTNET-ROUND-V1");
+                hasher.update(b"ACTIVECHAIN-TESTNET-ROUND-V2");
                 hasher.update(genesis.validator_set_root().as_bytes());
+                hasher.update(&next_height.to_be_bytes());
+                hasher.update(&next_round.to_be_bytes());
                 hasher.finalize_xof().read(&mut digest);
                 Digest384::new(digest)
             };
             service
-                .propose_round(&signer, next_height, 0, block_digest, 1)
+                .propose_round(&signer, next_height, next_round, block_digest, sequence)
                 .map_err(|error| format!("deterministic round failed: {error:?}"))?;
             let metrics = service.metrics();
             println!(

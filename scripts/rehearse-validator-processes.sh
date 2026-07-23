@@ -18,6 +18,7 @@ for index in 0 1 2; do
   restart_output="$workdir/validator-${index}-restart.out"
   cargo run --quiet -p activechain-consensus-runtime --bin validator-node -- \
     $((4400 + index)) "$snapshot" "$genesis" 0 "$index" --once >"$restart_output"
+  rg --fixed-strings "finalized_height=1" "$restart_output"
   rg --fixed-strings "proposals=1 votes=1 rejected=0" "$restart_output"
 done
 
