@@ -1,8 +1,13 @@
-# ActiveChain private billboard: Emerald-ambition specification
+# Amber: ActiveChain private imageboard specification
 
 Status: engineering target; not yet implemented in full  
 Tracking: [GitHub issue #53](https://github.com/advatar/ActiveChain/issues/53)  
 Benchmark: [*Emerald: A Decentralized Imageboard Protocol*](https://alex.sellstrom.me/papers/Emerald.pdf), April 29, 2026
+
+**Product naming:** ActiveChain's native private-imageboard application and protocol profile are
+called **Amber**. Emerald is an independent research benchmark only. User-facing applications,
+network identifiers, schemas, and public claims MUST use Amber naming and MUST NOT imply Emerald
+compatibility, endorsement, or shared implementation.
 
 ## 1. Purpose and interpretation
 
