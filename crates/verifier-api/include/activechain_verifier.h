@@ -11,6 +11,7 @@
 #define ACTIVECHAIN_VERIFY_VERSION_MISMATCH 4u
 #define ACTIVECHAIN_VERIFY_COMMITMENT_MISMATCH 5u
 #define ACTIVECHAIN_VERIFY_NULL_POINTER 6u
+#define ACTIVECHAIN_VERIFY_RELATION_MISMATCH 7u
 
 uint32_t activechain_verifier_abi_revision(void);
 uint32_t activechain_verifier_schema_revision(void);
@@ -36,5 +37,15 @@ uint32_t activechain_verify_commitment_code(
 uint32_t activechain_verify_principal_code(
     const uint8_t *bytes,
     uint32_t bytes_len);
+
+uint32_t activechain_verify_capability_code(
+    const uint8_t *bytes,
+    uint32_t bytes_len);
+
+uint32_t activechain_verify_capability_attenuation_code(
+    const uint8_t *parent,
+    uint32_t parent_len,
+    const uint8_t *child,
+    uint32_t child_len);
 
 #endif

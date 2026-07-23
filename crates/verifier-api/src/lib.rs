@@ -2,7 +2,9 @@
 #![forbid(unsafe_code)]
 
 use activechain_canonical_codec::{DecodeError, decode_envelope, inspect_canonical_envelope};
-use activechain_protocol_types::{Digest384, INITIAL_PROTOCOL_REVISION, Principal};
+use activechain_protocol_types::{
+    CapabilityGrant, Digest384, INITIAL_PROTOCOL_REVISION, Principal,
+};
 use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
@@ -27,6 +29,7 @@ pub enum VerifyError {
     TypeMismatch,
     VersionMismatch,
     CommitmentMismatch,
+    RelationMismatch,
 }
 
 impl VerifyError {
@@ -37,6 +40,7 @@ impl VerifyError {
             Self::TypeMismatch => 3,
             Self::VersionMismatch => 4,
             Self::CommitmentMismatch => 5,
+            Self::RelationMismatch => 7,
         }
     }
 }
@@ -59,6 +63,29 @@ pub fn verify_principal_code(bytes: &[u8]) -> u32 {
 pub fn verify_principal(bytes: &[u8]) -> Result<Principal, VerifyError> {
     inspect_envelope(bytes, Principal::TYPE_TAG, Principal::SCHEMA_VERSION)?;
     decode_envelope::<Principal>(bytes).map_err(VerifyError::Decode)
+}
+
+pub fn verify_capability_code(bytes: &[u8]) -> u32 {
+    verify_capability(bytes).map_or_else(|error| error.code(), |_| VERIFY_OK)
+}
+
+pub fn verify_capability(bytes: &[u8]) -> Result<CapabilityGrant, VerifyError> {
+    inspect_envelope(bytes, CapabilityGrant::TYPE_TAG, CapabilityGrant::SCHEMA_VERSION)?;
+    decode_envelope::<CapabilityGrant>(bytes).map_err(VerifyError::Decode)
+}
+
+pub fn verify_capability_attenuation_code(parent: &[u8], child: &[u8]) -> u32 {
+    verify_capability_attenuation(parent, child).map_or_else(|error| error.code(), |_| VERIFY_OK)
+}
+
+pub fn verify_capability_attenuation(parent: &[u8], child: &[u8]) -> Result<(), VerifyError> {
+    if parent.len().checked_add(child.len()).is_none_or(|length| length > MAX_ENVELOPE_LENGTH) {
+        return Err(VerifyError::TooLarge);
+    }
+    let parent = verify_capability(parent)?;
+    let child = verify_capability(child)?;
+    activechain_capability::verify_attenuation(&parent, &child)
+        .map_err(|_| VerifyError::RelationMismatch)
 }
 
 pub fn verify_shake_commitment(
@@ -101,9 +128,16 @@ pub fn inspect_envelope(
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
+
     use super::*;
     use activechain_canonical_codec::encode_envelope;
-    use activechain_protocol_types::{FreezeState, PrincipalId, PrincipalKind};
+    use activechain_protocol_types::{
+        ActionId, BoundedActionSet, CapabilityGrantFields, CapabilityId, CryptoSuiteId,
+        DataSelector, FreezeState, HolderBinding, PrincipalId, PrincipalKind, ProtocolSignature,
+        ResourceSelector,
+    };
+    use alloc::{vec, vec::Vec};
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
@@ -122,6 +156,42 @@ mod tests {
             10,
             11,
             12,
+        )
+        .unwrap()
+    }
+
+    fn capability(
+        id: u8,
+        issuer: u8,
+        holder: u8,
+        parent: Option<u8>,
+        actions: &[u8],
+        delegation_depth_remaining: u8,
+        delegation_allowed: bool,
+    ) -> CapabilityGrant {
+        let permitted_actions =
+            actions.iter().map(|byte| ActionId::new(digest(*byte))).collect::<Vec<_>>();
+        CapabilityGrant::new(
+            CapabilityGrantFields {
+                capability_id: CapabilityId::new(digest(id)),
+                issuer: PrincipalId::new(digest(issuer)),
+                holder_binding: HolderBinding::Principal(PrincipalId::new(digest(holder))),
+                parent_capability: parent.map(|byte| CapabilityId::new(digest(byte))),
+                permitted_actions: BoundedActionSet::new(permitted_actions).unwrap(),
+                resource_scope: ResourceSelector::ANY,
+                data_scope: DataSelector::ANY,
+                monetary_limit: Some(100),
+                compute_limit: Some(100),
+                rate_limit: None,
+                use_limit: Some(10),
+                valid_from: 1,
+                valid_until: Some(100),
+                delegation_depth_remaining,
+                delegation_allowed,
+                revocation_registry: None,
+                constraint_hash: digest(9),
+            },
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![6; 2_420]).unwrap(),
         )
         .unwrap()
     }
@@ -182,6 +252,35 @@ mod tests {
         assert_eq!(
             verify_principal_code(&trailing),
             VerifyError::Decode(DecodeError::TrailingData { remaining: 1 }).code()
+        );
+    }
+
+    #[test]
+    fn capability_verifier_checks_shape_and_parent_child_attenuation() {
+        let parent = encode_envelope(&capability(10, 2, 3, None, &[1, 2], 1, true)).unwrap();
+        let child = encode_envelope(&capability(11, 3, 4, Some(10), &[1], 0, false)).unwrap();
+        assert_eq!(verify_capability_code(&parent), VERIFY_OK);
+        assert_eq!(verify_capability_attenuation(&parent, &child), Ok(()));
+        assert_eq!(verify_capability_attenuation_code(&parent, &child), VERIFY_OK);
+
+        let broadened =
+            encode_envelope(&capability(12, 3, 4, Some(10), &[1, 3], 0, false)).unwrap();
+        assert_eq!(
+            verify_capability_attenuation_code(&parent, &broadened),
+            VerifyError::RelationMismatch.code()
+        );
+
+        let mut wrong_version = child.clone();
+        wrong_version[3] = 2;
+        assert_eq!(
+            verify_capability_attenuation_code(&parent, &wrong_version),
+            VerifyError::VersionMismatch.code()
+        );
+        let mut truncated = child;
+        truncated.pop();
+        assert_eq!(
+            verify_capability_attenuation_code(&parent, &truncated),
+            VerifyError::Decode(DecodeError::UnexpectedEnd { needed: 1, remaining: 0 }).code()
         );
     }
 }

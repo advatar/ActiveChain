@@ -309,6 +309,7 @@ name = "activechain-verifier-api"
 version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
+ "activechain-capability",
  "activechain-protocol-types",
  "sha3 0.10.9",
 ]

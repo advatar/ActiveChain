@@ -69,6 +69,56 @@ pub unsafe extern "C" fn activechain_verify_principal_code(
     activechain_verifier_api::verify_principal_code(input)
 }
 
+#[unsafe(no_mangle)]
+/// # Safety
+/// The caller must provide a readable `bytes` buffer of `bytes_len` bytes. No pointer is retained.
+pub unsafe extern "C" fn activechain_verify_capability_code(
+    bytes: *const u8,
+    bytes_len: u32,
+) -> u32 {
+    if bytes.is_null() && bytes_len != 0 {
+        return NULL_POINTER;
+    }
+    if bytes_len > MAX_ENVELOPE_LENGTH {
+        return TOO_LARGE;
+    }
+    let input = if bytes_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(bytes, bytes_len as usize) }
+    };
+    activechain_verifier_api::verify_capability_code(input)
+}
+
+#[unsafe(no_mangle)]
+/// # Safety
+/// The caller must provide readable parent and child buffers for the declared lengths. No pointer
+/// is retained, and oversized combined input is rejected before either pointer is materialized.
+pub unsafe extern "C" fn activechain_verify_capability_attenuation_code(
+    parent: *const u8,
+    parent_len: u32,
+    child: *const u8,
+    child_len: u32,
+) -> u32 {
+    if (parent.is_null() && parent_len != 0) || (child.is_null() && child_len != 0) {
+        return NULL_POINTER;
+    }
+    if parent_len.checked_add(child_len).is_none_or(|length| length > MAX_ENVELOPE_LENGTH) {
+        return TOO_LARGE;
+    }
+    let parent = if parent_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(parent, parent_len as usize) }
+    };
+    let child = if child_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(child, child_len as usize) }
+    };
+    activechain_verifier_api::verify_capability_attenuation_code(parent, child)
+}
+
 #[cfg(kani)]
 mod kani_proofs;
 
@@ -112,10 +162,47 @@ pub unsafe extern "C" fn activechain_verify_commitment_code(
 mod tests {
     use super::*;
     use activechain_canonical_codec::encode_envelope;
-    use activechain_protocol_types::{FreezeState, Principal, PrincipalId, PrincipalKind};
+    use activechain_protocol_types::{
+        ActionId, BoundedActionSet, CapabilityGrant, CapabilityGrantFields, CapabilityId,
+        CryptoSuiteId, DataSelector, FreezeState, HolderBinding, Principal, PrincipalId,
+        PrincipalKind, ProtocolSignature, ResourceSelector,
+    };
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
+    }
+
+    fn capability(
+        id: u8,
+        issuer: u8,
+        holder: u8,
+        parent: Option<u8>,
+        depth: u8,
+        allowed: bool,
+    ) -> CapabilityGrant {
+        CapabilityGrant::new(
+            CapabilityGrantFields {
+                capability_id: CapabilityId::new(digest(id)),
+                issuer: PrincipalId::new(digest(issuer)),
+                holder_binding: HolderBinding::Principal(PrincipalId::new(digest(holder))),
+                parent_capability: parent.map(|byte| CapabilityId::new(digest(byte))),
+                permitted_actions: BoundedActionSet::new(vec![ActionId::new(digest(1))]).unwrap(),
+                resource_scope: ResourceSelector::ANY,
+                data_scope: DataSelector::ANY,
+                monetary_limit: Some(100),
+                compute_limit: Some(100),
+                rate_limit: None,
+                use_limit: Some(10),
+                valid_from: 1,
+                valid_until: Some(100),
+                delegation_depth_remaining: depth,
+                delegation_allowed: allowed,
+                revocation_registry: None,
+                constraint_hash: digest(9),
+            },
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![6; 2_420]).unwrap(),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -170,6 +257,38 @@ mod tests {
         );
         assert_eq!(
             unsafe { activechain_verify_principal_code(core::ptr::null(), 1) },
+            NULL_POINTER
+        );
+    }
+
+    #[test]
+    fn capability_abi_matches_rust_shape_and_attenuation_results() {
+        let parent = encode_envelope(&capability(10, 2, 3, None, 1, true)).unwrap();
+        let child = encode_envelope(&capability(11, 3, 4, Some(10), 0, false)).unwrap();
+        assert_eq!(
+            unsafe { activechain_verify_capability_code(parent.as_ptr(), parent.len() as u32) },
+            activechain_verifier_api::verify_capability_code(&parent)
+        );
+        assert_eq!(
+            unsafe {
+                activechain_verify_capability_attenuation_code(
+                    parent.as_ptr(),
+                    parent.len() as u32,
+                    child.as_ptr(),
+                    child.len() as u32,
+                )
+            },
+            activechain_verifier_api::verify_capability_attenuation_code(&parent, &child)
+        );
+        assert_eq!(
+            unsafe {
+                activechain_verify_capability_attenuation_code(
+                    core::ptr::null(),
+                    1,
+                    child.as_ptr(),
+                    child.len() as u32,
+                )
+            },
             NULL_POINTER
         );
     }

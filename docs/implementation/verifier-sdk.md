@@ -15,6 +15,12 @@ canonical body, and all Principal cross-field invariants. In particular, malform
 an update height preceding the creation height are rejected. Rust callers use `verify_principal`
 or `verify_principal_code` and receive the same stable result category as C callers.
 
-The remaining issue #88 entry points will follow this pattern for capabilities, APL decisions,
-state witnesses, finalized blocks, receipts, and joined authorization chains. No function accepts
-secret material.
+Capability verification follows the same boundary. `activechain_verify_capability_code` validates
+the complete canonical grant and its cross-field invariants.
+`activechain_verify_capability_attenuation_code` additionally decodes a bounded parent-child pair
+and mechanically proves every authority dimension is attenuated. A well-formed child that broadens
+actions, scope, limits, validity, delegation, constraints, or revocation state returns the stable
+relation-mismatch result rather than being mistaken for a decoding failure.
+
+The remaining issue #88 entry points will follow this pattern for APL decisions, state witnesses,
+finalized blocks, receipts, and joined authorization chains. No function accepts secret material.
