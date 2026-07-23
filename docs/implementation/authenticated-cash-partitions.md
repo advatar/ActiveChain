@@ -15,5 +15,12 @@ root per declared partition and recomputes the global root. Tests cover the prod
 single-partition mutation locality, count and order binding, round trips, invalid counts, and global
 root substitution.
 
-This is the commitment foundation for issue #76. The remaining work is to carry touched-partition
-pre/post witnesses through each accepted CashAIR row and constrain their ordered global transition.
+`CoinCellPartitionTransitionWitness` carries the complete ordered pre-root vector and a strictly
+sorted list of local transitions for exactly the partitions changed by a state transition. Each
+nested mutation must map to its declared partition. Verification checks every sparse transition,
+replaces only its declared pre-root, and recomputes both global roots. Empty transitions, duplicate
+or out-of-order partitions, substituted roots, wrong-partition records, and malformed canonical
+encodings fail closed.
+
+This completes the canonical witness foundation for issue #76. The remaining work is to carry these
+witnesses through each accepted CashAIR row and constrain their ordered global transition.
