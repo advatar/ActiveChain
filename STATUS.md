@@ -782,6 +782,9 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
     - [x] Document the downstream integration boundary and compatibility revisions.
   - [ ] Pass downstream conformance against dBrowser while retaining the developmental and
     unaudited release status until the external security gate completes.
+  - [ ] Consolidate verified release branches into `main`, retire superseded branches, and enforce
+    a single active implementation branch per issue
+    ([GitHub issue #125](https://github.com/advatar/ActiveChain/issues/125)).
 
 ## Planned milestone — external pre-launch security audit
 
