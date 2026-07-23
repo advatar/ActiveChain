@@ -5,7 +5,10 @@ use activechain_cash_kernel::{CoinCellSet, CoinTransfer};
 use activechain_protocol_types::{
     ChainId, CoinCellId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature,
 };
-use activechain_wallet_core::{AuthorizedCashTransferV1, CashAuthorizationRequestV1};
+use activechain_wallet_core::{
+    AuthorizedCashTransferV1, CashAuthorizationRequestV1, OpenWalletConsentV1,
+    OpenWalletCredentialOfferV1, OpenWalletPresentationRequestV1,
+};
 use core::ffi::c_void;
 
 const MAX_WALLET_INPUT: u32 = 256 * 1024;
@@ -17,6 +20,9 @@ pub const ACTIVECHAIN_WALLET_INSUFFICIENT_FUNDS: u32 = 4;
 pub const ACTIVECHAIN_WALLET_BUFFER_TOO_SMALL: u32 = 5;
 pub const ACTIVECHAIN_WALLET_CALLBACK_FAILED: u32 = 6;
 pub const ACTIVECHAIN_WALLET_INVALID_SIGNATURE: u32 = 7;
+pub const ACTIVECHAIN_WALLET_OPENWALLET_OFFER: u32 = 1;
+pub const ACTIVECHAIN_WALLET_OPENWALLET_PRESENTATION_REQUEST: u32 = 2;
+pub const ACTIVECHAIN_WALLET_OPENWALLET_CONSENT: u32 = 3;
 const WALLET_OK: u32 = ACTIVECHAIN_WALLET_OK;
 const WALLET_NULL_POINTER: u32 = ACTIVECHAIN_WALLET_NULL_POINTER;
 const WALLET_TOO_LARGE: u32 = ACTIVECHAIN_WALLET_TOO_LARGE;
@@ -41,7 +47,64 @@ pub type ActivechainWalletSubmitCallback =
 /// Returns the ABI revision consumed by native wallet shells.
 #[unsafe(no_mangle)]
 pub extern "C" fn activechain_wallet_ffi_revision() -> u32 {
-    1
+    2
+}
+
+/// Validates one canonical OpenWallet envelope and returns its protocol commitment.
+///
+/// `kind` must be one of the `ACTIVECHAIN_WALLET_OPENWALLET_*` constants. This boundary
+/// deliberately accepts canonical ActiveChain envelopes rather than JSON so native transport
+/// adapters cannot silently reinterpret a consent or presentation request.
+///
+/// # Safety
+///
+/// `envelope` must be readable for `envelope_len` bytes and `commitment_out` must point to a
+/// writable 48-byte buffer. Neither pointer is retained.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn activechain_wallet_openwallet_validate(
+    kind: u32,
+    envelope: *const u8,
+    envelope_len: u32,
+    commitment_out: *mut u8,
+) -> u32 {
+    if (envelope.is_null() && envelope_len != 0) || commitment_out.is_null() {
+        return WALLET_NULL_POINTER;
+    }
+    if envelope_len > MAX_WALLET_INPUT {
+        return WALLET_TOO_LARGE;
+    }
+    let envelope = if envelope_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(envelope, envelope_len as usize) }
+    };
+    let commitment = match kind {
+        ACTIVECHAIN_WALLET_OPENWALLET_OFFER => {
+            decode_envelope::<OpenWalletCredentialOfferV1>(envelope)
+                .ok()
+                .and_then(|value| value.commitment().ok())
+        }
+        ACTIVECHAIN_WALLET_OPENWALLET_PRESENTATION_REQUEST => {
+            decode_envelope::<OpenWalletPresentationRequestV1>(envelope)
+                .ok()
+                .and_then(|value| value.commitment().ok())
+        }
+        ACTIVECHAIN_WALLET_OPENWALLET_CONSENT => decode_envelope::<OpenWalletConsentV1>(envelope)
+            .ok()
+            .and_then(|value| value.commitment().ok()),
+        _ => return WALLET_MALFORMED,
+    };
+    let Some(commitment) = commitment else {
+        return WALLET_MALFORMED;
+    };
+    unsafe {
+        core::ptr::copy_nonoverlapping(
+            commitment.as_bytes().as_ptr(),
+            commitment_out,
+            commitment.as_bytes().len(),
+        );
+    }
+    WALLET_OK
 }
 
 /// Validates a bounded OpenWallet session tuple without accepting secret material.
@@ -422,7 +485,64 @@ mod tests {
 
     #[test]
     fn revision_is_stable() {
-        assert_eq!(activechain_wallet_ffi_revision(), 1);
+        assert_eq!(activechain_wallet_ffi_revision(), 2);
+    }
+
+    #[test]
+    fn openwallet_abi_validates_exact_envelope_kind_and_commits_it() {
+        use activechain_wallet_core::{OpenWalletCredentialOfferV1, OpenWalletSessionV1};
+
+        let offer = OpenWalletCredentialOfferV1::new(
+            OpenWalletSessionV1 {
+                session_id: digest(1),
+                relying_party: digest(2),
+                expires_at: 100,
+            },
+            b"https://issuer.example".to_vec(),
+            vec![digest(3)],
+            digest(4),
+            digest(5),
+            digest(6),
+        )
+        .unwrap();
+        let envelope = encode_envelope(&offer).unwrap();
+        let mut commitment = [0; 48];
+        assert_eq!(
+            unsafe {
+                activechain_wallet_openwallet_validate(
+                    ACTIVECHAIN_WALLET_OPENWALLET_OFFER,
+                    envelope.as_ptr(),
+                    envelope.len() as u32,
+                    commitment.as_mut_ptr(),
+                )
+            },
+            WALLET_OK
+        );
+        assert_eq!(commitment, *offer.commitment().unwrap().as_bytes());
+        assert_eq!(
+            unsafe {
+                activechain_wallet_openwallet_validate(
+                    ACTIVECHAIN_WALLET_OPENWALLET_CONSENT,
+                    envelope.as_ptr(),
+                    envelope.len() as u32,
+                    commitment.as_mut_ptr(),
+                )
+            },
+            WALLET_MALFORMED
+        );
+        let mut trailing = envelope;
+        trailing.push(0);
+        assert_eq!(
+            unsafe {
+                activechain_wallet_openwallet_validate(
+                    ACTIVECHAIN_WALLET_OPENWALLET_OFFER,
+                    trailing.as_ptr(),
+                    trailing.len() as u32,
+                    commitment.as_mut_ptr(),
+                )
+            },
+            WALLET_MALFORMED
+        );
     }
 
     #[test]

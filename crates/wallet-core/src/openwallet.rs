@@ -431,6 +431,9 @@ impl OpenWalletConsentV1 {
     pub const fn request_commitment(&self) -> Digest384 {
         self.request_commitment
     }
+    pub fn commitment(&self) -> Result<Digest384, EncodeError> {
+        commit(DomainTag::CANONICAL_VALUE, self)
+    }
 }
 impl CanonicalEncode for OpenWalletConsentV1 {
     fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {

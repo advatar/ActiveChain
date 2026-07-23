@@ -25,6 +25,12 @@
 
 #define ACTIVECHAIN_WALLET_INVALID_SIGNATURE 7
 
+#define ACTIVECHAIN_WALLET_OPENWALLET_OFFER 1
+
+#define ACTIVECHAIN_WALLET_OPENWALLET_PRESENTATION_REQUEST 2
+
+#define ACTIVECHAIN_WALLET_OPENWALLET_CONSENT 3
+
 typedef uint32_t (*activechain_wallet_sign_callback)(
     void *context,
     const uint8_t *payload,
@@ -46,6 +52,23 @@ extern "C" {
  * Returns the ABI revision consumed by native wallet shells.
  */
 uint32_t activechain_wallet_ffi_revision(void);
+
+/**
+ * Validates one canonical OpenWallet envelope and returns its protocol commitment.
+ *
+ * `kind` must be one of the `ACTIVECHAIN_WALLET_OPENWALLET_*` constants. This boundary
+ * deliberately accepts canonical ActiveChain envelopes rather than JSON so native transport
+ * adapters cannot silently reinterpret a consent or presentation request.
+ *
+ * # Safety
+ *
+ * `envelope` must be readable for `envelope_len` bytes and `commitment_out` must point to a
+ * writable 48-byte buffer. Neither pointer is retained.
+ */
+uint32_t activechain_wallet_openwallet_validate(uint32_t kind,
+                                                const uint8_t *envelope,
+                                                uint32_t envelope_len,
+                                                uint8_t *commitment_out);
 
 /**
  * Validates a bounded OpenWallet session tuple without accepting secret material.
