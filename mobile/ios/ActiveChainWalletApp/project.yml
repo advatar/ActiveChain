@@ -11,7 +11,9 @@ targets:
       - path: Sources
       - path: ../ActiveChainWallet/Sources/ActiveChainWallet
     settings:
+      CODE_SIGN_ENTITLEMENTS: Config/ActiveChainWallet.entitlements
       DEVELOPMENT_TEAM: L2AF8KFX35
+      INFOPLIST_KEY_ActiveChainKeychainAccessGroup: "$(AppIdentifierPrefix)dev.activechain.wallet.shared"
       PRODUCT_BUNDLE_IDENTIFIER: dev.activechain.wallet
       PRODUCT_MODULE_NAME: ActiveChainWalletApp
       SWIFT_VERSION: "5.9"
@@ -24,6 +26,29 @@ targets:
     scheme:
       testTargets:
         - ActiveChainWalletTests
+  ActiveChainWalletMac:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Sources
+      - path: ../ActiveChainWallet/Sources/ActiveChainWallet
+    settings:
+      CODE_SIGN_ENTITLEMENTS: Config/ActiveChainWalletMac.entitlements
+      DEVELOPMENT_TEAM: L2AF8KFX35
+      GENERATE_INFOPLIST_FILE: YES
+      INFOPLIST_KEY_ActiveChainKeychainAccessGroup: "$(AppIdentifierPrefix)dev.activechain.wallet.shared"
+      INFOPLIST_KEY_CFBundleDisplayName: ActiveChain Wallet
+      INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.finance
+      PRODUCT_BUNDLE_IDENTIFIER: dev.activechain.wallet.macos
+      PRODUCT_MODULE_NAME: ActiveChainWalletApp
+      SWIFT_VERSION: "5.9"
+    dependencies:
+      - framework: ../../../dist/apple/current/ActiveChainWallet.xcframework
+        embed: false
+    scheme:
+      testTargets:
+        - ActiveChainWalletMacTests
   ActiveChainWalletTests:
     type: bundle.unit-test
     platform: iOS
@@ -31,3 +56,14 @@ targets:
       - path: Tests
     dependencies:
       - target: ActiveChainWallet
+  ActiveChainWalletMacTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Tests
+    settings:
+      PRODUCT_MODULE_NAME: ActiveChainWalletMacTests
+      SWIFT_VERSION: "5.9"
+    dependencies:
+      - target: ActiveChainWalletMac

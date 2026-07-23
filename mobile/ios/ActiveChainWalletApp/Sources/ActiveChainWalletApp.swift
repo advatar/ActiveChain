@@ -85,7 +85,7 @@ private struct HomeView: View {
             }
             .scrollIndicators(.hidden)
         }
-        .toolbar(.hidden, for: .navigationBar)
+        .walletNavigationBarHidden()
     }
 }
 
@@ -381,7 +381,7 @@ private struct ActivityView: View {
             }
         }
         .navigationTitle("Activity")
-        .toolbarBackground(WalletPalette.ink, for: .navigationBar)
+        .walletNavigationBarBackground()
     }
 }
 
@@ -437,7 +437,7 @@ private struct ApprovalsView: View {
             }
         }
         .navigationTitle("Approvals")
-        .toolbarBackground(WalletPalette.ink, for: .navigationBar)
+        .walletNavigationBarBackground()
     }
 }
 
@@ -468,7 +468,7 @@ private struct AgentInventoryView: View {
             }
         }
         .navigationTitle("Agents")
-        .toolbarBackground(WalletPalette.ink, for: .navigationBar)
+        .walletNavigationBarBackground()
     }
 }
 
@@ -549,7 +549,7 @@ private struct AgentDetailView: View {
             }
         }
         .navigationTitle(agent?.label ?? "Agent")
-        .toolbarBackground(WalletPalette.ink, for: .navigationBar)
+        .walletNavigationBarBackground()
     }
 
     @ViewBuilder
@@ -680,7 +680,7 @@ private struct IdentityView: View {
             }
         }
         .navigationTitle("Identity")
-        .toolbarBackground(WalletPalette.ink, for: .navigationBar)
+        .walletNavigationBarBackground()
     }
 }
 
@@ -727,7 +727,7 @@ private struct SendFlowView: View {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                             TextField("0", text: $amount)
                                 .font(.system(size: 42, weight: .bold, design: .rounded))
-                                .keyboardType(.decimalPad)
+                                .walletDecimalKeyboard()
                             Text("ACT").font(.title3.bold()).foregroundStyle(WalletPalette.mint)
                         }
                         Text("Available 12,480.42 ACT")
@@ -739,8 +739,7 @@ private struct SendFlowView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Recipient").font(.subheadline).foregroundStyle(WalletPalette.muted)
                         TextField("DID or address", text: $recipient)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
+                            .walletAddressInputBehavior()
                             .font(.callout.monospaced())
                         Divider().overlay(.white.opacity(0.1))
                         HStack {
@@ -797,7 +796,7 @@ private struct SendFlowView: View {
             }
         }
         .navigationTitle("Send ACT")
-        .navigationBarTitleDisplayMode(.inline)
+        .walletInlineNavigationTitle()
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Close") { dismiss() }
@@ -861,5 +860,53 @@ private struct SecondaryWalletButton: ButtonStyle {
                 .white.opacity(configuration.isPressed ? 0.05 : 0.09),
                 in: RoundedRectangle(cornerRadius: 16, style: .continuous)
             )
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func walletNavigationBarHidden() -> some View {
+#if os(iOS)
+        toolbar(.hidden, for: .navigationBar)
+#else
+        self
+#endif
+    }
+
+    @ViewBuilder
+    func walletNavigationBarBackground() -> some View {
+#if os(iOS)
+        toolbarBackground(WalletPalette.ink, for: .navigationBar)
+#else
+        self
+#endif
+    }
+
+    @ViewBuilder
+    func walletDecimalKeyboard() -> some View {
+#if os(iOS)
+        keyboardType(.decimalPad)
+#else
+        self
+#endif
+    }
+
+    @ViewBuilder
+    func walletAddressInputBehavior() -> some View {
+#if os(iOS)
+        textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+#else
+        self
+#endif
+    }
+
+    @ViewBuilder
+    func walletInlineNavigationTitle() -> some View {
+#if os(iOS)
+        navigationBarTitleDisplayMode(.inline)
+#else
+        self
+#endif
     }
 }

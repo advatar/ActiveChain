@@ -1,7 +1,34 @@
 import XCTest
+import Security
 @testable import ActiveChainWalletApp
 
 final class ActiveChainWalletTests: XCTestCase {
+    func testSharedKeychainConfigurationIsExplicitAndOptInForSynchronization() throws {
+        let group = "L2AF8KFX35.dev.activechain.wallet.shared"
+        let configuration = try SharedKeychainConfiguration(accessGroup: group)
+        let local = configuration.query(
+            service: "wallet",
+            account: "primary",
+            synchronizeAcrossDevices: false
+        )
+        let synchronized = configuration.query(
+            service: "wallet",
+            account: "primary",
+            synchronizeAcrossDevices: true
+        )
+
+        XCTAssertEqual(local[kSecAttrAccessGroup] as? String, group)
+        XCTAssertEqual(local[kSecAttrSynchronizable] as? Bool, false)
+        XCTAssertEqual(synchronized[kSecAttrSynchronizable] as? Bool, true)
+#if os(macOS)
+        XCTAssertEqual(local[kSecUseDataProtectionKeychain] as? Bool, true)
+#endif
+    }
+
+    func testSharedKeychainRejectsUnscopedAccessGroups() {
+        XCTAssertThrowsError(try SharedKeychainConfiguration(accessGroup: "dev.activechain.wallet"))
+    }
+
     func testLocalApproval() throws {
         let bridge = LocalWalletBridge()
         let preview = bridge.previewTransfer(recipient: "did:activechain:test", amount: 1, feeReserve: 1, validUntil: 10, currentHeight: 1)

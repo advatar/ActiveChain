@@ -25,6 +25,16 @@ Tracked by [GitHub issue #129](https://github.com/advatar/ActiveChain/issues/129
 - [x] Preserve the shared Apple development-team ID in `project.yml` while keeping certificates,
   private keys, Xcode user data, and build state local.
 
+## Active implementation — native macOS wallet
+
+Tracked by [GitHub issue #132](https://github.com/advatar/ActiveChain/issues/132).
+
+- [x] Audit and adapt shared SwiftUI wallet sources for macOS.
+- [x] Add an XcodeGen macOS application target linked to the exact-HEAD wallet XCFramework.
+- [x] Extend local build qualification to cover both macOS and iOS.
+- [x] Add platform-aware tests and document macOS build, run, and signing behavior.
+- [x] Pass formatting, script syntax, Swift tests, and both application builds.
+
 ## Active investigation — Aztec billboard parity
 
 Tracked by [GitHub issue #17](https://github.com/advatar/ActiveChain/issues/17).
