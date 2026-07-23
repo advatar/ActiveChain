@@ -12,7 +12,7 @@
     <string>0.0.0.0:49151</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>/Volumes/ActiveChain/testnet</string>
+  <string>/Users/johansellstrom</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
@@ -20,8 +20,8 @@
   <key>ThrottleInterval</key>
   <integer>10</integer>
   <key>StandardOutPath</key>
-  <string>/Volumes/ActiveChain/testnet/logs/rpc.out.log</string>
+  <string>/Users/johansellstrom/Library/Logs/ActiveChain/rpc.out.log</string>
   <key>StandardErrorPath</key>
-  <string>/Volumes/ActiveChain/testnet/logs/rpc.err.log</string>
+  <string>/Users/johansellstrom/Library/Logs/ActiveChain/rpc.err.log</string>
 </dict>
 </plist>
