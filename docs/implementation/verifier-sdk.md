@@ -33,3 +33,8 @@ commitments return relation mismatch.
 
 The remaining issue #88 entry points will follow this pattern for finalized blocks, receipts, and
 joined authorization chains. No function accepts secret material.
+
+Canonical execution-proof public inputs and finalized-block headers live in the shared
+`activechain-finality-types` crate. This keeps their registered tags, schemas, and header digest
+domain available to validators, verifier SDKs, and future light clients without pulling the
+stateful consensus runtime across the trust boundary.

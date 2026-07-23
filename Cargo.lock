@@ -101,6 +101,7 @@ dependencies = [
  "activechain-crypto-provider",
  "activechain-data-availability",
  "activechain-devnet-kernel",
+ "activechain-finality-types",
  "activechain-object-vm",
  "activechain-privacy-kernel",
  "activechain-protocol-types",
@@ -152,6 +153,16 @@ dependencies = [
  "activechain-state-tree",
  "activechain-transition",
  "proptest",
+]
+
+[[package]]
+name = "activechain-finality-types"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-protocol-types",
+ "activechain-state-tree",
+ "sha3 0.10.9",
 ]
 
 [[package]]

@@ -1,0 +1,17 @@
+[package]
+name = "activechain-finality-types"
+description = "Canonical bounded finalized-block values shared by validators and light clients"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+activechain-canonical-codec.workspace = true
+activechain-protocol-types.workspace = true
+activechain-state-tree.workspace = true
+sha3.workspace = true
+
+[lints]
+workspace = true
