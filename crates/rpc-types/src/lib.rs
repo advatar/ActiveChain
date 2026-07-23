@@ -8,14 +8,21 @@ extern crate alloc;
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
-use activechain_protocol_types::{ChainId, Digest384, TransactionId};
-use alloc::vec::Vec;
+use activechain_protocol_types::{
+    ChainId, CryptoSuiteId, Digest384, ProtocolSignature, TransactionId,
+};
+use alloc::{boxed::Box, vec::Vec};
+use sha3::{
+    Shake256,
+    digest::{ExtendableOutput, Update, XofReader},
+};
 
 pub const RPC_SCHEMA_REVISION: u32 = 1;
 pub const MAX_RPC_BLOB_LENGTH: usize = 256 * 1024;
 pub const MAX_RPC_PAGE_SIZE: u16 = 4;
 pub const MAX_SUPPORTED_PROOFS: usize = 8;
 pub const MAX_ACTIONS_PER_PROOF: usize = 32;
+pub const ML_DSA_44_PUBLIC_KEY_LENGTH: usize = 1_312;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
@@ -282,6 +289,620 @@ impl CanonicalType for RpcRequest {
     const TYPE_TAG: u16 = 0x00a0;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 1 + 1 + 49 + 2;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum RpcAccessMode {
+    Free = 0,
+    Allowlist = 1,
+    Prepaid = 2,
+}
+impl CanonicalEncode for RpcAccessMode {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(encoder)
+    }
+}
+impl CanonicalDecode for RpcAccessMode {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(decoder)? {
+            0 => Ok(Self::Free),
+            1 => Ok(Self::Allowlist),
+            2 => Ok(Self::Prepaid),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "RpcAccessMode", tag }),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RpcAccessTerms {
+    chain_id: ChainId,
+    operator_id: Digest384,
+    mode: RpcAccessMode,
+    operator_public_key: Vec<u8>,
+    unit_price: u128,
+    settlement_asset: Digest384,
+    settlement_recipient: Digest384,
+    get_units: u64,
+    list_base_units: u64,
+    list_item_units: u64,
+    quote_valid_until: u64,
+    maximum_grant_lifetime: u64,
+    operator_signature: Option<ProtocolSignature>,
+}
+impl RpcAccessTerms {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        chain_id: ChainId,
+        operator_id: Digest384,
+        mode: RpcAccessMode,
+        operator_public_key: Vec<u8>,
+        unit_price: u128,
+        settlement_asset: Digest384,
+        settlement_recipient: Digest384,
+        get_units: u64,
+        list_base_units: u64,
+        list_item_units: u64,
+        quote_valid_until: u64,
+        maximum_grant_lifetime: u64,
+        operator_signature: Option<ProtocolSignature>,
+    ) -> Result<Self, DecodeError> {
+        let free = mode == RpcAccessMode::Free;
+        if operator_id == Digest384::ZERO
+            || quote_valid_until == 0
+            || maximum_grant_lifetime == 0
+            || get_units == 0
+            || list_base_units == 0
+            || list_item_units == 0
+            || (free && (!operator_public_key.is_empty() || unit_price != 0))
+            || (free && operator_signature.is_some())
+            || (!free && operator_public_key.len() != ML_DSA_44_PUBLIC_KEY_LENGTH)
+            || operator_signature
+                .as_ref()
+                .is_some_and(|signature| signature.suite() != CryptoSuiteId::ML_DSA_44)
+            || (mode == RpcAccessMode::Allowlist && unit_price != 0)
+            || (mode == RpcAccessMode::Prepaid
+                && (unit_price == 0
+                    || settlement_asset == Digest384::ZERO
+                    || settlement_recipient == Digest384::ZERO))
+        {
+            return Err(DecodeError::InvalidValue("invalid RPC access terms"));
+        }
+        Ok(Self {
+            chain_id,
+            operator_id,
+            mode,
+            operator_public_key,
+            unit_price,
+            settlement_asset,
+            settlement_recipient,
+            get_units,
+            list_base_units,
+            list_item_units,
+            quote_valid_until,
+            maximum_grant_lifetime,
+            operator_signature,
+        })
+    }
+    pub const fn chain_id(&self) -> ChainId {
+        self.chain_id
+    }
+    pub const fn operator_id(&self) -> Digest384 {
+        self.operator_id
+    }
+    pub const fn mode(&self) -> RpcAccessMode {
+        self.mode
+    }
+    pub fn operator_public_key(&self) -> &[u8] {
+        &self.operator_public_key
+    }
+    pub const fn unit_price(&self) -> u128 {
+        self.unit_price
+    }
+    pub const fn quote_valid_until(&self) -> u64 {
+        self.quote_valid_until
+    }
+    pub const fn maximum_grant_lifetime(&self) -> u64 {
+        self.maximum_grant_lifetime
+    }
+    pub fn operator_signature(&self) -> Option<&ProtocolSignature> {
+        self.operator_signature.as_ref()
+    }
+    pub const fn settlement_asset(&self) -> Digest384 {
+        self.settlement_asset
+    }
+    pub const fn settlement_recipient(&self) -> Digest384 {
+        self.settlement_recipient
+    }
+    pub const fn get_units(&self) -> u64 {
+        self.get_units
+    }
+    pub const fn list_base_units(&self) -> u64 {
+        self.list_base_units
+    }
+    pub const fn list_item_units(&self) -> u64 {
+        self.list_item_units
+    }
+    pub fn with_operator_signature(
+        mut self,
+        signature: ProtocolSignature,
+    ) -> Result<Self, DecodeError> {
+        if self.mode == RpcAccessMode::Free
+            || signature.suite() != CryptoSuiteId::ML_DSA_44
+            || self.operator_signature.is_some()
+        {
+            return Err(DecodeError::InvalidValue("invalid RPC terms signature"));
+        }
+        self.operator_signature = Some(signature);
+        Ok(self)
+    }
+    pub fn cost(&self, request: &RpcRequest) -> Option<u64> {
+        match request {
+            RpcRequest::Status => Some(0),
+            RpcRequest::Get { .. } => Some(self.get_units),
+            RpcRequest::List { limit, .. } => self
+                .list_item_units
+                .checked_mul(*limit as u64)
+                .and_then(|items| self.list_base_units.checked_add(items)),
+        }
+    }
+    pub fn commitment(&self) -> Result<Digest384, EncodeError> {
+        let mut encoder = Encoder::new(Self::MAX_ENCODED_LEN);
+        self.encode(&mut encoder)?;
+        Ok(domain_commitment(b"ACTIVECHAIN-RPC-ACCESS-TERMS-V1", &encoder.finish()))
+    }
+    pub fn signing_payload(&self) -> Vec<u8> {
+        let mut encoder = Encoder::new(Self::MAX_ENCODED_LEN);
+        self.encode_unsigned(&mut encoder).expect("validated RPC terms encode");
+        let bytes = encoder.finish();
+        let mut payload = Vec::with_capacity(35 + bytes.len());
+        payload.extend_from_slice(b"ACTIVECHAIN-RPC-ACCESS-TERMS-V1");
+        payload.extend_from_slice(&bytes);
+        payload
+    }
+    fn encode_unsigned(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain_id.encode(encoder)?;
+        self.operator_id.encode(encoder)?;
+        self.mode.encode(encoder)?;
+        encoder.write_bytes(&self.operator_public_key, ML_DSA_44_PUBLIC_KEY_LENGTH)?;
+        self.unit_price.encode(encoder)?;
+        self.settlement_asset.encode(encoder)?;
+        self.settlement_recipient.encode(encoder)?;
+        self.get_units.encode(encoder)?;
+        self.list_base_units.encode(encoder)?;
+        self.list_item_units.encode(encoder)?;
+        self.quote_valid_until.encode(encoder)?;
+        self.maximum_grant_lifetime.encode(encoder)
+    }
+}
+impl CanonicalEncode for RpcAccessTerms {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.encode_unsigned(encoder)?;
+        self.operator_signature.encode(encoder)
+    }
+}
+impl CanonicalDecode for RpcAccessTerms {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let value = Self::new(
+            ChainId::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            RpcAccessMode::decode(decoder)?,
+            decoder.read_bytes(ML_DSA_44_PUBLIC_KEY_LENGTH)?.to_vec(),
+            u128::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+            Option::<ProtocolSignature>::decode(decoder)?,
+        )?;
+        if value.mode != RpcAccessMode::Free && value.operator_signature.is_none() {
+            return Err(DecodeError::InvalidValue("unsigned non-free RPC access terms"));
+        }
+        Ok(value)
+    }
+}
+impl CanonicalType for RpcAccessTerms {
+    const TYPE_TAG: u16 = 0x00ba;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 * 4
+        + 1
+        + 2
+        + ML_DSA_44_PUBLIC_KEY_LENGTH
+        + 16
+        + 8 * 5
+        + 1
+        + ProtocolSignature::MAX_ENCODED_LEN;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RpcAccessGrant {
+    terms: RpcAccessTerms,
+    grant_id: Digest384,
+    client_public_key: Vec<u8>,
+    valid_from: u64,
+    valid_until: u64,
+    purchased_units: u64,
+    paid_amount: u128,
+    settlement_reference: Digest384,
+    operator_signature: ProtocolSignature,
+}
+impl RpcAccessGrant {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        terms: RpcAccessTerms,
+        grant_id: Digest384,
+        client_public_key: Vec<u8>,
+        valid_from: u64,
+        valid_until: u64,
+        purchased_units: u64,
+        paid_amount: u128,
+        settlement_reference: Digest384,
+        operator_signature: ProtocolSignature,
+    ) -> Result<Self, DecodeError> {
+        if terms.mode() == RpcAccessMode::Free
+            || grant_id == Digest384::ZERO
+            || client_public_key.len() != ML_DSA_44_PUBLIC_KEY_LENGTH
+            || valid_from > valid_until
+            || purchased_units == 0
+            || settlement_reference == Digest384::ZERO
+            || operator_signature.suite() != CryptoSuiteId::ML_DSA_44
+        {
+            return Err(DecodeError::InvalidValue("invalid RPC access grant"));
+        }
+        Ok(Self {
+            terms,
+            grant_id,
+            client_public_key,
+            valid_from,
+            valid_until,
+            purchased_units,
+            paid_amount,
+            settlement_reference,
+            operator_signature,
+        })
+    }
+    pub const fn terms(&self) -> &RpcAccessTerms {
+        &self.terms
+    }
+    pub const fn chain_id(&self) -> ChainId {
+        self.terms.chain_id
+    }
+    pub const fn operator_id(&self) -> Digest384 {
+        self.terms.operator_id
+    }
+    pub fn terms_commitment(&self) -> Result<Digest384, EncodeError> {
+        self.terms.commitment()
+    }
+    pub const fn grant_id(&self) -> Digest384 {
+        self.grant_id
+    }
+    pub fn client_public_key(&self) -> &[u8] {
+        &self.client_public_key
+    }
+    pub const fn valid_from(&self) -> u64 {
+        self.valid_from
+    }
+    pub const fn valid_until(&self) -> u64 {
+        self.valid_until
+    }
+    pub const fn purchased_units(&self) -> u64 {
+        self.purchased_units
+    }
+    pub const fn paid_amount(&self) -> u128 {
+        self.paid_amount
+    }
+    pub const fn settlement_reference(&self) -> Digest384 {
+        self.settlement_reference
+    }
+    pub fn operator_signature(&self) -> &ProtocolSignature {
+        &self.operator_signature
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn signing_payload_for(
+        terms: RpcAccessTerms,
+        grant_id: Digest384,
+        client_public_key: Vec<u8>,
+        valid_from: u64,
+        valid_until: u64,
+        purchased_units: u64,
+        paid_amount: u128,
+        settlement_reference: Digest384,
+    ) -> Result<Vec<u8>, DecodeError> {
+        let placeholder =
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, alloc::vec![0; 2_420])
+                .map_err(|_| DecodeError::InvalidValue("could not construct grant draft"))?;
+        Self::new(
+            terms,
+            grant_id,
+            client_public_key,
+            valid_from,
+            valid_until,
+            purchased_units,
+            paid_amount,
+            settlement_reference,
+            placeholder,
+        )
+        .map(|grant| grant.signing_payload())
+    }
+    pub fn signing_payload(&self) -> Vec<u8> {
+        let mut encoder = Encoder::new(Self::MAX_ENCODED_LEN);
+        self.terms
+            .commitment()
+            .expect("validated terms encode")
+            .encode(&mut encoder)
+            .expect("fixed field encodes");
+        self.grant_id.encode(&mut encoder).expect("fixed field encodes");
+        encoder
+            .write_bytes(&self.client_public_key, ML_DSA_44_PUBLIC_KEY_LENGTH)
+            .expect("validated key encodes");
+        self.valid_from.encode(&mut encoder).expect("fixed field encodes");
+        self.valid_until.encode(&mut encoder).expect("fixed field encodes");
+        self.purchased_units.encode(&mut encoder).expect("fixed field encodes");
+        self.paid_amount.encode(&mut encoder).expect("fixed field encodes");
+        self.settlement_reference.encode(&mut encoder).expect("fixed field encodes");
+        let bytes = encoder.finish();
+        let mut payload = Vec::with_capacity(37 + bytes.len());
+        payload.extend_from_slice(b"ACTIVECHAIN-RPC-ACCESS-GRANT-V1");
+        payload.extend_from_slice(&bytes);
+        payload
+    }
+}
+impl CanonicalEncode for RpcAccessGrant {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.terms.encode(encoder)?;
+        self.grant_id.encode(encoder)?;
+        encoder.write_bytes(&self.client_public_key, ML_DSA_44_PUBLIC_KEY_LENGTH)?;
+        self.valid_from.encode(encoder)?;
+        self.valid_until.encode(encoder)?;
+        self.purchased_units.encode(encoder)?;
+        self.paid_amount.encode(encoder)?;
+        self.settlement_reference.encode(encoder)?;
+        self.operator_signature.encode(encoder)
+    }
+}
+impl CanonicalDecode for RpcAccessGrant {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            RpcAccessTerms::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            decoder.read_bytes(ML_DSA_44_PUBLIC_KEY_LENGTH)?.to_vec(),
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+            u128::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            ProtocolSignature::decode(decoder)?,
+        )
+    }
+}
+impl CanonicalType for RpcAccessGrant {
+    const TYPE_TAG: u16 = 0x00bb;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = RpcAccessTerms::MAX_ENCODED_LEN
+        + 48 * 2
+        + 2
+        + ML_DSA_44_PUBLIC_KEY_LENGTH
+        + 8 * 3
+        + 16
+        + ProtocolSignature::MAX_ENCODED_LEN;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RpcAccessAuthorization {
+    grant: RpcAccessGrant,
+    sequence: u64,
+    request_commitment: Digest384,
+    client_signature: ProtocolSignature,
+}
+impl RpcAccessAuthorization {
+    pub fn new(
+        grant: RpcAccessGrant,
+        sequence: u64,
+        request_commitment: Digest384,
+        client_signature: ProtocolSignature,
+    ) -> Result<Self, DecodeError> {
+        if request_commitment == Digest384::ZERO
+            || client_signature.suite() != CryptoSuiteId::ML_DSA_44
+        {
+            return Err(DecodeError::InvalidValue("invalid RPC access authorization"));
+        }
+        Ok(Self { grant, sequence, request_commitment, client_signature })
+    }
+    pub const fn grant(&self) -> &RpcAccessGrant {
+        &self.grant
+    }
+    pub const fn sequence(&self) -> u64 {
+        self.sequence
+    }
+    pub const fn request_commitment(&self) -> Digest384 {
+        self.request_commitment
+    }
+    pub fn client_signature(&self) -> &ProtocolSignature {
+        &self.client_signature
+    }
+    pub fn signing_payload(&self) -> Vec<u8> {
+        Self::signing_payload_for(self.grant.grant_id(), self.sequence, self.request_commitment)
+    }
+    pub fn signing_payload_for(
+        grant_id: Digest384,
+        sequence: u64,
+        request_commitment: Digest384,
+    ) -> Vec<u8> {
+        let mut payload = Vec::with_capacity(92);
+        payload.extend_from_slice(b"ACTIVECHAIN-RPC-ACCESS-REQUEST-V1");
+        payload.extend_from_slice(grant_id.as_bytes());
+        payload.extend_from_slice(&sequence.to_be_bytes());
+        payload.extend_from_slice(request_commitment.as_bytes());
+        payload
+    }
+}
+impl CanonicalEncode for RpcAccessAuthorization {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.grant.encode(encoder)?;
+        self.sequence.encode(encoder)?;
+        self.request_commitment.encode(encoder)?;
+        self.client_signature.encode(encoder)
+    }
+}
+impl CanonicalDecode for RpcAccessAuthorization {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            RpcAccessGrant::decode(decoder)?,
+            u64::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            ProtocolSignature::decode(decoder)?,
+        )
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RpcAccessRequest {
+    Terms,
+    Execute { request: RpcRequest, authorization: Option<Box<RpcAccessAuthorization>> },
+}
+impl RpcAccessRequest {
+    pub fn request_commitment(request: &RpcRequest) -> Result<Digest384, EncodeError> {
+        let mut encoder = Encoder::new(RpcRequest::MAX_ENCODED_LEN);
+        request.encode(&mut encoder)?;
+        Ok(domain_commitment(b"ACTIVECHAIN-RPC-ACCESS-REQUEST-COMMITMENT-V1", &encoder.finish()))
+    }
+}
+impl CanonicalEncode for RpcAccessRequest {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        match self {
+            Self::Terms => 0_u8.encode(encoder),
+            Self::Execute { request, authorization } => {
+                1_u8.encode(encoder)?;
+                request.encode(encoder)?;
+                if let Some(authorization) = authorization {
+                    1_u8.encode(encoder)?;
+                    authorization.as_ref().encode(encoder)
+                } else {
+                    0_u8.encode(encoder)
+                }
+            }
+        }
+    }
+}
+impl CanonicalDecode for RpcAccessRequest {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(decoder)? {
+            0 => Ok(Self::Terms),
+            1 => {
+                let request = RpcRequest::decode(decoder)?;
+                let authorization = match u8::decode(decoder)? {
+                    0 => None,
+                    1 => Some(Box::new(RpcAccessAuthorization::decode(decoder)?)),
+                    tag => {
+                        return Err(DecodeError::InvalidEnumTag {
+                            type_name: "RpcAccessAuthorizationOption",
+                            tag,
+                        });
+                    }
+                };
+                Ok(Self::Execute { request, authorization })
+            }
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "RpcAccessRequest", tag }),
+        }
+    }
+}
+impl CanonicalType for RpcAccessRequest {
+    const TYPE_TAG: u16 = 0x00bc;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 2
+        + RpcRequest::MAX_ENCODED_LEN
+        + RpcAccessGrant::MAX_ENCODED_LEN
+        + 8
+        + 48
+        + ProtocolSignature::MAX_ENCODED_LEN;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum RpcAccessError {
+    AuthorizationRequired = 0,
+    InvalidGrant = 1,
+    Expired = 2,
+    Replay = 3,
+    BudgetExhausted = 4,
+    Persistence = 5,
+}
+impl CanonicalEncode for RpcAccessError {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(encoder)
+    }
+}
+impl CanonicalDecode for RpcAccessError {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(decoder)? {
+            0 => Ok(Self::AuthorizationRequired),
+            1 => Ok(Self::InvalidGrant),
+            2 => Ok(Self::Expired),
+            3 => Ok(Self::Replay),
+            4 => Ok(Self::BudgetExhausted),
+            5 => Ok(Self::Persistence),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "RpcAccessError", tag }),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RpcAccessResponse {
+    Terms(RpcAccessTerms),
+    Response { response: RpcResponse, charged_units: u64, remaining_units: Option<u64> },
+    Denied(RpcAccessError),
+}
+impl CanonicalEncode for RpcAccessResponse {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        match self {
+            Self::Terms(terms) => {
+                0_u8.encode(encoder)?;
+                terms.encode(encoder)
+            }
+            Self::Response { response, charged_units, remaining_units } => {
+                1_u8.encode(encoder)?;
+                response.encode(encoder)?;
+                charged_units.encode(encoder)?;
+                remaining_units.encode(encoder)
+            }
+            Self::Denied(error) => {
+                2_u8.encode(encoder)?;
+                error.encode(encoder)
+            }
+        }
+    }
+}
+impl CanonicalDecode for RpcAccessResponse {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(decoder)? {
+            0 => Ok(Self::Terms(RpcAccessTerms::decode(decoder)?)),
+            1 => Ok(Self::Response {
+                response: RpcResponse::decode(decoder)?,
+                charged_units: u64::decode(decoder)?,
+                remaining_units: Option::<u64>::decode(decoder)?,
+            }),
+            2 => Ok(Self::Denied(RpcAccessError::decode(decoder)?)),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "RpcAccessResponse", tag }),
+        }
+    }
+}
+impl CanonicalType for RpcAccessResponse {
+    const TYPE_TAG: u16 = 0x00bd;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize =
+        1 + RpcAccessTerms::MAX_ENCODED_LEN + RpcResponse::MAX_ENCODED_LEN + 8 + 9;
+}
+
+fn domain_commitment(domain: &[u8], bytes: &[u8]) -> Digest384 {
+    let mut hasher = Shake256::default();
+    hasher.update(domain);
+    hasher.update(bytes);
+    let mut output = [0; 48];
+    hasher.finalize_xof().read(&mut output);
+    Digest384::new(output)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -593,5 +1214,73 @@ mod tests {
         let invalid = RpcRequest::List { kind: QueryKind::State, after: None, limit: 0 };
         let bytes = encode_envelope(&invalid).unwrap();
         assert!(decode_envelope::<RpcRequest>(&bytes).is_err());
+    }
+
+    #[test]
+    fn access_contract_round_trips_and_rejects_inconsistent_economics() {
+        let signature =
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, alloc::vec![7; 2_420]).unwrap();
+        let terms = RpcAccessTerms::new(
+            ChainId::new(digest(1)),
+            digest(2),
+            RpcAccessMode::Prepaid,
+            alloc::vec![3; ML_DSA_44_PUBLIC_KEY_LENGTH],
+            5,
+            digest(4),
+            digest(5),
+            2,
+            3,
+            4,
+            100,
+            20,
+            Some(signature.clone()),
+        )
+        .unwrap();
+        let grant = RpcAccessGrant::new(
+            terms,
+            digest(6),
+            alloc::vec![8; ML_DSA_44_PUBLIC_KEY_LENGTH],
+            10,
+            20,
+            9,
+            45,
+            digest(7),
+            signature.clone(),
+        )
+        .unwrap();
+        let request = RpcRequest::Get { kind: QueryKind::State, key: digest(8) };
+        let authorization = RpcAccessAuthorization::new(
+            grant,
+            0,
+            RpcAccessRequest::request_commitment(&request).unwrap(),
+            signature,
+        )
+        .unwrap();
+        let wire =
+            RpcAccessRequest::Execute { request, authorization: Some(Box::new(authorization)) };
+        let encoded = encode_envelope(&wire).unwrap();
+        assert_eq!(decode_envelope::<RpcAccessRequest>(&encoded), Ok(wire));
+
+        assert!(
+            RpcAccessTerms::new(
+                ChainId::new(digest(1)),
+                digest(2),
+                RpcAccessMode::Prepaid,
+                alloc::vec![3; ML_DSA_44_PUBLIC_KEY_LENGTH],
+                0,
+                digest(4),
+                digest(5),
+                1,
+                1,
+                1,
+                100,
+                20,
+                Some(
+                    ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, alloc::vec![7; 2_420],)
+                        .unwrap()
+                ),
+            )
+            .is_err()
+        );
     }
 }

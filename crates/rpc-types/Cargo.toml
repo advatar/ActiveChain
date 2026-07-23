@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 activechain-canonical-codec.workspace = true
 activechain-protocol-types.workspace = true
+sha3.workspace = true
 
 [lints]
 workspace = true

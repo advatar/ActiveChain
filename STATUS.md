@@ -678,6 +678,17 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
     - [x] Persist indexed finalized query material atomically and verify restart recovery.
     - [x] Add malformed/oversized/stale vectors and an end-to-end client query verified against
       finalized state.
+    - [x] Add configurable operator RPC access economics
+      ([GitHub issue #110](https://github.com/advatar/ActiveChain/issues/110)).
+      - [x] Publish bounded canonical access terms, grants, authenticated requests, and typed
+        access failures without changing proof semantics.
+      - [x] Support backward-compatible free, operator-allowlisted, and prepaid metered modes.
+      - [x] Bind grants and requests to the chain, operator, client PQ key, exact request,
+        validity window, monotonic sequence, settlement reference, and purchased unit budget.
+      - [x] Persist usage atomically before serving paid work and fail closed on replay,
+        exhaustion, restart corruption, or failed persistence.
+      - [x] Document operator configuration and settlement adapters, and test malformed, tampered,
+        expired, wrong-context, replay, budget, restart, and free-mode vectors.
   - [x] Package an embeddable persistent light client
     ([GitHub issue #92](https://github.com/advatar/ActiveChain/issues/92)).
     - [x] Add fail-closed trusted-checkpoint bootstrap with explicit chain identity and

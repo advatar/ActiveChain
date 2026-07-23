@@ -294,6 +294,7 @@ version = "0.1.0"
 dependencies = [
  "activechain-action-kernel",
  "activechain-canonical-codec",
+ "activechain-consensus-verifier",
  "activechain-devnet-kernel",
  "activechain-finality-types",
  "activechain-policy-kernel",
@@ -313,6 +314,7 @@ version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
  "activechain-protocol-types",
+ "sha3 0.10.9",
 ]
 
 [[package]]
