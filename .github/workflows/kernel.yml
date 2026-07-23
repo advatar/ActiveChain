@@ -133,6 +133,7 @@ jobs:
           cargo run --locked --quiet -p activechain-vector-generator -- object-vm-v1 | diff -u testing/vectors/vm/object-vm-v1.txt -
           cargo run --locked --quiet -p activechain-vector-generator -- devnet-block-v1 | diff -u testing/vectors/devnet/devnet-block-v1.txt -
           cargo run --locked --quiet -p activechain-semantic-devnet -- empty-block | diff -u testing/vectors/devnet/empty-block.txt -
+          cargo run --locked --quiet -p activechain-application-primitives --example anchor_vector | diff -u testing/vectors/application/external-anchor-v1.txt -
       - name: Cross-check Rust and Lean semantic tables
         run: |
           cargo run --locked --quiet -p activechain-vector-generator -- apl-truth-table | diff -u testing/vectors/policy/apl-truth-table.txt -

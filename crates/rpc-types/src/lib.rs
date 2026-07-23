@@ -246,6 +246,8 @@ pub enum RpcRequest {
     Status,
     Get { kind: QueryKind, key: Digest384 },
     List { kind: QueryKind, after: Option<Digest384>, limit: u16 },
+    SubmitAnchor { statement: Vec<u8> },
+    ResolveAnchor { reference: Digest384 },
 }
 
 impl CanonicalEncode for RpcRequest {
@@ -262,6 +264,14 @@ impl CanonicalEncode for RpcRequest {
                 kind.encode(encoder)?;
                 after.encode(encoder)?;
                 limit.encode(encoder)
+            }
+            Self::SubmitAnchor { statement } => {
+                3_u8.encode(encoder)?;
+                encoder.write_bytes(statement, 512)
+            }
+            Self::ResolveAnchor { reference } => {
+                4_u8.encode(encoder)?;
+                reference.encode(encoder)
             }
         }
     }
@@ -283,6 +293,8 @@ impl CanonicalDecode for RpcRequest {
                 }
                 Ok(Self::List { kind, after, limit })
             }
+            3 => Ok(Self::SubmitAnchor { statement: decoder.read_bytes(512)?.to_vec() }),
+            4 => Ok(Self::ResolveAnchor { reference: Digest384::decode(decoder)? }),
             tag => Err(DecodeError::InvalidEnumTag { type_name: "RpcRequest", tag }),
         }
     }
@@ -290,7 +302,7 @@ impl CanonicalDecode for RpcRequest {
 impl CanonicalType for RpcRequest {
     const TYPE_TAG: u16 = 0x00a0;
     const SCHEMA_VERSION: u16 = 1;
-    const MAX_ENCODED_LEN: usize = 1 + 1 + 49 + 2;
+    const MAX_ENCODED_LEN: usize = 1 + 2 + 512;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -441,7 +453,9 @@ impl RpcAccessTerms {
     pub fn cost(&self, request: &RpcRequest) -> Option<u64> {
         match request {
             RpcRequest::Status => Some(0),
-            RpcRequest::Get { .. } => Some(self.get_units),
+            RpcRequest::Get { .. }
+            | RpcRequest::SubmitAnchor { .. }
+            | RpcRequest::ResolveAnchor { .. } => Some(self.get_units),
             RpcRequest::List { limit, .. } => self
                 .list_item_units
                 .checked_mul(*limit as u64)
@@ -1107,6 +1121,8 @@ pub enum RpcResponse {
     Record(QueryRecord),
     Page(QueryPage),
     Error(RpcError),
+    AnchorSubmission(Digest384),
+    AnchorRecord(Vec<u8>),
 }
 impl CanonicalEncode for RpcResponse {
     fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
@@ -1127,6 +1143,14 @@ impl CanonicalEncode for RpcResponse {
                 3_u8.encode(encoder)?;
                 error.encode(encoder)
             }
+            Self::AnchorSubmission(reference) => {
+                4_u8.encode(encoder)?;
+                reference.encode(encoder)
+            }
+            Self::AnchorRecord(record) => {
+                5_u8.encode(encoder)?;
+                encoder.write_bytes(record, MAX_RPC_BLOB_LENGTH)
+            }
         }
     }
 }
@@ -1137,6 +1161,8 @@ impl CanonicalDecode for RpcResponse {
             1 => Ok(Self::Record(QueryRecord::decode(decoder)?)),
             2 => Ok(Self::Page(QueryPage::decode(decoder)?)),
             3 => Ok(Self::Error(RpcError::decode(decoder)?)),
+            4 => Ok(Self::AnchorSubmission(Digest384::decode(decoder)?)),
+            5 => Ok(Self::AnchorRecord(decoder.read_bytes(MAX_RPC_BLOB_LENGTH)?.to_vec())),
             tag => Err(DecodeError::InvalidEnumTag { type_name: "RpcResponse", tag }),
         }
     }

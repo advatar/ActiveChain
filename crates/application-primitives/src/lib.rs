@@ -7,6 +7,16 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+mod anchor;
+
+#[cfg(feature = "std")]
+pub use anchor::DurableAnchorRegistry;
+pub use anchor::{
+    AnchorBatchProofV1, AnchorError, AnchorFinalizedEvidenceV1, AnchorRecord, AnchorRegistry,
+    AnchorStatus, DigestAnchorStatementV1, MAX_ANCHOR_APPLICATION_DOMAIN_LENGTH, anchor_leaf_hash,
+    anchor_node_hash, verify_anchor_evidence,
+};
+
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };

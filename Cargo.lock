@@ -32,6 +32,7 @@ dependencies = [
  "activechain-protocol-commitment",
  "activechain-protocol-types",
  "activechain-rpc-types",
+ "sha2 0.10.9",
  "tempfile",
 ]
 

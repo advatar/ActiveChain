@@ -66,6 +66,14 @@
       "source": "devnet/devnet-block-v1.txt",
       "sha256": "80050406b27ad3f53bf3094938a9e39c5154e38eaa03240d84f3c9317fa9b627",
       "status": "valid"
+    },
+    {
+      "id": "external-anchor-v1",
+      "type_tag": "0x00c6,0x00c9",
+      "schema_version": 1,
+      "source": "application/external-anchor-v1.txt",
+      "sha256": "5bc58aeff5b1a0baf16467a1fb0dbf37f705ec49abc9681e844485b6aea501d9",
+      "status": "valid"
     }
   ],
   "malformed_cases": [

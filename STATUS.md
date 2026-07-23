@@ -661,6 +661,10 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 
 ## Active milestone — dBrowser verifier compatibility
 
+- [x] Expose an idempotent, proof-bearing external digest-anchoring contract for MadeMark,
+  including canonical single and Merkle-batch statements, durable submit/resolve state,
+  independently verifiable finalized evidence, RPC operations, and deterministic vectors
+  ([GitHub issue #122](https://github.com/advatar/ActiveChain/issues/122)).
 - [x] Freeze envelope type/version/body-length/trailing-byte rules in `P-110`.
 - [x] Publish the machine-readable `testing/vectors/manifest-v1.json` index.
 - [x] Add complete envelope/commitment hashes for every published vector
