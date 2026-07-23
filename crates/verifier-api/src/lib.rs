@@ -1,7 +1,10 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
+extern crate alloc;
+
 use activechain_canonical_codec::{DecodeError, decode_envelope, inspect_canonical_envelope};
+use activechain_finality_types::FinalityCertificateBundle;
 use activechain_policy_kernel::PolicyDecision;
 use activechain_protocol_types::{
     CapabilityGrant, Digest384, INITIAL_PROTOCOL_REVISION, Object, ObjectId, Principal,
@@ -9,6 +12,7 @@ use activechain_protocol_types::{
 use activechain_state_tree::{
     StateCommitment, StateProof, verify_membership, verify_non_membership,
 };
+use alloc::vec::Vec;
 use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
@@ -152,6 +156,52 @@ pub fn verify_state_non_membership(
     verify_non_membership(commitment, object_id, &proof).map_err(|_| VerifyError::RelationMismatch)
 }
 
+pub fn verify_finality_bundle_code(bytes: &[u8]) -> u32 {
+    verify_finality_bundle(bytes).map_or_else(|error| error.code(), |_| VERIFY_OK)
+}
+
+pub fn verify_finality_bundle(bytes: &[u8]) -> Result<FinalityCertificateBundle, VerifyError> {
+    inspect_envelope(
+        bytes,
+        FinalityCertificateBundle::TYPE_TAG,
+        FinalityCertificateBundle::SCHEMA_VERSION,
+    )?;
+    let bundle =
+        decode_envelope::<FinalityCertificateBundle>(bytes).map_err(VerifyError::Decode)?;
+    let header = bundle.header();
+    let genesis = bundle.validator_genesis();
+    let certificate = bundle.certificate();
+    if genesis.epoch() != header.inputs.epoch
+        || genesis.protocol_revision() != header.inputs.protocol_revision
+        || genesis.validator_set_root() != header.inputs.validator_set_root
+        || certificate.genesis_commitment() != genesis.genesis_commitment()
+        || certificate.epoch() != header.inputs.epoch
+        || certificate.protocol_revision() != header.inputs.protocol_revision
+        || certificate.validator_set_root() != header.inputs.validator_set_root
+        || certificate.height() != header.inputs.height
+        || header.digest().map_err(|_| {
+            VerifyError::Decode(DecodeError::InvalidValue(
+                "finalized block header could not be encoded",
+            ))
+        })? != certificate.block_digest()
+    {
+        return Err(VerifyError::RelationMismatch);
+    }
+    let validator_set = genesis.validator_set().map_err(|_| VerifyError::RelationMismatch)?;
+    let mut votes = Vec::with_capacity(bundle.votes().len());
+    for vote in bundle.votes() {
+        let entry = genesis
+            .entries()
+            .iter()
+            .find(|entry| entry.validator() == vote.validator())
+            .ok_or(VerifyError::RelationMismatch)?;
+        votes.push((entry.public_key().as_slice(), vote.clone()));
+    }
+    activechain_consensus_verifier::verify_quorum_certificate(certificate, &validator_set, &votes)
+        .map_err(|_| VerifyError::RelationMismatch)?;
+    Ok(bundle)
+}
+
 pub fn verify_shake_commitment(
     domain: &[u8],
     body: &[u8],
@@ -198,12 +248,14 @@ mod tests {
     use activechain_canonical_codec::encode_envelope;
     use activechain_policy_kernel::DecisionResult;
     use activechain_protocol_types::{
-        ActionId, BoundedActionSet, CapabilityGrantFields, CapabilityId, CryptoSuiteId,
-        DataSelector, FreezeState, HolderBinding, ObjectFields, ObjectFlags, ObjectOwner,
-        PrincipalId, PrincipalKind, ProtocolSignature, ResourceSelector,
+        ActionId, BoundedActionSet, CapabilityGrantFields, CapabilityId, ConsensusVoteContext,
+        CryptoSuiteId, DataSelector, FreezeState, HolderBinding, ObjectFields, ObjectFlags,
+        ObjectOwner, PrincipalId, PrincipalKind, ProtocolSignature, QuorumCertificate,
+        ResourceSelector, ValidatorGenesis, ValidatorGenesisEntry, ValidatorVote,
     };
     use activechain_state_tree::{commit_objects, prove_object};
     use alloc::{vec, vec::Vec};
+    use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
@@ -413,6 +465,139 @@ mod tests {
         assert_eq!(
             verify_state_membership_code(&substituted_commitment, &member_bytes, &member_proof),
             VerifyError::RelationMismatch.code()
+        );
+    }
+
+    fn finality_bundle() -> FinalityCertificateBundle {
+        let keys = [
+            SigningKey::<MlDsa44>::from_seed(&Seed::from([1; 32])),
+            SigningKey::<MlDsa44>::from_seed(&Seed::from([2; 32])),
+        ];
+        let entries = keys
+            .iter()
+            .enumerate()
+            .map(|(index, key)| {
+                ValidatorGenesisEntry::new(
+                    PrincipalId::new(digest((index + 1) as u8)),
+                    1,
+                    key.verifying_key().encode().into(),
+                )
+                .unwrap()
+            })
+            .collect();
+        let genesis = ValidatorGenesis::new_with_revision(3, 1, 4, entries).unwrap();
+        let inputs = activechain_finality_types::ProofPublicInputs {
+            chain_id: activechain_protocol_types::ChainId::new(digest(40)),
+            epoch: 3,
+            height: 9,
+            protocol_revision: 4,
+            validator_set_root: genesis.validator_set_root(),
+            parent_block_id: digest(41),
+            pre_state: activechain_state_tree::StateCommitment::new(digest(42), 0),
+            authorization_root: digest(43),
+            action_root: digest(44),
+            execution_order_root: digest(45),
+            total_fees: 0,
+            pre_supply: 0,
+            issuance: 0,
+            burn: 0,
+            post_supply: 0,
+            post_state: activechain_state_tree::StateCommitment::new(digest(46), 0),
+            receipt_root: digest(47),
+            data_availability_commitment: digest(48),
+        };
+        let header = activechain_finality_types::FinalizedBlockHeader {
+            inputs,
+            proof_statement_commitment: digest(49),
+        };
+        let block_digest = header.digest().unwrap();
+        let context = ConsensusVoteContext::new_with_revision(
+            genesis.genesis_commitment(),
+            genesis.epoch(),
+            genesis.validator_set_root(),
+            genesis.protocol_revision(),
+        )
+        .unwrap();
+        let mut votes = Vec::new();
+        let mut vote_set_hasher = Shake256::default();
+        vote_set_hasher.update(b"ACTIVECHAIN-VOTE-SET-V1");
+        for (index, key) in keys.iter().enumerate() {
+            let validator = PrincipalId::new(digest((index + 1) as u8));
+            let unsigned = ValidatorVote::new(
+                validator,
+                context,
+                9,
+                2,
+                block_digest,
+                ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2_420]).unwrap(),
+            )
+            .unwrap();
+            let signature = key.sign(&unsigned.signing_payload());
+            let vote = ValidatorVote::new(
+                validator,
+                context,
+                9,
+                2,
+                block_digest,
+                ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec())
+                    .unwrap(),
+            )
+            .unwrap();
+            vote_set_hasher.update(key.verifying_key().encode().as_slice());
+            vote_set_hasher.update(&vote.signing_payload());
+            vote_set_hasher.update(vote.signature().as_bytes());
+            votes.push(vote);
+        }
+        let mut vote_set_root = [0; 48];
+        vote_set_hasher.finalize_xof().read(&mut vote_set_root);
+        let certificate = QuorumCertificate::new(
+            context,
+            9,
+            2,
+            block_digest,
+            Digest384::new(vote_set_root),
+            2,
+            2,
+        )
+        .unwrap();
+        FinalityCertificateBundle::new(header, genesis, certificate, votes).unwrap()
+    }
+
+    #[test]
+    fn finality_bundle_verifies_header_context_quorum_and_real_pq_votes() {
+        let bundle = finality_bundle();
+        let encoded = encode_envelope(&bundle).unwrap();
+        assert_eq!(verify_finality_bundle_code(&encoded), VERIFY_OK);
+        assert_eq!(verify_finality_bundle(&encoded), Ok(bundle));
+
+        let mut substituted = encoded.clone();
+        let last = substituted.len() - 1;
+        substituted[last] ^= 1;
+        assert_ne!(verify_finality_bundle_code(&substituted), VERIFY_OK);
+        let metadata = inspect_envelope(
+            &encoded,
+            FinalityCertificateBundle::TYPE_TAG,
+            FinalityCertificateBundle::SCHEMA_VERSION,
+        )
+        .unwrap();
+        let body_start = encoded.len() - metadata.body_length;
+        let mut wrong_context = encoded.clone();
+        wrong_context[body_start + 48..body_start + 56].copy_from_slice(&4_u64.to_be_bytes());
+        assert_eq!(
+            verify_finality_bundle_code(&wrong_context),
+            VerifyError::RelationMismatch.code()
+        );
+        let mut truncated = encoded.clone();
+        truncated.pop();
+        assert_ne!(verify_finality_bundle_code(&truncated), VERIFY_OK);
+        let mut trailing = encoded.clone();
+        trailing.push(0);
+        assert_ne!(verify_finality_bundle_code(&trailing), VERIFY_OK);
+        let mut wrong_version = encoded;
+        wrong_version[3] = 2;
+        assert_eq!(
+            verify_finality_bundle_code(&wrong_version),
+            VerifyError::VersionMismatch.code()
         );
     }
 }

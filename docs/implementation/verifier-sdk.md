@@ -38,3 +38,9 @@ Canonical execution-proof public inputs and finalized-block headers live in the 
 `activechain-finality-types` crate. This keeps their registered tags, schemas, and header digest
 domain available to validators, verifier SDKs, and future light clients without pulling the
 stateful consensus runtime across the trust boundary.
+
+`FinalityCertificateBundle` carries a header, the exact validator genesis, a quorum certificate,
+and the ordered signed vote set. The verifier recomputes the header digest, genesis and validator
+set commitments, signed vote-set root, signer stake, and strict quorum while verifying every
+ML-DSA-44 vote. Context, order, signature, root, stake, framing, and version substitutions fail
+closed through the same Rust and C result code.

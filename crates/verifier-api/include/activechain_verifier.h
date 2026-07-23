@@ -67,4 +67,8 @@ uint32_t activechain_verify_state_non_membership_code(
     const uint8_t *proof,
     uint32_t proof_len);
 
+uint32_t activechain_verify_finality_bundle_code(
+    const uint8_t *bytes,
+    uint32_t bytes_len);
+
 #endif

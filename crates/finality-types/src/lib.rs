@@ -3,12 +3,18 @@
 
 //! Canonical execution-proof public inputs and finalized-block headers.
 
+extern crate alloc;
+
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     encode_envelope,
 };
-use activechain_protocol_types::{ChainId, Digest384};
+use activechain_protocol_types::{
+    ChainId, Digest384, MAX_VALIDATORS_PER_EPOCH, QuorumCertificate, ValidatorGenesis,
+    ValidatorVote,
+};
 use activechain_state_tree::StateCommitment;
+use alloc::vec::Vec;
 use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
@@ -158,6 +164,90 @@ impl CanonicalType for FinalizedBlockHeader {
     const TYPE_TAG: u16 = 0x0079;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = ProofPublicInputs::MAX_ENCODED_LEN + 48;
+}
+
+/// Complete public material required to authenticate one finalized header.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FinalityCertificateBundle {
+    header: FinalizedBlockHeader,
+    validator_genesis: ValidatorGenesis,
+    certificate: QuorumCertificate,
+    votes: Vec<ValidatorVote>,
+}
+
+impl FinalityCertificateBundle {
+    pub const TYPE_TAG: u16 = 0x007a;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = FinalizedBlockHeader::MAX_ENCODED_LEN
+        + ValidatorGenesis::MAX_ENCODED_LEN
+        + QuorumCertificate::ENCODED_LENGTH
+        + 2
+        + MAX_VALIDATORS_PER_EPOCH * ValidatorVote::MAX_ENCODED_LEN;
+
+    pub fn new(
+        header: FinalizedBlockHeader,
+        validator_genesis: ValidatorGenesis,
+        certificate: QuorumCertificate,
+        votes: Vec<ValidatorVote>,
+    ) -> Result<Self, DecodeError> {
+        if votes.is_empty() || votes.len() > MAX_VALIDATORS_PER_EPOCH {
+            return Err(DecodeError::InvalidValue("finality bundle vote count is out of bounds"));
+        }
+        Ok(Self { header, validator_genesis, certificate, votes })
+    }
+
+    #[must_use]
+    pub const fn header(&self) -> FinalizedBlockHeader {
+        self.header
+    }
+
+    #[must_use]
+    pub const fn validator_genesis(&self) -> &ValidatorGenesis {
+        &self.validator_genesis
+    }
+
+    #[must_use]
+    pub const fn certificate(&self) -> &QuorumCertificate {
+        &self.certificate
+    }
+
+    #[must_use]
+    pub fn votes(&self) -> &[ValidatorVote] {
+        &self.votes
+    }
+}
+
+impl CanonicalEncode for FinalityCertificateBundle {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.header.encode(encoder)?;
+        self.validator_genesis.encode(encoder)?;
+        self.certificate.encode(encoder)?;
+        encoder.write_length(self.votes.len(), MAX_VALIDATORS_PER_EPOCH)?;
+        for vote in &self.votes {
+            vote.encode(encoder)?;
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for FinalityCertificateBundle {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let header = FinalizedBlockHeader::decode(decoder)?;
+        let validator_genesis = ValidatorGenesis::decode(decoder)?;
+        let certificate = QuorumCertificate::decode(decoder)?;
+        let count = decoder.read_length(MAX_VALIDATORS_PER_EPOCH)?;
+        let mut votes = Vec::with_capacity(count);
+        for _ in 0..count {
+            votes.push(ValidatorVote::decode(decoder)?);
+        }
+        Self::new(header, validator_genesis, certificate, votes)
+    }
+}
+
+impl CanonicalType for FinalityCertificateBundle {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
 #[cfg(test)]

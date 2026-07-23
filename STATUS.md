@@ -639,7 +639,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
       codes.
     - [x] Add exact state membership and non-membership witness verification through matching Rust
       and C result codes.
-    - [ ] Add finalized-block header/QC verification against the exact validator genesis and
+    - [x] Add finalized-block header/QC verification against the exact validator genesis and
       ordered signed vote set through matching Rust and C result codes.
       - [x] Extract canonical execution-proof inputs and finalized-block headers from the
         validator runtime into the bounded shared `activechain-finality-types` crate without
