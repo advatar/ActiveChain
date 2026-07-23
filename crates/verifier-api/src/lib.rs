@@ -3,6 +3,7 @@
 
 extern crate alloc;
 
+use activechain_application_primitives::{AnchorFinalizedEvidenceV1, DigestAnchorStatementV1};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     decode_envelope, inspect_canonical_envelope,
@@ -413,6 +414,85 @@ pub fn verify_block_receipt(finality: &[u8], receipt: &[u8]) -> Result<BlockRece
     verify_block_receipt_with_finality(finality, receipt)
 }
 
+pub fn verify_anchor_finalized_evidence_code(
+    evidence: &[u8],
+    expected_statement: &[u8],
+    trusted_chain: activechain_protocol_types::ChainId,
+    trusted_genesis: Digest384,
+    protocol_revision: u64,
+    verifier_revision: u32,
+) -> u32 {
+    verify_anchor_finalized_evidence(
+        evidence,
+        expected_statement,
+        trusted_chain,
+        trusted_genesis,
+        protocol_revision,
+        verifier_revision,
+    )
+    .map_or_else(|error| error.code(), |_| VERIFY_OK)
+}
+
+/// Verifies a finalized digest anchor without trusting evidence-supplied callbacks.
+///
+/// The finality bundle and block receipt carried by the evidence are verified by
+/// the same bounded verifier used by ordinary ActiveChain clients. The receipt
+/// must describe the declared finalized block and contain the declared anchor
+/// transaction.
+pub fn verify_anchor_finalized_evidence(
+    evidence: &[u8],
+    expected_statement: &[u8],
+    trusted_chain: activechain_protocol_types::ChainId,
+    trusted_genesis: Digest384,
+    protocol_revision: u64,
+    verifier_revision: u32,
+) -> Result<AnchorFinalizedEvidenceV1, VerifyError> {
+    if evidence
+        .len()
+        .checked_add(expected_statement.len())
+        .is_none_or(|length| length > MAX_ENVELOPE_LENGTH)
+    {
+        return Err(VerifyError::TooLarge);
+    }
+    inspect_envelope(
+        evidence,
+        AnchorFinalizedEvidenceV1::TYPE_TAG,
+        AnchorFinalizedEvidenceV1::SCHEMA_VERSION,
+    )?;
+    inspect_envelope(
+        expected_statement,
+        DigestAnchorStatementV1::TYPE_TAG,
+        DigestAnchorStatementV1::SCHEMA_VERSION,
+    )?;
+    let evidence =
+        decode_envelope::<AnchorFinalizedEvidenceV1>(evidence).map_err(VerifyError::Decode)?;
+    let expected_statement = decode_envelope::<DigestAnchorStatementV1>(expected_statement)
+        .map_err(VerifyError::Decode)?;
+    if evidence.statement() != &expected_statement
+        || evidence.chain() != trusted_chain
+        || evidence.genesis() != trusted_genesis
+        || evidence.protocol_revision() != protocol_revision
+        || evidence.verifier_revision() != verifier_revision
+    {
+        return Err(VerifyError::RelationMismatch);
+    }
+    let receipt = verify_block_receipt_with_chain_genesis(
+        evidence.finality_proof(),
+        evidence.inclusion_proof(),
+        trusted_genesis,
+    )?;
+    if receipt.block_id() != evidence.finalized_block()
+        || receipt.height() != evidence.finalized_height()
+        || !receipt
+            .action_receipts()
+            .iter()
+            .any(|receipt| receipt.transaction_id() == evidence.transaction())
+    {
+        return Err(VerifyError::RelationMismatch);
+    }
+    Ok(evidence)
+}
+
 pub fn verify_block_receipt_with_chain_genesis(
     finality: &[u8],
     receipt: &[u8],
@@ -488,13 +568,16 @@ mod tests {
     extern crate alloc;
 
     use super::*;
+    use activechain_action_kernel::ResourceVector;
+    use activechain_application_primitives::{AnchorFinalizedEvidenceV1, DigestAnchorStatementV1};
     use activechain_canonical_codec::encode_envelope;
+    use activechain_devnet_kernel::{ActionOutcome, ActionReceipt};
     use activechain_policy_kernel::DecisionResult;
     use activechain_protocol_types::{
         ActionId, BoundedActionSet, CapabilityGrantFields, CapabilityId, ConsensusVoteContext,
         CryptoSuiteId, DataSelector, FreezeState, HolderBinding, ObjectFields, ObjectFlags,
         ObjectOwner, PrincipalId, PrincipalKind, ProtocolSignature, QuorumCertificate,
-        ResourceSelector, ValidatorGenesis, ValidatorGenesisEntry, ValidatorVote,
+        ResourceSelector, TransactionId, ValidatorGenesis, ValidatorGenesisEntry, ValidatorVote,
     };
     use activechain_state_tree::{commit_objects, prove_object};
     use alloc::{vec, vec::Vec};
@@ -956,6 +1039,94 @@ mod tests {
         assert_eq!(
             verify_block_receipt_code(&finality, &wrong_version),
             VerifyError::VersionMismatch.code()
+        );
+    }
+
+    #[test]
+    fn finalized_anchor_verifier_uses_real_finality_and_receipt_verifiers() {
+        let pre_state = StateCommitment::new(digest(60), 2);
+        let post_state = StateCommitment::new(digest(61), 3);
+        let transaction = TransactionId::new(digest(70));
+        let receipt = BlockReceipt::new(
+            digest(62),
+            9,
+            pre_state,
+            post_state,
+            vec![ActionReceipt::new(
+                transaction,
+                ActionOutcome::ResourceLimitExceeded,
+                ResourceVector::new(1, 0, 0, 0, 0, 1),
+                0,
+                1,
+                post_state,
+            )],
+        )
+        .unwrap();
+        let receipt_root = commit(DomainTag::CANONICAL_VALUE, &receipt).unwrap();
+        let finality_bundle = finality_bundle_with_inputs(receipt_root, pre_state, post_state);
+        let trusted_genesis = finality_bundle.validator_genesis().genesis_commitment();
+        let statement = DigestAnchorStatementV1::new(
+            b"mademark.external-anchor.statement.v1".to_vec(),
+            [0x11; 32],
+        )
+        .unwrap();
+        let evidence = AnchorFinalizedEvidenceV1::new(
+            activechain_protocol_types::ChainId::new(digest(40)),
+            trusted_genesis,
+            transaction,
+            9,
+            receipt.block_id(),
+            statement.clone(),
+            None,
+            None,
+            4,
+            VERIFIER_SCHEMA_REVISION,
+            encode_envelope(&receipt).unwrap(),
+            encode_envelope(&finality_bundle).unwrap(),
+        )
+        .unwrap();
+        let encoded_evidence = encode_envelope(&evidence).unwrap();
+        let encoded_statement = encode_envelope(&statement).unwrap();
+        assert_eq!(
+            verify_anchor_finalized_evidence_code(
+                &encoded_evidence,
+                &encoded_statement,
+                evidence.chain(),
+                trusted_genesis,
+                4,
+                VERIFIER_SCHEMA_REVISION,
+            ),
+            VERIFY_OK
+        );
+        assert_eq!(
+            verify_anchor_finalized_evidence_code(
+                &encoded_evidence,
+                &encoded_statement,
+                activechain_protocol_types::ChainId::new(digest(41)),
+                trusted_genesis,
+                4,
+                VERIFIER_SCHEMA_REVISION,
+            ),
+            VerifyError::RelationMismatch.code()
+        );
+        let wrong_statement = encode_envelope(
+            &DigestAnchorStatementV1::new(
+                b"mademark.external-anchor.statement.v1".to_vec(),
+                [0x12; 32],
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            verify_anchor_finalized_evidence_code(
+                &encoded_evidence,
+                &wrong_statement,
+                evidence.chain(),
+                trusted_genesis,
+                4,
+                VERIFIER_SCHEMA_REVISION,
+            ),
+            VerifyError::RelationMismatch.code()
         );
     }
 }

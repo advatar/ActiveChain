@@ -685,6 +685,13 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 
 ## Active milestone — dBrowser verifier compatibility
 
+- [x] Complete external digest anchor finalization and client verification
+  ([GitHub issue #131](https://github.com/advatar/ActiveChain/issues/131)).
+  - [x] Add bounded operator finalization and rejection operations without exposing public
+    finalization authority over RPC.
+  - [x] Bind finalized evidence to the existing offline verifier boundary.
+  - [x] Expose a language-neutral verifier ABI and conformance coverage.
+  - [x] Verify pending, finalized, rejected, tampered, wrong-network, and restart behavior.
 - [x] Expose an idempotent, proof-bearing external digest-anchoring contract for MadeMark,
   including canonical single and Merkle-batch statements, durable submit/resolve state,
   independently verifiable finalized evidence, RPC operations, and deterministic vectors
