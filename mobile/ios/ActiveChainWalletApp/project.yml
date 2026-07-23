@@ -11,6 +11,7 @@ targets:
       - path: Sources
       - path: ../ActiveChainWallet/Sources/ActiveChainWallet
     settings:
+      DEVELOPMENT_TEAM: L2AF8KFX35
       PRODUCT_BUNDLE_IDENTIFIER: dev.activechain.wallet
       PRODUCT_MODULE_NAME: ActiveChainWalletApp
       SWIFT_VERSION: "5.9"

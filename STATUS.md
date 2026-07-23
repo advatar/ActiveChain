@@ -22,7 +22,8 @@ Tracked by [GitHub issue #129](https://github.com/advatar/ActiveChain/issues/129
 
 - [x] Document that the generated Xcode project requires an exact-HEAD Apple distribution.
 - [ ] Build and verify the local wallet XCFramework and simulator app from a clean checkout.
-- [ ] Keep developer signing IDs and Xcode user/build state out of the generated project.
+- [x] Preserve the shared Apple development-team ID in `project.yml` while keeping certificates,
+  private keys, Xcode user data, and build state local.
 
 ## Active investigation — Aztec billboard parity
 

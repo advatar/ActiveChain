@@ -8,10 +8,10 @@ distribution, regenerate the project, and build the current developer wallet wit
 scripts/build-ios-wallet-app.sh
 ```
 
-Do not open the project and accept Xcode's recommended signing changes before running the script.
-`project.yml` is the source of truth; developer-team identifiers and Xcode user/build state are
-local and must not be committed. If Xcode reports that `ActiveChainWallet.xcframework` is missing,
-close it and rerun the script from a clean checkout.
+`project.yml` is the source of truth and preserves the ActiveChain Apple development-team ID across
+regeneration. Certificates, private keys, Xcode user data, and build state remain local and must not
+be committed. If Xcode reports that `ActiveChainWallet.xcframework` is missing, close it and rerun
+the script from a clean checkout.
 
 The app exercises policy-gated transfer preview/approval and OpenWallet credential/session
 replay rules. It uses deterministic local adapters until the Rust FFI library is linked into the
