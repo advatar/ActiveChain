@@ -615,6 +615,17 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [ ] Publish versioned Rust FFI types and golden vectors.
 - [ ] Build iOS and Android local three-validator prototypes.
 - [ ] Complete secure-storage, recovery, and mobile signing audits.
+  - [ ] Replace local string-based bridge mocks with the versioned wallet ABI and exact canonical
+    transfer review/sign/submit flows.
+  - [ ] Add production-quality native navigation, portfolio, activity, transfer review, agent
+    approvals, identity, network health, empty/error/loading states, and accessibility coverage.
+  - [ ] Bind iOS Keychain and Android Keystore callback providers without exposing plaintext keys.
+  - [ ] Compile, unit-test, launch, and screenshot-review both native applications against fixed
+    device profiles.
+  - [ ] Implement OpenWallet issuance/presentation request parsing, consent-bound sessions,
+    credential selection, replay protection, and deterministic conformance vectors.
+  - [ ] Run the seven-step wallet acceptance rehearsal through three persistent validators,
+    transaction ingress, faucet, RPC finality, replay rejection, and validator restart.
 
 ## Active milestone — dBrowser verifier compatibility
 
