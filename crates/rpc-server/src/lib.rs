@@ -1,5 +1,11 @@
 #![forbid(unsafe_code)]
 
+mod access;
+
+pub use access::{
+    AccessCharge, RpcAccessController, load_access_terms, verify_access_terms, write_access_terms,
+};
+
 use activechain_action_kernel::{ActionEnvelope, action_id};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
@@ -9,7 +15,7 @@ use activechain_finality_types::commit_parts;
 use activechain_protocol_types::{ChainId, Digest384, Object};
 use activechain_rpc_types::{
     ActionSetProof, Health, MAX_SUPPORTED_PROOFS, ProofKind, QueryKind, QueryPage, QueryRecord,
-    RpcError, RpcRequest, RpcResponse, RpcStatus,
+    RpcAccessRequest, RpcAccessResponse, RpcError, RpcRequest, RpcResponse, RpcStatus,
 };
 use sha3::{
     Shake256,
@@ -335,24 +341,76 @@ impl DurableRpcStore {
                 .map_or(RpcResponse::Error(RpcError::Internal), RpcResponse::Page),
         }
     }
+
+    pub fn chain_id(&self) -> Result<ChainId, RpcStoreError> {
+        self.index.read().map(|index| index.chain_id).map_err(|_| RpcStoreError::Io)
+    }
 }
 
 pub struct RpcServer {
     store: Arc<DurableRpcStore>,
+    access: Option<Arc<RpcAccessController>>,
 }
 impl RpcServer {
     pub fn new(store: Arc<DurableRpcStore>) -> Self {
-        Self { store }
+        Self { store, access: None }
+    }
+
+    pub fn with_access(
+        store: Arc<DurableRpcStore>,
+        access: Arc<RpcAccessController>,
+    ) -> Result<Self, RpcStoreError> {
+        if store.chain_id()? != access.terms().chain_id() {
+            return Err(RpcStoreError::Invalid);
+        }
+        Ok(Self { store, access: Some(access) })
     }
 
     pub fn serve_once(&self, listener: &TcpListener, now: u64) -> Result<(), RpcStoreError> {
         let (mut stream, _) = listener.accept().map_err(|_| RpcStoreError::Io)?;
         configure_stream(&stream)?;
         let request = read_frame(&mut stream)?;
-        let request =
-            decode_envelope::<RpcRequest>(&request).map_err(|_| RpcStoreError::Invalid)?;
-        let response = encode_envelope(&self.store.handle(request, now))
-            .map_err(|_| RpcStoreError::Invalid)?;
+        let response = if let Ok(request) = decode_envelope::<RpcAccessRequest>(&request) {
+            let response = match request {
+                RpcAccessRequest::Terms => {
+                    let Some(access) = &self.access else {
+                        return Err(RpcStoreError::Invalid);
+                    };
+                    RpcAccessResponse::Terms(access.terms().clone())
+                }
+                RpcAccessRequest::Execute { request, authorization } => {
+                    let charge = if let Some(access) = &self.access {
+                        match access.authorize(&request, authorization.as_deref(), now) {
+                            Ok(charge) => charge,
+                            Err(error) => {
+                                let response = encode_envelope(&RpcAccessResponse::Denied(error))
+                                    .map_err(|_| RpcStoreError::Invalid)?;
+                                return write_frame(&mut stream, &response);
+                            }
+                        }
+                    } else {
+                        AccessCharge::free()
+                    };
+                    RpcAccessResponse::Response {
+                        response: self.store.handle(request, now),
+                        charged_units: charge.charged_units(),
+                        remaining_units: charge.remaining_units(),
+                    }
+                }
+            };
+            encode_envelope(&response).map_err(|_| RpcStoreError::Invalid)?
+        } else {
+            let request =
+                decode_envelope::<RpcRequest>(&request).map_err(|_| RpcStoreError::Invalid)?;
+            let response = if self.access.as_ref().is_some_and(|access| !access.is_free())
+                && !matches!(request, RpcRequest::Status)
+            {
+                RpcResponse::Error(RpcError::InvalidRequest)
+            } else {
+                self.store.handle(request, now)
+            };
+            encode_envelope(&response).map_err(|_| RpcStoreError::Invalid)?
+        };
         write_frame(&mut stream, &response)
     }
 }
@@ -361,6 +419,18 @@ pub fn query<A: ToSocketAddrs>(
     address: A,
     request: &RpcRequest,
 ) -> Result<RpcResponse, RpcStoreError> {
+    let mut stream = TcpStream::connect(address).map_err(|_| RpcStoreError::Io)?;
+    configure_stream(&stream)?;
+    let request = encode_envelope(request).map_err(|_| RpcStoreError::Invalid)?;
+    write_frame(&mut stream, &request)?;
+    let response = read_frame(&mut stream)?;
+    decode_envelope(&response).map_err(|_| RpcStoreError::Invalid)
+}
+
+pub fn query_with_access<A: ToSocketAddrs>(
+    address: A,
+    request: &RpcAccessRequest,
+) -> Result<RpcAccessResponse, RpcStoreError> {
     let mut stream = TcpStream::connect(address).map_err(|_| RpcStoreError::Io)?;
     configure_stream(&stream)?;
     let request = encode_envelope(request).map_err(|_| RpcStoreError::Invalid)?;
@@ -449,7 +519,9 @@ mod tests {
         ProtocolSignature, QuorumCertificate, ValidatorGenesis, ValidatorGenesisEntry,
         ValidatorVote,
     };
-    use activechain_rpc_types::{ActionSetProof, MAX_RPC_PAGE_SIZE, RPC_SCHEMA_REVISION};
+    use activechain_rpc_types::{
+        ActionSetProof, MAX_RPC_PAGE_SIZE, RPC_SCHEMA_REVISION, RpcAccessMode, RpcAccessTerms,
+    };
     use activechain_state_tree::{StateCommitment, commit_objects, prove_object};
     use activechain_transition::{TRANSFER_OBJECT_ACTION_ID, TransferCommand, TransferTransaction};
     use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
@@ -741,6 +813,81 @@ mod tests {
     }
 
     #[test]
+    fn configured_free_access_supports_terms_wrappers_and_legacy_clients() {
+        let terms = RpcAccessTerms::new(
+            ChainId::new(digest(1)),
+            digest(90),
+            RpcAccessMode::Free,
+            vec![],
+            0,
+            Digest384::ZERO,
+            Digest384::ZERO,
+            1,
+            1,
+            1,
+            1_000,
+            100,
+            None,
+        )
+        .unwrap();
+        let terms_path = temporary("access-terms");
+        let usage_path = temporary("free-network");
+        let _ = std::fs::remove_file(&terms_path);
+        let _ = std::fs::remove_file(&usage_path);
+        write_access_terms(&terms_path, &terms).unwrap();
+        assert_eq!(load_access_terms(&terms_path), Ok(terms.clone()));
+        let access = Arc::new(RpcAccessController::free(terms.clone()).unwrap());
+        let store = Arc::new(DurableRpcStore::create(usage_path.clone(), index()).unwrap());
+        let wrong_chain_terms = RpcAccessTerms::new(
+            ChainId::new(digest(99)),
+            digest(90),
+            RpcAccessMode::Free,
+            vec![],
+            0,
+            Digest384::ZERO,
+            Digest384::ZERO,
+            1,
+            1,
+            1,
+            1_000,
+            100,
+            None,
+        )
+        .unwrap();
+        let wrong_chain = Arc::new(RpcAccessController::free(wrong_chain_terms).unwrap());
+        assert!(matches!(
+            RpcServer::with_access(store.clone(), wrong_chain),
+            Err(RpcStoreError::Invalid)
+        ));
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = RpcServer::with_access(store.clone(), access.clone()).unwrap();
+        let thread = thread::spawn(move || server.serve_once(&listener, 105));
+        assert_eq!(
+            query_with_access(address, &RpcAccessRequest::Terms).unwrap(),
+            RpcAccessResponse::Terms(terms)
+        );
+        thread.join().unwrap().unwrap();
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = RpcServer::with_access(store, access).unwrap();
+        let thread = thread::spawn(move || server.serve_once(&listener, 105));
+        assert!(matches!(
+            query(
+                address,
+                &RpcRequest::Get { kind: QueryKind::Receipt, key: receipt_record(10).key() },
+            )
+            .unwrap(),
+            RpcResponse::Record(_)
+        ));
+        thread.join().unwrap().unwrap();
+        let _ = std::fs::remove_file(terms_path);
+        let _ = std::fs::remove_file(usage_path);
+    }
+
+    #[test]
     fn oversized_and_malformed_frames_are_rejected() {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let address = listener.local_addr().unwrap();
@@ -758,6 +905,9 @@ mod tests {
     #[test]
     fn published_revisions_are_stable() {
         assert_eq!(RPC_SCHEMA_REVISION, 1);
+        assert_eq!(RpcAccessTerms::TYPE_TAG, 0x00ba);
+        assert_eq!(RpcAccessRequest::TYPE_TAG, 0x00bc);
+        assert_eq!(RpcAccessResponse::TYPE_TAG, 0x00bd);
     }
 
     #[test]

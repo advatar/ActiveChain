@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 activechain-action-kernel.workspace = true
 activechain-canonical-codec.workspace = true
+activechain-consensus-verifier.workspace = true
 activechain-finality-types.workspace = true
 activechain-protocol-types.workspace = true
 activechain-rpc-types.workspace = true
