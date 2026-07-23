@@ -28,3 +28,6 @@ committed root, height, and state transition. The durable index rejects any reco
 `activechain-rpc-node <rpc-index-snapshot> [bind-address]` serves the durable index continuously.
 It defaults to the documented local RPC port `127.0.0.1:49151`; malformed connections are rejected
 without terminating the service.
+
+Operators may additionally configure free, allowlisted, or prepaid metered service without
+changing the proof contract. See [configurable RPC access economics](rpc-access-economics.md).
