@@ -277,13 +277,35 @@ pub fn verify_finality_bundle(bytes: &[u8]) -> Result<FinalityCertificateBundle,
     )?;
     let bundle =
         decode_envelope::<FinalityCertificateBundle>(bytes).map_err(VerifyError::Decode)?;
+    let expected_genesis = bundle.validator_genesis().genesis_commitment();
+    verify_decoded_finality_bundle(bundle, expected_genesis)
+}
+
+pub fn verify_finality_bundle_with_chain_genesis(
+    bytes: &[u8],
+    expected_chain_genesis: Digest384,
+) -> Result<FinalityCertificateBundle, VerifyError> {
+    inspect_envelope(
+        bytes,
+        FinalityCertificateBundle::TYPE_TAG,
+        FinalityCertificateBundle::SCHEMA_VERSION,
+    )?;
+    let bundle =
+        decode_envelope::<FinalityCertificateBundle>(bytes).map_err(VerifyError::Decode)?;
+    verify_decoded_finality_bundle(bundle, expected_chain_genesis)
+}
+
+fn verify_decoded_finality_bundle(
+    bundle: FinalityCertificateBundle,
+    expected_chain_genesis: Digest384,
+) -> Result<FinalityCertificateBundle, VerifyError> {
     let header = bundle.header();
     let genesis = bundle.validator_genesis();
     let certificate = bundle.certificate();
     if genesis.epoch() != header.inputs.epoch
         || genesis.protocol_revision() != header.inputs.protocol_revision
         || genesis.validator_set_root() != header.inputs.validator_set_root
-        || certificate.genesis_commitment() != genesis.genesis_commitment()
+        || certificate.genesis_commitment() != expected_chain_genesis
         || certificate.epoch() != header.inputs.epoch
         || certificate.protocol_revision() != header.inputs.protocol_revision
         || certificate.validator_set_root() != header.inputs.validator_set_root
@@ -320,6 +342,25 @@ pub fn verify_block_receipt(finality: &[u8], receipt: &[u8]) -> Result<BlockRece
         return Err(VerifyError::TooLarge);
     }
     let finality = verify_finality_bundle(finality)?;
+    verify_block_receipt_with_finality(finality, receipt)
+}
+
+pub fn verify_block_receipt_with_chain_genesis(
+    finality: &[u8],
+    receipt: &[u8],
+    expected_chain_genesis: Digest384,
+) -> Result<BlockReceipt, VerifyError> {
+    if finality.len().checked_add(receipt.len()).is_none_or(|length| length > MAX_ENVELOPE_LENGTH) {
+        return Err(VerifyError::TooLarge);
+    }
+    let finality = verify_finality_bundle_with_chain_genesis(finality, expected_chain_genesis)?;
+    verify_block_receipt_with_finality(finality, receipt)
+}
+
+fn verify_block_receipt_with_finality(
+    finality: FinalityCertificateBundle,
+    receipt: &[u8],
+) -> Result<BlockReceipt, VerifyError> {
     inspect_envelope(receipt, BlockReceipt::TYPE_TAG, BlockReceipt::SCHEMA_VERSION)?;
     let receipt = decode_envelope::<BlockReceipt>(receipt).map_err(VerifyError::Decode)?;
     let inputs = finality.header().inputs;

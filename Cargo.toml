@@ -18,6 +18,7 @@ members = [
     "crates/credential",
     "crates/devnet-kernel",
     "crates/finality-types",
+    "crates/light-client",
     "crates/object",
     "crates/object-vm",
     "crates/policy-kernel",
@@ -62,6 +63,7 @@ activechain-verifier-ffi = { path = "crates/verifier-ffi", version = "0.1.0" }
 activechain-credential = { path = "crates/credential", version = "0.1.0" }
 activechain-devnet-kernel = { path = "crates/devnet-kernel", version = "0.1.0" }
 activechain-finality-types = { path = "crates/finality-types", version = "0.1.0" }
+activechain-light-client = { path = "crates/light-client", version = "0.1.0" }
 activechain-object = { path = "crates/object", version = "0.1.0" }
 activechain-object-vm = { path = "crates/object-vm", version = "0.1.0" }
 activechain-policy-kernel = { path = "crates/policy-kernel", version = "0.1.0" }

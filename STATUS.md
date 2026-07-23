@@ -678,8 +678,18 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
     - [x] Persist indexed finalized query material atomically and verify restart recovery.
     - [x] Add malformed/oversized/stale vectors and an end-to-end client query verified against
       finalized state.
-  - [ ] Package an embeddable persistent light client
+  - [x] Package an embeddable persistent light client
     ([GitHub issue #92](https://github.com/advatar/ActiveChain/issues/92)).
+    - [x] Add fail-closed trusted-checkpoint bootstrap with explicit chain identity and
+      weak-subjectivity bounds.
+    - [x] Verify monotonic parent-linked finalized headers against the active validator set and
+      immutable chain genesis.
+    - [x] Verify finalized validator-set transitions and protocol upgrades while rejecting retired
+      set reactivation and wrong revisions.
+    - [x] Verify state, receipt, action, and data-availability proofs against the current finalized
+      header.
+    - [x] Persist all trust state crash-safely and cover stale, forked, corrupt, restart, bad-proof,
+      bad-DA, retired-set, and wrong-revision vectors.
   - [ ] Ship reproducible Apple artifacts and a machine-readable compatibility manifest
     ([GitHub issue #90](https://github.com/advatar/ActiveChain/issues/90)).
   - [ ] Stabilize browser/agent jobs, artifacts, evidence, manifests, and receipts
