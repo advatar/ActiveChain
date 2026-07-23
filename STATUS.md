@@ -53,7 +53,7 @@ Tracked by [GitHub issue #17](https://github.com/advatar/ActiveChain/issues/17).
 - [x] Publish an ActiveChain-native architecture, feasibility verdict, implementation stages, and verification gates.
 - [x] Verify the investigation artifacts, commit them on the isolated worktree branch, and push the branch.
 
-## Active specification — Emerald-ambition private billboard
+## Active specification — Amber private imageboard
 
 Tracked by [GitHub issue #53](https://github.com/advatar/ActiveChain/issues/53).
 
@@ -62,6 +62,16 @@ Tracked by [GitHub issue #53](https://github.com/advatar/ActiveChain/issues/53).
 - [x] Specify normative lifecycle, privacy, availability, moderation, economics, client, and recovery requirements.
 - [x] Publish measurable formal-verification, adversarial-test, performance, audit, and launch gates.
 - [x] Map the current vertical slice to staged implementation milestones and honest public claims.
+
+## Active implementation — Amber native Apple application
+
+Tracked by [GitHub issue #138](https://github.com/advatar/ActiveChain/issues/138).
+
+- [ ] Establish Amber as the product name while retaining Emerald only as a research benchmark.
+- [ ] Add one shared SwiftUI source set with native iOS and macOS application targets.
+- [ ] Implement bounded board, thread, and post presentation models plus an adaptive retro imageboard shell.
+- [ ] Add unit coverage for identifiers, bounds, ordering, and platform-neutral view state.
+- [ ] Document and pass reproducible iOS Simulator and macOS builds.
 
 ## Active implementation — private billboard native-token vertical slice
 
