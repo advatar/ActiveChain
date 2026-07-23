@@ -10,9 +10,45 @@ pub const ACTIVECHAIN_VERIFY_VERSION_MISMATCH: u32 = 4;
 pub const ACTIVECHAIN_VERIFY_COMMITMENT_MISMATCH: u32 = 5;
 pub const ACTIVECHAIN_VERIFY_NULL_POINTER: u32 = 6;
 pub const ACTIVECHAIN_VERIFY_RELATION_MISMATCH: u32 = 7;
+pub const ACTIVECHAIN_VERIFY_BUFFER_TOO_SMALL: u32 = 8;
+pub const ACTIVECHAIN_VERIFY_DETAIL_NONE: u32 = 0;
+pub const ACTIVECHAIN_VERIFY_DETAIL_UNEXPECTED_END: u32 = 1;
+pub const ACTIVECHAIN_VERIFY_DETAIL_NON_MINIMAL_LENGTH: u32 = 2;
+pub const ACTIVECHAIN_VERIFY_DETAIL_LENGTH_OVERFLOW: u32 = 3;
+pub const ACTIVECHAIN_VERIFY_DETAIL_LENGTH_LIMIT: u32 = 4;
+pub const ACTIVECHAIN_VERIFY_DETAIL_INVALID_BOOLEAN: u32 = 5;
+pub const ACTIVECHAIN_VERIFY_DETAIL_INVALID_ENUM: u32 = 6;
+pub const ACTIVECHAIN_VERIFY_DETAIL_INVALID_VALUE: u32 = 7;
+pub const ACTIVECHAIN_VERIFY_DETAIL_TRAILING_DATA: u32 = 8;
 const TOO_LARGE: u32 = ACTIVECHAIN_VERIFY_TOO_LARGE;
 const NULL_POINTER: u32 = ACTIVECHAIN_VERIFY_NULL_POINTER;
 const MAX_ENVELOPE_LENGTH: u32 = activechain_verifier_api::MAX_ENVELOPE_LENGTH as u32;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ActivechainVerifierResult {
+    pub code: u32,
+    pub detail: u32,
+    pub offset: u32,
+    pub required_body_length: u32,
+    pub type_tag: u16,
+    pub schema_version: u16,
+    pub canonical_value_commitment: [u8; 48],
+}
+
+impl Default for ActivechainVerifierResult {
+    fn default() -> Self {
+        Self {
+            code: 0,
+            detail: 0,
+            offset: 0,
+            required_body_length: 0,
+            type_tag: 0,
+            schema_version: 0,
+            canonical_value_commitment: [0; 48],
+        }
+    }
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn activechain_verifier_abi_revision() -> u32 {
@@ -27,6 +63,82 @@ pub extern "C" fn activechain_verifier_schema_revision() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn activechain_verifier_protocol_revision() -> u64 {
     activechain_verifier_api::VERIFIER_PROTOCOL_REVISION
+}
+
+#[unsafe(no_mangle)]
+/// Inspects one bounded canonical envelope and returns its exact body and canonical commitment.
+///
+/// A null `body_output` with zero capacity is a size query. The result descriptor is populated on
+/// every path for which it is non-null. No pointer is retained.
+///
+/// # Safety
+/// `result` must be writable. For accepted lengths, `bytes` must be readable unless length is zero.
+/// `body_output` must be writable for `body_capacity` bytes unless capacity is zero. The result,
+/// input, and output regions must not overlap.
+pub unsafe extern "C" fn activechain_verify_envelope_v1(
+    bytes: *const u8,
+    bytes_len: u32,
+    expected_type: u16,
+    expected_version: u16,
+    body_output: *mut u8,
+    body_capacity: u32,
+    result: *mut ActivechainVerifierResult,
+) -> u32 {
+    if result.is_null() {
+        return NULL_POINTER;
+    }
+    let mut report = ActivechainVerifierResult::default();
+    if (bytes.is_null() && bytes_len != 0) || (body_output.is_null() && body_capacity != 0) {
+        report.code = NULL_POINTER;
+        unsafe { result.write(report) };
+        return report.code;
+    }
+    if bytes_len > MAX_ENVELOPE_LENGTH {
+        report.code = TOO_LARGE;
+        report.offset = MAX_ENVELOPE_LENGTH;
+        unsafe { result.write(report) };
+        return report.code;
+    }
+    let input = if bytes_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(bytes, bytes_len as usize) }
+    };
+    let verified =
+        activechain_verifier_api::inspect_envelope_report(input, expected_type, expected_version);
+    let verified = match verified {
+        Ok(verified) => verified,
+        Err(error) => {
+            let failure = error.failure(input.len());
+            report.code = failure.code;
+            report.detail = failure.detail;
+            report.offset = u32::try_from(failure.offset).unwrap_or(u32::MAX);
+            unsafe { result.write(report) };
+            return report.code;
+        }
+    };
+    report.required_body_length = verified.metadata.body_length as u32;
+    report.type_tag = verified.metadata.type_tag;
+    report.schema_version = verified.metadata.schema_version;
+    report.canonical_value_commitment = *verified.canonical_value_commitment.as_bytes();
+    if body_capacity < report.required_body_length {
+        report.code = ACTIVECHAIN_VERIFY_BUFFER_TOO_SMALL;
+        unsafe { result.write(report) };
+        return report.code;
+    }
+    if report.required_body_length != 0 {
+        let body_offset = input.len() - verified.metadata.body_length;
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                input.as_ptr().add(body_offset),
+                body_output,
+                verified.metadata.body_length,
+            );
+        }
+    }
+    report.code = ACTIVECHAIN_VERIFY_OK;
+    unsafe { result.write(report) };
+    report.code
 }
 
 #[unsafe(no_mangle)]
@@ -365,6 +477,140 @@ mod tests {
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
+    }
+
+    #[test]
+    fn structured_envelope_api_supports_size_query_copy_and_failures() {
+        let principal = Principal::new(
+            PrincipalId::new(digest(1)),
+            PrincipalKind::Human,
+            digest(2),
+            digest(3),
+            digest(4),
+            7,
+            FreezeState::Active,
+            digest(5),
+            10,
+            11,
+            12,
+        )
+        .unwrap();
+        let encoded = encode_envelope(&principal).unwrap();
+        let mut result = ActivechainVerifierResult::default();
+        assert_eq!(
+            unsafe {
+                activechain_verify_envelope_v1(
+                    encoded.as_ptr(),
+                    encoded.len() as u32,
+                    Principal::TYPE_TAG,
+                    Principal::SCHEMA_VERSION,
+                    core::ptr::null_mut(),
+                    0,
+                    &mut result,
+                )
+            },
+            ACTIVECHAIN_VERIFY_BUFFER_TOO_SMALL
+        );
+        assert_eq!(result.required_body_length as usize, encoded.len() - 6);
+        assert_eq!(
+            result.canonical_value_commitment,
+            *commit(DomainTag::CANONICAL_VALUE, &principal).unwrap().as_bytes()
+        );
+        let mut body = vec![0; result.required_body_length as usize];
+        let body_capacity = body.len() as u32;
+        assert_eq!(
+            unsafe {
+                activechain_verify_envelope_v1(
+                    encoded.as_ptr(),
+                    encoded.len() as u32,
+                    Principal::TYPE_TAG,
+                    Principal::SCHEMA_VERSION,
+                    body.as_mut_ptr(),
+                    body_capacity,
+                    &mut result,
+                )
+            },
+            ACTIVECHAIN_VERIFY_OK
+        );
+        assert_eq!(body, encoded[encoded.len() - body.len()..]);
+
+        let mut trailing = encoded.clone();
+        trailing.push(0);
+        assert_eq!(
+            unsafe {
+                activechain_verify_envelope_v1(
+                    trailing.as_ptr(),
+                    trailing.len() as u32,
+                    Principal::TYPE_TAG,
+                    Principal::SCHEMA_VERSION,
+                    core::ptr::null_mut(),
+                    0,
+                    &mut result,
+                )
+            },
+            ACTIVECHAIN_VERIFY_DECODE_ERROR
+        );
+        assert_eq!(result.detail, 8);
+        assert_eq!(result.offset as usize, encoded.len());
+        assert_eq!(
+            unsafe {
+                activechain_verify_envelope_v1(
+                    core::ptr::null(),
+                    1,
+                    Principal::TYPE_TAG,
+                    Principal::SCHEMA_VERSION,
+                    core::ptr::null_mut(),
+                    0,
+                    &mut result,
+                )
+            },
+            ACTIVECHAIN_VERIFY_NULL_POINTER
+        );
+        assert_eq!(result.code, ACTIVECHAIN_VERIFY_NULL_POINTER);
+        assert_eq!(
+            unsafe {
+                activechain_verify_envelope_v1(
+                    encoded.as_ptr(),
+                    MAX_ENVELOPE_LENGTH + 1,
+                    Principal::TYPE_TAG,
+                    Principal::SCHEMA_VERSION,
+                    core::ptr::null_mut(),
+                    0,
+                    &mut result,
+                )
+            },
+            ACTIVECHAIN_VERIFY_TOO_LARGE
+        );
+        assert_eq!(result.offset, MAX_ENVELOPE_LENGTH);
+        assert_eq!(
+            unsafe {
+                activechain_verify_envelope_v1(
+                    encoded.as_ptr(),
+                    encoded.len() as u32,
+                    Principal::TYPE_TAG,
+                    Principal::SCHEMA_VERSION + 1,
+                    core::ptr::null_mut(),
+                    0,
+                    &mut result,
+                )
+            },
+            ACTIVECHAIN_VERIFY_VERSION_MISMATCH
+        );
+        assert_eq!(result.offset, 2);
+        assert_eq!(
+            unsafe {
+                activechain_verify_envelope_v1(
+                    encoded.as_ptr(),
+                    encoded.len() as u32,
+                    Principal::TYPE_TAG,
+                    Principal::SCHEMA_VERSION,
+                    core::ptr::null_mut(),
+                    0,
+                    core::ptr::null_mut(),
+                )
+            },
+            ACTIVECHAIN_VERIFY_NULL_POINTER
+        );
     }
 
     fn capability(

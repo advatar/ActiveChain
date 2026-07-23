@@ -36,6 +36,19 @@ pub struct EnvelopeMetadata {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EnvelopeReport {
+    pub metadata: EnvelopeMetadata,
+    pub canonical_value_commitment: Digest384,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VerifyFailure {
+    pub code: u32,
+    pub detail: u32,
+    pub offset: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum VerifyError {
     TooLarge,
     Decode(DecodeError),
@@ -55,6 +68,29 @@ impl VerifyError {
             Self::CommitmentMismatch => 5,
             Self::RelationMismatch => 7,
         }
+    }
+
+    #[must_use]
+    pub const fn failure(self, input_length: usize) -> VerifyFailure {
+        let (detail, offset) = match self {
+            Self::TooLarge => (0, MAX_ENVELOPE_LENGTH),
+            Self::TypeMismatch => (0, 0),
+            Self::VersionMismatch => (0, 2),
+            Self::CommitmentMismatch | Self::RelationMismatch => (0, 0),
+            Self::Decode(error) => match error {
+                DecodeError::UnexpectedEnd { .. } => (1, input_length),
+                DecodeError::NonMinimalLength => (2, 4),
+                DecodeError::LengthOverflow => (3, 4),
+                DecodeError::LengthLimitExceeded { .. } => (4, 4),
+                DecodeError::InvalidBoolean(_) => (5, 5),
+                DecodeError::InvalidEnumTag { .. } => (6, 5),
+                DecodeError::InvalidValue(_) => (7, 5),
+                DecodeError::TrailingData { remaining } => (8, input_length - remaining),
+                DecodeError::InvalidTypeTag { .. } => (0, 0),
+                DecodeError::UnsupportedSchemaVersion { .. } => (0, 2),
+            },
+        };
+        VerifyFailure { code: self.code(), detail, offset }
     }
 }
 
@@ -135,6 +171,38 @@ impl CanonicalType for AuthorizationChain {
 pub fn inspect_envelope_code(bytes: &[u8], expected_type: u16, expected_version: u16) -> u32 {
     inspect_envelope(bytes, expected_type, expected_version)
         .map_or_else(|error| error.code(), |_| VERIFY_OK)
+}
+
+pub fn inspect_envelope_report(
+    bytes: &[u8],
+    expected_type: u16,
+    expected_version: u16,
+) -> Result<EnvelopeReport, VerifyError> {
+    let metadata = inspect_envelope(bytes, expected_type, expected_version)?;
+    let body = &bytes[bytes.len() - metadata.body_length..];
+    Ok(EnvelopeReport {
+        metadata,
+        canonical_value_commitment: canonical_value_commitment(
+            metadata.type_tag,
+            metadata.schema_version,
+            body,
+        ),
+    })
+}
+
+#[must_use]
+pub fn canonical_value_commitment(type_tag: u16, schema_version: u16, body: &[u8]) -> Digest384 {
+    let mut hasher = Shake256::default();
+    hasher.update(b"ACTIVECHAIN-COMMITMENT");
+    hasher.update(&1_u16.to_be_bytes());
+    hasher.update(&DomainTag::CANONICAL_VALUE.as_u16().to_be_bytes());
+    hasher.update(&type_tag.to_be_bytes());
+    hasher.update(&schema_version.to_be_bytes());
+    hasher.update(&(body.len() as u64).to_be_bytes());
+    hasher.update(body);
+    let mut output = [0; 48];
+    hasher.finalize_xof().read(&mut output);
+    Digest384::new(output)
 }
 
 pub fn verify_commitment_code(domain: &[u8], body: &[u8], expected: Digest384) -> u32 {
@@ -513,6 +581,25 @@ mod tests {
         assert_eq!(inspect_envelope_code(&valid, 0x1234, 1), VERIFY_OK);
         assert_eq!(inspect_envelope_code(&valid, 0x1234, 2), 4);
         assert_eq!(verify_commitment_code(b"wrong", &[0xaa, 0xbb], expected), 5);
+    }
+
+    #[test]
+    fn structured_envelope_report_returns_exact_body_and_commitment() {
+        let value = principal();
+        let encoded = encode_envelope(&value).unwrap();
+        let report =
+            inspect_envelope_report(&encoded, Principal::TYPE_TAG, Principal::SCHEMA_VERSION)
+                .unwrap();
+        assert_eq!(report.metadata.body_length, encoded.len() - 6);
+        assert_eq!(
+            report.canonical_value_commitment,
+            commit(DomainTag::CANONICAL_VALUE, &value).unwrap()
+        );
+        let failure =
+            inspect_envelope_report(&encoded, Principal::TYPE_TAG, Principal::SCHEMA_VERSION + 1)
+                .unwrap_err()
+                .failure(encoded.len());
+        assert_eq!(failure, VerifyFailure { code: 4, detail: 0, offset: 2 });
     }
 
     #[test]

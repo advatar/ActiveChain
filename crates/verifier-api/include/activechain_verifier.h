@@ -25,6 +25,36 @@
 
 #define ACTIVECHAIN_VERIFY_RELATION_MISMATCH 7
 
+#define ACTIVECHAIN_VERIFY_BUFFER_TOO_SMALL 8
+
+#define ACTIVECHAIN_VERIFY_DETAIL_NONE 0
+
+#define ACTIVECHAIN_VERIFY_DETAIL_UNEXPECTED_END 1
+
+#define ACTIVECHAIN_VERIFY_DETAIL_NON_MINIMAL_LENGTH 2
+
+#define ACTIVECHAIN_VERIFY_DETAIL_LENGTH_OVERFLOW 3
+
+#define ACTIVECHAIN_VERIFY_DETAIL_LENGTH_LIMIT 4
+
+#define ACTIVECHAIN_VERIFY_DETAIL_INVALID_BOOLEAN 5
+
+#define ACTIVECHAIN_VERIFY_DETAIL_INVALID_ENUM 6
+
+#define ACTIVECHAIN_VERIFY_DETAIL_INVALID_VALUE 7
+
+#define ACTIVECHAIN_VERIFY_DETAIL_TRAILING_DATA 8
+
+typedef struct ActivechainVerifierResult {
+  uint32_t code;
+  uint32_t detail;
+  uint32_t offset;
+  uint32_t required_body_length;
+  uint16_t type_tag;
+  uint16_t schema_version;
+  uint8_t canonical_value_commitment[48];
+} ActivechainVerifierResult;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -34,6 +64,25 @@ uint32_t activechain_verifier_abi_revision(void);
 uint32_t activechain_verifier_schema_revision(void);
 
 uint64_t activechain_verifier_protocol_revision(void);
+
+/**
+ * Inspects one bounded canonical envelope and returns its exact body and canonical commitment.
+ *
+ * A null `body_output` with zero capacity is a size query. The result descriptor is populated on
+ * every path for which it is non-null. No pointer is retained.
+ *
+ * # Safety
+ * `result` must be writable. For accepted lengths, `bytes` must be readable unless length is zero.
+ * `body_output` must be writable for `body_capacity` bytes unless capacity is zero. The result,
+ * input, and output regions must not overlap.
+ */
+uint32_t activechain_verify_envelope_v1(const uint8_t *bytes,
+                                        uint32_t bytes_len,
+                                        uint16_t expected_type,
+                                        uint16_t expected_version,
+                                        uint8_t *body_output,
+                                        uint32_t body_capacity,
+                                        struct ActivechainVerifierResult *result);
 
 /**
  * # Safety
