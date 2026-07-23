@@ -220,6 +220,9 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
     - [x] Prove checked fee totals, strict-quorum arithmetic, base-fee adjustment, supply equations,
       partition accounting, and capped issuance in Verus, with a locked finite parity executable
       against the production cash and consensus crates.
+      - [x] Keep the isolated Verus production-parity lockfile synchronized and validate it
+        offline before proof execution
+        ([GitHub issue #119](https://github.com/advatar/ActiveChain/issues/119)).
     - [x] Move the verified arithmetic behind a shared production implementation or add an
       all-input refinement bridge, and extend Kani coverage to larger production schemas,
       persistence, commitment internals, and network admission.

@@ -90,6 +90,12 @@ fi
 printf '%s\n' "$VERUS_VERSION_OUTPUT" | grep -F "Version: $VERUS_VERSION" >/dev/null
 
 mkdir -p "$VERUS_BUILD_ROOT" "$PARITY_TARGET_ROOT"
+CARGO_TARGET_DIR="$PARITY_TARGET_ROOT" cargo metadata \
+    --manifest-path "$SCRIPT_DIR/parity/Cargo.toml" \
+    --locked \
+    --offline \
+    --format-version 1 \
+    >/dev/null
 (
     cd "$VERUS_BUILD_ROOT"
     "$VERUS_BINARY" "$SCRIPT_DIR/activechain_arithmetic.rs" \
