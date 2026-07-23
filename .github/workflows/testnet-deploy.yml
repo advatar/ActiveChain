@@ -49,6 +49,7 @@ jobs:
           cp crates/wallet-ffi/include/activechain_wallet.h dist/kanalen/headers/
           cp testing/vectors/activechain-verifier-package-v1.json dist/kanalen/manifests/
           cp deploy/kanalen/ports.env dist/kanalen/
+          cp deploy/kanalen/network.env dist/kanalen/
           tar -czf "kanalen-${GITHUB_SHA}.tar.gz" -C dist kanalen
           shasum -a 256 "kanalen-${GITHUB_SHA}.tar.gz" > "kanalen-${GITHUB_SHA}.sha256"
       - name: Publish bundle artifact
