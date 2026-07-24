@@ -23,11 +23,14 @@ Tracked by [GitHub issue #182](https://github.com/advatar/ActiveChain/issues/182
 - [ ] Freeze canonical bounded enrollment request, wallet grant, and lifecycle evidence types.
   - [x] Define agent-signed ML-DSA-65 request and wallet-signed ML-DSA-44 attenuated grant
     envelopes bound to chain, wallet, principal, authenticator, authority, validity, and nonce.
-  - [ ] Define finalized, rejected, and expired lifecycle evidence envelopes.
+  - [x] Define submitted, finalized, rejected, and expired lifecycle evidence envelopes with
+    monotonic transitions and exact request, transaction, block, and inclusion commitments.
+  - [x] Prove terminal immutability and exact-transaction finalization in the executable Lean
+    lifecycle model with an explicit implementation-refinement boundary.
 - [ ] Add durable request replay protection plus pending, finalized, rejected, and expired states.
   - [x] Persist a fail-closed pending state and require the exact transaction commitment for
     activation at a nonzero finalized height.
-  - [ ] Add protocol-level rejected and expired enrollment evidence and request replay records.
+  - [ ] Add durable request replay records and persist protocol-level rejected/expired evidence.
 - [ ] Expose exact operations through the wallet ABI with deterministic malformed vectors.
   - [x] Expose pending registration and exact finalization operations without changing existing
     lifecycle numeric tags.

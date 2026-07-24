@@ -1,5 +1,6 @@
 domain	scope	assumptions	boundary	counterexample_policy
 agent-authenticator	formal/KANI_AGENT_AUTHENTICATOR_PROOF_SCOPE.md	ML-DSA and trusted enrollment/hardware	filesystem and multi-device refinement	retain-minimize-fix-claim
+agent-enrollment	formal/AGENT_ENROLLMENT_PROOF_SCOPE.md	authenticated common evidence bindings	Rust serialization refinement and cryptographic internals	retain-minimize-fix-claim
 apl	formal/APL_REFINEMENT_PROOF_SCOPE.md	Lean semantics and production predicate mapping	compiler correspondence	retain-minimize-fix-claim
 authorization	formal/AUTHORIZATION_CHAIN_PROOF_SCOPE.md	authenticated finalized inputs	external finality provenance	retain-minimize-fix-claim
 block-composition	formal/BLOCK_COMPOSITION_PROOF_SCOPE.md	proof verifier soundness	prover and DA availability	retain-minimize-fix-claim
@@ -12,8 +13,8 @@ data-availability	formal/DA_PROOF_SCOPE.md	honest shard threshold	production sta
 envelope	formal/ENVELOPE_PROOF_SCOPE.md	canonical primitive semantics	foreign memory and compiler correspondence	retain-minimize-fix-claim
 epoch-upgrade	formal/EPOCH_UPGRADE_PROOF_SCOPE.md	finalized upgrade authorization	trace refinement only	retain-minimize-fix-claim
 identity	formal/IDENTITY_PROOF_SCOPE.md	authenticated controller evidence	upstream signature provenance	retain-minimize-fix-claim
-kani-faucet	formal/KANI_FAUCET_PROOF_SCOPE.md	SHAKE256, trusted clock and source provenance	filesystem, transaction ingress and finality	retain-minimize-fix-claim
 kani-codec	formal/KANI_CODEC_PROOF_SCOPE.md	finite unwind and allocation success	larger arbitrary schemas	retain-minimize-fix-claim
+kani-faucet	formal/KANI_FAUCET_PROOF_SCOPE.md	SHAKE256, trusted clock and source provenance	filesystem, transaction ingress and finality	retain-minimize-fix-claim
 kani-ffi	formal/KANI_VERIFIER_FFI_PROOF_SCOPE.md	readable foreign memory	arbitrary pointer validity	retain-minimize-fix-claim
 kani-object-vm	formal/KANI_OBJECT_VM_PROOF_SCOPE.md	bounded helper composition	whole interpreter timeout	timeout-explicit-unproved
 kani-protocol	formal/KANI_PROTOCOL_TYPES_PROOF_SCOPE.md	fixed digest contents	cryptographic and filesystem internals	retain-minimize-fix-claim
