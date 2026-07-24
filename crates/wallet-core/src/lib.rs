@@ -5,11 +5,16 @@
 
 extern crate alloc;
 
+mod agent_authenticator;
 mod agent_management;
 mod cash_authorization;
 mod cash_persistence;
 mod openwallet;
 
+pub use agent_authenticator::{
+    AgentAuthenticatorRecordV1, AgentAuthenticatorRegistryV1, AgentAuthenticatorVersionV1,
+    AgentKeyProvenance, MAX_AGENT_AUTHENTICATORS, MAX_AGENT_KEY_VERSIONS,
+};
 pub use agent_management::{
     AgentActionRequestV1, AgentConnectionKind, AgentLifecycle, AgentRegistryCommandV1,
     AgentRegistryV1, MAX_AGENT_CAPABILITIES, MAX_AGENT_LABEL, ManagedAgentV1,
