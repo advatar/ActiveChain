@@ -45,6 +45,14 @@ Tracked by [GitHub issue #143](https://github.com/advatar/ActiveChain/issues/143
 - [x] Declare the generated iOS launch screen and pass iOS Archive validation.
 - [x] Pass distribution consumers, app tests, and iOS/macOS build qualification.
 
+## Active fix — wallet App Store version metadata
+
+Tracked by [GitHub issue #145](https://github.com/advatar/ActiveChain/issues/145).
+
+- [x] Define valid marketing and build versions for both wallet application targets.
+- [x] Regenerate the Xcode project from the canonical XcodeGen source.
+- [x] Verify iOS and macOS archives contain valid bundle version metadata.
+
 ## Active implementation — wallet Receive flow
 
 Tracked by [GitHub issue #135](https://github.com/advatar/ActiveChain/issues/135).
