@@ -43,6 +43,7 @@ jobs:
           cp target/release/indexer-tool dist/kanalen/bin/
           cp target/release/activechain-rpc-node dist/kanalen/bin/
           cp target/release/activechain-rpc-bootstrap dist/kanalen/bin/
+          cp target/release/activechain-rpc-ingest dist/kanalen/bin/
           cp target/release/activechain-rpc-probe dist/kanalen/bin/
           cp target/release/activechain-wallet dist/kanalen/bin/
           cp target/release/activechain-faucet dist/kanalen/bin/
@@ -52,6 +53,7 @@ jobs:
           cp deploy/kanalen/ports.env dist/kanalen/
           cp deploy/kanalen/network.env dist/kanalen/
           cp -R deploy/kanalen/launchagents dist/kanalen/
+          cp -R deploy/kanalen/scripts dist/kanalen/
           tar -czf "kanalen-${GITHUB_SHA}.tar.gz" -C dist kanalen
           shasum -a 256 "kanalen-${GITHUB_SHA}.tar.gz" > "kanalen-${GITHUB_SHA}.sha256"
       - name: Publish bundle artifact
