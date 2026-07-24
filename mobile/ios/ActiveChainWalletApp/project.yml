@@ -15,6 +15,8 @@ targets:
       DEVELOPMENT_TEAM: L2AF8KFX35
       INFOPLIST_KEY_ActiveChainKeychainAccessGroup: "$(AppIdentifierPrefix)dev.activechain.wallet.shared"
       PRODUCT_BUNDLE_IDENTIFIER: dev.activechain.wallet
+      MARKETING_VERSION: 0.1.0
+      CURRENT_PROJECT_VERSION: 1
       PRODUCT_MODULE_NAME: ActiveChainWalletApp
       SWIFT_VERSION: "5.9"
       GENERATE_INFOPLIST_FILE: YES
@@ -43,6 +45,8 @@ targets:
       INFOPLIST_KEY_CFBundleDisplayName: ActiveChain Wallet
       INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.finance
       PRODUCT_BUNDLE_IDENTIFIER: dev.activechain.wallet.macos
+      MARKETING_VERSION: 0.1.0
+      CURRENT_PROJECT_VERSION: 1
       PRODUCT_MODULE_NAME: ActiveChainWalletApp
       SWIFT_VERSION: "5.9"
     dependencies:
