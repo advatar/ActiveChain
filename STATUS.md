@@ -11,6 +11,8 @@ Tracked by the regulated-profile implementation plan in
 - [ ] Freeze KYC/KYB issuer governance, sanctions, Travel Rule, monitoring, and privacy profiles.
 - [ ] Implement off-chain evidence stores, commitments, case controls, and formal boundary proofs.
 - [ ] Collect operating-period evidence and complete independent security/compliance engagement.
+- [x] Publish initial role/jurisdiction, compliance-boundary, regulatory-change, and privacy/data
+  boundary templates; completion still requires accountable owners and counsel review.
 
 ## Phase 0 — protocol foundation
 
