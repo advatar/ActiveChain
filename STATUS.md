@@ -18,6 +18,7 @@ Tracked by the regulated-profile implementation plan in
 - [ ] Implement canonical Rust types, signatures, replay barriers, and formal proofs for P-120/P-121.
   - [x] Add canonical privacy-preserving evidence and Travel Rule binding records with strict
     commitment, chain, amount, and expiry validation plus round-trip tests.
+  - [x] Add a signature envelope binding profile, chain, action, commitment, and single-use nonce.
 
 ## Phase 0 — protocol foundation
 
