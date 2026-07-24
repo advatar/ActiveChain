@@ -69,7 +69,7 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
     external evidence rather than provider or ActiveChain finality.
   - [x] Add sanitized deterministic fixtures, adapter/contract unit tests, and an executable
     formal model for total fail-closed provider-state mapping.
-  - [ ] Add endpoint-specific request/response schemas, exact decimal amount parsing, immutable
+  - [x] Add endpoint-specific request/response schemas, exact decimal amount parsing, immutable
     asset/reference binding, and connector-owned idempotency for provider operations that do not
     publish an idempotency contract.
     - [x] Implement lossless bounded decimal parsing and validated deposit, transfer, and
@@ -82,6 +82,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
       exact provider amounts, exclusive transfer destinations, and reviewed phone/HTTPS rules.
     - [ ] Implement the remaining quote, swap/SSE, ramp, and reconciliation schemas after
       obtaining authoritative missing fields.
+      The documented core request/response slice is implemented on `origin/main` at
+      `161bfd3`; the remaining items require provider-issued schemas or credentials.
   - [ ] Run contractual sandbox tests with issued test credentials and qualify TLS/DNS, secret
     rotation, reconciliation, concurrency, recovery, custody, regulatory, and production gates.
 - [ ] Join external evidence to capability/APL-authorized native ingress, egress, conversion,
