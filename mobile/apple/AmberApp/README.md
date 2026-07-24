@@ -4,9 +4,11 @@ Amber is ActiveChain's private imageboard client. The same SwiftUI source set bu
 macOS applications. Emerald is a research benchmark, not the product name or an interoperability
 claim.
 
-The current application is an honest offline product shell. It renders bounded deterministic sample
-state and displays the configured Kanalen testnet RPC endpoint, but it does not yet claim that RPC
-identity, state proofs, content shards, or privacy transport are connected.
+The current application renders bounded deterministic sample content while content retrieval remains
+under development. Its network strip performs a real TLS-framed ActiveChain status request against
+the configured Kanalen endpoint on launch and on demand. It distinguishes verified, stale, degraded,
+unavailable, and protocol-incompatible network states. State proofs, content shards, and privacy
+transport are not yet connected.
 
 The composer presents posting as a bonded action, never a free action. Its testnet preview quote
 separates the spent posting fee, locked refundable post bond, and maximum moderation slash. The
@@ -25,9 +27,9 @@ thereby compiling both application targets. Override the simulator when needed w
 
 For release qualification, run
 `scripts/validate-apple-app-icon.sh /path/to/Amber.app`. The validator requires a compiled asset
-catalog and `CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName = AppIcon`.
+catalog, primary iPhone/iPad icon metadata, and the required 152×152 iPad rendition.
 
-The default endpoint is `https://rpc.kanalen.activechain.dev`. A later network-integration change
-will persist operator/user overrides and will only mark an endpoint verified after checking its
-chain identity, genesis commitment, protocol revision, finalized height, proof support, and
-health/staleness response.
+The default endpoint is `https://rpc.kanalen.activechain.dev`. The status client validates canonical
+framing, the response envelope, protocol and schema revisions, finalized height, proof identifiers,
+and health/staleness consistency. A later network-integration change will persist operator/user
+overrides and pin the expected chain identity and genesis commitment.

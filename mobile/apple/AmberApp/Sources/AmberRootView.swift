@@ -2,8 +2,9 @@ import SwiftUI
 
 struct AmberRootView: View {
     private let boards = AmberSampleData.boards
+    private let rpcClient = AmberRPCClient()
     @State private var selection: AmberBoardID?
-    @State private var connection: AmberConnectionState = .offline
+    @State private var connection: AmberConnectionState = .checking
     @State private var isComposerPresented = false
 
     var body: some View {
@@ -33,6 +34,9 @@ struct AmberRootView: View {
                     Label("New bonded post", systemImage: "square.and.pencil")
                 }
             }
+        }
+        .task {
+            await refreshNetworkStatus()
         }
     }
 
@@ -68,11 +72,21 @@ struct AmberRootView: View {
         .toolbar {
             ToolbarItem {
                 Button {
-                    connection = connection == .offline ? .checking : .offline
+                    Task { await refreshNetworkStatus() }
                 } label: {
                     Label("Network status", systemImage: "point.3.connected.trianglepath.dotted")
                 }
             }
+        }
+    }
+
+    @MainActor
+    private func refreshNetworkStatus() async {
+        connection = .checking
+        do {
+            connection = try await rpcClient.status(for: .kanalenTestnet).connectionState
+        } catch {
+            connection = .unavailable
         }
     }
 }
@@ -206,7 +220,7 @@ private struct NetworkStrip: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack {
                 Circle()
-                    .fill(state == .offline ? AmberStyle.mutedInk : AmberStyle.rust)
+                    .fill(state.isAvailable ? AmberStyle.olive : AmberStyle.rust)
                     .frame(width: 7, height: 7)
                 Text(state.label)
                     .font(.caption.weight(.semibold))

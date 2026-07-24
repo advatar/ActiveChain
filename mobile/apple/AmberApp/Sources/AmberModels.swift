@@ -167,17 +167,28 @@ struct AmberNetwork: Hashable, Sendable {
 }
 
 enum AmberConnectionState: Equatable, Sendable {
-    case offline
     case checking
     case verified(finalizedHeight: UInt64)
+    case stale(finalizedHeight: UInt64)
+    case degraded(finalizedHeight: UInt64)
     case unavailable
+    case incompatible
 
     var label: String {
         switch self {
-        case .offline: "Offline preview"
         case .checking: "Checking network"
         case let .verified(height): "Finalized #\(height)"
+        case let .stale(height): "Stale at #\(height)"
+        case let .degraded(height): "Degraded at #\(height)"
         case .unavailable: "Network unavailable"
+        case .incompatible: "Protocol incompatible"
+        }
+    }
+
+    var isAvailable: Bool {
+        switch self {
+        case .verified, .stale, .degraded: true
+        case .checking, .unavailable, .incompatible: false
         }
     }
 }
