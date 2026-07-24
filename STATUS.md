@@ -160,6 +160,16 @@ Tracked by [GitHub issue #172](https://github.com/advatar/ActiveChain/issues/172
 - [x] Distinguish ObjectVM contract bytecode from RISC Zero private proof guests and generic RISC-V.
 - [ ] Pass the landing-page build and responsive browser verification.
 
+## Active documentation — whole-system architecture and agent keys
+
+Tracked by [GitHub issue #174](https://github.com/advatar/ActiveChain/issues/174).
+
+- [x] Publish one guide joining principals, wallet and agent keys, capabilities, credentials,
+  policies, assets, execution, proofs, networking, receipts, recovery, and formal verification.
+- [x] Specify agent enrollment, custody, session separation, rotation, compromise, revocation,
+  recovery, migration, multi-device, remote-agent, and third-party-application behavior.
+- [x] Mark implemented, developmental, planned, unaudited, and formally unproved boundaries.
+
 ## Active deployment — Kanalen developmental RPC
 
 Tracked by [GitHub issue #137](https://github.com/advatar/ActiveChain/issues/137).

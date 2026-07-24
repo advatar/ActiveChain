@@ -14,6 +14,10 @@ interoperability, and validator/network abuse resistance, with findings publishe
 re-reviewed. Until that completes, the wallet and every testnet are explicitly developmental and
 must not hold value anyone is unwilling to lose.
 
+For a cross-cutting explanation of principals, wallet and agent keys, capabilities, credentials,
+assets, policies, execution, proofs, recovery, and current implementation boundaries, read
+[`docs/ARCHITECTURE_GUIDE.md`](docs/ARCHITECTURE_GUIDE.md).
+
 ## What exists now
 
 - draft system-boundary, canonical-encoding, and transition specifications under `spec/protocol/`;
