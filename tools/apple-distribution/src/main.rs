@@ -263,6 +263,7 @@ fn write_manifest(
         schemas: supported_schemas(),
         apple_slices: vec![
             "aarch64-apple-darwin".to_owned(),
+            "x86_64-apple-darwin".to_owned(),
             "aarch64-apple-ios".to_owned(),
             "aarch64-apple-ios-sim".to_owned(),
         ],
@@ -292,7 +293,12 @@ fn verify_manifest(
         || manifest.supported_protocol_revisions != [1]
         || manifest.schemas != supported_schemas()
         || manifest.apple_slices
-            != ["aarch64-apple-darwin", "aarch64-apple-ios", "aarch64-apple-ios-sim"]
+            != [
+                "aarch64-apple-darwin",
+                "x86_64-apple-darwin",
+                "aarch64-apple-ios",
+                "aarch64-apple-ios-sim",
+            ]
         || manifest.upgrade_policy != "reject-unknown-abi-schema-or-protocol-revision"
         || manifest.source_revision.len() != 40
         || !manifest.source_revision.bytes().all(|byte| byte.is_ascii_hexdigit())

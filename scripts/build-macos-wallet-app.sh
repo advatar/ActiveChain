@@ -18,12 +18,17 @@ mkdir -p "$(dirname "$current")"
 ln -sfn "$revision" "$current"
 xcodegen generate --spec "$project/project.yml" --project "$project"
 
-destination=${ACTIVECHAIN_MACOS_DESTINATION:-"platform=macOS,arch=arm64"}
+archive_path=${ACTIVECHAIN_MACOS_ARCHIVE_PATH:-"$repo_root/target/apple-archives/ActiveChainWalletMac-$revision.xcarchive"}
+mkdir -p "$(dirname "$archive_path")"
+if [[ -e "$archive_path" ]]; then
+  echo "macOS wallet archive already exists: $archive_path" >&2
+  exit 1
+fi
 xcodebuild \
   -project "$project/ActiveChainWallet.xcodeproj" \
   -scheme ActiveChainWalletMac \
-  -destination "$destination" \
-  ARCHS=arm64 \
-  ONLY_ACTIVE_ARCH=YES \
+  -destination "generic/platform=macOS" \
+  -archivePath "$archive_path" \
   CODE_SIGNING_ALLOWED=NO \
-  build
+  archive
+echo "ActiveChain macOS wallet archive: $archive_path"

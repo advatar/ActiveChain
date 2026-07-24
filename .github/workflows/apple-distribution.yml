@@ -26,6 +26,7 @@ jobs:
         run: |
           rustup toolchain install 1.97.1 --profile minimal
           rustup target add --toolchain 1.97.1 \
+            x86_64-apple-darwin \
             aarch64-apple-ios \
             aarch64-apple-ios-sim
       - name: Build and qualify exact-revision artifacts
