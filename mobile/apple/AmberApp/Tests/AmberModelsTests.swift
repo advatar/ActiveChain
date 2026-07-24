@@ -177,6 +177,23 @@ final class AmberModelsTests: XCTestCase {
         XCTAssertThrowsError(try quote.upheldSettlement(penalty: 26, reporterReward: 1))
         XCTAssertThrowsError(try quote.upheldSettlement(penalty: 10, reporterReward: 11))
     }
+
+    func testNetworkRefreshPresentationShowsActivityAndCompletion() {
+        var presentation = AmberNetworkRefreshPresentation()
+
+        XCTAssertNil(presentation.completionLabel)
+        XCTAssertTrue(presentation.begin())
+        XCTAssertTrue(presentation.isRefreshing)
+        XCTAssertFalse(presentation.begin())
+
+        presentation.complete()
+        XCTAssertFalse(presentation.isRefreshing)
+        XCTAssertEqual(presentation.completedChecks, 1)
+        XCTAssertEqual(presentation.completionLabel, "Checked now")
+
+        presentation.complete()
+        XCTAssertEqual(presentation.completedChecks, 1)
+    }
 }
 
 private extension FixedWidthInteger {

@@ -142,6 +142,14 @@ Tracked by [GitHub issue #141](https://github.com/advatar/ActiveChain/issues/141
 - [x] Keep emergency hiding separate from final economic slashing and document appeal requirements.
 - [x] Pass native iOS and macOS tests, commit, push, and merge the qualified change.
 
+## Active fix — Amber network refresh feedback
+
+Tracked by [GitHub issue #152](https://github.com/advatar/ActiveChain/issues/152).
+
+- [x] Make network-status refresh activity immediately visible.
+- [x] Prevent overlapping status requests and report completed checks.
+- [x] Add refresh-state unit coverage and pass Amber Apple qualification.
+
 ## Active implementation — private billboard native-token vertical slice
 
 - [x] Make the live-process quorum rehearsal wait for validator readiness and exercise two-chain finality instead of relying on fixed startup sleeps (GitHub issue #45).

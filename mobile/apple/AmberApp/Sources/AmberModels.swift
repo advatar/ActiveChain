@@ -192,3 +192,28 @@ enum AmberConnectionState: Equatable, Sendable {
         }
     }
 }
+
+struct AmberNetworkRefreshPresentation: Equatable, Sendable {
+    private(set) var isRefreshing = false
+    private(set) var completedChecks = 0
+
+    mutating func begin() -> Bool {
+        guard !isRefreshing else {
+            return false
+        }
+        isRefreshing = true
+        return true
+    }
+
+    mutating func complete() {
+        guard isRefreshing else {
+            return
+        }
+        isRefreshing = false
+        completedChecks += 1
+    }
+
+    var completionLabel: String? {
+        completedChecks == 0 ? nil : "Checked now"
+    }
+}
