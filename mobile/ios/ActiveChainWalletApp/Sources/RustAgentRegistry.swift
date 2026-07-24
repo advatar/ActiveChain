@@ -17,8 +17,6 @@ final class RustAgentRegistryStore: ObservableObject {
         self.snapshotURL = snapshotURL
         if let snapshotURL, let stored = try? Data(contentsOf: snapshotURL) {
             registry = stored
-        } else {
-            try? seedDevelopmentAgents()
         }
         try? refresh()
     }
@@ -68,62 +66,6 @@ final class RustAgentRegistryStore: ObservableObject {
                         capacity,
                         required
                     )
-                }
-            }
-        }
-    }
-
-    private func seedDevelopmentAgents() throws {
-        try register(
-            principalByte: 0x31,
-            capabilityByte: 0x41,
-            label: "Research agent",
-            connection: 1,
-            budget: 50,
-            expiresAt: 240_000
-        )
-        try register(
-            principalByte: 0x32,
-            capabilityByte: 0x42,
-            label: "Travel planner",
-            connection: 2,
-            budget: 10,
-            expiresAt: 210_000
-        )
-    }
-
-    private func register(
-        principalByte: UInt8,
-        capabilityByte: UInt8,
-        label: String,
-        connection: UInt32,
-        budget: UInt64,
-        expiresAt: UInt64
-    ) throws {
-        let principal = Data(repeating: principalByte, count: 48)
-        let capability = Data(repeating: capabilityByte, count: 48)
-        let label = Data(label.utf8)
-        try transition { registryPointer, registryLength, output, capacity, required in
-            principal.withUnsafeBytes { principalBytes in
-                label.withUnsafeBytes { labelBytes in
-                    capability.withUnsafeBytes { capabilityBytes in
-                        activechain_wallet_agent_register(
-                            registryPointer,
-                            registryLength,
-                            principalBytes.bindMemory(to: UInt8.self).baseAddress,
-                            labelBytes.bindMemory(to: UInt8.self).baseAddress,
-                            UInt32(label.count),
-                            connection,
-                            capabilityBytes.bindMemory(to: UInt8.self).baseAddress,
-                            1,
-                            0,
-                            budget,
-                            expiresAt,
-                            output,
-                            capacity,
-                            required
-                        )
-                    }
                 }
             }
         }
