@@ -39,10 +39,11 @@ Tracked by [GitHub issue #132](https://github.com/advatar/ActiveChain/issues/132
 
 Tracked by [GitHub issue #143](https://github.com/advatar/ActiveChain/issues/143).
 
-- [ ] Package arm64 and x86_64 Rust FFI code in each macOS XCFramework slice.
-- [ ] Require both macOS architectures in Apple distribution qualification.
-- [ ] Qualify the wallet with a generic unsigned macOS Archive.
-- [ ] Pass distribution consumers, app tests, and iOS/macOS build qualification.
+- [x] Package arm64 and x86_64 Rust FFI code in each macOS XCFramework slice.
+- [x] Require both macOS architectures in Apple distribution qualification.
+- [x] Qualify the wallet with a generic unsigned macOS Archive.
+- [x] Declare the generated iOS launch screen and pass iOS Archive validation.
+- [x] Pass distribution consumers, app tests, and iOS/macOS build qualification.
 
 ## Active implementation — wallet Receive flow
 
