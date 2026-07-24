@@ -445,10 +445,98 @@ impl CanonicalType for FungibleCoinCell {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
+/// Asset-bound transfer intent for the multi-asset path. Inputs must all
+/// carry the declared asset and their value must equal the transfer amount.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FungibleTransferV1 {
+    asset_id: AssetId,
+    sender: PrincipalId,
+    recipient: PrincipalId,
+    inputs: Vec<FungibleCoinCell>,
+    amount: Amount,
+}
+impl FungibleTransferV1 {
+    pub const TYPE_TAG: u16 = 0x00A3;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize =
+        48 + 48 + 48 + 2 + MAX_TRANSFER_INPUTS * FungibleCoinCell::MAX_ENCODED_LEN + 16;
+    pub fn new(
+        asset_id: AssetId,
+        sender: PrincipalId,
+        recipient: PrincipalId,
+        inputs: Vec<FungibleCoinCell>,
+        amount: Amount,
+    ) -> Result<Self, NativeMoneyError> {
+        if inputs.is_empty() || inputs.len() > MAX_TRANSFER_INPUTS || amount == 0 {
+            return Err(NativeMoneyError::ZeroAmount);
+        }
+        if inputs.windows(2).any(|w| w[0].origin() >= w[1].origin())
+            || inputs.iter().any(|c| c.asset_id() != asset_id || c.owner() != sender)
+        {
+            return Err(NativeMoneyError::InvalidInputs);
+        }
+        let total = inputs
+            .iter()
+            .try_fold(0_u128, |sum, c| sum.checked_add(c.amount()))
+            .ok_or(NativeMoneyError::AmountOverflow)?;
+        if total != amount {
+            return Err(NativeMoneyError::InvalidInputs);
+        }
+        Ok(Self { asset_id, sender, recipient, inputs, amount })
+    }
+    pub const fn asset_id(&self) -> AssetId {
+        self.asset_id
+    }
+    pub const fn sender(&self) -> PrincipalId {
+        self.sender
+    }
+    pub const fn recipient(&self) -> PrincipalId {
+        self.recipient
+    }
+    pub fn inputs(&self) -> &[FungibleCoinCell] {
+        &self.inputs
+    }
+    pub const fn amount(&self) -> Amount {
+        self.amount
+    }
+}
+impl CanonicalEncode for FungibleTransferV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.asset_id.encode(e)?;
+        self.sender.encode(e)?;
+        self.recipient.encode(e)?;
+        e.write_length(self.inputs.len(), MAX_TRANSFER_INPUTS)?;
+        for c in &self.inputs {
+            c.encode(e)?;
+        }
+        self.amount.encode(e)
+    }
+}
+impl CanonicalDecode for FungibleTransferV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let a = AssetId::decode(d)?;
+        let s = PrincipalId::decode(d)?;
+        let r = PrincipalId::decode(d)?;
+        let n = d.read_length(MAX_TRANSFER_INPUTS)?;
+        let mut v = Vec::with_capacity(n);
+        for _ in 0..n {
+            v.push(FungibleCoinCell::decode(d)?);
+        }
+        Self::new(a, s, r, v, u128::decode(d)?)
+            .map_err(|_| DecodeError::InvalidValue("invalid fungible transfer"))
+    }
+}
+impl CanonicalType for FungibleTransferV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 #[cfg(test)]
 mod fungible_cell_tests {
     use super::*;
     use activechain_protocol_types::{AssetId, Digest384};
+    use alloc::vec;
     #[test]
     fn explicit_asset_identity_round_trips_and_zero_amount_fails() {
         let origin = CoinCellOrigin::new(TransactionId::new(Digest384::new([1; 48])), 0);
@@ -469,6 +557,19 @@ mod fungible_cell_tests {
             FungibleCoinCell::new(origin, cell.asset_id(), cell.owner(), 0, 7),
             Err(NativeMoneyError::ZeroAmount)
         );
+    }
+
+    #[test]
+    fn transfer_rejects_cross_asset_and_value_mismatch() {
+        let origin = CoinCellOrigin::new(TransactionId::new(Digest384::new([1; 48])), 0);
+        let owner = PrincipalId::new(Digest384::new([3; 48]));
+        let asset = AssetId::new(Digest384::new([2; 48]));
+        let other = AssetId::new(Digest384::new([4; 48]));
+        let cell = FungibleCoinCell::new(origin, asset, owner, 42, 7).unwrap();
+        let recipient = PrincipalId::new(Digest384::new([5; 48]));
+        assert!(FungibleTransferV1::new(asset, owner, recipient, vec![cell], 41).is_err());
+        let wrong = FungibleCoinCell::new(origin, other, owner, 42, 7).unwrap();
+        assert!(FungibleTransferV1::new(asset, owner, recipient, vec![wrong], 42).is_err());
     }
 }
 
