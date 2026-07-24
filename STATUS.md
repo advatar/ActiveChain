@@ -88,9 +88,9 @@ Tracked by [GitHub issue #137](https://github.com/advatar/ActiveChain/issues/137
 
 Tracked by [GitHub issue #154](https://github.com/advatar/ActiveChain/issues/154).
 
-- [ ] Run a persistent three-validator quorum from one immutable Kanalen genesis.
-- [ ] Ingest finalized validator state monotonically into the durable RPC index.
-- [ ] Manage validator, ingestion, and RPC processes with restart-safe LaunchAgents.
+- [x] Run a persistent three-validator quorum from one immutable Kanalen genesis.
+- [x] Ingest finalized validator state monotonically into the durable RPC index.
+- [x] Manage validator, ingestion, and RPC processes with restart-safe LaunchAgents.
 - [ ] Reset only disposable Kanalen state and verify public RPC finality advances after restart.
 - [ ] Connect Amber content retrieval and bonded submission only after verified finality is live.
 

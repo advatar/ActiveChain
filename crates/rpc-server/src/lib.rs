@@ -339,6 +339,37 @@ impl DurableRpcStore {
         Ok(())
     }
 
+    pub fn reload(&self) -> Result<(), RpcStoreError> {
+        let next = load_index(&self.path)?;
+        self.replace(next)
+    }
+
+    pub fn advance_finality(
+        &self,
+        expected_genesis: Digest384,
+        finalized_height: u64,
+        finalized_at_unix_seconds: u64,
+    ) -> Result<(), RpcStoreError> {
+        let current = self.index.read().map_err(|_| RpcStoreError::Io)?.clone();
+        if current.genesis_commitment != expected_genesis
+            || finalized_height < current.finalized_height
+            || finalized_at_unix_seconds < current.finalized_at_unix_seconds
+        {
+            return Err(RpcStoreError::Invalid);
+        }
+        let next = RpcIndex::new(
+            current.chain_id,
+            current.genesis_commitment,
+            current.protocol_revision,
+            finalized_height,
+            finalized_at_unix_seconds,
+            current.maximum_staleness_seconds,
+            current.supported_proofs,
+            current.records,
+        )?;
+        self.replace(next)
+    }
+
     pub fn handle(&self, request: RpcRequest, now: u64) -> RpcResponse {
         let Ok(index) = self.index.read() else {
             return RpcResponse::Error(RpcError::Internal);
@@ -435,6 +466,7 @@ impl RpcServer {
 
     pub fn serve_once(&self, listener: &TcpListener, now: u64) -> Result<(), RpcStoreError> {
         let (mut stream, _) = listener.accept().map_err(|_| RpcStoreError::Io)?;
+        self.store.reload()?;
         configure_stream(&stream)?;
         let request = read_frame(&mut stream)?;
         let response = if let Ok(request) = decode_envelope::<RpcAccessRequest>(&request) {
@@ -870,6 +902,28 @@ mod tests {
         corrupt[10] ^= 1;
         std::fs::write(&path, corrupt).unwrap();
         assert!(matches!(DurableRpcStore::load(path.clone()), Err(RpcStoreError::Corrupt)));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn finalized_ingestion_is_monotonic_identity_bound_and_reloadable() {
+        let path = temporary("ingestion");
+        let _ = std::fs::remove_file(&path);
+        let serving = DurableRpcStore::create(path.clone(), index()).unwrap();
+        let writer = DurableRpcStore::load(path.clone()).unwrap();
+
+        writer.advance_finality(digest(2), 8, 110).unwrap();
+        serving.reload().unwrap();
+        let RpcResponse::Status(status) = serving.handle(RpcRequest::Status, 110) else {
+            panic!("status expected")
+        };
+        assert_eq!(status.finalized_height(), 8);
+        assert_eq!(status.chain_id(), ChainId::new(digest(1)));
+        assert_eq!(status.genesis_commitment(), digest(2));
+
+        assert_eq!(writer.advance_finality(digest(9), 9, 120), Err(RpcStoreError::Invalid));
+        assert_eq!(writer.advance_finality(digest(2), 7, 120), Err(RpcStoreError::Invalid));
+        assert_eq!(writer.advance_finality(digest(2), 9, 90), Err(RpcStoreError::Invalid));
         let _ = std::fs::remove_file(path);
     }
 

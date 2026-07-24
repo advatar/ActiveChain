@@ -14,6 +14,12 @@ The gateway does not expose consensus (`49150`), faucet (`49152`), or metrics (`
 The companion `kanalen.Caddyfile` fragment gives `kanalen.activechain.dev` a TLS-backed
 developmental-status response through the existing Caddy service.
 
+The Kanalen host runs validator followers on loopback ports `49154` and `49155`. The
+`dev.activechain.kanalen.round` LaunchAgent proposes a PQ-authenticated quorum round every 30
+seconds on `49150`, persists validator snapshots, and ingests the resulting monotonic finalized
+height into the RPC index. `activechain-rpc-node` reloads that durable index for every accepted
+connection, so no RPC restart is required after ingestion.
+
 Deploy only after validating the current Caddy configuration and taking backups:
 
 ```sh
