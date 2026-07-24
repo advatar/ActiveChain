@@ -151,6 +151,15 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 - [ ] Pass cross-repository malformed/adversarial vectors, device-key integration, privacy review,
   independent audit, and offline receipt-verification gates.
 
+## Active communication — first-class protocol primitives
+
+Tracked by [GitHub issue #172](https://github.com/advatar/ActiveChain/issues/172).
+
+- [x] Explain why assets, verified attributes, policies, and receipts are consensus-native types.
+- [x] Distinguish the implemented APL typed AST/evaluator from its planned authoring syntax/compiler.
+- [x] Distinguish ObjectVM contract bytecode from RISC Zero private proof guests and generic RISC-V.
+- [ ] Pass the landing-page build and responsive browser verification.
+
 ## Active deployment — Kanalen developmental RPC
 
 Tracked by [GitHub issue #137](https://github.com/advatar/ActiveChain/issues/137).
