@@ -47,6 +47,11 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
   regulatory, security, and operational contracts without assuming website claims are guarantees.
 - [ ] Freeze provider-independent payment, quote, intent, evidence, lifecycle, receipt, error,
   idempotency, webhook, and compatibility specifications with deterministic vectors.
+  - [x] Add bounded canonical identifiers, amounts, quotes, intents, evidence classes, and
+    lifecycle records in a consensus-independent `payment-types` crate.
+  - [x] Enforce terminal immutability, monotonic sequencing, body-bound idempotency, quote bounds,
+    and explicit separation of external observation from ActiveChain finality.
+  - [x] Publish deterministic positive/malformed vectors and an executable formal lifecycle model.
 - [ ] Complete multi-asset Coin Cells and the fungible native-asset registry required for
   conservation-checked issuance, transfer, burn, redemption, and proof-bearing discovery.
 - [ ] Implement an isolated, operator-configurable connector host, durable operation journal,

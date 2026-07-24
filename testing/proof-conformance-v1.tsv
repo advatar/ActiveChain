@@ -1,4 +1,5 @@
 domain	formal_artifact	production_witness	classification
+activebridge-payment	formal/lean/ActiveChain/Payments.lean	crates/payment-types/src/lib.rs	trace
 agent-authenticator	formal/KANI_AGENT_AUTHENTICATOR_PROOF_SCOPE.md	crates/wallet-core/src/agent_authenticator.rs	differential
 agent-enrollment	formal/lean/ActiveChain/AgentEnrollment.lean	crates/wallet-core/src/agent_enrollment.rs	trace
 apl	formal/lean/ActiveChain/Apl.lean	testing/vectors/policy/apl-truth-table.txt	differential
