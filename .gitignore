@@ -7,3 +7,4 @@
 *.profraw
 **/xcuserdata/
 *.xcuserstate
+.DS_Store
