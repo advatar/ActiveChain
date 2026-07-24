@@ -13,6 +13,12 @@ use sha3::{
 };
 use std::{fs::File, io::Write, path::Path};
 
+mod simulator;
+
+pub use simulator::{
+    ConnectorContract, ConnectorError, DeterministicConnector, SimulatorRequest, SimulatorScenario,
+};
+
 const MAX_OBSERVATIONS: usize = 65_535;
 const SNAPSHOT_TAG_LENGTH: usize = 48;
 const SNAPSHOT_DOMAIN: &[u8] = b"ACTIVECHAIN-ACTIVEBRIDGE-JOURNAL-V1";

@@ -59,6 +59,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
   - [x] Freeze authenticated provider-observation envelopes with bounded state, sequence,
     timestamps, account/reference commitments, payload commitment, and assurance class.
   - [x] Persist observation replay barriers and lifecycle advancement atomically across restart.
+  - [x] Add a deterministic provider simulator and reusable connector contract suite covering
+    success, rejection, reversal, unknown state, duplicate delivery, and sequence faults.
 - [ ] Implement and qualify the nTZS sandbox connector as the first regional adapter.
 - [ ] Join external evidence to capability/APL-authorized native ingress, egress, conversion,
   paymaster sponsorship, and offline-verifiable finalized receipts.
