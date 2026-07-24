@@ -1,10 +1,12 @@
 #![forbid(unsafe_code)]
 
 mod access;
+mod faucet;
 
 pub use access::{
     AccessCharge, RpcAccessController, load_access_terms, verify_access_terms, write_access_terms,
 };
+pub use faucet::{DurableFaucet, FaucetError, FaucetPolicy, SybilPolicy};
 
 use activechain_action_kernel::{ActionEnvelope, action_id};
 use activechain_application_primitives::{DigestAnchorStatementV1, DurableAnchorRegistry};
@@ -392,9 +394,11 @@ impl DurableRpcStore {
             RpcRequest::List { kind, after, limit } => index
                 .list(kind, after, limit)
                 .map_or(RpcResponse::Error(RpcError::Internal), RpcResponse::Page),
-            RpcRequest::SubmitAnchor { .. } | RpcRequest::ResolveAnchor { .. } => {
-                RpcResponse::Error(RpcError::InvalidRequest)
-            }
+            RpcRequest::SubmitAnchor { .. }
+            | RpcRequest::ResolveAnchor { .. }
+            | RpcRequest::RequestFaucet { .. }
+            | RpcRequest::ResolveFaucet { .. }
+            | RpcRequest::FaucetTerms => RpcResponse::Error(RpcError::InvalidRequest),
         }
     }
 

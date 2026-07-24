@@ -11,6 +11,7 @@ data-availability	formal/DA_PROOF_SCOPE.md	honest shard threshold	production sta
 envelope	formal/ENVELOPE_PROOF_SCOPE.md	canonical primitive semantics	foreign memory and compiler correspondence	retain-minimize-fix-claim
 epoch-upgrade	formal/EPOCH_UPGRADE_PROOF_SCOPE.md	finalized upgrade authorization	trace refinement only	retain-minimize-fix-claim
 identity	formal/IDENTITY_PROOF_SCOPE.md	authenticated controller evidence	upstream signature provenance	retain-minimize-fix-claim
+kani-faucet	formal/KANI_FAUCET_PROOF_SCOPE.md	SHAKE256, trusted clock and source provenance	filesystem, transaction ingress and finality	retain-minimize-fix-claim
 kani-codec	formal/KANI_CODEC_PROOF_SCOPE.md	finite unwind and allocation success	larger arbitrary schemas	retain-minimize-fix-claim
 kani-ffi	formal/KANI_VERIFIER_FFI_PROOF_SCOPE.md	readable foreign memory	arbitrary pointer validity	retain-minimize-fix-claim
 kani-object-vm	formal/KANI_OBJECT_VM_PROOF_SCOPE.md	bounded helper composition	whole interpreter timeout	timeout-explicit-unproved

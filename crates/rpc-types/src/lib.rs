@@ -9,7 +9,7 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
 use activechain_protocol_types::{
-    ChainId, CryptoSuiteId, Digest384, ProtocolSignature, TransactionId,
+    ChainId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature, TransactionId,
 };
 use alloc::{boxed::Box, vec::Vec};
 use sha3::{
@@ -241,6 +241,366 @@ impl CanonicalDecode for QueryKind {
     }
 }
 
+pub const MAX_FAUCET_PROOF_LENGTH: usize = 4_096;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum FaucetChallengeKind {
+    CooldownOnly = 0,
+    ProofOfWork = 1,
+}
+impl CanonicalEncode for FaucetChallengeKind {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(encoder)
+    }
+}
+impl CanonicalDecode for FaucetChallengeKind {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(decoder)? {
+            0 => Ok(Self::CooldownOnly),
+            1 => Ok(Self::ProofOfWork),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "FaucetChallengeKind", tag }),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FaucetTermsV1 {
+    chain_id: ChainId,
+    genesis_commitment: Digest384,
+    policy_revision: u64,
+    valid_until: u64,
+    grant_amount: u128,
+    recipient_cooldown_seconds: u64,
+    recipient_lifetime_limit: u16,
+    source_window_seconds: u64,
+    source_window_limit: u16,
+    global_window_seconds: u64,
+    global_window_limit: u32,
+    challenge_kind: FaucetChallengeKind,
+    challenge_difficulty: u8,
+}
+impl FaucetTermsV1 {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        chain_id: ChainId,
+        genesis_commitment: Digest384,
+        policy_revision: u64,
+        valid_until: u64,
+        grant_amount: u128,
+        recipient_cooldown_seconds: u64,
+        recipient_lifetime_limit: u16,
+        source_window_seconds: u64,
+        source_window_limit: u16,
+        global_window_seconds: u64,
+        global_window_limit: u32,
+        challenge_kind: FaucetChallengeKind,
+        challenge_difficulty: u8,
+    ) -> Result<Self, DecodeError> {
+        if genesis_commitment == Digest384::ZERO
+            || policy_revision == 0
+            || valid_until == 0
+            || grant_amount == 0
+            || recipient_cooldown_seconds == 0
+            || recipient_lifetime_limit == 0
+            || source_window_seconds == 0
+            || source_window_limit == 0
+            || global_window_seconds == 0
+            || global_window_limit == 0
+            || challenge_difficulty > 32
+            || (challenge_kind == FaucetChallengeKind::CooldownOnly && challenge_difficulty != 0)
+            || (challenge_kind == FaucetChallengeKind::ProofOfWork && challenge_difficulty == 0)
+        {
+            return Err(DecodeError::InvalidValue("invalid faucet terms"));
+        }
+        Ok(Self {
+            chain_id,
+            genesis_commitment,
+            policy_revision,
+            valid_until,
+            grant_amount,
+            recipient_cooldown_seconds,
+            recipient_lifetime_limit,
+            source_window_seconds,
+            source_window_limit,
+            global_window_seconds,
+            global_window_limit,
+            challenge_kind,
+            challenge_difficulty,
+        })
+    }
+    pub const fn chain_id(self) -> ChainId {
+        self.chain_id
+    }
+    pub const fn genesis_commitment(self) -> Digest384 {
+        self.genesis_commitment
+    }
+    pub const fn policy_revision(self) -> u64 {
+        self.policy_revision
+    }
+    pub const fn valid_until(self) -> u64 {
+        self.valid_until
+    }
+    pub const fn grant_amount(self) -> u128 {
+        self.grant_amount
+    }
+    pub const fn challenge_kind(self) -> FaucetChallengeKind {
+        self.challenge_kind
+    }
+    pub const fn challenge_difficulty(self) -> u8 {
+        self.challenge_difficulty
+    }
+}
+impl CanonicalEncode for FaucetTermsV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain_id.encode(e)?;
+        self.genesis_commitment.encode(e)?;
+        self.policy_revision.encode(e)?;
+        self.valid_until.encode(e)?;
+        self.grant_amount.encode(e)?;
+        self.recipient_cooldown_seconds.encode(e)?;
+        self.recipient_lifetime_limit.encode(e)?;
+        self.source_window_seconds.encode(e)?;
+        self.source_window_limit.encode(e)?;
+        self.global_window_seconds.encode(e)?;
+        self.global_window_limit.encode(e)?;
+        self.challenge_kind.encode(e)?;
+        self.challenge_difficulty.encode(e)
+    }
+}
+impl CanonicalDecode for FaucetTermsV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            ChainId::decode(d)?,
+            Digest384::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            u128::decode(d)?,
+            u64::decode(d)?,
+            u16::decode(d)?,
+            u64::decode(d)?,
+            u16::decode(d)?,
+            u64::decode(d)?,
+            u32::decode(d)?,
+            FaucetChallengeKind::decode(d)?,
+            u8::decode(d)?,
+        )
+    }
+}
+impl CanonicalType for FaucetTermsV1 {
+    const TYPE_TAG: u16 = 0x00bf;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 * 2 + 8 * 5 + 16 + 2 * 2 + 4 + 2;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FaucetRequestV1 {
+    chain_id: ChainId,
+    genesis_commitment: Digest384,
+    recipient: PrincipalId,
+    idempotency_key: Digest384,
+    challenge_nonce: u64,
+    challenge_evidence: Vec<u8>,
+}
+
+impl FaucetRequestV1 {
+    pub fn new(
+        chain_id: ChainId,
+        genesis_commitment: Digest384,
+        recipient: PrincipalId,
+        idempotency_key: Digest384,
+        challenge_nonce: u64,
+        challenge_evidence: Vec<u8>,
+    ) -> Result<Self, DecodeError> {
+        if genesis_commitment == Digest384::ZERO
+            || idempotency_key == Digest384::ZERO
+            || challenge_evidence.len() > MAX_FAUCET_PROOF_LENGTH
+        {
+            return Err(DecodeError::InvalidValue("invalid faucet request"));
+        }
+        Ok(Self {
+            chain_id,
+            genesis_commitment,
+            recipient,
+            idempotency_key,
+            challenge_nonce,
+            challenge_evidence,
+        })
+    }
+    pub const fn chain_id(&self) -> ChainId {
+        self.chain_id
+    }
+    pub const fn genesis_commitment(&self) -> Digest384 {
+        self.genesis_commitment
+    }
+    pub const fn recipient(&self) -> PrincipalId {
+        self.recipient
+    }
+    pub const fn idempotency_key(&self) -> Digest384 {
+        self.idempotency_key
+    }
+    pub const fn challenge_nonce(&self) -> u64 {
+        self.challenge_nonce
+    }
+    pub fn challenge_evidence(&self) -> &[u8] {
+        &self.challenge_evidence
+    }
+}
+impl CanonicalEncode for FaucetRequestV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain_id.encode(encoder)?;
+        self.genesis_commitment.encode(encoder)?;
+        self.recipient.encode(encoder)?;
+        self.idempotency_key.encode(encoder)?;
+        self.challenge_nonce.encode(encoder)?;
+        encoder.write_bytes(&self.challenge_evidence, MAX_FAUCET_PROOF_LENGTH)
+    }
+}
+impl CanonicalDecode for FaucetRequestV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            ChainId::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            PrincipalId::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            u64::decode(decoder)?,
+            decoder.read_bytes(MAX_FAUCET_PROOF_LENGTH)?.to_vec(),
+        )
+    }
+}
+impl CanonicalType for FaucetRequestV1 {
+    const TYPE_TAG: u16 = 0x00c0;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 * 4 + 8 + 2 + MAX_FAUCET_PROOF_LENGTH;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum FaucetState {
+    Pending = 0,
+    Finalized = 1,
+    Rejected = 2,
+}
+impl CanonicalEncode for FaucetState {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(encoder)
+    }
+}
+impl CanonicalDecode for FaucetState {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(decoder)? {
+            0 => Ok(Self::Pending),
+            1 => Ok(Self::Finalized),
+            2 => Ok(Self::Rejected),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "FaucetState", tag }),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FaucetReceiptV1 {
+    reference: Digest384,
+    recipient: PrincipalId,
+    amount: u128,
+    state: FaucetState,
+    transaction_id: Option<TransactionId>,
+    finalized_height: Option<u64>,
+    finalized_block: Option<Digest384>,
+    proof: Vec<u8>,
+}
+impl FaucetReceiptV1 {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        reference: Digest384,
+        recipient: PrincipalId,
+        amount: u128,
+        state: FaucetState,
+        transaction_id: Option<TransactionId>,
+        finalized_height: Option<u64>,
+        finalized_block: Option<Digest384>,
+        proof: Vec<u8>,
+    ) -> Result<Self, DecodeError> {
+        let finalized_fields = transaction_id.is_some()
+            && finalized_height.is_some()
+            && finalized_block.is_some()
+            && !proof.is_empty();
+        if reference == Digest384::ZERO
+            || amount == 0
+            || proof.len() > MAX_RPC_BLOB_LENGTH
+            || (state == FaucetState::Finalized && !finalized_fields)
+            || (state != FaucetState::Finalized
+                && (finalized_height.is_some() || finalized_block.is_some() || !proof.is_empty()))
+        {
+            return Err(DecodeError::InvalidValue("invalid faucet receipt"));
+        }
+        Ok(Self {
+            reference,
+            recipient,
+            amount,
+            state,
+            transaction_id,
+            finalized_height,
+            finalized_block,
+            proof,
+        })
+    }
+    pub const fn reference(&self) -> Digest384 {
+        self.reference
+    }
+    pub const fn recipient(&self) -> PrincipalId {
+        self.recipient
+    }
+    pub const fn amount(&self) -> u128 {
+        self.amount
+    }
+    pub const fn state(&self) -> FaucetState {
+        self.state
+    }
+    pub const fn transaction_id(&self) -> Option<TransactionId> {
+        self.transaction_id
+    }
+    pub const fn finalized_height(&self) -> Option<u64> {
+        self.finalized_height
+    }
+    pub const fn finalized_block(&self) -> Option<Digest384> {
+        self.finalized_block
+    }
+    pub fn proof(&self) -> &[u8] {
+        &self.proof
+    }
+}
+impl CanonicalEncode for FaucetReceiptV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.reference.encode(encoder)?;
+        self.recipient.encode(encoder)?;
+        self.amount.encode(encoder)?;
+        self.state.encode(encoder)?;
+        self.transaction_id.encode(encoder)?;
+        self.finalized_height.encode(encoder)?;
+        self.finalized_block.encode(encoder)?;
+        encoder.write_bytes(&self.proof, MAX_RPC_BLOB_LENGTH)
+    }
+}
+impl CanonicalDecode for FaucetReceiptV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            Digest384::decode(decoder)?,
+            PrincipalId::decode(decoder)?,
+            u128::decode(decoder)?,
+            FaucetState::decode(decoder)?,
+            Option::<TransactionId>::decode(decoder)?,
+            Option::<u64>::decode(decoder)?,
+            Option::<Digest384>::decode(decoder)?,
+            decoder.read_bytes(MAX_RPC_BLOB_LENGTH)?.to_vec(),
+        )
+    }
+}
+impl CanonicalType for FaucetReceiptV1 {
+    const TYPE_TAG: u16 = 0x00c1;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 * 4 + 16 + 1 + 3 + 8 + 2 + MAX_RPC_BLOB_LENGTH;
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RpcRequest {
     Status,
@@ -248,6 +608,9 @@ pub enum RpcRequest {
     List { kind: QueryKind, after: Option<Digest384>, limit: u16 },
     SubmitAnchor { statement: Vec<u8> },
     ResolveAnchor { reference: Digest384 },
+    RequestFaucet { request: Box<FaucetRequestV1> },
+    ResolveFaucet { reference: Digest384 },
+    FaucetTerms,
 }
 
 impl CanonicalEncode for RpcRequest {
@@ -273,6 +636,15 @@ impl CanonicalEncode for RpcRequest {
                 4_u8.encode(encoder)?;
                 reference.encode(encoder)
             }
+            Self::RequestFaucet { request } => {
+                5_u8.encode(encoder)?;
+                request.encode(encoder)
+            }
+            Self::ResolveFaucet { reference } => {
+                6_u8.encode(encoder)?;
+                reference.encode(encoder)
+            }
+            Self::FaucetTerms => 7_u8.encode(encoder),
         }
     }
 }
@@ -295,6 +667,9 @@ impl CanonicalDecode for RpcRequest {
             }
             3 => Ok(Self::SubmitAnchor { statement: decoder.read_bytes(512)?.to_vec() }),
             4 => Ok(Self::ResolveAnchor { reference: Digest384::decode(decoder)? }),
+            5 => Ok(Self::RequestFaucet { request: Box::new(FaucetRequestV1::decode(decoder)?) }),
+            6 => Ok(Self::ResolveFaucet { reference: Digest384::decode(decoder)? }),
+            7 => Ok(Self::FaucetTerms),
             tag => Err(DecodeError::InvalidEnumTag { type_name: "RpcRequest", tag }),
         }
     }
@@ -302,7 +677,7 @@ impl CanonicalDecode for RpcRequest {
 impl CanonicalType for RpcRequest {
     const TYPE_TAG: u16 = 0x00a0;
     const SCHEMA_VERSION: u16 = 1;
-    const MAX_ENCODED_LEN: usize = 1 + 2 + 512;
+    const MAX_ENCODED_LEN: usize = 1 + FaucetRequestV1::MAX_ENCODED_LEN;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -453,9 +828,12 @@ impl RpcAccessTerms {
     pub fn cost(&self, request: &RpcRequest) -> Option<u64> {
         match request {
             RpcRequest::Status => Some(0),
+            RpcRequest::FaucetTerms => Some(0),
             RpcRequest::Get { .. }
             | RpcRequest::SubmitAnchor { .. }
-            | RpcRequest::ResolveAnchor { .. } => Some(self.get_units),
+            | RpcRequest::ResolveAnchor { .. }
+            | RpcRequest::RequestFaucet { .. }
+            | RpcRequest::ResolveFaucet { .. } => Some(self.get_units),
             RpcRequest::List { limit, .. } => self
                 .list_item_units
                 .checked_mul(*limit as u64)
@@ -1123,6 +1501,8 @@ pub enum RpcResponse {
     Error(RpcError),
     AnchorSubmission(Digest384),
     AnchorRecord(Vec<u8>),
+    FaucetReceipt(FaucetReceiptV1),
+    FaucetTerms(FaucetTermsV1),
 }
 impl CanonicalEncode for RpcResponse {
     fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
@@ -1151,6 +1531,14 @@ impl CanonicalEncode for RpcResponse {
                 5_u8.encode(encoder)?;
                 encoder.write_bytes(record, MAX_RPC_BLOB_LENGTH)
             }
+            Self::FaucetReceipt(receipt) => {
+                6_u8.encode(encoder)?;
+                receipt.encode(encoder)
+            }
+            Self::FaucetTerms(terms) => {
+                7_u8.encode(encoder)?;
+                terms.encode(encoder)
+            }
         }
     }
 }
@@ -1163,6 +1551,8 @@ impl CanonicalDecode for RpcResponse {
             3 => Ok(Self::Error(RpcError::decode(decoder)?)),
             4 => Ok(Self::AnchorSubmission(Digest384::decode(decoder)?)),
             5 => Ok(Self::AnchorRecord(decoder.read_bytes(MAX_RPC_BLOB_LENGTH)?.to_vec())),
+            6 => Ok(Self::FaucetReceipt(FaucetReceiptV1::decode(decoder)?)),
+            7 => Ok(Self::FaucetTerms(FaucetTermsV1::decode(decoder)?)),
             tag => Err(DecodeError::InvalidEnumTag { type_name: "RpcResponse", tag }),
         }
     }
@@ -1170,14 +1560,17 @@ impl CanonicalDecode for RpcResponse {
 impl CanonicalType for RpcResponse {
     const TYPE_TAG: u16 = 0x00a1;
     const SCHEMA_VERSION: u16 = 1;
-    const MAX_ENCODED_LEN: usize =
-        1 + 2 + MAX_RPC_PAGE_SIZE as usize * (1 + 48 + 8 + 3 * (4 + MAX_RPC_BLOB_LENGTH)) + 49;
+    const MAX_ENCODED_LEN: usize = 1
+        + 2
+        + MAX_RPC_PAGE_SIZE as usize * (1 + 48 + 8 + 3 * (4 + MAX_RPC_BLOB_LENGTH))
+        + FaucetReceiptV1::MAX_ENCODED_LEN;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use activechain_canonical_codec::{decode_envelope, encode_envelope};
+    use alloc::vec;
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
@@ -1242,6 +1635,68 @@ mod tests {
         let invalid = RpcRequest::List { kind: QueryKind::State, after: None, limit: 0 };
         let bytes = encode_envelope(&invalid).unwrap();
         assert!(decode_envelope::<RpcRequest>(&bytes).is_err());
+    }
+
+    #[test]
+    fn faucet_contract_round_trips_and_requires_finalized_evidence() {
+        let terms = FaucetTermsV1::new(
+            ChainId::new(digest(1)),
+            digest(2),
+            3,
+            10_000,
+            1_000,
+            60,
+            2,
+            60,
+            2,
+            60,
+            100,
+            FaucetChallengeKind::ProofOfWork,
+            12,
+        )
+        .unwrap();
+        assert_eq!(decode_envelope::<FaucetTermsV1>(&encode_envelope(&terms).unwrap()), Ok(terms));
+        let request = FaucetRequestV1::new(
+            ChainId::new(digest(1)),
+            digest(2),
+            PrincipalId::new(digest(3)),
+            digest(4),
+            9,
+            vec![5, 6],
+        )
+        .unwrap();
+        let wire = encode_envelope(&request).unwrap();
+        assert_eq!(decode_envelope::<FaucetRequestV1>(&wire), Ok(request.clone()));
+
+        let pending = FaucetReceiptV1::new(
+            digest(7),
+            PrincipalId::new(digest(3)),
+            1_000,
+            FaucetState::Pending,
+            Some(TransactionId::new(digest(8))),
+            None,
+            None,
+            Vec::new(),
+        )
+        .unwrap();
+        let response = RpcResponse::FaucetReceipt(pending);
+        assert_eq!(
+            decode_envelope::<RpcResponse>(&encode_envelope(&response).unwrap()),
+            Ok(response)
+        );
+        assert!(
+            FaucetReceiptV1::new(
+                digest(7),
+                PrincipalId::new(digest(3)),
+                1_000,
+                FaucetState::Finalized,
+                Some(TransactionId::new(digest(8))),
+                Some(12),
+                Some(digest(9)),
+                Vec::new(),
+            )
+            .is_err()
+        );
     }
 
     #[test]
