@@ -160,6 +160,14 @@ Tracked by [GitHub issue #152](https://github.com/advatar/ActiveChain/issues/152
 - [x] Prevent overlapping status requests and report completed checks.
 - [x] Add refresh-state unit coverage and pass Amber Apple qualification.
 
+## Active fix — Amber composer board selection
+
+Tracked by [GitHub issue #158](https://github.com/advatar/ActiveChain/issues/158).
+
+- [x] Add an explicit board picker to the bonded-post composer.
+- [x] Preserve an existing board selection and expose the live-submission gate.
+- [x] Add readiness tests and pass native iOS and macOS qualification.
+
 ## Active implementation — private billboard native-token vertical slice
 
 - [x] Make the live-process quorum rehearsal wait for validator readiness and exercise two-chain finality instead of relying on fixed startup sleeps (GitHub issue #45).

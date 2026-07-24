@@ -1,18 +1,28 @@
 import SwiftUI
 
 struct AmberComposerView: View {
+    let boards: [AmberBoard]
     let board: AmberBoard?
     let quote: AmberBondQuote
     @Environment(\.dismiss) private var dismiss
+    @State private var selectedBoardID: AmberBoardID?
     @State private var subject = ""
     @State private var bodyText = ""
     @State private var understandsBond = false
+
+    init(boards: [AmberBoard], board: AmberBoard?, quote: AmberBondQuote) {
+        self.boards = boards
+        self.board = board
+        self.quote = quote
+        _selectedBoardID = State(initialValue: board?.id)
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     header
+                    boardPicker
                     contentFields
                     bondDisclosure
                 }
@@ -38,11 +48,28 @@ struct AmberComposerView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(board?.id.description ?? "Choose a board")
+            Text(selectedBoard?.id.description ?? "Choose a board")
                 .font(.system(.title, design: .monospaced, weight: .black))
                 .foregroundStyle(AmberStyle.rust)
             Text("Posting is not free. The fee is spent; the bond stays locked until a final outcome.")
                 .foregroundStyle(AmberStyle.mutedInk)
+        }
+    }
+
+    private var boardPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("BOARD")
+                .font(.caption.monospaced().weight(.bold))
+                .foregroundStyle(AmberStyle.rust)
+            Picker("Board", selection: $selectedBoardID) {
+                Text("Choose a board").tag(Optional<AmberBoardID>.none)
+                ForEach(boards) { candidate in
+                    Text("\(candidate.id.description) \(candidate.title)")
+                        .tag(Optional(candidate.id))
+                }
+            }
+            .pickerStyle(.menu)
+            .accessibilityIdentifier("amber.composer.board")
         }
     }
 
@@ -86,7 +113,7 @@ struct AmberComposerView: View {
             )
             .font(.subheadline.weight(.semibold))
 
-            Text("Testnet preview only. Adjudicator selection, appeals, private claims, and production parameters are not active.")
+            Text(readiness.message)
                 .font(.caption2.monospaced())
                 .foregroundStyle(AmberStyle.rust)
         }
@@ -99,10 +126,20 @@ struct AmberComposerView: View {
     }
 
     private var canSubmit: Bool {
-        board != nil
-            && !bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && understandsBond
-            && false // Fail closed until verified RPC submission and wallet escrow are connected.
+        readiness == .ready
+    }
+
+    private var selectedBoard: AmberBoard? {
+        boards.first { $0.id == selectedBoardID }
+    }
+
+    private var readiness: AmberComposerReadiness {
+        AmberComposerReadiness.evaluate(
+            board: selectedBoardID,
+            body: bodyText,
+            understandsBond: understandsBond,
+            liveSubmissionAvailable: false
+        )
     }
 }
 

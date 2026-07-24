@@ -156,6 +156,40 @@ enum AmberModelError: Error, Equatable {
     case invalidBoard
 }
 
+enum AmberComposerReadiness: Equatable, Sendable {
+    case chooseBoard
+    case enterPost
+    case acknowledgeBond
+    case liveSubmissionUnavailable
+    case ready
+
+    static func evaluate(
+        board: AmberBoardID?,
+        body: String,
+        understandsBond: Bool,
+        liveSubmissionAvailable: Bool
+    ) -> Self {
+        guard board != nil else { return .chooseBoard }
+        guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .enterPost
+        }
+        guard understandsBond else { return .acknowledgeBond }
+        guard liveSubmissionAvailable else { return .liveSubmissionUnavailable }
+        return .ready
+    }
+
+    var message: String {
+        switch self {
+        case .chooseBoard: "Choose a board to continue."
+        case .enterPost: "Enter the post text to continue."
+        case .acknowledgeBond: "Acknowledge the bond and moderation conditions to continue."
+        case .liveSubmissionUnavailable:
+            "Live posting is not connected yet; Amber will not pretend that a preview was submitted."
+        case .ready: "Ready to lock the bond and submit."
+        }
+    }
+}
+
 struct AmberNetwork: Hashable, Sendable {
     let name: String
     let rpcURL: URL
