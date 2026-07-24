@@ -159,4 +159,41 @@ theorem rejectedObservationLeavesNoReplacement
     journalApply current incoming = none := by
   simp [journalApply, hDifferent, hRejected]
 
+inductive ProviderState where
+  | pending
+  | succeeded
+  | rejected
+  | reversed
+  | cancelled
+  | unknown
+  deriving BEq, DecidableEq, Repr
+
+def providerPermits : ProviderState → ProviderState → Bool
+  | .pending, next =>
+      next == .pending || next == .succeeded || next == .rejected ||
+        next == .cancelled || next == .unknown
+  | .unknown, next =>
+      next == .pending || next == .succeeded || next == .rejected || next == .cancelled
+  | .succeeded, next => next == .reversed
+  | _, _ => false
+
+def providerTerminal : ProviderState → Bool
+  | .rejected | .reversed | .cancelled => true
+  | _ => false
+
+theorem providerTerminalHasNoSuccessor
+    (state next : ProviderState)
+    (hTerminal : providerTerminal state = true) :
+    providerPermits state next = false := by
+  cases state <;> cases next <;> simp_all [providerTerminal, providerPermits]
+
+def nextCursor (cursor length : Nat) : Nat :=
+  if cursor + 1 < length then cursor + 1 else cursor
+
+theorem simulatorCursorIsMonotonic (cursor length : Nat) :
+    cursor ≤ nextCursor cursor length := by
+  by_cases advances : cursor + 1 < length
+  · simp [nextCursor, advances]
+  · simp [nextCursor, advances]
+
 end ActiveChain.Payments

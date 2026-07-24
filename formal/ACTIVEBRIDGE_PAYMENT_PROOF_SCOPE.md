@@ -12,6 +12,7 @@ Mechanically checked properties:
 - a provider-observation successor preserves its attempt and advances sequence exactly once.
 - exact observation replay does not mutate journal state, and a rejected successor produces no
   replacement state in the abstract journal model.
+- provider terminal states have no successor, and deterministic simulator cursors never regress.
 
 The Rust crate additionally checks intent identity across successors, exact asset identity,
 minimum-output ordering, checked fee arithmetic, idempotency-body binding, canonical round trips,

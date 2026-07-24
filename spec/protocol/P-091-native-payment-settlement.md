@@ -172,6 +172,18 @@ snapshot to a temporary file, calls `sync_all`, atomically renames it, and synch
 directory before replacing live memory. Failed persistence MUST leave the prior in-memory state
 unchanged. Corrupt, truncated, reordered, duplicate, or trailing snapshot data MUST fail closed.
 
+The reference deterministic connector simulator uses the same contract as real adapters. Scenarios
+start in `Pending`, contain at most 16 states, and admit only:
+
+- pending to pending, succeeded, rejected, cancelled, or unknown;
+- unknown to pending, succeeded, rejected, or cancelled;
+- succeeded to reversed.
+
+Rejected, reversed, and cancelled are terminal. Polling a completed scenario returns the exact
+terminal observation, allowing the journal to exercise idempotent duplicate delivery. The shared
+contract suite covers success, rejection, post-success reversal, unknown-state recovery, changed
+duplicate attempts, illegal terminal edges, and skipped delivery sequences.
+
 ## 9. Registered top-level types
 
 | Type | Tag | Revision |
