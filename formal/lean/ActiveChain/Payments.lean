@@ -125,4 +125,22 @@ theorem finalizedCarriesFinality
   | mk intent sequence state evidence transaction height block =>
       cases state <;> simp_all [wellFormed]
 
+structure Observation where
+  attempt : Nat
+  sequence : Nat
+  observedAt : Nat
+  deriving BEq, DecidableEq, Repr
+
+def observationFollows (previous next : Observation) : Bool :=
+  previous.attempt == next.attempt &&
+    next.sequence == previous.sequence + 1 &&
+    previous.observedAt <= next.observedAt
+
+theorem observationSuccessorPreservesAttemptAndSequence
+    (previous next : Observation)
+    (h : observationFollows previous next = true) :
+    previous.attempt = next.attempt ∧ next.sequence = previous.sequence + 1 := by
+  simp [observationFollows] at h
+  exact h.1
+
 end ActiveChain.Payments

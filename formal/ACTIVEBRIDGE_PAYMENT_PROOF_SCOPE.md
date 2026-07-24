@@ -9,6 +9,7 @@ Mechanically checked properties:
 - every successor advances sequence by exactly one;
 - a well-formed external confirmation cannot claim ActiveChain-finalized evidence;
 - a well-formed finalized state carries the declared finality fields.
+- a provider-observation successor preserves its attempt and advances sequence exactly once.
 
 The Rust crate additionally checks intent identity across successors, exact asset identity,
 minimum-output ordering, checked fee arithmetic, idempotency-body binding, canonical round trips,
