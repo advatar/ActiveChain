@@ -13,6 +13,9 @@ Tracked by the regulated-profile implementation plan in
 - [ ] Collect operating-period evidence and complete independent security/compliance engagement.
 - [x] Publish initial role/jurisdiction, compliance-boundary, regulatory-change, and privacy/data
   boundary templates; completion still requires accountable owners and counsel review.
+- [x] Draft P-120 compliance evidence and P-121 regulated-transfer binding with privacy-preserving
+  boundaries and deterministic positive/malformed vector tables.
+- [ ] Implement canonical Rust types, signatures, replay barriers, and formal proofs for P-120/P-121.
 
 ## Phase 0 — protocol foundation
 
