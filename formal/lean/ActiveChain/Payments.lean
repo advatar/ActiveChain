@@ -312,4 +312,65 @@ theorem acceptedProviderBindingIsExact
           rcases hAccepted with ⟨rfl, rfl, rfl, rfl⟩
           rfl
 
+inductive NtzsAttemptPhase where
+  | prepared
+  | mayHaveReachedProvider
+  | providerReferenceBound
+  deriving BEq, DecidableEq, Repr
+
+inductive NtzsDispatchDecision where
+  | ready
+  | reconcile
+  | complete
+  deriving BEq, DecidableEq, Repr
+
+def ntzsDispatchDecision : NtzsAttemptPhase → NtzsDispatchDecision
+  | .prepared => .ready
+  | .mayHaveReachedProvider => .reconcile
+  | .providerReferenceBound => .complete
+
+theorem onlyPreparedAttemptIsReady (phase : NtzsAttemptPhase) :
+    ntzsDispatchDecision phase = .ready ↔ phase = .prepared := by
+  cases phase <;> simp [ntzsDispatchDecision]
+
+theorem ambiguousAttemptCannotDispatchAgain :
+    ntzsDispatchDecision .mayHaveReachedProvider = .reconcile := by
+  rfl
+
+def markNtzsDispatch : NtzsAttemptPhase → Option NtzsAttemptPhase
+  | .prepared => some .mayHaveReachedProvider
+  | _ => none
+
+theorem dispatchBoundaryCanBeCrossedOnlyOnce (phase : NtzsAttemptPhase) :
+    markNtzsDispatch phase = some .mayHaveReachedProvider ↔ phase = .prepared := by
+  cases phase <;> simp [markNtzsDispatch]
+
+def prepareNtzsRequest (existing incoming : Nat) : Option Nat :=
+  if existing = incoming then some existing else none
+
+theorem exactNtzsRequestReplayIsIdempotent (request : Nat) :
+    prepareNtzsRequest request request = some request := by
+  simp [prepareNtzsRequest]
+
+theorem changedNtzsRequestIsRejected
+    (existing incoming : Nat)
+    (hChanged : existing ≠ incoming) :
+    prepareNtzsRequest existing incoming = none := by
+  simp [prepareNtzsRequest, hChanged]
+
+def bindNtzsProviderReference
+    (phase : NtzsAttemptPhase)
+    (existing incoming : Nat) : Option (NtzsAttemptPhase × Nat) :=
+  match phase with
+  | .mayHaveReachedProvider => some (.providerReferenceBound, incoming)
+  | .providerReferenceBound =>
+      if existing = incoming then some (.providerReferenceBound, existing) else none
+  | .prepared => none
+
+theorem changedBoundProviderReferenceIsRejected
+    (existing incoming : Nat)
+    (hChanged : existing ≠ incoming) :
+    bindNtzsProviderReference .providerReferenceBound existing incoming = none := by
+  simp [bindNtzsProviderReference, hChanged]
+
 end ActiveChain.Payments

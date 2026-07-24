@@ -75,6 +75,9 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
     - [x] Implement lossless bounded decimal parsing and validated deposit, transfer, and
       withdrawal response schemas whose amount, asset, and provider reference must match the
       persisted ActiveBridge attempt before an observation can be emitted.
+    - [x] Persist connector-owned request commitments and operation phases so exact retries are
+      idempotent, changed-body key reuse is rejected, and timeout-after-send cannot create a second
+      provider operation without reconciliation.
     - [ ] Implement the remaining typed request, quote, swap/SSE, ramp, reconciliation, and
       connector-owned retry/idempotency schemas after obtaining authoritative missing fields.
   - [ ] Run contractual sandbox tests with issued test credentials and qualify TLS/DNS, secret

@@ -18,6 +18,8 @@ Mechanically checked properties:
   evidence is not ActiveChain finality.
 - accepted nTZS decimal amounts and provider response bindings equal the exact registered
   atomic-unit, unit, asset, and reference values.
+- only prepared nTZS attempts may dispatch; ambiguous attempts reconcile, exact request replay is
+  idempotent, and changed request/provider-reference bindings are rejected.
 
 The Rust crate additionally checks intent identity across successors, exact asset identity,
 minimum-output ordering, checked fee arithmetic, idempotency-body binding, canonical round trips,

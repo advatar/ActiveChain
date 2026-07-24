@@ -22,10 +22,14 @@ use std::fmt;
 use std::{collections::BTreeSet, fs::File, io::Write, path::Path};
 
 mod amount;
+mod attempt;
 mod response;
 
 pub use amount::{
     AmountError, ExactProviderAmount, NtzsAssetBinding, NtzsExternalAmount, NtzsExternalUnit,
+};
+pub use attempt::{
+    AttemptDispatchDecision, AttemptJournalError, NtzsAttemptJournal, NtzsAttemptPhase,
 };
 pub use response::{NtzsProviderResult, ResponseSchemaError, parse_operation_response};
 
@@ -56,23 +60,43 @@ pub enum HttpMethod {
 
 /// Reviewed nTZS endpoint. Templates are returned for identifier-bearing GET operations.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
 pub enum NtzsEndpoint {
-    CreateUser,
-    GetUser,
-    CreateDeposit,
-    CreateTransfer,
-    CreateWithdrawal,
-    SwapRate,
-    CreateSwap,
-    RampBalance,
-    RampQuote,
-    RampOfframp,
-    RampOnramp,
-    GetRampSettlement,
-    ListRampSettlements,
+    CreateUser = 0,
+    GetUser = 1,
+    CreateDeposit = 2,
+    CreateTransfer = 3,
+    CreateWithdrawal = 4,
+    SwapRate = 5,
+    CreateSwap = 6,
+    RampBalance = 7,
+    RampQuote = 8,
+    RampOfframp = 9,
+    RampOnramp = 10,
+    GetRampSettlement = 11,
+    ListRampSettlements = 12,
 }
 
 impl NtzsEndpoint {
+    pub(crate) const fn from_tag(tag: u8) -> Option<Self> {
+        match tag {
+            0 => Some(Self::CreateUser),
+            1 => Some(Self::GetUser),
+            2 => Some(Self::CreateDeposit),
+            3 => Some(Self::CreateTransfer),
+            4 => Some(Self::CreateWithdrawal),
+            5 => Some(Self::SwapRate),
+            6 => Some(Self::CreateSwap),
+            7 => Some(Self::RampBalance),
+            8 => Some(Self::RampQuote),
+            9 => Some(Self::RampOfframp),
+            10 => Some(Self::RampOnramp),
+            11 => Some(Self::GetRampSettlement),
+            12 => Some(Self::ListRampSettlements),
+            _ => None,
+        }
+    }
+
     #[must_use]
     pub const fn method(self) -> HttpMethod {
         match self {
@@ -803,6 +827,25 @@ mod tests {
 
     #[test]
     fn api_contract_is_fixed_and_sandbox_rejects_live_keys() {
+        let endpoints = [
+            NtzsEndpoint::CreateUser,
+            NtzsEndpoint::GetUser,
+            NtzsEndpoint::CreateDeposit,
+            NtzsEndpoint::CreateTransfer,
+            NtzsEndpoint::CreateWithdrawal,
+            NtzsEndpoint::SwapRate,
+            NtzsEndpoint::CreateSwap,
+            NtzsEndpoint::RampBalance,
+            NtzsEndpoint::RampQuote,
+            NtzsEndpoint::RampOfframp,
+            NtzsEndpoint::RampOnramp,
+            NtzsEndpoint::GetRampSettlement,
+            NtzsEndpoint::ListRampSettlements,
+        ];
+        for endpoint in endpoints {
+            assert_eq!(NtzsEndpoint::from_tag(endpoint as u8), Some(endpoint));
+        }
+        assert_eq!(NtzsEndpoint::from_tag(u8::MAX), None);
         assert_eq!(NtzsEndpoint::CreateDeposit.method(), HttpMethod::Post);
         assert_eq!(NtzsEndpoint::CreateDeposit.path_template(), "/api/v1/deposits");
         assert!(!NtzsEndpoint::SwapRate.requires_authentication());

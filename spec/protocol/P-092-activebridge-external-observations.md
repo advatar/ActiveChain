@@ -182,6 +182,41 @@ observation. Provider fields never select a native asset merely by symbol.
 
 ## 9. Replay persistence and recovery
 
+### 9.1 Provider-attempt idempotency
+
+Local request replay and provider-side idempotency are separate claims. Before any provider call,
+the journal binds the payment attempt ID to a domain-separated request commitment over:
+
+- reviewed endpoint tag;
+- exact request body bytes;
+- exact provider idempotency-key bytes, or an explicit empty field.
+
+The journal stores no raw request body, phone, account, or API key. Reusing an attempt with the
+exact endpoint/request commitment is a no-op; changing any bound field is an idempotency conflict.
+
+The durable phase machine is:
+
+```text
+prepared -> may_have_reached_provider -> provider_reference_bound
+```
+
+`prepared` is written before dispatch is permitted. The connector then persists
+`may_have_reached_provider` before invoking transport. A crash in between is conservatively
+ambiguous. On restart, only `prepared` returns `ready`; `may_have_reached_provider` returns
+`reconcile`, and `provider_reference_bound` returns `complete`. The connector must never infer that
+a timeout means failure and create another provider operation.
+
+The first authenticated response or reconciliation result binds one nonzero provider-reference
+commitment. Exact reference replay is a no-op; replacement is rejected. This local state machine
+does not assert that an nTZS `Idempotency-Key` is effective unless contractual provider semantics
+are separately obtained and tested.
+
+The attempt, observation, and webhook-replay snapshots are individually crash-safe but are not a
+cross-file transaction. The production connector host must place them in one transactional
+single-writer store or conservatively reconcile any crash between their durable boundaries.
+
+### 9.2 Snapshot durability
+
 The reference replay journal stores a sorted, unique, bounded set of domain-separated event
 identities. Snapshots use atomic write, file sync, rename, and parent-directory sync. A
 domain-separated SHAKE256 tag detects accidental corruption; it is not a secret authenticator.
@@ -210,6 +245,6 @@ The sandbox adapter is not production-qualified until all of the following are e
 - Rust adapter and unit tests: `connectors/ntzs/`
 - sanitized webhook fixtures: `connectors/ntzs/fixtures/`
 - mapping vectors: `testing/ntzs-provider-contract-v1.tsv`,
-  `testing/ntzs-amount-vectors-v1.tsv`
+  `testing/ntzs-amount-vectors-v1.tsv`, `testing/ntzs-attempt-vectors-v1.tsv`
 - executable abstract model: `formal/lean/ActiveChain/Payments.lean`
 - explicit proof boundary: `formal/ACTIVEBRIDGE_NTZS_PROOF_SCOPE.md`

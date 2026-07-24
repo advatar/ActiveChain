@@ -48,6 +48,11 @@ impl NtzsProviderResult {
         self.amount
     }
 
+    #[must_use]
+    pub const fn provider_reference_commitment(&self) -> Digest384 {
+        self.provider_reference_commitment
+    }
+
     /// Emits an observation only after exact reference, asset, unit, and quantity binding.
     pub fn to_observation(
         &self,
