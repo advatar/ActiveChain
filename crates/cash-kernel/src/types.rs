@@ -614,6 +614,85 @@ impl CanonicalType for FungibleMintV1 {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
+/// Asset-bound burn intent consuming owned cells exactly once.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FungibleBurnV1 {
+    asset_id: AssetId,
+    authority: PrincipalId,
+    inputs: Vec<FungibleCoinCell>,
+    amount: Amount,
+}
+impl FungibleBurnV1 {
+    pub const TYPE_TAG: u16 = 0x00A5;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize =
+        48 + 48 + 2 + MAX_TRANSFER_INPUTS * FungibleCoinCell::MAX_ENCODED_LEN + 16;
+    pub fn new(
+        asset_id: AssetId,
+        authority: PrincipalId,
+        inputs: Vec<FungibleCoinCell>,
+        amount: Amount,
+    ) -> Result<Self, NativeMoneyError> {
+        if inputs.is_empty() || inputs.len() > MAX_TRANSFER_INPUTS || amount == 0 {
+            return Err(NativeMoneyError::ZeroAmount);
+        }
+        if inputs.windows(2).any(|w| w[0].origin() >= w[1].origin())
+            || inputs.iter().any(|c| c.asset_id() != asset_id || c.owner() != authority)
+        {
+            return Err(NativeMoneyError::InvalidInputs);
+        }
+        let total = inputs
+            .iter()
+            .try_fold(0_u128, |sum, c| sum.checked_add(c.amount()))
+            .ok_or(NativeMoneyError::AmountOverflow)?;
+        if total != amount {
+            return Err(NativeMoneyError::InvalidInputs);
+        }
+        Ok(Self { asset_id, authority, inputs, amount })
+    }
+    pub const fn asset_id(&self) -> AssetId {
+        self.asset_id
+    }
+    pub const fn authority(&self) -> PrincipalId {
+        self.authority
+    }
+    pub fn inputs(&self) -> &[FungibleCoinCell] {
+        &self.inputs
+    }
+    pub const fn amount(&self) -> Amount {
+        self.amount
+    }
+}
+impl CanonicalEncode for FungibleBurnV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.asset_id.encode(e)?;
+        self.authority.encode(e)?;
+        e.write_length(self.inputs.len(), MAX_TRANSFER_INPUTS)?;
+        for c in &self.inputs {
+            c.encode(e)?;
+        }
+        self.amount.encode(e)
+    }
+}
+impl CanonicalDecode for FungibleBurnV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let a = AssetId::decode(d)?;
+        let o = PrincipalId::decode(d)?;
+        let n = d.read_length(MAX_TRANSFER_INPUTS)?;
+        let mut v = Vec::with_capacity(n);
+        for _ in 0..n {
+            v.push(FungibleCoinCell::decode(d)?);
+        }
+        Self::new(a, o, v, u128::decode(d)?)
+            .map_err(|_| DecodeError::InvalidValue("invalid fungible burn"))
+    }
+}
+impl CanonicalType for FungibleBurnV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 #[cfg(test)]
 mod fungible_cell_tests {
     use super::*;
