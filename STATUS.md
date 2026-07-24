@@ -26,6 +26,30 @@ Tracked by [GitHub issue #187](https://github.com/advatar/ActiveChain/issues/187
 - [x] Qualify the landing build and responsive layout, publish the display submodule,
   update the parent pointer, and merge both repositories.
 
+## Active epic — ActiveBridge native payments and merchant settlement
+
+Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189).
+
+- [x] Publish the dependency-ordered architecture and implementation plan for canonical payments,
+  provider connectors, nTZS sandbox integration, native settlement, wallets, and merchant tooling.
+- [ ] Validate current nTZS API, sandbox, custody, stablecoin, settlement, reconciliation,
+  regulatory, security, and operational contracts without assuming website claims are guarantees.
+- [ ] Freeze provider-independent payment, quote, intent, evidence, lifecycle, receipt, error,
+  idempotency, webhook, and compatibility specifications with deterministic vectors.
+- [ ] Complete multi-asset Coin Cells and the fungible native-asset registry required for
+  conservation-checked issuance, transfer, burn, redemption, and proof-bearing discovery.
+- [ ] Implement an isolated, operator-configurable connector host, durable operation journal,
+  deterministic simulator, webhook delivery, reconciliation, and emergency controls.
+- [ ] Implement and qualify the nTZS sandbox connector as the first regional adapter.
+- [ ] Join external evidence to capability/APL-authorized native ingress, egress, conversion,
+  paymaster sponsorship, and offline-verifiable finalized receipts.
+- [ ] Ship authenticated RPC/REST, TypeScript/Swift/Kotlin SDKs, honest wallet flows, merchant
+  treasury controls, and reconciliation tooling.
+- [ ] Prove lifecycle safety, conservation, idempotency, replay resistance, restart equivalence,
+  authorization, quote bounds, and receipt binding; publish all external trust assumptions.
+- [ ] Pass adversarial, privacy, recovery, reconciliation, Kanalen pilot, independent-audit, and
+  production-qualification gates before enabling real value.
+
 ## Active wallet implementation — agent enrollment
 
 Tracked by [GitHub issue #182](https://github.com/advatar/ActiveChain/issues/182).
