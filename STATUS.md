@@ -35,6 +35,15 @@ Tracked by [GitHub issue #132](https://github.com/advatar/ActiveChain/issues/132
 - [x] Add platform-aware tests and document macOS build, run, and signing behavior.
 - [x] Pass formatting, script syntax, Swift tests, and both application builds.
 
+## Active fix — universal macOS wallet distribution
+
+Tracked by [GitHub issue #143](https://github.com/advatar/ActiveChain/issues/143).
+
+- [ ] Package arm64 and x86_64 Rust FFI code in each macOS XCFramework slice.
+- [ ] Require both macOS architectures in Apple distribution qualification.
+- [ ] Qualify the wallet with a generic unsigned macOS Archive.
+- [ ] Pass distribution consumers, app tests, and iOS/macOS build qualification.
+
 ## Active implementation — wallet Receive flow
 
 Tracked by [GitHub issue #135](https://github.com/advatar/ActiveChain/issues/135).
