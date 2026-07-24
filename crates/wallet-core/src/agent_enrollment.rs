@@ -3,7 +3,7 @@ use crate::{
 };
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
-    encode_envelope,
+    decode_envelope, encode_envelope,
 };
 use activechain_protocol_types::{
     AuthenticatorDescriptor, AuthenticatorPurpose, CapabilityId, ChainId, CryptoSuiteId, Digest384,
@@ -17,10 +17,14 @@ use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
 };
+use std::{io::Write, path::Path};
 
 const REQUEST_SIGNING_DOMAIN: &[u8] = b"ACTIVECHAIN-AGENT-ENROLLMENT-REQUEST-ML-DSA-65-V1";
 const GRANT_SIGNING_DOMAIN: &[u8] = b"ACTIVECHAIN-AGENT-ENROLLMENT-GRANT-ML-DSA-44-V1";
 const REQUEST_COMMITMENT_DOMAIN: &[u8] = b"ACTIVECHAIN-AGENT-ENROLLMENT-REQUEST-ID-V1";
+const JOURNAL_SNAPSHOT_DOMAIN: &[u8] = b"ACTIVECHAIN-AGENT-ENROLLMENT-JOURNAL-SNAPSHOT-V1";
+const JOURNAL_SNAPSHOT_TAG_LENGTH: usize = 32;
+pub const MAX_AGENT_ENROLLMENT_RECORDS: usize = 4_096;
 
 /// Stable rejection categories suitable for protocol evidence and user-facing translation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -185,6 +189,9 @@ impl AgentEnrollmentEvidenceV1 {
     pub const fn outcome(&self) -> AgentEnrollmentOutcomeV1 {
         self.outcome
     }
+    pub const fn request_commitment(&self) -> Digest384 {
+        self.request_commitment
+    }
 
     pub fn validate_against(&self, request: &AgentEnrollmentRequestV1) -> Result<(), WalletError> {
         if self.chain_id != request.chain_id
@@ -253,9 +260,197 @@ impl CanonicalDecode for AgentEnrollmentEvidenceV1 {
 }
 
 impl CanonicalType for AgentEnrollmentEvidenceV1 {
-    const TYPE_TAG: u16 = 0x00d9;
+    const TYPE_TAG: u16 = 0x00e4;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 48 * 4 + 1 + 48 + 8 + 48 + 48;
+}
+
+/// Durable one-shot request tracking and monotonic evidence for agent enrollment.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct AgentEnrollmentJournalV1 {
+    consumed_nonces: Vec<Digest384>,
+    evidence: Vec<AgentEnrollmentEvidenceV1>,
+}
+
+impl AgentEnrollmentJournalV1 {
+    pub fn evidence(&self) -> &[AgentEnrollmentEvidenceV1] {
+        &self.evidence
+    }
+
+    pub fn begin(
+        &mut self,
+        request: &AgentEnrollmentRequestV1,
+        submitted: AgentEnrollmentEvidenceV1,
+    ) -> Result<(), WalletError> {
+        submitted.validate_against(request)?;
+        if !matches!(submitted.outcome, AgentEnrollmentOutcomeV1::Submitted { .. }) {
+            return Err(WalletError::MalformedAuthorization);
+        }
+        let request_commitment =
+            request.commitment().map_err(|_| WalletError::MalformedAuthorization)?;
+        if self.consumed_nonces.binary_search(&request.nonce).is_ok()
+            || self
+                .evidence
+                .binary_search_by_key(&request_commitment, |value| value.request_commitment)
+                .is_ok()
+        {
+            return Err(WalletError::Replay);
+        }
+        if self.evidence.len() >= MAX_AGENT_ENROLLMENT_RECORDS {
+            return Err(WalletError::StateLimit);
+        }
+        let nonce_index = self
+            .consumed_nonces
+            .binary_search(&request.nonce)
+            .expect_err("nonce replay rejected above");
+        let evidence_index = self
+            .evidence
+            .binary_search_by_key(&request_commitment, |value| value.request_commitment)
+            .expect_err("request replay rejected above");
+        self.consumed_nonces.insert(nonce_index, request.nonce);
+        self.evidence.insert(evidence_index, submitted);
+        Ok(())
+    }
+
+    pub fn advance(&mut self, next: AgentEnrollmentEvidenceV1) -> Result<(), WalletError> {
+        let index = self
+            .evidence
+            .binary_search_by_key(&next.request_commitment, |value| value.request_commitment)
+            .map_err(|_| WalletError::UnknownAgent)?;
+        next.follows(&self.evidence[index])?;
+        self.evidence[index] = next;
+        Ok(())
+    }
+
+    pub fn begin_durable(
+        &mut self,
+        request: &AgentEnrollmentRequestV1,
+        submitted: AgentEnrollmentEvidenceV1,
+        path: &Path,
+    ) -> Result<(), WalletError> {
+        let mut next = self.clone();
+        next.begin(request, submitted)?;
+        next.save_atomic(path)?;
+        *self = next;
+        Ok(())
+    }
+
+    pub fn advance_durable(
+        &mut self,
+        evidence: AgentEnrollmentEvidenceV1,
+        path: &Path,
+    ) -> Result<(), WalletError> {
+        let mut next = self.clone();
+        next.advance(evidence)?;
+        next.save_atomic(path)?;
+        *self = next;
+        Ok(())
+    }
+
+    pub fn save_atomic(&self, path: &Path) -> Result<(), WalletError> {
+        let body = encode_envelope(self).map_err(|_| WalletError::Persistence)?;
+        let tag = journal_snapshot_tag(&body);
+        let parent = path.parent().ok_or(WalletError::Persistence)?;
+        std::fs::create_dir_all(parent).map_err(|_| WalletError::Persistence)?;
+        let name = path.file_name().ok_or(WalletError::Persistence)?.to_string_lossy();
+        let temporary = parent.join(format!(".{name}.{}.tmp", std::process::id()));
+        let result = (|| {
+            let mut file =
+                std::fs::File::create(&temporary).map_err(|_| WalletError::Persistence)?;
+            file.write_all(&body)
+                .and_then(|_| file.write_all(&tag))
+                .and_then(|_| file.sync_all())
+                .map_err(|_| WalletError::Persistence)?;
+            std::fs::rename(&temporary, path).map_err(|_| WalletError::Persistence)?;
+            std::fs::File::open(parent)
+                .and_then(|directory| directory.sync_all())
+                .map_err(|_| WalletError::Persistence)
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(temporary);
+        }
+        result
+    }
+
+    pub fn load(path: &Path) -> Result<Self, WalletError> {
+        let bytes = std::fs::read(path).map_err(|_| WalletError::Persistence)?;
+        if bytes.len() < JOURNAL_SNAPSHOT_TAG_LENGTH {
+            return Err(WalletError::Persistence);
+        }
+        let body_length = bytes.len() - JOURNAL_SNAPSHOT_TAG_LENGTH;
+        if journal_snapshot_tag(&bytes[..body_length]) != bytes[body_length..] {
+            return Err(WalletError::Persistence);
+        }
+        decode_envelope(&bytes[..body_length]).map_err(|_| WalletError::Persistence)
+    }
+}
+
+impl CanonicalEncode for AgentEnrollmentJournalV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        e.write_length(self.consumed_nonces.len(), MAX_AGENT_ENROLLMENT_RECORDS)?;
+        for nonce in &self.consumed_nonces {
+            nonce.encode(e)?;
+        }
+        e.write_length(self.evidence.len(), MAX_AGENT_ENROLLMENT_RECORDS)?;
+        for evidence in &self.evidence {
+            evidence.encode(e)?;
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for AgentEnrollmentJournalV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let nonce_count = d.read_length(MAX_AGENT_ENROLLMENT_RECORDS)?;
+        let mut consumed_nonces = Vec::with_capacity(nonce_count);
+        for _ in 0..nonce_count {
+            let nonce = Digest384::decode(d)?;
+            if nonce == Digest384::ZERO
+                || consumed_nonces.last().is_some_and(|previous| *previous >= nonce)
+            {
+                return Err(DecodeError::InvalidValue(
+                    "agent enrollment nonces are not strictly ordered",
+                ));
+            }
+            consumed_nonces.push(nonce);
+        }
+        let evidence_count = d.read_length(MAX_AGENT_ENROLLMENT_RECORDS)?;
+        if evidence_count != nonce_count {
+            return Err(DecodeError::InvalidValue("agent enrollment journal counts differ"));
+        }
+        let mut evidence = Vec::with_capacity(evidence_count);
+        for _ in 0..evidence_count {
+            let value = AgentEnrollmentEvidenceV1::decode(d)?;
+            if evidence.last().is_some_and(|previous: &AgentEnrollmentEvidenceV1| {
+                previous.request_commitment >= value.request_commitment
+            }) {
+                return Err(DecodeError::InvalidValue(
+                    "agent enrollment evidence is not strictly ordered",
+                ));
+            }
+            evidence.push(value);
+        }
+        Ok(Self { consumed_nonces, evidence })
+    }
+}
+
+impl CanonicalType for AgentEnrollmentJournalV1 {
+    const TYPE_TAG: u16 = 0x00e5;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 3
+        + MAX_AGENT_ENROLLMENT_RECORDS * 48
+        + 3
+        + MAX_AGENT_ENROLLMENT_RECORDS * AgentEnrollmentEvidenceV1::MAX_ENCODED_LEN;
+}
+
+fn journal_snapshot_tag(bytes: &[u8]) -> [u8; JOURNAL_SNAPSHOT_TAG_LENGTH] {
+    let mut hasher = Shake256::default();
+    hasher.update(JOURNAL_SNAPSHOT_DOMAIN);
+    hasher.update(&(bytes.len() as u64).to_be_bytes());
+    hasher.update(bytes);
+    let mut output = [0; JOURNAL_SNAPSHOT_TAG_LENGTH];
+    hasher.finalize_xof().read(&mut output);
+    output
 }
 
 /// An agent-authenticated, bounded request for wallet authority.
@@ -434,7 +629,7 @@ impl CanonicalDecode for AgentEnrollmentRequestV1 {
 }
 
 impl CanonicalType for AgentEnrollmentRequestV1 {
-    const TYPE_TAG: u16 = 0x00d5;
+    const TYPE_TAG: u16 = 0x00e0;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 48 * 3
         + 3
@@ -501,7 +696,7 @@ impl CanonicalDecode for AuthorizedAgentEnrollmentRequestV1 {
     }
 }
 impl CanonicalType for AuthorizedAgentEnrollmentRequestV1 {
-    const TYPE_TAG: u16 = 0x00d6;
+    const TYPE_TAG: u16 = 0x00e1;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize =
         AgentEnrollmentRequestV1::MAX_ENCODED_LEN + ProtocolSignature::MAX_ENCODED_LEN;
@@ -662,7 +857,7 @@ impl CanonicalDecode for AgentEnrollmentGrantV1 {
     }
 }
 impl CanonicalType for AgentEnrollmentGrantV1 {
-    const TYPE_TAG: u16 = 0x00d7;
+    const TYPE_TAG: u16 = 0x00e2;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 48 * 4 + 1 + MAX_AGENT_CAPABILITIES * 48 + 16 + 8 + 1;
 }
@@ -706,7 +901,7 @@ impl CanonicalDecode for AuthorizedAgentEnrollmentGrantV1 {
     }
 }
 impl CanonicalType for AuthorizedAgentEnrollmentGrantV1 {
-    const TYPE_TAG: u16 = 0x00d8;
+    const TYPE_TAG: u16 = 0x00e3;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize =
         AgentEnrollmentGrantV1::MAX_ENCODED_LEN + ProtocolSignature::MAX_ENCODED_LEN;
@@ -802,9 +997,9 @@ mod tests {
         assert_eq!(
             request.commitment().unwrap(),
             Digest384::new([
-                205, 230, 138, 250, 22, 31, 76, 114, 33, 191, 106, 248, 191, 92, 202, 130, 145, 60,
-                137, 197, 70, 203, 157, 250, 236, 119, 47, 24, 90, 5, 235, 3, 33, 84, 205, 26, 251,
-                240, 54, 66, 226, 243, 103, 104, 219, 116, 102, 6,
+                105, 80, 147, 237, 243, 62, 151, 186, 6, 91, 149, 38, 111, 249, 209, 13, 100, 113,
+                226, 95, 161, 116, 200, 46, 6, 193, 100, 53, 207, 144, 196, 98, 43, 109, 9, 238,
+                170, 168, 142, 212, 66, 211, 116, 97, 232, 239, 51, 45,
             ])
         );
         let signature = ProtocolSignature::new(
@@ -981,5 +1176,103 @@ mod tests {
         expired.validate_against(&request).unwrap();
         expired.follows(&submitted).unwrap();
         assert_eq!(rejected.follows(&expired), Err(WalletError::MalformedAuthorization));
+    }
+
+    #[test]
+    fn durable_journal_survives_restart_and_rejects_nonce_replay_and_corruption() {
+        let agent_key = SigningKey::<MlDsa65>::from_seed(&Seed::from([7; 32]));
+        let original_request = request(&agent_key, vec![CapabilityId::new(digest(10))]);
+        let submitted = AgentEnrollmentEvidenceV1::new(
+            original_request.chain_id(),
+            original_request.wallet(),
+            original_request.agent(),
+            original_request.commitment().unwrap(),
+            AgentEnrollmentOutcomeV1::Submitted { transaction: TransactionId::new(digest(20)) },
+        )
+        .unwrap();
+        let directory = std::env::temp_dir()
+            .join(format!("activechain-agent-enrollment-journal-{}", std::process::id()));
+        let path = directory.join("journal-v1.bin");
+        let _ = std::fs::remove_dir_all(&directory);
+        let mut journal = AgentEnrollmentJournalV1::default();
+        journal.begin_durable(&original_request, submitted, &path).unwrap();
+        assert_eq!(AgentEnrollmentJournalV1::load(&path).unwrap(), journal);
+
+        let replay_with_changed_authority =
+            request(&agent_key, vec![CapabilityId::new(digest(12))]);
+        let replay_evidence = AgentEnrollmentEvidenceV1::new(
+            replay_with_changed_authority.chain_id(),
+            replay_with_changed_authority.wallet(),
+            replay_with_changed_authority.agent(),
+            replay_with_changed_authority.commitment().unwrap(),
+            AgentEnrollmentOutcomeV1::Submitted { transaction: TransactionId::new(digest(24)) },
+        )
+        .unwrap();
+        assert_eq!(
+            journal.begin(&replay_with_changed_authority, replay_evidence),
+            Err(WalletError::Replay)
+        );
+
+        let finalized = AgentEnrollmentEvidenceV1::new(
+            original_request.chain_id(),
+            original_request.wallet(),
+            original_request.agent(),
+            original_request.commitment().unwrap(),
+            AgentEnrollmentOutcomeV1::Finalized {
+                transaction: TransactionId::new(digest(20)),
+                finalized_height: 42,
+                block_commitment: digest(21),
+                inclusion_commitment: digest(22),
+            },
+        )
+        .unwrap();
+        journal.advance_durable(finalized, &path).unwrap();
+        assert_eq!(
+            AgentEnrollmentJournalV1::load(&path).unwrap().evidence()[0].outcome(),
+            finalized.outcome()
+        );
+
+        let mut corrupt = std::fs::read(&path).unwrap();
+        corrupt[8] ^= 0x80;
+        std::fs::write(&path, corrupt).unwrap();
+        assert_eq!(AgentEnrollmentJournalV1::load(&path), Err(WalletError::Persistence));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn failed_durable_write_does_not_publish_memory_state() {
+        let agent_key = SigningKey::<MlDsa65>::from_seed(&Seed::from([7; 32]));
+        let request = request(&agent_key, vec![CapabilityId::new(digest(10))]);
+        let submitted = AgentEnrollmentEvidenceV1::new(
+            request.chain_id(),
+            request.wallet(),
+            request.agent(),
+            request.commitment().unwrap(),
+            AgentEnrollmentOutcomeV1::Submitted { transaction: TransactionId::new(digest(20)) },
+        )
+        .unwrap();
+        let mut journal = AgentEnrollmentJournalV1::default();
+        assert_eq!(
+            journal.begin_durable(&request, submitted, &std::env::temp_dir()),
+            Err(WalletError::Persistence)
+        );
+        assert!(journal.evidence().is_empty());
+    }
+
+    #[test]
+    fn wallet_agent_envelope_tags_are_globally_unique() {
+        let mut tags = [
+            crate::AgentRegistryV1::TYPE_TAG,
+            crate::AgentRegistryCommandV1::TYPE_TAG,
+            crate::AgentAuthenticatorRegistryV1::TYPE_TAG,
+            AgentEnrollmentRequestV1::TYPE_TAG,
+            AuthorizedAgentEnrollmentRequestV1::TYPE_TAG,
+            AgentEnrollmentGrantV1::TYPE_TAG,
+            AuthorizedAgentEnrollmentGrantV1::TYPE_TAG,
+            AgentEnrollmentEvidenceV1::TYPE_TAG,
+            AgentEnrollmentJournalV1::TYPE_TAG,
+        ];
+        tags.sort_unstable();
+        assert!(tags.windows(2).all(|pair| pair[0] != pair[1]));
     }
 }
