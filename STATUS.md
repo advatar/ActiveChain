@@ -233,7 +233,8 @@ Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163
     zero-value rejection; native CoinCell wire compatibility remains unchanged.
   - [x] Add an asset-bound transfer intent with ordered inputs, sender ownership, exact amount
     conservation, and cross-asset rejection.
-  - [ ] Bind issuance, burn, redemption, proofs, and receipts to the new profile.
+  - [x] Add an asset-bound mint intent with issuer binding and checked supply-cap arithmetic.
+  - [ ] Bind burn, redemption, proofs, and receipts to the new profile.
 - [ ] Specify a finalized issuer-controlled asset metadata and supply registry.
 - [ ] Add proof-bearing owner-and-asset RPC discovery with bounded pagination.
 - [ ] Extend the versioned wallet ABI for multi-asset balances, selection, signing, and submission.
