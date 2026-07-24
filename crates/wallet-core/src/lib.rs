@@ -6,6 +6,7 @@
 extern crate alloc;
 
 mod agent_authenticator;
+mod agent_enrollment;
 mod agent_management;
 mod cash_authorization;
 mod cash_persistence;
@@ -14,6 +15,10 @@ mod openwallet;
 pub use agent_authenticator::{
     AgentAuthenticatorRecordV1, AgentAuthenticatorRegistryV1, AgentAuthenticatorVersionV1,
     AgentKeyProvenance, MAX_AGENT_AUTHENTICATORS, MAX_AGENT_KEY_VERSIONS,
+};
+pub use agent_enrollment::{
+    AgentEnrollmentGrantV1, AgentEnrollmentRequestV1, AuthorizedAgentEnrollmentGrantV1,
+    AuthorizedAgentEnrollmentRequestV1,
 };
 pub use agent_management::{
     AgentActionRequestV1, AgentConnectionKind, AgentLifecycle, AgentRegistryCommandV1,

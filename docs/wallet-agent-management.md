@@ -40,10 +40,20 @@ survives application restart.
 
 The current native entry form is an operator/developer surface for canonical hexadecimal principal
 and capability identifiers. It must not be represented as authenticated third-party enrollment.
-Production enrollment still requires a versioned signed request envelope, QR/universal-link or
-same-team handoff, testnet submission, proof-bearing finality resolution, and explicit rejected and
-expired evidence. Until those pieces exist, the UI describes the record as prepared locally and
-awaiting submission rather than claiming the agent is enrolled.
+Production enrollment still requires wiring the versioned signed envelopes into QR/universal-link
+or same-team handoff, testnet submission, proof-bearing finality resolution, and explicit rejected
+and expired evidence. Until those pieces exist, the UI describes the record as prepared locally
+and awaiting submission rather than claiming the agent is enrolled.
+
+The versioned protocol boundary uses an `AgentEnrollmentRequestV1` signed by the proposed
+agent's ML-DSA-65 control authenticator. It binds the chain, intended wallet, agent principal,
+human-readable label, complete authenticator descriptor and provenance, connection kind,
+strictly ordered requested capabilities, maximum budget, validity window, and one-shot nonce.
+Wallet review produces an `AgentEnrollmentGrantV1` signed by the wallet's ML-DSA-44 authorization
+key. A grant carries the request commitment and may only remove capabilities, lower the budget,
+shorten expiry, or require human approval; it cannot amplify the request. Verification checks the
+expected chain, wallet, validity height, both signatures, and the exact request commitment before
+the grant can enter submission.
 
 ## Process and application shapes
 

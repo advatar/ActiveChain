@@ -21,6 +21,9 @@ Phase 0 bootstrap is tracked by [GitHub issue #1](https://github.com/advatar/Act
 Tracked by [GitHub issue #182](https://github.com/advatar/ActiveChain/issues/182).
 
 - [ ] Freeze canonical bounded enrollment request, wallet grant, and lifecycle evidence types.
+  - [x] Define agent-signed ML-DSA-65 request and wallet-signed ML-DSA-44 attenuated grant
+    envelopes bound to chain, wallet, principal, authenticator, authority, validity, and nonce.
+  - [ ] Define finalized, rejected, and expired lifecycle evidence envelopes.
 - [ ] Add durable request replay protection plus pending, finalized, rejected, and expired states.
   - [x] Persist a fail-closed pending state and require the exact transaction commitment for
     activation at a nonzero finalized height.
@@ -29,6 +32,8 @@ Tracked by [GitHub issue #182](https://github.com/advatar/ActiveChain/issues/182
   - [x] Expose pending registration and exact finalization operations without changing existing
     lifecycle numeric tags.
   - [ ] Publish request/grant envelope validation and deterministic positive/malformed vectors.
+    - [x] Add canonical round-trip, deterministic commitment, signature, wrong-chain, expiry,
+      authority amplification, substitution, and trailing-data tests in wallet core.
 - [ ] Add QR/deep-link import, authority controls, authenticated confirmation, and explicit state UI.
   - [x] Add a biometric-confirmed native developer entry form with bounded principal, sorted
     capabilities, connection kind, budget, expiry, and explicit pending state.
