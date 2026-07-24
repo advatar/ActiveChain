@@ -84,6 +84,16 @@ Tracked by [GitHub issue #137](https://github.com/advatar/ActiveChain/issues/137
 - [x] Add a canonical operator path from genesis/finalized validator state to the durable RPC index,
   then start the backend, verify a framed status request, and rehearse restart recovery.
 
+## Active deployment — persistent Kanalen chain
+
+Tracked by [GitHub issue #154](https://github.com/advatar/ActiveChain/issues/154).
+
+- [ ] Run a persistent three-validator quorum from one immutable Kanalen genesis.
+- [ ] Ingest finalized validator state monotonically into the durable RPC index.
+- [ ] Manage validator, ingestion, and RPC processes with restart-safe LaunchAgents.
+- [ ] Reset only disposable Kanalen state and verify public RPC finality advances after restart.
+- [ ] Connect Amber content retrieval and bonded submission only after verified finality is live.
+
 ## Active investigation — Aztec billboard parity
 
 Tracked by [GitHub issue #17](https://github.com/advatar/ActiveChain/issues/17).
