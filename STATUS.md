@@ -83,6 +83,21 @@ Tracked by [GitHub issue #162](https://github.com/advatar/ActiveChain/issues/162
 - [x] Fail honestly with empty, unavailable, or unsupported states where no live query exists.
 - [x] Add no-placeholder regression tests and pass iOS plus macOS test/build gates.
 
+## Active implementation — testnet wallet faucet
+
+Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167).
+
+- [x] Freeze canonical, testnet-bound faucet request, challenge, decision, and receipt/status types.
+- [x] Add operator-configurable grant amounts, global budgets, recipient cooldown/lifetime limits,
+  idempotency, optional escalating Sybil challenges, and durable restart-safe accounting.
+- [ ] Submit faucet-authorized Coin Cell transitions through real transaction ingress and expose
+  pending/finalized/rejected proof-bearing status through the Kanalen gateway.
+- [ ] Formally verify testnet-only validity, supply conservation, exactly-once issuance,
+  rate-limit monotonicity, atomic restart equivalence, and receipt-to-finalized-transition binding;
+  publish the proof scope and every remaining assumption or gap.
+- [ ] Add an iOS/macOS testnet funding flow that never credits optimistic or local-only balances.
+- [ ] Pass replay, concurrency, forged-chain, exhaustion, restart, privacy, and end-to-end tests.
+
 ## Active protocol design — multi-asset Coin Cells
 
 Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163).
