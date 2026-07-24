@@ -9,6 +9,7 @@ public enum AgentConnection: String, Equatable {
 }
 
 public enum AgentLifecycle: Equatable {
+    case enrollmentPending
     case active
     case paused
     case revocationPending

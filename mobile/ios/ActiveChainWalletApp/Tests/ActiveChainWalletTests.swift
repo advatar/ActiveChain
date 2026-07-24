@@ -96,6 +96,44 @@ final class ActiveChainWalletTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: snapshot.path))
     }
 
+    func testAgentEnrollmentDraftRequiresCanonicalSortedCapabilityIDs() throws {
+        let first = String(repeating: "11", count: 48)
+        let second = String(repeating: "22", count: 48)
+        var draft = AgentEnrollmentDraft(
+            label: "Invoice assistant",
+            principal: String(repeating: "aa", count: 48),
+            capabilityIDs: "\(first)\n\(second)",
+            connection: .thirdParty,
+            budget: 100,
+            expiresAt: 500
+        )
+
+        XCTAssertNoThrow(try draft.validate())
+        XCTAssertEqual(try draft.principalBytes().count, 48)
+        XCTAssertEqual(try draft.capabilityBytes().count, 96)
+
+        draft.capabilityIDs = "\(second)\n\(first)"
+        XCTAssertThrowsError(try draft.validate())
+        draft.capabilityIDs = "\(first)\n\(first)"
+        XCTAssertThrowsError(try draft.validate())
+    }
+
+    func testAgentEnrollmentDraftRejectsInvalidAuthority() {
+        var draft = AgentEnrollmentDraft(
+            label: "Invoice assistant",
+            principal: String(repeating: "aa", count: 48),
+            capabilityIDs: String(repeating: "11", count: 48),
+            connection: .remote,
+            budget: 0,
+            expiresAt: 500
+        )
+
+        XCTAssertThrowsError(try draft.validate())
+        draft.budget = 1
+        draft.expiresAt = 0
+        XCTAssertThrowsError(try draft.validate())
+    }
+
     func testRPCStatusDecoderUsesFinalizedHealthInsteadOfDisplayFixtures() throws {
         let response = makeStatusResponse(
             protocolRevision: 1,

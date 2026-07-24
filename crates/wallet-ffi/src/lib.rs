@@ -300,6 +300,132 @@ pub unsafe extern "C" fn activechain_wallet_agent_register(
     }
 }
 
+/// Creates a non-authorizing agent record that can become active only after exact finality.
+///
+/// # Safety
+///
+/// Inputs follow `activechain_wallet_agent_register`; `transaction` points to 48 readable bytes.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn activechain_wallet_agent_register_pending(
+    registry: *const u8,
+    registry_len: u32,
+    principal: *const u8,
+    label: *const u8,
+    label_len: u32,
+    connection: u32,
+    capabilities: *const u8,
+    capability_count: u32,
+    budget_limit_high: u64,
+    budget_limit_low: u64,
+    expires_at: u64,
+    transaction: *const u8,
+    output: *mut u8,
+    output_capacity: u32,
+    required_len: *mut u32,
+) -> u32 {
+    if principal.is_null()
+        || label.is_null()
+        || label_len == 0
+        || capabilities.is_null()
+        || capability_count == 0
+        || transaction.is_null()
+    {
+        return WALLET_NULL_POINTER;
+    }
+    let Ok(label_len) = usize::try_from(label_len) else {
+        return WALLET_TOO_LARGE;
+    };
+    let Ok(capability_count) = usize::try_from(capability_count) else {
+        return WALLET_TOO_LARGE;
+    };
+    let Some(capabilities_len) = capability_count.checked_mul(48) else {
+        return WALLET_TOO_LARGE;
+    };
+    if label_len > activechain_wallet_core::MAX_AGENT_LABEL
+        || capability_count > activechain_wallet_core::MAX_AGENT_CAPABILITIES
+    {
+        return WALLET_TOO_LARGE;
+    }
+    let connection = match connection {
+        0 => AgentConnectionKind::SameTeamAppGroup,
+        1 => AgentConnectionKind::ThirdPartyProtocol,
+        2 => AgentConnectionKind::RemoteService,
+        3 => AgentConnectionKind::ManagedDeviceExtension,
+        _ => return WALLET_MALFORMED,
+    };
+    let label = unsafe { core::slice::from_raw_parts(label, label_len) }.to_vec();
+    let capability_bytes = unsafe { core::slice::from_raw_parts(capabilities, capabilities_len) };
+    let mut capability_ids = Vec::with_capacity(capability_count);
+    for bytes in capability_bytes.chunks_exact(48) {
+        let mut digest = [0; 48];
+        digest.copy_from_slice(bytes);
+        capability_ids.push(CapabilityId::new(Digest384::new(digest)));
+    }
+    let agent = match ManagedAgentV1::pending(
+        PrincipalId::new(unsafe { read_digest(principal) }),
+        label,
+        connection,
+        capability_ids,
+        join_u128(budget_limit_high, budget_limit_low),
+        expires_at,
+        TransactionId::new(unsafe { read_digest(transaction) }),
+    ) {
+        Ok(agent) => agent,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    unsafe {
+        apply_agent_command(
+            registry,
+            registry_len,
+            AgentRegistryCommandV1::Register(agent),
+            output,
+            output_capacity,
+            required_len,
+        )
+    }
+}
+
+/// Activates the exact pending enrollment after its transaction is finalized.
+///
+/// # Safety
+///
+/// Principal and transaction point to 48 readable bytes; registry/output follow
+/// `activechain_wallet_agent_apply`.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn activechain_wallet_agent_finalize_enrollment(
+    registry: *const u8,
+    registry_len: u32,
+    principal: *const u8,
+    transaction: *const u8,
+    finalized_height: u64,
+    output: *mut u8,
+    output_capacity: u32,
+    required_len: *mut u32,
+) -> u32 {
+    if principal.is_null() || transaction.is_null() {
+        return WALLET_NULL_POINTER;
+    }
+    if finalized_height == 0 {
+        return WALLET_MALFORMED;
+    }
+    unsafe {
+        apply_agent_command(
+            registry,
+            registry_len,
+            AgentRegistryCommandV1::FinalizeEnrollment {
+                principal: PrincipalId::new(read_digest(principal)),
+                transaction: TransactionId::new(read_digest(transaction)),
+                finalized_height,
+            },
+            output,
+            output_capacity,
+            required_len,
+        )
+    }
+}
+
 /// Pauses or resumes one agent and returns the canonical next registry.
 ///
 /// # Safety
@@ -446,6 +572,7 @@ pub unsafe extern "C" fn activechain_wallet_agent_summary(
         return WALLET_BUFFER_TOO_SMALL;
     }
     let (lifecycle, revocation_finalized_height) = match agent.lifecycle() {
+        AgentLifecycle::EnrollmentPending { .. } => (4, 0),
         AgentLifecycle::Active => (0, 0),
         AgentLifecycle::Paused => (1, 0),
         AgentLifecycle::RevocationPending { .. } => (2, 0),
@@ -1111,6 +1238,156 @@ mod tests {
             },
             WALLET_AGENT_REJECTED
         );
+    }
+
+    #[test]
+    fn agent_abi_keeps_pending_enrollment_inactive_until_exact_finality() {
+        let principal = [0x31; 48];
+        let capability = [0x41; 48];
+        let transaction = [0x51; 48];
+        let wrong_transaction = [0x52; 48];
+        let label = b"Invoice assistant";
+        let mut required = 0;
+        let query = unsafe {
+            activechain_wallet_agent_register_pending(
+                core::ptr::null(),
+                0,
+                principal.as_ptr(),
+                label.as_ptr(),
+                label.len() as u32,
+                1,
+                capability.as_ptr(),
+                1,
+                0,
+                100,
+                500,
+                transaction.as_ptr(),
+                core::ptr::null_mut(),
+                0,
+                &mut required,
+            )
+        };
+        assert_eq!(query, WALLET_BUFFER_TOO_SMALL);
+        let mut registry = vec![0; required as usize];
+        assert_eq!(
+            unsafe {
+                activechain_wallet_agent_register_pending(
+                    core::ptr::null(),
+                    0,
+                    principal.as_ptr(),
+                    label.as_ptr(),
+                    label.len() as u32,
+                    1,
+                    capability.as_ptr(),
+                    1,
+                    0,
+                    100,
+                    500,
+                    transaction.as_ptr(),
+                    registry.as_mut_ptr(),
+                    registry.len() as u32,
+                    &mut required,
+                )
+            },
+            WALLET_OK
+        );
+
+        let mut summary = ActivechainWalletAgentSummary::default();
+        let mut label_required = label.len() as u32;
+        let mut label_output = vec![0; label.len()];
+        assert_eq!(
+            unsafe {
+                activechain_wallet_agent_summary(
+                    registry.as_ptr(),
+                    registry.len() as u32,
+                    0,
+                    &mut summary,
+                    label_output.as_mut_ptr(),
+                    label_output.len() as u32,
+                    &mut label_required,
+                )
+            },
+            WALLET_OK
+        );
+        assert_eq!(summary.lifecycle, 4);
+
+        let mut next_required = 0;
+        assert_eq!(
+            unsafe {
+                activechain_wallet_agent_finalize_enrollment(
+                    registry.as_ptr(),
+                    registry.len() as u32,
+                    principal.as_ptr(),
+                    wrong_transaction.as_ptr(),
+                    42,
+                    core::ptr::null_mut(),
+                    0,
+                    &mut next_required,
+                )
+            },
+            WALLET_AGENT_REJECTED
+        );
+        assert_eq!(
+            unsafe {
+                activechain_wallet_agent_finalize_enrollment(
+                    registry.as_ptr(),
+                    registry.len() as u32,
+                    principal.as_ptr(),
+                    transaction.as_ptr(),
+                    0,
+                    core::ptr::null_mut(),
+                    0,
+                    &mut next_required,
+                )
+            },
+            WALLET_MALFORMED
+        );
+        assert_eq!(
+            unsafe {
+                activechain_wallet_agent_finalize_enrollment(
+                    registry.as_ptr(),
+                    registry.len() as u32,
+                    principal.as_ptr(),
+                    transaction.as_ptr(),
+                    42,
+                    core::ptr::null_mut(),
+                    0,
+                    &mut next_required,
+                )
+            },
+            WALLET_BUFFER_TOO_SMALL
+        );
+        let mut next = vec![0; next_required as usize];
+        assert_eq!(
+            unsafe {
+                activechain_wallet_agent_finalize_enrollment(
+                    registry.as_ptr(),
+                    registry.len() as u32,
+                    principal.as_ptr(),
+                    transaction.as_ptr(),
+                    42,
+                    next.as_mut_ptr(),
+                    next.len() as u32,
+                    &mut next_required,
+                )
+            },
+            WALLET_OK
+        );
+        assert_eq!(
+            unsafe {
+                activechain_wallet_agent_summary(
+                    next.as_ptr(),
+                    next.len() as u32,
+                    0,
+                    &mut summary,
+                    label_output.as_mut_ptr(),
+                    label_output.len() as u32,
+                    &mut label_required,
+                )
+            },
+            WALLET_OK
+        );
+        assert_eq!(summary.lifecycle, 0);
     }
 
     #[test]

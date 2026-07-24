@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		0181244E4606199619C7743C /* ActiveChainWallet.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = FE57D7E81DE8386DD91EE7F6 /* ActiveChainWallet.xcframework */; };
+		0203D15FB843A76A4366DB52 /* AgentEnrollment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8314E013FB77F1EBBD1BDE46 /* AgentEnrollment.swift */; };
 		07334189D34A9B6C4A160EAA /* WalletLiveState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D0CAF5609EE5137D2B9241C /* WalletLiveState.swift */; };
 		20ED92D62FC73117F71FDA7F /* AgentWallet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D41DFF27117CF804DD5B4301 /* AgentWallet.swift */; };
 		2C8CCD588629BA72F529AA84 /* RustAgentRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A908638375B69C4796EE249 /* RustAgentRegistry.swift */; };
@@ -31,6 +32,7 @@
 		C06B788A960EB0FFE93FBE3F /* ReceiveRequestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5C193E2E9CC1B91B0DFB62 /* ReceiveRequestView.swift */; };
 		D0A75F0688EB6CCE64C6EF16 /* ReceiveRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A496EE1DE3CAA8472B124CAF /* ReceiveRequest.swift */; };
 		DD514FDF4C74A5F91E657DF5 /* RustAgentRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A908638375B69C4796EE249 /* RustAgentRegistry.swift */; };
+		DFA6CA854511D128103146C2 /* AgentEnrollment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8314E013FB77F1EBBD1BDE46 /* AgentEnrollment.swift */; };
 		E1D024C4F4D90A2B11F8F524 /* WalletBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0157C828F4D0C1CCC8EDEAD /* WalletBridge.swift */; };
 		E8468724E720CCEBF55A5100 /* WalletLiveState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D0CAF5609EE5137D2B9241C /* WalletLiveState.swift */; };
 		F0B673E2E0E1DD9303685E76 /* AgentWallet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D41DFF27117CF804DD5B4301 /* AgentWallet.swift */; };
@@ -63,6 +65,7 @@
 		6E90D7FAE93E0DFDE9D868BD /* ActiveChainWallet.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ActiveChainWallet.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7A908638375B69C4796EE249 /* RustAgentRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RustAgentRegistry.swift; sourceTree = "<group>"; };
 		82AF43EE862E7362F5827841 /* ActiveChainWalletMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ActiveChainWalletMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		8314E013FB77F1EBBD1BDE46 /* AgentEnrollment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentEnrollment.swift; sourceTree = "<group>"; };
 		A0157C828F4D0C1CCC8EDEAD /* WalletBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletBridge.swift; sourceTree = "<group>"; };
 		A496EE1DE3CAA8472B124CAF /* ReceiveRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiveRequest.swift; sourceTree = "<group>"; };
 		A967749B3E6D962AAA26E424 /* ActiveChainWalletMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ActiveChainWalletMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -115,6 +118,7 @@
 			children = (
 				00F60C541C50E0093CD8C615 /* ActiveChainWalletApp.swift */,
 				C8A918D07F4706D86D226023 /* AgentAppIntents.swift */,
+				8314E013FB77F1EBBD1BDE46 /* AgentEnrollment.swift */,
 				D41DFF27117CF804DD5B4301 /* AgentWallet.swift */,
 				50EF838DF6F51C698FEE9C6F /* NetworkSelection.swift */,
 				D9A7B68A6BF40EC2B257B49E /* OpenWalletAdapter.swift */,
@@ -308,6 +312,7 @@
 			files = (
 				A238900342B0AD7AF8819CE2 /* ActiveChainWalletApp.swift in Sources */,
 				BEAC359D40E3322CD06C36BC /* AgentAppIntents.swift in Sources */,
+				0203D15FB843A76A4366DB52 /* AgentEnrollment.swift in Sources */,
 				20ED92D62FC73117F71FDA7F /* AgentWallet.swift in Sources */,
 				AD9C8CBA51E6E5123B86F339 /* NetworkSelection.swift in Sources */,
 				409D9AE4558B50CB086A4AC5 /* OpenWalletAdapter.swift in Sources */,
@@ -326,6 +331,7 @@
 			files = (
 				54C17C1DB2671699FD7333A0 /* ActiveChainWalletApp.swift in Sources */,
 				3B3483FAF6831A3070025F64 /* AgentAppIntents.swift in Sources */,
+				DFA6CA854511D128103146C2 /* AgentEnrollment.swift in Sources */,
 				F0B673E2E0E1DD9303685E76 /* AgentWallet.swift in Sources */,
 				A255F0544F1A5B6B4D343181 /* NetworkSelection.swift in Sources */,
 				A955F5A4F6398043E6F147B7 /* OpenWalletAdapter.swift in Sources */,

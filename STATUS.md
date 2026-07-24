@@ -16,6 +16,26 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Phase 0 bootstrap is tracked by [GitHub issue #1](https://github.com/advatar/ActiveChain/issues/1).
 
+## Active wallet implementation — agent enrollment
+
+Tracked by [GitHub issue #182](https://github.com/advatar/ActiveChain/issues/182).
+
+- [ ] Freeze canonical bounded enrollment request, wallet grant, and lifecycle evidence types.
+- [ ] Add durable request replay protection plus pending, finalized, rejected, and expired states.
+  - [x] Persist a fail-closed pending state and require the exact transaction commitment for
+    activation at a nonzero finalized height.
+  - [ ] Add protocol-level rejected and expired enrollment evidence and request replay records.
+- [ ] Expose exact operations through the wallet ABI with deterministic malformed vectors.
+  - [x] Expose pending registration and exact finalization operations without changing existing
+    lifecycle numeric tags.
+  - [ ] Publish request/grant envelope validation and deterministic positive/malformed vectors.
+- [ ] Add QR/deep-link import, authority controls, authenticated confirmation, and explicit state UI.
+  - [x] Add a biometric-confirmed native developer entry form with bounded principal, sorted
+    capabilities, connection kind, budget, expiry, and explicit pending state.
+  - [ ] Replace raw entry with authenticated QR, universal-link, and same-team request import.
+- [ ] Pass Rust, Swift, iOS, and macOS qualification; publish and merge without sample agents.
+  - [x] Pass wallet-core/FFI tests, Swift tests, and iOS/macOS application builds.
+
 ## Active recovery — abandoned checkout reconciliation
 
 Tracked by [GitHub issue #178](https://github.com/advatar/ActiveChain/issues/178).

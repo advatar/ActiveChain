@@ -42,6 +42,7 @@ impl CanonicalDecode for AgentConnectionKind {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AgentLifecycle {
+    EnrollmentPending { transaction: TransactionId },
     Active,
     Paused,
     RevocationPending { transaction: TransactionId },
@@ -61,6 +62,10 @@ impl CanonicalEncode for AgentLifecycle {
                 3_u8.encode(encoder)?;
                 transaction.encode(encoder)?;
                 finalized_height.encode(encoder)
+            }
+            Self::EnrollmentPending { transaction } => {
+                4_u8.encode(encoder)?;
+                transaction.encode(encoder)
             }
         }
     }
@@ -82,6 +87,7 @@ impl CanonicalDecode for AgentLifecycle {
                 }
                 Ok(Self::Revoked { transaction, finalized_height })
             }
+            4 => Ok(Self::EnrollmentPending { transaction: TransactionId::decode(decoder)? }),
             tag => Err(DecodeError::InvalidEnumTag { type_name: "AgentLifecycle", tag }),
         }
     }
@@ -130,6 +136,24 @@ impl ManagedAgentV1 {
             expires_at,
             lifecycle: AgentLifecycle::Active,
         })
+    }
+
+    pub fn pending(
+        principal: PrincipalId,
+        label: Vec<u8>,
+        connection: AgentConnectionKind,
+        capabilities: Vec<CapabilityId>,
+        budget_limit: u128,
+        expires_at: u64,
+        transaction: TransactionId,
+    ) -> Result<Self, WalletError> {
+        if transaction.into_digest() == Digest384::ZERO {
+            return Err(WalletError::MalformedAuthorization);
+        }
+        let mut agent =
+            Self::new(principal, label, connection, capabilities, budget_limit, expires_at)?;
+        agent.lifecycle = AgentLifecycle::EnrollmentPending { transaction };
+        Ok(agent)
     }
 
     pub const fn principal(&self) -> PrincipalId {
@@ -252,6 +276,7 @@ pub enum AgentRegistryCommandV1 {
     BeginRevocation { principal: PrincipalId, transaction: TransactionId },
     FinalizeRevocation { principal: PrincipalId, transaction: TransactionId, finalized_height: u64 },
     Authorize { request: AgentActionRequestV1, current_height: u64 },
+    FinalizeEnrollment { principal: PrincipalId, transaction: TransactionId, finalized_height: u64 },
 }
 
 impl CanonicalEncode for AgentRegistryCommandV1 {
@@ -285,6 +310,12 @@ impl CanonicalEncode for AgentRegistryCommandV1 {
                 request.encode(encoder)?;
                 current_height.encode(encoder)
             }
+            Self::FinalizeEnrollment { principal, transaction, finalized_height } => {
+                6_u8.encode(encoder)?;
+                principal.encode(encoder)?;
+                transaction.encode(encoder)?;
+                finalized_height.encode(encoder)
+            }
         }
     }
 }
@@ -314,6 +345,17 @@ impl CanonicalDecode for AgentRegistryCommandV1 {
                 request: AgentActionRequestV1::decode(decoder)?,
                 current_height: u64::decode(decoder)?,
             }),
+            6 => {
+                let principal = PrincipalId::decode(decoder)?;
+                let transaction = TransactionId::decode(decoder)?;
+                let finalized_height = u64::decode(decoder)?;
+                if finalized_height == 0 {
+                    return Err(DecodeError::InvalidValue(
+                        "agent enrollment finality height is zero",
+                    ));
+                }
+                Ok(Self::FinalizeEnrollment { principal, transaction, finalized_height })
+            }
             tag => Err(DecodeError::InvalidEnumTag { type_name: "AgentRegistryCommandV1", tag }),
         }
     }
@@ -375,12 +417,18 @@ impl AgentRegistryV1 {
             AgentRegistryCommandV1::Authorize { request, current_height } => {
                 self.authorize_and_record(request, current_height)
             }
+            AgentRegistryCommandV1::FinalizeEnrollment {
+                principal,
+                transaction,
+                finalized_height,
+            } => self.finalize_enrollment(principal, transaction, finalized_height),
         }
     }
 
     pub fn pause(&mut self, principal: PrincipalId) -> Result<(), WalletError> {
         let agent = self.agent_mut(principal)?;
         match agent.lifecycle {
+            AgentLifecycle::EnrollmentPending { .. } => Err(WalletError::AgentPaused),
             AgentLifecycle::Active => {
                 agent.lifecycle = AgentLifecycle::Paused;
                 Ok(())
@@ -395,6 +443,7 @@ impl AgentRegistryV1 {
     pub fn resume(&mut self, principal: PrincipalId) -> Result<(), WalletError> {
         let agent = self.agent_mut(principal)?;
         match agent.lifecycle {
+            AgentLifecycle::EnrollmentPending { .. } => Err(WalletError::AgentPaused),
             AgentLifecycle::Paused => {
                 agent.lifecycle = AgentLifecycle::Active;
                 Ok(())
@@ -416,6 +465,7 @@ impl AgentRegistryV1 {
         }
         let agent = self.agent_mut(principal)?;
         match agent.lifecycle {
+            AgentLifecycle::EnrollmentPending { .. } => Err(WalletError::AgentPaused),
             AgentLifecycle::Revoked { .. } => Err(WalletError::AgentRevoked),
             AgentLifecycle::RevocationPending { transaction: existing }
                 if existing != transaction =>
@@ -426,6 +476,28 @@ impl AgentRegistryV1 {
                 agent.lifecycle = AgentLifecycle::RevocationPending { transaction };
                 Ok(())
             }
+        }
+    }
+
+    pub fn finalize_enrollment(
+        &mut self,
+        principal: PrincipalId,
+        transaction: TransactionId,
+        finalized_height: u64,
+    ) -> Result<(), WalletError> {
+        if finalized_height == 0 {
+            return Err(WalletError::MalformedAuthorization);
+        }
+        let agent = self.agent_mut(principal)?;
+        match agent.lifecycle {
+            AgentLifecycle::EnrollmentPending { transaction: expected }
+                if expected == transaction =>
+            {
+                agent.lifecycle = AgentLifecycle::Active;
+                Ok(())
+            }
+            AgentLifecycle::Active => Ok(()),
+            _ => Err(WalletError::MalformedAuthorization),
         }
     }
 
@@ -471,6 +543,7 @@ impl AgentRegistryV1 {
         }
         let agent = self.agent_mut(request.agent)?;
         match agent.lifecycle {
+            AgentLifecycle::EnrollmentPending { .. } => return Err(WalletError::AgentPaused),
             AgentLifecycle::Active => {}
             AgentLifecycle::Paused => return Err(WalletError::AgentPaused),
             AgentLifecycle::RevocationPending { .. } | AgentLifecycle::Revoked { .. } => {
@@ -671,6 +744,34 @@ mod tests {
         assert_eq!(registry.authorize_and_record(request(13), 5), Err(WalletError::AgentPaused));
         registry.resume(principal(1)).unwrap();
         assert_eq!(registry.authorize_and_record(request(13), 41), Err(WalletError::Expired));
+    }
+
+    #[test]
+    fn pending_enrollment_cannot_authorize_before_exact_finality() {
+        let transaction = TransactionId::new(digest(30));
+        let mut registry = AgentRegistryV1::default();
+        registry
+            .register(
+                ManagedAgentV1::pending(
+                    principal(1),
+                    b"Pending agent".to_vec(),
+                    AgentConnectionKind::ThirdPartyProtocol,
+                    vec![capability(2)],
+                    20,
+                    40,
+                    transaction,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(registry.authorize_and_record(request(31), 5), Err(WalletError::AgentPaused));
+        assert_eq!(
+            registry.finalize_enrollment(principal(1), TransactionId::new(digest(29)), 7),
+            Err(WalletError::MalformedAuthorization)
+        );
+        registry.finalize_enrollment(principal(1), transaction, 7).unwrap();
+        assert_eq!(registry.agents()[0].lifecycle(), AgentLifecycle::Active);
+        assert_eq!(registry.authorize_and_record(request(32), 5), Ok(()));
     }
 
     #[test]
