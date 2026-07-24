@@ -231,7 +231,9 @@ Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163
 - [ ] Bind fungible Coin Cells and all transitions, authorizations, proofs, and receipts to `AssetId`.
   - [x] Add the explicit asset-bound fungible Coin Cell profile with canonical encoding and
     zero-value rejection; native CoinCell wire compatibility remains unchanged.
-  - [ ] Bind issuance, transfer, burn, redemption, proofs, and receipts to the new profile.
+  - [x] Add an asset-bound transfer intent with ordered inputs, sender ownership, exact amount
+    conservation, and cross-asset rejection.
+  - [ ] Bind issuance, burn, redemption, proofs, and receipts to the new profile.
 - [ ] Specify a finalized issuer-controlled asset metadata and supply registry.
 - [ ] Add proof-bearing owner-and-asset RPC discovery with bounded pagination.
 - [ ] Extend the versioned wallet ABI for multi-asset balances, selection, signing, and submission.
