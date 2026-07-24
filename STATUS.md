@@ -902,6 +902,9 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
         demonstration registry.
     - [x] Add safe iOS App Intents for agent discovery and navigation; keep capability grants,
       approvals, budget increases, revocation, and signing inside authenticated wallet flows.
+    - [x] Add a canonical secret-free agent authenticator registry with provenance, enrollment,
+      monotonic rotation, compromise deactivation, durable restart safety, and formal properties
+      ([GitHub issue #176](https://github.com/advatar/ActiveChain/issues/176)).
 
 ## Active milestone — dBrowser verifier compatibility
 
