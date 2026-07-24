@@ -73,6 +73,55 @@ final class AmberModelsTests: XCTestCase {
         XCTAssertFalse(AmberConnectionState.incompatible.isAvailable)
     }
 
+    func testComposerReadinessRequiresBoardContentBondAndLiveSubmission() throws {
+        let board = try AmberBoardID("ac")
+        XCTAssertEqual(
+            AmberComposerReadiness.evaluate(
+                board: nil,
+                body: "post",
+                understandsBond: true,
+                liveSubmissionAvailable: true
+            ),
+            .chooseBoard
+        )
+        XCTAssertEqual(
+            AmberComposerReadiness.evaluate(
+                board: board,
+                body: " ",
+                understandsBond: true,
+                liveSubmissionAvailable: true
+            ),
+            .enterPost
+        )
+        XCTAssertEqual(
+            AmberComposerReadiness.evaluate(
+                board: board,
+                body: "post",
+                understandsBond: false,
+                liveSubmissionAvailable: true
+            ),
+            .acknowledgeBond
+        )
+        XCTAssertEqual(
+            AmberComposerReadiness.evaluate(
+                board: board,
+                body: "post",
+                understandsBond: true,
+                liveSubmissionAvailable: false
+            ),
+            .liveSubmissionUnavailable
+        )
+        XCTAssertEqual(
+            AmberComposerReadiness.evaluate(
+                board: board,
+                body: "post",
+                understandsBond: true,
+                liveSubmissionAvailable: true
+            ),
+            .ready
+        )
+    }
+
     func testStatusRequestUsesCanonicalFraming() {
         XCTAssertEqual(
             Array(AmberRPCCodec.framedStatusRequest),

@@ -23,6 +23,7 @@ struct AmberRootView: View {
         .background(AmberStyle.paper)
         .sheet(isPresented: $isComposerPresented) {
             AmberComposerView(
+                boards: boards,
                 board: boards.first(where: { $0.id == selection }),
                 quote: .kanalenPreview
             )
