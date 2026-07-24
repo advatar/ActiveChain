@@ -54,6 +54,9 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
   - [x] Publish deterministic positive/malformed vectors and an executable formal lifecycle model.
 - [ ] Complete multi-asset Coin Cells and the fungible native-asset registry required for
   conservation-checked issuance, transfer, burn, redemption, and proof-bearing discovery.
+  - [x] Add canonical bounded fungible asset definitions and a strictly ordered registry with
+    issuer, decimals, supply cap, policy commitment, canonical encoding, and lookup.
+  - [ ] Bind registry entries to conservation-checked multi-asset Coin Cell transitions.
 - [ ] Implement an isolated, operator-configurable connector host, durable operation journal,
   deterministic simulator, webhook delivery, reconciliation, and emergency controls.
   - [x] Freeze authenticated provider-observation envelopes with bounded state, sequence,
