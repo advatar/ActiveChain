@@ -30,4 +30,38 @@ if [[ "$icon_name" != "AppIcon" ]]; then
 fi
 
 bundle_id=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$plist")
+
+supports_ipad=$(
+  /usr/libexec/PlistBuddy \
+    -c "Print :UIDeviceFamily" \
+    "$plist" 2>/dev/null | rg -q '2' && echo yes || echo no
+)
+if [[ "$supports_ipad" == "yes" ]]; then
+  ipad_icon_name=$(
+    /usr/libexec/PlistBuddy \
+      -c "Print :CFBundleIcons~ipad:CFBundlePrimaryIcon:CFBundleIconName" \
+      "$plist" 2>/dev/null || true
+  )
+  if [[ "$ipad_icon_name" != "AppIcon" ]]; then
+    echo "iPad-enabled bundle is missing CFBundleIcons~ipad AppIcon metadata" >&2
+    exit 1
+  fi
+
+  ipad_icon=$(
+    find "$application" -maxdepth 1 -type f \
+      \( -name 'AppIcon76x76@2x.png' -o -name 'AppIcon76x76@2x~ipad.png' \) \
+      -print -quit
+  )
+  if [[ -z "$ipad_icon" ]]; then
+    echo "iPad-enabled bundle is missing the required 152x152 AppIcon rendition" >&2
+    exit 1
+  fi
+  dimensions=$(sips -g pixelWidth -g pixelHeight "$ipad_icon" 2>/dev/null)
+  if ! rg -q 'pixelWidth: 152' <<<"$dimensions" \
+      || ! rg -q 'pixelHeight: 152' <<<"$dimensions"; then
+    echo "required iPad AppIcon rendition is not exactly 152x152: $ipad_icon" >&2
+    exit 1
+  fi
+fi
+
 echo "validated AppIcon metadata and compiled catalog for $bundle_id"

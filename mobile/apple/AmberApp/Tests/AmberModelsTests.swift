@@ -68,6 +68,70 @@ final class AmberModelsTests: XCTestCase {
             "rpc.kanalen.activechain.dev"
         )
         XCTAssertEqual(AmberConnectionState.verified(finalizedHeight: 42).label, "Finalized #42")
+        XCTAssertEqual(AmberConnectionState.stale(finalizedHeight: 0).label, "Stale at #0")
+        XCTAssertTrue(AmberConnectionState.degraded(finalizedHeight: 7).isAvailable)
+        XCTAssertFalse(AmberConnectionState.incompatible.isAvailable)
+    }
+
+    func testStatusRequestUsesCanonicalFraming() {
+        XCTAssertEqual(
+            Array(AmberRPCCodec.framedStatusRequest),
+            [0, 0, 0, 6, 0, 0xa0, 0, 1, 1, 0]
+        )
+    }
+
+    func testStatusDecoderMapsStaleAndRejectsMalformedEnvelope() throws {
+        let response = makeStatusResponse(
+            protocolRevision: 1,
+            schemaRevision: 1,
+            finalizedHeight: 0,
+            finalizedAt: 10,
+            servedAt: 100,
+            maximumStaleness: 30,
+            health: 1
+        )
+        let status = try AmberRPCCodec.decodeStatus(response)
+        XCTAssertEqual(status.connectionState, .stale(finalizedHeight: 0))
+        XCTAssertThrowsError(try AmberRPCCodec.decodeStatus(Data(response.dropLast())))
+    }
+
+    func testStatusDecoderReportsIncompatibleRevision() throws {
+        let response = makeStatusResponse(
+            protocolRevision: 2,
+            schemaRevision: 1,
+            finalizedHeight: 12,
+            finalizedAt: 90,
+            servedAt: 100,
+            maximumStaleness: 30,
+            health: 0
+        )
+        XCTAssertEqual(try AmberRPCCodec.decodeStatus(response).connectionState, .incompatible)
+    }
+
+    private func makeStatusResponse(
+        protocolRevision: UInt64,
+        schemaRevision: UInt32,
+        finalizedHeight: UInt64,
+        finalizedAt: UInt64,
+        servedAt: UInt64,
+        maximumStaleness: UInt64,
+        health: UInt8
+    ) -> Data {
+        var body = Data([0])
+        body.append(Data(repeating: 0x11, count: 48))
+        body.append(Data(repeating: 0x22, count: 48))
+        body.append(contentsOf: protocolRevision.bigEndianBytes)
+        body.append(contentsOf: schemaRevision.bigEndianBytes)
+        body.append(contentsOf: finalizedHeight.bigEndianBytes)
+        body.append(contentsOf: finalizedAt.bigEndianBytes)
+        body.append(contentsOf: servedAt.bigEndianBytes)
+        body.append(contentsOf: maximumStaleness.bigEndianBytes)
+        body.append(health)
+        body.append(contentsOf: [2, 0, 1])
+        XCTAssertEqual(body.count, 145)
+        var envelope = Data([0, 0xa1, 0, 1, 0x91, 0x01])
+        envelope.append(body)
+        return envelope
     }
 
     func testBondQuoteRejectsFreeOrOverSlashablePosting() {
@@ -112,5 +176,11 @@ final class AmberModelsTests: XCTestCase {
         let quote = AmberBondQuote.kanalenPreview
         XCTAssertThrowsError(try quote.upheldSettlement(penalty: 26, reporterReward: 1))
         XCTAssertThrowsError(try quote.upheldSettlement(penalty: 10, reporterReward: 11))
+    }
+}
+
+private extension FixedWidthInteger {
+    var bigEndianBytes: [UInt8] {
+        withUnsafeBytes(of: bigEndian) { Array($0) }
     }
 }

@@ -18,8 +18,10 @@
 		768F4DDC1A95E3D5A2F62806 /* AmberModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8851C7B8AD7856BEFC8116F1 /* AmberModelsTests.swift */; };
 		92C6CE38957DE69F1234BA8A /* AmberBondEconomics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19EC5A332767CF43E74336C2 /* AmberBondEconomics.swift */; };
 		B47898750FFA9A367C9C5932 /* AmberApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0212DF02C579762975E44439 /* AmberApp.swift */; };
+		BE0CA34BE4DB344EE2776A52 /* AmberRPCClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 610BF6BB3379782521741078 /* AmberRPCClient.swift */; };
 		CCF7DC0FCC068A7E010D17C1 /* AmberBondEconomics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19EC5A332767CF43E74336C2 /* AmberBondEconomics.swift */; };
 		CD5D9CC1AF70C68B31D965B1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A734154181B5A21D3CDCC235 /* Assets.xcassets */; };
+		CFCEDFC303D04F03F4BF67A1 /* AmberRPCClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 610BF6BB3379782521741078 /* AmberRPCClient.swift */; };
 		E2E55B7D0B51905506D230F1 /* AmberModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8851C7B8AD7856BEFC8116F1 /* AmberModelsTests.swift */; };
 		E6552F4A06E11B2E7812209F /* AmberComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 012D6B3205AE26A4478BEDE3 /* AmberComposerView.swift */; };
 /* End PBXBuildFile section */
@@ -48,6 +50,7 @@
 		19EC5A332767CF43E74336C2 /* AmberBondEconomics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmberBondEconomics.swift; sourceTree = "<group>"; };
 		2AA7EC72846FBBF7082DCA41 /* AmberRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmberRootView.swift; sourceTree = "<group>"; };
 		2BD6460533C370D984A1F218 /* AmberMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AmberMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		610BF6BB3379782521741078 /* AmberRPCClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmberRPCClient.swift; sourceTree = "<group>"; };
 		8851C7B8AD7856BEFC8116F1 /* AmberModelsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmberModelsTests.swift; sourceTree = "<group>"; };
 		A0EDAA9E820282E158C1E8A3 /* AmberModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmberModels.swift; sourceTree = "<group>"; };
 		A734154181B5A21D3CDCC235 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -81,6 +84,7 @@
 				012D6B3205AE26A4478BEDE3 /* AmberComposerView.swift */,
 				A0EDAA9E820282E158C1E8A3 /* AmberModels.swift */,
 				2AA7EC72846FBBF7082DCA41 /* AmberRootView.swift */,
+				610BF6BB3379782521741078 /* AmberRPCClient.swift */,
 				B15EF6EAE29E0DACCA0D56D3 /* AmberSampleData.swift */,
 			);
 			path = Sources;
@@ -234,6 +238,7 @@
 				CCF7DC0FCC068A7E010D17C1 /* AmberBondEconomics.swift in Sources */,
 				E6552F4A06E11B2E7812209F /* AmberComposerView.swift in Sources */,
 				0A0116F79C1AF9E5B3D69BFD /* AmberModels.swift in Sources */,
+				CFCEDFC303D04F03F4BF67A1 /* AmberRPCClient.swift in Sources */,
 				75BF52034BE5BE5EF8DB5322 /* AmberRootView.swift in Sources */,
 				387F03C2FD55F290AF58FBF3 /* AmberSampleData.swift in Sources */,
 			);
@@ -247,6 +252,7 @@
 				92C6CE38957DE69F1234BA8A /* AmberBondEconomics.swift in Sources */,
 				1504B4A8C2657DBDF77656CA /* AmberComposerView.swift in Sources */,
 				30A324C9D8408B5C21F3D308 /* AmberModels.swift in Sources */,
+				BE0CA34BE4DB344EE2776A52 /* AmberRPCClient.swift in Sources */,
 				1AEC4F7809945432BED9D2B1 /* AmberRootView.swift in Sources */,
 				20FF85E31DE17A2EF0D7E598 /* AmberSampleData.swift in Sources */,
 			);

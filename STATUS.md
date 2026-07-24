@@ -114,6 +114,24 @@ Tracked by [GitHub issue #138](https://github.com/advatar/ActiveChain/issues/138
 - [x] Feature Amber honestly as the first reference application on the ActiveChain landing page.
 - [x] Document and pass reproducible iOS Simulator and macOS builds.
 
+## Active implementation — Amber live RPC health
+
+Tracked by [GitHub issue #149](https://github.com/advatar/ActiveChain/issues/149).
+
+- [x] Add a native TLS-framed status client for the configured Kanalen RPC endpoint.
+- [x] Strictly decode bounded status responses and reject incompatible protocol or schema revisions.
+- [x] Present checking, verified, stale, degraded, unavailable, and incompatible states.
+- [x] Refresh status on launch and on demand without blocking the Amber interface.
+- [x] Add deterministic codec/state tests and pass native iOS and macOS builds.
+
+## Active release fix — Amber iPad app icons
+
+Tracked by [GitHub issue #150](https://github.com/advatar/ActiveChain/issues/150).
+
+- [x] Add the required iPhone and iPad AppIcon renditions, including the 152×152 iPad icon.
+- [x] Extend local release validation to reject bundles missing the compiled iPad icon metadata.
+- [x] Pass native builds and validate the generated iOS application bundle.
+
 ## Active implementation — Amber bonded posting
 
 Tracked by [GitHub issue #141](https://github.com/advatar/ActiveChain/issues/141).
