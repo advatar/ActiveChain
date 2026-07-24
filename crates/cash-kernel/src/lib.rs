@@ -45,8 +45,9 @@ pub use partitioned::{
 pub use transition::{CashLedger, CashTransitionError, MAX_REDEEMED_REWARDS};
 pub use types::{
     CashTransferV1, CoinBurnTransition, CoinCell, CoinCellOrigin, CoinCellRecord, CoinCellSet,
-    CoinMintTransition, CoinTransfer, EpochEconomicsTransition, GenesisAllocation, GenesisEconomy,
-    MAX_COIN_CELLS, MAX_TRANSFER_INPUTS, NativeAssetDefinition, NativeMoneyError, NativeSupply,
+    CoinMintTransition, CoinTransfer, EpochEconomicsTransition, FungibleCoinCell,
+    GenesisAllocation, GenesisEconomy, MAX_COIN_CELLS, MAX_TRANSFER_INPUTS, NativeAssetDefinition,
+    NativeMoneyError, NativeSupply,
 };
 
 #[cfg(test)]
