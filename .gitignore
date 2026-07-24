@@ -5,3 +5,5 @@
 /mobile/android/app/build/
 /dist/
 *.profraw
+**/xcuserdata/
+*.xcuserstate
