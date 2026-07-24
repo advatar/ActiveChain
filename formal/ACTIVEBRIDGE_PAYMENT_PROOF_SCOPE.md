@@ -20,6 +20,8 @@ Mechanically checked properties:
   atomic-unit, unit, asset, and reference values.
 - only prepared nTZS attempts may dispatch; ambiguous attempts reconcile, exact request replay is
   idempotent, and changed request/provider-reference bindings are rejected.
+- typed nTZS transfer destinations set exactly one provider field and accepted core requests meet
+  their operation minimum.
 
 The Rust crate additionally checks intent identity across successors, exact asset identity,
 minimum-output ordering, checked fee arithmetic, idempotency-body binding, canonical round trips,
