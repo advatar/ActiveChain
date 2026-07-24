@@ -130,6 +130,25 @@ Tracked by [GitHub issue #165](https://github.com/advatar/ActiveChain/issues/165
 - [ ] Add consent/disclosure UX, issuer policy tooling, interoperability vectors, privacy analysis,
   replay/correlation tests, and independent audit gates.
 
+## Active integration — TLS evidence, wallet credentials, and ZK predicates
+
+Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169).
+
+- [ ] Freeze cross-repository schemas and deterministic vectors from TLSNotary evidence through
+  self-issued or issuer-upgraded VC claims to ActiveChain circuit public inputs and receipts.
+- [ ] Preserve explicit provenance and assurance classes: notarized TLS evidence and holder
+  self-issuance must never be silently promoted to EUDI PID, (Q)EAA, regulated KYC, or bank attestation.
+- [ ] Specify proof-of-funds predicates for currency/asset, threshold/range, institution membership,
+  observation freshness, aggregation rules, units/decimals, and holder binding.
+- [ ] Integrate EUWallet custody, validation, provenance UI, consent, presentation, deletion,
+  recovery, and audit with ActiveChain-bound audience/action/policy/nonce requests.
+- [ ] Verify only minimal commitments, predicates, status/freshness, assurance, and pairwise/nullifier
+  replay controls on ActiveChain; keep transcripts, account identifiers, and full balances off-chain.
+- [ ] Formally prove the evidence-to-claim-to-circuit-to-APL refinement, no provenance escalation,
+  predicate soundness, action/audience binding, replay resistance, and declared unlinkability.
+- [ ] Pass cross-repository malformed/adversarial vectors, device-key integration, privacy review,
+  independent audit, and offline receipt-verification gates.
+
 ## Active deployment — Kanalen developmental RPC
 
 Tracked by [GitHub issue #137](https://github.com/advatar/ActiveChain/issues/137).
