@@ -23,6 +23,7 @@ use std::{collections::BTreeSet, fs::File, io::Write, path::Path};
 
 mod amount;
 mod attempt;
+mod request;
 mod response;
 
 pub use amount::{
@@ -31,6 +32,7 @@ pub use amount::{
 pub use attempt::{
     AttemptDispatchDecision, AttemptJournalError, NtzsAttemptJournal, NtzsAttemptPhase,
 };
+pub use request::{NtzsCoreRequests, NtzsRequestBuildError, NtzsTransferDestination};
 pub use response::{NtzsProviderResult, ResponseSchemaError, parse_operation_response};
 
 type HmacSha256 = Hmac<Sha256>;
@@ -175,7 +177,7 @@ pub struct NtzsRequest {
 }
 
 impl NtzsRequest {
-    pub fn new(
+    pub(crate) fn new(
         endpoint: NtzsEndpoint,
         body: Vec<u8>,
         idempotency_key: Option<String>,

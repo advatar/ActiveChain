@@ -180,6 +180,34 @@ commitment from the pre-authorized persisted ActiveBridge attempt. The connector
 unit, asset identifier, converted atomic quantity, and reference equality before it can emit an
 observation. Provider fields never select a native asset merely by symbol.
 
+### 8.1 Typed core requests
+
+The reference adapter constructs reviewed core-operation JSON through typed functions rather than
+accepting an arbitrary object:
+
+| Request | Enforced fields and bounds |
+| --- | --- |
+| mobile-money deposit | user ID, integer TZS amount >= 500, canonical phone, optional treasury flag |
+| card deposit | user ID, integer TZS amount >= 500, two HTTPS callback URLs |
+| native transfer | sender, typed user-or-address destination, positive integer TZS amount |
+| USDC transfer | sender, typed user-or-address destination, exact positive <=6-decimal amount |
+| withdrawal | user ID, integer TZS amount >= 5,000, canonical phone |
+
+The transfer destination is an enum, so callers cannot serialize both `toUserId` and `toAddress`.
+EVM destinations are exactly `0x` plus 40 hexadecimal digits. The revision-1 identifier grammar is
+a bounded ASCII safe subset (`A-Z`, `a-z`, `0-9`, `-`, `_`); accepting additional provider syntax
+requires an explicit schema revision. Core Tanzanian phones are serialized as `255` plus nine
+digits, matching the reviewed core examples. Card callbacks require `https://`, a nonempty
+authority, bounded length, and no whitespace, control bytes, or user-info component.
+
+The exact JSON body becomes part of the durable attempt commitment before transport. Request bodies
+necessarily contain provider-facing user data and must stay inside the isolated connector; debug
+formatting is redacted and journals store only commitments. Typed construction does not establish
+provider acceptance or replace contractual sandbox tests.
+
+The raw `NtzsRequest` constructor is crate-private. Public callers cannot bypass these builders to
+execute an endpoint whose request schema has not yet been implemented.
+
 ## 9. Replay persistence and recovery
 
 ### 9.1 Provider-attempt idempotency
@@ -245,6 +273,7 @@ The sandbox adapter is not production-qualified until all of the following are e
 - Rust adapter and unit tests: `connectors/ntzs/`
 - sanitized webhook fixtures: `connectors/ntzs/fixtures/`
 - mapping vectors: `testing/ntzs-provider-contract-v1.tsv`,
-  `testing/ntzs-amount-vectors-v1.tsv`, `testing/ntzs-attempt-vectors-v1.tsv`
+  `testing/ntzs-amount-vectors-v1.tsv`, `testing/ntzs-attempt-vectors-v1.tsv`,
+  `testing/ntzs-request-vectors-v1.tsv`
 - executable abstract model: `formal/lean/ActiveChain/Payments.lean`
 - explicit proof boundary: `formal/ACTIVEBRIDGE_NTZS_PROOF_SCOPE.md`

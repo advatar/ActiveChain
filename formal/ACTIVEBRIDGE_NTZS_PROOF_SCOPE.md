@@ -19,6 +19,8 @@ Mechanically checked properties:
 - the dispatch boundary can be crossed only once;
 - exact request replay is idempotent while changed request commitments are rejected;
 - a changed provider reference cannot replace the first bound reference.
+- a typed transfer destination emits exactly one of `toUserId` or `toAddress`;
+- an accepted typed core request satisfies its operation minimum.
 
 The Rust tests additionally execute the fixed endpoint/key policy, exact documented status and
 error mappings, webhook HMAC binding, body substitution, timestamp substitution, stale/future
@@ -31,6 +33,9 @@ reference, asset, unit, and quantity binding before emitting an observation.
 The attempt-journal tests cover exact/changed request replay, durable pre-dispatch state, restart
 equivalence, ambiguous timeout decisions, immutable provider references, corruption, canonical
 ordering, unknown attempts, and failed-persistence non-mutation.
+The typed-request tests execute the published request vectors and enforce exact decimal
+serialization, deposit/withdrawal minimums, bounded safe-subset identifiers, canonical Tanzanian
+phone form, HTTPS card callbacks, EVM address shape, and destination exclusivity.
 
 The model assumes correspondence between each Rust string match and its Lean constructor. It does
 not prove HMAC-SHA256 security, SHAKE256 collision resistance, provider honesty, secret custody,

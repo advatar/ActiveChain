@@ -94,6 +94,22 @@ impl ExactProviderAmount {
         self.scale
     }
 
+    /// Returns the normalized exact decimal representation.
+    #[must_use]
+    pub fn to_decimal_string(self) -> String {
+        if self.scale == 0 {
+            return self.coefficient.to_string();
+        }
+        let digits = self.coefficient.to_string();
+        let scale = usize::from(self.scale);
+        if digits.len() > scale {
+            let split = digits.len() - scale;
+            format!("{}.{}", &digits[..split], &digits[split..])
+        } else {
+            format!("0.{}{}", "0".repeat(scale - digits.len()), digits)
+        }
+    }
+
     /// Converts exactly into registry-defined ActiveChain atomic units.
     pub fn to_atomic_units(self, asset_decimals: u8) -> Result<u128, AmountError> {
         if asset_decimals < self.scale || asset_decimals > MAX_DECIMAL_DIGITS as u8 {
@@ -246,6 +262,24 @@ mod tests {
                 AssetAmountV1::new(AssetId::new(digest(2)), 1_000_000).unwrap(),
             ),
             Err(AmountError::AssetMismatch)
+        );
+    }
+
+    #[test]
+    fn normalized_decimal_rendering_is_exact() {
+        assert_eq!(
+            NtzsExternalAmount::parse(NtzsExternalUnit::Usdc, "12.500000")
+                .unwrap()
+                .value()
+                .to_decimal_string(),
+            "12.5"
+        );
+        assert_eq!(
+            NtzsExternalAmount::parse(NtzsExternalUnit::Usdc, "0.000001")
+                .unwrap()
+                .value()
+                .to_decimal_string(),
+            "0.000001"
         );
     }
 }

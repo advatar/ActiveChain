@@ -373,4 +373,40 @@ theorem changedBoundProviderReferenceIsRejected
     bindNtzsProviderReference .providerReferenceBound existing incoming = none := by
   simp [bindNtzsProviderReference, hChanged]
 
+inductive NtzsTransferDestination where
+  | user
+  | address
+  deriving BEq, DecidableEq, Repr
+
+def ntzsDestinationFields : NtzsTransferDestination → Bool × Bool
+  | .user => (true, false)
+  | .address => (false, true)
+
+theorem typedNtzsDestinationSetsExactlyOneField
+    (destination : NtzsTransferDestination) :
+    let fields := ntzsDestinationFields destination
+    (fields.1 && !fields.2) || (!fields.1 && fields.2) = true := by
+  cases destination <;> decide
+
+inductive NtzsCoreRequestKind where
+  | deposit
+  | transfer
+  | withdrawal
+  deriving BEq, DecidableEq, Repr
+
+def ntzsCoreMinimum : NtzsCoreRequestKind → Nat
+  | .deposit => 500
+  | .transfer => 1
+  | .withdrawal => 5000
+
+def ntzsCoreAmountAccepted (kind : NtzsCoreRequestKind) (amount : Nat) : Prop :=
+  ntzsCoreMinimum kind ≤ amount
+
+theorem acceptedNtzsCoreAmountMeetsMinimum
+    (kind : NtzsCoreRequestKind)
+    (amount : Nat)
+    (hAccepted : ntzsCoreAmountAccepted kind amount) :
+    ntzsCoreMinimum kind ≤ amount := by
+  exact hAccepted
+
 end ActiveChain.Payments
