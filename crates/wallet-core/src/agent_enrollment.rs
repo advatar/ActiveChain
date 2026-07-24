@@ -7,7 +7,7 @@ use activechain_canonical_codec::{
 };
 use activechain_protocol_types::{
     AuthenticatorDescriptor, AuthenticatorPurpose, CapabilityId, ChainId, CryptoSuiteId, Digest384,
-    PrincipalId, ProtocolSignature,
+    PrincipalId, ProtocolSignature, TransactionId,
 };
 use alloc::vec::Vec;
 use ml_dsa::{
@@ -21,6 +21,242 @@ use sha3::{
 const REQUEST_SIGNING_DOMAIN: &[u8] = b"ACTIVECHAIN-AGENT-ENROLLMENT-REQUEST-ML-DSA-65-V1";
 const GRANT_SIGNING_DOMAIN: &[u8] = b"ACTIVECHAIN-AGENT-ENROLLMENT-GRANT-ML-DSA-44-V1";
 const REQUEST_COMMITMENT_DOMAIN: &[u8] = b"ACTIVECHAIN-AGENT-ENROLLMENT-REQUEST-ID-V1";
+
+/// Stable rejection categories suitable for protocol evidence and user-facing translation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum AgentEnrollmentRejectionCode {
+    PolicyDenied = 0,
+    InvalidAuthorization = 1,
+    Replay = 2,
+    StateConflict = 3,
+}
+
+impl CanonicalEncode for AgentEnrollmentRejectionCode {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(e)
+    }
+}
+
+impl CanonicalDecode for AgentEnrollmentRejectionCode {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(d)? {
+            0 => Ok(Self::PolicyDenied),
+            1 => Ok(Self::InvalidAuthorization),
+            2 => Ok(Self::Replay),
+            3 => Ok(Self::StateConflict),
+            tag => {
+                Err(DecodeError::InvalidEnumTag { type_name: "AgentEnrollmentRejectionCode", tag })
+            }
+        }
+    }
+}
+
+/// The externally observable result of one exact enrollment request.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AgentEnrollmentOutcomeV1 {
+    Submitted {
+        transaction: TransactionId,
+    },
+    Finalized {
+        transaction: TransactionId,
+        finalized_height: u64,
+        block_commitment: Digest384,
+        inclusion_commitment: Digest384,
+    },
+    Rejected {
+        observed_height: u64,
+        code: AgentEnrollmentRejectionCode,
+    },
+    Expired {
+        observed_height: u64,
+    },
+}
+
+impl AgentEnrollmentOutcomeV1 {
+    fn validate(self) -> Result<Self, WalletError> {
+        let valid = match self {
+            Self::Submitted { transaction } => transaction.into_digest() != Digest384::ZERO,
+            Self::Finalized {
+                transaction,
+                finalized_height,
+                block_commitment,
+                inclusion_commitment,
+            } => {
+                transaction.into_digest() != Digest384::ZERO
+                    && finalized_height != 0
+                    && block_commitment != Digest384::ZERO
+                    && inclusion_commitment != Digest384::ZERO
+            }
+            Self::Rejected { observed_height, .. } | Self::Expired { observed_height } => {
+                observed_height != 0
+            }
+        };
+        if valid { Ok(self) } else { Err(WalletError::MalformedAuthorization) }
+    }
+}
+
+impl CanonicalEncode for AgentEnrollmentOutcomeV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        match self {
+            Self::Submitted { transaction } => {
+                0_u8.encode(e)?;
+                transaction.encode(e)
+            }
+            Self::Finalized {
+                transaction,
+                finalized_height,
+                block_commitment,
+                inclusion_commitment,
+            } => {
+                1_u8.encode(e)?;
+                transaction.encode(e)?;
+                finalized_height.encode(e)?;
+                block_commitment.encode(e)?;
+                inclusion_commitment.encode(e)
+            }
+            Self::Rejected { observed_height, code } => {
+                2_u8.encode(e)?;
+                observed_height.encode(e)?;
+                code.encode(e)
+            }
+            Self::Expired { observed_height } => {
+                3_u8.encode(e)?;
+                observed_height.encode(e)
+            }
+        }
+    }
+}
+
+impl CanonicalDecode for AgentEnrollmentOutcomeV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let value = match u8::decode(d)? {
+            0 => Self::Submitted { transaction: TransactionId::decode(d)? },
+            1 => Self::Finalized {
+                transaction: TransactionId::decode(d)?,
+                finalized_height: u64::decode(d)?,
+                block_commitment: Digest384::decode(d)?,
+                inclusion_commitment: Digest384::decode(d)?,
+            },
+            2 => Self::Rejected {
+                observed_height: u64::decode(d)?,
+                code: AgentEnrollmentRejectionCode::decode(d)?,
+            },
+            3 => Self::Expired { observed_height: u64::decode(d)? },
+            tag => {
+                return Err(DecodeError::InvalidEnumTag {
+                    type_name: "AgentEnrollmentOutcomeV1",
+                    tag,
+                });
+            }
+        };
+        value.validate().map_err(|_| DecodeError::InvalidValue("invalid agent enrollment outcome"))
+    }
+}
+
+/// Canonical lifecycle evidence bound to one request and its intended wallet.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AgentEnrollmentEvidenceV1 {
+    chain_id: ChainId,
+    wallet: PrincipalId,
+    agent: PrincipalId,
+    request_commitment: Digest384,
+    outcome: AgentEnrollmentOutcomeV1,
+}
+
+impl AgentEnrollmentEvidenceV1 {
+    pub fn new(
+        chain_id: ChainId,
+        wallet: PrincipalId,
+        agent: PrincipalId,
+        request_commitment: Digest384,
+        outcome: AgentEnrollmentOutcomeV1,
+    ) -> Result<Self, WalletError> {
+        if chain_id.into_digest() == Digest384::ZERO
+            || wallet.into_digest() == Digest384::ZERO
+            || agent.into_digest() == Digest384::ZERO
+            || request_commitment == Digest384::ZERO
+        {
+            return Err(WalletError::MalformedAuthorization);
+        }
+        Ok(Self { chain_id, wallet, agent, request_commitment, outcome: outcome.validate()? })
+    }
+
+    pub const fn outcome(&self) -> AgentEnrollmentOutcomeV1 {
+        self.outcome
+    }
+
+    pub fn validate_against(&self, request: &AgentEnrollmentRequestV1) -> Result<(), WalletError> {
+        if self.chain_id != request.chain_id
+            || self.wallet != request.wallet
+            || self.agent != request.agent
+            || self.request_commitment
+                != request.commitment().map_err(|_| WalletError::MalformedAuthorization)?
+            || matches!(
+                self.outcome,
+                AgentEnrollmentOutcomeV1::Expired { observed_height }
+                    if observed_height <= request.expires_at
+            )
+        {
+            return Err(WalletError::PolicyDenied);
+        }
+        Ok(())
+    }
+
+    pub fn follows(&self, previous: &Self) -> Result<(), WalletError> {
+        if self.chain_id != previous.chain_id
+            || self.wallet != previous.wallet
+            || self.agent != previous.agent
+            || self.request_commitment != previous.request_commitment
+        {
+            return Err(WalletError::PolicyDenied);
+        }
+        if self == previous {
+            return Ok(());
+        }
+        match (previous.outcome, self.outcome) {
+            (
+                AgentEnrollmentOutcomeV1::Submitted { transaction: expected },
+                AgentEnrollmentOutcomeV1::Finalized { transaction, .. },
+            ) if expected == transaction => Ok(()),
+            (
+                AgentEnrollmentOutcomeV1::Submitted { .. },
+                AgentEnrollmentOutcomeV1::Rejected { .. }
+                | AgentEnrollmentOutcomeV1::Expired { .. },
+            ) => Ok(()),
+            _ => Err(WalletError::MalformedAuthorization),
+        }
+    }
+}
+
+impl CanonicalEncode for AgentEnrollmentEvidenceV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain_id.encode(e)?;
+        self.wallet.encode(e)?;
+        self.agent.encode(e)?;
+        self.request_commitment.encode(e)?;
+        self.outcome.encode(e)
+    }
+}
+
+impl CanonicalDecode for AgentEnrollmentEvidenceV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            ChainId::decode(d)?,
+            PrincipalId::decode(d)?,
+            PrincipalId::decode(d)?,
+            Digest384::decode(d)?,
+            AgentEnrollmentOutcomeV1::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid agent enrollment evidence"))
+    }
+}
+
+impl CanonicalType for AgentEnrollmentEvidenceV1 {
+    const TYPE_TAG: u16 = 0x00d9;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 * 4 + 1 + 48 + 8 + 48 + 48;
+}
 
 /// An agent-authenticated, bounded request for wallet authority.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -647,5 +883,103 @@ mod tests {
         let mut trailing = encode_envelope(&request).unwrap();
         trailing.push(0);
         assert!(decode_envelope::<AgentEnrollmentRequestV1>(&trailing).is_err());
+    }
+
+    #[test]
+    fn lifecycle_evidence_is_request_bound_and_monotonic() {
+        let agent_key = SigningKey::<MlDsa65>::from_seed(&Seed::from([7; 32]));
+        let request = request(&agent_key, vec![CapabilityId::new(digest(10))]);
+        let request_commitment = request.commitment().unwrap();
+        let submitted = AgentEnrollmentEvidenceV1::new(
+            request.chain_id(),
+            request.wallet(),
+            request.agent(),
+            request_commitment,
+            AgentEnrollmentOutcomeV1::Submitted { transaction: TransactionId::new(digest(20)) },
+        )
+        .unwrap();
+        submitted.validate_against(&request).unwrap();
+        assert_eq!(
+            decode_envelope::<AgentEnrollmentEvidenceV1>(&encode_envelope(&submitted).unwrap()),
+            Ok(submitted)
+        );
+
+        let finalized = AgentEnrollmentEvidenceV1::new(
+            request.chain_id(),
+            request.wallet(),
+            request.agent(),
+            request_commitment,
+            AgentEnrollmentOutcomeV1::Finalized {
+                transaction: TransactionId::new(digest(20)),
+                finalized_height: 42,
+                block_commitment: digest(21),
+                inclusion_commitment: digest(22),
+            },
+        )
+        .unwrap();
+        finalized.follows(&submitted).unwrap();
+        assert_eq!(submitted.follows(&finalized), Err(WalletError::MalformedAuthorization));
+
+        let substituted = AgentEnrollmentEvidenceV1::new(
+            request.chain_id(),
+            request.wallet(),
+            request.agent(),
+            request_commitment,
+            AgentEnrollmentOutcomeV1::Finalized {
+                transaction: TransactionId::new(digest(23)),
+                finalized_height: 42,
+                block_commitment: digest(21),
+                inclusion_commitment: digest(22),
+            },
+        )
+        .unwrap();
+        assert_eq!(substituted.follows(&submitted), Err(WalletError::MalformedAuthorization));
+    }
+
+    #[test]
+    fn rejected_and_expired_evidence_fail_closed() {
+        let agent_key = SigningKey::<MlDsa65>::from_seed(&Seed::from([7; 32]));
+        let request = request(&agent_key, vec![CapabilityId::new(digest(10))]);
+        let submitted = AgentEnrollmentEvidenceV1::new(
+            request.chain_id(),
+            request.wallet(),
+            request.agent(),
+            request.commitment().unwrap(),
+            AgentEnrollmentOutcomeV1::Submitted { transaction: TransactionId::new(digest(20)) },
+        )
+        .unwrap();
+        let rejected = AgentEnrollmentEvidenceV1::new(
+            request.chain_id(),
+            request.wallet(),
+            request.agent(),
+            request.commitment().unwrap(),
+            AgentEnrollmentOutcomeV1::Rejected {
+                observed_height: 50,
+                code: AgentEnrollmentRejectionCode::PolicyDenied,
+            },
+        )
+        .unwrap();
+        rejected.follows(&submitted).unwrap();
+
+        let premature_expiry = AgentEnrollmentEvidenceV1::new(
+            request.chain_id(),
+            request.wallet(),
+            request.agent(),
+            request.commitment().unwrap(),
+            AgentEnrollmentOutcomeV1::Expired { observed_height: request.expires_at() },
+        )
+        .unwrap();
+        assert_eq!(premature_expiry.validate_against(&request), Err(WalletError::PolicyDenied));
+        let expired = AgentEnrollmentEvidenceV1::new(
+            request.chain_id(),
+            request.wallet(),
+            request.agent(),
+            request.commitment().unwrap(),
+            AgentEnrollmentOutcomeV1::Expired { observed_height: request.expires_at() + 1 },
+        )
+        .unwrap();
+        expired.validate_against(&request).unwrap();
+        expired.follows(&submitted).unwrap();
+        assert_eq!(rejected.follows(&expired), Err(WalletError::MalformedAuthorization));
     }
 }

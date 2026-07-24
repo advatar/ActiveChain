@@ -17,7 +17,8 @@ pub use agent_authenticator::{
     AgentKeyProvenance, MAX_AGENT_AUTHENTICATORS, MAX_AGENT_KEY_VERSIONS,
 };
 pub use agent_enrollment::{
-    AgentEnrollmentGrantV1, AgentEnrollmentRequestV1, AuthorizedAgentEnrollmentGrantV1,
+    AgentEnrollmentEvidenceV1, AgentEnrollmentGrantV1, AgentEnrollmentOutcomeV1,
+    AgentEnrollmentRejectionCode, AgentEnrollmentRequestV1, AuthorizedAgentEnrollmentGrantV1,
     AuthorizedAgentEnrollmentRequestV1,
 };
 pub use agent_management::{

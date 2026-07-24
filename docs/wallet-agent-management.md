@@ -55,6 +55,14 @@ shorten expiry, or require human approval; it cannot amplify the request. Verifi
 expected chain, wallet, validity height, both signatures, and the exact request commitment before
 the grant can enter submission.
 
+`AgentEnrollmentEvidenceV1` represents the externally observable lifecycle without relying on UI
+labels. Submitted evidence binds the transaction. Finalized evidence binds that same transaction,
+the nonzero finalized height, finalized block commitment, and inclusion commitment. Rejection uses
+a stable protocol code rather than free-form network text, and expiry records the first observed
+height after the request's validity window. Evidence is chain-, wallet-, agent-, and
+request-commitment-bound; transitions are idempotent and may move only from submitted to one
+terminal outcome. A terminal outcome cannot regress or change into a different terminal state.
+
 ## Process and application shapes
 
 ### Wallet-owned apps and extensions
