@@ -532,6 +532,88 @@ impl CanonicalType for FungibleTransferV1 {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
+/// Issuer-authorized mint intent for a registered fungible asset.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FungibleMintV1 {
+    asset_id: AssetId,
+    issuer: PrincipalId,
+    recipient: PrincipalId,
+    amount: Amount,
+    supply_before: Amount,
+    supply_cap: Amount,
+}
+impl FungibleMintV1 {
+    pub const TYPE_TAG: u16 = 0x00A4;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 + 48 + 48 + 16 * 3;
+    pub fn new(
+        asset_id: AssetId,
+        issuer: PrincipalId,
+        recipient: PrincipalId,
+        amount: Amount,
+        supply_before: Amount,
+        supply_cap: Amount,
+    ) -> Result<Self, NativeMoneyError> {
+        if amount == 0 || supply_cap == 0 {
+            return Err(NativeMoneyError::ZeroAmount);
+        }
+        let after = supply_before.checked_add(amount).ok_or(NativeMoneyError::AmountOverflow)?;
+        if after > supply_cap {
+            return Err(NativeMoneyError::IssuanceCapExceeded);
+        }
+        Ok(Self { asset_id, issuer, recipient, amount, supply_before, supply_cap })
+    }
+    pub const fn asset_id(self) -> AssetId {
+        self.asset_id
+    }
+    pub const fn issuer(self) -> PrincipalId {
+        self.issuer
+    }
+    pub const fn recipient(self) -> PrincipalId {
+        self.recipient
+    }
+    pub const fn amount(self) -> Amount {
+        self.amount
+    }
+    pub const fn supply_before(self) -> Amount {
+        self.supply_before
+    }
+    pub const fn supply_after(self) -> Amount {
+        self.supply_before + self.amount
+    }
+    pub const fn supply_cap(self) -> Amount {
+        self.supply_cap
+    }
+}
+impl CanonicalEncode for FungibleMintV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.asset_id.encode(e)?;
+        self.issuer.encode(e)?;
+        self.recipient.encode(e)?;
+        self.amount.encode(e)?;
+        self.supply_before.encode(e)?;
+        self.supply_cap.encode(e)
+    }
+}
+impl CanonicalDecode for FungibleMintV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            AssetId::decode(d)?,
+            PrincipalId::decode(d)?,
+            PrincipalId::decode(d)?,
+            u128::decode(d)?,
+            u128::decode(d)?,
+            u128::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid fungible mint"))
+    }
+}
+impl CanonicalType for FungibleMintV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 #[cfg(test)]
 mod fungible_cell_tests {
     use super::*;
@@ -570,6 +652,16 @@ mod fungible_cell_tests {
         assert!(FungibleTransferV1::new(asset, owner, recipient, vec![cell], 41).is_err());
         let wrong = FungibleCoinCell::new(origin, other, owner, 42, 7).unwrap();
         assert!(FungibleTransferV1::new(asset, owner, recipient, vec![wrong], 42).is_err());
+    }
+
+    #[test]
+    fn mint_is_asset_bound_and_cap_checked() {
+        let asset = AssetId::new(Digest384::new([2; 48]));
+        let issuer = PrincipalId::new(Digest384::new([3; 48]));
+        let recipient = PrincipalId::new(Digest384::new([5; 48]));
+        let mint = FungibleMintV1::new(asset, issuer, recipient, 10, 90, 100).unwrap();
+        assert_eq!(mint.supply_after(), 100);
+        assert!(FungibleMintV1::new(asset, issuer, recipient, 11, 90, 100).is_err());
     }
 }
 
