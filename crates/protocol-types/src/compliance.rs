@@ -1,4 +1,4 @@
-use crate::{AssetId, ChainId, Digest384, Height, PrincipalId, TransactionId};
+use crate::{AssetId, ChainId, Digest384, Height, PrincipalId, ProtocolSignature, TransactionId};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
@@ -9,6 +9,81 @@ pub enum ComplianceError {
     InvalidValidity,
     WrongChain,
     Mismatch,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComplianceSignatureEnvelopeV1 {
+    profile: Digest384,
+    chain_id: ChainId,
+    action: TransactionId,
+    commitment: Digest384,
+    nonce: Digest384,
+    signature: ProtocolSignature,
+}
+impl ComplianceSignatureEnvelopeV1 {
+    pub const TYPE_TAG: u16 = 0x00D2;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 5 + ProtocolSignature::MAX_ENCODED_LEN;
+    pub fn new(
+        profile: Digest384,
+        chain_id: ChainId,
+        action: TransactionId,
+        commitment: Digest384,
+        nonce: Digest384,
+        signature: ProtocolSignature,
+    ) -> Result<Self, ComplianceError> {
+        if profile == Digest384::ZERO
+            || *action.digest() == Digest384::ZERO
+            || commitment == Digest384::ZERO
+            || nonce == Digest384::ZERO
+        {
+            return Err(ComplianceError::ZeroCommitment);
+        }
+        Ok(Self { profile, chain_id, action, commitment, nonce, signature })
+    }
+    pub const fn profile(&self) -> Digest384 {
+        self.profile
+    }
+    pub const fn action(&self) -> TransactionId {
+        self.action
+    }
+    pub const fn commitment(&self) -> Digest384 {
+        self.commitment
+    }
+    pub const fn nonce(&self) -> Digest384 {
+        self.nonce
+    }
+    pub const fn signature(&self) -> &ProtocolSignature {
+        &self.signature
+    }
+}
+impl CanonicalEncode for ComplianceSignatureEnvelopeV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.profile.encode(e)?;
+        self.chain_id.encode(e)?;
+        self.action.encode(e)?;
+        self.commitment.encode(e)?;
+        self.nonce.encode(e)?;
+        self.signature.encode(e)
+    }
+}
+impl CanonicalDecode for ComplianceSignatureEnvelopeV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            Digest384::decode(d)?,
+            ChainId::decode(d)?,
+            TransactionId::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            ProtocolSignature::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid compliance signature envelope"))
+    }
+}
+impl CanonicalType for ComplianceSignatureEnvelopeV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

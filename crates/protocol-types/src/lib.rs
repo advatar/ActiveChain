@@ -35,7 +35,10 @@ pub use authority::{
 pub use checked_arithmetic::{
     authorized_issuance, fee_total, next_base_fee, partition_total, post_supply, strict_two_thirds,
 };
-pub use compliance::{ComplianceError, ComplianceEvidenceBindingV1, TravelRuleBindingV1};
+pub use compliance::{
+    ComplianceError, ComplianceEvidenceBindingV1, ComplianceSignatureEnvelopeV1,
+    TravelRuleBindingV1,
+};
 pub use consensus::{
     BlockProposal, ConsensusUpgradeAuthorization, ConsensusUpgradeAuthorizationError,
     ConsensusVoteContext, EpochTransition, EpochTransitionError, INITIAL_PROTOCOL_REVISION,
