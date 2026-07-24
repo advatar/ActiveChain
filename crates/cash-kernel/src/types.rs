@@ -774,6 +774,92 @@ impl CanonicalType for FungibleRedemptionV1 {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
+/// Receipt joining a redemption intent to finalized chain evidence.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FungibleSettlementReceiptV1 {
+    asset_id: AssetId,
+    redemption_reference: Digest384,
+    transaction_id: TransactionId,
+    amount: Amount,
+    finalized_height: Height,
+    proof_commitment: Digest384,
+}
+impl FungibleSettlementReceiptV1 {
+    pub const TYPE_TAG: u16 = 0x00A7;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 + 48 + 48 + 16 + 8 + 48;
+    pub fn new(
+        asset_id: AssetId,
+        redemption_reference: Digest384,
+        transaction_id: TransactionId,
+        amount: Amount,
+        finalized_height: Height,
+        proof_commitment: Digest384,
+    ) -> Result<Self, NativeMoneyError> {
+        if redemption_reference == Digest384::ZERO
+            || proof_commitment == Digest384::ZERO
+            || amount == 0
+            || finalized_height == 0
+        {
+            return Err(NativeMoneyError::InvalidInputs);
+        }
+        Ok(Self {
+            asset_id,
+            redemption_reference,
+            transaction_id,
+            amount,
+            finalized_height,
+            proof_commitment,
+        })
+    }
+    pub const fn asset_id(self) -> AssetId {
+        self.asset_id
+    }
+    pub const fn redemption_reference(self) -> Digest384 {
+        self.redemption_reference
+    }
+    pub const fn transaction_id(self) -> TransactionId {
+        self.transaction_id
+    }
+    pub const fn amount(self) -> Amount {
+        self.amount
+    }
+    pub const fn finalized_height(self) -> Height {
+        self.finalized_height
+    }
+    pub const fn proof_commitment(self) -> Digest384 {
+        self.proof_commitment
+    }
+}
+impl CanonicalEncode for FungibleSettlementReceiptV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.asset_id.encode(e)?;
+        self.redemption_reference.encode(e)?;
+        self.transaction_id.encode(e)?;
+        self.amount.encode(e)?;
+        self.finalized_height.encode(e)?;
+        self.proof_commitment.encode(e)
+    }
+}
+impl CanonicalDecode for FungibleSettlementReceiptV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            AssetId::decode(d)?,
+            Digest384::decode(d)?,
+            TransactionId::decode(d)?,
+            u128::decode(d)?,
+            u64::decode(d)?,
+            Digest384::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid fungible settlement receipt"))
+    }
+}
+impl CanonicalType for FungibleSettlementReceiptV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 #[cfg(test)]
 mod fungible_cell_tests {
     use super::*;

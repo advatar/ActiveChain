@@ -46,8 +46,9 @@ pub use transition::{CashLedger, CashTransitionError, MAX_REDEEMED_REWARDS};
 pub use types::{
     CashTransferV1, CoinBurnTransition, CoinCell, CoinCellOrigin, CoinCellRecord, CoinCellSet,
     CoinMintTransition, CoinTransfer, EpochEconomicsTransition, FungibleBurnV1, FungibleCoinCell,
-    FungibleMintV1, FungibleRedemptionV1, FungibleTransferV1, GenesisAllocation, GenesisEconomy,
-    MAX_COIN_CELLS, MAX_TRANSFER_INPUTS, NativeAssetDefinition, NativeMoneyError, NativeSupply,
+    FungibleMintV1, FungibleRedemptionV1, FungibleSettlementReceiptV1, FungibleTransferV1,
+    GenesisAllocation, GenesisEconomy, MAX_COIN_CELLS, MAX_TRANSFER_INPUTS, NativeAssetDefinition,
+    NativeMoneyError, NativeSupply,
 };
 
 #[cfg(test)]
