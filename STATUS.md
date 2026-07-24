@@ -2,6 +2,16 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Active compliance-readiness planning
+
+Tracked by the regulated-profile implementation plan in
+`docs/audits/REGULATED_PROFILE_IMPLEMENTATION_PLAN.md`.
+
+- [ ] Obtain signed role-and-jurisdiction matrix and compliance-boundary decisions.
+- [ ] Freeze KYC/KYB issuer governance, sanctions, Travel Rule, monitoring, and privacy profiles.
+- [ ] Implement off-chain evidence stores, commitments, case controls, and formal boundary proofs.
+- [ ] Collect operating-period evidence and complete independent security/compliance engagement.
+
 ## Phase 0 — protocol foundation
 
 - [x] Establish a pinned stable-Rust workspace with consensus-kernel quality gates.
