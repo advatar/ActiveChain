@@ -168,6 +168,14 @@ Tracked by [GitHub issue #158](https://github.com/advatar/ActiveChain/issues/158
 - [x] Preserve an existing board selection and expose the live-submission gate.
 - [x] Add readiness tests and pass native iOS and macOS qualification.
 
+## Active release fix — Amber bundle versions
+
+Tracked by [GitHub issue #160](https://github.com/advatar/ActiveChain/issues/160).
+
+- [x] Define canonical marketing and build versions for every Amber application target.
+- [x] Preserve Apple development team `L2AF8KFX35` when regenerating the Xcode project.
+- [x] Validate built iOS and macOS Info.plists and pass native Apple qualification.
+
 ## Active implementation — private billboard native-token vertical slice
 
 - [x] Make the live-process quorum rehearsal wait for validator readiness and exercise two-chain finality instead of relying on fixed startup sleeps (GitHub issue #45).

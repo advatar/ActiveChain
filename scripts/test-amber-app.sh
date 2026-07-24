@@ -16,6 +16,29 @@ xcodebuild \
   CODE_SIGNING_ALLOWED=NO \
   test
 
+validate_bundle_versions() {
+  local plist=$1
+  local bundle_name=$2
+  local short_version
+  local build_version
+
+  short_version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist")
+  build_version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$plist")
+  if [[ ! $short_version =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
+    echo "$bundle_name has invalid CFBundleShortVersionString: $short_version" >&2
+    exit 1
+  fi
+  if [[ ! $build_version =~ ^[0-9]+$ ]]; then
+    echo "$bundle_name has invalid CFBundleVersion: $build_version" >&2
+    exit 1
+  fi
+  echo "$bundle_name versions: $short_version ($build_version)"
+}
+
+validate_bundle_versions \
+  "$derived_data/macos/Build/Products/Debug/AmberMac.app/Contents/Info.plist" \
+  "AmberMac"
+
 ios_destination=${AMBER_IOS_TEST_DESTINATION:-"platform=iOS Simulator,name=iPhone 17 Pro,OS=latest"}
 xcodebuild \
   -project "$project/Amber.xcodeproj" \
@@ -24,3 +47,7 @@ xcodebuild \
   -derivedDataPath "$derived_data/ios" \
   CODE_SIGNING_ALLOWED=NO \
   test
+
+validate_bundle_versions \
+  "$derived_data/ios/Build/Products/Debug-iphonesimulator/Amber.app/Info.plist" \
+  "Amber"
