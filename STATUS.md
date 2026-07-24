@@ -140,6 +140,8 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
   self-issuance must never be silently promoted to EUDI PID, (Q)EAA, regulated KYC, or bank attestation.
 - [ ] Specify proof-of-funds predicates for currency/asset, threshold/range, institution membership,
   observation freshness, aggregation rules, units/decimals, and holder binding.
+- [ ] Add privacy-preserving age/range and nationality/jurisdiction membership or non-membership
+  predicates with canonical registry/set commitments and inference-risk consent warnings.
 - [ ] Integrate EUWallet custody, validation, provenance UI, consent, presentation, deletion,
   recovery, and audit with ActiveChain-bound audience/action/policy/nonce requests.
 - [ ] Verify only minimal commitments, predicates, status/freshness, assurance, and pairwise/nullifier

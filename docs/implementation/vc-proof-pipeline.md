@@ -30,6 +30,17 @@ observation time, and freshness window unambiguous. A presentation may prove:
 - observation is fresh enough for the policy;
 - several credentials satisfy an explicitly declared aggregation rule.
 
+Identity credentials use the same predicate model. A holder may prove age is at least a threshold
+without disclosing a birth date or exact age, or prove that nationality/jurisdiction is outside (or
+inside) a canonical policy set without disclosing the actual country. For example, a policy may
+request `nationality NOT IN {US, KP}` rather than the nationality claim.
+
+Country predicates bind a frozen country-code registry revision and the exact ordered policy-set
+commitment. Missing, unknown, historic/aliased, or multiple nationality values fail closed unless
+the policy explicitly defines their semantics. Wallet consent must warn when a permitted or denied
+set is so small—or repeated verifier queries can be intersected—such that the hidden value may be
+inferred despite zero-knowledge proof generation.
+
 The proof must not reveal the transcript, account identifier, unrelated transactions, exact balance
 when a threshold is sufficient, or a reusable global holder identifier.
 
@@ -62,6 +73,8 @@ authenticated TLS evidence
 
 Formal work must establish predicate soundness, no provenance escalation, holder/action/audience
 binding, replay resistance, disclosure minimization, and the stated unlinkability boundary.
+Set proofs additionally require complement correctness, canonical set encoding, registry-revision
+binding, and resistance to policy substitution and repeated-query intersection.
 TLSNotary soundness, notary and issuer authorization, credential-status provenance, ZK-system
 soundness, trusted clocks, and device key protection remain explicit assumptions until separately
 refined or verified. Every assumption and unproved composition gap must remain machine-indexed and
