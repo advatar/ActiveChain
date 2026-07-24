@@ -26,7 +26,7 @@ Tracked by [GitHub issue #178](https://github.com/advatar/ActiveChain/issues/178
   `origin/main`.
 - [x] Port and verify only current substantive changes; preserve or remove obsolete branches only
   after reachability checks.
-- [ ] Reconcile canonical `main`, run qualification gates, publish the result, and clean obsolete
+- [x] Reconcile canonical `main`, run qualification gates, publish the result, and clean obsolete
   worktrees.
 
 ## Active release fix — Apple app icon catalogs
