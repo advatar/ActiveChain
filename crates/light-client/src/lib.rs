@@ -571,6 +571,7 @@ mod tests {
                 issuance: 0,
                 burn: 0,
                 post_supply: 0,
+                cash_cell_root: digest(18),
                 post_state: StateCommitment::new(digest(14), 0),
                 receipt_root: digest(15),
                 data_availability_commitment: digest(16),

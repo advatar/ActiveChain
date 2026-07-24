@@ -16,6 +16,16 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Phase 0 bootstrap is tracked by [GitHub issue #1](https://github.com/advatar/ActiveChain/issues/1).
 
+## Active testnet fix — verified wallet state discovery
+
+Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180).
+
+- [x] Define a bounded owner-scoped Coin Cell query and finalized proof-bearing response.
+- [x] Persist and serve owner indexes without leaking unrelated owner state.
+- [ ] Verify exact chain, owner, finality, cell commitments, and pagination in wallet code.
+- [ ] Load a real device wallet profile and remove the hard-coded unavailable dashboard path.
+- [ ] Extend Kanalen ingestion/rehearsal, add adversarial tests, deploy, and verify the public RPC.
+
 ## Active recovery — abandoned checkout reconciliation
 
 Tracked by [GitHub issue #178](https://github.com/advatar/ActiveChain/issues/178).

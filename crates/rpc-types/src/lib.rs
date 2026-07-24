@@ -222,6 +222,7 @@ pub enum QueryKind {
     Action = 1,
     Receipt = 2,
     ApplicationReceipt = 3,
+    CoinCell = 4,
 }
 
 impl CanonicalEncode for QueryKind {
@@ -236,6 +237,7 @@ impl CanonicalDecode for QueryKind {
             1 => Ok(Self::Action),
             2 => Ok(Self::Receipt),
             3 => Ok(Self::ApplicationReceipt),
+            4 => Ok(Self::CoinCell),
             tag => Err(DecodeError::InvalidEnumTag { type_name: "QueryKind", tag }),
         }
     }
@@ -611,6 +613,7 @@ pub enum RpcRequest {
     RequestFaucet { request: Box<FaucetRequestV1> },
     ResolveFaucet { reference: Digest384 },
     FaucetTerms,
+    ListOwnerCoinCells { owner: PrincipalId, after: Option<Digest384>, limit: u16 },
 }
 
 impl CanonicalEncode for RpcRequest {
@@ -645,6 +648,12 @@ impl CanonicalEncode for RpcRequest {
                 reference.encode(encoder)
             }
             Self::FaucetTerms => 7_u8.encode(encoder),
+            Self::ListOwnerCoinCells { owner, after, limit } => {
+                8_u8.encode(encoder)?;
+                owner.encode(encoder)?;
+                after.encode(encoder)?;
+                limit.encode(encoder)
+            }
         }
     }
 }
@@ -670,6 +679,15 @@ impl CanonicalDecode for RpcRequest {
             5 => Ok(Self::RequestFaucet { request: Box::new(FaucetRequestV1::decode(decoder)?) }),
             6 => Ok(Self::ResolveFaucet { reference: Digest384::decode(decoder)? }),
             7 => Ok(Self::FaucetTerms),
+            8 => {
+                let owner = PrincipalId::decode(decoder)?;
+                let after = Option::<Digest384>::decode(decoder)?;
+                let limit = u16::decode(decoder)?;
+                if limit == 0 || limit > MAX_RPC_PAGE_SIZE {
+                    return Err(DecodeError::InvalidValue("RPC page limit is out of bounds"));
+                }
+                Ok(Self::ListOwnerCoinCells { owner, after, limit })
+            }
             tag => Err(DecodeError::InvalidEnumTag { type_name: "RpcRequest", tag }),
         }
     }
@@ -834,7 +852,7 @@ impl RpcAccessTerms {
             | RpcRequest::ResolveAnchor { .. }
             | RpcRequest::RequestFaucet { .. }
             | RpcRequest::ResolveFaucet { .. } => Some(self.get_units),
-            RpcRequest::List { limit, .. } => self
+            RpcRequest::List { limit, .. } | RpcRequest::ListOwnerCoinCells { limit, .. } => self
                 .list_item_units
                 .checked_mul(*limit as u64)
                 .and_then(|items| self.list_base_units.checked_add(items)),

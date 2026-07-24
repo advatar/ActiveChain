@@ -11,6 +11,7 @@ publish = false
 activechain-application-primitives.workspace = true
 activechain-action-kernel.workspace = true
 activechain-canonical-codec.workspace = true
+activechain-cash-kernel.workspace = true
 activechain-consensus-verifier.workspace = true
 activechain-finality-types.workspace = true
 activechain-protocol-types.workspace = true

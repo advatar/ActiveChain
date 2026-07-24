@@ -107,6 +107,7 @@ structure ProofPublicInputs where
   actionRoot : Digest
   executionOrderRoot : Digest
   economics : EconomicsTransition
+  cashCellRoot : Digest
   postStateRoot : Digest
   dataAvailabilityCommitment : Digest
   deriving BEq, DecidableEq, Repr
@@ -131,6 +132,7 @@ structure BlockHeader where
   actionRoot : Digest
   executionOrderRoot : Digest
   economics : EconomicsTransition
+  cashCellRoot : Digest
   postStateRoot : Digest
   dataAvailabilityCommitment : Digest
   proofStatementCommitment : Digest
@@ -196,6 +198,7 @@ def publicInputsFor (header : BlockHeader) : ProofPublicInputs :=
     actionRoot := header.actionRoot
     executionOrderRoot := header.executionOrderRoot
     economics := header.economics
+    cashCellRoot := header.cashCellRoot
     postStateRoot := header.postStateRoot
     dataAvailabilityCommitment := header.dataAvailabilityCommitment
   }

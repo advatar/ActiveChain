@@ -39,6 +39,76 @@ impl AuthenticatedCoinCellRoot {
     }
 }
 
+/// Inclusion proof for one Coin Cell in the finalized authenticated cash set.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CoinCellMembershipProof {
+    root: AuthenticatedCoinCellRoot,
+    count: u32,
+    record: CoinCellRecord,
+    siblings: Vec<Digest384>,
+}
+
+impl CoinCellMembershipProof {
+    #[must_use]
+    pub const fn root(&self) -> AuthenticatedCoinCellRoot {
+        self.root
+    }
+
+    #[must_use]
+    pub const fn record(&self) -> CoinCellRecord {
+        self.record
+    }
+
+    #[must_use]
+    pub fn siblings(&self) -> &[Digest384] {
+        &self.siblings
+    }
+}
+
+impl CanonicalEncode for CoinCellMembershipProof {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.root.encode(encoder)?;
+        self.count.encode(encoder)?;
+        self.record.encode(encoder)?;
+        encoder.write_length(self.siblings.len(), AUTHENTICATED_CASH_DEPTH)?;
+        for sibling in &self.siblings {
+            sibling.encode(encoder)?;
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for CoinCellMembershipProof {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let proof = Self {
+            root: AuthenticatedCoinCellRoot::decode(decoder)?,
+            count: u32::decode(decoder)?,
+            record: CoinCellRecord::decode(decoder)?,
+            siblings: {
+                let count = decoder.read_length(AUTHENTICATED_CASH_DEPTH)?;
+                let mut siblings = Vec::with_capacity(count);
+                for _ in 0..count {
+                    siblings.push(Digest384::decode(decoder)?);
+                }
+                siblings
+            },
+        };
+        verify_coin_cell_membership(&proof)
+            .map_err(|_| DecodeError::InvalidValue("invalid authenticated Coin Cell membership"))?;
+        Ok(proof)
+    }
+}
+
+impl CanonicalType for CoinCellMembershipProof {
+    const TYPE_TAG: u16 = 0x00d7;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = DIGEST_LENGTH
+        + 4
+        + CoinCellRecord::MAX_ENCODED_LEN
+        + 2
+        + AUTHENTICATED_CASH_DEPTH * DIGEST_LENGTH;
+}
+
 impl CanonicalEncode for AuthenticatedCoinCellRoot {
     fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
         self.0.encode(encoder)
@@ -603,6 +673,42 @@ pub fn prove_coin_cell_mutation(
     Ok(witness)
 }
 
+pub fn prove_coin_cell_membership(
+    cells: &CoinCellSet,
+    id: CoinCellId,
+) -> Result<CoinCellMembershipProof, CoinCellMutationError> {
+    let index = cells
+        .as_slice()
+        .binary_search_by_key(&id, |record| record.id())
+        .map_err(|_| CoinCellMutationError::WrongRecord)?;
+    let record = cells.as_slice()[index];
+    let (tree, siblings) = build_tree(cells, Some(id))?;
+    let count =
+        u32::try_from(cells.as_slice().len()).map_err(|_| CoinCellMutationError::Capacity)?;
+    let proof =
+        CoinCellMembershipProof { root: hash_root(count as usize, tree), count, record, siblings };
+    verify_coin_cell_membership(&proof)?;
+    Ok(proof)
+}
+
+pub fn verify_coin_cell_membership(
+    proof: &CoinCellMembershipProof,
+) -> Result<(), CoinCellMutationError> {
+    if proof.siblings.len() != AUTHENTICATED_CASH_DEPTH
+        || proof.count == 0
+        || usize::try_from(proof.count).map_or(true, |count| count > MAX_COIN_CELLS)
+        || !record_has_canonical_id(proof.record)
+    {
+        return Err(CoinCellMutationError::InvalidShape);
+    }
+    let tree =
+        reconstruct_tree(proof.record.id(), Some(hash_leaf(&proof.record)?), &proof.siblings)?;
+    if hash_root(proof.count as usize, tree) != proof.root {
+        return Err(CoinCellMutationError::WrongRoot);
+    }
+    Ok(())
+}
+
 pub fn verify_coin_cell_mutation(
     witness: &CoinCellMutationWitness,
 ) -> Result<(), CoinCellMutationError> {
@@ -1016,6 +1122,27 @@ mod tests {
         assert_eq!(
             insertion.post_root(),
             authenticated_coin_cell_root(&set(&[first, third, fourth])).unwrap()
+        );
+    }
+
+    #[test]
+    fn membership_proof_binds_exact_record_and_finalized_root() {
+        let first = record(1, 10);
+        let second = record(2, 20);
+        let cells = set(&[first, second]);
+        let proof = prove_coin_cell_membership(&cells, second.id()).unwrap();
+        verify_coin_cell_membership(&proof).unwrap();
+        assert_eq!(proof.record(), second);
+        assert_eq!(proof.root(), authenticated_coin_cell_root(&cells).unwrap());
+
+        let encoded = encode_envelope(&proof).unwrap();
+        assert_eq!(decode_envelope::<CoinCellMembershipProof>(&encoded).unwrap(), proof);
+
+        let mut substituted = proof.clone();
+        substituted.record = first;
+        assert_eq!(
+            verify_coin_cell_membership(&substituted),
+            Err(CoinCellMutationError::WrongRoot)
         );
     }
 

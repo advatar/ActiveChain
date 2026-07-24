@@ -892,6 +892,7 @@ mod tests {
             issuance: 0,
             burn: 0,
             post_supply: 0,
+            cash_cell_root: digest(50),
             post_state,
             receipt_root,
             data_availability_commitment: digest(48),
