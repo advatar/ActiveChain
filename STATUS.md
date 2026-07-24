@@ -16,6 +16,19 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Phase 0 bootstrap is tracked by [GitHub issue #1](https://github.com/advatar/ActiveChain/issues/1).
 
+## Active recovery — abandoned checkout reconciliation
+
+Tracked by [GitHub issue #178](https://github.com/advatar/ActiveChain/issues/178).
+
+- [x] Inventory the canonical checkout, remaining worktrees, local commits, and remote reachability.
+- [ ] Separate intentional shared Xcode configuration from machine-local user state.
+- [ ] Classify the stale billboard reassessment and consensus/authorization recovery against current
+  `origin/main`.
+- [ ] Port and verify only current substantive changes; preserve or remove obsolete branches only
+  after reachability checks.
+- [ ] Reconcile canonical `main`, run qualification gates, publish the result, and clean obsolete
+  worktrees.
+
 ## Active release fix — Apple app icon catalogs
 
 Tracked by [GitHub issue #147](https://github.com/advatar/ActiveChain/issues/147).
