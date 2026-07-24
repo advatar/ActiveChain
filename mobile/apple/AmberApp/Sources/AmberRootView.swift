@@ -5,6 +5,7 @@ struct AmberRootView: View {
     private let rpcClient = AmberRPCClient()
     @State private var selection: AmberBoardID?
     @State private var connection: AmberConnectionState = .checking
+    @State private var refreshPresentation = AmberNetworkRefreshPresentation()
     @State private var isComposerPresented = false
 
     var body: some View {
@@ -67,21 +68,44 @@ struct AmberRootView: View {
         .background(AmberStyle.paper)
         .navigationTitle("AMBER")
         .safeAreaInset(edge: .bottom) {
-            NetworkStrip(network: .kanalenTestnet, state: connection)
+            NetworkStrip(
+                network: .kanalenTestnet,
+                state: connection,
+                refreshPresentation: refreshPresentation
+            )
         }
         .toolbar {
             ToolbarItem {
                 Button {
                     Task { await refreshNetworkStatus() }
                 } label: {
-                    Label("Network status", systemImage: "point.3.connected.trianglepath.dotted")
+                    if refreshPresentation.isRefreshing {
+                        ProgressView()
+                            .controlSize(.small)
+                            .accessibilityLabel("Checking network")
+                    } else {
+                        Label(
+                            "Refresh network status",
+                            systemImage: "point.3.connected.trianglepath.dotted"
+                        )
+                    }
                 }
+                .disabled(refreshPresentation.isRefreshing)
+                .help(
+                    refreshPresentation.isRefreshing
+                        ? "Checking Kanalen testnet"
+                        : "Refresh Kanalen testnet status"
+                )
             }
         }
     }
 
     @MainActor
     private func refreshNetworkStatus() async {
+        guard refreshPresentation.begin() else {
+            return
+        }
+        defer { refreshPresentation.complete() }
         connection = .checking
         do {
             connection = try await rpcClient.status(for: .kanalenTestnet).connectionState
@@ -215,6 +239,7 @@ private struct ImagePlaceholder: View {
 private struct NetworkStrip: View {
     let network: AmberNetwork
     let state: AmberConnectionState
+    let refreshPresentation: AmberNetworkRefreshPresentation
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -228,9 +253,15 @@ private struct NetworkStrip: View {
                 Text("TESTNET")
                     .font(.caption2.monospaced().weight(.bold))
             }
-            Text(network.rpcURL.host() ?? network.name)
-                .font(.caption2.monospaced())
-                .foregroundStyle(AmberStyle.mutedInk)
+            HStack {
+                Text(network.rpcURL.host() ?? network.name)
+                Spacer()
+                if let completionLabel = refreshPresentation.completionLabel {
+                    Text(completionLabel)
+                }
+            }
+            .font(.caption2.monospaced())
+            .foregroundStyle(AmberStyle.mutedInk)
         }
         .padding(12)
         .background(AmberStyle.card)
