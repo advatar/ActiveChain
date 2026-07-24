@@ -26,6 +26,17 @@ Tracked by [GitHub issue #187](https://github.com/advatar/ActiveChain/issues/187
 - [x] Qualify the landing build and responsive layout, publish the display submodule,
   update the parent pointer, and merge both repositories.
 
+## Active landing-page fix — native-assets readability
+
+Tracked by [GitHub issue #191](https://github.com/advatar/ActiveChain/issues/191).
+
+- [x] Replace dense roadmap paragraphs with short summaries, grouped bullets, and explicit
+  shipped/verified/open-gate callouts.
+- [x] Improve desktop and mobile line length, spacing, and section hierarchy.
+- [x] Pass targeted lint and the production build.
+- [ ] Complete responsive browser verification when an integrated preview browser is available.
+- [x] Publish and merge the landing display plus updated ActiveChain submodule pointer.
+
 ## Active epic — ActiveBridge native payments and merchant settlement
 
 Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189).
