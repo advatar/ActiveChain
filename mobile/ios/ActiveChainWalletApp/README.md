@@ -24,6 +24,13 @@ Keychain for compatible access-group behavior. Items remain device-bound by defa
 explicitly request iCloud Keychain synchronization for non-authorizing wallet metadata. Secure
 Enclave and transaction-authorization keys must remain device-specific.
 
-The app exercises policy-gated transfer preview/approval and OpenWallet credential/session
-replay rules. It uses deterministic local adapters until the Rust FFI library is linked into the
-Xcode target. No production signing or key material is present in this developer build.
+The dashboard obtains Kanalen health and finalized height from the canonical TLS-framed status RPC
+at `rpc.kanalen.activechain.dev`. It does not synthesize balances, assets, activity, approvals,
+credentials, identities, agents, fees, or finality. Persisted agent registrations are displayed
+only when they exist.
+
+Kanalen does not yet expose proof-bearing owner-scoped Coin Cell discovery, so the wallet reports
+balance and assets as unavailable and keeps transfers disabled. Multi-asset Coin Cells and native
+asset tokenization are tracked in issues #163 and #164. The app exercises policy-gated transfer
+preview/approval and OpenWallet credential/session replay rules, but no production signing or key
+material is present in this developer build.

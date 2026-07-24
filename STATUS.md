@@ -72,6 +72,49 @@ Tracked by [GitHub issue #135](https://github.com/advatar/ActiveChain/issues/135
 - [x] Add QR, copy, share, and dismissal behavior.
 - [x] Add unit coverage and pass macOS tests plus both application builds.
 
+## Active release fix — live wallet state
+
+Tracked by [GitHub issue #162](https://github.com/advatar/ActiveChain/issues/162).
+
+- [x] Remove fabricated balances, assets, conversion values, network claims, activity, approvals,
+  credentials, identities, agent records, fees, and validity heights from the native wallet.
+- [x] Populate Kanalen finality and health from a bounded canonical TLS-framed RPC request.
+- [x] Render persisted wallet and agent records only when they actually exist.
+- [x] Fail honestly with empty, unavailable, or unsupported states where no live query exists.
+- [x] Add no-placeholder regression tests and pass iOS plus macOS test/build gates.
+
+## Active protocol design — multi-asset Coin Cells
+
+Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163).
+
+- [ ] Bind fungible Coin Cells and all transitions, authorizations, proofs, and receipts to `AssetId`.
+- [ ] Specify a finalized issuer-controlled asset metadata and supply registry.
+- [ ] Add proof-bearing owner-and-asset RPC discovery with bounded pagination.
+- [ ] Extend the versioned wallet ABI for multi-asset balances, selection, signing, and submission.
+- [ ] Qualify native, test-EUR, and test-USD assets with cross-asset adversarial vectors.
+
+## Active epic — native asset tokenization
+
+Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164).
+
+- [ ] Freeze native fungible, non-fungible, and series asset definitions and lifecycle actions.
+- [ ] Enforce issuer/controller authority, supply conservation, declared controls, and corporate
+  actions in consensus, persistence, authorization, and formal proofs.
+- [ ] Expose proof-bearing asset, supply, owner, action, receipt, and attestation RPC contracts.
+- [ ] Ship native issuer CLI and console workflows with threshold approval and recovery.
+- [ ] Complete wallet, compatibility, adversarial-test, migration, and independent-audit gates.
+
+## Active design — privacy-preserving tokenization identity
+
+Tracked by [GitHub issue #165](https://github.com/advatar/ActiveChain/issues/165).
+
+- [ ] Accept EUDI Wallet/OpenID4VP and supported VC presentations through a versioned verifier.
+- [ ] Bind minimal selective-disclosure and ZK attribute proofs to asset, action, audience, nonce,
+  policy revision, holder key, expiry, and finalized credential-status evidence.
+- [ ] Compose asset-specific identity policies with APL and authorization without global KYC.
+- [ ] Add consent/disclosure UX, issuer policy tooling, interoperability vectors, privacy analysis,
+  replay/correlation tests, and independent audit gates.
+
 ## Active deployment — Kanalen developmental RPC
 
 Tracked by [GitHub issue #137](https://github.com/advatar/ActiveChain/issues/137).

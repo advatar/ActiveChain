@@ -86,30 +86,51 @@ final class ActiveChainWalletTests: XCTestCase {
         XCTAssertEqual(restored.selected.id, "roslagen")
     }
 
-    func testRustAgentRegistryPersistsLifecycleTransitions() throws {
+    func testRustAgentRegistryDoesNotInventDevelopmentAgents() {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let snapshot = directory.appendingPathComponent("agents-v1.bin")
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let initial = RustAgentRegistryStore(snapshotURL: snapshot)
-        XCTAssertEqual(initial.agents.count, 2)
-        let agentID = try XCTUnwrap(initial.agents.first?.id)
+        XCTAssertTrue(RustAgentRegistryStore(snapshotURL: snapshot).agents.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: snapshot.path))
+    }
 
-        initial.pause(agentID: agentID)
-        XCTAssertEqual(initial.agents.first?.lifecycle, .paused)
+    func testRPCStatusDecoderUsesFinalizedHealthInsteadOfDisplayFixtures() throws {
+        let response = makeStatusResponse(
+            protocolRevision: 1,
+            schemaRevision: 1,
+            finalizedHeight: 23,
+            finalizedAt: 10,
+            servedAt: 100,
+            maximumStaleness: 30,
+            health: 1
+        )
+        let status = try WalletRPCCodec.decodeStatus(response)
+        XCTAssertEqual(status.networkState, .stale(finalizedHeight: 23))
+        XCTAssertThrowsError(try WalletRPCCodec.decodeStatus(Data(response.dropLast())))
+    }
 
-        let restored = RustAgentRegistryStore(snapshotURL: snapshot)
-        XCTAssertEqual(restored.agents.first?.lifecycle, .paused)
-        restored.resume(agentID: agentID)
-        XCTAssertEqual(restored.agents.first?.lifecycle, .active)
-        restored.revoke(agentID: agentID)
-        XCTAssertEqual(restored.agents.first?.lifecycle, .revocationPending)
-        restored.finalizeRevocation(agentID: agentID, height: 42)
-        XCTAssertEqual(restored.agents.first?.lifecycle, .revoked(finalizedHeight: 42))
-
-        let finalized = RustAgentRegistryStore(snapshotURL: snapshot)
-        XCTAssertEqual(finalized.agents.first?.lifecycle, .revoked(finalizedHeight: 42))
+    func testWalletUISourceContainsNoFormerFabricatedValues() throws {
+        let sources = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources")
+        let forbidden = [
+            "12,480.42", "2,742.69", "184,291", "184_291", "Test Euro",
+            "240.00", "281.35", "Research agent", "Travel planner",
+            "Kanalen Test ID", "Johan’s wallet", "3 validators", "2 agent actions"
+        ]
+        let source = try FileManager.default.contentsOfDirectory(
+            at: sources,
+            includingPropertiesForKeys: nil
+        )
+        .filter { $0.pathExtension == "swift" }
+        .map { try String(contentsOf: $0, encoding: .utf8) }
+        .joined(separator: "\n")
+        for value in forbidden {
+            XCTAssertFalse(source.contains(value), "fabricated UI value remains: \(value)")
+        }
     }
 
     func testAgentIntentRouteIsExplicitAndOneShot() {
@@ -119,5 +140,36 @@ final class ActiveChainWalletTests: XCTestCase {
         AgentIntentRouter.request(.management, defaults: defaults)
         XCTAssertEqual(AgentIntentRouter.consume(defaults: defaults), .management)
         XCTAssertNil(AgentIntentRouter.consume(defaults: defaults))
+    }
+
+    private func makeStatusResponse(
+        protocolRevision: UInt64,
+        schemaRevision: UInt32,
+        finalizedHeight: UInt64,
+        finalizedAt: UInt64,
+        servedAt: UInt64,
+        maximumStaleness: UInt64,
+        health: UInt8
+    ) -> Data {
+        var body = Data([0])
+        body.append(Data(repeating: 0x11, count: 48))
+        body.append(Data(repeating: 0x22, count: 48))
+        body.append(contentsOf: protocolRevision.bigEndianBytes)
+        body.append(contentsOf: schemaRevision.bigEndianBytes)
+        body.append(contentsOf: finalizedHeight.bigEndianBytes)
+        body.append(contentsOf: finalizedAt.bigEndianBytes)
+        body.append(contentsOf: servedAt.bigEndianBytes)
+        body.append(contentsOf: maximumStaleness.bigEndianBytes)
+        body.append(health)
+        body.append(contentsOf: [2, 0, 1])
+        var envelope = Data([0, 0xa1, 0, 1, 0x91, 0x01])
+        envelope.append(body)
+        return envelope
+    }
+}
+
+private extension FixedWidthInteger {
+    var bigEndianBytes: [UInt8] {
+        withUnsafeBytes(of: bigEndian) { Array($0) }
     }
 }

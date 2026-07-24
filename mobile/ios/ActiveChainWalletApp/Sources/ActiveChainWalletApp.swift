@@ -22,18 +22,13 @@ struct WalletPalette {
 
 struct WalletRootView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var liveState = WalletLiveState()
     @State private var selection: WalletTab = .home
-    @State private var showingSend = false
-    @State private var showingReceive = false
 
     var body: some View {
         TabView(selection: $selection) {
             NavigationStack {
-                HomeView(
-                    showingSend: $showingSend,
-                    showingReceive: $showingReceive,
-                    selection: $selection
-                )
+                HomeView(liveState: liveState)
             }
             .tag(WalletTab.home)
             .tabItem { Label("Wallet", systemImage: "wallet.bifold.fill") }
@@ -45,7 +40,6 @@ struct WalletRootView: View {
             NavigationStack { ApprovalsView() }
                 .tag(WalletTab.approvals)
                 .tabItem { Label("Approvals", systemImage: "checkmark.shield.fill") }
-                .badge(2)
 
             NavigationStack { IdentityView() }
                 .tag(WalletTab.identity)
@@ -53,17 +47,13 @@ struct WalletRootView: View {
         }
         .tint(WalletPalette.mint)
         .preferredColorScheme(.dark)
-        .sheet(isPresented: $showingSend) {
-            NavigationStack { SendFlowView() }
-                .presentationDetents([.large])
-        }
-        .sheet(isPresented: $showingReceive) {
-            NavigationStack { ReceiveRequestView(request: .kanalen) }
-                .presentationDetents([.large])
-        }
         .onAppear(perform: consumeAgentIntentRoute)
+        .task { await liveState.refresh() }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { consumeAgentIntentRoute() }
+            if phase == .active {
+                consumeAgentIntentRoute()
+                Task { await liveState.refresh() }
+            }
         }
     }
 
@@ -74,9 +64,7 @@ struct WalletRootView: View {
 }
 
 private struct HomeView: View {
-    @Binding var showingSend: Bool
-    @Binding var showingReceive: Bool
-    @Binding var selection: WalletTab
+    @ObservedObject var liveState: WalletLiveState
 
     var body: some View {
         ZStack {
@@ -84,12 +72,10 @@ private struct HomeView: View {
             ScrollView {
                 LazyVStack(spacing: 18) {
                     Header()
-                    BalanceCard(
-                        showingSend: $showingSend,
-                        showingReceive: $showingReceive
-                    )
-                    NetworkCard()
-                    ApprovalBanner { selection = .approvals }
+                    BalanceCard()
+                    NetworkCard(state: liveState.networkState) {
+                        Task { await liveState.refresh() }
+                    }
                     AssetSection()
                     SecurityFooter()
                 }
@@ -113,10 +99,10 @@ private struct Header: View {
             }
             .frame(width: 46, height: 46)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Good morning")
+                Text("ActiveChain")
                     .font(.subheadline)
                     .foregroundStyle(WalletPalette.muted)
-                Text("Johan")
+                Text("Wallet")
                     .font(.title2.bold())
             }
             Spacer()
@@ -133,9 +119,6 @@ private struct Header: View {
 }
 
 private struct BalanceCard: View {
-    @Binding var showingSend: Bool
-    @Binding var showingReceive: Bool
-
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack {
@@ -153,29 +136,17 @@ private struct BalanceCard: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("12,480.42")
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
-                        .minimumScaleFactor(0.65)
-                        .lineLimit(1)
-                    Text("ACT")
-                        .font(.title2.bold())
-                        .foregroundStyle(.white.opacity(0.88))
-                }
-                Text("≈ 2,742.69 USD")
+                Text("Balance unavailable")
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                Text("Kanalen does not yet expose owner-scoped Coin Cell discovery.")
                     .font(.callout)
                     .foregroundStyle(.white.opacity(0.64))
             }
 
-            HStack(spacing: 12) {
-                PrimaryAction(title: "Send", icon: "arrow.up.right", emphasized: true) {
-                    showingSend = true
-                }
-                PrimaryAction(title: "Receive", icon: "arrow.down.left", emphasized: false) {
-                    showingReceive = true
-                }
-                PrimaryAction(title: "Fund", icon: "plus", emphasized: false) {}
-            }
+            Label("Transfers disabled until finalized wallet state is available",
+                  systemImage: "exclamationmark.lock.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.orange)
         }
         .padding(22)
         .background(
@@ -206,89 +177,34 @@ private struct BalanceCard: View {
     }
 }
 
-private struct PrimaryAction: View {
-    let title: String
-    let icon: String
-    let emphasized: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 8) {
-                Image(systemName: icon).font(.headline)
-                Text(title).font(.caption.weight(.semibold))
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 62)
-            .foregroundStyle(emphasized ? WalletPalette.ink : .white)
-            .background(
-                emphasized ? WalletPalette.mint : .white.opacity(0.09),
-                in: RoundedRectangle(cornerRadius: 17, style: .continuous)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-}
-
 private struct NetworkCard: View {
-    var body: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                Circle().fill(WalletPalette.cyan.opacity(0.15))
-                Circle().fill(WalletPalette.cyan).frame(width: 9, height: 9)
-            }
-            .frame(width: 42, height: 42)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Kanalen")
-                    .font(.headline)
-                Text("Finalized block 184,291 · 3 validators")
-                    .font(.caption)
-                    .foregroundStyle(WalletPalette.muted)
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 3) {
-                Text("Healthy")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(WalletPalette.mint)
-                Text("2s ago")
-                    .font(.caption2)
-                    .foregroundStyle(WalletPalette.muted)
-            }
-        }
-        .cardStyle()
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Kanalen testnet healthy, finalized block 184291, three validators")
-    }
-}
-
-private struct ApprovalBanner: View {
-    let action: () -> Void
+    let state: WalletNetworkState
+    let refresh: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        Button(action: refresh) {
             HStack(spacing: 14) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(WalletPalette.violet.opacity(0.2))
-                    Image(systemName: "wand.and.stars")
-                        .foregroundStyle(WalletPalette.violet)
+                    Circle().fill(state.color.opacity(0.15))
+                    Circle().fill(state.color).frame(width: 9, height: 9)
                 }
-                .frame(width: 46, height: 46)
+                .frame(width: 42, height: 42)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("2 agent actions need you")
-                        .font(.headline)
-                    Text("Review scope, recipient and exact fee")
+                    Text("Kanalen").font(.headline)
+                    Text(state.detail)
                         .font(.caption)
                         .foregroundStyle(WalletPalette.muted)
                 }
                 Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption.bold())
-                    .foregroundStyle(WalletPalette.muted)
+                Text(state.label)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(state.color)
             }
             .cardStyle()
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Kanalen testnet, \(state.label), \(state.detail)")
     }
 }
 
@@ -302,50 +218,13 @@ private struct AssetSection: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(WalletPalette.mint)
             }
-            AssetRow(
-                symbol: "ACT",
-                name: "ActiveChain",
-                amount: "12,480.42",
-                value: "$2,742.69",
-                color: WalletPalette.mint
+            ContentUnavailableView(
+                "No verified assets",
+                systemImage: "tray",
+                description: Text("Asset balances require finalized owner-scoped Coin Cell proofs.")
             )
-            AssetRow(
-                symbol: "tEUR",
-                name: "Test Euro",
-                amount: "240.00",
-                value: "$281.35",
-                color: WalletPalette.cyan
-            )
+            .cardStyle()
         }
-    }
-}
-
-private struct AssetRow: View {
-    let symbol: String
-    let name: String
-    let amount: String
-    let value: String
-    let color: Color
-
-    var body: some View {
-        HStack(spacing: 14) {
-            Text(String(symbol.prefix(1)))
-                .font(.headline)
-                .foregroundStyle(WalletPalette.ink)
-                .frame(width: 44, height: 44)
-                .background(color, in: Circle())
-            VStack(alignment: .leading, spacing: 3) {
-                Text(name).font(.headline)
-                Text(symbol).font(.caption).foregroundStyle(WalletPalette.muted)
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 3) {
-                Text(amount).font(.headline.monospacedDigit())
-                Text(value).font(.caption).foregroundStyle(WalletPalette.muted)
-            }
-        }
-        .cardStyle()
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -353,7 +232,7 @@ private struct SecurityFooter: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "lock.shield.fill").foregroundStyle(WalletPalette.mint)
-            Text("Keys protected on this device · Post-quantum signing")
+            Text("No wallet profile or verified Coin Cell state is loaded")
                 .font(.caption)
                 .foregroundStyle(WalletPalette.muted)
         }
@@ -363,38 +242,14 @@ private struct SecurityFooter: View {
 }
 
 private struct ActivityView: View {
-    private let entries = [
-        ("arrow.down.left", "Received ACT", "Faucet · finalized", "+ 2,500.00 ACT", WalletPalette.mint),
-        ("arrow.up.right", "Sent to did:…7f2c", "Block 184,102", "− 42.00 ACT", Color.white),
-        ("checkmark.shield", "Agent settlement", "Research agent · verified", "− 1.20 ACT", WalletPalette.violet),
-        ("person.crop.rectangle", "Credential received", "Kanalen Test ID", "OpenWallet", WalletPalette.cyan)
-    ]
-
     var body: some View {
         ZStack {
             WalletBackground()
-            ScrollView {
-                LazyVStack(spacing: 12) {
-                    ForEach(Array(entries.enumerated()), id: \.offset) { _, item in
-                        HStack(spacing: 14) {
-                            Image(systemName: item.0)
-                                .foregroundStyle(item.4)
-                                .frame(width: 42, height: 42)
-                                .background(item.4.opacity(0.13), in: Circle())
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(item.1).font(.headline)
-                                Text(item.2).font(.caption).foregroundStyle(WalletPalette.muted)
-                            }
-                            Spacer()
-                            Text(item.3)
-                                .font(.subheadline.weight(.semibold).monospacedDigit())
-                                .foregroundStyle(item.4)
-                        }
-                        .cardStyle()
-                    }
-                }
-                .padding(20)
-            }
+            ContentUnavailableView(
+                "No verified activity",
+                systemImage: "clock.badge.questionmark",
+                description: Text("Activity will appear after finalized receipt queries are available.")
+            )
         }
         .navigationTitle("Activity")
         .walletNavigationBarBackground()
@@ -419,7 +274,7 @@ private struct ApprovalsView: View {
                                 .background(WalletPalette.mint.opacity(0.13), in: Circle())
                             VStack(alignment: .leading, spacing: 3) {
                                 Text("Manage agents").font(.headline)
-                                Text("2 active · capabilities, budgets and revocation")
+                                Text(agentSummary)
                                     .font(.caption).foregroundStyle(WalletPalette.muted)
                             }
                             Spacer()
@@ -429,20 +284,12 @@ private struct ApprovalsView: View {
                         .cardStyle()
                     }
                     .buttonStyle(.plain)
-                    ApprovalCard(
-                        agent: "Research agent",
-                        action: "Pay data provider",
-                        detail: "18.00 ACT + 0.08 fee",
-                        risk: "Within daily limit",
-                        color: WalletPalette.mint
+                    ContentUnavailableView(
+                        "No pending approvals",
+                        systemImage: "checkmark.shield",
+                        description: Text("Only persisted, approval-bound requests are shown here.")
                     )
-                    ApprovalCard(
-                        agent: "Travel planner",
-                        action: "Share identity credential",
-                        detail: "Name · age over 18 · nationality",
-                        risk: "3 claims requested",
-                        color: WalletPalette.violet
-                    )
+                    .cardStyle()
                     Text("Every approval is bound to the exact action, recipient, fee, claims and expiry.")
                         .font(.caption)
                         .foregroundStyle(WalletPalette.muted)
@@ -454,6 +301,12 @@ private struct ApprovalsView: View {
         }
         .navigationTitle("Approvals")
         .walletNavigationBarBackground()
+    }
+
+    private var agentSummary: String {
+        agents.agents.isEmpty
+            ? "No registered agents"
+            : "\(agents.agents.count) persisted agent\(agents.agents.count == 1 ? "" : "s")"
     }
 }
 
@@ -609,47 +462,6 @@ private struct DetailSection: View {
     }
 }
 
-private struct ApprovalCard: View {
-    let agent: String
-    let action: String
-    let detail: String
-    let risk: String
-    let color: Color
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack {
-                Label(agent, systemImage: "wand.and.stars")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(color)
-                Spacer()
-                Text("2 min")
-                    .font(.caption)
-                    .foregroundStyle(WalletPalette.muted)
-            }
-            VStack(alignment: .leading, spacing: 6) {
-                Text(action).font(.title3.bold())
-                Text(detail).font(.subheadline).foregroundStyle(WalletPalette.muted)
-            }
-            Label(risk, systemImage: "checkmark.circle.fill")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(WalletPalette.mint)
-            HStack(spacing: 12) {
-                Button("Decline") {}
-                    .buttonStyle(SecondaryWalletButton())
-                Button("Review") {}
-                    .buttonStyle(PrimaryWalletButton())
-            }
-        }
-        .padding(20)
-        .background(WalletPalette.panel, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(color.opacity(0.22), lineWidth: 1)
-        }
-    }
-}
-
 private struct IdentityView: View {
     var body: some View {
         ZStack {
@@ -657,167 +469,33 @@ private struct IdentityView: View {
             ScrollView {
                 VStack(spacing: 18) {
                     VStack(spacing: 12) {
-                        Image(systemName: "person.crop.circle.badge.checkmark")
+                        Image(systemName: "person.crop.circle.badge.questionmark")
                             .font(.system(size: 62))
-                            .foregroundStyle(WalletPalette.mint)
-                        Text("Johan’s wallet").font(.title2.bold())
-                        Text("did:activechain:kanalen:8c7a…19ef")
-                            .font(.caption.monospaced())
                             .foregroundStyle(WalletPalette.muted)
-                            .textSelection(.enabled)
-                        Label("Device protected", systemImage: "lock.fill")
+                        Text("No wallet identity").font(.title2.bold())
+                        Text("Create or import a wallet profile before receiving credentials or funds.")
+                            .font(.caption)
+                            .foregroundStyle(WalletPalette.muted)
+                            .multilineTextAlignment(.center)
+                        Label("No signing key loaded", systemImage: "key.slash")
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(WalletPalette.mint)
+                            .foregroundStyle(.orange)
                     }
                     .frame(maxWidth: .infinity)
                     .cardStyle()
 
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Credentials").font(.title3.bold())
-                        CredentialRow(
-                            icon: "person.text.rectangle.fill",
-                            title: "Kanalen Test ID",
-                            issuer: "ActiveChain Foundation",
-                            color: WalletPalette.cyan
-                        )
-                        CredentialRow(
-                            icon: "calendar.badge.checkmark",
-                            title: "Age over 18",
-                            issuer: "Derived disclosure",
-                            color: WalletPalette.violet
-                        )
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Button("Add credential") {}
-                        .buttonStyle(PrimaryWalletButton())
+                    ContentUnavailableView(
+                        "No credentials",
+                        systemImage: "person.text.rectangle",
+                        description: Text("Only credentials persisted through the OpenWallet boundary will appear.")
+                    )
+                    .cardStyle()
                 }
                 .padding(20)
             }
         }
         .navigationTitle("Identity")
         .walletNavigationBarBackground()
-    }
-}
-
-private struct CredentialRow: View {
-    let icon: String
-    let title: String
-    let issuer: String
-    let color: Color
-
-    var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: icon)
-                .foregroundStyle(color)
-                .frame(width: 42, height: 42)
-                .background(color.opacity(0.14), in: RoundedRectangle(cornerRadius: 13))
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.headline)
-                Text(issuer).font(.caption).foregroundStyle(WalletPalette.muted)
-            }
-            Spacer()
-            Image(systemName: "chevron.right")
-                .font(.caption.bold())
-                .foregroundStyle(WalletPalette.muted)
-        }
-        .cardStyle()
-    }
-}
-
-private struct SendFlowView: View {
-    @Environment(\.dismiss) private var dismiss
-    private let bridge = LocalWalletBridge()
-    @State private var recipient = "did:activechain:kanalen:"
-    @State private var amount = ""
-    @State private var reviewed = false
-    @State private var status = ""
-
-    var body: some View {
-        ZStack {
-            WalletBackground()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Amount").font(.subheadline).foregroundStyle(WalletPalette.muted)
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            TextField("0", text: $amount)
-                                .font(.system(size: 42, weight: .bold, design: .rounded))
-                                .walletDecimalKeyboard()
-                            Text("ACT").font(.title3.bold()).foregroundStyle(WalletPalette.mint)
-                        }
-                        Text("Available 12,480.42 ACT")
-                            .font(.caption)
-                            .foregroundStyle(WalletPalette.muted)
-                    }
-                    .cardStyle()
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Recipient").font(.subheadline).foregroundStyle(WalletPalette.muted)
-                        TextField("DID or address", text: $recipient)
-                            .walletAddressInputBehavior()
-                            .font(.callout.monospaced())
-                        Divider().overlay(.white.opacity(0.1))
-                        HStack {
-                            Label("Fee reserve", systemImage: "gauge.with.dots.needle.33percent")
-                            Spacer()
-                            Text("0.08 ACT").monospacedDigit()
-                        }
-                        .font(.subheadline)
-                    }
-                    .cardStyle()
-
-                    if reviewed {
-                        Label(
-                            "Policy allows this payment. You will approve the exact recipient, amount, fee and validity window.",
-                            systemImage: "checkmark.shield.fill"
-                        )
-                        .font(.subheadline)
-                        .foregroundStyle(WalletPalette.mint)
-                        .cardStyle()
-                    }
-
-                    Button(reviewed ? "Approve with biometrics" : "Review transfer") {
-                        let value = UInt64(Double(amount) ?? 0)
-                        let preview = bridge.previewTransfer(
-                            recipient: recipient,
-                            amount: value,
-                            feeReserve: 1,
-                            validUntil: 184_391,
-                            currentHeight: 184_291
-                        )
-                        if reviewed {
-                            do {
-                                _ = try bridge.approveTransfer(preview)
-                                status = "Canonical intent approved"
-                            } catch {
-                                status = "Wallet policy rejected this transfer"
-                            }
-                        } else {
-                            reviewed = preview.policyAllowed
-                            status = preview.policyAllowed ? "" : "Enter a valid amount"
-                        }
-                    }
-                    .buttonStyle(PrimaryWalletButton())
-                    .disabled(amount.isEmpty)
-
-                    if !status.isEmpty {
-                        Text(status)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(status.contains("approved") ? WalletPalette.mint : .orange)
-                            .frame(maxWidth: .infinity)
-                    }
-                }
-                .padding(20)
-            }
-        }
-        .navigationTitle("Send ACT")
-        .walletInlineNavigationTitle()
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Close") { dismiss() }
-            }
-        }
     }
 }
 
