@@ -13,6 +13,7 @@
 		374576FBA140D49B79CE92CC /* ReceiveRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A496EE1DE3CAA8472B124CAF /* ReceiveRequest.swift */; };
 		3B3483FAF6831A3070025F64 /* AgentAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8A918D07F4706D86D226023 /* AgentAppIntents.swift */; };
 		409D9AE4558B50CB086A4AC5 /* OpenWalletAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9A7B68A6BF40EC2B257B49E /* OpenWalletAdapter.swift */; };
+		4B184C9D875F0C99BDDA7439 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5BC3A913C310FA56AB7A75B0 /* Assets.xcassets */; };
 		51FF834F5BBC5DD2BDDF7458 /* ActiveChainWallet.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = FE57D7E81DE8386DD91EE7F6 /* ActiveChainWallet.xcframework */; };
 		54C17C1DB2671699FD7333A0 /* ActiveChainWalletApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00F60C541C50E0093CD8C615 /* ActiveChainWalletApp.swift */; };
 		654D7699CA37C0AEB8C01FD5 /* ActiveChainWalletTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF53AD2EFD667B91B6C0E2A2 /* ActiveChainWalletTests.swift */; };
@@ -55,6 +56,7 @@
 		329F5D83AC50D372D7E5BA6F /* ActiveChainWalletTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ActiveChainWalletTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4B5C193E2E9CC1B91B0DFB62 /* ReceiveRequestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiveRequestView.swift; sourceTree = "<group>"; };
 		50EF838DF6F51C698FEE9C6F /* NetworkSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkSelection.swift; sourceTree = "<group>"; };
+		5BC3A913C310FA56AB7A75B0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		6E90D7FAE93E0DFDE9D868BD /* ActiveChainWallet.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ActiveChainWallet.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7A908638375B69C4796EE249 /* RustAgentRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RustAgentRegistry.swift; sourceTree = "<group>"; };
 		82AF43EE862E7362F5827841 /* ActiveChainWalletMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ActiveChainWalletMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -95,6 +97,14 @@
 				FF53AD2EFD667B91B6C0E2A2 /* ActiveChainWalletTests.swift */,
 			);
 			path = Tests;
+			sourceTree = "<group>";
+		};
+		2B616ED7147EF2CA2AE01E2C /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				5BC3A913C310FA56AB7A75B0 /* Assets.xcassets */,
+			);
+			path = Resources;
 			sourceTree = "<group>";
 		};
 		5677E6675108CDAAF144981B /* Sources */ = {
@@ -145,6 +155,7 @@
 			isa = PBXGroup;
 			children = (
 				8FFD750E9DA0C36FF3E40877 /* ActiveChainWallet */,
+				2B616ED7147EF2CA2AE01E2C /* Resources */,
 				5677E6675108CDAAF144981B /* Sources */,
 				0D6E1EC9D5FCDE4213B61210 /* Tests */,
 				E5B2E86B466AF0263F41456D /* Frameworks */,
@@ -196,6 +207,7 @@
 			buildConfigurationList = C3560D0FC8A719EAF0323C0B /* Build configuration list for PBXNativeTarget "ActiveChainWallet" */;
 			buildPhases = (
 				C5E941163FED6D12870EF095 /* Sources */,
+				078FC8D70516D5B6CE940629 /* Resources */,
 				60F1497C2A65F383E76D4C5B /* Frameworks */,
 			);
 			buildRules = (
@@ -265,6 +277,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		078FC8D70516D5B6CE940629 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4B184C9D875F0C99BDDA7439 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		061D7A1B1578E30DFB882D7D /* Sources */ = {
@@ -348,6 +371,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_ActiveChainKeychainAccessGroup = "$(AppIdentifierPrefix)dev.activechain.wallet.shared";
 				INFOPLIST_KEY_CFBundleDisplayName = "ActiveChain Wallet";
+				INFOPLIST_KEY_CFBundleIconName = AppIcon;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -576,6 +600,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_ActiveChainKeychainAccessGroup = "$(AppIdentifierPrefix)dev.activechain.wallet.shared";
 				INFOPLIST_KEY_CFBundleDisplayName = "ActiveChain Wallet";
+				INFOPLIST_KEY_CFBundleIconName = AppIcon;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";

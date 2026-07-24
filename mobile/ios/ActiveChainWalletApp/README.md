@@ -14,6 +14,10 @@ regeneration. Certificates, private keys, Xcode user data, and build state remai
 be committed. If Xcode reports that `ActiveChainWallet.xcframework` is missing, close it and rerun
 the appropriate script from a clean checkout.
 
+Before uploading an archive, run
+`scripts/validate-apple-app-icon.sh /path/to/ActiveChainWallet.app`. The validator requires a
+compiled asset catalog and `CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName = AppIcon`.
+
 Both targets use the shared Keychain Access Group
 `$(AppIdentifierPrefix)dev.activechain.wallet.shared`. The macOS target uses the Data Protection
 Keychain for compatible access-group behavior. Items remain device-bound by default; callers must

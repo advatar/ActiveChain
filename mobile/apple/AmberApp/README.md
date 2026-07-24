@@ -23,6 +23,10 @@ The script runs the shared unit suite through the native macOS target and an iPh
 thereby compiling both application targets. Override the simulator when needed with
 `AMBER_IOS_TEST_DESTINATION`.
 
+For release qualification, run
+`scripts/validate-apple-app-icon.sh /path/to/Amber.app`. The validator requires a compiled asset
+catalog and `CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName = AppIcon`.
+
 The default endpoint is `https://rpc.kanalen.activechain.dev`. A later network-integration change
 will persist operator/user overrides and will only mark an endpoint verified after checking its
 chain identity, genesis commitment, protocol revision, finalized height, proof support, and
