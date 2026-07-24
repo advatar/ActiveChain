@@ -31,6 +31,9 @@ Tracked by [GitHub issue #182](https://github.com/advatar/ActiveChain/issues/182
   - [x] Persist a fail-closed pending state and require the exact transaction commitment for
     activation at a nonzero finalized height.
   - [ ] Add durable request replay records and persist protocol-level rejected/expired evidence.
+    - [x] Add a checksummed atomic enrollment journal with nonce replay protection and monotonic
+      evidence replacement.
+    - [x] Enforce globally unique wallet envelope tags before publishing the journal schema.
 - [ ] Expose exact operations through the wallet ABI with deterministic malformed vectors.
   - [x] Expose pending registration and exact finalization operations without changing existing
     lifecycle numeric tags.

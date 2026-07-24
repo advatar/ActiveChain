@@ -63,6 +63,14 @@ height after the request's validity window. Evidence is chain-, wallet-, agent-,
 request-commitment-bound; transitions are idempotent and may move only from submitted to one
 terminal outcome. A terminal outcome cannot regress or change into a different terminal state.
 
+`AgentEnrollmentJournalV1` persists one submitted or terminal evidence value per request
+commitment and consumes the request nonce at first submission. Reusing that nonce with altered
+authority still fails as replay. Updates use clone-validate-write-fsync-rename-directory-fsync-
+publish ordering, so a failed write cannot mutate the in-memory authoritative journal. Snapshots
+carry a domain-separated checksum and fail closed after truncation or corruption. Enrollment
+envelopes occupy the dedicated `0x00e0`–`0x00e5` tag range; a regression test checks uniqueness
+against the existing agent registry, command, and authenticator registry tags.
+
 ## Process and application shapes
 
 ### Wallet-owned apps and extensions
