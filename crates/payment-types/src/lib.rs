@@ -170,6 +170,191 @@ impl CanonicalDecode for EvidenceClass {
     }
 }
 
+/// Provider-facing operation states normalized without claiming chain finality.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum ProviderOperationState {
+    Pending = 0,
+    Succeeded = 1,
+    Rejected = 2,
+    Reversed = 3,
+    Cancelled = 4,
+    Unknown = 5,
+}
+
+impl CanonicalEncode for ProviderOperationState {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(encoder)
+    }
+}
+
+impl CanonicalDecode for ProviderOperationState {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(decoder)? {
+            0 => Ok(Self::Pending),
+            1 => Ok(Self::Succeeded),
+            2 => Ok(Self::Rejected),
+            3 => Ok(Self::Reversed),
+            4 => Ok(Self::Cancelled),
+            5 => Ok(Self::Unknown),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "ProviderOperationState", tag }),
+        }
+    }
+}
+
+/// One authenticated, replay-bounded external-provider observation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProviderObservationV1 {
+    chain: ChainId,
+    connector: ConnectorId,
+    attempt: PaymentAttemptId,
+    intent: PaymentIntentId,
+    provider_account_commitment: Digest384,
+    provider_reference_commitment: Digest384,
+    sequence: u64,
+    state: ProviderOperationState,
+    amount: AssetAmountV1,
+    occurred_at: u64,
+    observed_at: u64,
+    evidence_class: EvidenceClass,
+    payload_commitment: Digest384,
+}
+
+impl ProviderObservationV1 {
+    /// Constructs an observation. Provider time may not be after connector observation time.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        chain: ChainId,
+        connector: ConnectorId,
+        attempt: PaymentAttemptId,
+        intent: PaymentIntentId,
+        provider_account_commitment: Digest384,
+        provider_reference_commitment: Digest384,
+        sequence: u64,
+        state: ProviderOperationState,
+        amount: AssetAmountV1,
+        occurred_at: u64,
+        observed_at: u64,
+        evidence_class: EvidenceClass,
+        payload_commitment: Digest384,
+    ) -> Result<Self, PaymentValidationError> {
+        if chain.digest() == &Digest384::ZERO
+            || provider_account_commitment == Digest384::ZERO
+            || provider_reference_commitment == Digest384::ZERO
+            || payload_commitment == Digest384::ZERO
+        {
+            return Err(PaymentValidationError::InvalidBinding);
+        }
+        if sequence == 0 || occurred_at == 0 || occurred_at > observed_at {
+            return Err(PaymentValidationError::InvalidSequence);
+        }
+        if matches!(
+            evidence_class,
+            EvidenceClass::UntrustedClientReport | EvidenceClass::ActiveChainFinalized
+        ) {
+            return Err(PaymentValidationError::InvalidEvidence);
+        }
+        Ok(Self {
+            chain,
+            connector,
+            attempt,
+            intent,
+            provider_account_commitment,
+            provider_reference_commitment,
+            sequence,
+            state,
+            amount,
+            occurred_at,
+            observed_at,
+            evidence_class,
+            payload_commitment,
+        })
+    }
+
+    /// Validates exact replay or the next provider sequence for the same bound operation.
+    pub fn compare_successor(&self, next: &Self) -> Result<bool, PaymentValidationError> {
+        if self == next {
+            return Ok(false);
+        }
+        if self.chain != next.chain
+            || self.connector != next.connector
+            || self.attempt != next.attempt
+            || self.intent != next.intent
+            || self.provider_account_commitment != next.provider_account_commitment
+            || self.provider_reference_commitment != next.provider_reference_commitment
+            || self.amount.asset() != next.amount.asset()
+        {
+            return Err(PaymentValidationError::InvalidBinding);
+        }
+        if self.sequence.checked_add(1) != Some(next.sequence)
+            || next.observed_at < self.observed_at
+        {
+            return Err(PaymentValidationError::InvalidSequence);
+        }
+        Ok(true)
+    }
+
+    #[must_use]
+    pub const fn attempt(&self) -> PaymentAttemptId {
+        self.attempt
+    }
+
+    #[must_use]
+    pub const fn sequence(&self) -> u64 {
+        self.sequence
+    }
+
+    #[must_use]
+    pub const fn state(&self) -> ProviderOperationState {
+        self.state
+    }
+}
+
+impl CanonicalEncode for ProviderObservationV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain.encode(encoder)?;
+        self.connector.encode(encoder)?;
+        self.attempt.encode(encoder)?;
+        self.intent.encode(encoder)?;
+        self.provider_account_commitment.encode(encoder)?;
+        self.provider_reference_commitment.encode(encoder)?;
+        self.sequence.encode(encoder)?;
+        self.state.encode(encoder)?;
+        self.amount.encode(encoder)?;
+        self.occurred_at.encode(encoder)?;
+        self.observed_at.encode(encoder)?;
+        self.evidence_class.encode(encoder)?;
+        self.payload_commitment.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for ProviderObservationV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            ChainId::decode(decoder)?,
+            ConnectorId::decode(decoder)?,
+            PaymentAttemptId::decode(decoder)?,
+            PaymentIntentId::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            u64::decode(decoder)?,
+            ProviderOperationState::decode(decoder)?,
+            AssetAmountV1::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+            EvidenceClass::decode(decoder)?,
+            Digest384::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid provider observation"))
+    }
+}
+
+impl CanonicalType for ProviderObservationV1 {
+    const TYPE_TAG: u16 = 0x00f4;
+    const SCHEMA_VERSION: u16 = PAYMENT_SCHEMA_REVISION;
+    const MAX_ENCODED_LEN: usize = 592;
+}
+
 /// A signed, expiry-bounded conversion and settlement quote.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PaymentQuoteV1 {
@@ -1064,6 +1249,82 @@ mod tests {
         );
         let encoded = encode_envelope(&binding).unwrap();
         assert_eq!(decode_envelope::<IdempotencyBindingV1>(&encoded).unwrap(), binding);
+    }
+
+    fn observation(sequence: u64, payload: u8) -> ProviderObservationV1 {
+        ProviderObservationV1::new(
+            chain(),
+            ConnectorId::new(digest(2)).unwrap(),
+            PaymentAttemptId::new(digest(3)).unwrap(),
+            intent_id(),
+            digest(4),
+            digest(5),
+            sequence,
+            ProviderOperationState::Pending,
+            amount(12, 100),
+            100,
+            100 + sequence,
+            EvidenceClass::ProviderSigned,
+            digest(payload),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn provider_observations_accept_exact_replay_and_exact_next_sequence() {
+        let first = observation(1, 20);
+        assert_eq!(first.compare_successor(&first), Ok(false));
+        let next = observation(2, 21);
+        assert_eq!(first.compare_successor(&next), Ok(true));
+        assert_eq!(
+            first.compare_successor(&observation(3, 22)),
+            Err(PaymentValidationError::InvalidSequence)
+        );
+        let encoded = encode_envelope(&next).unwrap();
+        assert_eq!(decode_envelope::<ProviderObservationV1>(&encoded).unwrap(), next);
+    }
+
+    #[test]
+    fn provider_observations_cannot_claim_chain_finality_or_change_binding() {
+        assert_eq!(
+            ProviderObservationV1::new(
+                chain(),
+                ConnectorId::new(digest(2)).unwrap(),
+                PaymentAttemptId::new(digest(3)).unwrap(),
+                intent_id(),
+                digest(4),
+                digest(5),
+                1,
+                ProviderOperationState::Succeeded,
+                amount(12, 100),
+                100,
+                101,
+                EvidenceClass::ActiveChainFinalized,
+                digest(20),
+            ),
+            Err(PaymentValidationError::InvalidEvidence)
+        );
+        let first = observation(1, 20);
+        let changed_attempt = ProviderObservationV1::new(
+            chain(),
+            ConnectorId::new(digest(2)).unwrap(),
+            PaymentAttemptId::new(digest(30)).unwrap(),
+            intent_id(),
+            digest(4),
+            digest(5),
+            2,
+            ProviderOperationState::Succeeded,
+            amount(12, 100),
+            100,
+            102,
+            EvidenceClass::ProviderSigned,
+            digest(21),
+        )
+        .unwrap();
+        assert_eq!(
+            first.compare_successor(&changed_attempt),
+            Err(PaymentValidationError::InvalidBinding)
+        );
     }
 
     #[test]

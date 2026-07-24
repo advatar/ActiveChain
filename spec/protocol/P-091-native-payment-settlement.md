@@ -96,6 +96,17 @@ The numeric order is an encoding convention, not an authorization rule. An asset
 the class and verifier it accepts. No implementation may promote a class merely because its enum
 tag is greater.
 
+### 6.1 Provider observations
+
+`ProviderObservationV1` binds the chain, connector, attempt, intent, provider account and reference
+commitments, provider sequence and state, exact asset amount, occurrence/observation times,
+assurance class, and complete payload commitment.
+
+Provider observations MUST use `ConnectorAuthenticated`, `ProviderSigned`, or
+`RegulatedAttestation`; they MUST NOT claim `ActiveChainFinalized`. Exact replay is idempotent.
+A changed observation MUST preserve every operation binding, advance sequence by exactly one, and
+never move connector observation time backwards.
+
 ## 7. Lifecycle
 
 The canonical lifecycle states are:
@@ -163,6 +174,7 @@ persist it before releasing any effect that could move value.
 | `PaymentIntentV1` | `0x00f1` | 1 |
 | `PaymentLifecycleRecordV1` | `0x00f2` | 1 |
 | `IdempotencyBindingV1` | `0x00f3` | 1 |
+| `ProviderObservationV1` | `0x00f4` | 1 |
 
 Unknown enum tags, schema revisions, invalid values, non-minimal lengths, oversized bodies, and
 trailing bytes MUST fail closed.

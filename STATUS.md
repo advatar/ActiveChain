@@ -56,6 +56,9 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
   conservation-checked issuance, transfer, burn, redemption, and proof-bearing discovery.
 - [ ] Implement an isolated, operator-configurable connector host, durable operation journal,
   deterministic simulator, webhook delivery, reconciliation, and emergency controls.
+  - [x] Freeze authenticated provider-observation envelopes with bounded state, sequence,
+    timestamps, account/reference commitments, payload commitment, and assurance class.
+  - [ ] Persist observation replay barriers and lifecycle advancement atomically across restart.
 - [ ] Implement and qualify the nTZS sandbox connector as the first regional adapter.
 - [ ] Join external evidence to capability/APL-authorized native ingress, egress, conversion,
   paymaster sponsorship, and offline-verifiable finalized receipts.
