@@ -16,6 +16,16 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Phase 0 bootstrap is tracked by [GitHub issue #1](https://github.com/advatar/ActiveChain/issues/1).
 
+## Active landing-page clarification — native stablecoins
+
+Tracked by [GitHub issue #187](https://github.com/advatar/ActiveChain/issues/187).
+
+- [x] Explain protocol-native asset issuance and EUR/USD stablecoin use cases prominently.
+- [x] Describe bounded issuer controls, private policy proofs, reserve evidence, wallet discovery,
+  and configurable issuer policy without implying a launched regulated product.
+- [x] Qualify the landing build and responsive layout, publish the display submodule,
+  update the parent pointer, and merge both repositories.
+
 ## Active wallet implementation — agent enrollment
 
 Tracked by [GitHub issue #182](https://github.com/advatar/ActiveChain/issues/182).
