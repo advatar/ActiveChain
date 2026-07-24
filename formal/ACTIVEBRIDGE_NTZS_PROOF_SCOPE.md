@@ -14,6 +14,11 @@ Mechanically checked properties:
 - an accepted decimal amount equals the exact expected atomic-unit quantity;
 - an accepted provider response binding has exactly the expected unit, asset, reference, and
   atomic quantity.
+- only a prepared provider attempt is dispatch-ready;
+- an attempt that may have reached the provider requires reconciliation and cannot dispatch again;
+- the dispatch boundary can be crossed only once;
+- exact request replay is idempotent while changed request commitments are rejected;
+- a changed provider reference cannot replace the first bound reference.
 
 The Rust tests additionally execute the fixed endpoint/key policy, exact documented status and
 error mappings, webhook HMAC binding, body substitution, timestamp substitution, stale/future
@@ -23,6 +28,9 @@ Failed replay persistence is also checked not to mutate the in-memory replay bar
 The response-schema tests preserve large decimals beyond IEEE-754 precision, execute the
 published amount vectors, reject fractional TZS/exponents/unsupported assets, and require exact
 reference, asset, unit, and quantity binding before emitting an observation.
+The attempt-journal tests cover exact/changed request replay, durable pre-dispatch state, restart
+equivalence, ambiguous timeout decisions, immutable provider references, corruption, canonical
+ordering, unknown attempts, and failed-persistence non-mutation.
 
 The model assumes correspondence between each Rust string match and its Lean constructor. It does
 not prove HMAC-SHA256 security, SHAKE256 collision resistance, provider honesty, secret custody,

@@ -1,0 +1,4 @@
+phase	dispatch_decision	may_mark_dispatch
+prepared	ready	yes
+may_have_reached_provider	reconcile	no
+provider_reference_bound	complete	no
