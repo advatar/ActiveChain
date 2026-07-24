@@ -312,6 +312,7 @@ private struct ApprovalsView: View {
 
 private struct AgentInventoryView: View {
     @ObservedObject var store: RustAgentRegistryStore
+    @State private var showingEnrollment = false
 
     var body: some View {
         ZStack {
@@ -324,6 +325,17 @@ private struct AgentInventoryView: View {
                         .padding(16)
                         .background(WalletPalette.violet.opacity(0.12),
                                     in: RoundedRectangle(cornerRadius: 18))
+                    if store.agents.isEmpty {
+                        ContentUnavailableView {
+                            Label("No agents yet", systemImage: "person.badge.key")
+                        } description: {
+                            Text("Import an agent enrollment request, choose its authority, and approve it in this wallet.")
+                        } actions: {
+                            Button("Add agent") { showingEnrollment = true }
+                                .buttonStyle(PrimaryWalletButton())
+                        }
+                        .cardStyle()
+                    }
                     ForEach(store.agents) { agent in
                         NavigationLink {
                             AgentDetailView(store: store, agentID: agent.id)
@@ -338,6 +350,16 @@ private struct AgentInventoryView: View {
         }
         .navigationTitle("Agents")
         .walletNavigationBarBackground()
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { showingEnrollment = true } label: {
+                    Label("Add agent", systemImage: "plus")
+                }
+            }
+        }
+        .sheet(isPresented: $showingEnrollment) {
+            AgentEnrollmentView(store: store)
+        }
     }
 }
 
@@ -370,6 +392,7 @@ private struct AgentRow: View {
 
     private var statusLabel: String {
         switch agent.lifecycle {
+        case .enrollmentPending: "Pending"
         case .active: "Active"
         case .paused: "Paused"
         case .revocationPending: "Revoking"
@@ -379,6 +402,7 @@ private struct AgentRow: View {
 
     private var statusColor: Color {
         switch agent.lifecycle {
+        case .enrollmentPending: WalletPalette.violet
         case .active: WalletPalette.mint
         case .paused: .orange
         case .revocationPending: WalletPalette.violet
@@ -424,6 +448,10 @@ private struct AgentDetailView: View {
     @ViewBuilder
     private func lifecycleControls(_ agent: AgentDelegation) -> some View {
         switch agent.lifecycle {
+        case .enrollmentPending:
+            Label("Prepared locally · awaiting testnet submission and finality",
+                  systemImage: "clock.badge.exclamationmark")
+                .font(.subheadline.weight(.semibold)).foregroundStyle(WalletPalette.violet)
         case .active:
             Button("Pause agent") { store.pause(agentID: agent.id) }
                 .buttonStyle(SecondaryWalletButton())
@@ -441,6 +469,107 @@ private struct AgentDetailView: View {
         case .revoked(let height):
             Label("Revoked at finalized block \(height)", systemImage: "xmark.shield.fill")
                 .font(.subheadline.weight(.semibold)).foregroundStyle(.red)
+        }
+    }
+}
+
+private struct AgentEnrollmentView: View {
+    @ObservedObject var store: RustAgentRegistryStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft = AgentEnrollmentDraft()
+    @State private var errorMessage: String?
+    @State private var authenticating = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Agent request") {
+                    TextField("Agent name", text: $draft.label)
+                    TextField("48-byte principal (hex)", text: $draft.principal, axis: .vertical)
+                        .walletAddressInputBehavior()
+                    TextField(
+                        "Capability IDs (hex, one per line)",
+                        text: $draft.capabilityIDs,
+                        axis: .vertical
+                    )
+                    .lineLimit(3...6)
+                    .walletAddressInputBehavior()
+                }
+                Section("Connection") {
+                    Picker("Agent type", selection: $draft.connection) {
+                        Text("Same-team app").tag(AgentConnection.walletOwned)
+                        Text("Third-party app").tag(AgentConnection.thirdParty)
+                        Text("Remote service").tag(AgentConnection.remote)
+                        Text("Managed device").tag(AgentConnection.managedDevice)
+                    }
+                    Text(connectionExplanation)
+                        .font(.caption)
+                        .foregroundStyle(WalletPalette.muted)
+                }
+                Section("Authority") {
+                    TextField("Spending limit (ACT base units)", value: $draft.budget, format: .number)
+                        .walletNumberKeyboard()
+                    TextField("Expiry block", value: $draft.expiresAt, format: .number)
+                        .walletNumberKeyboard()
+                    Text("The grant cannot add capabilities not present in the imported request. Pending enrollment cannot sign or spend.")
+                        .font(.caption)
+                        .foregroundStyle(WalletPalette.muted)
+                }
+                if let errorMessage {
+                    Section {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                    }
+                }
+                Section {
+                    Button(authenticating ? "Authenticating…" : "Review and prepare enrollment") {
+                        prepare()
+                    }
+                    .disabled(authenticating)
+                }
+            }
+            .navigationTitle("Add agent")
+            .walletInlineNavigationTitle()
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private var connectionExplanation: String {
+        switch draft.connection {
+        case .walletOwned:
+            "Only apps signed by the wallet team may use the shared app-group transport."
+        case .thirdParty:
+            "Third-party apps use authenticated protocol messages and receive no app-group access."
+        case .remote:
+            "Remote agents use an authenticated network session. Endpoint access is not wallet authority."
+        case .managedDevice:
+            "Managed-device controls require separately verified device-management provenance."
+        }
+    }
+
+    private func prepare() {
+        do {
+            try draft.validate()
+            authenticating = true
+            BiometricAuthorizer().authorize(reason: "Approve this agent enrollment") { success, error in
+                authenticating = false
+                guard success else {
+                    errorMessage = error?.localizedDescription ?? "Wallet authentication failed."
+                    return
+                }
+                do {
+                    try store.prepareEnrollment(draft)
+                    dismiss()
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 }
@@ -580,6 +709,15 @@ private extension View {
     func walletDecimalKeyboard() -> some View {
 #if os(iOS)
         keyboardType(.decimalPad)
+#else
+        self
+#endif
+    }
+
+    @ViewBuilder
+    func walletNumberKeyboard() -> some View {
+#if os(iOS)
+        keyboardType(.numberPad)
 #else
         self
 #endif

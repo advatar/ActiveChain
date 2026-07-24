@@ -1,6 +1,7 @@
 import ActiveChainWallet
 import Foundation
 import Combine
+import CryptoKit
 
 enum RustAgentRegistryError: Error {
     case ffi(UInt32)
@@ -45,6 +46,46 @@ final class RustAgentRegistryStore: ObservableObject {
                         capacity,
                         required
                     )
+                }
+            }
+        }
+    }
+
+    func prepareEnrollment(_ draft: AgentEnrollmentDraft) throws {
+        let principal = try draft.principalBytes()
+        let capabilities = try draft.capabilityBytes()
+        let label = Data(draft.label.utf8)
+        var transcript = Data("ACTIVECHAIN-WALLET-LOCAL-AGENT-ENROLLMENT-V1".utf8)
+        transcript.append(principal)
+        transcript.append(label)
+        transcript.append(capabilities)
+        transcript.append(contentsOf: draft.budget.bigEndianBytes)
+        transcript.append(contentsOf: draft.expiresAt.bigEndianBytes)
+        let transaction = Data(SHA384.hash(data: transcript))
+        try transition { registryPointer, registryLength, output, capacity, required in
+            principal.withUnsafeBytes { principalBytes in
+                label.withUnsafeBytes { labelBytes in
+                    capabilities.withUnsafeBytes { capabilityBytes in
+                        transaction.withUnsafeBytes { transactionBytes in
+                            activechain_wallet_agent_register_pending(
+                                registryPointer,
+                                registryLength,
+                                principalBytes.bindMemory(to: UInt8.self).baseAddress,
+                                labelBytes.bindMemory(to: UInt8.self).baseAddress,
+                                UInt32(label.count),
+                                draft.connection.abiValue,
+                                capabilityBytes.bindMemory(to: UInt8.self).baseAddress,
+                                UInt32(capabilities.count / 48),
+                                0,
+                                draft.budget,
+                                draft.expiresAt,
+                                transactionBytes.bindMemory(to: UInt8.self).baseAddress,
+                                output,
+                                capacity,
+                                required
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -195,6 +236,7 @@ final class RustAgentRegistryStore: ObservableObject {
         case 1: .paused
         case 2: .revocationPending
         case 3: .revoked(finalizedHeight: summary.revocation_finalized_height)
+        case 4: .enrollmentPending
         default: throw RustAgentRegistryError.malformedSummary
         }
         let connection: AgentConnection = switch summary.connection {
@@ -243,5 +285,11 @@ final class RustAgentRegistryStore: ObservableObject {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent("ActiveChainWallet", isDirectory: true)
             .appendingPathComponent("agents-v1.bin")
+    }
+}
+
+private extension FixedWidthInteger {
+    var bigEndianBytes: [UInt8] {
+        withUnsafeBytes(of: bigEndian) { Array($0) }
     }
 }

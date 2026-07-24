@@ -25,6 +25,26 @@ prevents another wallet instance from treating a merely local toggle as global r
 The durable registry stores public principals, capability identifiers, policy limits, lifecycle
 state, and consumed request identifiers. It stores neither wallet nor agent secret keys.
 
+## Enrollment lifecycle
+
+The native wallet may prepare an enrollment while the network is unavailable, but preparation is
+not authority. After biometric confirmation it stores a canonical `enrollment pending` record bound
+to the exact transaction commitment. Pending agents cannot authorize requests, spend budget, pause,
+resume, or begin revocation.
+
+Only finality evidence for that exact nonzero transaction commitment and a nonzero finalized height
+may move the record to `active`. A mismatched transaction, duplicate registration, malformed
+principal or capability identifier, unsorted or duplicate capability set, zero budget, or zero
+expiry fails closed. The complete registry snapshot is replaced atomically so this lifecycle
+survives application restart.
+
+The current native entry form is an operator/developer surface for canonical hexadecimal principal
+and capability identifiers. It must not be represented as authenticated third-party enrollment.
+Production enrollment still requires a versioned signed request envelope, QR/universal-link or
+same-team handoff, testnet submission, proof-bearing finality resolution, and explicit rejected and
+expired evidence. Until those pieces exist, the UI describes the record as prepared locally and
+awaiting submission rather than claiming the agent is enrolled.
+
 ## Process and application shapes
 
 ### Wallet-owned apps and extensions
@@ -93,7 +113,7 @@ The wallet agent inventory must show:
 - connection kind: wallet-owned, third-party, remote, or managed-device extension;
 - granted capabilities and remaining budget;
 - expiry and last request;
-- active, paused, revocation-pending, expired, or finalized-revoked state;
+- enrollment-pending, active, paused, revocation-pending, expired, or finalized-revoked state;
 - whether requests require human approval;
 - a request history linked to finalized receipts.
 

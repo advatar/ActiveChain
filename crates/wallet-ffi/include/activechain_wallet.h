@@ -131,6 +131,33 @@ uint32_t activechain_wallet_agent_register(const uint8_t *registry,
                                            uint32_t output_capacity,
                                            uint32_t *required_len);
 
+/** Creates a durable non-authorizing enrollment pending exact transaction finality. */
+uint32_t activechain_wallet_agent_register_pending(const uint8_t *registry,
+                                                   uint32_t registry_len,
+                                                   const uint8_t *principal,
+                                                   const uint8_t *label,
+                                                   uint32_t label_len,
+                                                   uint32_t connection,
+                                                   const uint8_t *capabilities,
+                                                   uint32_t capability_count,
+                                                   uint64_t budget_limit_high,
+                                                   uint64_t budget_limit_low,
+                                                   uint64_t expires_at,
+                                                   const uint8_t *transaction,
+                                                   uint8_t *output,
+                                                   uint32_t output_capacity,
+                                                   uint32_t *required_len);
+
+/** Activates the exact pending enrollment after finalized chain evidence is verified. */
+uint32_t activechain_wallet_agent_finalize_enrollment(const uint8_t *registry,
+                                                      uint32_t registry_len,
+                                                      const uint8_t *principal,
+                                                      const uint8_t *transaction,
+                                                      uint64_t finalized_height,
+                                                      uint8_t *output,
+                                                      uint32_t output_capacity,
+                                                      uint32_t *required_len);
+
 /**
  * Pauses or resumes one agent and returns the canonical next registry.
  *
