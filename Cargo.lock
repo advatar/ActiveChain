@@ -127,6 +127,7 @@ dependencies = [
  "activechain-object-vm",
  "activechain-privacy-kernel",
  "activechain-protocol-types",
+ "activechain-rpc-server",
  "activechain-state-tree",
  "activechain-transition",
  "activechain-wallet-core",
