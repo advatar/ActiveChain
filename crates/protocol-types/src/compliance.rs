@@ -2,6 +2,7 @@ use crate::{AssetId, ChainId, Digest384, Height, PrincipalId, ProtocolSignature,
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
+use alloc::vec::Vec;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ComplianceError {
@@ -9,6 +10,111 @@ pub enum ComplianceError {
     InvalidValidity,
     WrongChain,
     Mismatch,
+    Replay,
+    TooManyEntries,
+    Unordered,
+}
+
+pub const MAX_COMPLIANCE_REPLAY_KEYS: usize = 4096;
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct ComplianceReplayKey {
+    profile: Digest384,
+    operator: PrincipalId,
+    action: TransactionId,
+    nonce: Digest384,
+}
+impl ComplianceReplayKey {
+    pub const TYPE_TAG: u16 = 0x00D3;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 4;
+    pub const fn new(
+        profile: Digest384,
+        operator: PrincipalId,
+        action: TransactionId,
+        nonce: Digest384,
+    ) -> Self {
+        Self { profile, operator, action, nonce }
+    }
+}
+impl CanonicalEncode for ComplianceReplayKey {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.profile.encode(e)?;
+        self.operator.encode(e)?;
+        self.action.encode(e)?;
+        self.nonce.encode(e)
+    }
+}
+impl CanonicalDecode for ComplianceReplayKey {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Ok(Self::new(
+            Digest384::decode(d)?,
+            PrincipalId::decode(d)?,
+            TransactionId::decode(d)?,
+            Digest384::decode(d)?,
+        ))
+    }
+}
+impl CanonicalType for ComplianceReplayKey {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComplianceReplaySet(Vec<ComplianceReplayKey>);
+impl ComplianceReplaySet {
+    pub fn new(keys: Vec<ComplianceReplayKey>) -> Result<Self, ComplianceError> {
+        if keys.len() > MAX_COMPLIANCE_REPLAY_KEYS {
+            return Err(ComplianceError::TooManyEntries);
+        }
+        if keys.windows(2).any(|w| w[0] >= w[1]) {
+            return Err(ComplianceError::Unordered);
+        }
+        Ok(Self(keys))
+    }
+    pub fn contains(&self, key: ComplianceReplayKey) -> bool {
+        self.0.binary_search(&key).is_ok()
+    }
+    pub fn insert(&mut self, key: ComplianceReplayKey) -> Result<(), ComplianceError> {
+        if self.contains(key) {
+            return Err(ComplianceError::Replay);
+        }
+        if self.0.len() >= MAX_COMPLIANCE_REPLAY_KEYS {
+            return Err(ComplianceError::TooManyEntries);
+        }
+        let i = self.0.binary_search(&key).unwrap_or_else(|i| i);
+        self.0.insert(i, key);
+        Ok(())
+    }
+    pub fn keys(&self) -> &[ComplianceReplayKey] {
+        &self.0
+    }
+}
+impl CanonicalEncode for ComplianceReplaySet {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        e.write_length(self.0.len(), MAX_COMPLIANCE_REPLAY_KEYS)?;
+        for k in &self.0 {
+            k.encode(e)?;
+        }
+        Ok(())
+    }
+}
+impl CanonicalDecode for ComplianceReplaySet {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let n = d.read_length(MAX_COMPLIANCE_REPLAY_KEYS)?;
+        let mut v = Vec::with_capacity(n);
+        for _ in 0..n {
+            v.push(ComplianceReplayKey::decode(d)?);
+        }
+        Self::new(v).map_err(|_| DecodeError::InvalidValue("invalid compliance replay set"))
+    }
+}
+impl CanonicalType for ComplianceReplaySet {
+    const TYPE_TAG: u16 = 0x00D4;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize =
+        2 + MAX_COMPLIANCE_REPLAY_KEYS * ComplianceReplayKey::MAX_ENCODED_LEN;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
