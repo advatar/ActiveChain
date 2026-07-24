@@ -7,7 +7,7 @@ clients. `activechain-rpc-types` is `no_std` and freezes:
 - finalized height and deterministic healthy/stale state derived from explicit timestamps;
 - an ordered supported-proof registry;
 - typed status, keyed query, and cursor-paginated request variants;
-- proof-bearing state, action, and receipt records; and
+- proof-bearing state, action, receipt, and Coin Cell records; and
 - typed not-found, stale, unsupported-proof, invalid-request, deadline, and internal failures.
 
 `activechain-rpc-server` persists the complete ordered finalized query index using canonical
@@ -19,11 +19,20 @@ read/write deadlines. Requests and responses must be exact canonical envelopes. 
 available when stale; proof queries fail closed with `RpcError::Stale`. Pages contain at most four
 records and use the final returned key as the exclusive cursor for the next request.
 
+`ListOwnerCoinCells` accepts an exact owner principal plus an exclusive Coin Cell cursor. The
+server filters the durable index before pagination and never returns another owner's record. Every
+returned cell carries a 384-level authenticated sparse membership proof whose root must equal the
+`cash_cell_root` in the revision-2 finalized proof inputs. Clients must independently verify the
+finality bundle, exact chain genesis, record identifier, owner, membership path, and root before
+displaying or selecting value.
+
 `verify_query_record` now provides that semantic boundary. State records verify the object and
 sparse proof against the cryptographically finalized post-state. Action records recompute the
 canonical action identifier and both finalized ordered action roots from a bounded
 `ActionSetProof`. Receipt records reuse the finalized receipt verifier and require the exact
 committed root, height, and state transition. The durable index rejects any record that fails.
+Coin Cell records additionally decode the canonical cell, recompute its identifier, verify its
+membership proof, and require the proof root committed by finality.
 
 `activechain-rpc-node <rpc-index-snapshot> [bind-address]` serves the durable index continuously.
 It defaults to the documented local RPC port `127.0.0.1:49151`; malformed connections are rejected

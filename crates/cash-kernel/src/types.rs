@@ -1076,6 +1076,8 @@ pub struct CoinCellRecord {
     cell: CoinCell,
 }
 impl CoinCellRecord {
+    pub const TYPE_TAG: u16 = 0x00d6;
+    pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 + CoinCell::MAX_ENCODED_LEN;
     pub const fn new(id: CoinCellId, cell: CoinCell) -> Self {
         Self { id, cell }
@@ -1099,6 +1101,11 @@ impl CanonicalDecode for CoinCellRecord {
     fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
         Ok(Self::new(CoinCellId::decode(d)?, CoinCell::decode(d)?))
     }
+}
+impl CanonicalType for CoinCellRecord {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -37,7 +37,9 @@ joined authorization chains. No function accepts secret material.
 Canonical execution-proof public inputs and finalized-block headers live in the shared
 `activechain-finality-types` crate. This keeps their registered tags, schemas, and header digest
 domain available to validators, verifier SDKs, and future light clients without pulling the
-stateful consensus runtime across the trust boundary.
+stateful consensus runtime across the trust boundary. Revision 2 binds the authenticated finalized
+Coin Cell root so wallet discovery proofs cannot be substituted independently of consensus
+finality.
 
 `FinalityCertificateBundle` carries a header, the exact validator genesis, a quorum certificate,
 and the ordered signed vote set. The verifier recomputes the header digest, genesis and validator
