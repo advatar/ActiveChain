@@ -11,6 +11,7 @@ import ActiveChain.Envelope
 import ActiveChain.EpochUpgrade
 import ActiveChain.Object
 import ActiveChain.ObjectVM
+import ActiveChain.Payments
 import ActiveChain.PqZk
 import ActiveChain.Nonce
 import ActiveChain.StateTree
