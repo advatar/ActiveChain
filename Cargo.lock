@@ -234,6 +234,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-payment-types"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-protocol-types",
+]
+
+[[package]]
 name = "activechain-policy-kernel"
 version = "0.1.0"
 dependencies = [
