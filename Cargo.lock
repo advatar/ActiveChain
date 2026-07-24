@@ -244,6 +244,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-payment-connector-ntzs"
+version = "0.1.0"
+dependencies = [
+ "activechain-payment-types",
+ "activechain-protocol-types",
+ "hmac",
+ "serde_json",
+ "sha2 0.10.9",
+ "sha3 0.10.9",
+]
+
+[[package]]
 name = "activechain-payment-types"
 version = "0.1.0"
 dependencies = [
@@ -2105,6 +2117,15 @@ name = "hex-literal"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6fe2267d4ed49bc07b63801559be28c718ea06c4738b7a03c94df7386d2cde46"
+
+[[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest 0.10.7",
+]
 
 [[package]]
 name = "http"

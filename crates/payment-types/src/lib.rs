@@ -308,6 +308,12 @@ impl ProviderObservationV1 {
     pub const fn state(&self) -> ProviderOperationState {
         self.state
     }
+
+    /// Returns the assurance class without promoting it to chain finality.
+    #[must_use]
+    pub const fn evidence_class(&self) -> EvidenceClass {
+        self.evidence_class
+    }
 }
 
 impl CanonicalEncode for ProviderObservationV1 {

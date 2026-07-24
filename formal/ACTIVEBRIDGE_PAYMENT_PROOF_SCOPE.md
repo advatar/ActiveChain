@@ -13,6 +13,9 @@ Mechanically checked properties:
 - exact observation replay does not mutate journal state, and a rejected successor produces no
   replacement state in the abstract journal model.
 - provider terminal states have no successor, and deterministic simulator cursors never regress.
+- the reviewed nTZS mapping is total over its abstract inputs, unrecognized states fail closed,
+  withdrawal burn is not success, unsupported webhooks are not admitted, and accepted webhook
+  evidence is not ActiveChain finality.
 
 The Rust crate additionally checks intent identity across successors, exact asset identity,
 minimum-output ordering, checked fee arithmetic, idempotency-body binding, canonical round trips,
@@ -23,6 +26,9 @@ nonzero and authentic where required. It does not prove provider honesty, signat
 asset-policy acceptance, durable persistence, Coin Cell conservation, inclusion/finality proof
 verification, compiler correspondence, or arbitrary serialized-input refinement. Those are
 required later refinements, not properties implied by this model.
+
+The narrower adapter assumptions and executable Rust checks are enumerated separately in
+`formal/ACTIVEBRIDGE_NTZS_PROOF_SCOPE.md`.
 
 Counterexamples must be retained, minimized, and used to fix the model or implementation rather
 than weakening a claimed property.

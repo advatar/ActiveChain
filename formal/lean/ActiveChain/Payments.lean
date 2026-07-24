@@ -196,4 +196,64 @@ theorem simulatorCursorIsMonotonic (cursor length : Nat) :
   · simp [nextCursor, advances]
   · simp [nextCursor, advances]
 
+inductive NtzsApiState where
+  | depositSubmitted
+  | transferCompleted
+  | withdrawalRequested
+  | withdrawalBurned
+  | swapChecking
+  | swapSending
+  | swapFilling
+  | swapFilled
+  | swapFailed
+  | rampPayingOut
+  | rampMinting
+  | rampCompleted
+  | rampFailed
+  | unrecognized
+  deriving BEq, DecidableEq, Repr
+
+def mapNtzsApiState : NtzsApiState → ProviderState
+  | .depositSubmitted | .withdrawalRequested | .withdrawalBurned |
+    .swapChecking | .swapSending | .swapFilling | .rampPayingOut | .rampMinting => .pending
+  | .transferCompleted | .swapFilled | .rampCompleted => .succeeded
+  | .swapFailed | .rampFailed => .rejected
+  | .unrecognized => .unknown
+
+theorem ntzsUnrecognizedFailsClosed :
+    mapNtzsApiState .unrecognized = .unknown := by
+  rfl
+
+theorem ntzsWithdrawalBurnIsNotSuccess :
+    mapNtzsApiState .withdrawalBurned ≠ .succeeded := by
+  decide
+
+theorem ntzsApiMappingIsBounded (state : NtzsApiState) :
+    mapNtzsApiState state = .pending ||
+      mapNtzsApiState state = .succeeded ||
+      mapNtzsApiState state = .rejected ||
+      mapNtzsApiState state = .unknown := by
+  cases state <;> simp [mapNtzsApiState]
+
+inductive NtzsWebhook where
+  | depositCompleted
+  | transferCompleted
+  | withdrawalCompleted
+  | unsupported
+  deriving BEq, DecidableEq, Repr
+
+def mapNtzsWebhook : NtzsWebhook → Option ProviderState
+  | .depositCompleted | .transferCompleted | .withdrawalCompleted => some .succeeded
+  | .unsupported => none
+
+theorem ntzsUnsupportedWebhookIsNotAdmitted :
+    mapNtzsWebhook .unsupported = none := by
+  rfl
+
+def ntzsWebhookEvidence : Evidence := .connectorAuthenticated
+
+theorem ntzsWebhookIsNotFinality :
+    ntzsWebhookEvidence ≠ .activeChainFinalized := by
+  decide
+
 end ActiveChain.Payments

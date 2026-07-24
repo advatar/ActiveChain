@@ -1,0 +1,1 @@
+{"type":"transfer.completed","data":{"transferId":"trf_fixture_001","fromUserId":"usr_fixture_sender","toUserId":"usr_fixture_recipient","amountTzs":5000,"txHash":"0xfixturetransfer"}}

@@ -1,0 +1,1 @@
+{"type":"deposit.completed","data":{"depositId":"dep_fixture_001","userId":"usr_fixture_payer","amountTzs":10000,"walletAddress":"0x0000000000000000000000000000000000000001","txHash":"0xfixturedeposit"}}

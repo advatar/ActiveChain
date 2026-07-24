@@ -62,6 +62,18 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
   - [x] Add a deterministic provider simulator and reusable connector contract suite covering
     success, rejection, reversal, unknown state, duplicate delivery, and sequence faults.
 - [ ] Implement and qualify the nTZS sandbox connector as the first regional adapter.
+  - [x] Freeze the documented sandbox endpoint, operation, status, authentication, error, and
+    webhook mappings; unknown or undocumented values fail closed to manual review.
+  - [x] Verify nTZS webhook HMACs over the exact timestamp/body bytes with bounded freshness and
+    durable duplicate-event rejection, while classifying the result as connector-authenticated
+    external evidence rather than provider or ActiveChain finality.
+  - [x] Add sanitized deterministic fixtures, adapter/contract unit tests, and an executable
+    formal model for total fail-closed provider-state mapping.
+  - [ ] Add endpoint-specific request/response schemas, exact decimal amount parsing, immutable
+    asset/reference binding, and connector-owned idempotency for provider operations that do not
+    publish an idempotency contract.
+  - [ ] Run contractual sandbox tests with issued test credentials and qualify TLS/DNS, secret
+    rotation, reconciliation, concurrency, recovery, custody, regulatory, and production gates.
 - [ ] Join external evidence to capability/APL-authorized native ingress, egress, conversion,
   paymaster sponsorship, and offline-verifiable finalized receipts.
 - [ ] Ship authenticated RPC/REST, TypeScript/Swift/Kotlin SDKs, honest wallet flows, merchant

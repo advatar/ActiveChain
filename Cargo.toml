@@ -24,6 +24,7 @@ members = [
     "crates/object-vm",
     "crates/payment-types",
     "crates/payment-connector-host",
+    "connectors/ntzs",
     "crates/policy-kernel",
     "crates/principal",
     "crates/privacy-kernel",
@@ -100,6 +101,8 @@ p3-symmetric = "=0.6.2"
 p3-uni-stark = "=0.6.2"
 sha3 = { version = "0.10.8", default-features = false }
 sha2 = { version = "0.10.9", default-features = false }
+hmac = { version = "0.12.1", default-features = false }
+serde_json = "1.0.149"
 risc0-zkvm = { version = "=3.0.5", default-features = false }
 winterfell = "=0.13.1"
 

@@ -1,4 +1,5 @@
 domain	scope	assumptions	boundary	counterexample_policy
+activebridge-ntzs	formal/ACTIVEBRIDGE_NTZS_PROOF_SCOPE.md	authenticated HMAC input and trusted clock	provider honesty, TLS, filesystem and native settlement refinement	retain-minimize-fix-claim
 activebridge-payment	formal/ACTIVEBRIDGE_PAYMENT_PROOF_SCOPE.md	authenticated identifiers and finality evidence	provider honesty, persistence and Coin Cell refinement	retain-minimize-fix-claim
 agent-authenticator	formal/KANI_AGENT_AUTHENTICATOR_PROOF_SCOPE.md	ML-DSA and trusted enrollment/hardware	filesystem and multi-device refinement	retain-minimize-fix-claim
 agent-enrollment	formal/AGENT_ENROLLMENT_PROOF_SCOPE.md	authenticated common evidence bindings	Rust serialization refinement and cryptographic internals	retain-minimize-fix-claim
