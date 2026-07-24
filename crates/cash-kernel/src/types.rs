@@ -693,6 +693,87 @@ impl CanonicalType for FungibleBurnV1 {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
+/// Asset-bound redemption intent. Settlement remains external until a receipt
+/// proves the referenced payout; the intent itself only authorizes consumption.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FungibleRedemptionV1 {
+    asset_id: AssetId,
+    authority: PrincipalId,
+    inputs: Vec<FungibleCoinCell>,
+    amount: Amount,
+    settlement_reference: Digest384,
+}
+impl FungibleRedemptionV1 {
+    pub const TYPE_TAG: u16 = 0x00A6;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize =
+        48 + 48 + 2 + MAX_TRANSFER_INPUTS * FungibleCoinCell::MAX_ENCODED_LEN + 16 + 48;
+    pub fn new(
+        asset_id: AssetId,
+        authority: PrincipalId,
+        inputs: Vec<FungibleCoinCell>,
+        amount: Amount,
+        settlement_reference: Digest384,
+    ) -> Result<Self, NativeMoneyError> {
+        let burn = FungibleBurnV1::new(asset_id, authority, inputs.clone(), amount)?;
+        if settlement_reference == Digest384::ZERO {
+            return Err(NativeMoneyError::InvalidInputs);
+        }
+        Ok(Self {
+            asset_id: burn.asset_id(),
+            authority: burn.authority(),
+            inputs,
+            amount,
+            settlement_reference,
+        })
+    }
+    pub const fn asset_id(&self) -> AssetId {
+        self.asset_id
+    }
+    pub const fn authority(&self) -> PrincipalId {
+        self.authority
+    }
+    pub fn inputs(&self) -> &[FungibleCoinCell] {
+        &self.inputs
+    }
+    pub const fn amount(&self) -> Amount {
+        self.amount
+    }
+    pub const fn settlement_reference(&self) -> Digest384 {
+        self.settlement_reference
+    }
+}
+impl CanonicalEncode for FungibleRedemptionV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.asset_id.encode(e)?;
+        self.authority.encode(e)?;
+        e.write_length(self.inputs.len(), MAX_TRANSFER_INPUTS)?;
+        for c in &self.inputs {
+            c.encode(e)?;
+        }
+        self.amount.encode(e)?;
+        self.settlement_reference.encode(e)
+    }
+}
+impl CanonicalDecode for FungibleRedemptionV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let a = AssetId::decode(d)?;
+        let o = PrincipalId::decode(d)?;
+        let n = d.read_length(MAX_TRANSFER_INPUTS)?;
+        let mut v = Vec::with_capacity(n);
+        for _ in 0..n {
+            v.push(FungibleCoinCell::decode(d)?);
+        }
+        Self::new(a, o, v, u128::decode(d)?, Digest384::decode(d)?)
+            .map_err(|_| DecodeError::InvalidValue("invalid fungible redemption"))
+    }
+}
+impl CanonicalType for FungibleRedemptionV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 #[cfg(test)]
 mod fungible_cell_tests {
     use super::*;
