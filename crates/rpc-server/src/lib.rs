@@ -397,7 +397,8 @@ impl DurableRpcStore {
             RpcRequest::SubmitAnchor { .. }
             | RpcRequest::ResolveAnchor { .. }
             | RpcRequest::RequestFaucet { .. }
-            | RpcRequest::ResolveFaucet { .. } => RpcResponse::Error(RpcError::InvalidRequest),
+            | RpcRequest::ResolveFaucet { .. }
+            | RpcRequest::FaucetTerms => RpcResponse::Error(RpcError::InvalidRequest),
         }
     }
 

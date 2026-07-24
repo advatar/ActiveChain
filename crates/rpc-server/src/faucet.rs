@@ -2,7 +2,9 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
 use activechain_protocol_types::{ChainId, Digest384, PrincipalId, TransactionId};
-use activechain_rpc_types::{FaucetReceiptV1, FaucetRequestV1, FaucetState};
+use activechain_rpc_types::{
+    FaucetChallengeKind, FaucetReceiptV1, FaucetRequestV1, FaucetState, FaucetTermsV1,
+};
 use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
@@ -27,6 +29,8 @@ pub struct FaucetPolicy {
     pub chain_id: ChainId,
     pub genesis_commitment: Digest384,
     pub enabled: bool,
+    pub policy_revision: u64,
+    pub valid_until: u64,
     pub grant_amount: u128,
     pub recipient_cooldown_seconds: u64,
     pub recipient_lifetime_limit: u16,
@@ -45,6 +49,8 @@ impl FaucetPolicy {
         };
         if self.genesis_commitment == Digest384::ZERO
             || self.grant_amount == 0
+            || self.policy_revision == 0
+            || self.valid_until == 0
             || self.recipient_cooldown_seconds == 0
             || self.recipient_lifetime_limit == 0
             || self.source_window_seconds == 0
@@ -149,6 +155,31 @@ impl DurableFaucet {
         self.policy
     }
 
+    pub fn terms(&self) -> Result<FaucetTermsV1, FaucetError> {
+        let (challenge_kind, challenge_difficulty) = match self.policy.sybil_policy {
+            SybilPolicy::CooldownOnly => (FaucetChallengeKind::CooldownOnly, 0),
+            SybilPolicy::ProofOfWork { leading_zero_bits } => {
+                (FaucetChallengeKind::ProofOfWork, leading_zero_bits)
+            }
+        };
+        FaucetTermsV1::new(
+            self.policy.chain_id,
+            self.policy.genesis_commitment,
+            self.policy.policy_revision,
+            self.policy.valid_until,
+            self.policy.grant_amount,
+            self.policy.recipient_cooldown_seconds,
+            self.policy.recipient_lifetime_limit,
+            self.policy.source_window_seconds,
+            self.policy.source_window_limit,
+            self.policy.global_window_seconds,
+            self.policy.global_window_limit,
+            challenge_kind,
+            challenge_difficulty,
+        )
+        .map_err(|_| FaucetError::InvalidPolicy)
+    }
+
     pub fn request<F>(
         &mut self,
         request: &FaucetRequestV1,
@@ -159,7 +190,7 @@ impl DurableFaucet {
     where
         F: FnOnce(PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError>,
     {
-        if !self.policy.enabled {
+        if !self.policy.enabled || now > self.policy.valid_until {
             return Err(FaucetError::Disabled);
         }
         if request.chain_id() != self.policy.chain_id
@@ -503,6 +534,8 @@ mod tests {
             chain_id: ChainId::new(digest(1)),
             genesis_commitment: digest(2),
             enabled: true,
+            policy_revision: 1,
+            valid_until: 10_000,
             grant_amount: 1_000,
             recipient_cooldown_seconds: 60,
             recipient_lifetime_limit: 2,
@@ -533,6 +566,8 @@ mod tests {
     fn idempotency_and_limits_survive_restart() {
         let path = path("limits");
         let mut faucet = DurableFaucet::create(policy(), path.clone()).unwrap();
+        assert_eq!(faucet.terms().unwrap().grant_amount(), 1_000);
+        assert_eq!(faucet.terms().unwrap().policy_revision(), 1);
         let receipt = faucet
             .request(&request(3, 4), digest(9), 100, |_, _, _| Ok(TransactionId::new(digest(10))))
             .unwrap();
