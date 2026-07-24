@@ -19,6 +19,7 @@
 		92C6CE38957DE69F1234BA8A /* AmberBondEconomics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19EC5A332767CF43E74336C2 /* AmberBondEconomics.swift */; };
 		B47898750FFA9A367C9C5932 /* AmberApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0212DF02C579762975E44439 /* AmberApp.swift */; };
 		CCF7DC0FCC068A7E010D17C1 /* AmberBondEconomics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19EC5A332767CF43E74336C2 /* AmberBondEconomics.swift */; };
+		CD5D9CC1AF70C68B31D965B1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A734154181B5A21D3CDCC235 /* Assets.xcassets */; };
 		E2E55B7D0B51905506D230F1 /* AmberModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8851C7B8AD7856BEFC8116F1 /* AmberModelsTests.swift */; };
 		E6552F4A06E11B2E7812209F /* AmberComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 012D6B3205AE26A4478BEDE3 /* AmberComposerView.swift */; };
 /* End PBXBuildFile section */
@@ -49,6 +50,7 @@
 		2BD6460533C370D984A1F218 /* AmberMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AmberMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8851C7B8AD7856BEFC8116F1 /* AmberModelsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmberModelsTests.swift; sourceTree = "<group>"; };
 		A0EDAA9E820282E158C1E8A3 /* AmberModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmberModels.swift; sourceTree = "<group>"; };
+		A734154181B5A21D3CDCC235 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B15EF6EAE29E0DACCA0D56D3 /* AmberSampleData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmberSampleData.swift; sourceTree = "<group>"; };
 		B41C1BBB25BFCF720F9F83B5 /* AmberMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AmberMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D8F5A55D039C158AC0E6CF8A /* Amber.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Amber.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -61,6 +63,14 @@
 				8851C7B8AD7856BEFC8116F1 /* AmberModelsTests.swift */,
 			);
 			path = Tests;
+			sourceTree = "<group>";
+		};
+		34D24F3BFC9E617ED58A9DB3 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				A734154181B5A21D3CDCC235 /* Assets.xcassets */,
+			);
+			path = Resources;
 			sourceTree = "<group>";
 		};
 		4484B30D338CD8C951BCC30B /* Sources */ = {
@@ -79,6 +89,7 @@
 		8FFCB7EA1B44DF418A0715FA = {
 			isa = PBXGroup;
 			children = (
+				34D24F3BFC9E617ED58A9DB3 /* Resources */,
 				4484B30D338CD8C951BCC30B /* Sources */,
 				219371FD03EFF1E3F6B53A73 /* Tests */,
 				9AE95BE3D015B3EB756360DD /* Products */,
@@ -122,6 +133,7 @@
 			buildConfigurationList = BB012E140579A66384DC1A0E /* Build configuration list for PBXNativeTarget "Amber" */;
 			buildPhases = (
 				1164E5E69FDF557F7E2348E7 /* Sources */,
+				C920D87A495EBCCCB64C5082 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -201,6 +213,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C920D87A495EBCCCB64C5082 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CD5D9CC1AF70C68B31D965B1 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		038A52EBD0D1B5D26069CFA8 /* Sources */ = {
@@ -317,6 +340,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_KEY_CFBundleDisplayName = Amber;
+				INFOPLIST_KEY_CFBundleIconName = AppIcon;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -335,6 +359,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_KEY_CFBundleDisplayName = Amber;
+				INFOPLIST_KEY_CFBundleIconName = AppIcon;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

@@ -14,10 +14,14 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+      - path: Resources
+        buildPhase: resources
     settings:
       base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: dev.activechain.amber
         PRODUCT_MODULE_NAME: AmberApp
+        INFOPLIST_KEY_CFBundleIconName: AppIcon
         INFOPLIST_KEY_CFBundleDisplayName: Amber
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.social-networking
     scheme:

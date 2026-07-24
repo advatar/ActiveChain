@@ -16,6 +16,16 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Phase 0 bootstrap is tracked by [GitHub issue #1](https://github.com/advatar/ActiveChain/issues/1).
 
+## Active release fix — Apple app icon catalogs
+
+Tracked by [GitHub issue #147](https://github.com/advatar/ActiveChain/issues/147).
+
+- [x] Add complete asset-catalog app icons for ActiveChain Wallet and Amber.
+- [x] Configure both iOS targets to emit `CFBundleIconName = AppIcon`.
+- [x] Add submission-oriented bundle validation that catches missing icon metadata.
+- [x] Pass Wallet and Amber iOS/macOS builds and tests.
+- [x] Commit, push, merge, and leave generated/user-specific files out of the change.
+
 ## Active developer setup — iOS wallet XCFramework
 
 Tracked by [GitHub issue #129](https://github.com/advatar/ActiveChain/issues/129).

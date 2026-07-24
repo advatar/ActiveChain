@@ -10,7 +10,10 @@ targets:
     sources:
       - path: Sources
       - path: ../ActiveChainWallet/Sources/ActiveChainWallet
+      - path: Resources
+        buildPhase: resources
     settings:
+      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       CODE_SIGN_ENTITLEMENTS: Config/ActiveChainWallet.entitlements
       DEVELOPMENT_TEAM: L2AF8KFX35
       INFOPLIST_KEY_ActiveChainKeychainAccessGroup: "$(AppIdentifierPrefix)dev.activechain.wallet.shared"
@@ -21,6 +24,7 @@ targets:
       SWIFT_VERSION: "5.9"
       GENERATE_INFOPLIST_FILE: YES
       INFOPLIST_KEY_CFBundleDisplayName: ActiveChain Wallet
+      INFOPLIST_KEY_CFBundleIconName: AppIcon
       INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.finance
       INFOPLIST_KEY_UILaunchScreen_Generation: YES
       INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
