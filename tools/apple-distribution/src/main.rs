@@ -255,7 +255,7 @@ fn write_manifest(
         independently_audited: false,
         verifier_abi_revision: 1,
         verifier_schema_revision: 1,
-        wallet_abi_revision: 1,
+        wallet_abi_revision: 2,
         rpc_schema_revision: 1,
         light_client_schema_revision: 1,
         minimum_protocol_revision: 1,
@@ -286,7 +286,7 @@ fn verify_manifest(
         || manifest.independently_audited
         || manifest.verifier_abi_revision != 1
         || manifest.verifier_schema_revision != 1
-        || manifest.wallet_abi_revision != 1
+        || manifest.wallet_abi_revision != 2
         || manifest.rpc_schema_revision != 1
         || manifest.light_client_schema_revision != 1
         || manifest.minimum_protocol_revision != 1
