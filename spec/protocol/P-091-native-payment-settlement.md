@@ -166,6 +166,12 @@ after every configured provider retry, webhook, dispute, and reconciliation wind
 The binding alone does not implement a durable store. The connector host and payment kernel must
 persist it before releasing any effect that could move value.
 
+The reference connector journal stores one latest observation per attempt in canonical attempt
+order. It computes the complete successor in memory, writes a domain-separated checksummed
+snapshot to a temporary file, calls `sync_all`, atomically renames it, and synchronizes the parent
+directory before replacing live memory. Failed persistence MUST leave the prior in-memory state
+unchanged. Corrupt, truncated, reordered, duplicate, or trailing snapshot data MUST fail closed.
+
 ## 9. Registered top-level types
 
 | Type | Tag | Revision |

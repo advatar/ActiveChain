@@ -234,6 +234,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-payment-connector-host"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-payment-types",
+ "activechain-protocol-types",
+ "sha3 0.10.9",
+]
+
+[[package]]
 name = "activechain-payment-types"
 version = "0.1.0"
 dependencies = [
