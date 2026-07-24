@@ -7,7 +7,10 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
 
+extern crate alloc;
+
 mod admission;
+mod asset;
 mod authority;
 mod checked_arithmetic;
 mod consensus;
@@ -19,6 +22,10 @@ mod object;
 mod package;
 
 pub use admission::{exact_frame_layout, fresh_sequence, length_prefixed_range};
+pub use asset::{
+    AssetDefinitionError, FungibleAssetDefinition, FungibleAssetRegistry, MAX_ASSET_SYMBOL_LENGTH,
+    MAX_FUNGIBLE_ASSETS,
+};
 pub use authority::{
     BoundedActionSet, BoundedActionSetError, CapabilityGrant, CapabilityGrantFields,
     CapabilityValidationError, DataSelector, HolderBinding, RateLimit, RateLimitError,
