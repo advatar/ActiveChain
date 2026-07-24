@@ -239,6 +239,10 @@ Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163
 Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164).
 
 - [ ] Freeze native fungible, non-fungible, and series asset definitions and lifecycle actions.
+  - [ ] Non-fungible profile: collection `AssetId`, unique `TokenId`, one-owner invariant,
+    commitment-bound metadata/provenance, issuer-authorized mint/burn, and exact-once transfer.
+  - [ ] Keep NFT ownership records and proofs separate from fungible Coin Cells while reusing
+    issuer authority, policy evaluation, wallet ABI approval, and formal-verification gates.
 - [ ] Enforce issuer/controller authority, supply conservation, declared controls, and corporate
   actions in consensus, persistence, authorization, and formal proofs.
 - [ ] Expose proof-bearing asset, supply, owner, action, receipt, and attestation RPC contracts.
