@@ -1,5 +1,6 @@
 domain	formal_artifact	production_witness	classification
 activebridge-ntzs	formal/lean/ActiveChain/Payments.lean	testing/ntzs-provider-contract-v1.tsv	differential
+activebridge-ntzs-amounts	formal/lean/ActiveChain/Payments.lean	testing/ntzs-amount-vectors-v1.tsv	differential
 activebridge-payment	formal/lean/ActiveChain/Payments.lean	crates/payment-types/src/lib.rs	trace
 agent-authenticator	formal/KANI_AGENT_AUTHENTICATOR_PROOF_SCOPE.md	crates/wallet-core/src/agent_authenticator.rs	differential
 agent-enrollment	formal/lean/ActiveChain/AgentEnrollment.lean	crates/wallet-core/src/agent_enrollment.rs	trace

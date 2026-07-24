@@ -11,7 +11,7 @@ publish = false
 activechain-payment-types.workspace = true
 activechain-protocol-types.workspace = true
 hmac.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["arbitrary_precision"] }
 sha2.workspace = true
 sha3.workspace = true
 

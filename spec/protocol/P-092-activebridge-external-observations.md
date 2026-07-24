@@ -149,12 +149,36 @@ record and poll/reconcile; it must not create a second economic attempt.
 
 nTZS documentation presents TZS integer fields as well as decimal USDC/USDT examples. Provider
 JSON numbers and token symbols are not canonical ActiveChain amounts or asset identities. This
-profile therefore does not convert floating-point JSON into `AssetAmountV1`.
+profile never converts provider values through binary floating point.
 
-An observation receives its exact `AssetId` and atomic-unit amount from the pre-authorized,
-persisted ActiveBridge attempt. Later amount reconciliation must parse provider decimals as bounded
-base-10 strings using registry-defined scales and reject precision loss, exponent ambiguity,
-symbol collision, or undocumented assets.
+Revision 1 parses provider numbers as bounded unsigned base-10 coefficient/scale pairs. It rejects
+signs, exponent notation, leading-zero ambiguity, zero, overflow, excess syntactic precision, and
+precision above the registered native asset scale. Atomic conversion is:
+
+```text
+atomic_units = coefficient * 10^(asset_decimals - provider_scale)
+```
+
+with checked arithmetic. TZS `amountTzs` is admitted only as a syntactic integer. USDC admits up to
+the documented six decimal places. USDT amount binding remains unsupported because the reviewed
+transfer response contract does not publish it.
+
+The implemented core response profiles are:
+
+| Operation | Reference | State | Amount |
+| --- | --- | --- | --- |
+| deposit | `id` | `status` | integer `amountTzs` |
+| transfer, native | `id` | `status` | integer `amountTzs` when `token` is absent |
+| transfer, USDC | `id` | `status` | `amount` with exact `token: "usdc"` |
+| withdrawal | `id` | `status` | integer `amountTzs` |
+
+Swap and ramp response bodies remain unsupported until their authoritative amount/reference schemas
+are frozen. Unknown statuses in otherwise valid core responses still map to `unknown`.
+
+An observation receives its expected `AssetId`, atomic-unit amount, and provider-reference
+commitment from the pre-authorized persisted ActiveBridge attempt. The connector validates exact
+unit, asset identifier, converted atomic quantity, and reference equality before it can emit an
+observation. Provider fields never select a native asset merely by symbol.
 
 ## 9. Replay persistence and recovery
 
@@ -185,6 +209,7 @@ The sandbox adapter is not production-qualified until all of the following are e
 
 - Rust adapter and unit tests: `connectors/ntzs/`
 - sanitized webhook fixtures: `connectors/ntzs/fixtures/`
-- mapping vectors: `testing/ntzs-provider-contract-v1.tsv`
+- mapping vectors: `testing/ntzs-provider-contract-v1.tsv`,
+  `testing/ntzs-amount-vectors-v1.tsv`
 - executable abstract model: `formal/lean/ActiveChain/Payments.lean`
 - explicit proof boundary: `formal/ACTIVEBRIDGE_NTZS_PROOF_SCOPE.md`

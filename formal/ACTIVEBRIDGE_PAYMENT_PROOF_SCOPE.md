@@ -16,6 +16,8 @@ Mechanically checked properties:
 - the reviewed nTZS mapping is total over its abstract inputs, unrecognized states fail closed,
   withdrawal burn is not success, unsupported webhooks are not admitted, and accepted webhook
   evidence is not ActiveChain finality.
+- accepted nTZS decimal amounts and provider response bindings equal the exact registered
+  atomic-unit, unit, asset, and reference values.
 
 The Rust crate additionally checks intent identity across successors, exact asset identity,
 minimum-output ordering, checked fee arithmetic, idempotency-body binding, canonical round trips,

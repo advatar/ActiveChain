@@ -72,6 +72,11 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
   - [ ] Add endpoint-specific request/response schemas, exact decimal amount parsing, immutable
     asset/reference binding, and connector-owned idempotency for provider operations that do not
     publish an idempotency contract.
+    - [x] Implement lossless bounded decimal parsing and validated deposit, transfer, and
+      withdrawal response schemas whose amount, asset, and provider reference must match the
+      persisted ActiveBridge attempt before an observation can be emitted.
+    - [ ] Implement the remaining typed request, quote, swap/SSE, ramp, reconciliation, and
+      connector-owned retry/idempotency schemas after obtaining authoritative missing fields.
   - [ ] Run contractual sandbox tests with issued test credentials and qualify TLS/DNS, secret
     rotation, reconciliation, concurrency, recovery, custody, regulatory, and production gates.
 - [ ] Join external evidence to capability/APL-authorized native ingress, egress, conversion,

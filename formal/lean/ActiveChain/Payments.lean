@@ -256,4 +256,60 @@ theorem ntzsWebhookIsNotFinality :
     ntzsWebhookEvidence ≠ .activeChainFinalized := by
   decide
 
+structure ExactProviderAmount where
+  coefficient : Nat
+  scale : Nat
+  deriving BEq, DecidableEq, Repr
+
+def providerAtomicUnits (amount : ExactProviderAmount) (assetDecimals : Nat) : Option Nat :=
+  if amount.scale ≤ assetDecimals then
+    some (amount.coefficient * 10 ^ (assetDecimals - amount.scale))
+  else
+    none
+
+theorem providerPrecisionAboveAssetIsRejected
+    (amount : ExactProviderAmount)
+    (assetDecimals : Nat)
+    (hPrecision : assetDecimals < amount.scale) :
+    providerAtomicUnits amount assetDecimals = none := by
+  simp [providerAtomicUnits, Nat.not_le.mpr hPrecision]
+
+def exactProviderAmountMatches
+    (amount : ExactProviderAmount)
+    (assetDecimals expectedAtomicUnits : Nat) : Bool :=
+  providerAtomicUnits amount assetDecimals == some expectedAtomicUnits
+
+theorem acceptedProviderAmountEqualsExpectedAtomicUnits
+    (amount : ExactProviderAmount)
+    (assetDecimals expectedAtomicUnits : Nat)
+    (hAccepted : exactProviderAmountMatches amount assetDecimals expectedAtomicUnits = true) :
+    providerAtomicUnits amount assetDecimals = some expectedAtomicUnits := by
+  simpa [exactProviderAmountMatches] using hAccepted
+
+structure ProviderResponseBinding where
+  unit : Nat
+  asset : Nat
+  reference : Nat
+  atomicUnits : Nat
+  deriving BEq, DecidableEq, Repr
+
+def exactProviderBindingMatches
+    (provider expected : ProviderResponseBinding) : Prop :=
+  provider.unit = expected.unit ∧
+    provider.asset = expected.asset ∧
+    provider.reference = expected.reference ∧
+    provider.atomicUnits = expected.atomicUnits
+
+theorem acceptedProviderBindingIsExact
+    (provider expected : ProviderResponseBinding)
+    (hAccepted : exactProviderBindingMatches provider expected) :
+    provider = expected := by
+  cases provider with
+  | mk providerUnit providerAsset providerReference providerAmount =>
+      cases expected with
+      | mk expectedUnit expectedAsset expectedReference expectedAmount =>
+          simp [exactProviderBindingMatches] at hAccepted
+          rcases hAccepted with ⟨rfl, rfl, rfl, rfl⟩
+          rfl
+
 end ActiveChain.Payments
