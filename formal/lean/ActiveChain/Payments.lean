@@ -143,4 +143,20 @@ theorem observationSuccessorPreservesAttemptAndSequence
   simp [observationFollows] at h
   exact h.1
 
+def journalApply (current incoming : Observation) : Option Observation :=
+  if current = incoming then some current
+  else if observationFollows current incoming then some incoming
+  else none
+
+theorem exactObservationReplayDoesNotMutate (observation : Observation) :
+    journalApply observation observation = some observation := by
+  simp [journalApply]
+
+theorem rejectedObservationLeavesNoReplacement
+    (current incoming : Observation)
+    (hDifferent : current ≠ incoming)
+    (hRejected : observationFollows current incoming = false) :
+    journalApply current incoming = none := by
+  simp [journalApply, hDifferent, hRejected]
+
 end ActiveChain.Payments
