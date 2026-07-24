@@ -18,7 +18,7 @@ for library in \
   "$verifier_slice/libactivechain_verifier_ffi.a" \
   "$wallet_slice/libactivechain_wallet_ffi.a"; do
   for architecture in arm64 x86_64; do
-    if ! xcrun lipo -verify_arch "$architecture" "$library"; then
+    if ! xcrun lipo "$library" -verify_arch "$architecture"; then
       echo "$library is missing required architecture $architecture" >&2
       exit 1
     fi
