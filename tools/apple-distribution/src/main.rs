@@ -255,7 +255,7 @@ fn write_manifest(
         independently_audited: false,
         verifier_abi_revision: 1,
         verifier_schema_revision: 1,
-        wallet_abi_revision: 1,
+        wallet_abi_revision: 2,
         rpc_schema_revision: 1,
         light_client_schema_revision: 1,
         minimum_protocol_revision: 1,
@@ -263,6 +263,7 @@ fn write_manifest(
         schemas: supported_schemas(),
         apple_slices: vec![
             "aarch64-apple-darwin".to_owned(),
+            "x86_64-apple-darwin".to_owned(),
             "aarch64-apple-ios".to_owned(),
             "aarch64-apple-ios-sim".to_owned(),
         ],
@@ -285,14 +286,19 @@ fn verify_manifest(
         || manifest.independently_audited
         || manifest.verifier_abi_revision != 1
         || manifest.verifier_schema_revision != 1
-        || manifest.wallet_abi_revision != 1
+        || manifest.wallet_abi_revision != 2
         || manifest.rpc_schema_revision != 1
         || manifest.light_client_schema_revision != 1
         || manifest.minimum_protocol_revision != 1
         || manifest.supported_protocol_revisions != [1]
         || manifest.schemas != supported_schemas()
         || manifest.apple_slices
-            != ["aarch64-apple-darwin", "aarch64-apple-ios", "aarch64-apple-ios-sim"]
+            != [
+                "aarch64-apple-darwin",
+                "x86_64-apple-darwin",
+                "aarch64-apple-ios",
+                "aarch64-apple-ios-sim",
+            ]
         || manifest.upgrade_policy != "reject-unknown-abi-schema-or-protocol-revision"
         || manifest.source_revision.len() != 40
         || !manifest.source_revision.bytes().all(|byte| byte.is_ascii_hexdigit())

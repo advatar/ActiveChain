@@ -5,9 +5,10 @@ ActiveChain’s Apple distribution contains two binary products:
 - `ActiveChainVerifier.xcframework`
 - `ActiveChainWallet.xcframework`
 
-Each contains arm64 macOS, iOS-device, and iOS-simulator slices. The accompanying `Package.swift`
-exposes both as local SwiftPM binary targets. This is a developmental integration artifact, not an
-independent security certification or a production-wallet endorsement.
+Each contains a universal arm64/x86_64 macOS slice plus arm64 iOS-device and iOS-simulator slices.
+The accompanying `Package.swift` exposes both as local SwiftPM binary targets. This is a
+developmental integration artifact, not an independent security certification or a
+production-wallet endorsement.
 
 ## Exact-source build
 
@@ -19,7 +20,8 @@ scripts/check-apple-distribution.sh dist/ActiveChainKit
 ```
 
 The build refuses a revision other than checked-out `HEAD` and refuses a dirty worktree. CI installs
-the pinned `aarch64-apple-ios` and `aarch64-apple-ios-sim` targets before invoking it.
+the pinned `x86_64-apple-darwin`, `aarch64-apple-ios`, and `aarch64-apple-ios-sim` targets before
+invoking it.
 
 `scripts/check-apple-reproducibility.sh` builds the distribution twice from the same clean revision,
 compares every byte, and then runs the consumer qualification.
@@ -61,10 +63,11 @@ must obtain the manifest and archive hash from the intended release source.
 The qualification script:
 
 1. verifies every manifest hash;
-2. compiles, links, and runs clean C and Swift macOS consumers;
-3. compiles and links clean Swift consumers against both iOS-device libraries;
-4. compiles and links clean Swift consumers against both iOS-simulator libraries; and
-5. asks SwiftPM to load the packaged binary-target manifest.
+2. requires arm64 and x86_64 in both macOS libraries;
+3. compiles, links, and runs clean C and Swift macOS consumers and links Intel C consumers;
+4. compiles and links clean Swift consumers against both iOS-device libraries;
+5. compiles and links clean Swift consumers against both iOS-simulator libraries; and
+6. asks SwiftPM to load the packaged binary-target manifest.
 
 The consumers query ABI/schema/protocol revisions before accepting the library. Application code
 must likewise fail closed on an unsupported revision.

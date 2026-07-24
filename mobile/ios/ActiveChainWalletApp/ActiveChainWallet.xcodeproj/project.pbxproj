@@ -348,6 +348,8 @@
 				INFOPLIST_KEY_ActiveChainKeychainAccessGroup = "$(AppIdentifierPrefix)dev.activechain.wallet.shared";
 				INFOPLIST_KEY_CFBundleDisplayName = "ActiveChain Wallet";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -570,6 +572,8 @@
 				INFOPLIST_KEY_ActiveChainKeychainAccessGroup = "$(AppIdentifierPrefix)dev.activechain.wallet.shared";
 				INFOPLIST_KEY_CFBundleDisplayName = "ActiveChain Wallet";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

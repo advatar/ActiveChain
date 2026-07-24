@@ -20,6 +20,8 @@ targets:
       GENERATE_INFOPLIST_FILE: YES
       INFOPLIST_KEY_CFBundleDisplayName: ActiveChain Wallet
       INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.finance
+      INFOPLIST_KEY_UILaunchScreen_Generation: YES
+      INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
     dependencies:
       - framework: ../../../dist/apple/current/ActiveChainWallet.xcframework
         embed: false

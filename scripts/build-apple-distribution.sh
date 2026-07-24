@@ -64,6 +64,7 @@ cp "$repo_root/distribution/apple/ActiveChainWallet.modulemap" \
 
 targets=(
   aarch64-apple-darwin
+  x86_64-apple-darwin
   aarch64-apple-ios
   aarch64-apple-ios-sim
 )
@@ -74,8 +75,19 @@ for target in "${targets[@]}"; do
     -p activechain-wallet-ffi
 done
 
+universal_macos="$staging/macos-universal"
+mkdir -p "$universal_macos"
+xcrun lipo -create \
+  "$cargo_target_dir/aarch64-apple-darwin/release/libactivechain_verifier_ffi.a" \
+  "$cargo_target_dir/x86_64-apple-darwin/release/libactivechain_verifier_ffi.a" \
+  -output "$universal_macos/libactivechain_verifier_ffi.a"
+xcrun lipo -create \
+  "$cargo_target_dir/aarch64-apple-darwin/release/libactivechain_wallet_ffi.a" \
+  "$cargo_target_dir/x86_64-apple-darwin/release/libactivechain_wallet_ffi.a" \
+  -output "$universal_macos/libactivechain_wallet_ffi.a"
+
 xcodebuild -create-xcframework \
-  -library "$cargo_target_dir/aarch64-apple-darwin/release/libactivechain_verifier_ffi.a" \
+  -library "$universal_macos/libactivechain_verifier_ffi.a" \
   -headers "$verifier_headers" \
   -library "$cargo_target_dir/aarch64-apple-ios/release/libactivechain_verifier_ffi.a" \
   -headers "$verifier_headers" \
@@ -84,7 +96,7 @@ xcodebuild -create-xcframework \
   -output "$staging/ActiveChainVerifier.xcframework"
 
 xcodebuild -create-xcframework \
-  -library "$cargo_target_dir/aarch64-apple-darwin/release/libactivechain_wallet_ffi.a" \
+  -library "$universal_macos/libactivechain_wallet_ffi.a" \
   -headers "$wallet_headers" \
   -library "$cargo_target_dir/aarch64-apple-ios/release/libactivechain_wallet_ffi.a" \
   -headers "$wallet_headers" \
