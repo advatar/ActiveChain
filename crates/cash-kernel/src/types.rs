@@ -4,7 +4,7 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
 use activechain_protocol_types::{
-    Amount, ChainId, CoinCellId, Digest384, Epoch, Height, PrincipalId, TransactionId,
+    Amount, AssetId, ChainId, CoinCellId, Digest384, Epoch, Height, PrincipalId, TransactionId,
     authorized_issuance as compute_authorized_issuance, partition_total,
     post_supply as compute_post_supply,
 };
@@ -374,6 +374,102 @@ impl CanonicalType for CoinCell {
     const TYPE_TAG: u16 = Self::TYPE_TAG;
     const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
+/// A fungible multi-asset cell. Native `CoinCell` remains wire-compatible;
+/// this profile carries an explicit asset identity for non-native assets.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FungibleCoinCell {
+    origin: CoinCellOrigin,
+    asset_id: AssetId,
+    owner: PrincipalId,
+    amount: Amount,
+    creation_height: Height,
+}
+impl FungibleCoinCell {
+    pub const TYPE_TAG: u16 = 0x00A2;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = CoinCellOrigin::MAX_ENCODED_LEN + 48 + 48 + 16 + 8;
+    pub fn new(
+        origin: CoinCellOrigin,
+        asset_id: AssetId,
+        owner: PrincipalId,
+        amount: Amount,
+        creation_height: Height,
+    ) -> Result<Self, NativeMoneyError> {
+        if amount == 0 {
+            return Err(NativeMoneyError::ZeroAmount);
+        }
+        Ok(Self { origin, asset_id, owner, amount, creation_height })
+    }
+    pub const fn origin(self) -> CoinCellOrigin {
+        self.origin
+    }
+    pub const fn asset_id(self) -> AssetId {
+        self.asset_id
+    }
+    pub const fn owner(self) -> PrincipalId {
+        self.owner
+    }
+    pub const fn amount(self) -> Amount {
+        self.amount
+    }
+    pub const fn creation_height(self) -> Height {
+        self.creation_height
+    }
+}
+impl CanonicalEncode for FungibleCoinCell {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.origin.encode(e)?;
+        self.asset_id.encode(e)?;
+        self.owner.encode(e)?;
+        self.amount.encode(e)?;
+        self.creation_height.encode(e)
+    }
+}
+impl CanonicalDecode for FungibleCoinCell {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            CoinCellOrigin::decode(d)?,
+            AssetId::decode(d)?,
+            PrincipalId::decode(d)?,
+            u128::decode(d)?,
+            u64::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("fungible coin cell amount is zero"))
+    }
+}
+impl CanonicalType for FungibleCoinCell {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
+#[cfg(test)]
+mod fungible_cell_tests {
+    use super::*;
+    use activechain_protocol_types::{AssetId, Digest384};
+    #[test]
+    fn explicit_asset_identity_round_trips_and_zero_amount_fails() {
+        let origin = CoinCellOrigin::new(TransactionId::new(Digest384::new([1; 48])), 0);
+        let cell = FungibleCoinCell::new(
+            origin,
+            AssetId::new(Digest384::new([2; 48])),
+            PrincipalId::new(Digest384::new([3; 48])),
+            42,
+            7,
+        )
+        .unwrap();
+        let bytes = activechain_canonical_codec::encode_envelope(&cell).unwrap();
+        assert_eq!(
+            activechain_canonical_codec::decode_envelope::<FungibleCoinCell>(&bytes),
+            Ok(cell)
+        );
+        assert_eq!(
+            FungibleCoinCell::new(origin, cell.asset_id(), cell.owner(), 0, 7),
+            Err(NativeMoneyError::ZeroAmount)
+        );
+    }
 }
 
 /// Canonical bounded native supply state.
