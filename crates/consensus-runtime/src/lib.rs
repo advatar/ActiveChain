@@ -52,13 +52,22 @@ impl WalletTransactionGateway {
     ///
     /// The caller is responsible for deriving this mapping from finalized identity and
     /// authorization state; the gateway never accepts a key from a transaction request.
-    pub fn register_authorization_key(
+    pub fn install_finalized_authorization_key<
+        V: activechain_wallet_core::FinalizedIdentityKeyVerifier,
+    >(
         &mut self,
-        sender: PrincipalId,
-        public_key: [u8; activechain_protocol_types::ML_DSA44_PUBLIC_KEY_LENGTH],
+        proof: &activechain_wallet_core::FinalizedIdentityKeyProof,
         initial_nonce: u64,
+        verifier: &V,
     ) -> Result<(), activechain_wallet_core::WalletError> {
-        self.ingress.register_authorization_key(sender, public_key, initial_nonce)
+        self.ingress.install_finalized_authorization_key(proof, initial_nonce, verifier)
+    }
+
+    pub fn register_session(
+        &mut self,
+        grant: &activechain_wallet_core::AuthorizedCashSessionGrantV1,
+    ) -> Result<(), activechain_wallet_core::WalletError> {
+        self.ingress.register_session(grant)
     }
 
     pub fn ledger(&self) -> &activechain_cash_kernel::CashLedger {
@@ -2933,9 +2942,55 @@ mod tests {
     use activechain_canonical_codec::encode_envelope;
     use activechain_cash_kernel::CoinTransfer;
     use activechain_cash_kernel::{GenesisAllocation, GenesisEconomy, NativeAssetDefinition};
-    use activechain_protocol_types::{ChainId, PrincipalId};
+    use activechain_protocol_types::{
+        AuthenticatorDescriptor, AuthenticatorId, AuthenticatorPurpose, ChainId, CryptoSuiteId,
+        FreezeState, Principal, PrincipalId, PrincipalKind,
+    };
+    use activechain_wallet_core::{
+        FinalizedIdentityKeyProof, FinalizedIdentityKeyVerifier, authenticator_set_root,
+    };
     use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
     use std::net::TcpListener;
+
+    struct AcceptFinality;
+    impl FinalizedIdentityKeyVerifier for AcceptFinality {
+        fn verify_finalized_identity_key(&self, _proof: &FinalizedIdentityKeyProof) -> bool {
+            true
+        }
+    }
+    fn identity_proof(owner: PrincipalId, key: &SigningKey<MlDsa44>) -> FinalizedIdentityKeyProof {
+        let authenticator = AuthenticatorDescriptor::new(
+            AuthenticatorId::new(Digest384::new([91; 48])),
+            CryptoSuiteId::ML_DSA_44,
+            key.verifying_key().encode().as_slice().to_vec(),
+            AuthenticatorPurpose::Session,
+            1,
+            None,
+            None,
+        )
+        .unwrap();
+        let identity = Principal::new(
+            owner,
+            PrincipalKind::Human,
+            Digest384::new([31; 48]),
+            Digest384::new([32; 48]),
+            authenticator_set_root(core::slice::from_ref(&authenticator)).unwrap(),
+            0,
+            FreezeState::Active,
+            Digest384::new([33; 48]),
+            1,
+            1,
+            30,
+        )
+        .unwrap();
+        FinalizedIdentityKeyProof::new(
+            identity,
+            authenticator,
+            Digest384::new([34; 48]),
+            30,
+            Digest384::new([35; 48]),
+        )
+    }
     fn genesis_justification(context: ConsensusVoteContext) -> ProposalJustification {
         ProposalJustification::Finalized(
             ConsensusBlockRef::new(
@@ -3103,13 +3158,8 @@ mod tests {
         .unwrap();
         let mut gateway = WalletTransactionGateway::from_genesis(&economy).unwrap();
         let cash_key = SigningKey::<MlDsa44>::from_seed(&Seed::from([91; 32]));
-        gateway
-            .register_authorization_key(
-                owner,
-                cash_key.verifying_key().encode().as_slice().try_into().unwrap(),
-                0,
-            )
-            .unwrap();
+        let proof = identity_proof(owner, &cash_key);
+        gateway.install_finalized_authorization_key(&proof, 0, &AcceptFinality).unwrap();
         let cells = gateway.ledger().cells().as_slice();
         let transfer = CoinTransfer::new(
             owner,
@@ -3130,6 +3180,23 @@ mod tests {
             transfer,
         )
         .unwrap();
+        let grant = activechain_wallet_core::CashSessionGrantV1::new(
+            ChainId::new(digest(1)),
+            owner,
+            digest(12),
+            1,
+            10,
+            100,
+        )
+        .unwrap();
+        let grant_signature = cash_key.sign(&grant.signing_payload().unwrap());
+        let authorized_grant = activechain_wallet_core::AuthorizedCashSessionGrantV1::new(
+            grant,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, grant_signature.encode().to_vec())
+                .unwrap(),
+        )
+        .unwrap();
+        gateway.register_session(&authorized_grant).unwrap();
         let signature = cash_key.sign(&request.signing_payload().unwrap());
         let authorized = activechain_wallet_core::AuthorizedCashTransferV1::new(
             request,
