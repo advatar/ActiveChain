@@ -20,6 +20,18 @@ theorem regulatedNonceIsOneShot (used : List Nat) (nonce : Nat) (next : List Nat
   subst next
   simp [hzero]
 
+def admitRegulated (verified : Bool) (used : List Nat) (nonce : Nat) : Option (List Nat) :=
+  if verified then consumeNonce used nonce else none
+
+theorem failedSignatureDoesNotConsume (used : List Nat) (nonce : Nat) :
+    admitRegulated false used nonce = none := by
+  simp [admitRegulated]
+
+theorem successfulAdmissionConsumesOnlyOnce (used : List Nat) (nonce : Nat) (next : List Nat)
+    (accepted : admitRegulated true used nonce = some next) :
+    admitRegulated true next nonce = none := by
+  simpa [admitRegulated] using regulatedNonceIsOneShot used nonce next accepted
+
 inductive State where
   | created
   | awaitingPayer
