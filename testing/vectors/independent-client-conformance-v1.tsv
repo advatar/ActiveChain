@@ -1,0 +1,7 @@
+case\tclient_behavior\texpected\treason
+canonical_codec\tdecode published envelope\taccept\tshared normative bytes
+trailing_bytes\tdecode envelope plus trailing byte\treject\tstrict framing
+unknown_feature\tdecode reserved future feature at v1.0\treject\tno silent reinterpretation
+alternate_impl\tsecond implementation matches vector digest\taccept\tindependent conformance
+rust_private_api\tsecond implementation imports Rust transition crate\treject\tindependence gate
+malformed_order\tdescending validator/capability entries\treject\tcanonical ordering

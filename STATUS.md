@@ -139,6 +139,11 @@ Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213
 
 - [ ] Specify versioned sanctions/KYC screening inputs, freshness, matching, overrides, and
   privacy-preserving evidence handling with deterministic vectors.
+
+## Active independent-client qualification
+
+- [ ] Publish a bounded conformance surface and second-client milestone for the selected launch
+  contract, with canonical vectors and no dependency on Rust implementation internals.
 - [ ] Specify confidential evidence retention, deletion, access, breach handling, and offline
   verification boundaries with deterministic vectors.
 
