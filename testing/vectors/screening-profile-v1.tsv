@@ -1,0 +1,9 @@
+case\tresult\texpected\treason
+fresh_clear\tapproved-list-digest,age=1h,clear\taccept\tcurrent signed evidence
+expired_clear\tapproved-list-digest,age=31d,clear\treject\tmaximum age exceeded
+match\tapproved-list-digest,match\treject\tpositive screening result
+inconclusive\tapproved-list-digest,inconclusive\tmanual_review\tprovider cannot resolve identity
+unknown_provider\tunapproved-list-digest,clear\treject\tprovider not in profile
+single_override\tmatch,one-reviewer,reason=typo\treject\tdual control required
+dual_override\tmatch,two-reviewers,expiry=24h\tmanual_review\tcase remains auditable and bounded
+raw_identity\tclear,raw-kyc-document-on-chain\treject\tconfidential evidence never public

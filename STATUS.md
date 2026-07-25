@@ -133,6 +133,13 @@ Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163
 - [ ] Extend the versioned wallet ABI for multi-asset balances, selection, signing, and submission.
 - [ ] Qualify native, test-EUR, and test-USD assets with cross-asset adversarial vectors.
 
+## Active regulated-profile implementation — screening semantics
+
+Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213).
+
+- [ ] Specify versioned sanctions/KYC screening inputs, freshness, matching, overrides, and
+  privacy-preserving evidence handling with deterministic vectors.
+
 ## Active epic — native asset tokenization
 
 Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164).
