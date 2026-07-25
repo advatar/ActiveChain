@@ -1,0 +1,7 @@
+case_id	profiles	facts	expected
+eu-only	eu.casp.transfer.v1	EU/hosted_transfer	select-eu
+tz-only	tz.payment-operator.v1	TZ/payment_operator	select-tz
+us-kenya	us.msb.transfer.v1,ke.virtual-asset-service.v1	US+KE/hosted_transfer	intersection
+ambiguous-jurisdiction	eu.casp.transfer.v1,us.msb.transfer.v1	EU+US/unknown_entity	manual-review
+expired-profile	eu.casp.transfer.v1	EU/hosted_transfer/expired	reject
+design-only	tz.payment-operator.v1	TZ/payment_operator	reject-production

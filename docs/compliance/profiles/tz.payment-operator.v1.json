@@ -1,0 +1,1 @@
+{"profile_id":"tz.payment-operator.v1","revision":1,"jurisdictions":["TZ"],"activity":"payment_operator","operator":"TBD","assets":["*"],"status":"design_only","legal_review":"required","credential_policy":"TBD","screening_policy":"TBD","travel_rule_profile":"P-121","privacy_policy":"PRIVACY_AND_DATA_BOUNDARY.md","effective_height":0,"expires_height":0}
