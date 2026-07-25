@@ -19,6 +19,7 @@ Tracked by the regulated-profile implementation plan in
   - [x] Add canonical privacy-preserving evidence and Travel Rule binding records with strict
     commitment, chain, amount, and expiry validation plus round-trip tests.
   - [x] Add a signature envelope binding profile, chain, action, commitment, and single-use nonce.
+  - [x] Publish Rust-to-Lean admission refinement mapping and conformance vectors.
 
 ## Phase 0 — protocol foundation
 
