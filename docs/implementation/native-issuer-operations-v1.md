@@ -1,0 +1,25 @@
+# Native issuer operations v1
+
+Native assets use a finalized issuer lifecycle; no smart-contract wrapper is required to make a
+EUR, USD, bond, fund share, or commodity claim legible to wallets and validators.
+
+## Lifecycle and authority
+
+1. **Register:** an issuer publishes the asset definition, decimals, supply cap, redemption and
+   reserve-policy commitments, jurisdiction profiles, and a threshold-controlled authority set.
+2. **Issue:** minting consumes an issuer-approved issuance intent and creates Coin Cells for the
+   declared asset. The transition proves `post_supply = pre_supply + mint - burn`.
+3. **Transfer:** ordinary transfers preserve `AssetId`, policy commitments, and required private
+   evidence. A wallet cannot substitute a symbol or decimals value.
+4. **Redeem:** a burn intent consumes the holder's cells and produces a receipt bound to the exact
+   amount, issuer, redemption policy, and finalized transaction.
+5. **Pause/recover:** a bounded emergency capability can pause new issuance or redemption, but
+   cannot rewrite prior receipts or seize arbitrary holders. Recovery requires the declared
+   threshold and an expiry/reason code.
+6. **Retire:** an asset may retire only when supply is zero or the declared wind-down procedure is
+   satisfied; the registry retains the immutable history.
+
+Issuer, reserve, compliance, and emergency roles are separate attenuated capabilities. Reserve
+attestations and KYC material remain off-chain; only their signed commitments and verifier versions
+are public. A regulated profile can constrain operations without changing the asset identifier or
+granting universal chain-wide freeze authority.

@@ -144,6 +144,13 @@ Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213
 
 - [ ] Publish a bounded conformance surface and second-client milestone for the selected launch
   contract, with canonical vectors and no dependency on Rust implementation internals.
+
+## Active native issuer operations
+
+Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164).
+
+- [ ] Define issuer registration, threshold-controlled mint/burn, redemption, pause/recovery,
+  and supply-attestation lifecycle semantics with deterministic vectors.
 - [ ] Specify confidential evidence retention, deletion, access, breach handling, and offline
   verification boundaries with deterministic vectors.
 

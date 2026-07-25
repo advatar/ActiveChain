@@ -1,0 +1,9 @@
+case\toperation\texpected\treason
+register_valid\tdefinition,threshold=2-of-3,cap=1m\taccept\tfinalized issuer registry entry
+mint_conserves\tpre=100,mint=20,post=120\taccept\tsupply conservation
+mint_over_cap\tcap=100,pre=90,mint=20\treject\tsupply cap
+burn_receipt_bound\tburn=10,asset=EUR,receipt=exact\taccept\tredemption evidence bound
+symbol_substitution\tdefinition=EUR,transition=USD\treject\tAssetId is authoritative
+single_key_pause\tthreshold=2-of-3,signers=1\treject\tthreshold not met
+arbitrary_seizure\tpause-capability,holder=unrelated\treject\tbounded emergency authority
+retire_nonzero\tsupply=1,retire\treject\twind-down incomplete
