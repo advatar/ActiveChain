@@ -19,7 +19,10 @@ pub use anchor::{
     anchor_node_hash, verify_anchor_evidence,
 };
 #[cfg(feature = "std")]
-pub use compliance::{CompliancePersistenceError, DurableComplianceReplayJournal};
+pub use compliance::{
+    ComplianceAdmissionError, CompliancePersistenceError, DurableComplianceReplayJournal,
+    admit_regulated_transfer,
+};
 
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
