@@ -38,6 +38,7 @@ pub fn admit_regulated_transfer(
     if evidence.chain_id() != chain_id
         || evidence.action() != action
         || !evidence.valid_at(height)
+        || signature.chain_id() != chain_id
         || signature.profile() != evidence.profile()
         || signature.action() != action
         || signature.commitment() == activechain_protocol_types::Digest384::ZERO
