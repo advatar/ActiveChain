@@ -139,6 +139,13 @@ Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213
 
 - [ ] Specify versioned sanctions/KYC screening inputs, freshness, matching, overrides, and
   privacy-preserving evidence handling with deterministic vectors.
+- [ ] Specify confidential evidence retention, deletion, access, breach handling, and offline
+  verification boundaries with deterministic vectors.
+
+## Active launch sequencing — versioned feature contract
+
+- [ ] Reserve future type tags, header fields, envelope extensions, and dispatch seams at v1.0;
+  publish the v1.0/v1.1/v1.2 qualification gates and unknown-tag rejection vectors.
 
 ## Active epic — native asset tokenization
 
