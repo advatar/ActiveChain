@@ -139,8 +139,6 @@ Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213
 
 - [ ] Specify versioned sanctions/KYC screening inputs, freshness, matching, overrides, and
   privacy-preserving evidence handling with deterministic vectors.
-- [ ] Specify confidential evidence retention, deletion, access, breach handling, and offline
-  verification boundaries with deterministic vectors.
 
 ## Active epic — native asset tokenization
 
