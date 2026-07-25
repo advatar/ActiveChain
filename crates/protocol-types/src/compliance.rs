@@ -30,6 +30,57 @@ pub enum ProfileSelection {
     ManualReview,
     Rejected,
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct JurisdictionProfileInheritance {
+    pub profile: Digest384,
+    pub parent: Option<Digest384>,
+    pub stricter: bool,
+}
+
+/// Selects applicable profiles and expands their signed inheritance chain. A missing parent,
+/// duplicate relationship, or cycle is rejected; an inheritance edge marked non-stricter is sent
+/// to manual review because a child profile may only narrow its parent's requirements.
+pub fn select_profiles_with_inheritance(
+    candidates: &[JurisdictionProfileCandidate],
+    inheritance: &[JurisdictionProfileInheritance],
+) -> ProfileSelection {
+    let ProfileSelection::Selected(mut selected) = select_jurisdiction_profiles(candidates) else {
+        return select_jurisdiction_profiles(candidates);
+    };
+    let mut processed = Vec::new();
+    let mut changed = true;
+    while changed {
+        changed = false;
+        let current = selected.clone();
+        for id in current {
+            if processed.contains(&id) {
+                continue;
+            }
+            processed.push(id);
+            let Some(edge) = inheritance.iter().find(|edge| edge.profile == id) else { continue };
+            if !edge.stricter {
+                return ProfileSelection::ManualReview;
+            }
+            if let Some(parent) = edge.parent {
+                if processed.contains(&parent) {
+                    return ProfileSelection::Rejected;
+                }
+                selected.push(parent);
+                changed = true;
+            }
+        }
+        if selected.len() > candidates.len().saturating_add(inheritance.len()) {
+            return ProfileSelection::Rejected;
+        }
+    }
+    selected.sort();
+    if selected.windows(2).any(|pair| pair[0] == pair[1]) {
+        ProfileSelection::Rejected
+    } else {
+        ProfileSelection::Selected(selected)
+    }
+}
 pub fn select_jurisdiction_profiles(
     candidates: &[JurisdictionProfileCandidate],
 ) -> ProfileSelection {
@@ -532,5 +583,32 @@ mod tests {
         assert_eq!(select_jurisdiction_profiles(&[ambiguous]), ProfileSelection::ManualReview);
         let expired = JurisdictionProfileCandidate { active: false, ..a };
         assert_eq!(select_jurisdiction_profiles(&[expired]), ProfileSelection::Rejected);
+
+        let child = JurisdictionProfileCandidate { id: d(3), ..a };
+        assert_eq!(
+            select_profiles_with_inheritance(
+                &[child],
+                &[
+                    JurisdictionProfileInheritance {
+                        profile: d(3),
+                        parent: Some(d(4)),
+                        stricter: true
+                    },
+                    JurisdictionProfileInheritance { profile: d(4), parent: None, stricter: true },
+                ]
+            ),
+            ProfileSelection::Selected(vec![d(3), d(4)])
+        );
+        assert_eq!(
+            select_profiles_with_inheritance(
+                &[child],
+                &[JurisdictionProfileInheritance {
+                    profile: d(3),
+                    parent: Some(d(4)),
+                    stricter: false
+                }]
+            ),
+            ProfileSelection::ManualReview
+        );
     }
 }
