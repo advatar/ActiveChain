@@ -1,0 +1,9 @@
+case\tproof\texpected\treason
+over18_private\tissuer=EUDI,predicate=over_18,result=true\taccept\tselective disclosure
+nationality_exclusion\tpredicate=not_us,result=true\taccept\tset-membership without nationality
+expired\tstatus=expired\treject\tfreshness required
+revoked\tstatus=revoked\treject\trevocation required
+wrong_holder\tholder-key differs from signer\treject\tholder binding
+wrong_action\taudience/action mismatch\treject\taction binding
+replay\tsame chain/action/nonce twice\treject\texactly once
+raw_transcript\tTLSNotary transcript in public payload\treject\tprivacy boundary
