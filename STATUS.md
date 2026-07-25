@@ -115,6 +115,8 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
   idempotency, optional escalating Sybil challenges, and durable restart-safe accounting.
 - [ ] Submit faucet-authorized Coin Cell transitions through real transaction ingress and expose
   pending/finalized/rejected proof-bearing status through the Kanalen gateway.
+- [ ] Publish the end-to-end funding admission contract and adversarial vectors before public
+  faucet deployment.
 - [ ] Formally verify testnet-only validity, supply conservation, exactly-once issuance,
   rate-limit monotonicity, atomic restart equivalence, and receipt-to-finalized-transition binding;
   publish the proof scope and every remaining assumption or gap.
