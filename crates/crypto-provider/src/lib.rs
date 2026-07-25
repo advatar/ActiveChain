@@ -3,7 +3,10 @@
 
 extern crate alloc;
 
-use activechain_protocol_types::{BlockProposal, QuorumCertificate, ValidatorSet, ValidatorVote};
+use activechain_protocol_types::{
+    BlockProposal, MAX_VALIDATORS_PER_EPOCH, ML_DSA44_PUBLIC_KEY_LENGTH, PrincipalId,
+    QuorumCertificate, ValidatorGenesis, ValidatorSet, ValidatorVote,
+};
 use ml_dsa::{EncodedSignature, EncodedVerifyingKey, MlDsa44, Signature, Verifier, VerifyingKey};
 use ml_kem::{
     DecapsulationKey, EncapsulationKey, MlKem768, Seed as KemSeed,
@@ -176,6 +179,44 @@ pub enum VerificationError {
     VoteContextMismatch,
     VoteSetRootMismatch,
     StakeMismatch,
+}
+
+/// Finalized validator public keys used by the production verifier boundary.
+///
+/// The registry is deliberately immutable and ordered. Callers must replace it only when a
+/// finalized epoch transition has been accepted; there is no fallback key or ad-hoc lookup.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatorKeyRegistry(Vec<(PrincipalId, [u8; ML_DSA44_PUBLIC_KEY_LENGTH])>);
+
+impl ValidatorKeyRegistry {
+    pub fn from_genesis(genesis: &ValidatorGenesis) -> Result<Self, VerificationError> {
+        let mut entries = genesis
+            .entries()
+            .iter()
+            .map(|entry| (entry.validator(), *entry.public_key()))
+            .collect::<Vec<_>>();
+        if entries.is_empty() || entries.len() > MAX_VALIDATORS_PER_EPOCH {
+            return Err(VerificationError::UnknownValidator);
+        }
+        entries.sort_by_key(|(validator, _)| *validator);
+        if entries.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+            return Err(VerificationError::DuplicateValidator);
+        }
+        Ok(Self(entries))
+    }
+
+    pub fn public_key(&self, validator: &PrincipalId) -> Option<&[u8; ML_DSA44_PUBLIC_KEY_LENGTH]> {
+        self.0.binary_search_by_key(validator, |(id, _)| *id).ok().map(|index| &self.0[index].1)
+    }
+
+    pub fn verify_vote(
+        &self,
+        validator: &PrincipalId,
+        vote: &ValidatorVote,
+    ) -> Result<(), VerificationError> {
+        let key = self.public_key(validator).ok_or(VerificationError::UnknownValidator)?;
+        verify_validator_vote(key, vote)
+    }
 }
 
 pub fn verify_ml_dsa44(
