@@ -20,6 +20,7 @@ pub enum ComplianceAdmissionError {
     WrongChainOrAction,
     TravelRuleMismatch,
     Replay(CompliancePersistenceError),
+    InvalidSignature,
 }
 
 /// Admit one regulated transfer only after all public commitments match and the
@@ -34,7 +35,11 @@ pub fn admit_regulated_transfer(
     asset: Option<AssetId>,
     amount: Option<u128>,
     height: u64,
+    verify_signature: impl Fn(&ComplianceSignatureEnvelopeV1) -> bool,
 ) -> Result<(), ComplianceAdmissionError> {
+    if !verify_signature(signature) {
+        return Err(ComplianceAdmissionError::InvalidSignature);
+    }
     if evidence.chain_id() != chain_id
         || evidence.action() != action
         || !evidence.valid_at(height)
