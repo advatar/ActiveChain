@@ -1,0 +1,8 @@
+case\tasset_binding\tresult\treason
+native_transfer\tasset-A on every input/output/receipt\taccept\tcanonical same-asset transfer
+stablecoin_transfer\tasset-EUR on every input/output/receipt\taccept\tissuer policy remains asset-bound
+cross_asset_implicit\tinput asset-A, output asset-EUR\treject\tno implicit conversion
+missing_receipt_asset\tstate transition has asset-A, receipt omits AssetId\treject\tproof binding incomplete
+duplicate_registry\tasset-A appears twice\treject\tregistry not strictly ordered
+overflow_supply\tasset-A conservation exceeds u128\treject\tchecked arithmetic is fail-closed
+symbol_authority\tlabel EUR with asset-USD identifier\treject\tsymbol is not authority
