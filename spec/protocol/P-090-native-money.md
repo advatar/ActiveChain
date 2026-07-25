@@ -62,6 +62,13 @@ it may create only unburned change. Replaying consumed inputs, using a wrong
 owner, exceeding checked sums, or violating a deadline is rejected before state
 mutation.
 
+The complete ordered Coin Cell set has a domain-separated authenticated sparse-tree root. Finalized
+proof public inputs revision 2 commit that root alongside supply and object state. A wallet
+discovery result is valid only when each canonical `CoinCellRecord` has a full membership path to
+that exact finalized root and its embedded owner equals the requested principal. RPC filtering is
+not a proof: wallets independently verify finality, chain genesis, the cell identifier, owner,
+membership path, and root before treating value as spendable.
+
 ### Partitioned batch execution
 
 `CashTransferV1` (type `0x0091`, schema version `1`) is a bounded batch of at

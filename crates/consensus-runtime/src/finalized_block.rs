@@ -18,6 +18,7 @@ fn derive_proof_public_inputs(
     pre_supply: u128,
     issuance: u128,
     burn: u128,
+    cash_cell_root: Digest384,
     data_shards: usize,
     parity_shards: usize,
 ) -> Result<(ProofPublicInputs, ChainState, BlockReceipt, Vec<u8>), FinalizedBlockAdmissionError> {
@@ -66,6 +67,7 @@ fn derive_proof_public_inputs(
             issuance,
             burn,
             post_supply,
+            cash_cell_root,
             post_state: output.receipt().post_state(),
             receipt_root: output.receipt_root(),
             data_availability_commitment: da,
@@ -146,6 +148,7 @@ impl FinalizedBlockCandidate {
         pre_supply: u128,
         issuance: u128,
         burn: u128,
+        cash_cell_root: Digest384,
         verifier: &V,
     ) -> Result<FinalizedBlock, FinalizedBlockAdmissionError> {
         let block: DevnetBlock = decode_envelope(&self.encoded_block)
@@ -170,6 +173,7 @@ impl FinalizedBlockCandidate {
             pre_supply,
             issuance,
             burn,
+            cash_cell_root,
             self.data_shards,
             self.parity_shards,
         )?;
@@ -266,8 +270,20 @@ mod tests {
         let block = DevnetBlock::new(chain, 1, Digest384::ZERO, pre_state, vec![]).unwrap();
         let root = Digest384::new([2; 48]);
         let genesis = Digest384::new([3; 48]);
-        let (inputs, _, _, _) =
-            derive_proof_public_inputs(&state, &block, 7, 4, root, 100, 3, 2, 1, 1).unwrap();
+        let (inputs, _, _, _) = derive_proof_public_inputs(
+            &state,
+            &block,
+            7,
+            4,
+            root,
+            100,
+            3,
+            2,
+            Digest384::new([6; 48]),
+            1,
+            1,
+        )
+        .unwrap();
         let proof = VerifiedExecutionProof {
             inputs,
             prover: PrincipalId::new(Digest384::new([4; 48])),
@@ -288,14 +304,14 @@ mod tests {
         assert_eq!(
             digest,
             Digest384::new([
-                47, 108, 251, 90, 68, 209, 25, 59, 165, 223, 214, 130, 0, 116, 134, 147, 239, 216,
-                109, 205, 217, 49, 158, 138, 196, 207, 215, 228, 163, 166, 46, 145, 101, 120, 226,
-                54, 131, 237, 133, 127, 135, 245, 127, 148, 44, 40, 131, 255,
+                139, 108, 140, 243, 24, 38, 191, 131, 149, 118, 10, 137, 49, 206, 181, 123, 33,
+                189, 113, 133, 239, 42, 98, 189, 125, 217, 207, 52, 241, 212, 18, 2, 45, 147, 134,
+                199, 222, 49, 148, 131, 58, 163, 166, 253, 80, 83, 71, 206,
             ])
         );
         assert_eq!(
             include_str!("../../../testing/vectors/consensus/finalized-block-v1.txt"),
-            "header_type_tag=0x0079\nheader_schema_version=1\nproof_inputs_type_tag=0x0078\nproof_inputs_schema_version=1\nheader_digest=2f6cfb5a44d1193ba5dfd68200748693efd86dcdd9319e8ac4cfd7e4a3a62e916578e23683ed857f87f57f942c2883ff\n"
+            "header_type_tag=0x0079\nheader_schema_version=2\nproof_inputs_type_tag=0x0078\nproof_inputs_schema_version=2\nheader_digest=8b6c8cf31826bf8395760a8931ceb57b21bd7185ef2a62bd7dd9cf34f1d412022d9386c7de3194833aa3a6fd505347ce\n"
         );
         let context = ConsensusVoteContext::new_with_revision(genesis, 7, root, 4).unwrap();
         let certificate =
@@ -310,7 +326,18 @@ mod tests {
         };
         assert_eq!(
             candidate
-                .admit(&state, genesis, 7, 4, root, 100, 3, 2, &AcceptAll)
+                .admit(
+                    &state,
+                    genesis,
+                    7,
+                    4,
+                    root,
+                    100,
+                    3,
+                    2,
+                    header.inputs.cash_cell_root,
+                    &AcceptAll,
+                )
                 .unwrap()
                 .block_digest,
             digest
@@ -328,7 +355,18 @@ mod tests {
             parity_shards: 1,
         };
         assert_eq!(
-            wrong.admit(&state, genesis, 7, 4, root, 100, 3, 2, &AcceptAll),
+            wrong.admit(
+                &state,
+                genesis,
+                7,
+                4,
+                root,
+                100,
+                3,
+                2,
+                header.inputs.cash_cell_root,
+                &AcceptAll,
+            ),
             Err(FinalizedBlockAdmissionError::ComponentMismatch)
         );
 
@@ -337,6 +375,7 @@ mod tests {
             ProofPublicInputs { action_root: Digest384::new([22; 48]), ..header.inputs },
             ProofPublicInputs { execution_order_root: Digest384::new([23; 48]), ..header.inputs },
             ProofPublicInputs { receipt_root: Digest384::new([24; 48]), ..header.inputs },
+            ProofPublicInputs { cash_cell_root: Digest384::new([27; 48]), ..header.inputs },
             ProofPublicInputs {
                 data_availability_commitment: Digest384::new([25; 48]),
                 ..header.inputs
@@ -356,7 +395,18 @@ mod tests {
                 parity_shards: 1,
             };
             assert_eq!(
-                candidate.admit(&state, genesis, 7, 4, root, 100, 3, 2, &AcceptAll),
+                candidate.admit(
+                    &state,
+                    genesis,
+                    7,
+                    4,
+                    root,
+                    100,
+                    3,
+                    2,
+                    header.inputs.cash_cell_root,
+                    &AcceptAll,
+                ),
                 Err(FinalizedBlockAdmissionError::ComponentMismatch)
             );
         }
@@ -383,7 +433,7 @@ mod tests {
             data_shards: 1,
             parity_shards: 1,
         }
-        .admit(&state, genesis, 7, 4, root, 100, 3, 2, &AcceptAll)
+        .admit(&state, genesis, 7, 4, root, 100, 3, 2, header.inputs.cash_cell_root, &AcceptAll)
         .unwrap();
         let mut pipeline = DurableProofPipeline::default();
         let id = pipeline.enqueue(inputs).unwrap();
