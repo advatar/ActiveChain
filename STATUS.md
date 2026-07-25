@@ -120,6 +120,8 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
 - [ ] Formally verify testnet-only validity, supply conservation, exactly-once issuance,
   rate-limit monotonicity, atomic restart equivalence, and receipt-to-finalized-transition binding;
   publish the proof scope and every remaining assumption or gap.
+- [ ] Freeze the faucet invariant model and executable conformance vectors before formal proof
+  integration.
 - [ ] Add an iOS/macOS testnet funding flow that never credits optimistic or local-only balances.
 - [ ] Pass replay, concurrency, forged-chain, exhaustion, restart, privacy, and end-to-end tests.
 
