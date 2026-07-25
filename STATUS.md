@@ -15,6 +15,8 @@ Tracked by the regulated-profile implementation plan in
   boundary templates; completion still requires accountable owners and counsel review.
 - [x] Draft P-120 compliance evidence and P-121 regulated-transfer binding with privacy-preserving
   boundaries and deterministic positive/malformed vector tables.
+- [x] Publish the jurisdiction-profile plan for EU, US, Tanzania, and Kenya with scoped
+  applicability, inheritance, conflict, privacy, and due-process rules.
 - [ ] Implement canonical Rust types, signatures, replay barriers, and formal proofs for P-120/P-121.
   - [x] Add canonical privacy-preserving evidence and Travel Rule binding records with strict
     commitment, chain, amount, and expiry validation plus round-trip tests.
