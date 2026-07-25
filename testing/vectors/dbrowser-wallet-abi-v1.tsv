@@ -1,0 +1,9 @@
+case\trequest\texpected\treason
+approved_intent\tpreview,approval-token,canonical-intent\tsign\texact approval binding
+opaque_bytes\tcallback,raw-bytes,no-preview\treject\tno opaque signing
+wrong_chain\tintent chain != wallet network\treject\tchain binding
+unknown_asset\tasset not in finalized registry\treject\tasset authority
+stale_owner_proof\towner proof expired\treject\tfreshness
+nonce_replay\tapproved intent nonce already used\treject\texactly once
+secure_callback\tkey callback returns signature only\taccept\tkey isolation
+optimistic_balance\tsubmission returns local credit\treject\tfinalized proof required
