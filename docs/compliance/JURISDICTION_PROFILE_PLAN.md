@@ -51,7 +51,9 @@ an S3 operating-period evidence plan before production claims.
 4. Require every selected profile’s mandatory obligations; choose the stricter limit when a
    limit conflict is explicitly comparable.
 5. If obligations are incomparable or jurisdiction facts are stale/ambiguous, fail closed to
-   manual review; never guess based on nationality or IP alone.
+   runtime manual review by the operator's trained compliance team; never guess based on
+   nationality or IP alone. Pre-deployment ambiguity blocks profile activation and is resolved
+   by the accountable compliance owner and qualified local counsel.
 6. Bind the selected profile set commitment to the exact action and evidence envelope.
 
 ## Privacy and due process
