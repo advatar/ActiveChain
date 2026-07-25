@@ -17,6 +17,37 @@ pub enum ComplianceError {
 
 pub const MAX_COMPLIANCE_REPLAY_KEYS: usize = 4096;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct JurisdictionProfileCandidate {
+    pub id: Digest384,
+    pub applies: bool,
+    pub ambiguous: bool,
+    pub active: bool,
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ProfileSelection {
+    Selected(Vec<Digest384>),
+    ManualReview,
+    Rejected,
+}
+pub fn select_jurisdiction_profiles(
+    candidates: &[JurisdictionProfileCandidate],
+) -> ProfileSelection {
+    let applicable: Vec<_> = candidates.iter().filter(|c| c.applies).collect();
+    if applicable.iter().any(|c| !c.active) {
+        return ProfileSelection::Rejected;
+    }
+    if applicable.iter().any(|c| c.ambiguous) || applicable.is_empty() {
+        return ProfileSelection::ManualReview;
+    }
+    let mut ids: Vec<_> = applicable.into_iter().map(|c| c.id).collect();
+    ids.sort();
+    if ids.windows(2).any(|w| w[0] == w[1]) {
+        return ProfileSelection::Rejected;
+    }
+    ProfileSelection::Selected(ids)
+}
+
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct ComplianceReplayKey {
     profile: Digest384,
@@ -421,6 +452,7 @@ impl CanonicalType for TravelRuleBindingV1 {
 mod tests {
     use super::*;
     use activechain_canonical_codec::{decode_envelope, encode_envelope};
+    use alloc::vec;
     fn d(n: u8) -> Digest384 {
         Digest384::new([n; 48])
     }
@@ -476,5 +508,29 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn profile_selection_is_sorted_and_fails_closed() {
+        let a = JurisdictionProfileCandidate {
+            id: d(2),
+            applies: true,
+            ambiguous: false,
+            active: true,
+        };
+        let b = JurisdictionProfileCandidate {
+            id: d(1),
+            applies: true,
+            ambiguous: false,
+            active: true,
+        };
+        assert_eq!(
+            select_jurisdiction_profiles(&[a, b]),
+            ProfileSelection::Selected(vec![d(1), d(2)])
+        );
+        let ambiguous = JurisdictionProfileCandidate { ambiguous: true, ..a };
+        assert_eq!(select_jurisdiction_profiles(&[ambiguous]), ProfileSelection::ManualReview);
+        let expired = JurisdictionProfileCandidate { active: false, ..a };
+        assert_eq!(select_jurisdiction_profiles(&[expired]), ProfileSelection::Rejected);
     }
 }
