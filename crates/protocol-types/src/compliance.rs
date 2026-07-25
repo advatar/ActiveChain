@@ -264,6 +264,9 @@ impl ComplianceEvidenceBindingV1 {
     pub const fn action(self) -> TransactionId {
         self.action
     }
+    pub const fn operator(self) -> PrincipalId {
+        self.operator
+    }
     pub const fn valid_until(self) -> Height {
         self.valid_until
     }

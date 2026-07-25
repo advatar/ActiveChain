@@ -1,5 +1,8 @@
 use activechain_canonical_codec::{decode_envelope, encode_envelope};
-use activechain_protocol_types::{ComplianceError, ComplianceReplayKey, ComplianceReplaySet};
+use activechain_protocol_types::{
+    AssetId, ChainId, ComplianceError, ComplianceEvidenceBindingV1, ComplianceReplayKey,
+    ComplianceReplaySet, ComplianceSignatureEnvelopeV1, TransactionId, TravelRuleBindingV1,
+};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::vec::Vec;
@@ -9,6 +12,55 @@ pub enum CompliancePersistenceError {
     Persistence,
     Replay,
     Capacity,
+}
+
+#[derive(Debug)]
+pub enum ComplianceAdmissionError {
+    InvalidEvidence,
+    WrongChainOrAction,
+    TravelRuleMismatch,
+    Replay(CompliancePersistenceError),
+}
+
+/// Admit one regulated transfer only after all public commitments match and the
+/// nonce is durably consumed. Confidential payloads are never inspected here.
+pub fn admit_regulated_transfer(
+    journal: &mut DurableComplianceReplayJournal,
+    evidence: ComplianceEvidenceBindingV1,
+    signature: &ComplianceSignatureEnvelopeV1,
+    travel: Option<&TravelRuleBindingV1>,
+    chain_id: ChainId,
+    action: TransactionId,
+    asset: Option<AssetId>,
+    amount: Option<u128>,
+    height: u64,
+) -> Result<(), ComplianceAdmissionError> {
+    if evidence.chain_id() != chain_id
+        || evidence.action() != action
+        || !evidence.valid_at(height)
+        || signature.profile() != evidence.profile()
+        || signature.action() != action
+        || signature.commitment() == activechain_protocol_types::Digest384::ZERO
+    {
+        return Err(ComplianceAdmissionError::WrongChainOrAction);
+    }
+    if let Some(t) = travel {
+        if t.chain_id() != chain_id
+            || t.transfer() != action
+            || asset.is_some_and(|a| t.asset() != a)
+            || amount.is_some_and(|v| t.amount() != v)
+            || t.expires_at() < height
+        {
+            return Err(ComplianceAdmissionError::TravelRuleMismatch);
+        }
+    }
+    let key = ComplianceReplayKey::new(
+        evidence.profile(),
+        evidence.operator(),
+        action,
+        signature.nonce(),
+    );
+    journal.insert(key).map_err(ComplianceAdmissionError::Replay)
 }
 
 pub struct DurableComplianceReplayJournal {
