@@ -151,13 +151,6 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 - [ ] Freeze credential-to-ZK predicate boundaries, issuer/status freshness, holder binding,
   audience/action binding, and selective-disclosure vectors.
 
-## Active dBrowser verifier SDK boundary
-
-Tracked by [GitHub issue #88](https://github.com/advatar/ActiveChain/issues/88).
-
-- [ ] Freeze a versioned verifier boundary for principals, capabilities, policy decisions, state
-  proofs, finalized blocks, receipts, and authorization chains with positive/malformed vectors.
-
 ## Active independent-client qualification
 
 - [ ] Publish a bounded conformance surface and second-client milestone for the selected launch
