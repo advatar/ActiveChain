@@ -130,6 +130,7 @@ impl ComplianceSignatureEnvelopeV1 {
     pub const TYPE_TAG: u16 = 0x00D2;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 * 5 + ProtocolSignature::MAX_ENCODED_LEN;
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         profile: Digest384,
         chain_id: ChainId,
@@ -334,6 +335,7 @@ impl TravelRuleBindingV1 {
     pub const TYPE_TAG: u16 = 0x00D1;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 * 7 + 16 + 8;
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         chain_id: ChainId,
         transfer: TransactionId,
