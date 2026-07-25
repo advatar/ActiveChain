@@ -1,0 +1,9 @@
+case\tmutation\texpected\tinvariant
+budget_decrement\tgrant=10,budget=100\tbudget=90\tsupply conservation
+budget_underflow\tgrant=11,budget=10\treject\tsupply conservation
+nonce_replay\tconsume nonce 7 twice\treject\texactly once
+cooldown_rollback\trestart lowers cooldown counter\treject\tmonotonic limits
+journal_replay\treplay complete atomic record\tsame state\trestart equivalence
+receipt_owner_swap\tfinal receipt owner != request owner\treject\treceipt binding
+receipt_height_swap\tproof height below finalized grant\treject\treceipt binding
+wrong_genesis\tgrant genesis != configured testnet\treject\ttestnet identity
