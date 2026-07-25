@@ -2,27 +2,6 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
-## Active compliance-readiness planning
-
-Tracked by the regulated-profile implementation plan in
-`docs/audits/REGULATED_PROFILE_IMPLEMENTATION_PLAN.md`.
-
-- [ ] Obtain signed role-and-jurisdiction matrix and compliance-boundary decisions.
-- [ ] Freeze KYC/KYB issuer governance, sanctions, Travel Rule, monitoring, and privacy profiles.
-- [ ] Implement off-chain evidence stores, commitments, case controls, and formal boundary proofs.
-- [ ] Collect operating-period evidence and complete independent security/compliance engagement.
-- [x] Publish initial role/jurisdiction, compliance-boundary, regulatory-change, and privacy/data
-  boundary templates; completion still requires accountable owners and counsel review.
-- [x] Draft P-120 compliance evidence and P-121 regulated-transfer binding with privacy-preserving
-  boundaries and deterministic positive/malformed vector tables.
-- [x] Publish the jurisdiction-profile plan for EU, US, Tanzania, and Kenya with scoped
-  applicability, inheritance, conflict, privacy, and due-process rules.
-- [ ] Implement canonical Rust types, signatures, replay barriers, and formal proofs for P-120/P-121.
-  - [x] Add canonical privacy-preserving evidence and Travel Rule binding records with strict
-    commitment, chain, amount, and expiry validation plus round-trip tests.
-  - [x] Add a signature envelope binding profile, chain, action, commitment, and single-use nonce.
-  - [x] Publish Rust-to-Lean admission refinement mapping and conformance vectors.
-
 ## Phase 0 — protocol foundation
 
 - [x] Establish a pinned stable-Rust workspace with consensus-kernel quality gates.
@@ -37,118 +16,15 @@ Tracked by the regulated-profile implementation plan in
 
 Phase 0 bootstrap is tracked by [GitHub issue #1](https://github.com/advatar/ActiveChain/issues/1).
 
-## Active landing-page clarification — native stablecoins
+## Active testnet fix — verified wallet state discovery
 
-Tracked by [GitHub issue #187](https://github.com/advatar/ActiveChain/issues/187).
+Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180).
 
-- [x] Explain protocol-native asset issuance and EUR/USD stablecoin use cases prominently.
-- [x] Describe bounded issuer controls, private policy proofs, reserve evidence, wallet discovery,
-  and configurable issuer policy without implying a launched regulated product.
-- [x] Qualify the landing build and responsive layout, publish the display submodule,
-  update the parent pointer, and merge both repositories.
-
-## Active landing-page fix — native-assets readability
-
-Tracked by [GitHub issue #191](https://github.com/advatar/ActiveChain/issues/191).
-
-- [x] Replace dense roadmap paragraphs with short summaries, grouped bullets, and explicit
-  shipped/verified/open-gate callouts.
-- [x] Improve desktop and mobile line length, spacing, and section hierarchy.
-- [x] Pass targeted lint and the production build.
-- [ ] Complete responsive browser verification when an integrated preview browser is available.
-- [x] Publish and merge the landing display plus updated ActiveChain submodule pointer.
-
-## Active epic — ActiveBridge native payments and merchant settlement
-
-Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189).
-
-- [x] Publish the dependency-ordered architecture and implementation plan for canonical payments,
-  provider connectors, nTZS sandbox integration, native settlement, wallets, and merchant tooling.
-- [ ] Validate current nTZS API, sandbox, custody, stablecoin, settlement, reconciliation,
-  regulatory, security, and operational contracts without assuming website claims are guarantees.
-- [ ] Freeze provider-independent payment, quote, intent, evidence, lifecycle, receipt, error,
-  idempotency, webhook, and compatibility specifications with deterministic vectors.
-  - [x] Add bounded canonical identifiers, amounts, quotes, intents, evidence classes, and
-    lifecycle records in a consensus-independent `payment-types` crate.
-  - [x] Enforce terminal immutability, monotonic sequencing, body-bound idempotency, quote bounds,
-    and explicit separation of external observation from ActiveChain finality.
-  - [x] Publish deterministic positive/malformed vectors and an executable formal lifecycle model.
-- [ ] Complete multi-asset Coin Cells and the fungible native-asset registry required for
-  conservation-checked issuance, transfer, burn, redemption, and proof-bearing discovery.
-  - [x] Add canonical bounded fungible asset definitions and a strictly ordered registry with
-    issuer, decimals, supply cap, policy commitment, canonical encoding, and lookup.
-  - [ ] Bind registry entries to conservation-checked multi-asset Coin Cell transitions.
-- [ ] Implement an isolated, operator-configurable connector host, durable operation journal,
-  deterministic simulator, webhook delivery, reconciliation, and emergency controls.
-  - [x] Freeze authenticated provider-observation envelopes with bounded state, sequence,
-    timestamps, account/reference commitments, payload commitment, and assurance class.
-  - [x] Persist observation replay barriers and lifecycle advancement atomically across restart.
-  - [x] Add a deterministic provider simulator and reusable connector contract suite covering
-    success, rejection, reversal, unknown state, duplicate delivery, and sequence faults.
-- [ ] Implement and qualify the nTZS sandbox connector as the first regional adapter.
-  - [x] Freeze the documented sandbox endpoint, operation, status, authentication, error, and
-    webhook mappings; unknown or undocumented values fail closed to manual review.
-  - [x] Verify nTZS webhook HMACs over the exact timestamp/body bytes with bounded freshness and
-    durable duplicate-event rejection, while classifying the result as connector-authenticated
-    external evidence rather than provider or ActiveChain finality.
-  - [x] Add sanitized deterministic fixtures, adapter/contract unit tests, and an executable
-    formal model for total fail-closed provider-state mapping.
-  - [x] Add endpoint-specific request/response schemas, exact decimal amount parsing, immutable
-    asset/reference binding, and connector-owned idempotency for provider operations that do not
-    publish an idempotency contract.
-    - [x] Implement lossless bounded decimal parsing and validated deposit, transfer, and
-      withdrawal response schemas whose amount, asset, and provider reference must match the
-      persisted ActiveBridge attempt before an observation can be emitted.
-    - [x] Persist connector-owned request commitments and operation phases so exact retries are
-      idempotent, changed-body key reuse is rejected, and timeout-after-send cannot create a second
-      provider operation without reconciliation.
-    - [x] Build typed deposit, transfer, and withdrawal requests with bounded identifiers,
-      exact provider amounts, exclusive transfer destinations, and reviewed phone/HTTPS rules.
-    - [ ] Implement the remaining quote, swap/SSE, ramp, and reconciliation schemas after
-      obtaining authoritative missing fields.
-      The documented core request/response slice is implemented on `origin/main` at
-      `161bfd3`; the remaining items require provider-issued schemas or credentials.
-  - [ ] Run contractual sandbox tests with issued test credentials and qualify TLS/DNS, secret
-    rotation, reconciliation, concurrency, recovery, custody, regulatory, and production gates.
-- [ ] Join external evidence to capability/APL-authorized native ingress, egress, conversion,
-  paymaster sponsorship, and offline-verifiable finalized receipts.
-- [ ] Ship authenticated RPC/REST, TypeScript/Swift/Kotlin SDKs, honest wallet flows, merchant
-  treasury controls, and reconciliation tooling.
-- [ ] Prove lifecycle safety, conservation, idempotency, replay resistance, restart equivalence,
-  authorization, quote bounds, and receipt binding; publish all external trust assumptions.
-- [ ] Pass adversarial, privacy, recovery, reconciliation, Kanalen pilot, independent-audit, and
-  production-qualification gates before enabling real value.
-
-## Active wallet implementation — agent enrollment
-
-Tracked by [GitHub issue #182](https://github.com/advatar/ActiveChain/issues/182).
-
-- [ ] Freeze canonical bounded enrollment request, wallet grant, and lifecycle evidence types.
-  - [x] Define agent-signed ML-DSA-65 request and wallet-signed ML-DSA-44 attenuated grant
-    envelopes bound to chain, wallet, principal, authenticator, authority, validity, and nonce.
-  - [x] Define submitted, finalized, rejected, and expired lifecycle evidence envelopes with
-    monotonic transitions and exact request, transaction, block, and inclusion commitments.
-  - [x] Prove terminal immutability and exact-transaction finalization in the executable Lean
-    lifecycle model with an explicit implementation-refinement boundary.
-- [ ] Add durable request replay protection plus pending, finalized, rejected, and expired states.
-  - [x] Persist a fail-closed pending state and require the exact transaction commitment for
-    activation at a nonzero finalized height.
-  - [ ] Add durable request replay records and persist protocol-level rejected/expired evidence.
-    - [x] Add a checksummed atomic enrollment journal with nonce replay protection and monotonic
-      evidence replacement.
-    - [x] Enforce globally unique wallet envelope tags before publishing the journal schema.
-- [ ] Expose exact operations through the wallet ABI with deterministic malformed vectors.
-  - [x] Expose pending registration and exact finalization operations without changing existing
-    lifecycle numeric tags.
-  - [ ] Publish request/grant envelope validation and deterministic positive/malformed vectors.
-    - [x] Add canonical round-trip, deterministic commitment, signature, wrong-chain, expiry,
-      authority amplification, substitution, and trailing-data tests in wallet core.
-- [ ] Add QR/deep-link import, authority controls, authenticated confirmation, and explicit state UI.
-  - [x] Add a biometric-confirmed native developer entry form with bounded principal, sorted
-    capabilities, connection kind, budget, expiry, and explicit pending state.
-  - [ ] Replace raw entry with authenticated QR, universal-link, and same-team request import.
-- [ ] Pass Rust, Swift, iOS, and macOS qualification; publish and merge without sample agents.
-  - [x] Pass wallet-core/FFI tests, Swift tests, and iOS/macOS application builds.
+- [x] Define a bounded owner-scoped Coin Cell query and finalized proof-bearing response.
+- [x] Persist and serve owner indexes without leaking unrelated owner state.
+- [ ] Verify exact chain, owner, finality, cell commitments, and pagination in wallet code.
+- [ ] Load a real device wallet profile and remove the hard-coded unavailable dashboard path.
+- [ ] Extend Kanalen ingestion/rehearsal, add adversarial tests, deploy, and verify the public RPC.
 
 ## Active recovery — abandoned checkout reconciliation
 
@@ -250,14 +126,6 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
 Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163).
 
 - [ ] Bind fungible Coin Cells and all transitions, authorizations, proofs, and receipts to `AssetId`.
-  - [x] Add the explicit asset-bound fungible Coin Cell profile with canonical encoding and
-    zero-value rejection; native CoinCell wire compatibility remains unchanged.
-  - [x] Add an asset-bound transfer intent with ordered inputs, sender ownership, exact amount
-    conservation, and cross-asset rejection.
-  - [x] Add an asset-bound mint intent with issuer binding and checked supply-cap arithmetic.
-  - [x] Add an asset-bound burn intent with exact input conservation, authority binding, and
-    cross-asset rejection.
-  - [ ] Bind redemption, proofs, and receipts to the new profile.
 - [ ] Specify a finalized issuer-controlled asset metadata and supply registry.
 - [ ] Add proof-bearing owner-and-asset RPC discovery with bounded pagination.
 - [ ] Extend the versioned wallet ABI for multi-asset balances, selection, signing, and submission.
@@ -268,10 +136,6 @@ Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163
 Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164).
 
 - [ ] Freeze native fungible, non-fungible, and series asset definitions and lifecycle actions.
-  - [ ] Non-fungible profile: collection `AssetId`, unique `TokenId`, one-owner invariant,
-    commitment-bound metadata/provenance, issuer-authorized mint/burn, and exact-once transfer.
-  - [ ] Keep NFT ownership records and proofs separate from fungible Coin Cells while reusing
-    issuer authority, policy evaluation, wallet ABI approval, and formal-verification gates.
 - [ ] Enforce issuer/controller authority, supply conservation, declared controls, and corporate
   actions in consensus, persistence, authorization, and formal proofs.
 - [ ] Expose proof-bearing asset, supply, owner, action, receipt, and attestation RPC contracts.

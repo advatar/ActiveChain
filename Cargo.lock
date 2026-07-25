@@ -349,6 +349,7 @@ dependencies = [
  "activechain-action-kernel",
  "activechain-application-primitives",
  "activechain-canonical-codec",
+ "activechain-cash-kernel",
  "activechain-consensus-verifier",
  "activechain-devnet-kernel",
  "activechain-finality-types",
