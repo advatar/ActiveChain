@@ -150,6 +150,9 @@ impl ComplianceSignatureEnvelopeV1 {
     pub const fn profile(&self) -> Digest384 {
         self.profile
     }
+    pub const fn chain_id(&self) -> ChainId {
+        self.chain_id
+    }
     pub const fn action(&self) -> TransactionId {
         self.action
     }
