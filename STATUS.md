@@ -47,6 +47,15 @@ Tracked by [GitHub issue #187](https://github.com/advatar/ActiveChain/issues/187
 - [x] Qualify the landing build and responsive layout, publish the display submodule,
   update the parent pointer, and merge both repositories.
 
+## Active landing-page clarification — dynamic regulated profiles
+
+The native-asset section explains configurable issuer policy, but it does not yet explain
+that compliance is versioned, jurisdiction-specific, and selected dynamically at runtime.
+
+- [ ] Explain EU/US/Tanzania/Kenya profile manifests, expiry, and deterministic selection.
+- [ ] Explain privacy-preserving proofs, manual review for ambiguity, and fail-closed admission.
+- [ ] Publish the display change and update the parent submodule pointer.
+
 ## Active landing-page fix — native-assets readability
 
 Tracked by [GitHub issue #191](https://github.com/advatar/ActiveChain/issues/191).
