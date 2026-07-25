@@ -155,6 +155,11 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
 
 - [ ] Define issuer registration, threshold-controlled mint/burn, redemption, pause/recovery,
   and supply-attestation lifecycle semantics with deterministic vectors.
+
+## Active wallet multi-asset ABI
+
+- [ ] Freeze asset-aware balance, selection, fee, signing, and submission requirements; reject
+  symbol-only and cross-asset intents with deterministic vectors.
 - [ ] Specify confidential evidence retention, deletion, access, breach handling, and offline
   verification boundaries with deterministic vectors.
 
