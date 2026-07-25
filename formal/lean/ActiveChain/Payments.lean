@@ -8,6 +8,18 @@ provider honesty, and Rust-to-Lean refinement remain explicit external assumptio
 
 namespace ActiveChain.Payments
 
+/-! Regulated-transfer admission replay boundary. -/
+def consumeNonce (used : List Nat) (nonce : Nat) : Option (List Nat) :=
+  if nonce = 0 || used.contains nonce then none else some (nonce :: used)
+
+theorem regulatedNonceIsOneShot (used : List Nat) (nonce : Nat) (next : List Nat)
+    (accepted : consumeNonce used nonce = some next) :
+    consumeNonce next nonce = none := by
+  simp [consumeNonce] at accepted ⊢
+  rcases accepted with ⟨⟨hzero, hnot⟩, hnext⟩
+  subst next
+  simp [hzero]
+
 inductive State where
   | created
   | awaitingPayer
