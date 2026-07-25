@@ -144,6 +144,13 @@ Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213
 - [ ] Specify versioned sanctions/KYC screening inputs, freshness, matching, overrides, and
   privacy-preserving evidence handling with deterministic vectors.
 
+## Active dBrowser wallet ABI
+
+Tracked by [GitHub issue #87](https://github.com/advatar/ActiveChain/issues/87).
+
+- [ ] Freeze approval-bound intent construction, secure key callbacks, asset-aware selection,
+  policy evaluation, and transaction submission semantics with deterministic vectors.
+
 ## Active dBrowser development RPC contract
 
 Tracked by [GitHub issue #91](https://github.com/advatar/ActiveChain/issues/91).
