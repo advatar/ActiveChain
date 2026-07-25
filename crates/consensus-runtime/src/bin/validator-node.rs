@@ -95,9 +95,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
                 .map_err(|error| format!("validator service configuration failed: {error:?}"))?,
             );
-            let next_height = service
-                .next_proposal_height()
-                .map_err(|error| format!("next proposal height unavailable: {error:?}"))?;
             let listener_thread_service = std::sync::Arc::clone(&service);
             let listener_thread_signer = std::sync::Arc::new(
                 activechain_consensus_runtime::ValidatorSigner::from_seed(entry.validator(), seed),
@@ -106,14 +103,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let _ = listener.spawn_accept_loop(move |peer| {
                     let service = std::sync::Arc::clone(&listener_thread_service);
                     let signer = std::sync::Arc::clone(&listener_thread_signer);
-                    if let Err(error) = service.serve_pq_genesis_peer_with_voting(
+                    let _ = service.serve_authenticated_genesis_peer_with_voting(
                         peer,
                         local_peer_id,
                         &signer,
                         [23; 32],
-                    ) {
-                        eprintln!("authenticated peer session rejected: {error}");
-                    }
+                    );
                 });
             });
             let mut endpoints = Vec::new();
@@ -135,48 +130,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             let connector = activechain_consensus_runtime::PeerConnector::new(endpoints)
                 .map_err(|_| "invalid peer configuration")?;
-            let mut kem_seed = [0_u8; 64];
-            getrandom::fill(&mut kem_seed)
-                .map_err(|error| format!("operating-system randomness unavailable: {error}"))?;
-            let (mut peers, failures) = connector.connect_all_with_pq_sessions(
-                local_peer_id,
-                &signer,
-                chain_genesis_commitment.ok_or("missing immutable chain genesis commitment")?,
-                genesis.epoch(),
-                [23; 32],
-                kem_seed,
-            );
+            let challenge = [23; 32];
+            let (mut peers, failures) =
+                connector.connect_all_with_handshake(local_peer_id, &signer, challenge);
             if !failures.is_empty() {
                 return Err(format!("peer connection failures: {failures:?}").into());
             }
             let peer_ids: Vec<u16> = peers.peers().map(|(id, _)| *id).collect();
-            let block_digest = Digest384::new([index as u8 + 120; 48]);
+            let (next_height, next_round) = service
+                .next_proposal_position()
+                .map_err(|error| format!("cannot derive next proposal position: {error:?}"))?;
             let sequence = service
-                .next_sequence_for(local_peer_id)
-                .map_err(|error| format!("outgoing sequence unavailable: {error:?}"))?;
+                .next_sequence(local_peer_id)
+                .map_err(|error| format!("cannot reserve next sequence: {error:?}"))?;
+            let block_digest = {
+                let mut digest = [0_u8; 48];
+                let mut hasher = Shake256::default();
+                hasher.update(b"ACTIVECHAIN-TESTNET-NETWORK-ROUND-V2");
+                hasher.update(genesis.validator_set_root().as_bytes());
+                hasher.update(&next_height.to_be_bytes());
+                hasher.update(&next_round.to_be_bytes());
+                hasher.finalize_xof().read(&mut digest);
+                Digest384::new(digest)
+            };
             let state = service
                 .propose_round_collect_votes(
                     &signer,
                     next_height,
-                    0,
+                    next_round,
                     block_digest,
                     sequence,
                     &mut peers,
                     &peer_ids,
                 )
                 .map_err(|error| format!("network round failed: {error:?}"))?;
-            let metrics = service.metrics();
-            println!(
-                "completed network round: finalized_height={} proposals={} votes={} rejected={}",
-                state.finalized_height(),
-                metrics.proposals,
-                metrics.votes,
-                metrics.rejected_messages
-            );
+            println!("completed network round: finalized_height={}", state.finalized_height());
             return Ok(());
         }
         if run_once {
-            let next_height = state.finalized_height().saturating_add(1);
             let service = ValidatorService::from_active_manifest(
                 state,
                 genesis,
@@ -188,24 +179,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .to_path_buf(),
             )
             .map_err(|error| format!("validator service configuration failed: {error:?}"))?;
+            let (next_height, next_round) = service
+                .next_proposal_position()
+                .map_err(|error| format!("cannot derive next proposal position: {error:?}"))?;
+            let sequence = service
+                .next_sequence(local_peer_id)
+                .map_err(|error| format!("cannot reserve next sequence: {error:?}"))?;
             let block_digest = {
                 let mut digest = [0_u8; 48];
                 let mut hasher = Shake256::default();
-                hasher.update(b"ACTIVECHAIN-TESTNET-ROUND-V1");
+                hasher.update(b"ACTIVECHAIN-TESTNET-ROUND-V2");
                 hasher.update(genesis.validator_set_root().as_bytes());
+                hasher.update(&next_height.to_be_bytes());
+                hasher.update(&next_round.to_be_bytes());
                 hasher.finalize_xof().read(&mut digest);
                 Digest384::new(digest)
             };
             service
-                .propose_round(
-                    &signer,
-                    next_height,
-                    0,
-                    block_digest,
-                    service
-                        .next_sequence_for(local_peer_id)
-                        .map_err(|error| format!("outgoing sequence unavailable: {error:?}"))?,
-                )
+                .propose_round(&signer, next_height, next_round, block_digest, sequence)
                 .map_err(|error| format!("deterministic round failed: {error:?}"))?;
             let metrics = service.metrics();
             println!(
@@ -257,14 +248,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             listener.spawn_accept_loop(move |peer| {
                 let service = std::sync::Arc::clone(&service);
                 let signer = std::sync::Arc::clone(&signer);
-                if let Err(error) = service.serve_pq_genesis_peer_with_voting(
+                let _ = service.serve_authenticated_genesis_peer_with_voting(
                     peer,
                     local_peer_id,
                     &signer,
                     [23; 32],
-                ) {
-                    eprintln!("authenticated peer session rejected: {error}");
-                }
+                );
             })?;
         } else {
             listener.spawn_accept_loop(move |peer| {
