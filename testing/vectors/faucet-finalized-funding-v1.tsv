@@ -1,0 +1,9 @@
+case\tstate\texpected\treason
+finalized_exact\tgenesis,recipient,amount,nonce all match\tcredit\tverified final Coin Cell
+pending\tgrant accepted,no finalized transition\tdo_not_credit\toptimistic state forbidden
+retry\tsame request reference\treturn_same_receipt\tidempotent issuance
+amount_tamper\treceipt amount differs from transition\treject\texact binding
+chain_tamper\treceipt genesis differs\treject\ttestnet identity binding
+recipient_tamper\towner proof differs from request\treject\tno substitution
+replay\tgrant nonce already consumed\treject\texactly once
+stale_finality\tproof height below configured finality\treject\tfinalized evidence required
