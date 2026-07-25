@@ -1,7 +1,8 @@
 use activechain_canonical_codec::{decode_envelope, encode_envelope};
 use activechain_protocol_types::{
     AssetId, ChainId, ComplianceError, ComplianceEvidenceBindingV1, ComplianceReplayKey,
-    ComplianceReplaySet, ComplianceSignatureEnvelopeV1, TransactionId, TravelRuleBindingV1,
+    ComplianceReplaySet, ComplianceSignatureEnvelopeV1, ProfileSelection, TransactionId,
+    TravelRuleBindingV1,
 };
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -21,6 +22,17 @@ pub enum ComplianceAdmissionError {
     TravelRuleMismatch,
     Replay(CompliancePersistenceError),
     InvalidSignature,
+    ProfileNotSelected,
+}
+
+pub fn require_selected_profile(
+    selection: &ProfileSelection,
+    profile: activechain_protocol_types::Digest384,
+) -> Result<(), ComplianceAdmissionError> {
+    match selection {
+        ProfileSelection::Selected(ids) if ids.binary_search(&profile).is_ok() => Ok(()),
+        _ => Err(ComplianceAdmissionError::ProfileNotSelected),
+    }
 }
 
 /// Admit one regulated transfer only after all public commitments match and the

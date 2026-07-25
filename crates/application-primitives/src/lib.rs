@@ -21,7 +21,7 @@ pub use anchor::{
 #[cfg(feature = "std")]
 pub use compliance::{
     ComplianceAdmissionError, CompliancePersistenceError, DurableComplianceReplayJournal,
-    admit_regulated_transfer,
+    admit_regulated_transfer, require_selected_profile,
 };
 
 use activechain_canonical_codec::{
