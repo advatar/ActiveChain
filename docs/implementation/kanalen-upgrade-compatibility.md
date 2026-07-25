@@ -11,3 +11,6 @@ services returned to running state. No state was overwritten.
 
 Required follow-up: publish an explicit snapshot schema/version marker, add migration or clean
 rebuild tooling, and rehearse rollback on a copy before the next promotion.
+
+The candidate preflight is now executable with `scripts/check-validator-snapshot.sh`; deployment
+must run it against every persisted validator snapshot before switching `kanalen/current`.
