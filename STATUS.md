@@ -144,6 +144,13 @@ Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213
 - [ ] Specify versioned sanctions/KYC screening inputs, freshness, matching, overrides, and
   privacy-preserving evidence handling with deterministic vectors.
 
+## Active EUDI/TLSNotary credential pipeline
+
+Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169).
+
+- [ ] Freeze credential-to-ZK predicate boundaries, issuer/status freshness, holder binding,
+  audience/action binding, and selective-disclosure vectors.
+
 ## Active independent-client qualification
 
 - [ ] Publish a bounded conformance surface and second-client milestone for the selected launch
