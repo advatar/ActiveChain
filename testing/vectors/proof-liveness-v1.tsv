@@ -1,0 +1,8 @@
+case\tstate\texpected\treason
+valid_proof\tproof-valid,commitment-matches\tfinalize\tnormal proof path
+invalid_proof\tproof-invalid\treject\tvalidity remains authoritative
+outage_grace\tno-proof,reexecution-valid,within-grace\tpending\tliveness aid only
+recovered_proof\tpending,proof-valid,same-commitment\tfinalize\trecovery is exact-bound
+grace_expired\tno-proof,reexecution-valid,grace-expired\texpire\tno proof-qualified finality
+degraded_devnet\tno-proof,development-profile\tordered-not-finalized\tno production claim
+degraded_production\tno-proof,production-profile\treject\tproduction cannot bypass proof gate

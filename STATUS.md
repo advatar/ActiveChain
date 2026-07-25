@@ -147,6 +147,11 @@ Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213
 - [ ] Reserve future type tags, header fields, envelope extensions, and dispatch seams at v1.0;
   publish the v1.0/v1.1/v1.2 qualification gates and unknown-tag rejection vectors.
 
+## Active proof liveness qualification
+
+- [ ] Specify prover outage, grace-period, validator re-execution, degraded-mode, and recovery
+  semantics; distinguish validity concentration from liveness concentration with vectors.
+
 ## Active epic — native asset tokenization
 
 Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164).
