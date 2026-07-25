@@ -39,3 +39,19 @@ Authorization is an intersection of authenticated actor, attenuated authority, c
 credential facts, current screening evidence, applicable Travel Rule binding, APL permit, and no
 profile/protocol forbid. Evidence failure is fail-closed and must not reveal the confidential
 reason through public state.
+
+## Jurisdiction profile-set selection
+
+A regulated operator selects a profile set from versioned manifests using the service entity,
+activity, asset/resource selectors, verified jurisdiction predicates, and validity height. The
+selector MUST:
+
+1. include every profile whose scope applies;
+2. require the intersection of all mandatory obligations;
+3. choose the stricter value when two comparable limits conflict;
+4. fail closed to manual review when obligations are incomparable or facts are stale/ambiguous;
+5. bind the sorted profile-ID/revision set commitment to the exact evidence and action; and
+6. never use profile selection to reinterpret historical actions or grant chain-wide authority.
+
+The base protocol remains permissionless outside an operator's profile boundary. A profile set
+cannot expose raw jurisdiction facts or create a universal blacklist/freeze primitive.
