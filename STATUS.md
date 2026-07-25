@@ -151,6 +151,12 @@ Tracked by [GitHub issue #91](https://github.com/advatar/ActiveChain/issues/91).
 - [ ] Freeze chain identity, genesis, protocol revision, finality/health, supported proofs, and
   proof-bearing state/action/receipt query semantics with deterministic vectors.
 
+## Active Kanalen deployment compatibility gate
+
+- [ ] Add snapshot schema compatibility/version checks and a migration or rebuild procedure before
+  promoting new validator binaries; the 2026-07-25 canary was rolled back after snapshot decode
+  failure.
+
 ## Active EUDI/TLSNotary credential pipeline
 
 Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169).
