@@ -1,0 +1,10 @@
+case\tinput\texpected\treason
+principal_valid\tcanonical-principal-v1\tverified\tsemantic principal check
+capability_valid\tattenuated-capability-chain\tverified\tauthorization chain
+state_membership\troot,object,proof\tverified\tstate witness
+finality_valid\tgenesis,header,qc,ml-dsa-votes\tverified\tfinalized header
+receipt_valid\tfinality,receipt,state-transition\tverified\treceipt binding
+wrong_genesis\tvalid-proof,wrong-network-genesis\tinvalid\tchain identity
+trailing\tvalid-envelope-plus-byte\tinvalid\tstrict framing
+unknown_revision\tprotocol-revision=999\tunsupported\tversion dispatch
+rpc_unavailable\tproof endpoint timeout\tunavailable\tno optimistic trust
