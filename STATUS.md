@@ -202,6 +202,8 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
 Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163).
 
 - [ ] Bind fungible Coin Cells and all transitions, authorizations, proofs, and receipts to `AssetId`.
+- [ ] Add the backward-compatible canonical `FungibleCoinCellRecord` wire type before migrating
+  authenticated roots and wallet/RPC APIs.
 - [ ] Freeze the canonical multi-asset binding rules and positive/malformed vectors before
   changing execution or wallet surfaces.
 - [ ] Specify a finalized issuer-controlled asset metadata and supply registry.
