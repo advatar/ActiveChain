@@ -1363,6 +1363,10 @@ struct PersistedValidatorState {
     active_anchor: ConsensusBlockRef,
 }
 
+/// Stable marker used by deployment preflight before a validator binary is promoted.
+pub const PERSISTED_VALIDATOR_STATE_TYPE_TAG: u16 = PersistedValidatorState::TYPE_TAG;
+pub const PERSISTED_VALIDATOR_STATE_SCHEMA_VERSION: u16 = PersistedValidatorState::SCHEMA_VERSION;
+
 impl CanonicalEncode for PersistedValidatorState {
     fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
         self.consensus.encode(encoder)?;

@@ -1,5 +1,7 @@
 //! Minimal deterministic finalized-state indexer for local testnet operations.
-use activechain_consensus_runtime::load_snapshot;
+use activechain_consensus_runtime::{
+    PERSISTED_VALIDATOR_STATE_SCHEMA_VERSION, PERSISTED_VALIDATOR_STATE_TYPE_TAG, load_snapshot,
+};
 use std::{env, path::Path};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -10,7 +12,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let state = load_snapshot(Path::new(&path))?;
     println!(
-        "{{\"epoch\":{},\"finalized_height\":{},\"finalized_round\":{},\"validator_set_root\":\"{:02x?}\"}}",
+        "{{\"snapshot_type_tag\":{},\"snapshot_schema_version\":{},\"epoch\":{},\"finalized_height\":{},\"finalized_round\":{},\"validator_set_root\":\"{:02x?}\"}}",
+        PERSISTED_VALIDATOR_STATE_TYPE_TAG,
+        PERSISTED_VALIDATOR_STATE_SCHEMA_VERSION,
         state.epoch(),
         state.finalized_height(),
         state.finalized_round(),

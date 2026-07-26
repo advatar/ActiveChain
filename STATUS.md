@@ -2,6 +2,11 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Kanalen snapshot compatibility gate
+
+- [x] Publish the persisted validator snapshot schema marker through the read-only indexer.
+- [x] Make the preflight script reject snapshots with an unexpected schema marker.
+
 ## Workspace strict-Clippy qualification
 
 - [x] Resolve the current dead-code and argument-count diagnostics under `-D warnings`.
