@@ -21,8 +21,18 @@ for port in 49154 49155; do
   done
 done
 
-"$binary_root/validator-node" \
+attempt=1
+max_attempts=3
+while ! "$binary_root/validator-node" \
   49150 "$state_root/validator-0.snapshot" "$state_root/genesis.bin" 0 0 --once \
-  --peer=2@127.0.0.1:49154 --peer=3@127.0.0.1:49155
+  --peer=2@127.0.0.1:49154 --peer=3@127.0.0.1:49155; do
+  if test "$attempt" -ge "$max_attempts"; then
+    echo "validator round failed after $max_attempts attempts" >&2
+    exit 1
+  fi
+  echo "validator round attempt $attempt failed; retrying" >&2
+  attempt=$((attempt + 1))
+  sleep 1
+done
 "$binary_root/activechain-rpc-ingest" \
   "$state_root/validator-0.snapshot" "$deployment_root/rpc/rpc-index.snapshot"
