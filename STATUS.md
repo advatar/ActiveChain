@@ -7,6 +7,11 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 - [x] Publish the persisted validator snapshot schema marker through the read-only indexer.
 - [x] Make the preflight script reject snapshots with an unexpected schema marker.
 
+## Kanalen recoverable clean rebuild
+
+- [x] Add an explicit-confirmation tool that archives incompatible state before rebuilding genesis.
+- [x] Cover validator, RPC, and PQ-session artifacts without touching launch configuration.
+
 ## Workspace strict-Clippy qualification
 
 - [x] Resolve the current dead-code and argument-count diagnostics under `-D warnings`.
