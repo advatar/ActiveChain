@@ -18,7 +18,7 @@ use activechain_protocol_types::{
 use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
 use sha3::{
     Shake256,
-    digest::{ExtendableOutput, Update, XofReader},
+    digest::{ExtendableOutput, Update},
 };
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
@@ -432,7 +432,7 @@ impl ConsensusMessage {
         hasher.update(&(body.len() as u32).to_be_bytes());
         hasher.update(&body);
         let mut digest = [0_u8; 48];
-        hasher.finalize_xof().read(&mut digest);
+        sha3::digest::XofReader::read(&mut hasher.finalize_xof(), &mut digest);
         Ok(Digest384::new(digest))
     }
 }
@@ -1710,7 +1710,7 @@ impl VoteCollector {
             hasher.update(vote.signature().as_bytes());
         }
         let mut root = [0_u8; 48];
-        hasher.finalize_xof().read(&mut root);
+        sha3::digest::XofReader::read(&mut hasher.finalize_xof(), &mut root);
         let context = ConsensusVoteContext::new_with_revision(
             self.genesis_commitment,
             epoch,
