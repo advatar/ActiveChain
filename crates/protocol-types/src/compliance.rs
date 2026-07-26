@@ -31,6 +31,7 @@ pub enum ProfileSelection {
     Rejected,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct JurisdictionProfileInheritance {
     pub profile: Digest384,
@@ -41,6 +42,7 @@ pub struct JurisdictionProfileInheritance {
 /// Selects applicable profiles and expands their signed inheritance chain. A missing parent,
 /// duplicate relationship, or cycle is rejected; an inheritance edge marked non-stricter is sent
 /// to manual review because a child profile may only narrow its parent's requirements.
+#[allow(dead_code)]
 pub fn select_profiles_with_inheritance(
     candidates: &[JurisdictionProfileCandidate],
     inheritance: &[JurisdictionProfileInheritance],

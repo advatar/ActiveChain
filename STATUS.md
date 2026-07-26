@@ -2,6 +2,11 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Workspace strict-Clippy qualification
+
+- [x] Resolve the current dead-code and argument-count diagnostics under `-D warnings`.
+- [ ] Pass the exact workspace all-target/all-feature Clippy gate (the repository-wide build is currently blocked by an existing target-directory lock).
+
 ## Kanalen reset/recovery automation
 
 - [x] Bootstrap the RPC index automatically when a testnet is reset to a new genesis.
