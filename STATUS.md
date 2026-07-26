@@ -119,6 +119,9 @@ Tracked by [GitHub issue #129](https://github.com/advatar/ActiveChain/issues/129
 - [x] Build and verify the local wallet XCFramework and arm64 simulator app from a clean checkout.
 - [x] Preserve the shared Apple development-team ID in `project.yml` while keeping certificates,
   private keys, Xcode user data, and build state local.
+- [x] Keep the agent enrollment UI compatible with the currently packaged wallet XCFramework;
+  use the stable registration ABI until the pending-enrollment symbol is included in a rebuilt
+  signed distribution.
 
 ## Active implementation — native macOS wallet
 
