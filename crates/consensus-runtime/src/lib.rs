@@ -27,6 +27,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::time::{Duration, Instant};
 
+mod cash_state;
+pub use cash_state::FinalizedCashSnapshot;
+
 /// Canonical wallet transaction admission owned by the validator runtime.
 /// Authenticated network handlers can delegate here after peer/session checks.
 pub struct WalletTransactionGateway {
