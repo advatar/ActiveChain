@@ -3,6 +3,11 @@ use activechain_canonical_codec::{
 };
 use activechain_cash_kernel::{CoinCellSet, authenticated_coin_cell_root};
 use activechain_protocol_types::Digest384;
+use sha3::{
+    Shake256,
+    digest::{ExtendableOutput, Update, XofReader},
+};
+use std::path::Path;
 
 /// Authenticated finalized cash state handed from execution to RPC indexing.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -40,6 +45,40 @@ impl FinalizedCashSnapshot {
             return Err("cash cell root mismatch");
         }
         Ok(())
+    }
+
+    pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        let body = activechain_canonical_codec::encode_envelope(self)
+            .map_err(|_| std::io::Error::other("cash snapshot encoding failed"))?;
+        let mut h = Shake256::default();
+        h.update(b"ACTIVECHAIN-FINALIZED-CASH-SNAPSHOT-V1");
+        h.update(&body);
+        let mut tag = [0_u8; 32];
+        h.finalize_xof().read(&mut tag);
+        let mut bytes = body;
+        bytes.extend_from_slice(&tag);
+        let tmp = path.with_extension("tmp");
+        std::fs::write(&tmp, &bytes)?;
+        std::fs::rename(tmp, path)
+    }
+
+    pub fn load(path: &Path) -> std::io::Result<Self> {
+        let bytes = std::fs::read(path)?;
+        if bytes.len() < 32 {
+            return Err(std::io::Error::other("cash snapshot truncated"));
+        }
+        let split = bytes.len() - 32;
+        let body = &bytes[..split];
+        let mut h = Shake256::default();
+        h.update(b"ACTIVECHAIN-FINALIZED-CASH-SNAPSHOT-V1");
+        h.update(body);
+        let mut tag = [0_u8; 32];
+        h.finalize_xof().read(&mut tag);
+        if tag != bytes[split..] {
+            return Err(std::io::Error::other("cash snapshot checksum mismatch"));
+        }
+        activechain_canonical_codec::decode_envelope(body)
+            .map_err(|_| std::io::Error::other("cash snapshot malformed"))
     }
 }
 

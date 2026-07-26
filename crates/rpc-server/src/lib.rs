@@ -454,6 +454,33 @@ impl DurableRpcStore {
         self.replace(next)
     }
 
+    pub fn replace_finalized_records(
+        &self,
+        expected_genesis: Digest384,
+        finalized_height: u64,
+        finalized_at_unix_seconds: u64,
+        records: Vec<QueryRecord>,
+    ) -> Result<(), RpcStoreError> {
+        let current = self.index.read().map_err(|_| RpcStoreError::Io)?.clone();
+        if current.genesis_commitment != expected_genesis
+            || finalized_height < current.finalized_height
+            || finalized_at_unix_seconds < current.finalized_at_unix_seconds
+        {
+            return Err(RpcStoreError::Invalid);
+        }
+        let next = RpcIndex::new(
+            current.chain_id,
+            current.genesis_commitment,
+            current.protocol_revision,
+            finalized_height,
+            finalized_at_unix_seconds,
+            current.maximum_staleness_seconds,
+            current.supported_proofs,
+            records,
+        )?;
+        self.replace(next)
+    }
+
     pub fn handle(&self, request: RpcRequest, now: u64) -> RpcResponse {
         let Ok(index) = self.index.read() else {
             return RpcResponse::Error(RpcError::Internal);
