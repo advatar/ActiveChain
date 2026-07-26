@@ -418,6 +418,43 @@ impl FungibleCoinCell {
         self.creation_height
     }
 }
+
+/// Asset-bound Coin Cell record. Native `CoinCellRecord` remains unchanged for wire compatibility.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FungibleCoinCellRecord {
+    id: CoinCellId,
+    cell: FungibleCoinCell,
+}
+impl FungibleCoinCellRecord {
+    pub const TYPE_TAG: u16 = 0x00A3;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 + FungibleCoinCell::MAX_ENCODED_LEN;
+    pub const fn new(id: CoinCellId, cell: FungibleCoinCell) -> Self {
+        Self { id, cell }
+    }
+    pub const fn id(self) -> CoinCellId {
+        self.id
+    }
+    pub const fn cell(self) -> FungibleCoinCell {
+        self.cell
+    }
+}
+impl CanonicalEncode for FungibleCoinCellRecord {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.id.encode(e)?;
+        self.cell.encode(e)
+    }
+}
+impl CanonicalDecode for FungibleCoinCellRecord {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Ok(Self::new(CoinCellId::decode(d)?, FungibleCoinCell::decode(d)?))
+    }
+}
+impl CanonicalType for FungibleCoinCellRecord {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
 impl CanonicalEncode for FungibleCoinCell {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
         self.origin.encode(e)?;
