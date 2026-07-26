@@ -11,6 +11,10 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 - [x] Clear the newly surfaced argument-count and nested-condition diagnostics in regulated transfer admission.
 
+## Clippy follow-up: agent enrollment
+
+- [x] Preserve the canonical enrollment constructor shape while clearing its argument-count diagnostic.
+
 ## Kanalen reset/recovery automation
 
 - [x] Bootstrap the RPC index automatically when a testnet is reset to a new genesis.
