@@ -14,7 +14,7 @@ use activechain_privacy_kernel::{
     ProtectedStateSnapshot,
 };
 use activechain_protocol_types::{
-    BlockProposal, ConsensusSnapshot, ConsensusState, ConsensusStateError,
+    BlockProposal, ChainId, ConsensusSnapshot, ConsensusState, ConsensusStateError,
     ConsensusUpgradeAuthorization, ConsensusVoteContext, CryptoSuiteId, Digest384, PrincipalId,
     ProtocolSignature, QuorumCertificate, ValidatorGenesis, ValidatorSet, ValidatorVote,
 };
@@ -49,6 +49,24 @@ pub struct WalletTransactionGateway {
 }
 
 impl WalletTransactionGateway {
+    /// Restores the authenticated wallet ledger and authorization lanes from a durable snapshot.
+    /// The caller must bind the snapshot to the expected chain identity.
+    pub fn load_snapshot(
+        path: &std::path::Path,
+        expected_chain: ChainId,
+    ) -> Result<Self, activechain_wallet_core::WalletError> {
+        Ok(Self {
+            ingress: activechain_wallet_core::TransactionIngress::load(path, expected_chain)?,
+        })
+    }
+
+    pub fn save_snapshot(
+        &self,
+        path: &std::path::Path,
+    ) -> Result<(), activechain_wallet_core::WalletError> {
+        self.ingress.save_atomic(path)
+    }
+
     pub fn from_genesis(
         economy: &activechain_cash_kernel::GenesisEconomy,
     ) -> Result<Self, activechain_cash_kernel::CashTransitionError> {
@@ -2879,6 +2897,7 @@ mod tests {
             digest(4),
         )
         .unwrap();
+        let chain_id = definition.chain_id();
         let economy = GenesisEconomy::new(
             definition,
             vec![
@@ -2891,6 +2910,12 @@ mod tests {
         let mut gateway = WalletTransactionGateway::from_genesis(&economy).unwrap();
         assert_eq!(gateway.owner_cells(owner).unwrap().as_slice().len(), 2);
         assert!(gateway.owner_cells(PrincipalId::new(digest(11))).unwrap().as_slice().is_empty());
+        let snapshot = std::env::temp_dir()
+            .join(format!("activechain-wallet-gateway-{}.bin", std::process::id()));
+        gateway.save_snapshot(&snapshot).unwrap();
+        let restored = WalletTransactionGateway::load_snapshot(&snapshot, chain_id).unwrap();
+        assert_eq!(restored.owner_cells(owner).unwrap(), gateway.owner_cells(owner).unwrap());
+        let _ = std::fs::remove_file(snapshot);
         let cash_key = SigningKey::<MlDsa44>::from_seed(&Seed::from([91; 32]));
         let authenticator = activechain_protocol_types::AuthenticatorDescriptor::new(
             activechain_protocol_types::AuthenticatorId::new(digest(90)),
