@@ -454,14 +454,23 @@ pub struct RpcServer {
     store: Arc<DurableRpcStore>,
     access: Option<Arc<RpcAccessController>>,
     anchors: Option<Arc<RwLock<DurableAnchorRegistry>>>,
+    faucet: Option<Arc<RwLock<DurableFaucet>>>,
 }
 impl RpcServer {
     pub fn new(store: Arc<DurableRpcStore>) -> Self {
-        Self { store, access: None, anchors: None }
+        Self { store, access: None, anchors: None, faucet: None }
     }
 
     pub fn with_anchor_registry(mut self, anchors: DurableAnchorRegistry) -> Self {
         self.anchors = Some(Arc::new(RwLock::new(anchors)));
+        self
+    }
+
+    /// Attach the operator's durable faucet policy and receipt journal.
+    /// Funding requests remain unavailable until a settlement adapter is wired;
+    /// terms and receipt resolution are safe to expose independently.
+    pub fn with_faucet(mut self, faucet: DurableFaucet) -> Self {
+        self.faucet = Some(Arc::new(RwLock::new(faucet)));
         self
     }
 
@@ -472,7 +481,7 @@ impl RpcServer {
         if store.chain_id()? != access.terms().chain_id() {
             return Err(RpcStoreError::Invalid);
         }
-        Ok(Self { store, access: Some(access), anchors: None })
+        Ok(Self { store, access: Some(access), anchors: None, faucet: None })
     }
 
     fn handle(&self, request: RpcRequest, now: u64) -> RpcResponse {
@@ -506,6 +515,30 @@ impl RpcServer {
                     Ok(record) => RpcResponse::AnchorRecord(record),
                     Err(_) => RpcResponse::Error(RpcError::Internal),
                 }
+            }
+            RpcRequest::FaucetTerms => {
+                let Some(faucet) = &self.faucet else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let Ok(faucet) = faucet.read() else {
+                    return RpcResponse::Error(RpcError::Internal);
+                };
+                match faucet.terms() {
+                    Ok(terms) => RpcResponse::FaucetTerms(terms),
+                    Err(_) => RpcResponse::Error(RpcError::Internal),
+                }
+            }
+            RpcRequest::ResolveFaucet { reference } => {
+                let Some(faucet) = &self.faucet else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let Ok(faucet) = faucet.read() else {
+                    return RpcResponse::Error(RpcError::Internal);
+                };
+                faucet
+                    .resolve(reference)
+                    .cloned()
+                    .map_or(RpcResponse::Error(RpcError::NotFound), RpcResponse::FaucetReceipt)
             }
             request => self.store.handle(request, now),
         }
