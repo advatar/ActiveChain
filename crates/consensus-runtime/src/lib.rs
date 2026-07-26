@@ -10,10 +10,10 @@ use activechain_crypto_provider::{
     VerificationError, verify_block_proposal, verify_quorum_certificate,
 };
 use activechain_protocol_types::{
-    BlockProposal, ConsensusBlockRef, ConsensusSnapshot, ConsensusState, ConsensusStateError,
-    ConsensusUpgradeAuthorization, ConsensusVoteContext, CryptoSuiteId, Digest384, PrincipalId,
-    ProposalJustification, ProtocolSignature, QuorumCertificate, ValidatorGenesis, ValidatorSet,
-    ValidatorVote,
+    BlockProposal, ChainId, ConsensusBlockRef, ConsensusSnapshot, ConsensusState,
+    ConsensusStateError, ConsensusUpgradeAuthorization, ConsensusVoteContext, CryptoSuiteId,
+    Digest384, PrincipalId, ProposalJustification, ProtocolSignature, QuorumCertificate,
+    ValidatorGenesis, ValidatorSet, ValidatorVote,
 };
 use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
 use sha3::{
@@ -34,6 +34,23 @@ pub struct WalletTransactionGateway {
 }
 
 impl WalletTransactionGateway {
+    /// Restores the authenticated wallet ledger and authorization lanes from a durable snapshot.
+    pub fn load_snapshot(
+        path: &std::path::Path,
+        expected_chain: ChainId,
+    ) -> Result<Self, activechain_wallet_core::WalletError> {
+        Ok(Self {
+            ingress: activechain_wallet_core::TransactionIngress::load(path, expected_chain)?,
+        })
+    }
+
+    pub fn save_snapshot(
+        &self,
+        path: &std::path::Path,
+    ) -> Result<(), activechain_wallet_core::WalletError> {
+        self.ingress.save_atomic(path)
+    }
+
     pub fn from_genesis(
         economy: &activechain_cash_kernel::GenesisEconomy,
     ) -> Result<Self, activechain_cash_kernel::CashTransitionError> {
