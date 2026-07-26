@@ -35,6 +35,10 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 - [x] Update light-client finality and upgrade fixtures for explicit proposal commitments.
 
+## Clippy follow-up: verifier/RPC fixture API drift
+
+- [x] Update verifier API and RPC finality fixtures for explicit proposal commitments.
+
 ## Kanalen reset/recovery automation
 
 - [x] Bootstrap the RPC index automatically when a testnet is reset to a new genesis.
