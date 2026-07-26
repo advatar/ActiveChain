@@ -2918,7 +2918,12 @@ impl ValidatorService {
                     .map_err(|_| invalid_data("local durable outbound sequence unavailable"))?;
                 let vote = self
                     .process_proposal_and_sign_vote(message.clone(), signer, sequence)
-                    .map_err(|_| invalid_data("proposal admission failed"))?;
+                    .map_err(|error| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("proposal admission failed: {error:?}"),
+                    )
+                })?;
                 peer.send_message(&vote)?;
             } else {
                 self.process_message(message)
