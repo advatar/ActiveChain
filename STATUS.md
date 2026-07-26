@@ -27,6 +27,10 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 - [x] Keep the frozen epoch-upgrade table consumable while the runtime upgrade model evolves.
 
+## Clippy follow-up: verifier fixture API drift
+
+- [x] Update finality verifier fixtures for explicit proposal commitments in votes and certificates.
+
 ## Kanalen reset/recovery automation
 
 - [x] Bootstrap the RPC index automatically when a testnet is reset to a new genesis.
