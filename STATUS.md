@@ -2,6 +2,11 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Kanalen reset/recovery automation
+
+- [ ] Bootstrap the RPC index automatically when a testnet is reset to a new genesis.
+- [ ] Rehearse a genesis reset end-to-end and verify the public RPC health response.
+
 ## Phase 0 — protocol foundation
 
 - [x] Establish a pinned stable-Rust workspace with consensus-kernel quality gates.

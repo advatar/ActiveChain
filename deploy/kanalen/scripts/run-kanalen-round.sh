@@ -4,6 +4,9 @@ set -eu
 deployment_root=${ACTIVECHAIN_KANALEN_ROOT:-"$HOME/activechain-deploy/kanalen"}
 state_root="$deployment_root/chain"
 binary_root="$deployment_root/current/bin"
+rpc_root="$deployment_root/rpc"
+rpc_snapshot="$rpc_root/rpc-index.snapshot"
+network_env="$deployment_root/current/network.env"
 lock="$state_root/round.lock"
 
 mkdir "$lock" 2>/dev/null || exit 0
@@ -34,5 +37,14 @@ while ! "$binary_root/validator-node" \
   attempt=$((attempt + 1))
   sleep 1
 done
+if test ! -f "$rpc_snapshot"; then
+  chain_id=$(sed -n 's/^ACTIVECHAIN_CHAIN_ID_HEX=//p' "$network_env")
+  test -n "$chain_id" || {
+    echo "network.env does not define ACTIVECHAIN_CHAIN_ID_HEX" >&2
+    exit 1
+  }
+  "$binary_root/activechain-rpc-bootstrap" \
+    "$state_root/genesis.bin" "$chain_id" "$rpc_snapshot"
+fi
 "$binary_root/activechain-rpc-ingest" \
   "$state_root/validator-0.snapshot" "$deployment_root/rpc/rpc-index.snapshot"
