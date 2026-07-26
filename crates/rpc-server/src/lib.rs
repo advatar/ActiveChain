@@ -748,6 +748,7 @@ mod tests {
             7,
             2,
             header.digest().unwrap(),
+            header.proof_statement_commitment,
             ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2_420]).unwrap(),
         )
         .unwrap();
@@ -758,6 +759,7 @@ mod tests {
             7,
             2,
             header.digest().unwrap(),
+            header.proof_statement_commitment,
             ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec()).unwrap(),
         )
         .unwrap();
@@ -773,6 +775,7 @@ mod tests {
             7,
             2,
             header.digest().unwrap(),
+            header.proof_statement_commitment,
             Digest384::new(vote_root),
             1,
             1,
