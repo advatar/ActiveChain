@@ -5,7 +5,7 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 ## Workspace strict-Clippy qualification
 
 - [x] Resolve the current dead-code and argument-count diagnostics under `-D warnings`.
-- [ ] Pass the exact workspace all-target/all-feature Clippy gate (the repository-wide build is currently blocked by an existing target-directory lock).
+- [x] Pass the exact workspace all-target/all-feature Clippy gate with `RISC0_SKIP_BUILD=1` (the CI qualification mode).
 
 ## Clippy follow-up: regulated admission
 
