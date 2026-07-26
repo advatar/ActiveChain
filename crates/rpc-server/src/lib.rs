@@ -14,7 +14,9 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     decode_envelope, encode_envelope,
 };
-use activechain_cash_kernel::{CoinCellMembershipProof, CoinCellRecord};
+use activechain_cash_kernel::{
+    CoinCellMembershipProof, CoinCellRecord, CoinCellSet, prove_coin_cell_membership,
+};
 use activechain_finality_types::commit_parts;
 use activechain_protocol_types::{ChainId, Digest384, Object, PrincipalId, TransactionId};
 use activechain_rpc_types::{
@@ -37,6 +39,46 @@ use std::{
 pub const MAX_RPC_FRAME: usize = 4 * 1024 * 1024;
 pub const RPC_IO_TIMEOUT: Duration = Duration::from_secs(2);
 pub const MAX_INDEXED_RECORDS: usize = 65_535;
+
+/// Builds proof-bearing RPC records from a finalized cash cell set.
+///
+/// The finality bundle is validated before any record is returned. This keeps the
+/// validator-to-index handoff fail-closed: a wallet snapshot or an unfinalized root
+/// cannot be published as an RPC balance.
+pub fn finalized_coin_cell_records(
+    cells: &CoinCellSet,
+    finalized_height: u64,
+    finality: &[u8],
+) -> Result<Vec<QueryRecord>, RpcStoreError> {
+    let bundle = activechain_verifier_api::verify_finality_bundle(finality)
+        .map_err(|_| RpcStoreError::Invalid)?;
+    if bundle.header().inputs.height != finalized_height {
+        return Err(RpcStoreError::Invalid);
+    }
+    let mut records = Vec::with_capacity(cells.as_slice().len());
+    for cell in cells.as_slice() {
+        let proof =
+            prove_coin_cell_membership(cells, cell.id()).map_err(|_| RpcStoreError::Invalid)?;
+        if proof.root().into_digest() != bundle.header().inputs.cash_cell_root
+            || proof.record() != *cell
+        {
+            return Err(RpcStoreError::Invalid);
+        }
+        records.push(
+            QueryRecord::new(
+                QueryKind::CoinCell,
+                cell.id().into_digest(),
+                finalized_height,
+                encode_envelope(cell).map_err(|_| RpcStoreError::Invalid)?,
+                encode_envelope(&proof).map_err(|_| RpcStoreError::Invalid)?,
+                finality.to_vec(),
+            )
+            .map_err(|_| RpcStoreError::Invalid)?,
+        );
+    }
+    records.sort_by_key(|record| record.key());
+    Ok(records)
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RpcProofError {
