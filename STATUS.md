@@ -19,6 +19,10 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 - [x] Disambiguate SHAKE reader calls when all workspace features are enabled.
 
+## Clippy follow-up: consensus runtime lint cleanup
+
+- [x] Document the intentional consensus message size and simplify constant error paths.
+
 ## Kanalen reset/recovery automation
 
 - [x] Bootstrap the RPC index automatically when a testnet is reset to a new genesis.

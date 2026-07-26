@@ -394,6 +394,7 @@ fn take_length_prefixed<'a>(bytes: &mut &'a [u8]) -> Result<&'a [u8], TransportE
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum ConsensusMessage {
     Proposal(BlockProposal),
     Vote(ValidatorVote),
@@ -2591,7 +2592,7 @@ impl ValidatorService {
             .max()
             .unwrap_or(0)
             .checked_add(1)
-            .ok_or_else(|| ValidatorServiceError::Engine(ValidatorEngineError::SequenceOverflow))
+            .ok_or(ValidatorServiceError::Engine(ValidatorEngineError::SequenceOverflow))
     }
     pub fn next_proposal_position(&self) -> Result<(u64, u64), ValidatorServiceError> {
         let engine = self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
@@ -2599,14 +2600,14 @@ impl ValidatorService {
         let height = parent
             .height()
             .checked_add(1)
-            .ok_or_else(|| ValidatorServiceError::Engine(ValidatorEngineError::HeightOverflow))?;
+            .ok_or(ValidatorServiceError::Engine(ValidatorEngineError::HeightOverflow))?;
         let round = if parent.height() == 0 {
             parent.round()
         } else {
             parent
                 .round()
                 .checked_add(1)
-                .ok_or_else(|| ValidatorServiceError::Engine(ValidatorEngineError::RoundOverflow))?
+                .ok_or(ValidatorServiceError::Engine(ValidatorEngineError::RoundOverflow))?
         };
         Ok((height, round))
     }
@@ -2627,7 +2628,7 @@ impl ValidatorService {
         }
         let last = first
             .checked_add(count - 1)
-            .ok_or_else(|| ValidatorServiceError::Engine(ValidatorEngineError::SequenceOverflow))?;
+            .ok_or(ValidatorServiceError::Engine(ValidatorEngineError::SequenceOverflow))?;
         let engine = self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
         let replay = self.replay.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
         let mut outbound =
@@ -2771,7 +2772,7 @@ impl ValidatorService {
         let vote = self.sign_current_vote_durably(signer)?;
         let vote_sequence = sequence
             .checked_add(1)
-            .ok_or_else(|| ValidatorServiceError::Engine(ValidatorEngineError::SequenceOverflow))?;
+            .ok_or(ValidatorServiceError::Engine(ValidatorEngineError::SequenceOverflow))?;
         let vote_message = signer
             .sign_envelope(sender, vote_sequence, ConsensusMessage::Vote(vote))
             .map_err(ValidatorServiceError::Engine)?;
