@@ -103,12 +103,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let _ = listener.spawn_accept_loop(move |peer| {
                     let service = std::sync::Arc::clone(&listener_thread_service);
                     let signer = std::sync::Arc::clone(&listener_thread_signer);
-                    let _ = service.serve_authenticated_genesis_peer_with_voting(
+                    if let Err(error) = service.serve_authenticated_genesis_peer_with_voting(
                         peer,
                         local_peer_id,
                         &signer,
                         [23; 32],
-                    );
+                    ) {
+                        eprintln!("authenticated genesis peer {} rejected: {error}", local_peer_id);
+                    }
                 });
             });
             let mut endpoints = Vec::new();
@@ -248,12 +250,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             listener.spawn_accept_loop(move |peer| {
                 let service = std::sync::Arc::clone(&service);
                 let signer = std::sync::Arc::clone(&signer);
-                let _ = service.serve_authenticated_genesis_peer_with_voting(
+                if let Err(error) = service.serve_authenticated_genesis_peer_with_voting(
                     peer,
                     local_peer_id,
                     &signer,
                     [23; 32],
-                );
+                ) {
+                    eprintln!("authenticated genesis peer {} rejected: {error}", local_peer_id);
+                }
             })?;
         } else {
             listener.spawn_accept_loop(move |peer| {
