@@ -73,6 +73,27 @@ impl WalletTransactionGateway {
     pub fn ledger(&self) -> &activechain_cash_kernel::CashLedger {
         self.ingress.ledger()
     }
+
+    /// Returns the currently admitted cells owned by `owner` in canonical order.
+    ///
+    /// This is an in-process ledger view only. It is intentionally not exposed as a
+    /// finalized RPC balance until the validator snapshot persists and authenticates
+    /// the same ledger state.
+    pub fn owner_cells(
+        &self,
+        owner: PrincipalId,
+    ) -> Result<activechain_cash_kernel::CoinCellSet, activechain_cash_kernel::NativeMoneyError>
+    {
+        activechain_cash_kernel::CoinCellSet::new(
+            self.ledger()
+                .cells()
+                .as_slice()
+                .iter()
+                .filter(|record| record.cell().owner() == owner)
+                .cloned()
+                .collect(),
+        )
+    }
 }
 
 const PEER_BODY_DOMAIN: &[u8] = b"ACTIVECHAIN-PEER-BODY-V1";
@@ -3167,6 +3188,8 @@ mod tests {
         )
         .unwrap();
         let mut gateway = WalletTransactionGateway::from_genesis(&economy).unwrap();
+        assert_eq!(gateway.owner_cells(owner).unwrap().as_slice().len(), 2);
+        assert!(gateway.owner_cells(PrincipalId::new(digest(11))).unwrap().as_slice().is_empty());
         let cash_key = SigningKey::<MlDsa44>::from_seed(&Seed::from([91; 32]));
         let proof = identity_proof(owner, &cash_key);
         gateway.install_finalized_authorization_key(&proof, 0, &AcceptFinality).unwrap();

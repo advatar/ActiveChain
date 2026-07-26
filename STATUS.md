@@ -1111,6 +1111,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
       optional recipient pinning through the C ABI.
     - [x] Construct the exact canonical cash authorization request and intent identifier through a
       size-query C ABI without exposing secret material.
+  - [ ] Complete validator-backed owner-scoped Coin Cell/state extraction before serving wallet
+    balances on Kanalen; consensus snapshots currently contain metadata only (issue #180).
     - [x] Invoke opaque secure-key callbacks only over the canonical approval-bound signing
       transcript and verify the returned ML-DSA-44 signature before publishing an authorized
       envelope.
