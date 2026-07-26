@@ -8,11 +8,7 @@ target_dir="${3:-$repo_root/target/release}"
 
 release_dir="$output_dir/$release_id"
 mkdir -p "$release_dir/bin" "$release_dir/scripts"
-<<<<<<< HEAD
 for binary in validator-node genesis-tool activechain-rpc-node activechain-rpc-ingest activechain-rpc-bootstrap activechain-rpc-probe; do
-=======
-for binary in validator-node activechain-rpc-node activechain-rpc-ingest activechain-rpc-bootstrap activechain-rpc-probe; do
->>>>>>> origin/main
   test -x "$target_dir/$binary"
   install -m 755 "$target_dir/$binary" "$release_dir/bin/$binary"
 done
