@@ -23,6 +23,10 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 - [x] Document the intentional consensus message size and simplify constant error paths.
 
+## Clippy follow-up: vector generator API drift
+
+- [x] Keep the frozen epoch-upgrade table consumable while the runtime upgrade model evolves.
+
 ## Kanalen reset/recovery automation
 
 - [x] Bootstrap the RPC index automatically when a testnet is reset to a new genesis.
