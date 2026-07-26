@@ -52,6 +52,10 @@ generation.
 - SHA-256 for every packaged file;
 - a fail-closed upgrade policy; and
 - `developmental-unaudited` / `independently_audited: false`.
+- `artifact_linkage_status: contract-ready-artifact-not-linked`, `signed: false`, and
+  `signature_scheme: none` until a release has an authenticated Apple signing/provenance
+  record and an independent security audit. Downstream applications must not promote this
+  state to production readiness or silently substitute an unsigned local archive.
 
 The verifier rejects unknown manifest formats, changed ABI/schema/protocol revisions, altered
 release status, missing slices, unsorted or malformed hashes, and any artifact substitution.

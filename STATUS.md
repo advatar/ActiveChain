@@ -1022,6 +1022,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [x] Freeze light-client finality, checkpoint, state-sync, DA, and upgrade requirements.
 - [x] Add a local manifest checker for vector hashes and malformed fixtures.
 - [ ] Deliver the stable downstream integration contract required by dBrowser
+  - [ ] Make Apple linkage readiness machine-readable and fail closed: distributions must
+    distinguish a contract-ready artifact from a signed, independently audited release.
   ([GitHub epic #86](https://github.com/advatar/ActiveChain/issues/86)).
   - [ ] Build a versioned verifier SDK for principals, capabilities, APL decisions, state
     witnesses, finalized blocks, receipts, and authorization chains

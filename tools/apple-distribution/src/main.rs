@@ -27,6 +27,9 @@ struct CompatibilityManifest {
     source_revision: String,
     release_status: String,
     independently_audited: bool,
+    artifact_linkage_status: String,
+    signed: bool,
+    signature_scheme: String,
     verifier_abi_revision: u32,
     verifier_schema_revision: u32,
     wallet_abi_revision: u32,
@@ -253,6 +256,9 @@ fn write_manifest(
         source_revision: source_revision.to_ascii_lowercase(),
         release_status: "developmental-unaudited".to_owned(),
         independently_audited: false,
+        artifact_linkage_status: "contract-ready-artifact-not-linked".to_owned(),
+        signed: false,
+        signature_scheme: "none".to_owned(),
         verifier_abi_revision: 1,
         verifier_schema_revision: 1,
         wallet_abi_revision: 2,
@@ -284,6 +290,9 @@ fn verify_manifest(
     if manifest.format != "activechain-apple-compatibility-v1"
         || manifest.release_status != "developmental-unaudited"
         || manifest.independently_audited
+        || manifest.artifact_linkage_status != "contract-ready-artifact-not-linked"
+        || manifest.signed
+        || manifest.signature_scheme != "none"
         || manifest.verifier_abi_revision != 1
         || manifest.verifier_schema_revision != 1
         || manifest.wallet_abi_revision != 2
