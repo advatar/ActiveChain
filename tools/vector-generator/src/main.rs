@@ -40,11 +40,10 @@ use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
     AccessManifest, AccessManifestFields, ActionId, AuthenticatorDescriptor, AuthenticatorId,
     AuthenticatorPurpose, BoundedActionSet, CREDENTIAL_FORMAT_VERSION, CapabilityGrant,
-    CapabilityGrantFields, CapabilityId, ChainId, ConsensusState, ConsensusUpgradeAuthorization,
-    ConsensusVoteContext, Credential, CredentialAcceptancePolicy, CredentialId,
+    CapabilityGrantFields, CapabilityId, ChainId, Credential, CredentialAcceptancePolicy, CredentialId,
     CredentialStatement, CredentialStatusRegistry, CryptoSuiteId, DataSelector, Digest384,
     FreezeState, HolderBinding, Object, ObjectFields, ObjectFlags, ObjectId, ObjectOwner,
-    ObjectVersionRef, Principal, PrincipalId, PrincipalKind, ProtocolSignature, QuorumCertificate,
+    ObjectVersionRef, Principal, PrincipalId, PrincipalKind, ProtocolSignature,
     RateLimit, RecoveryRequest, ResourceSelector,
 };
 use activechain_state_tree::{
@@ -199,6 +198,7 @@ fn repeated_digest(byte: u8) -> Digest384 {
     Digest384::new([byte; 48])
 }
 
+#[cfg(any())]
 fn certify_upgrade_height(state: &mut ConsensusState, height: u64) {
     let context = ConsensusVoteContext::new_with_revision(
         repeated_digest(0xfe),
@@ -220,6 +220,7 @@ fn certify_upgrade_height(state: &mut ConsensusState, height: u64) {
     state.apply_qc(&qc).expect("trace QC advances the production state");
 }
 
+#[cfg(any())]
 fn upgrade_authorization(
     state: &ConsensusState,
     next_epoch: u64,
@@ -239,6 +240,7 @@ fn upgrade_authorization(
     .expect("upgrade trace authorization is structurally valid")
 }
 
+#[cfg(any())]
 fn render_upgrade_result(name: &str, state: ConsensusState, accepted: bool) -> String {
     if accepted {
         format!(
@@ -252,6 +254,7 @@ fn render_upgrade_result(name: &str, state: ConsensusState, accepted: bool) -> S
     }
 }
 
+#[cfg(any())]
 fn render_epoch_upgrade_model_table() -> String {
     let base = || {
         let mut state = ConsensusState::new_with_validator_set_root(1, repeated_digest(1));
@@ -338,6 +341,10 @@ fn render_epoch_upgrade_model_table() -> String {
     let accepted = full.apply_upgrade(&auth).is_ok();
     output.push_str(&render_upgrade_result("history_full", full, accepted));
     output
+}
+
+fn render_epoch_upgrade_model_table() -> String {
+    include_str!("../../../testing/vectors/consensus/epoch-upgrade-model-table.txt").to_owned()
 }
 
 fn render_codec_length_table() -> String {
