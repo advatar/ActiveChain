@@ -32,6 +32,7 @@ pub struct ConsensusVoteContext {
 
 impl ConsensusVoteContext {
     /// Constructs the initial protocol-revision context.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         genesis_commitment: Digest384,
         epoch: Epoch,
@@ -628,6 +629,7 @@ impl QuorumCertificate {
     pub const TYPE_TAG: u16 = 0x0065;
     pub const SCHEMA_VERSION: u16 = 3;
     pub const ENCODED_LENGTH: usize = 48 + 8 + 48 + 8 + 8 + 8 + 48 + 48 + 48 + 16 + 16;
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         context: ConsensusVoteContext,
         height: u64,
