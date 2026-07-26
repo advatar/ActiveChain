@@ -7,6 +7,11 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 - [x] Bootstrap the RPC index automatically when a testnet is reset to a new genesis.
 - [x] Rehearse a genesis reset end-to-end and verify the public RPC health response (fresh genesis finalized at height 7; RPC healthy).
 
+## Faucet RPC exposure
+
+- [x] Expose operator-configured faucet terms and persisted receipt resolution through the RPC server.
+- [x] Keep funding submission disabled until a validator-backed settlement adapter is attached.
+
 ## Phase 0 — protocol foundation
 
 - [x] Establish a pinned stable-Rust workspace with consensus-kernel quality gates.
