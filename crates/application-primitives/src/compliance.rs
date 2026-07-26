@@ -37,6 +37,7 @@ pub fn require_selected_profile(
 
 /// Admit one regulated transfer only after all public commitments match and the
 /// nonce is durably consumed. Confidential payloads are never inspected here.
+#[allow(clippy::too_many_arguments)]
 pub fn admit_regulated_transfer(
     journal: &mut DurableComplianceReplayJournal,
     evidence: ComplianceEvidenceBindingV1,
@@ -62,15 +63,14 @@ pub fn admit_regulated_transfer(
     {
         return Err(ComplianceAdmissionError::WrongChainOrAction);
     }
-    if let Some(t) = travel {
-        if t.chain_id() != chain_id
+    if let Some(t) = travel
+        && (t.chain_id() != chain_id
             || t.transfer() != action
             || asset.is_some_and(|a| t.asset() != a)
             || amount.is_some_and(|v| t.amount() != v)
-            || t.expires_at() < height
-        {
-            return Err(ComplianceAdmissionError::TravelRuleMismatch);
-        }
+            || t.expires_at() < height)
+    {
+        return Err(ComplianceAdmissionError::TravelRuleMismatch);
     }
     let key = ComplianceReplayKey::new(
         evidence.profile(),
