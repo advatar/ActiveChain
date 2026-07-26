@@ -12,6 +12,11 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 - [x] Expose operator-configured faucet terms and persisted receipt resolution through the RPC server.
 - [x] Keep funding submission disabled until a validator-backed settlement adapter is attached.
 
+## Release branch hygiene
+
+- [x] Remove merged implementation branches while preserving intentional archive branches.
+- [x] Verify `origin/main` is the only active implementation branch after cleanup.
+
 ## Phase 0 — protocol foundation
 
 - [x] Establish a pinned stable-Rust workspace with consensus-kernel quality gates.
