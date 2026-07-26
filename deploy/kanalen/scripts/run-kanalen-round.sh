@@ -46,5 +46,11 @@ if test ! -f "$rpc_snapshot"; then
   "$binary_root/activechain-rpc-bootstrap" \
     "$state_root/genesis.bin" "$chain_id" "$rpc_snapshot"
 fi
-"$binary_root/activechain-rpc-ingest" \
-  "$state_root/validator-0.snapshot" "$deployment_root/rpc/rpc-index.snapshot"
+if test -f "$state_root/finalized-cash.snapshot" && test -f "$state_root/finality.bundle"; then
+  "$binary_root/activechain-rpc-ingest" \
+    "$state_root/validator-0.snapshot" "$deployment_root/rpc/rpc-index.snapshot" \
+    "$state_root/finalized-cash.snapshot" "$state_root/finality.bundle"
+else
+  "$binary_root/activechain-rpc-ingest" \
+    "$state_root/validator-0.snapshot" "$deployment_root/rpc/rpc-index.snapshot"
+fi
