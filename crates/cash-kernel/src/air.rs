@@ -80,7 +80,12 @@ impl CanonicalDecode for CashAirPublicInputs {
             applied: u16::decode(d)?,
             rejected: u16::decode(d)?,
         };
-        if value.partitions == 0
+        if value.batch_commitment == Digest384::ZERO
+            || value.pre_cells.digest() == &Digest384::ZERO
+            || value.post_cells.digest() == &Digest384::ZERO
+            || value.pre_supply.digest() == &Digest384::ZERO
+            || value.post_supply.digest() == &Digest384::ZERO
+            || value.partitions == 0
             || usize::from(value.applied) + usize::from(value.rejected) > MAX_TRANSFER_BATCH
         {
             return Err(DecodeError::InvalidValue("invalid CashAIR public inputs"));
