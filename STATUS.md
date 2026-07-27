@@ -300,6 +300,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
 - [ ] Freeze native fungible, non-fungible, and series asset definitions and lifecycle actions.
 - [ ] Enforce issuer/controller authority, supply conservation, declared controls, and corporate
   actions in consensus, persistence, authorization, and formal proofs.
+- [x] Add canonical mint and burn supply-state transitions with exact pre-state, issuer, lifecycle,
+  cap, overflow, and conservation checks.
 - [ ] Expose proof-bearing asset, supply, owner, action, receipt, and attestation RPC contracts.
 - [ ] Ship native issuer CLI and console workflows with threshold approval and recovery.
 - [ ] Complete wallet, compatibility, adversarial-test, migration, and independent-audit gates.

@@ -21,6 +21,9 @@ pub enum AssetDefinitionError {
     TooManyAssets,
     AssetsNotOrdered,
     InvalidLifecycleTransition,
+    InvalidSupplyTransition,
+    IssuerMismatch,
+    SupplyCapExceeded,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -289,6 +292,48 @@ impl FungibleAssetPolicyV1 {
             _ => return Err(AssetDefinitionError::InvalidLifecycleTransition),
         };
         Ok(Self { lifecycle, ..*self })
+    }
+
+    /// Applies one issuer mint to finalized policy state. The caller must
+    /// provide the exact supply pre-state observed by consensus; no optimistic
+    /// or replayed issuance can advance the policy.
+    pub fn apply_mint(
+        &self,
+        issuer: PrincipalId,
+        amount: u128,
+        supply_before: u128,
+    ) -> Result<Self, AssetDefinitionError> {
+        if issuer != self.issuer {
+            return Err(AssetDefinitionError::IssuerMismatch);
+        }
+        if self.lifecycle != FungibleAssetLifecycle::Registered
+            || amount == 0
+            || supply_before != self.supply_issued
+        {
+            return Err(AssetDefinitionError::InvalidSupplyTransition);
+        }
+        let supply_issued =
+            supply_before.checked_add(amount).ok_or(AssetDefinitionError::SupplyCapExceeded)?;
+        if supply_issued > self.supply_cap {
+            return Err(AssetDefinitionError::SupplyCapExceeded);
+        }
+        Ok(Self { supply_issued, ..*self })
+    }
+
+    /// Applies one finalized burn/redemption to policy supply state.
+    pub fn apply_burn(
+        &self,
+        amount: u128,
+        supply_before: u128,
+    ) -> Result<Self, AssetDefinitionError> {
+        if self.lifecycle != FungibleAssetLifecycle::Registered
+            || amount == 0
+            || supply_before != self.supply_issued
+            || amount > supply_before
+        {
+            return Err(AssetDefinitionError::InvalidSupplyTransition);
+        }
+        Ok(Self { supply_issued: supply_before - amount, ..*self })
     }
 }
 impl CanonicalEncode for FungibleAssetPolicyV1 {
@@ -623,6 +668,25 @@ mod tests {
         let paused = policy.apply_lifecycle_action(&action, 10).unwrap();
         assert_eq!(paused.lifecycle(), FungibleAssetLifecycle::Paused);
         assert!(policy.apply_lifecycle_action(&action, 20).is_err());
+
+        let minted = policy.apply_mint(principal(2), 100, 400).unwrap();
+        assert_eq!(minted.supply_issued(), 500);
+        assert_eq!(
+            policy.apply_mint(principal(3), 100, 400),
+            Err(AssetDefinitionError::IssuerMismatch)
+        );
+        assert_eq!(
+            policy.apply_mint(principal(2), 100, 399),
+            Err(AssetDefinitionError::InvalidSupplyTransition)
+        );
+        assert_eq!(
+            policy.apply_mint(principal(2), 700, 400),
+            Err(AssetDefinitionError::SupplyCapExceeded)
+        );
+        let burned = minted.apply_burn(125, 500).unwrap();
+        assert_eq!(burned.supply_issued(), 375);
+        assert_eq!(minted.apply_burn(501, 500), Err(AssetDefinitionError::InvalidSupplyTransition));
+        assert_eq!(minted.apply_burn(1, 499), Err(AssetDefinitionError::InvalidSupplyTransition));
         let zero_policy = FungibleAssetPolicyV1::new(
             id(1),
             principal(2),

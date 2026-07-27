@@ -11,3 +11,6 @@ lifecycle_action_window\tpause,effective=10,expires=20\taccept\tbounded activati
 lifecycle_action_expired\tretire,effective=20,expires=20\treject\tnonempty half-open window required
 lifecycle_reason_missing\tresume,reason_commitment=zero\treject\toperator rationale is committed
 lifecycle_approval_missing\tpause,approval_commitment=zero\treject\tthreshold approval evidence is required
+mint_wrong_issuer\tissuer differs from finalized policy issuer\treject\tissuer authority binding
+mint_stale_supply\tsupply_before differs from finalized policy supply\treject\texact pre-state binding
+burn_underflow\tburn exceeds finalized issued supply\treject\tsupply conservation
