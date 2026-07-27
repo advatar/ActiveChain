@@ -931,7 +931,7 @@ mod tests {
     use super::{
         AuthenticatedCashAirReceiptV1, AuthenticatedCashCompositeStarkProof, BaseElement,
         CashAirReceiptV1, CashStarkProof,
-        FungibleCashAirPublicInputsV1,
+        FungibleCashAirPublicInputsV1, validate_fungible_amount_limbs,
         decompose_u128_limbs, recompose_u128_limbs,
         fungible_conservation_holds,
         CASH_AIR_COMPOSITE_SUITE_ID, CASH_AIR_PARENT_SUITE_ID, prove,
@@ -975,6 +975,13 @@ mod tests {
         assert!(!fungible_conservation_holds(u128::MAX, 1, 0, 0, 1, 0, 0));
         assert_eq!(recompose_u128_limbs(decompose_u128_limbs(u128::MAX)), u128::MAX);
         assert_eq!(value.amount_limbs()[0], decompose_u128_limbs(100));
+        assert_eq!(validate_fungible_amount_limbs(value.amount_limbs()).unwrap()[0], 100);
+        let mut malformed = value.amount_limbs();
+        malformed[5][0] = malformed[5][0].saturating_add(1);
+        assert_eq!(
+            validate_fungible_amount_limbs(malformed),
+            Err("fungible AIR amount limbs violate conservation")
+        );
     }
 
     fn principal(byte: u8) -> PrincipalId {
