@@ -113,6 +113,8 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
   byte strings, exact envelope layout, type/schema/trailing-data rejection, option tags, and
   arbitrary round-trips.
 - [x] Implement SHAKE256/384 domain-separated commitments.
+- [x] Qualify protocol commitments: all four tests pass for published principal/package vectors,
+  complete-manifest binding, domain separation, and type separation.
 - [x] Publish deterministic codec and commitment test vectors.
 - [x] Add unit and property tests for round trips, malformed input, bounds, and domain separation.
 - [x] Document the workspace layout and local verification commands.
