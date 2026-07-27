@@ -1034,6 +1034,10 @@ Tracked by [GitHub issue #3](https://github.com/advatar/ActiveChain/issues/3).
 
 ## Completed milestone — canonical sparse state tree and witnesses
 
+- [x] Qualify the state-tree implementation: all 11 tests pass for deterministic roots, bounded
+  canonical proofs, membership/non-membership verification, path/default rejection, key/version
+  binding, authenticated updates, and independent nibble/partition oracle refinement.
+
 Tracked by [GitHub issue #5](https://github.com/advatar/ActiveChain/issues/5).
 
 - [x] Draft the normative `P-031` state-tree and witness specification.
