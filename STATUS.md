@@ -24,6 +24,7 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 - [x] Reject out-of-range value columns before trace construction.
 - [x] Make digest-to-f128 conversion reject non-canonical limbs instead of reducing them.
 - [x] Name the structural verifier explicitly while retaining a compatibility alias.
+- [x] Declare CashAIR's internal Blake3, SHA-256, and Keccak assumptions in P-060.
 - [x] Add strict parent CashAIR proof byte-envelope decoding with suite binding and trailing-byte rejection.
 - [ ] Add authenticated composite proof byte-envelope decoding and a reduced-depth composite happy-path test.
 - [x] Make the reference package independently testable outside the root workspace.

@@ -141,6 +141,17 @@ The conforming resolution is:
   as a named security assumption in `P-000` §4, and it MUST NOT be reused for any protocol-boundary
   commitment.
 
+The current CashAIR specialized suite registers the following internal assumptions explicitly:
+
+- `CASH-AIR-WINTERFELL-BLAKE3-256-V1`: Blake3-256 is used for Winterfell trace commitments and
+  Fiat–Shamir randomness in the parent cash trace.
+- `CASH-AIR-SHAKE-KECCAK-SHA256-V1`: SHA-256 Merkle hashing and Keccak-f permutation constraints
+  are used by the authenticated SHAKE lane. These hashes are internal proof machinery only; all
+  roots and receipts crossing a protocol boundary remain SHAKE256/384 commitments.
+
+The composite suite is the conjunction of these named assumptions and is not allowed to inherit
+upstream benchmark parameters implicitly.
+
 ## 7. Verifier contract
 
 The verifier is the security boundary and MUST be independently implementable from this document.
