@@ -965,6 +965,10 @@ Tracked by [GitHub issue #2](https://github.com/advatar/ActiveChain/issues/2).
 
 ## Completed milestone — typed ObjectVM verifier and metered interpreter
 
+- [x] Qualify ObjectVM execution: all 12 tests pass for deterministic execution, exhaustive
+  small-gas oracle agreement, full instruction-set refinement, checked arithmetic failure,
+  evidence substitution rejection, gas-before-failure accounting, and exact result bounds.
+
 Tracked by [GitHub issue #6](https://github.com/advatar/ActiveChain/issues/6).
 
 - [x] Draft the normative `P-050` ObjectVM instruction, typing, resource, control-flow, and metering semantics.
