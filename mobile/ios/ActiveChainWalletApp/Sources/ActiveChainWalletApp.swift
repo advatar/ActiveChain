@@ -72,7 +72,7 @@ private struct HomeView: View {
             ScrollView {
                 LazyVStack(spacing: 18) {
                     Header()
-                    BalanceCard(networkState: liveState.networkState)
+                    BalanceCard(networkState: liveState.networkState, verifiedPage: liveState.verifiedOwnerPage)
                     NetworkCard(state: liveState.networkState) {
                         Task { await liveState.refresh() }
                     }
@@ -120,8 +120,12 @@ private struct Header: View {
 
 private struct BalanceCard: View {
     let networkState: WalletNetworkState
+    let verifiedPage: WalletOwnerCoinPage?
 
     private var stateMessage: String {
+        if let verifiedPage {
+            return "(verifiedPage.records.count) owner-scoped Coin Cell proof(s) verified at finalized state."
+        }
         switch networkState {
         case .healthy: "The network is finalized, but no owner-scoped Coin Cell proof is loaded for this wallet."
         case .checking: "Waiting for a finalized RPC checkpoint before loading wallet state."
