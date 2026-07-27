@@ -9,7 +9,7 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
 use activechain_protocol_types::{
-    ChainId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature, TransactionId,
+    AssetId, ChainId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature, TransactionId,
 };
 use alloc::{boxed::Box, vec::Vec};
 use sha3::{
@@ -608,14 +608,39 @@ impl CanonicalType for FaucetReceiptV1 {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RpcRequest {
     Status,
-    Get { kind: QueryKind, key: Digest384 },
-    List { kind: QueryKind, after: Option<Digest384>, limit: u16 },
-    SubmitAnchor { statement: Vec<u8> },
-    ResolveAnchor { reference: Digest384 },
-    RequestFaucet { request: Box<FaucetRequestV1> },
-    ResolveFaucet { reference: Digest384 },
+    Get {
+        kind: QueryKind,
+        key: Digest384,
+    },
+    List {
+        kind: QueryKind,
+        after: Option<Digest384>,
+        limit: u16,
+    },
+    SubmitAnchor {
+        statement: Vec<u8>,
+    },
+    ResolveAnchor {
+        reference: Digest384,
+    },
+    RequestFaucet {
+        request: Box<FaucetRequestV1>,
+    },
+    ResolveFaucet {
+        reference: Digest384,
+    },
     FaucetTerms,
-    ListOwnerCoinCells { owner: PrincipalId, after: Option<Digest384>, limit: u16 },
+    ListOwnerCoinCells {
+        owner: PrincipalId,
+        after: Option<Digest384>,
+        limit: u16,
+    },
+    ListOwnerFungibleCoinCells {
+        owner: PrincipalId,
+        asset: AssetId,
+        after: Option<Digest384>,
+        limit: u16,
+    },
 }
 
 impl CanonicalEncode for RpcRequest {
@@ -656,6 +681,13 @@ impl CanonicalEncode for RpcRequest {
                 after.encode(encoder)?;
                 limit.encode(encoder)
             }
+            Self::ListOwnerFungibleCoinCells { owner, asset, after, limit } => {
+                9_u8.encode(encoder)?;
+                owner.encode(encoder)?;
+                asset.encode(encoder)?;
+                after.encode(encoder)?;
+                limit.encode(encoder)
+            }
         }
     }
 }
@@ -689,6 +721,16 @@ impl CanonicalDecode for RpcRequest {
                     return Err(DecodeError::InvalidValue("RPC page limit is out of bounds"));
                 }
                 Ok(Self::ListOwnerCoinCells { owner, after, limit })
+            }
+            9 => {
+                let owner = PrincipalId::decode(decoder)?;
+                let asset = AssetId::decode(decoder)?;
+                let after = Option::<Digest384>::decode(decoder)?;
+                let limit = u16::decode(decoder)?;
+                if limit == 0 || limit > MAX_RPC_PAGE_SIZE {
+                    return Err(DecodeError::InvalidValue("RPC page limit is out of bounds"));
+                }
+                Ok(Self::ListOwnerFungibleCoinCells { owner, asset, after, limit })
             }
             tag => Err(DecodeError::InvalidEnumTag { type_name: "RpcRequest", tag }),
         }
@@ -854,7 +896,9 @@ impl RpcAccessTerms {
             | RpcRequest::ResolveAnchor { .. }
             | RpcRequest::RequestFaucet { .. }
             | RpcRequest::ResolveFaucet { .. } => Some(self.get_units),
-            RpcRequest::List { limit, .. } | RpcRequest::ListOwnerCoinCells { limit, .. } => self
+            RpcRequest::List { limit, .. }
+            | RpcRequest::ListOwnerCoinCells { limit, .. }
+            | RpcRequest::ListOwnerFungibleCoinCells { limit, .. } => self
                 .list_item_units
                 .checked_mul(*limit as u64)
                 .and_then(|items| self.list_base_units.checked_add(items)),

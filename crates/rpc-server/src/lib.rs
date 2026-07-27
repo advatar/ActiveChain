@@ -19,7 +19,7 @@ use activechain_cash_kernel::{
     FungibleCoinCellRecord, prove_coin_cell_membership,
 };
 use activechain_finality_types::commit_parts;
-use activechain_protocol_types::{ChainId, Digest384, Object, PrincipalId, TransactionId};
+use activechain_protocol_types::{AssetId, ChainId, Digest384, Object, PrincipalId, TransactionId};
 use activechain_rpc_types::{
     ActionSetProof, Health, MAX_SUPPORTED_PROOFS, ProofKind, QueryKind, QueryPage, QueryRecord,
     RpcAccessRequest, RpcAccessResponse, RpcError, RpcRequest, RpcResponse, RpcStatus,
@@ -351,6 +351,32 @@ impl RpcIndex {
         let next = has_more.then(|| records.last().expect("a page with more has a record").key());
         QueryPage::new(records, next).map_err(|_| RpcStoreError::Invalid)
     }
+
+    fn list_owner_fungible_coin_cells(
+        &self,
+        owner: PrincipalId,
+        asset: AssetId,
+        after: Option<Digest384>,
+        limit: u16,
+    ) -> Result<QueryPage, RpcStoreError> {
+        let mut records = Vec::with_capacity(limit as usize);
+        let mut has_more = false;
+        for record in self.records.iter().filter(|record| {
+            record.kind() == QueryKind::FungibleCoinCell
+                && after.is_none_or(|key| record.key() > key)
+                && decode_envelope::<FungibleCoinCellRecord>(record.value()).is_ok_and(|cell| {
+                    cell.cell().owner() == owner && cell.cell().asset_id() == asset
+                })
+        }) {
+            if records.len() == limit as usize {
+                has_more = true;
+                break;
+            }
+            records.push(record.clone());
+        }
+        let next = has_more.then(|| records.last().expect("a page with more has a record").key());
+        QueryPage::new(records, next).map_err(|_| RpcStoreError::Invalid)
+    }
 }
 
 impl CanonicalEncode for RpcIndex {
@@ -519,6 +545,9 @@ impl DurableRpcStore {
                 .map_or(RpcResponse::Error(RpcError::Internal), RpcResponse::Page),
             RpcRequest::ListOwnerCoinCells { owner, after, limit } => index
                 .list_owner_coin_cells(owner, after, limit)
+                .map_or(RpcResponse::Error(RpcError::Internal), RpcResponse::Page),
+            RpcRequest::ListOwnerFungibleCoinCells { owner, asset, after, limit } => index
+                .list_owner_fungible_coin_cells(owner, asset, after, limit)
                 .map_or(RpcResponse::Error(RpcError::Internal), RpcResponse::Page),
             RpcRequest::SubmitAnchor { .. }
             | RpcRequest::ResolveAnchor { .. }
