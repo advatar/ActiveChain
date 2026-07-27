@@ -11,4 +11,5 @@ policy_pause\tfinalized asset policy lifecycle=paused\treject\twallet must not c
 policy_supply_stale\tpolicy supply pre-state differs from transition\treject\tno stale policy admission
 cash_proof_owner_mismatch\tproof record owner differs from wallet owner\treject\towner binding
 cash_proof_root_mismatch\tproof root differs from finalized cash root\treject\tfinality root binding
+fungible_proof_asset_mismatch\tproof asset differs from requested asset\treject\tasset identity binding
 fee_substitution\tfee-policy=ACT,selected-fee-cell=EUR\treject\texplicit fee asset

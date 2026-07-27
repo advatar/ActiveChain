@@ -42,7 +42,8 @@ pub use openwallet::{
 use activechain_canonical_codec::decode_envelope;
 use activechain_cash_kernel::{
     AuthenticatedCoinCellRoot, CoinCellMembershipProof, CoinCellRecord, CoinTransfer, FeeQuote,
-    FungibleCoinCellSet, FungibleTransferV1, verify_coin_cell_membership,
+    FungibleCoinCellMembershipProof, FungibleCoinCellRecord, FungibleCoinCellSet,
+    FungibleTransferV1, verify_coin_cell_membership,
 };
 use activechain_cash_kernel::{CashLedger, CashTransitionError, GenesisEconomy};
 use activechain_protocol_commitment::cash_transition_id;
@@ -194,6 +195,26 @@ pub fn verify_owner_coin_cell_proof(
         || proof.record() != *record
         || proof.root() != AuthenticatedCoinCellRoot::new(finalized_root)
         || verify_coin_cell_membership(proof).is_err()
+    {
+        return Err(WalletError::InvalidCashProof);
+    }
+    Ok(())
+}
+
+/// Verifies an owner- and asset-scoped fungible Coin Cell proof before wallet
+/// balance aggregation or transfer selection.
+pub fn verify_owner_fungible_coin_cell_proof(
+    record: &FungibleCoinCellRecord,
+    proof: &FungibleCoinCellMembershipProof,
+    owner: PrincipalId,
+    asset: activechain_protocol_types::AssetId,
+    finalized_root: Digest384,
+) -> Result<(), WalletError> {
+    if record.cell().owner() != owner
+        || record.cell().asset_id() != asset
+        || proof.record() != *record
+        || proof.root() != finalized_root
+        || proof.verify_for_asset(asset).is_err()
     {
         return Err(WalletError::InvalidCashProof);
     }
@@ -1169,6 +1190,28 @@ mod tests {
             build_fungible_transfer(&set, asset, owner, principal(3), &[payment], 20).unwrap();
         assert_eq!(transfer.asset_id(), asset);
         assert_eq!(transfer.amount(), 20);
+        let fungible_record = set.as_slice().iter().find(|record| record.id() == payment).unwrap();
+        let fungible_proof = FungibleCoinCellMembershipProof::prove(&set, payment).unwrap();
+        assert_eq!(
+            verify_owner_fungible_coin_cell_proof(
+                fungible_record,
+                &fungible_proof,
+                owner,
+                asset,
+                set.root(),
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            verify_owner_fungible_coin_cell_proof(
+                fungible_record,
+                &fungible_proof,
+                owner,
+                activechain_protocol_types::AssetId::new(digest(45)),
+                set.root(),
+            ),
+            Err(WalletError::InvalidCashProof)
+        );
         assert!(
             build_fungible_transfer(
                 &set,

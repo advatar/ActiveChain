@@ -547,6 +547,14 @@ impl FungibleCoinCellMembershipProof {
         }
         Ok(())
     }
+    /// Verifies membership and the caller's expected asset identity.
+    pub fn verify_for_asset(&self, asset: AssetId) -> Result<(), NativeMoneyError> {
+        self.verify()?;
+        if self.record.cell().asset_id() != asset {
+            return Err(NativeMoneyError::InvalidInputs);
+        }
+        Ok(())
+    }
     pub const fn root(&self) -> Digest384 {
         self.root
     }
