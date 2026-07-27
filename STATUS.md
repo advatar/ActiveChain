@@ -195,6 +195,8 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
   pending/finalized/rejected proof-bearing status through the Kanalen gateway.
 - [ ] Publish the end-to-end funding admission contract and adversarial vectors before public
   faucet deployment.
+- [x] Freeze executable faucet invariant vectors for failed-settlement atomicity, source/global
+  limits, restart equivalence, and exactly-once idempotency.
 - [ ] Formally verify testnet-only validity, supply conservation, exactly-once issuance,
   rate-limit monotonicity, atomic restart equivalence, and receipt-to-finalized-transition binding;
   publish the proof scope and every remaining assumption or gap.

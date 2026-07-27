@@ -647,4 +647,53 @@ mod tests {
         ));
         std::fs::remove_file(path).unwrap();
     }
+
+    #[test]
+    fn failed_settlement_is_atomic_and_limits_are_monotonic() {
+        let path = path("invariants");
+        let mut faucet = DurableFaucet::create(policy(), path.clone()).unwrap();
+        let target = request(3, 40);
+        assert_eq!(
+            faucet.request(&target, digest(40), 100, |_, _, _| Err(FaucetError::Persistence)),
+            Err(FaucetError::Persistence)
+        );
+        // A failed validator submission consumes no idempotency slot or rate-limit budget.
+        assert!(
+            faucet
+                .request(&target, digest(40), 100, |_, _, _| Ok(TransactionId::new(digest(41))))
+                .is_ok()
+        );
+
+        assert!(
+            faucet
+                .request(&request(4, 41), digest(40), 120, |_, _, _| {
+                    Ok(TransactionId::new(digest(42)))
+                })
+                .is_ok()
+        );
+        assert_eq!(
+            faucet.request(&request(5, 42), digest(40), 120, |_, _, _| Ok(TransactionId::new(
+                digest(43)
+            ))),
+            Err(FaucetError::SourceLimited)
+        );
+        // Different sources can still use the global budget until it is exhausted.
+        assert!(
+            faucet
+                .request(&request(6, 43), digest(42), 120, |_, _, _| Ok(TransactionId::new(
+                    digest(43)
+                )))
+                .is_ok()
+        );
+        assert_eq!(
+            faucet.request(&request(7, 44), digest(43), 120, |_, _, _| Ok(TransactionId::new(
+                digest(45)
+            ))),
+            Err(FaucetError::GlobalLimited)
+        );
+        drop(faucet);
+        let reopened = DurableFaucet::open(policy(), path.clone()).unwrap();
+        assert_eq!(reopened.records.len(), 3);
+        std::fs::remove_file(path).unwrap();
+    }
 }
