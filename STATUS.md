@@ -118,6 +118,10 @@ Phase 0 bootstrap is tracked by [GitHub issue #1](https://github.com/advatar/Act
 
 ## Active testnet fix — verified wallet state discovery
 
+- [x] Qualify the wallet-core/OpenWallet and agent-management primitives: all 36 library tests
+  pass, including deterministic selection, PQ authorization, durable replay barriers, OpenWallet
+  consent/nonces, agent enrollment/revocation, and malformed-vector rejection.
+
 Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180).
 
 - [x] Define a bounded owner-scoped Coin Cell query and finalized proof-bearing response.
