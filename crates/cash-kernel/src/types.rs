@@ -932,6 +932,19 @@ impl FungibleRedemptionV1 {
     pub const fn settlement_reference(&self) -> Digest384 {
         self.settlement_reference
     }
+    /// Requires redemption to reference the active finalized issuer policy.
+    pub fn validate_against_policy(
+        &self,
+        policy: &FungibleAssetPolicyV1,
+    ) -> Result<(), NativeMoneyError> {
+        if self.asset_id != policy.asset_id()
+            || self.amount > policy.supply_issued()
+            || policy.lifecycle() != FungibleAssetLifecycle::Registered
+        {
+            return Err(NativeMoneyError::InvalidInputs);
+        }
+        Ok(())
+    }
 }
 impl CanonicalEncode for FungibleRedemptionV1 {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
@@ -1134,6 +1147,46 @@ mod fungible_cell_tests {
         assert_eq!(
             mint.validate_against_policy(&paused),
             Err(NativeMoneyError::MintAuthorityMismatch)
+        );
+    }
+
+    #[test]
+    fn redemption_requires_registered_policy_state() {
+        let asset = AssetId::new(Digest384::new([2; 48]));
+        let authority = PrincipalId::new(Digest384::new([3; 48]));
+        let origin = CoinCellOrigin::new(TransactionId::new(Digest384::new([1; 48])), 0);
+        let cell = FungibleCoinCell::new(origin, asset, authority, 10, 7).unwrap();
+        let redemption =
+            FungibleRedemptionV1::new(asset, authority, vec![cell], 10, Digest384::new([4; 48]))
+                .unwrap();
+        let policy = FungibleAssetPolicyV1::new(
+            asset,
+            authority,
+            Digest384::new([6; 48]),
+            Digest384::new([7; 48]),
+            Digest384::new([8; 48]),
+            Digest384::new([9; 48]),
+            100,
+            20,
+            FungibleAssetLifecycle::Registered,
+        )
+        .unwrap();
+        assert!(redemption.validate_against_policy(&policy).is_ok());
+        let retired = FungibleAssetPolicyV1::new(
+            asset,
+            authority,
+            Digest384::new([6; 48]),
+            Digest384::new([7; 48]),
+            Digest384::new([8; 48]),
+            Digest384::new([9; 48]),
+            100,
+            20,
+            FungibleAssetLifecycle::Retired,
+        )
+        .unwrap();
+        assert_eq!(
+            redemption.validate_against_policy(&retired),
+            Err(NativeMoneyError::InvalidInputs)
         );
     }
 }
