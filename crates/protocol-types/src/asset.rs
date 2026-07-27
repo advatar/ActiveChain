@@ -66,7 +66,6 @@ impl FungibleIssuerRegistrationV1 {
     ) -> Result<Self, AssetDefinitionError> {
         if asset_id.digest() == &Digest384::ZERO
             || issuer.digest() == &Digest384::ZERO
-            || authority_set == Digest384::ZERO
             || policy_commitment == Digest384::ZERO
             || effective_height >= expires_height
         {
@@ -570,7 +569,10 @@ impl FungibleAssetPolicyV1 {
         supply_issued: u128,
         lifecycle: FungibleAssetLifecycle,
     ) -> Result<Self, AssetDefinitionError> {
-        if asset_id.digest() == &Digest384::ZERO || issuer.digest() == &Digest384::ZERO {
+        if asset_id.digest() == &Digest384::ZERO
+            || issuer.digest() == &Digest384::ZERO
+            || authority_set == Digest384::ZERO
+        {
             return Err(AssetDefinitionError::ZeroSupplyCap);
         }
         if supply_cap == 0 || supply_issued > supply_cap {
