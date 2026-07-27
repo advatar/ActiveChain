@@ -409,6 +409,16 @@ impl FungibleAssetLifecycleActionV1 {
     pub const fn active_at(&self, height: u64) -> bool {
         height >= self.effective_height && height < self.expires_height
     }
+    pub fn binds_context(
+        &self,
+        asset_id: AssetId,
+        expected_policy: Digest384,
+        authority_set: Digest384,
+    ) -> bool {
+        self.asset_id == asset_id
+            && self.expected_policy == expected_policy
+            && self.authority_set == authority_set
+    }
 }
 impl CanonicalEncode for FungibleAssetLifecycleActionV1 {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
@@ -576,6 +586,8 @@ mod tests {
         );
         assert!(action.active_at(10));
         assert!(!action.active_at(20));
+        assert!(action.binds_context(id(1), Digest384::new([2; 48]), Digest384::new([3; 48])));
+        assert!(!action.binds_context(id(2), Digest384::new([2; 48]), Digest384::new([3; 48])));
         assert!(
             FungibleAssetLifecycleActionV1::new(
                 id(1),
