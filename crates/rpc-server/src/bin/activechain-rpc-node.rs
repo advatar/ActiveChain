@@ -1,6 +1,7 @@
 use activechain_application_primitives::DurableAnchorRegistry;
 use activechain_rpc_server::{
-    DurableRpcStore, RpcAccessController, RpcServer, load_access_terms, verify_access_terms,
+    DurableRpcStore, RpcAccessController, RpcServer, WalletIngressAuthorizedSettlementAdapter,
+    load_access_terms, verify_access_terms,
 };
 use activechain_rpc_types::RpcAccessMode;
 use std::{
@@ -8,6 +9,7 @@ use std::{
     net::TcpListener,
     path::PathBuf,
     sync::Arc,
+    sync::atomic::AtomicU64,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -31,6 +33,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         DurableRpcStore::load(snapshot)
             .map_err(|error| format!("could not load RPC index: {error:?}"))?,
     );
+    let chain_id = store
+        .chain_id()
+        .map_err(|error| format!("could not read RPC chain identity: {error:?}"))?;
     let listener = TcpListener::bind(&address)?;
     eprintln!("ActiveChain development RPC listening on {}", listener.local_addr()?);
     let server = if let Some(terms_path) = access_terms {
@@ -77,6 +82,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             DurableAnchorRegistry::open(anchor_path)
                 .map_err(|error| format!("could not initialize anchor registry: {error:?}"))?,
         )
+    } else {
+        server
+    };
+    let server = if let Some(wallet_path) = env::var_os("ACTIVECHAIN_WALLET_INGRESS_SNAPSHOT") {
+        let wallet_path = PathBuf::from(wallet_path);
+        let ingress = activechain_wallet_core::TransactionIngress::load(&wallet_path, chain_id)
+        .map_err(|error| format!("could not load wallet ingress snapshot: {error:?}"))?;
+        let height = env::var("ACTIVECHAIN_FINALIZED_HEIGHT")
+            .map_err(|_| "ACTIVECHAIN_FINALIZED_HEIGHT is required with wallet ingress")?
+            .parse::<u64>()
+            .map_err(|_| "ACTIVECHAIN_FINALIZED_HEIGHT is not a u64")?;
+        let adapter = WalletIngressAuthorizedSettlementAdapter::new(
+            Arc::new(std::sync::Mutex::new(ingress)),
+            chain_id,
+            Arc::new(AtomicU64::new(height)),
+        );
+        server.with_authorized_faucet_settlement_adapter(adapter)
     } else {
         server
     };
