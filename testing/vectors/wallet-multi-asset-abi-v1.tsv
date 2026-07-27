@@ -7,4 +7,6 @@ expired_proof\towner-proof-expired\treject\tfinalized proof required
 owner_mismatch\tfinalized cell owner != requested owner\treject\towner-scoped verification
 genesis_mismatch\tfinality bundle genesis != trusted chain genesis\treject\tchain identity binding
 publisher_cross_chain\tcash publisher receives a foreign finality bundle\treject\tno cross-network indexing
+policy_pause\tfinalized asset policy lifecycle=paused\treject\twallet must not construct disabled transfers
+policy_supply_stale\tpolicy supply pre-state differs from transition\treject\tno stale policy admission
 fee_substitution\tfee-policy=ACT,selected-fee-cell=EUR\treject\texplicit fee asset

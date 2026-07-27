@@ -46,8 +46,8 @@ use activechain_cash_kernel::{
 };
 use activechain_protocol_commitment::cash_transition_id;
 use activechain_protocol_types::{
-    AuthenticatorId, ChainId, CoinCellId, Digest384, ML_DSA44_PUBLIC_KEY_LENGTH, PrincipalId,
-    TransactionId,
+    AuthenticatorId, ChainId, CoinCellId, Digest384, FungibleAssetPolicyV1,
+    ML_DSA44_PUBLIC_KEY_LENGTH, PrincipalId, TransactionId,
 };
 use alloc::vec::Vec;
 use std::io::{Read, Write};
@@ -766,6 +766,24 @@ pub fn build_fungible_transfer(
         .map_err(|_| WalletError::InsufficientFunds)
 }
 
+/// Builds a fungible transfer only after checking it against the finalized
+/// issuer policy supplied by the RPC proof path. This prevents wallet callers
+/// from constructing an asset transfer using stale, paused, retired, or
+/// cross-policy state.
+pub fn build_fungible_transfer_against_policy(
+    cells: &FungibleCoinCellSet,
+    asset: activechain_protocol_types::AssetId,
+    policy: &FungibleAssetPolicyV1,
+    sender: PrincipalId,
+    recipient: PrincipalId,
+    input_ids: &[CoinCellId],
+    amount: u128,
+) -> Result<FungibleTransferV1, WalletError> {
+    let transfer = build_fungible_transfer(cells, asset, sender, recipient, input_ids, amount)?;
+    transfer.validate_against_policy(policy).map_err(|_| WalletError::PolicyDenied)?;
+    Ok(transfer)
+}
+
 pub fn authorize_intent(
     policy: SpendPolicy,
     intent: WalletIntent,
@@ -1120,6 +1138,55 @@ mod tests {
                 20
             )
             .is_err()
+        );
+
+        let policy = FungibleAssetPolicyV1::new(
+            asset,
+            owner,
+            digest(50),
+            digest(51),
+            digest(52),
+            digest(53),
+            1_000,
+            100,
+            activechain_protocol_types::FungibleAssetLifecycle::Registered,
+        )
+        .unwrap();
+        assert!(
+            build_fungible_transfer_against_policy(
+                &set,
+                asset,
+                &policy,
+                owner,
+                principal(3),
+                &[payment],
+                20,
+            )
+            .is_ok()
+        );
+        let paused = activechain_protocol_types::FungibleAssetPolicyV1::new(
+            asset,
+            owner,
+            digest(50),
+            digest(51),
+            digest(52),
+            digest(53),
+            1_000,
+            100,
+            activechain_protocol_types::FungibleAssetLifecycle::Paused,
+        )
+        .unwrap();
+        assert_eq!(
+            build_fungible_transfer_against_policy(
+                &set,
+                asset,
+                &paused,
+                owner,
+                principal(3),
+                &[payment],
+                20,
+            ),
+            Err(WalletError::PolicyDenied)
         );
     }
 

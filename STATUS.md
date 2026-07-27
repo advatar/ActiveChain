@@ -233,6 +233,8 @@ Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163
   redemption, jurisdiction, authority, lifecycle, and bounded supply commitments.
 - [x] Add proof-bearing owner-and-asset RPC discovery with bounded pagination.
 - [x] Extend the versioned wallet ABI for multi-asset balances, selection, signing, and submission.
+- [x] Add wallet transfer construction that requires the finalized asset policy and rejects paused,
+  retired, stale, or cross-asset policy state.
 - [x] Add deterministic wallet selection over `FungibleCoinCellSet` with explicit asset identity.
 - [x] Qualify native, test-EUR, and test-USD assets with cross-asset adversarial vectors.
 
