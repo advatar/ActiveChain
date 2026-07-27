@@ -235,6 +235,7 @@ Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213
   malformed vectors; private list matches and analyst evidence remain provider-held.
 - [x] Add the versioned screening policy boundary for list authority, parameter commitments,
   freshness, and clear-only admission.
+- [x] Bind screening acceptance to the exact regulated chain and transaction context.
 
 ## Active dBrowser development RPC contract
 

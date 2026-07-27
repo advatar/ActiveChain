@@ -289,6 +289,16 @@ impl ScreeningPolicyV1 {
             && now < decision.expires_at
             && matches!(decision.outcome, ScreeningOutcome::Cleared)
     }
+    /// Applies the policy to one exact regulated transfer context.
+    pub fn accepts_for_action(
+        &self,
+        decision: &ScreeningDecisionV1,
+        chain_id: ChainId,
+        action: TransactionId,
+        now: u64,
+    ) -> bool {
+        self.accepts(decision, now) && decision.chain_id == chain_id && decision.action == action
+    }
 }
 impl CanonicalEncode for ScreeningPolicyV1 {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
@@ -916,5 +926,17 @@ mod tests {
         )
         .unwrap();
         assert!(!policy.accepts(&match_result, 50));
+        assert!(policy.accepts_for_action(
+            &clear,
+            ChainId::new(d(2)),
+            TransactionId::new(d(3)),
+            50,
+        ));
+        assert!(!policy.accepts_for_action(
+            &clear,
+            ChainId::new(d(9)),
+            TransactionId::new(d(3)),
+            50,
+        ));
     }
 }
