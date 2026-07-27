@@ -680,6 +680,10 @@ pub unsafe extern "C" fn activechain_wallet_select_cells(
 }
 
 /// Selects payment and fee-reserve cells from an explicit fungible asset set.
+///
+/// # Safety
+/// All pointers must reference buffers valid for their declared lengths; output buffers must be
+/// writable for 48 bytes. No pointer is retained.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn activechain_wallet_select_fungible_cells(
     cells: *const u8,
@@ -859,6 +863,11 @@ pub unsafe extern "C" fn activechain_wallet_build_cash_intent(
 
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
+/// Builds a canonical asset-bound transfer envelope with size-query support.
+///
+/// # Safety
+/// All input pointers must reference readable buffers and `required_len` must be writable;
+/// `output` must be writable for `output_capacity` bytes.
 pub unsafe extern "C" fn activechain_wallet_build_fungible_transfer(
     cells: *const u8,
     cells_len: u32,
