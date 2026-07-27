@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 use activechain_protocol_types::{Digest384, PrincipalId, TransactionId};
+use activechain_canonical_codec::{CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder};
 use activechain_rpc_server::FaucetError;
 
 /// Backend implemented by the validator process or a local authenticated IPC client.
@@ -17,6 +18,22 @@ pub trait FaucetSettlementBackend: Send + Sync {
 pub struct ValidatorRpcBridge<B> {
     backend: B,
 }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SettlementRequest {
+    pub recipient: PrincipalId,
+    pub amount: u128,
+    pub reference: Digest384,
+}
+impl CanonicalEncode for SettlementRequest { fn encode(&self,e:&mut Encoder)->Result<(),EncodeError>{ self.recipient.encode(e)?; self.amount.encode(e)?; self.reference.encode(e) } }
+impl CanonicalDecode for SettlementRequest { fn decode(d:&mut Decoder<'_>)->Result<Self,DecodeError>{ Ok(Self{recipient:PrincipalId::decode(d)?,amount:u128::decode(d)?,reference:Digest384::decode(d)?}) } }
+impl CanonicalType for SettlementRequest { const TYPE_TAG:u16=0x00D0; const SCHEMA_VERSION:u16=1; const MAX_ENCODED_LEN:usize=48+16+48; }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SettlementResponse { pub transaction: TransactionId }
+impl CanonicalEncode for SettlementResponse { fn encode(&self,e:&mut Encoder)->Result<(),EncodeError>{ self.transaction.encode(e) } }
+impl CanonicalDecode for SettlementResponse { fn decode(d:&mut Decoder<'_>)->Result<Self,DecodeError>{ Ok(Self{transaction:TransactionId::decode(d)?}) } }
+impl CanonicalType for SettlementResponse { const TYPE_TAG:u16=0x00D1; const SCHEMA_VERSION:u16=1; const MAX_ENCODED_LEN:usize=48; }
 
 #[cfg(test)]
 mod tests {
