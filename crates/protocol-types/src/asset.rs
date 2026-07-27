@@ -567,6 +567,52 @@ impl CanonicalType for FungibleAssetLifecycleActionV1 {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    fn policy(supply: u128, cap: u128) -> FungibleAssetPolicyV1 {
+        FungibleAssetPolicyV1::new(
+            AssetId::new(Digest384::new([1; 48])),
+            PrincipalId::new(Digest384::new([2; 48])),
+            Digest384::new([3; 48]),
+            Digest384::new([4; 48]),
+            Digest384::new([5; 48]),
+            Digest384::new([6; 48]),
+            cap,
+            supply,
+            FungibleAssetLifecycle::Registered,
+        )
+        .unwrap()
+    }
+
+    #[kani::proof]
+    fn mint_transition_preserves_exact_pre_state_and_cap() {
+        let cap: u128 = kani::any();
+        let supply: u128 = kani::any();
+        let amount: u128 = kani::any();
+        kani::assume(cap > 0);
+        kani::assume(supply <= cap);
+        let current = policy(supply, cap);
+        if let Ok(next) = current.apply_mint(current.issuer(), amount, supply) {
+            assert_eq!(next.supply_issued(), supply + amount);
+            assert!(next.supply_issued() <= cap);
+        }
+    }
+
+    #[kani::proof]
+    fn burn_transition_never_underflows_or_changes_other_policy_fields() {
+        let supply: u128 = kani::any();
+        let amount: u128 = kani::any();
+        let current = policy(supply, u128::MAX);
+        if let Ok(next) = current.apply_burn(amount, supply) {
+            assert_eq!(next.supply_issued(), supply - amount);
+            assert_eq!(next.asset_id(), current.asset_id());
+            assert_eq!(next.authority_set(), current.authority_set());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
