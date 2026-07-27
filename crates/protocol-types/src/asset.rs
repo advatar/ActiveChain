@@ -1604,5 +1604,23 @@ mod tests {
         )
         .unwrap();
         assert!(policy.apply_approved_mint(issuer, &wrong, 20).is_err());
+
+        let burn = FungibleIssuerApprovalV1::new(
+            id(1),
+            policy.commitment().unwrap(),
+            policy.authority_set(),
+            Digest384::new([8; 48]),
+            FungibleIssuerOperation::Redemption,
+            3,
+            10,
+            20,
+            30,
+        )
+        .unwrap();
+        assert_eq!(
+            policy.apply_approved_burn(&burn, FungibleIssuerOperation::Redemption, 20),
+            Ok(FungibleAssetPolicyV1 { supply_issued: 7, ..policy })
+        );
+        assert!(policy.apply_approved_burn(&burn, FungibleIssuerOperation::Mint, 20).is_err());
     }
 }
