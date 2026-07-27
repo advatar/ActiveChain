@@ -153,7 +153,8 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
 - [x] Enable the Kanalen ingestion runner to publish finalized cash snapshots when validator
   output and its matching finality bundle are available; retain metadata-only ingestion until
   then.
-- [ ] Load a real device wallet profile and remove the hard-coded unavailable dashboard path.
+- [x] Load a real device wallet profile and remove the hard-coded unavailable dashboard path;
+  balances remain fail-closed until the linked verifier accepts finalized owner proofs.
 - [ ] Extend Kanalen ingestion/rehearsal, add adversarial tests, deploy, and verify the public RPC.
 
 ## Active recovery — abandoned checkout reconciliation
