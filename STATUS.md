@@ -1226,6 +1226,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
   previous-record commitment binding.
 - [x] Implement the domain-separated SHAKE method-specific DID derivation from `PrincipalId` and
   method version; reject zero principals and key/name-derived aliases.
+- [x] Enforce active-state semantics for DID update/recovery operations and require inactive
+  records exclusively for deactivation operations.
 - [ ] Add ML-DSA rotation, ML-KEM agreement, SLH-DSA recovery, deactivation, and DID test vectors.
 - [ ] Add ENS alias records without treating ENS control as protocol authorization.
 - [ ] Add EUDI Wallet interoperability for OpenID4VCI/OpenID4VP and mdoc/VC presentations.

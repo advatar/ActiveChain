@@ -249,7 +249,9 @@ impl DidControllerOperationV1 {
             DidOperationKind::Deactivate if next.active() || previous_commitment.is_none() => {
                 Err(DidRecordError::InvalidOperation)
             }
-            DidOperationKind::Update | DidOperationKind::Recover if previous_commitment.is_none() => {
+            DidOperationKind::Update | DidOperationKind::Recover
+                if previous_commitment.is_none() || !next.active() =>
+            {
                 Err(DidRecordError::InvalidOperation)
             }
             _ => Ok(Self { kind, principal, previous_commitment, next, authorization_commitment }),
