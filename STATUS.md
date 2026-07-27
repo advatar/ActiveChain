@@ -1014,6 +1014,10 @@ Tracked by [GitHub issue #8](https://github.com/advatar/ActiveChain/issues/8).
 
 ## Completed milestone — bounded APL policy kernel
 
+- [x] Qualify the policy kernel: all 15 tests pass for bounded AST/request validation, strict
+  canonical envelopes, default-deny/forbid precedence, deterministic obligations, exact fact and
+  approval lookup, metering independence, and general-effect-fold refinement.
+
 Tracked by [GitHub issue #3](https://github.com/advatar/ActiveChain/issues/3).
 
 - [x] Draft the normative `P-023` Authorization Policy Language specification.
