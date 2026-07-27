@@ -318,6 +318,23 @@ final class WalletRPCClient: @unchecked Sendable {
         return try WalletRPCCodec.decodeStatus(try await receiveExactly(length, over: connection))
     }
 
+    func ownerCoinCells(owner: Data, limit: UInt16 = 4) async throws -> WalletOwnerCoinPage {
+        let connection = NWConnection(host: "rpc.kanalen.activechain.dev", port: 443, using: .tls)
+        let timeout = DispatchSource.makeTimerSource(queue: queue)
+        timeout.schedule(deadline: .now() + 8)
+        timeout.setEventHandler { connection.cancel() }
+        timeout.resume()
+        defer { timeout.cancel(); connection.cancel() }
+        try await waitUntilReady(connection)
+        try await send(try WalletRPCCodec.framedOwnerCoinCellRequest(owner: owner, limit: limit), over: connection)
+        let prefix = try await receiveExactly(4, over: connection)
+        let length = prefix.reduce(0) { ($0 << 8) | Int($1) }
+        guard length > 0, length <= WalletRPCCodec.maximumFrameLength else {
+            throw length > WalletRPCCodec.maximumFrameLength ? WalletRPCError.responseTooLarge : WalletRPCError.malformedResponse
+        }
+        return try WalletRPCCodec.decodeOwnerCoinPage(try await receiveExactly(length, over: connection))
+    }
+
     private func waitUntilReady(_ connection: NWConnection) async throws {
         try await withCheckedThrowingContinuation { continuation in
             let gate = WalletContinuationGate()
