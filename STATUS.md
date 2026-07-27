@@ -369,6 +369,7 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   half-open activation windows.
 - [x] Add an exact registration-to-policy binding predicate for issuer, authority set, asset, and
   policy commitment substitution resistance.
+- [x] Add a Kani proof boundary for supply-attestation identity and exact-supply preservation.
 - [x] Freeze canonical bounded pause/resume/retire lifecycle actions with policy, authority,
   reason, and activation/expiry bindings.
 - [x] Bind lifecycle actions to a concrete threshold-approval commitment.

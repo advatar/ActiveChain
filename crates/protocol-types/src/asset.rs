@@ -1099,6 +1099,27 @@ mod kani_proofs {
             assert_eq!(next.authority_set(), current.authority_set());
         }
     }
+
+    #[kani::proof]
+    fn supply_attestation_preserves_policy_identity_and_supply() {
+        let supply: u128 = kani::any();
+        let cap: u128 = kani::any();
+        kani::assume(cap > 0);
+        kani::assume(supply > 0 && supply <= cap);
+        let current = policy(supply, cap);
+        let attestation = FungibleSupplyAttestationV1::new(
+            current.asset_id(),
+            current.commitment().unwrap(),
+            current.issuer(),
+            supply,
+            1,
+            Digest384::new([7; 48]),
+        )
+        .unwrap();
+        assert!(attestation.binds_policy(&current));
+        assert_eq!(attestation.supply_issued(), current.supply_issued());
+        assert_eq!(attestation.asset_id(), current.asset_id());
+    }
 }
 
 #[cfg(test)]
