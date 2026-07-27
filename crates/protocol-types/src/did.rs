@@ -139,6 +139,55 @@ impl CanonicalType for DidControllerRecordV1 {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DidResolutionV1 {
+    did: Digest384,
+    finalized_height: u64,
+    record: Option<DidControllerRecordV1>,
+}
+
+impl DidResolutionV1 {
+    pub const TYPE_TAG: u16 = 0x00d9;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 + 8 + 2 + DidControllerRecordV1::MAX_ENCODED_LEN;
+
+    pub fn new(
+        did: Digest384,
+        finalized_height: u64,
+        record: Option<DidControllerRecordV1>,
+    ) -> Result<Self, DidRecordError> {
+        if did == Digest384::ZERO {
+            return Err(DidRecordError::InvalidIdentity);
+        }
+        if record.is_some_and(|value| value.principal().digest() == &Digest384::ZERO) {
+            return Err(DidRecordError::InvalidIdentity);
+        }
+        Ok(Self { did, finalized_height, record })
+    }
+    pub const fn did(&self) -> Digest384 { self.did }
+    pub const fn finalized_height(&self) -> u64 { self.finalized_height }
+    pub const fn record(&self) -> Option<&DidControllerRecordV1> { self.record.as_ref() }
+}
+
+impl CanonicalEncode for DidResolutionV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.did.encode(e)?;
+        self.finalized_height.encode(e)?;
+        self.record.encode(e)
+    }
+}
+impl CanonicalDecode for DidResolutionV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(Digest384::decode(d)?, u64::decode(d)?, Option::<DidControllerRecordV1>::decode(d)?)
+            .map_err(|_| DecodeError::InvalidValue("invalid did resolution"))
+    }
+}
+impl CanonicalType for DidResolutionV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,5 +227,12 @@ mod tests {
             ),
             Err(DidRecordError::InvalidCommitment)
         );
+    }
+
+    #[test]
+    fn resolution_round_trips_and_supports_deactivated_absence() {
+        let resolution = DidResolutionV1::new(digest(20), 42, None).unwrap();
+        assert_eq!(decode_envelope::<DidResolutionV1>(&encode_envelope(&resolution).unwrap()), Ok(resolution));
+        assert!(DidResolutionV1::new(Digest384::ZERO, 42, None).is_err());
     }
 }
