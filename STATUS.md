@@ -443,6 +443,11 @@ Tracked by [GitHub issue #165](https://github.com/advatar/ActiveChain/issues/165
 
 Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169).
 
+## Active dBrowser downstream qualification
+
+- [x] Publish the stable verifier SDK, wallet ABI, RPC/light-client, artifact-readiness, and
+  honest-development-state contract for downstream dBrowser integration.
+
 - [ ] Freeze cross-repository schemas and deterministic vectors from TLSNotary evidence through
   self-issued or issuer-upgraded VC claims to ActiveChain circuit public inputs and receipts.
 - [ ] Preserve explicit provenance and assurance classes: notarized TLS evidence and holder
