@@ -26,6 +26,7 @@ pub enum AssetDefinitionError {
     SupplyCapExceeded,
     InvalidNftMetadata,
     NftOwnerMismatch,
+    SeriesSupplyExceeded,
 }
 
 /// Canonical native non-fungible token record. Metadata is represented only by
@@ -102,6 +103,79 @@ impl CanonicalDecode for NonFungibleTokenV1 {
     }
 }
 impl CanonicalType for NonFungibleTokenV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
+/// A bounded NFT collection with checked finalized mint accounting.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NonFungibleSeriesV1 {
+    asset_id: AssetId,
+    issuer: PrincipalId,
+    max_supply: u64,
+    minted: u64,
+    metadata_schema: Digest384,
+}
+impl NonFungibleSeriesV1 {
+    pub const TYPE_TAG: u16 = 0x00B1;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 3 + 8 + 8;
+    pub fn new(
+        asset_id: AssetId,
+        issuer: PrincipalId,
+        max_supply: u64,
+        minted: u64,
+        metadata_schema: Digest384,
+    ) -> Result<Self, AssetDefinitionError> {
+        if max_supply == 0 || minted > max_supply || metadata_schema == Digest384::ZERO {
+            return Err(AssetDefinitionError::SeriesSupplyExceeded);
+        }
+        Ok(Self { asset_id, issuer, max_supply, minted, metadata_schema })
+    }
+    pub const fn asset_id(&self) -> AssetId {
+        self.asset_id
+    }
+    pub const fn issuer(&self) -> PrincipalId {
+        self.issuer
+    }
+    pub const fn max_supply(&self) -> u64 {
+        self.max_supply
+    }
+    pub const fn minted(&self) -> u64 {
+        self.minted
+    }
+    pub const fn metadata_schema(&self) -> Digest384 {
+        self.metadata_schema
+    }
+    pub fn reserve_mint(&self, quantity: u64) -> Result<Self, AssetDefinitionError> {
+        let minted =
+            self.minted.checked_add(quantity).ok_or(AssetDefinitionError::SeriesSupplyExceeded)?;
+        Self::new(self.asset_id, self.issuer, self.max_supply, minted, self.metadata_schema)
+    }
+}
+impl CanonicalEncode for NonFungibleSeriesV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.asset_id.encode(e)?;
+        self.issuer.encode(e)?;
+        self.max_supply.encode(e)?;
+        self.minted.encode(e)?;
+        self.metadata_schema.encode(e)
+    }
+}
+impl CanonicalDecode for NonFungibleSeriesV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            AssetId::decode(d)?,
+            PrincipalId::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            Digest384::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid non-fungible series"))
+    }
+}
+impl CanonicalType for NonFungibleSeriesV1 {
     const TYPE_TAG: u16 = Self::TYPE_TAG;
     const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
@@ -902,6 +976,21 @@ mod tests {
                 Digest384::new([5; 48])
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn nft_series_mint_reservation_is_supply_conserving() {
+        let series =
+            NonFungibleSeriesV1::new(id(1), principal(2), 3, 1, Digest384::new([6; 48])).unwrap();
+        assert_eq!(
+            decode_envelope::<NonFungibleSeriesV1>(&encode_envelope(&series).unwrap()),
+            Ok(series)
+        );
+        assert_eq!(series.reserve_mint(2).unwrap().minted(), 3);
+        assert_eq!(series.reserve_mint(3), Err(AssetDefinitionError::SeriesSupplyExceeded));
+        assert!(
+            NonFungibleSeriesV1::new(id(1), principal(2), 0, 0, Digest384::new([6; 48])).is_err()
         );
     }
 
