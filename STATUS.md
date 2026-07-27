@@ -385,6 +385,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   asset/amount, parties, policy, nonce, expiry, and counterparty acknowledgement.
 - [x] Specify transaction-monitoring population reconciliation, versioned rules, case lifecycle,
   freeze/escalation controls, FIU reporting boundaries, and stale-system fail-closed behavior.
+- [x] Specify confidential evidence lifecycle, least-privilege access, retention/deletion/legal
+  hold, breach response, offline verification, and jurisdiction ambiguity handling.
 
 ## Active launch sequencing — versioned feature contract
 
