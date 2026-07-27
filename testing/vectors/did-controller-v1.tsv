@@ -1,0 +1,9 @@
+case	principal	operation	sequence	active	expected
+create	01	create	1	true	accept
+update	01	update	2	true	accept
+deactivate	01	deactivate	2	false	accept
+zero-principal	00	create	1	true	reject
+create-with-previous	01	create	1	true	reject
+update-without-previous	01	update	2	true	reject
+deactivate-active	01	deactivate	2	true	reject
+zero-authorization	01	create	1	true	reject
