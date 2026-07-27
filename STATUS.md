@@ -276,6 +276,7 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   and supply-attestation lifecycle semantics with deterministic vectors.
 - [x] Freeze canonical bounded pause/resume/retire lifecycle actions with policy, authority,
   reason, and activation/expiry bindings.
+- [x] Bind lifecycle actions to a concrete threshold-approval commitment.
 - [ ] Specify confidential evidence retention, deletion, access, breach handling, and offline
   verification boundaries with deterministic vectors.
 

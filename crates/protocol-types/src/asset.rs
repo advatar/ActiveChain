@@ -354,6 +354,7 @@ pub struct FungibleAssetLifecycleActionV1 {
     asset_id: AssetId,
     expected_policy: Digest384,
     authority_set: Digest384,
+    approval_commitment: Digest384,
     reason_commitment: Digest384,
     action: FungibleAssetLifecycleAction,
     effective_height: u64,
@@ -362,11 +363,12 @@ pub struct FungibleAssetLifecycleActionV1 {
 impl FungibleAssetLifecycleActionV1 {
     pub const TYPE_TAG: u16 = 0x00B2;
     pub const SCHEMA_VERSION: u16 = 1;
-    pub const MAX_ENCODED_LEN: usize = 48 * 4 + 1 + 8 + 8;
+    pub const MAX_ENCODED_LEN: usize = 48 * 5 + 1 + 8 + 8;
     pub fn new(
         asset_id: AssetId,
         expected_policy: Digest384,
         authority_set: Digest384,
+        approval_commitment: Digest384,
         reason_commitment: Digest384,
         action: FungibleAssetLifecycleAction,
         effective_height: u64,
@@ -375,6 +377,7 @@ impl FungibleAssetLifecycleActionV1 {
         if asset_id.digest() == &Digest384::ZERO
             || expected_policy == Digest384::ZERO
             || authority_set == Digest384::ZERO
+            || approval_commitment == Digest384::ZERO
             || reason_commitment == Digest384::ZERO
             || effective_height >= expires_height
         {
@@ -384,6 +387,7 @@ impl FungibleAssetLifecycleActionV1 {
             asset_id,
             expected_policy,
             authority_set,
+            approval_commitment,
             reason_commitment,
             action,
             effective_height,
@@ -411,6 +415,7 @@ impl CanonicalEncode for FungibleAssetLifecycleActionV1 {
         self.asset_id.encode(e)?;
         self.expected_policy.encode(e)?;
         self.authority_set.encode(e)?;
+        self.approval_commitment.encode(e)?;
         self.reason_commitment.encode(e)?;
         self.action.encode(e)?;
         self.effective_height.encode(e)?;
@@ -421,6 +426,7 @@ impl CanonicalDecode for FungibleAssetLifecycleActionV1 {
     fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
         Self::new(
             AssetId::decode(d)?,
+            Digest384::decode(d)?,
             Digest384::decode(d)?,
             Digest384::decode(d)?,
             Digest384::decode(d)?,
@@ -558,6 +564,7 @@ mod tests {
             Digest384::new([2; 48]),
             Digest384::new([3; 48]),
             Digest384::new([4; 48]),
+            Digest384::new([5; 48]),
             FungibleAssetLifecycleAction::Pause,
             10,
             20,
@@ -575,6 +582,7 @@ mod tests {
                 Digest384::new([2; 48]),
                 Digest384::new([3; 48]),
                 Digest384::new([4; 48]),
+                Digest384::new([5; 48]),
                 FungibleAssetLifecycleAction::Retire,
                 20,
                 20,
