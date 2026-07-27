@@ -2606,7 +2606,7 @@ impl ValidatorService {
             return Err(ValidatorServiceError::Engine(ValidatorEngineError::InvalidCashSnapshot));
         }
         snapshot
-            .save(path)
+            .save_with_finality(path, finality)
             .map_err(ValidatorEngineError::Snapshot)
             .map_err(ValidatorServiceError::Engine)
     }

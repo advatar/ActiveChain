@@ -101,7 +101,8 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
   validator snapshot's immutable chain genesis.
 - [x] Route the validator-to-RPC ingest command through the chain-genesis-bound cash-record
   publisher.
-- [ ] Wire the proof-bearing Coin Cell record builder into the validator finalization publisher.
+- [x] Wire the proof-bearing Coin Cell record builder into the validator finalization publisher;
+  publication now consumes evidence-bearing persisted cash state.
 - [x] Add a validator publication method that requires the exact finalized certificate to match
   the persisted cash root, height, and immutable chain genesis.
 - [x] Persist finalized cash cells with the exact finalized certificate and reject height, genesis,
