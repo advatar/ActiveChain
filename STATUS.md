@@ -1063,6 +1063,10 @@ Tracked by [GitHub issue #4](https://github.com/advatar/ActiveChain/issues/4).
 
 ## Active milestone — Phase 4 privacy and protected ordering foundations
 
+- [x] Qualify the privacy-kernel implementation: all 23 tests pass for protected ordering,
+  ML-KEM/ML-DSA boundaries, forced inclusion, public-lane isolation, nullifier atomicity,
+  scoped disclosure, builder settlement/slashing, authenticated networking, and durable state.
+
 Tracked by [GitHub issue #18](https://github.com/advatar/ActiveChain/issues/18).
 
 - [x] Implement the first bounded privacy-kernel slice.
