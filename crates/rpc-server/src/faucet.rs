@@ -115,6 +115,70 @@ fn admission(
     }
 }
 
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    #[kani::proof]
+    fn accepted_admission_is_below_every_limit() {
+        let recipient_count: usize = kani::any();
+        let source_count: usize = kani::any();
+        let global_count: usize = kani::any();
+        let recipient_limit: u16 = kani::any();
+        let source_limit: u16 = kani::any();
+        let global_limit: u32 = kani::any();
+        kani::assume(recipient_limit > 0);
+        kani::assume(source_limit > 0);
+        kani::assume(global_limit > 0);
+        let result = admission(
+            recipient_count,
+            None,
+            source_count,
+            global_count,
+            recipient_limit,
+            1,
+            source_limit,
+            global_limit,
+        );
+        if result == Admission::Accept {
+            assert!(recipient_count < usize::from(recipient_limit));
+            assert!(source_count < usize::from(source_limit));
+            assert!(global_count < usize::try_from(global_limit).unwrap_or(usize::MAX));
+        }
+    }
+
+    #[kani::proof]
+    fn cooldown_admission_precedes_source_and_global_capacity() {
+        let age: u64 = kani::any();
+        let cooldown: u64 = kani::any();
+        let recipient_count: usize = kani::any();
+        let source_count: usize = kani::any();
+        let global_count: usize = kani::any();
+        let recipient_limit: u16 = kani::any();
+        let source_limit: u16 = kani::any();
+        let global_limit: u32 = kani::any();
+        kani::assume(cooldown > 0);
+        kani::assume(recipient_limit > 0);
+        kani::assume(source_limit > 0);
+        kani::assume(global_limit > 0);
+        if age < cooldown {
+            assert_eq!(
+                admission(
+                    recipient_count,
+                    Some(age),
+                    source_count,
+                    global_count,
+                    recipient_limit,
+                    cooldown,
+                    source_limit,
+                    global_limit,
+                ),
+                Admission::RecipientCooldown
+            );
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct FaucetRecord {
     idempotency_key: Digest384,
