@@ -301,6 +301,8 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
   requirement, and finalized-height freshness.
 - [x] Reject malformed credential-status snapshots (zero roots or zero sequence) before they can
   satisfy registry freshness admission.
+- [x] Reject malformed credential-status snapshots during canonical decoding, not only at
+  downstream policy admission.
 
 ## Active independent-client qualification
 

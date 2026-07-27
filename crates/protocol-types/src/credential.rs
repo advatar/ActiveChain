@@ -332,6 +332,11 @@ impl CredentialStatusRegistry {
         self.effective_height
     }
 
+    #[must_use]
+    pub fn is_well_formed(self) -> bool {
+        self.status_root != Digest384::ZERO && self.sequence > 0
+    }
+
     /// Binds a registry snapshot to the exact issuer/schema named by a credential
     /// and requires the snapshot to be effective at the finalized height.
     #[must_use]
@@ -361,14 +366,19 @@ impl CanonicalEncode for CredentialStatusRegistry {
 
 impl CanonicalDecode for CredentialStatusRegistry {
     fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
-        Ok(Self::new(
+        let value = Self::new(
             ObjectId::decode(decoder)?,
             PrincipalId::decode(decoder)?,
             Digest384::decode(decoder)?,
             Digest384::decode(decoder)?,
             u64::decode(decoder)?,
             u64::decode(decoder)?,
-        ))
+        );
+        if value.is_well_formed() {
+            Ok(value)
+        } else {
+            Err(DecodeError::InvalidValue("malformed credential status registry"))
+        }
     }
 }
 
@@ -805,6 +815,10 @@ mod tests {
         let zero_sequence =
             CredentialStatusRegistry::new(registry_id, principal(1), digest(3), digest(5), 0, 6);
         assert!(!zero_sequence.admits(statement, 6));
+        assert!(
+            decode_envelope::<CredentialStatusRegistry>(&encode_envelope(&zero_root).unwrap())
+                .is_err()
+        );
     }
 
     #[test]
