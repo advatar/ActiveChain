@@ -94,6 +94,8 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
   wallet snapshots without a matching finalized cash-cell root remain in-process only.
 - [x] Reject cash/finality ingestion when the supplied finality bundle is not bound to the
   validator snapshot's immutable chain genesis.
+- [x] Route the validator-to-RPC ingest command through the chain-genesis-bound cash-record
+  publisher.
 - [ ] Wire the proof-bearing Coin Cell record builder into the validator finalization publisher.
 - [ ] Persist finalized cash cells with the finalized header and reject root mismatches on restart.
 - [x] Expose a validator-service persistence boundary that accepts cash snapshots only at the
