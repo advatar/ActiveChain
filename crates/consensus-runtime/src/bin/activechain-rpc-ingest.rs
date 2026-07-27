@@ -1,9 +1,7 @@
 use activechain_consensus_runtime::{
     FinalizedCashSnapshot, load_snapshot, load_snapshot_chain_genesis_commitment,
 };
-use activechain_rpc_server::{
-    DurableRpcStore, finalized_coin_cell_records_with_chain_genesis,
-};
+use activechain_rpc_server::{DurableRpcStore, finalized_coin_cell_records_with_chain_genesis};
 use std::{
     env,
     path::{Path, PathBuf},
@@ -36,8 +34,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err("cash snapshot does not match validator finality".into());
         }
         let finality = std::fs::read(finality_path)?;
-        activechain_verifier_api::verify_finality_bundle_with_chain_genesis(&finality, genesis)
-            .map_err(|_| "finality bundle does not match validator genesis")?;
+        cash.verify_against_finality(&finality)
+            .map_err(|error| format!("cash snapshot/finality mismatch: {error}"))?;
         let records = finalized_coin_cell_records_with_chain_genesis(
             &cash.cells,
             cash.finalized_height,

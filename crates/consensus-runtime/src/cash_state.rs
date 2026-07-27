@@ -47,6 +47,24 @@ impl FinalizedCashSnapshot {
         Ok(())
     }
 
+    /// Verifies that this persisted cash state is the exact cash root carried
+    /// by a finalized certificate for the same chain and height.
+    pub fn verify_against_finality(&self, finality: &[u8]) -> Result<(), &'static str> {
+        self.verify()?;
+        let bundle = activechain_verifier_api::verify_finality_bundle_with_chain_genesis(
+            finality,
+            self.chain_genesis,
+        )
+        .map_err(|_| "invalid finality bundle")?;
+        if bundle.header().inputs.height != self.finalized_height {
+            return Err("cash snapshot height differs from finality");
+        }
+        if bundle.header().inputs.cash_cell_root != self.cash_cell_root {
+            return Err("cash snapshot root differs from finality");
+        }
+        Ok(())
+    }
+
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
         let body = activechain_canonical_codec::encode_envelope(self)
             .map_err(|_| std::io::Error::other("cash snapshot encoding failed"))?;
@@ -106,4 +124,16 @@ impl CanonicalType for FinalizedCashSnapshot {
     const TYPE_TAG: u16 = 0x008e;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 48 + 8 + 48 + CoinCellSet::MAX_ENCODED_LEN;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_finality_binding_rejects_malformed_evidence() {
+        let cells = CoinCellSet::new(Vec::new()).unwrap();
+        let snapshot = FinalizedCashSnapshot::new(Digest384::new([1; 48]), 7, cells).unwrap();
+        assert_eq!(snapshot.verify_against_finality(&[1, 2, 3]), Err("invalid finality bundle"));
+    }
 }
