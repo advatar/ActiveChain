@@ -150,6 +150,132 @@ impl CanonicalType for FungibleAssetRegistry {
         2 + MAX_FUNGIBLE_ASSETS * FungibleAssetDefinition::MAX_ENCODED_LEN;
 }
 
+/// Finalized issuer policy and supply state for one registered fungible asset.
+///
+/// The definition above is immutable presentation metadata. This record is the mutable,
+/// finalized control-plane state that binds issuance, redemption, and emergency policy without
+/// putting reserve or KYC material on the public chain.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum FungibleAssetLifecycle {
+    Registered = 0,
+    Paused = 1,
+    Retired = 2,
+}
+impl CanonicalEncode for FungibleAssetLifecycle {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(e)
+    }
+}
+impl CanonicalDecode for FungibleAssetLifecycle {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(d)? {
+            0 => Ok(Self::Registered),
+            1 => Ok(Self::Paused),
+            2 => Ok(Self::Retired),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "FungibleAssetLifecycle", tag }),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FungibleAssetPolicyV1 {
+    asset_id: AssetId,
+    issuer: PrincipalId,
+    reserve_commitment: Digest384,
+    redemption_policy: Digest384,
+    jurisdiction_profile: Digest384,
+    authority_set: Digest384,
+    supply_cap: u128,
+    supply_issued: u128,
+    lifecycle: FungibleAssetLifecycle,
+}
+impl FungibleAssetPolicyV1 {
+    pub const TYPE_TAG: u16 = 0x00B0;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 6 + 16 * 2 + 1;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        asset_id: AssetId,
+        issuer: PrincipalId,
+        reserve_commitment: Digest384,
+        redemption_policy: Digest384,
+        jurisdiction_profile: Digest384,
+        authority_set: Digest384,
+        supply_cap: u128,
+        supply_issued: u128,
+        lifecycle: FungibleAssetLifecycle,
+    ) -> Result<Self, AssetDefinitionError> {
+        if asset_id.digest() == &Digest384::ZERO || issuer.digest() == &Digest384::ZERO {
+            return Err(AssetDefinitionError::ZeroSupplyCap);
+        }
+        if supply_cap == 0 || supply_issued > supply_cap {
+            return Err(AssetDefinitionError::ZeroSupplyCap);
+        }
+        Ok(Self {
+            asset_id,
+            issuer,
+            reserve_commitment,
+            redemption_policy,
+            jurisdiction_profile,
+            authority_set,
+            supply_cap,
+            supply_issued,
+            lifecycle,
+        })
+    }
+    pub const fn asset_id(&self) -> AssetId {
+        self.asset_id
+    }
+    pub const fn issuer(&self) -> PrincipalId {
+        self.issuer
+    }
+    pub const fn supply_cap(&self) -> u128 {
+        self.supply_cap
+    }
+    pub const fn supply_issued(&self) -> u128 {
+        self.supply_issued
+    }
+    pub const fn lifecycle(&self) -> FungibleAssetLifecycle {
+        self.lifecycle
+    }
+}
+impl CanonicalEncode for FungibleAssetPolicyV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.asset_id.encode(e)?;
+        self.issuer.encode(e)?;
+        self.reserve_commitment.encode(e)?;
+        self.redemption_policy.encode(e)?;
+        self.jurisdiction_profile.encode(e)?;
+        self.authority_set.encode(e)?;
+        self.supply_cap.encode(e)?;
+        self.supply_issued.encode(e)?;
+        self.lifecycle.encode(e)
+    }
+}
+impl CanonicalDecode for FungibleAssetPolicyV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            AssetId::decode(d)?,
+            PrincipalId::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            u128::decode(d)?,
+            u128::decode(d)?,
+            FungibleAssetLifecycle::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid fungible asset policy"))
+    }
+}
+impl CanonicalType for FungibleAssetPolicyV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,6 +327,40 @@ mod tests {
         assert_eq!(
             FungibleAssetRegistry::new(vec![asset(1), asset(1)]),
             Err(AssetDefinitionError::AssetsNotOrdered)
+        );
+    }
+
+    #[test]
+    fn issuer_policy_binds_supply_and_lifecycle() {
+        let policy = FungibleAssetPolicyV1::new(
+            id(1),
+            principal(2),
+            Digest384::new([3; 48]),
+            Digest384::new([4; 48]),
+            Digest384::new([5; 48]),
+            Digest384::new([6; 48]),
+            1_000,
+            400,
+            FungibleAssetLifecycle::Registered,
+        )
+        .unwrap();
+        let bytes = encode_envelope(&policy).unwrap();
+        assert_eq!(decode_envelope::<FungibleAssetPolicyV1>(&bytes), Ok(policy));
+        assert_eq!(policy.supply_issued(), 400);
+        assert_eq!(policy.lifecycle(), FungibleAssetLifecycle::Registered);
+        assert!(
+            FungibleAssetPolicyV1::new(
+                id(1),
+                principal(2),
+                Digest384::ZERO,
+                Digest384::ZERO,
+                Digest384::ZERO,
+                Digest384::ZERO,
+                10,
+                11,
+                FungibleAssetLifecycle::Registered,
+            )
+            .is_err()
         );
     }
 }

@@ -6,3 +6,6 @@ missing_receipt_asset\tstate transition has asset-A, receipt omits AssetId\treje
 duplicate_registry\tasset-A appears twice\treject\tregistry not strictly ordered
 overflow_supply\tasset-A conservation exceeds u128\treject\tchecked arithmetic is fail-closed
 symbol_authority\tlabel EUR with asset-USD identifier\treject\tsymbol is not authority
+issuer_policy_round_trip\tasset-EUR with issuer, reserve, redemption, jurisdiction, authority, and supply commitments\taccept\tfinalized policy is canonical and asset-bound
+issuer_policy_over_cap\tsupply_issued exceeds supply_cap\treject\tissuer supply state cannot exceed finalized cap
+issuer_policy_zero_principal\tzero asset or issuer identifier\treject\tpolicy authority identifiers are nonzero

@@ -214,7 +214,8 @@ Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163
 - [x] Add fungible-cell membership proofs bound to the asset record and set root.
 - [x] Freeze the canonical multi-asset binding rules and positive/malformed vectors before
   changing execution or wallet surfaces.
-- [ ] Specify a finalized issuer-controlled asset metadata and supply registry.
+- [x] Specify a finalized issuer-controlled asset metadata and supply registry, including reserve,
+  redemption, jurisdiction, authority, lifecycle, and bounded supply commitments.
 - [x] Add proof-bearing owner-and-asset RPC discovery with bounded pagination.
 - [x] Extend the versioned wallet ABI for multi-asset balances, selection, signing, and submission.
 - [x] Add deterministic wallet selection over `FungibleCoinCellSet` with explicit asset identity.
