@@ -1,12 +1,46 @@
 use activechain_canonical_codec::{decode_envelope, encode_envelope};
 use activechain_protocol_types::{
     AssetId, ChainId, ComplianceError, ComplianceEvidenceBindingV1, ComplianceReplayKey,
-    ComplianceReplaySet, ComplianceSignatureEnvelopeV1, ProfileSelection, TransactionId,
-    TravelRuleBindingV1,
+    ComplianceReplaySet, ComplianceSignatureEnvelopeV1, Digest384, ML_DSA44_PUBLIC_KEY_LENGTH,
+    ProfileSelection, TransactionId, TravelRuleBindingV1,
 };
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::vec::Vec;
+
+const MAX_COMPLIANCE_PROVIDER_KEYS: usize = 256;
+
+/// Operator-owned profile-to-provider key registry. Keys are configuration
+/// state, never public ledger data, and are bounded to prevent untrusted
+/// profile configuration from becoming an allocation vector.
+#[derive(Clone, Debug, Default)]
+pub struct ComplianceKeyRegistry {
+    keys: BTreeMap<Digest384, Vec<u8>>,
+}
+
+impl ComplianceKeyRegistry {
+    pub fn register(
+        &mut self,
+        profile: Digest384,
+        public_key: Vec<u8>,
+    ) -> Result<(), ComplianceAdmissionError> {
+        if profile == Digest384::ZERO || public_key.len() != ML_DSA44_PUBLIC_KEY_LENGTH {
+            return Err(ComplianceAdmissionError::InvalidSignature);
+        }
+        if !self.keys.contains_key(&profile) && self.keys.len() >= MAX_COMPLIANCE_PROVIDER_KEYS {
+            return Err(ComplianceAdmissionError::InvalidSignature);
+        }
+        self.keys.insert(profile, public_key);
+        Ok(())
+    }
+
+    pub fn verify(&self, signature: &ComplianceSignatureEnvelopeV1) -> bool {
+        self.keys
+            .get(&signature.profile())
+            .is_some_and(|key| verify_compliance_signature(key, signature))
+    }
+}
 
 #[derive(Debug)]
 pub enum CompliancePersistenceError {
@@ -145,6 +179,7 @@ impl DurableComplianceReplayJournal {
 mod tests {
     use super::*;
     use activechain_protocol_types::{Digest384, PrincipalId, TransactionId};
+    use alloc::vec;
     fn key(n: u8) -> ComplianceReplayKey {
         ComplianceReplayKey::new(
             Digest384::new([1; 48]),
@@ -162,5 +197,26 @@ mod tests {
         assert!(matches!(j.insert(key(4)), Err(CompliancePersistenceError::Replay)));
         let j2 = DurableComplianceReplayJournal::open(&path).unwrap();
         assert!(j2.contains(key(4)));
+    }
+
+    #[test]
+    fn provider_key_registry_rejects_bad_shape_and_unknown_profiles() {
+        let mut registry = ComplianceKeyRegistry::default();
+        assert!(registry.register(Digest384::ZERO, vec![0; ML_DSA44_PUBLIC_KEY_LENGTH]).is_err());
+        assert!(registry.register(Digest384::new([4; 48]), vec![0; 32]).is_err());
+        let signature = ComplianceSignatureEnvelopeV1::new(
+            Digest384::new([5; 48]),
+            activechain_protocol_types::ChainId::new(Digest384::new([6; 48])),
+            TransactionId::new(Digest384::new([7; 48])),
+            Digest384::new([8; 48]),
+            Digest384::new([9; 48]),
+            activechain_protocol_types::ProtocolSignature::new(
+                activechain_protocol_types::CryptoSuiteId::ML_DSA_44,
+                vec![0; 2_420],
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(!registry.verify(&signature));
     }
 }

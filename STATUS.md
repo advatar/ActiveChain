@@ -262,6 +262,8 @@ Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213
   chain, and action signature envelope.
 - [x] Provide ML-DSA-44 verification wiring for compliance signature envelopes; key registry
   selection remains an operator-controlled boundary.
+- [x] Add a bounded profile-scoped provider key registry with strict key shape and unknown-profile
+  rejection.
 
 ## Active dBrowser development RPC contract
 
