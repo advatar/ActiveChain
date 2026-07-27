@@ -26,7 +26,8 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 - [x] Name the structural verifier explicitly while retaining a compatibility alias.
 - [x] Declare CashAIR's internal Blake3, SHA-256, and Keccak assumptions in P-060.
 - [x] Add strict parent CashAIR proof byte-envelope decoding with suite binding and trailing-byte rejection.
-- [ ] Add authenticated composite proof byte-envelope decoding and a reduced-depth composite happy-path test.
+- [x] Add strict authenticated composite proof byte-envelope decoding with suite, row-count, and
+  per-proof bounds; full-depth happy-path qualification remains an explicit benchmark gate.
 - [x] Make the reference package independently testable outside the root workspace.
 - [ ] Refine the AIR against P-050 ObjectVM semantics and publish an independent second verifier.
 - [ ] Qualify proof parameters against the required soundness and verifier-cost gates before consensus activation.

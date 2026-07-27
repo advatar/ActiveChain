@@ -1,4 +1,5 @@
 use core::borrow::Borrow;
+use serde::{Deserialize, Serialize};
 
 use p3_air::{Air, AirBuilder, BaseAir, WindowAccess};
 use p3_baby_bear::BabyBear;
@@ -166,12 +167,15 @@ impl Shake256StarkProof {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct BatchedShake256StarkProof {
     proof: Proof<Config>,
+    #[serde(skip)]
     digests: Vec<[u8; 48]>,
     permutation_count: usize,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct AuthenticatedCashShakeStarkProof {
     batches: Vec<BatchedShake256StarkProof>,
 }
@@ -180,6 +184,14 @@ impl AuthenticatedCashShakeStarkProof {
     #[must_use]
     pub const fn suite_id() -> u32 {
         CASH_AIR_SHAKE_SUITE_ID
+    }
+
+    pub fn encode_bytes(&self) -> Result<Vec<u8>, &'static str> {
+        serde_json::to_vec(self).map_err(|_| "CashAIR SHAKE proof encoding failed")
+    }
+
+    pub fn decode_bytes(bytes: &[u8]) -> Result<Self, &'static str> {
+        serde_json::from_slice(bytes).map_err(|_| "malformed CashAIR SHAKE proof")
     }
 }
 

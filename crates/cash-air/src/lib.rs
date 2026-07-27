@@ -44,6 +44,7 @@ pub use shake::{
 pub const CASH_AIR_PARENT_SUITE_ID: u32 = 0xCA50_0101;
 pub const CASH_AIR_COMPOSITE_SUITE_ID: u32 = 0xCA50_0201;
 pub const MAX_CASH_AIR_PROOF_BYTES: usize = 1 << 20;
+pub const MAX_CASH_AIR_COMPOSITE_BYTES: usize = 8 << 20;
 
 /// Canonical byte envelope for the Winterfell CashAIR parent proof.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -99,6 +100,112 @@ impl CanonicalType for CashAirReceiptV1 {
     const TYPE_TAG: u16 = 0x00a0;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 4 + CashAirProof::MAX_ENCODED_LEN + 4 + MAX_CASH_AIR_PROOF_BYTES;
+}
+
+/// Canonical byte envelope for an authenticated parent plus SHAKE mutation proofs.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthenticatedCashAirReceiptV1 {
+    pub suite_id: u32,
+    pub trace: AuthenticatedCashAirProofV1,
+    pub parent_proof_bytes: Vec<u8>,
+    pub mutation_proof_bytes: Vec<Option<Vec<u8>>>,
+}
+
+impl AuthenticatedCashAirReceiptV1 {
+    pub fn new(
+        trace: AuthenticatedCashAirProofV1,
+        parent_proof_bytes: Vec<u8>,
+        mutation_proof_bytes: Vec<Option<Vec<u8>>>,
+    ) -> Result<Self, &'static str> {
+        if parent_proof_bytes.is_empty() || mutation_proof_bytes.len() != trace.mutations().len() {
+            return Err("inconsistent authenticated CashAIR receipt");
+        }
+        Ok(Self {
+            suite_id: CASH_AIR_COMPOSITE_SUITE_ID,
+            trace,
+            parent_proof_bytes,
+            mutation_proof_bytes,
+        })
+    }
+
+    pub fn encode_envelope(&self) -> Result<Vec<u8>, EncodeError> {
+        encode_envelope(self)
+    }
+
+    pub fn verify_bytes(bytes: &[u8]) -> Result<(), &'static str> {
+        let envelope: Self = decode_envelope(bytes).map_err(|_| "malformed authenticated CashAIR receipt")?;
+        if envelope.suite_id != CASH_AIR_COMPOSITE_SUITE_ID {
+            return Err("unregistered authenticated CashAIR suite");
+        }
+        let parent = Proof::from_bytes(&envelope.parent_proof_bytes)
+            .map_err(|_| "malformed authenticated CashAIR parent proof")?;
+        let public = authenticated_public_inputs(&envelope.trace)?;
+        let mut mutation_shake = Vec::with_capacity(envelope.mutation_proof_bytes.len());
+        for bytes in envelope.mutation_proof_bytes {
+            mutation_shake.push(bytes.map(|value| {
+                crate::shake::AuthenticatedCashShakeStarkProof::decode_bytes(&value)
+            }).transpose()?);
+        }
+        verify_authenticated_composite(
+            AuthenticatedCashCompositeStarkProof {
+                parent: CashStarkProof { proof: parent, public },
+                mutation_shake,
+            },
+            &envelope.trace,
+        )
+    }
+}
+
+impl CanonicalEncode for AuthenticatedCashAirReceiptV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.suite_id.encode(e)?;
+        self.trace.encode(e)?;
+        e.write_bytes(&self.parent_proof_bytes, MAX_CASH_AIR_PROOF_BYTES)?;
+        e.write_length(self.mutation_proof_bytes.len(), 1024)?;
+        for proof in &self.mutation_proof_bytes {
+            match proof {
+                None => 0_u8.encode(e)?,
+                Some(bytes) => {
+                    1_u8.encode(e)?;
+                    e.write_bytes(bytes, MAX_CASH_AIR_PROOF_BYTES)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+impl CanonicalDecode for AuthenticatedCashAirReceiptV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let suite_id = u32::decode(d)?;
+        if suite_id != CASH_AIR_COMPOSITE_SUITE_ID {
+            return Err(DecodeError::InvalidValue("unregistered authenticated CashAIR suite"));
+        }
+        let trace = AuthenticatedCashAirProofV1::decode(d)?;
+        let parent_proof_bytes = d.read_bytes(MAX_CASH_AIR_PROOF_BYTES)?.to_vec();
+        if parent_proof_bytes.is_empty() {
+            return Err(DecodeError::InvalidValue("empty authenticated parent proof"));
+        }
+        let count = d.read_length(1024)?;
+        if count != trace.mutations().len() {
+            return Err(DecodeError::InvalidValue("authenticated proof row count mismatch"));
+        }
+        let mut mutation_proof_bytes = Vec::with_capacity(count);
+        for _ in 0..count {
+            mutation_proof_bytes.push(match u8::decode(d)? {
+                0 => None,
+                1 => Some(d.read_bytes(MAX_CASH_AIR_PROOF_BYTES)?.to_vec()),
+                _ => return Err(DecodeError::InvalidValue("invalid authenticated proof option")),
+            });
+        }
+        Ok(Self { suite_id, trace, parent_proof_bytes, mutation_proof_bytes })
+    }
+}
+impl CanonicalType for AuthenticatedCashAirReceiptV1 {
+    const TYPE_TAG: u16 = 0x00a1;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 4 + AuthenticatedCashAirProofV1::MAX_ENCODED_LEN
+        + 4 + MAX_CASH_AIR_PROOF_BYTES + 2
+        + 1024 * (1 + 4 + MAX_CASH_AIR_PROOF_BYTES);
 }
 
 const TRACE_WIDTH: usize = 15;

@@ -12,6 +12,8 @@ activechain-cash-kernel.workspace = true
 activechain-canonical-codec.workspace = true
 activechain-protocol-types.workspace = true
 activechain-wallet-core.workspace = true
+serde = { version = "1.0", features = ["derive"] }
+serde_json.workspace = true
 p3-air.workspace = true
 p3-baby-bear.workspace = true
 p3-challenger.workspace = true
