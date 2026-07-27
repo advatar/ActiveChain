@@ -185,6 +185,8 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
 - [x] Freeze canonical, testnet-bound faucet request, challenge, decision, and receipt/status types.
 - [x] Add operator-configurable grant amounts, global budgets, recipient cooldown/lifetime limits,
   idempotency, optional escalating Sybil challenges, and durable restart-safe accounting.
+- [x] Add bounded canonical request/response framing for the validator RPC bridge, with strict
+  length checks and malformed-frame regression vectors.
 - [ ] Submit faucet-authorized Coin Cell transitions through real transaction ingress and expose
   pending/finalized/rejected proof-bearing status through the Kanalen gateway.
 - [ ] Publish the end-to-end funding admission contract and adversarial vectors before public

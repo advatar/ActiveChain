@@ -406,6 +406,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-validator-rpc-bridge"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-protocol-types",
+ "activechain-rpc-server",
+]
+
+[[package]]
 name = "activechain-vector-generator"
 version = "0.1.0"
 dependencies = [
