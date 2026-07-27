@@ -1665,6 +1665,19 @@ mod tests {
         )
         .unwrap();
         assert!(policy.apply_approved_mint(issuer, &wrong, 20).is_err());
+        let wrong_authority = FungibleIssuerApprovalV1::new(
+            id(1),
+            policy.commitment().unwrap(),
+            Digest384::new([99; 48]),
+            Digest384::new([9; 48]),
+            FungibleIssuerOperation::Mint,
+            5,
+            10,
+            20,
+            30,
+        )
+        .unwrap();
+        assert!(policy.apply_approved_mint(issuer, &wrong_authority, 20).is_err());
 
         let burn = FungibleIssuerApprovalV1::new(
             id(1),
