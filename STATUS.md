@@ -281,6 +281,8 @@ Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163
   consumers; dedicated fungible AIR remains open.
 - [x] Freeze canonical fungible AIR public inputs with asset/registry bindings and per-asset
   supply/transfer conservation checks; arithmetization remains open.
+- [x] Factor fungible conservation into a checked arithmetic kernel shared by runtime validation
+  and future formal/AIR refinement.
 - [x] Bind wallet-side fungible membership verification to the exact owner, `AssetId`, record,
   and authenticated finalized root.
 - [x] Bind fungible transfer admission to the finalized asset policy and lifecycle.

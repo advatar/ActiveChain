@@ -46,6 +46,43 @@ pub const CASH_AIR_COMPOSITE_SUITE_ID: u32 = 0xCA50_0201;
 pub const MAX_CASH_AIR_PROOF_BYTES: usize = 1 << 20;
 pub const MAX_CASH_AIR_COMPOSITE_BYTES: usize = 8 << 20;
 
+/// Arithmetic kernel shared by fungible admission, vectors, and the future AIR.
+#[must_use]
+pub fn fungible_conservation_holds(
+    pre_supply: u128,
+    issuance: u128,
+    burn: u128,
+    post_supply: u128,
+    input_value: u128,
+    output_value: u128,
+    fee: u128,
+) -> bool {
+    pre_supply
+        .checked_add(issuance)
+        .and_then(|value| value.checked_sub(burn))
+        == Some(post_supply)
+        && output_value.checked_add(fee) == Some(input_value)
+}
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::fungible_conservation_holds;
+
+    #[kani::proof]
+    fn overflow_never_counts_as_conservation() {
+        let pre = kani::any();
+        let issuance = kani::any();
+        let burn = kani::any();
+        let post = kani::any();
+        let input = kani::any();
+        let output = kani::any();
+        let fee = kani::any();
+        if pre.checked_add(issuance).and_then(|value| value.checked_sub(burn)).is_none() {
+            assert!(!fungible_conservation_holds(pre, issuance, burn, post, input, output, fee));
+        }
+    }
+}
+
 /// Canonical public binding for the future fungible CashAIR lane. It is kept
 /// separate from the native trace until the fungible transition semantics are
 /// arithmetized; no proof may claim fungible validity without these bindings.
@@ -77,10 +114,9 @@ impl FungibleCashAirPublicInputsV1 {
         if *asset_id.digest() == Digest384::ZERO || registry_commitment == Digest384::ZERO {
             return Err("fungible CashAIR identity is unbound");
         }
-        if pre_supply.checked_add(issuance).and_then(|v| v.checked_sub(burn)) != Some(post_supply) {
-            return Err("fungible supply conservation mismatch");
-        }
-        if output_value.checked_add(fee) != Some(input_value) {
+        if !fungible_conservation_holds(
+            pre_supply, issuance, burn, post_supply, input_value, output_value, fee,
+        ) {
             return Err("fungible transfer conservation mismatch");
         }
         Ok(Self { asset_id, registry_commitment, pre_supply, issuance, burn, post_supply, input_value, output_value, fee })
@@ -823,6 +859,7 @@ mod tests {
         AuthenticatedCashAirReceiptV1, AuthenticatedCashCompositeStarkProof, BaseElement,
         CashAirReceiptV1, CashStarkProof,
         FungibleCashAirPublicInputsV1,
+        fungible_conservation_holds,
         CASH_AIR_COMPOSITE_SUITE_ID, CASH_AIR_PARENT_SUITE_ID, prove,
         prove_authenticated_composite, prove_authenticated_parent, verify,
         verify_authenticated_composite,
@@ -861,6 +898,7 @@ mod tests {
         assert!(FungibleCashAirPublicInputsV1::new(
             AssetId::new(digest(1)), digest(2), 100, 25, 5, 121, 40, 39, 1
         ).is_err());
+        assert!(!fungible_conservation_holds(u128::MAX, 1, 0, 0, 1, 0, 0));
     }
 
     fn principal(byte: u8) -> PrincipalId {
