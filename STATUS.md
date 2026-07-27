@@ -150,8 +150,9 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
   before RPC publication.
 - [x] Expose a validator-service persistence boundary that accepts cash snapshots only at the
   exact finalized height and immutable chain genesis.
-- [ ] Enable the Kanalen round runner to publish finalized cash snapshots when validator output is
-  available; retain metadata-only ingestion until then.
+- [x] Enable the Kanalen ingestion runner to publish finalized cash snapshots when validator
+  output and its matching finality bundle are available; retain metadata-only ingestion until
+  then.
 - [ ] Load a real device wallet profile and remove the hard-coded unavailable dashboard path.
 - [ ] Extend Kanalen ingestion/rehearsal, add adversarial tests, deploy, and verify the public RPC.
 
