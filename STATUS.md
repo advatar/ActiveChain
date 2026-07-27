@@ -289,6 +289,8 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
   typed adapter installation.
 - [ ] Bind validator-side faucet settlement admission to a pre-signed cash intent, requiring the
   exact faucet reference, recipient, amount, and admission height before transaction ingress.
+- [x] Add a strict validator-RPC bridge entry point that decodes the signed envelope and checks its
+  intent identifier, recipient, and amount before handing bytes to an authoritative backend.
 - [x] Add a typed production faucet settlement adapter boundary for validator-backed ingress.
 - [ ] Publish the end-to-end funding admission contract and adversarial vectors before public
   faucet deployment.

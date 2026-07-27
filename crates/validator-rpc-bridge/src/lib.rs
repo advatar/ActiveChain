@@ -5,6 +5,7 @@ use activechain_canonical_codec::{
 };
 use activechain_protocol_types::{Digest384, PrincipalId, TransactionId};
 use activechain_rpc_server::FaucetError;
+use activechain_wallet_core::AuthorizedCashTransferV1;
 
 pub const MAX_BRIDGE_FRAME: usize = 64 * 1024;
 
@@ -66,6 +67,18 @@ pub trait FaucetSettlementBackend: Send + Sync {
         amount: u128,
         reference: Digest384,
     ) -> Result<TransactionId, FaucetError>;
+
+    /// Authoritative settlement path for a pre-signed cash intent. Backends
+    /// should submit these exact canonical bytes to validator ingress.
+    fn submit_authorized_envelope(
+        &self,
+        _envelope: &[u8],
+        _recipient: PrincipalId,
+        _amount: u128,
+        _reference: Digest384,
+    ) -> Result<TransactionId, FaucetError> {
+        Err(FaucetError::InvalidChallenge)
+    }
 }
 
 /// Explicit bridge between RPC faucet admission and validator-backed settlement.
@@ -265,6 +278,21 @@ mod tests {
     }
 
     #[test]
+    fn authorized_settlement_rejects_malformed_or_empty_envelopes_before_backend() {
+        let bridge = ValidatorRpcBridge::new(Backend);
+        let recipient = PrincipalId::new(Digest384::new([8; 48]));
+        let reference = Digest384::new([7; 48]);
+        assert_eq!(
+            bridge.settle_authorized_envelope(&[], recipient, 10, reference),
+            Err(FaucetError::InvalidChallenge)
+        );
+        assert_eq!(
+            bridge.settle_authorized_envelope(&[0xff], recipient, 10, reference),
+            Err(FaucetError::InvalidChallenge)
+        );
+    }
+
+    #[test]
     fn frames_reject_truncation_and_trailing_bytes() {
         let response = SettlementResponse {
             reference: Digest384::new([7; 48]),
@@ -338,5 +366,36 @@ impl<B: FaucetSettlementBackend> ValidatorRpcBridge<B> {
     ) -> Result<SettlementResponse, FaucetError> {
         let transaction = self.settle(request.recipient, request.amount, request.reference)?;
         Ok(SettlementResponse { reference: request.reference, transaction })
+    }
+
+    /// Validate and settle an exact authorized cash envelope for a faucet
+    /// decision. The envelope's intent id, recipient, amount, and reference
+    /// must all agree before the backend sees any bytes.
+    pub fn settle_authorized_envelope(
+        &self,
+        envelope: &[u8],
+        recipient: PrincipalId,
+        amount: u128,
+        reference: Digest384,
+    ) -> Result<SettlementResponse, FaucetError> {
+        if envelope.is_empty() || reference == Digest384::ZERO || amount == 0 {
+            return Err(FaucetError::InvalidChallenge);
+        }
+        let authorized = activechain_canonical_codec::decode_envelope::<AuthorizedCashTransferV1>(
+            envelope,
+        )
+        .map_err(|_| FaucetError::InvalidChallenge)?;
+        let request = authorized.request();
+        let transfer = request.transfer();
+        if request.intent_id().map_err(|_| FaucetError::InvalidChallenge)? != reference
+            || transfer.recipient() != recipient
+            || transfer.amount() != amount
+        {
+            return Err(FaucetError::InvalidChallenge);
+        }
+        let transaction = self
+            .backend
+            .submit_authorized_envelope(envelope, recipient, amount, reference)?;
+        Ok(SettlementResponse { reference, transaction })
     }
 }
