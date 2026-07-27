@@ -41,7 +41,12 @@ enum WalletNetworkState: Equatable, Sendable {
 @MainActor
 final class WalletLiveState: ObservableObject {
     @Published private(set) var networkState: WalletNetworkState = .checking
+    @Published private(set) var deviceProfile: WalletDeviceProfile?
     private let rpc = WalletRPCClient()
+
+    init() {
+        deviceProfile = WalletDeviceProfileStore().load()
+    }
 
     func refresh() async {
         networkState = .checking
@@ -50,6 +55,34 @@ final class WalletLiveState: ObservableObject {
         } catch {
             networkState = .unavailable
         }
+    }
+}
+
+struct WalletDeviceProfile: Equatable, Sendable {
+    let owner: Data
+    let chainGenesis: Data
+}
+
+struct WalletDeviceProfileStore {
+    private let service = "dev.activechain.wallet.profile.v1"
+    private let account = "owner-and-genesis"
+
+    func load() -> WalletDeviceProfile? {
+        guard let keychain = try? SharedKeychain(),
+              let data = try? keychain.load(service: service, account: account),
+              let data, data.count == 96 else { return nil }
+        let owner = Data(data.prefix(48))
+        let genesis = Data(data.suffix(48))
+        guard owner.contains(where: { $0 != 0 }), genesis.contains(where: { $0 != 0 }) else { return nil }
+        return WalletDeviceProfile(owner: owner, chainGenesis: genesis)
+    }
+
+    func save(_ profile: WalletDeviceProfile) throws {
+        guard profile.owner.count == 48, profile.chainGenesis.count == 48,
+              profile.owner.contains(where: { $0 != 0 }), profile.chainGenesis.contains(where: { $0 != 0 })
+        else { throw WalletRPCError.malformedResponse }
+        let keychain = try SharedKeychain()
+        try keychain.save(profile.owner + profile.chainGenesis, service: service, account: account)
     }
 }
 
