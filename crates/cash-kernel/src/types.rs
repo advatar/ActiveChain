@@ -661,6 +661,19 @@ impl FungibleTransferV1 {
     pub const fn amount(&self) -> Amount {
         self.amount
     }
+    /// Verifies transfer admission against the finalized policy for this asset.
+    pub fn validate_against_policy(
+        &self,
+        policy: &FungibleAssetPolicyV1,
+    ) -> Result<(), NativeMoneyError> {
+        if self.asset_id != policy.asset_id()
+            || self.amount > policy.supply_issued()
+            || policy.lifecycle() != FungibleAssetLifecycle::Registered
+        {
+            return Err(NativeMoneyError::InvalidInputs);
+        }
+        Ok(())
+    }
 }
 impl CanonicalEncode for FungibleTransferV1 {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
@@ -1107,6 +1120,20 @@ mod fungible_cell_tests {
         assert!(FungibleTransferV1::new(asset, owner, recipient, vec![cell], 41).is_err());
         let wrong = FungibleCoinCell::new(origin, other, owner, 42, 7).unwrap();
         assert!(FungibleTransferV1::new(asset, owner, recipient, vec![wrong], 42).is_err());
+        let policy = FungibleAssetPolicyV1::new(
+            asset,
+            owner,
+            Digest384::new([6; 48]),
+            Digest384::new([7; 48]),
+            Digest384::new([8; 48]),
+            Digest384::new([9; 48]),
+            100,
+            42,
+            FungibleAssetLifecycle::Registered,
+        )
+        .unwrap();
+        let transfer = FungibleTransferV1::new(asset, owner, recipient, vec![cell], 42).unwrap();
+        assert!(transfer.validate_against_policy(&policy).is_ok());
     }
 
     #[test]
