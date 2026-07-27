@@ -13,4 +13,11 @@ test "$schema" = "$expected_schema" || {
   echo "validator snapshot schema mismatch: expected $expected_schema, got ${schema:-missing}" >&2
   exit 1
 }
+if test -n "${ACTIVECHAIN_EXPECTED_GENESIS_COMMITMENT:-}"; then
+  genesis=$(printf '%s\n' "$metadata" | sed -n 's/.*"genesis_commitment":"\([0-9a-fA-F]*\)".*/\1/p')
+  test "$genesis" = "$ACTIVECHAIN_EXPECTED_GENESIS_COMMITMENT" || {
+    echo "validator snapshot genesis mismatch" >&2
+    exit 1
+  }
+fi
 echo "validator snapshot compatible: $snapshot"
