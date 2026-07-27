@@ -319,6 +319,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   exact issued supply, finalized height, and approval evidence.
 - [x] Publish deterministic positive/malformed supply-attestation vectors for external issuer
   and wallet conformance.
+- [x] Add canonical issuer-registration envelopes with strict authority/policy bindings and
+  half-open activation windows.
 - [x] Freeze canonical bounded pause/resume/retire lifecycle actions with policy, authority,
   reason, and activation/expiry bindings.
 - [x] Bind lifecycle actions to a concrete threshold-approval commitment.

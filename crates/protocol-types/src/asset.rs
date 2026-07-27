@@ -41,6 +41,89 @@ pub struct FungibleSupplyAttestationV1 {
     finalized_height: u64,
     approval_commitment: Digest384,
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FungibleIssuerRegistrationV1 {
+    asset_id: AssetId,
+    issuer: PrincipalId,
+    authority_set: Digest384,
+    policy_commitment: Digest384,
+    effective_height: u64,
+    expires_height: u64,
+}
+impl FungibleIssuerRegistrationV1 {
+    pub const TYPE_TAG: u16 = 0x00B5;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 4 + 8 * 2;
+    pub fn new(
+        asset_id: AssetId,
+        issuer: PrincipalId,
+        authority_set: Digest384,
+        policy_commitment: Digest384,
+        effective_height: u64,
+        expires_height: u64,
+    ) -> Result<Self, AssetDefinitionError> {
+        if asset_id.digest() == &Digest384::ZERO
+            || issuer.digest() == &Digest384::ZERO
+            || authority_set == Digest384::ZERO
+            || policy_commitment == Digest384::ZERO
+            || effective_height >= expires_height
+        {
+            return Err(AssetDefinitionError::InvalidSupplyAttestation);
+        }
+        Ok(Self {
+            asset_id,
+            issuer,
+            authority_set,
+            policy_commitment,
+            effective_height,
+            expires_height,
+        })
+    }
+    pub const fn asset_id(&self) -> AssetId {
+        self.asset_id
+    }
+    pub const fn issuer(&self) -> PrincipalId {
+        self.issuer
+    }
+    pub const fn authority_set(&self) -> Digest384 {
+        self.authority_set
+    }
+    pub const fn policy_commitment(&self) -> Digest384 {
+        self.policy_commitment
+    }
+    pub const fn active_at(&self, height: u64) -> bool {
+        height >= self.effective_height && height < self.expires_height
+    }
+}
+impl CanonicalEncode for FungibleIssuerRegistrationV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.asset_id.encode(e)?;
+        self.issuer.encode(e)?;
+        self.authority_set.encode(e)?;
+        self.policy_commitment.encode(e)?;
+        self.effective_height.encode(e)?;
+        self.expires_height.encode(e)
+    }
+}
+impl CanonicalDecode for FungibleIssuerRegistrationV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            AssetId::decode(d)?,
+            PrincipalId::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid issuer registration"))
+    }
+}
+impl CanonicalType for FungibleIssuerRegistrationV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
 impl FungibleSupplyAttestationV1 {
     pub const TYPE_TAG: u16 = 0x00B4;
     pub const SCHEMA_VERSION: u16 = 1;
@@ -1125,6 +1208,38 @@ mod tests {
                 1,
                 1,
                 Digest384::new([8; 48])
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn issuer_registration_is_bounded_and_half_open() {
+        let registration = FungibleIssuerRegistrationV1::new(
+            id(1),
+            principal(2),
+            Digest384::new([3; 48]),
+            Digest384::new([4; 48]),
+            10,
+            20,
+        )
+        .unwrap();
+        assert_eq!(
+            decode_envelope::<FungibleIssuerRegistrationV1>(
+                &encode_envelope(&registration).unwrap()
+            ),
+            Ok(registration)
+        );
+        assert!(registration.active_at(10));
+        assert!(!registration.active_at(20));
+        assert!(
+            FungibleIssuerRegistrationV1::new(
+                id(1),
+                principal(2),
+                Digest384::ZERO,
+                Digest384::new([4; 48]),
+                10,
+                20
             )
             .is_err()
         );
