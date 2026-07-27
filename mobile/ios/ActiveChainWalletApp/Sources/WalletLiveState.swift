@@ -42,6 +42,7 @@ enum WalletNetworkState: Equatable, Sendable {
 final class WalletLiveState: ObservableObject {
     @Published private(set) var networkState: WalletNetworkState = .checking
     @Published private(set) var deviceProfile: WalletDeviceProfile?
+    @Published private(set) var verifiedOwnerPage: WalletOwnerCoinPage?
     private let rpc = WalletRPCClient()
 
     init() {
@@ -54,6 +55,21 @@ final class WalletLiveState: ObservableObject {
             networkState = try await rpc.status().networkState
         } catch {
             networkState = .unavailable
+        }
+    }
+
+    func refreshVerifiedOwnerPage(verifier: any WalletOwnerCoinProofVerifier) async {
+        guard let profile = deviceProfile,
+              case let .healthy(height) = networkState else {
+            verifiedOwnerPage = nil
+            return
+        }
+        do {
+            verifiedOwnerPage = try await rpc.verifiedOwnerCoinCells(
+                profile: profile, finalizedHeight: height, verifier: verifier
+            )
+        } catch {
+            verifiedOwnerPage = nil
         }
     }
 }
