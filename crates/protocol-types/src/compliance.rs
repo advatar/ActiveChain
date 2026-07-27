@@ -75,6 +75,11 @@ pub fn select_profiles_with_inheritance(
                 if processed.contains(&parent) {
                     return ProfileSelection::Rejected;
                 }
+                let known_parent = candidates.iter().any(|candidate| candidate.id == parent)
+                    || inheritance.iter().any(|candidate| candidate.profile == parent);
+                if !known_parent {
+                    return ProfileSelection::Rejected;
+                }
                 selected.push(parent);
                 changed = true;
             }
@@ -1094,6 +1099,17 @@ mod tests {
                 }]
             ),
             ProfileSelection::ManualReview
+        );
+        assert_eq!(
+            select_profiles_with_inheritance(
+                &[child],
+                &[JurisdictionProfileInheritance {
+                    profile: d(3),
+                    parent: Some(d(99)),
+                    stricter: true,
+                }]
+            ),
+            ProfileSelection::Rejected
         );
     }
 

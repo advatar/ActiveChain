@@ -269,6 +269,8 @@ Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213
   malformed vectors; private list matches and analyst evidence remain provider-held.
 - [x] Add explicit idempotent compliance-provider key revocation and replacement semantics;
   cryptographic verification remains ML-DSA-44 and profile-scoped.
+- [x] Reject jurisdiction-profile inheritance manifests with missing parent references; cycles,
+  non-stricter edges, ambiguity, and inactive candidates remain fail-closed.
 - [x] Persist the bounded provider-key registry through canonical atomic snapshots and restore it
   fail-closed on malformed, duplicate, or invalid-length records.
 - [x] Add the versioned screening policy boundary for list authority, parameter commitments,
