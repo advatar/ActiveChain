@@ -343,6 +343,11 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 - [x] Add ingress-specific deterministic vectors for submission, replay, finalized membership, and
   forged-proof rejection.
 
+## Active testnet release qualification
+
+- [x] Publish a fail-closed development testnet release gate covering validator finality, Coin Cell
+  extraction, RPC, faucet ingress, wallet funding, independent-client conformance, and claims.
+
 ## Active native issuer operations
 
 Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164).
