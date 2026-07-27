@@ -1696,5 +1696,20 @@ mod tests {
             Ok(FungibleAssetPolicyV1 { supply_issued: 7, ..policy })
         );
         assert!(policy.apply_approved_burn(&burn, FungibleIssuerOperation::Mint, 20).is_err());
+        let wrong_burn_authority = FungibleIssuerApprovalV1::new(
+            id(1),
+            policy.commitment().unwrap(),
+            Digest384::new([101; 48]),
+            Digest384::new([10; 48]),
+            FungibleIssuerOperation::Redemption,
+            3,
+            10,
+            20,
+            30,
+        )
+        .unwrap();
+        assert!(policy
+            .apply_approved_burn(&wrong_burn_authority, FungibleIssuerOperation::Redemption, 20)
+            .is_err());
     }
 }
