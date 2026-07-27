@@ -294,6 +294,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
 - [x] Freeze canonical bounded pause/resume/retire lifecycle actions with policy, authority,
   reason, and activation/expiry bindings.
 - [x] Bind lifecycle actions to a concrete threshold-approval commitment.
+- [x] Add canonical threshold-approval envelopes for mint, burn, and redemption with exact policy,
+  authority, amount, pre-supply, operation, and validity bindings.
 - [ ] Specify confidential evidence retention, deletion, access, breach handling, and offline
   verification boundaries with deterministic vectors.
 

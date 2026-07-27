@@ -567,6 +567,155 @@ impl CanonicalType for FungibleAssetLifecycleActionV1 {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum FungibleIssuerOperation {
+    Mint = 0,
+    Burn = 1,
+    Redemption = 2,
+}
+impl CanonicalEncode for FungibleIssuerOperation {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(e)
+    }
+}
+impl CanonicalDecode for FungibleIssuerOperation {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(d)? {
+            0 => Ok(Self::Mint),
+            1 => Ok(Self::Burn),
+            2 => Ok(Self::Redemption),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "FungibleIssuerOperation", tag }),
+        }
+    }
+}
+
+/// Threshold approval commitment for one issuer-controlled supply operation.
+/// Approval contents and signer identities remain off-chain; this envelope
+/// binds their commitment to the exact finalized execution context.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FungibleIssuerApprovalV1 {
+    asset_id: AssetId,
+    policy_commitment: Digest384,
+    authority_set: Digest384,
+    approval_commitment: Digest384,
+    operation: FungibleIssuerOperation,
+    amount: u128,
+    supply_before: u128,
+    effective_height: u64,
+    expires_height: u64,
+}
+impl FungibleIssuerApprovalV1 {
+    pub const TYPE_TAG: u16 = 0x00B3;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 4 + 1 + 16 * 2 + 8 * 2;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        asset_id: AssetId,
+        policy_commitment: Digest384,
+        authority_set: Digest384,
+        approval_commitment: Digest384,
+        operation: FungibleIssuerOperation,
+        amount: u128,
+        supply_before: u128,
+        effective_height: u64,
+        expires_height: u64,
+    ) -> Result<Self, AssetDefinitionError> {
+        if asset_id.digest() == &Digest384::ZERO
+            || policy_commitment == Digest384::ZERO
+            || authority_set == Digest384::ZERO
+            || approval_commitment == Digest384::ZERO
+            || amount == 0
+            || effective_height >= expires_height
+        {
+            return Err(AssetDefinitionError::InvalidSupplyTransition);
+        }
+        Ok(Self {
+            asset_id,
+            policy_commitment,
+            authority_set,
+            approval_commitment,
+            operation,
+            amount,
+            supply_before,
+            effective_height,
+            expires_height,
+        })
+    }
+    pub const fn asset_id(&self) -> AssetId {
+        self.asset_id
+    }
+    pub const fn policy_commitment(&self) -> Digest384 {
+        self.policy_commitment
+    }
+    pub const fn authority_set(&self) -> Digest384 {
+        self.authority_set
+    }
+    pub const fn operation(&self) -> FungibleIssuerOperation {
+        self.operation
+    }
+    pub const fn amount(&self) -> u128 {
+        self.amount
+    }
+    pub const fn supply_before(&self) -> u128 {
+        self.supply_before
+    }
+    pub const fn active_at(&self, height: u64) -> bool {
+        height >= self.effective_height && height < self.expires_height
+    }
+    pub fn binds_context(
+        &self,
+        policy: &FungibleAssetPolicyV1,
+        operation: FungibleIssuerOperation,
+        amount: u128,
+        supply_before: u128,
+        height: u64,
+    ) -> bool {
+        self.asset_id == policy.asset_id()
+            && self.policy_commitment == policy.commitment().ok().unwrap_or(Digest384::ZERO)
+            && self.authority_set == policy.authority_set()
+            && self.operation == operation
+            && self.amount == amount
+            && self.supply_before == supply_before
+            && self.active_at(height)
+    }
+}
+impl CanonicalEncode for FungibleIssuerApprovalV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.asset_id.encode(e)?;
+        self.policy_commitment.encode(e)?;
+        self.authority_set.encode(e)?;
+        self.approval_commitment.encode(e)?;
+        self.operation.encode(e)?;
+        self.amount.encode(e)?;
+        self.supply_before.encode(e)?;
+        self.effective_height.encode(e)?;
+        self.expires_height.encode(e)
+    }
+}
+impl CanonicalDecode for FungibleIssuerApprovalV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            AssetId::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            FungibleIssuerOperation::decode(d)?,
+            u128::decode(d)?,
+            u128::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid fungible issuer approval"))
+    }
+}
+impl CanonicalType for FungibleIssuerApprovalV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 #[cfg(kani)]
 mod kani_proofs {
     use super::*;
@@ -733,6 +882,24 @@ mod tests {
         assert_eq!(burned.supply_issued(), 375);
         assert_eq!(minted.apply_burn(501, 500), Err(AssetDefinitionError::InvalidSupplyTransition));
         assert_eq!(minted.apply_burn(1, 499), Err(AssetDefinitionError::InvalidSupplyTransition));
+        let approval = FungibleIssuerApprovalV1::new(
+            id(1),
+            policy.commitment().unwrap(),
+            policy.authority_set(),
+            Digest384::new([7; 48]),
+            FungibleIssuerOperation::Mint,
+            100,
+            400,
+            10,
+            20,
+        )
+        .unwrap();
+        assert!(approval.binds_context(&policy, FungibleIssuerOperation::Mint, 100, 400, 10));
+        assert!(!approval.binds_context(&policy, FungibleIssuerOperation::Burn, 100, 400, 10));
+        assert_eq!(
+            decode_envelope::<FungibleIssuerApprovalV1>(&encode_envelope(&approval).unwrap()),
+            Ok(approval)
+        );
         let zero_policy = FungibleAssetPolicyV1::new(
             id(1),
             principal(2),

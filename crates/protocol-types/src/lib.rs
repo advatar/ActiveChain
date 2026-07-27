@@ -26,7 +26,8 @@ pub use admission::{exact_frame_layout, fresh_sequence, length_prefixed_range};
 pub use asset::{
     AssetDefinitionError, FungibleAssetDefinition, FungibleAssetLifecycle,
     FungibleAssetLifecycleAction, FungibleAssetLifecycleActionV1, FungibleAssetPolicyRegistry,
-    FungibleAssetPolicyV1, FungibleAssetRegistry, MAX_ASSET_SYMBOL_LENGTH, MAX_FUNGIBLE_ASSETS,
+    FungibleAssetPolicyV1, FungibleAssetRegistry, FungibleIssuerApprovalV1,
+    FungibleIssuerOperation, MAX_ASSET_SYMBOL_LENGTH, MAX_FUNGIBLE_ASSETS,
 };
 pub use authority::{
     BoundedActionSet, BoundedActionSetError, CapabilityGrant, CapabilityGrantFields,

@@ -14,3 +14,6 @@ lifecycle_approval_missing\tpause,approval_commitment=zero\treject\tthreshold ap
 mint_wrong_issuer\tissuer differs from finalized policy issuer\treject\tissuer authority binding
 mint_stale_supply\tsupply_before differs from finalized policy supply\treject\texact pre-state binding
 burn_underflow\tburn exceeds finalized issued supply\treject\tsupply conservation
+approval_operation_substitution\tapproval=mint,execution=burn\treject\tcorporate-action binding
+approval_stale_policy\tapproval policy commitment != finalized policy\treject\tpolicy binding
+approval_expired\theight outside approval validity window\treject\tbounded approval lifetime
