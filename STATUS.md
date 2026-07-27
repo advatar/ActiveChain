@@ -1146,6 +1146,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
   commitment, malformed/substitution tests, and exact direct-reexecution comparison.
 - [x] Reject reordered CashAIR rows and nonzero value/fee columns on rejected rows during
   canonical decoding, before direct re-execution.
+- [x] Enforce CashAIR applied/rejected counters and contiguous pre/post cell and supply-root
+  chains against the public inputs during canonical decoding.
   - [x] Add a dedicated transparent STARK prover/verifier for row progression, outcome booleanity,
     failed-row atomicity, accepted/rejected counts, and pre/post Coin Cell root binding.
   - [ ] Add specialized SHAKE, ML-DSA, membership, consumption, value/fee arithmetic,

@@ -216,6 +216,23 @@ impl CanonicalDecode for CashAirProof {
         {
             return Err(DecodeError::InvalidValue("inconsistent CashAIR proof"));
         }
+        let actual_applied = rows.iter().filter(|row| row.accepted).count();
+        let actual_rejected = rows.len() - actual_applied;
+        if actual_applied != usize::from(public.applied)
+            || actual_rejected != usize::from(public.rejected)
+            || rows.first().is_some_and(|row| {
+                row.pre_cells != public.pre_cells || row.pre_supply != public.pre_supply
+            })
+            || rows.last().is_some_and(|row| {
+                row.post_cells != public.post_cells || row.post_supply != public.post_supply
+            })
+            || rows.windows(2).any(|pair| {
+                pair[0].post_cells != pair[1].pre_cells
+                    || pair[0].post_supply != pair[1].pre_supply
+            })
+        {
+            return Err(DecodeError::InvalidValue("inconsistent CashAIR root chain"));
+        }
         let expected_indices = plan.parallel().iter().chain(plan.fallback());
         for (row, expected) in rows.iter().zip(expected_indices) {
             if row.transfer_index != *expected
