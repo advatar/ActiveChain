@@ -15,7 +15,9 @@ use activechain_protocol_types::{
     Digest384, PrincipalId, ProposalJustification, ProtocolSignature, QuorumCertificate,
     TransactionId, ValidatorGenesis, ValidatorSet, ValidatorVote,
 };
-use activechain_rpc_server::finalized_coin_cell_records_with_chain_genesis;
+use activechain_rpc_server::{
+    AuthorizedFaucetSettlementAdapter, FaucetError, finalized_coin_cell_records_with_chain_genesis,
+};
 use activechain_rpc_types::QueryRecord;
 use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
 use sha3::{
@@ -26,6 +28,7 @@ use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::time::{Duration, Instant};
 
@@ -164,6 +167,43 @@ impl WalletTransactionGateway {
         finalized_height: u64,
     ) -> Result<FinalizedCashSnapshot, &'static str> {
         FinalizedCashSnapshot::new(chain_genesis, finalized_height, self.ledger().cells().clone())
+    }
+}
+
+/// Validator-owned adapter that connects the RPC authorized-faucet boundary
+/// to the real authenticated transaction ingress. The finalized height is
+/// supplied by the consensus service and is never taken from the RPC caller.
+pub struct ValidatorFaucetSettlementAdapter {
+    gateway: Arc<Mutex<WalletTransactionGateway>>,
+    finalized_height: Arc<AtomicU64>,
+}
+
+impl ValidatorFaucetSettlementAdapter {
+    pub fn new(
+        gateway: Arc<Mutex<WalletTransactionGateway>>,
+        finalized_height: Arc<AtomicU64>,
+    ) -> Self {
+        Self { gateway, finalized_height }
+    }
+
+    pub fn set_finalized_height(&self, height: u64) {
+        self.finalized_height.store(height, Ordering::Release);
+    }
+}
+
+impl AuthorizedFaucetSettlementAdapter for ValidatorFaucetSettlementAdapter {
+    fn settle_authorized(
+        &self,
+        envelope: &[u8],
+        recipient: PrincipalId,
+        amount: u128,
+        reference: Digest384,
+    ) -> Result<TransactionId, FaucetError> {
+        let height = self.finalized_height.load(Ordering::Acquire);
+        let mut gateway = self.gateway.lock().map_err(|_| FaucetError::Persistence)?;
+        gateway
+            .submit_faucet_authorized_envelope(envelope, reference, recipient, amount, height)
+            .map_err(|_| FaucetError::InvalidTransition)
     }
 }
 
@@ -3357,6 +3397,18 @@ mod tests {
         )
         .unwrap();
         let mut gateway = WalletTransactionGateway::from_genesis(&economy).unwrap();
+        let shared_gateway = Arc::new(Mutex::new(WalletTransactionGateway::from_genesis(&economy).unwrap()));
+        let finalized_height = Arc::new(AtomicU64::new(1));
+        let adapter = ValidatorFaucetSettlementAdapter::new(shared_gateway, finalized_height);
+        assert_eq!(
+            adapter.settle_authorized(
+                &[0xff],
+                owner,
+                10,
+                digest(30),
+            ),
+            Err(FaucetError::InvalidTransition)
+        );
         assert_eq!(
             gateway.submit_faucet_authorized_envelope(&[], digest(30), owner, 10, 1,),
             Err(activechain_wallet_core::WalletError::MalformedAuthorization)

@@ -300,6 +300,9 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
   after faucet policy admission; absent this callback, the new request remains fail-closed.
 - [x] Expose a typed authorized-settlement adapter API for validator implementations and qualify
   its installation through the RPC server test suite.
+- [x] Provide a validator-runtime adapter backed by the real `WalletTransactionGateway`; it uses
+  the consensus-owned finalized height and fail-closes malformed ingress (qualified in runtime
+  tests).
 - [ ] Publish the end-to-end funding admission contract and adversarial vectors before public
   faucet deployment.
 - [x] Freeze the validator-bridge authorized-settlement request envelope with strict canonical
