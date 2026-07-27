@@ -366,9 +366,11 @@ fn config() -> Config {
     let val_mmcs = ValMmcs::new(field_hash, compress, 3);
     let challenge_mmcs = ChallengeMmcs::new(val_mmcs.clone());
     // Pinned protocol parameters; do not use upstream benchmark helpers on
-    // the consensus path. Conjectured FRI security is 4*32+16 = 144 bits.
+    // the consensus path. Conjectured FRI security is 3*32+16 = 112 bits,
+    // above the protocol's 100-bit minimum (the query proof-of-work adds
+    // availability grinding but is not counted in this floor).
     let fri = FriParameters {
-        log_blowup: 2,
+        log_blowup: 3,
         log_final_poly_len: 0,
         max_log_arity: 1,
         num_queries: 32,
