@@ -651,6 +651,33 @@ pub struct RpcServer {
         >,
     >,
 }
+
+/// Production settlement boundary for faucet-authorized Coin Cell ingress.
+/// Implementations must submit the exact recipient, amount, and faucet
+/// reference and return only the validator-assigned transaction identifier.
+pub trait FaucetSettlementAdapter: Send + Sync {
+    fn settle(
+        &self,
+        recipient: PrincipalId,
+        amount: u128,
+        reference: Digest384,
+    ) -> Result<TransactionId, FaucetError>;
+}
+
+impl<F> FaucetSettlementAdapter for F
+where
+    F: Fn(PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError> + Send + Sync,
+{
+    fn settle(
+        &self,
+        recipient: PrincipalId,
+        amount: u128,
+        reference: Digest384,
+    ) -> Result<TransactionId, FaucetError> {
+        self(recipient, amount, reference)
+    }
+}
+
 impl RpcServer {
     pub fn new(store: Arc<DurableRpcStore>) -> Self {
         Self { store, access: None, anchors: None, faucet: None, faucet_settlement: None }
@@ -678,6 +705,17 @@ impl RpcServer {
     {
         self.faucet_settlement = Some(Arc::new(settlement));
         self
+    }
+
+    /// Attach a typed validator-backed settlement adapter. This is the
+    /// production-facing equivalent of `with_faucet_settlement`.
+    pub fn with_faucet_settlement_adapter<A>(self, adapter: A) -> Self
+    where
+        A: FaucetSettlementAdapter + 'static,
+    {
+        self.with_faucet_settlement(move |recipient, amount, reference| {
+            adapter.settle(recipient, amount, reference)
+        })
     }
 
     pub fn with_access(

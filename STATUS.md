@@ -253,6 +253,7 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
   genesis, exact finalized height, and block digest before funding is marked final.
 - [ ] Submit faucet-authorized Coin Cell transitions through real transaction ingress and expose
   pending/finalized/rejected proof-bearing status through the Kanalen gateway.
+- [x] Add a typed production faucet settlement adapter boundary for validator-backed ingress.
 - [ ] Publish the end-to-end funding admission contract and adversarial vectors before public
   faucet deployment.
 - [x] Freeze executable faucet invariant vectors for failed-settlement atomicity, source/global
