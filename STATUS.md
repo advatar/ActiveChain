@@ -211,6 +211,7 @@ Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163
 - [ ] Specify a finalized issuer-controlled asset metadata and supply registry.
 - [ ] Add proof-bearing owner-and-asset RPC discovery with bounded pagination.
 - [ ] Extend the versioned wallet ABI for multi-asset balances, selection, signing, and submission.
+- [ ] Add deterministic wallet selection over `FungibleCoinCellSet` with explicit asset identity.
 - [ ] Qualify native, test-EUR, and test-USD assets with cross-asset adversarial vectors.
 
 ## Active regulated-profile implementation — screening semantics
