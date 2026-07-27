@@ -3288,6 +3288,11 @@ mod tests {
         let mut gateway = WalletTransactionGateway::from_genesis(&economy).unwrap();
         assert_eq!(gateway.owner_cells(owner).unwrap().as_slice().len(), 2);
         assert!(gateway.owner_cells(PrincipalId::new(digest(11))).unwrap().as_slice().is_empty());
+        let snapshot = gateway.finalized_cash_snapshot(digest(20), 1).unwrap();
+        assert_eq!(snapshot.chain_genesis, digest(20));
+        assert_eq!(snapshot.finalized_height, 1);
+        assert_eq!(snapshot.cells.as_slice().len(), 2);
+        assert!(gateway.finalized_cash_snapshot(Digest384::ZERO, 1).is_err());
         let cash_key = SigningKey::<MlDsa44>::from_seed(&Seed::from([91; 32]));
         let proof = identity_proof(owner, &cash_key);
         gateway.install_finalized_authorization_key(&proof, 0, &AcceptFinality).unwrap();

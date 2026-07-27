@@ -121,6 +121,7 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
   the persisted cash root, height, and immutable chain genesis.
 - [x] Add an execution-side snapshot materializer from the authenticated wallet ledger; certificate
   binding remains mandatory before RPC publication.
+- [x] Cover execution snapshot root/identity behavior with a validator-runtime regression test.
 - [x] Make durable RPC replacement independently verify every proof-bearing record against the
   configured genesis and exact finalized height before persistence.
 - [x] Persist finalized cash cells with the exact finalized certificate and reject height, genesis,
