@@ -72,7 +72,7 @@ private struct HomeView: View {
             ScrollView {
                 LazyVStack(spacing: 18) {
                     Header()
-                    BalanceCard()
+                    BalanceCard(networkState: liveState.networkState)
                     NetworkCard(state: liveState.networkState) {
                         Task { await liveState.refresh() }
                     }
@@ -119,6 +119,18 @@ private struct Header: View {
 }
 
 private struct BalanceCard: View {
+    let networkState: WalletNetworkState
+
+    private var stateMessage: String {
+        switch networkState {
+        case .healthy: "The network is finalized, but no owner-scoped Coin Cell proof is loaded for this wallet."
+        case .checking: "Waiting for a finalized RPC checkpoint before loading wallet state."
+        case .stale: "The RPC checkpoint is stale; balances remain hidden until finality catches up."
+        case .unavailable: "Kanalen RPC is unavailable; no local or optimistic balance is shown."
+        case .incompatible: "Kanalen RPC protocol is incompatible; update before loading wallet state."
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack {
@@ -138,7 +150,7 @@ private struct BalanceCard: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Balance unavailable")
                     .font(.system(size: 28, weight: .bold, design: .rounded))
-                Text("Kanalen does not yet expose owner-scoped Coin Cell discovery.")
+                Text(stateMessage)
                     .font(.callout)
                     .foregroundStyle(.white.opacity(0.64))
             }
