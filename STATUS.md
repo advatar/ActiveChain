@@ -317,6 +317,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   and supply-attestation lifecycle semantics with deterministic vectors.
 - [x] Add a canonical commitment-only fungible supply attestation binding asset, issuer, policy,
   exact issued supply, finalized height, and approval evidence.
+- [x] Publish deterministic positive/malformed supply-attestation vectors for external issuer
+  and wallet conformance.
 - [x] Freeze canonical bounded pause/resume/retire lifecycle actions with policy, authority,
   reason, and activation/expiry bindings.
 - [x] Bind lifecycle actions to a concrete threshold-approval commitment.

@@ -19,3 +19,7 @@ approval_stale_policy\tapproval policy commitment != finalized policy\treject\tp
 approval_expired\theight outside approval validity window\treject\tbounded approval lifetime
 issuer_cli_policy\tvalid policy arguments\tcommitment\tdeterministic canonical policy commitment
 issuer_cli_bad_hex\tpolicy asset contains non-hex input\treject\tstrict CLI parsing
+supply_attestation_valid\tasset/policy/issuer/supply/height/approval exact\taccept\tfinalized supply evidence
+supply_attestation_zero_root\tpolicy commitment=zero\treject\tcommitment-only evidence is nonzero
+supply_attestation_zero_height\tfinalized_height=0\treject\tattestation must name finalized state
+supply_attestation_policy_substitution\tpolicy commitment differs\treject\tattestation cannot be replayed across policies
