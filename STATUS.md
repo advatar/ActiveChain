@@ -294,6 +294,8 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
 - [x] Add a typed production faucet settlement adapter boundary for validator-backed ingress.
 - [ ] Publish the end-to-end funding admission contract and adversarial vectors before public
   faucet deployment.
+- [x] Freeze the validator-bridge authorized-settlement request envelope with strict canonical
+  round-trip, trailing-byte, empty, malformed, and intent/recipient/amount-binding vectors.
 - [x] Freeze executable faucet invariant vectors for failed-settlement atomicity, source/global
   limits, restart equivalence, and exactly-once idempotency.
 - [x] Add bounded Kani proofs for admission limit monotonicity and cooldown precedence; these do

@@ -92,6 +92,39 @@ pub struct SettlementRequest {
     pub amount: u128,
     pub reference: Digest384,
 }
+
+/// Canonical validator-facing request carrying the exact pre-signed cash
+/// authorization selected by a faucet decision.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthorizedSettlementRequest {
+    pub envelope: Vec<u8>,
+    pub recipient: PrincipalId,
+    pub amount: u128,
+    pub reference: Digest384,
+}
+impl CanonicalEncode for AuthorizedSettlementRequest {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        e.write_bytes(&self.envelope, 64 * 1024)?;
+        self.recipient.encode(e)?;
+        self.amount.encode(e)?;
+        self.reference.encode(e)
+    }
+}
+impl CanonicalDecode for AuthorizedSettlementRequest {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Ok(Self {
+            envelope: d.read_bytes(64 * 1024)?.to_vec(),
+            recipient: PrincipalId::decode(d)?,
+            amount: u128::decode(d)?,
+            reference: Digest384::decode(d)?,
+        })
+    }
+}
+impl CanonicalType for AuthorizedSettlementRequest {
+    const TYPE_TAG: u16 = 0x00D2;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 64 * 1024 + 48 + 16 + 48;
+}
 impl CanonicalEncode for SettlementRequest {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
         self.recipient.encode(e)?;
@@ -293,6 +326,26 @@ mod tests {
     }
 
     #[test]
+    fn authorized_settlement_request_round_trips_and_preserves_binding_fields() {
+        let request = AuthorizedSettlementRequest {
+            envelope: vec![1, 2, 3],
+            recipient: PrincipalId::new(Digest384::new([8; 48])),
+            amount: 10,
+            reference: Digest384::new([7; 48]),
+        };
+        let encoded = activechain_canonical_codec::encode_envelope(&request).unwrap();
+        let decoded: AuthorizedSettlementRequest =
+            activechain_canonical_codec::decode_envelope(&encoded).unwrap();
+        assert_eq!(decoded, request);
+        let mut malformed = encoded;
+        malformed.push(0);
+        assert!(activechain_canonical_codec::decode_envelope::<AuthorizedSettlementRequest>(
+            &malformed
+        )
+        .is_err());
+    }
+
+    #[test]
     fn frames_reject_truncation_and_trailing_bytes() {
         let response = SettlementResponse {
             reference: Digest384::new([7; 48]),
@@ -397,5 +450,17 @@ impl<B: FaucetSettlementBackend> ValidatorRpcBridge<B> {
             .backend
             .submit_authorized_envelope(envelope, recipient, amount, reference)?;
         Ok(SettlementResponse { reference, transaction })
+    }
+
+    pub fn settle_authorized_request(
+        &self,
+        request: &AuthorizedSettlementRequest,
+    ) -> Result<SettlementResponse, FaucetError> {
+        self.settle_authorized_envelope(
+            &request.envelope,
+            request.recipient,
+            request.amount,
+            request.reference,
+        )
     }
 }
