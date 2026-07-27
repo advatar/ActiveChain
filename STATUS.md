@@ -326,6 +326,11 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 - [x] Specify native-stake authority, quorum/slash/reward invariants, restart behavior, and the
   governed transition requirements for any future stablecoin-secured profile.
 
+## Active compute-job boundary qualification
+
+- [x] Specify compute jobs as application objects with commitment-only execution evidence,
+  finalized receipts, pending/failure/dispute states, and no consensus-special execution primitive.
+
 ## Active native issuer operations
 
 Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164).
