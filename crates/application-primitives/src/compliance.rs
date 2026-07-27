@@ -1,4 +1,7 @@
-use activechain_canonical_codec::{decode_envelope, encode_envelope};
+use activechain_canonical_codec::{
+    CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
+    decode_envelope, encode_envelope,
+};
 use activechain_protocol_types::{
     AssetId, ChainId, ComplianceError, ComplianceEvidenceBindingV1, ComplianceReplayKey,
     ComplianceReplaySet, ComplianceSignatureEnvelopeV1, CredentialPredicateV1, Digest384,
@@ -45,11 +48,99 @@ impl ComplianceKeyRegistry {
         self.keys.contains_key(&profile)
     }
 
+    pub fn save(&self, path: impl AsRef<Path>) -> Result<(), CompliancePersistenceError> {
+        let records = self
+            .keys
+            .iter()
+            .map(|(profile, key)| ComplianceProviderKeyRecord { profile: *profile, key: key.clone() })
+            .collect();
+        let snapshot = ComplianceProviderKeySet { records };
+        let bytes = encode_envelope(&snapshot).map_err(|_| CompliancePersistenceError::Persistence)?;
+        let path = path.as_ref();
+        let parent = path.parent().ok_or(CompliancePersistenceError::Persistence)?;
+        std::fs::create_dir_all(parent).map_err(|_| CompliancePersistenceError::Persistence)?;
+        let temporary = path.with_extension("tmp");
+        let mut file = std::fs::File::create(&temporary)
+            .map_err(|_| CompliancePersistenceError::Persistence)?;
+        file.write_all(&bytes).map_err(|_| CompliancePersistenceError::Persistence)?;
+        file.sync_all().map_err(|_| CompliancePersistenceError::Persistence)?;
+        std::fs::rename(&temporary, path).map_err(|_| CompliancePersistenceError::Persistence)
+    }
+
+    pub fn load(path: impl AsRef<Path>) -> Result<Self, CompliancePersistenceError> {
+        let bytes = std::fs::read(path).map_err(|_| CompliancePersistenceError::Persistence)?;
+        let snapshot: ComplianceProviderKeySet =
+            decode_envelope(&bytes).map_err(|_| CompliancePersistenceError::Persistence)?;
+        let mut registry = Self::default();
+        for record in snapshot.records {
+            registry
+                .register(record.profile, record.key)
+                .map_err(|_| CompliancePersistenceError::Persistence)?;
+        }
+        Ok(registry)
+    }
+
     pub fn verify(&self, signature: &ComplianceSignatureEnvelopeV1) -> bool {
         self.keys
             .get(&signature.profile())
             .is_some_and(|key| verify_compliance_signature(key, signature))
     }
+}
+
+const MAX_PROVIDER_KEY_RECORDS: usize = 256;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ComplianceProviderKeyRecord {
+    profile: Digest384,
+    key: Vec<u8>,
+}
+impl CanonicalEncode for ComplianceProviderKeyRecord {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.profile.encode(e)?;
+        e.write_bytes(&self.key, ML_DSA44_PUBLIC_KEY_LENGTH)
+    }
+}
+impl CanonicalDecode for ComplianceProviderKeyRecord {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Ok(Self { profile: Digest384::decode(d)?, key: d.read_bytes(ML_DSA44_PUBLIC_KEY_LENGTH)?.to_vec() })
+    }
+}
+impl CanonicalType for ComplianceProviderKeyRecord {
+    const TYPE_TAG: u16 = 0x00d6;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 + 2 + ML_DSA44_PUBLIC_KEY_LENGTH;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ComplianceProviderKeySet {
+    records: Vec<ComplianceProviderKeyRecord>,
+}
+impl CanonicalEncode for ComplianceProviderKeySet {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        e.write_length(self.records.len(), MAX_PROVIDER_KEY_RECORDS)?;
+        for record in &self.records {
+            record.encode(e)?;
+        }
+        Ok(())
+    }
+}
+impl CanonicalDecode for ComplianceProviderKeySet {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let count = d.read_length(MAX_PROVIDER_KEY_RECORDS)?;
+        let mut records = Vec::with_capacity(count);
+        for _ in 0..count {
+            records.push(ComplianceProviderKeyRecord::decode(d)?);
+        }
+        if records.windows(2).any(|pair| pair[0].profile >= pair[1].profile) {
+            return Err(DecodeError::InvalidValue("provider keys not ordered"));
+        }
+        Ok(Self { records })
+    }
+}
+impl CanonicalType for ComplianceProviderKeySet {
+    const TYPE_TAG: u16 = 0x00d7;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 2 + MAX_PROVIDER_KEY_RECORDS * ComplianceProviderKeyRecord::MAX_ENCODED_LEN;
 }
 
 #[derive(Debug)]
@@ -264,6 +355,19 @@ mod tests {
         assert!(registry.revoke(profile));
         assert!(!registry.contains(profile));
         assert!(!registry.revoke(profile));
+    }
+
+    #[test]
+    fn provider_key_registry_round_trips_durably() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("provider-keys.bin");
+        let profile = Digest384::new([12; 48]);
+        let mut registry = ComplianceKeyRegistry::default();
+        registry.register(profile, vec![7; ML_DSA44_PUBLIC_KEY_LENGTH]).unwrap();
+        registry.save(&path).unwrap();
+        let restored = ComplianceKeyRegistry::load(&path).unwrap();
+        assert!(restored.contains(profile));
+        assert_eq!(restored.keys.get(&profile), Some(&vec![7; ML_DSA44_PUBLIC_KEY_LENGTH]));
     }
 
     #[test]
