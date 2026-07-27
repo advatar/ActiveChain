@@ -24,6 +24,87 @@ pub enum AssetDefinitionError {
     InvalidSupplyTransition,
     IssuerMismatch,
     SupplyCapExceeded,
+    InvalidNftMetadata,
+    NftOwnerMismatch,
+}
+
+/// Canonical native non-fungible token record. Metadata is represented only by
+/// a commitment; files and mutable off-chain descriptions never enter consensus.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NonFungibleTokenV1 {
+    asset_id: AssetId,
+    token_id: Digest384,
+    issuer: PrincipalId,
+    owner: PrincipalId,
+    metadata_commitment: Digest384,
+}
+impl NonFungibleTokenV1 {
+    pub const TYPE_TAG: u16 = 0x00B0;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 5;
+    pub fn new(
+        asset_id: AssetId,
+        token_id: Digest384,
+        issuer: PrincipalId,
+        owner: PrincipalId,
+        metadata_commitment: Digest384,
+    ) -> Result<Self, AssetDefinitionError> {
+        if token_id == Digest384::ZERO || metadata_commitment == Digest384::ZERO {
+            return Err(AssetDefinitionError::InvalidNftMetadata);
+        }
+        Ok(Self { asset_id, token_id, issuer, owner, metadata_commitment })
+    }
+    pub const fn asset_id(&self) -> AssetId {
+        self.asset_id
+    }
+    pub const fn token_id(&self) -> Digest384 {
+        self.token_id
+    }
+    pub const fn issuer(&self) -> PrincipalId {
+        self.issuer
+    }
+    pub const fn owner(&self) -> PrincipalId {
+        self.owner
+    }
+    pub const fn metadata_commitment(&self) -> Digest384 {
+        self.metadata_commitment
+    }
+    pub fn transfer(
+        &self,
+        from: PrincipalId,
+        to: PrincipalId,
+    ) -> Result<Self, AssetDefinitionError> {
+        if from != self.owner {
+            return Err(AssetDefinitionError::NftOwnerMismatch);
+        }
+        Ok(Self { owner: to, ..*self })
+    }
+}
+impl CanonicalEncode for NonFungibleTokenV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.asset_id.encode(e)?;
+        self.token_id.encode(e)?;
+        self.issuer.encode(e)?;
+        self.owner.encode(e)?;
+        self.metadata_commitment.encode(e)
+    }
+}
+impl CanonicalDecode for NonFungibleTokenV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            AssetId::decode(d)?,
+            Digest384::decode(d)?,
+            PrincipalId::decode(d)?,
+            PrincipalId::decode(d)?,
+            Digest384::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid non-fungible token"))
+    }
+}
+impl CanonicalType for NonFungibleTokenV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -791,6 +872,37 @@ mod tests {
         let bytes = encode_envelope(&registry).unwrap();
         assert_eq!(decode_envelope::<FungibleAssetRegistry>(&bytes), Ok(registry.clone()));
         assert_eq!(registry.find(id(2)).unwrap().issuer(), principal(2));
+    }
+
+    #[test]
+    fn nft_round_trip_and_transfer_is_owner_bound() {
+        let token = NonFungibleTokenV1::new(
+            id(1),
+            Digest384::new([2; 48]),
+            principal(3),
+            principal(4),
+            Digest384::new([5; 48]),
+        )
+        .unwrap();
+        assert_eq!(
+            decode_envelope::<NonFungibleTokenV1>(&encode_envelope(&token).unwrap()),
+            Ok(token)
+        );
+        assert_eq!(
+            token.transfer(principal(3), principal(6)),
+            Err(AssetDefinitionError::NftOwnerMismatch)
+        );
+        assert_eq!(token.transfer(principal(4), principal(6)).unwrap().owner(), principal(6));
+        assert!(
+            NonFungibleTokenV1::new(
+                id(1),
+                Digest384::ZERO,
+                principal(3),
+                principal(4),
+                Digest384::new([5; 48])
+            )
+            .is_err()
+        );
     }
 
     #[test]

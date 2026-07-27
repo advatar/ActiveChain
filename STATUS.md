@@ -327,6 +327,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
 Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164).
 
 - [ ] Freeze native fungible, non-fungible, and series asset definitions and lifecycle actions.
+- [x] Add a canonical native NFT token record with nonzero metadata commitment and owner-bound
+  transfer semantics; series assets and full issuer authorization remain separate gates.
 - [ ] Enforce issuer/controller authority, supply conservation, declared controls, and corporate
   actions in consensus, persistence, authorization, and formal proofs.
 - [x] Add canonical mint and burn supply-state transitions with exact pre-state, issuer, lifecycle,

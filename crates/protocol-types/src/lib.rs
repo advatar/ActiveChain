@@ -40,7 +40,7 @@ pub use asset::{
     AssetDefinitionError, FungibleAssetDefinition, FungibleAssetLifecycle,
     FungibleAssetLifecycleAction, FungibleAssetLifecycleActionV1, FungibleAssetPolicyRegistry,
     FungibleAssetPolicyV1, FungibleAssetRegistry, FungibleIssuerApprovalV1,
-    FungibleIssuerOperation, MAX_ASSET_SYMBOL_LENGTH, MAX_FUNGIBLE_ASSETS,
+    FungibleIssuerOperation, MAX_ASSET_SYMBOL_LENGTH, MAX_FUNGIBLE_ASSETS, NonFungibleTokenV1,
 };
 pub use authority::{
     BoundedActionSet, BoundedActionSetError, CapabilityGrant, CapabilityGrantFields,
