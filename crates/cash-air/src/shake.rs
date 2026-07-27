@@ -33,6 +33,7 @@ const STATE_LANES: usize = 25;
 const LIMBS_PER_LANE: usize = 4;
 const STATE_PUBLIC_VALUES: usize = STATE_LANES * LIMBS_PER_LANE;
 const TOTAL_PUBLIC_VALUES: usize = STATE_PUBLIC_VALUES * 2;
+pub const CASH_AIR_SHAKE_SUITE_ID: u32 = 0xCA50_0301;
 const KECCAK_ROUNDS: usize = 24;
 pub const MAX_CASH_SHAKE_MESSAGE: usize = 512;
 pub const MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_CHUNK: usize = 64;
@@ -158,6 +159,13 @@ pub struct Shake256StarkProof {
     digest: [u8; 48],
 }
 
+impl Shake256StarkProof {
+    #[must_use]
+    pub const fn suite_id() -> u32 {
+        CASH_AIR_SHAKE_SUITE_ID
+    }
+}
+
 pub struct BatchedShake256StarkProof {
     proof: Proof<Config>,
     digests: Vec<[u8; 48]>,
@@ -166,6 +174,13 @@ pub struct BatchedShake256StarkProof {
 
 pub struct AuthenticatedCashShakeStarkProof {
     batches: Vec<BatchedShake256StarkProof>,
+}
+
+impl AuthenticatedCashShakeStarkProof {
+    #[must_use]
+    pub const fn suite_id() -> u32 {
+        CASH_AIR_SHAKE_SUITE_ID
+    }
 }
 
 impl AuthenticatedCashShakeStarkProof {
@@ -338,7 +353,17 @@ fn config() -> Config {
     let compress = Compress::new(byte_hash);
     let val_mmcs = ValMmcs::new(field_hash, compress, 3);
     let challenge_mmcs = ChallengeMmcs::new(val_mmcs.clone());
-    let fri = FriParameters::new_benchmark(challenge_mmcs);
+    // Pinned protocol parameters; do not use upstream benchmark helpers on
+    // the consensus path. Conjectured FRI security is 4*32+16 = 144 bits.
+    let fri = FriParameters {
+        log_blowup: 2,
+        log_final_poly_len: 0,
+        max_log_arity: 1,
+        num_queries: 32,
+        commit_proof_of_work_bits: 16,
+        query_proof_of_work_bits: 16,
+        mmcs: challenge_mmcs,
+    };
     let pcs = Pcs::new(Radix2Bowers, val_mmcs, fri);
     let challenger = Challenger::from_hasher(vec![], ByteHash {});
     Config::new(pcs, challenger)

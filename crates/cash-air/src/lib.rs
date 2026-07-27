@@ -34,6 +34,12 @@ pub use shake::{
     verify_shake256_384_batch,
 };
 
+/// Registered CashAIR suite identifier. The composite suite explicitly consists
+/// of this Winterfell parent plus the SHAKE permutation suite below; callers must
+/// persist this identifier with any proof envelope.
+pub const CASH_AIR_PARENT_SUITE_ID: u32 = 0xCA50_0101;
+pub const CASH_AIR_COMPOSITE_SUITE_ID: u32 = 0xCA50_0201;
+
 const TRACE_WIDTH: usize = 15;
 const STEP: usize = 0;
 const APPLIED: usize = 1;
@@ -278,12 +284,20 @@ pub struct AuthenticatedCashCompositeStarkProof {
 
 impl AuthenticatedCashCompositeStarkProof {
     #[must_use]
+    pub const fn suite_id() -> u32 {
+        CASH_AIR_COMPOSITE_SUITE_ID
+    }
+    #[must_use]
     pub fn mutation_proof_count(&self) -> usize {
         self.mutation_shake.iter().filter(|proof| proof.is_some()).count()
     }
 }
 
 impl CashStarkProof {
+    #[must_use]
+    pub const fn suite_id() -> u32 {
+        CASH_AIR_PARENT_SUITE_ID
+    }
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         self.proof.to_bytes()
@@ -292,7 +306,7 @@ impl CashStarkProof {
 
 pub fn prove(trace: &CashAirProof) -> Result<CashStarkProof, &'static str> {
     let execution = build_trace(trace, None)?;
-    let public = public_inputs(trace.public());
+    let public = public_inputs(trace.public())?;
     let prover = CashProver { options: proof_options() };
     let proof = prover.prove(execution).map_err(|_| "CashAIR proving failed")?;
     Ok(CashStarkProof { proof, public })
@@ -302,7 +316,7 @@ pub fn prove_authenticated_parent(
     trace: &AuthenticatedCashAirProofV1,
 ) -> Result<CashStarkProof, &'static str> {
     let execution = build_trace(trace.execution(), Some(trace))?;
-    let public = authenticated_public_inputs(trace);
+    let public = authenticated_public_inputs(trace)?;
     let prover = CashProver { options: proof_options() };
     let proof = prover.prove(execution).map_err(|_| "authenticated CashAIR proving failed")?;
     Ok(CashStarkProof { proof, public })
@@ -328,11 +342,11 @@ pub fn verify_authenticated_composite(
     if proof.mutation_shake.len() != trace.mutations().len() {
         return Err("authenticated CashAIR composite row count mismatch");
     }
-    let expected_public = authenticated_public_inputs(trace);
+    let expected_public = authenticated_public_inputs(trace)?;
     if proof.parent.public.to_elements() != expected_public.to_elements() {
         return Err("authenticated CashAIR parent public inputs mismatch");
     }
-    verify(proof.parent)?;
+    verify_trace_structure(proof.parent)?;
     for (row_proof, mutation) in proof.mutation_shake.iter().zip(trace.mutations()) {
         match (row_proof, mutation) {
             (Some(row_proof), Some(mutation)) => {
@@ -364,19 +378,27 @@ fn ensure_authenticated_composite_permutation_total(total: usize) -> Result<usiz
     }
 }
 
-pub fn verify(proof: CashStarkProof) -> Result<(), &'static str> {
+/// Verifies the bounded CashAIR trace structure. This is not a complete
+/// Coin Cell validity proof: membership and cryptographic tables remain outside
+/// this tranche and are enforced by the authenticated composite path.
+pub fn verify_trace_structure(proof: CashStarkProof) -> Result<(), &'static str> {
     winterfell::verify::<
         CashAir,
         Blake3_256<BaseElement>,
         DefaultRandomCoin<Blake3_256<BaseElement>>,
         MerkleTree<Blake3_256<BaseElement>>,
-    >(proof.proof, proof.public, &AcceptableOptions::MinConjecturedSecurity(95))
+    >(proof.proof, proof.public, &AcceptableOptions::MinConjecturedSecurity(100))
     .map_err(|_| "CashAIR verification failed")
+}
+
+/// Compatibility alias; new callers should use `verify_trace_structure`.
+pub fn verify(proof: CashStarkProof) -> Result<(), &'static str> {
+    verify_trace_structure(proof)
 }
 
 pub fn verify_bytes(bytes: &[u8], trace: &CashAirProof) -> Result<(), &'static str> {
     let proof = Proof::from_bytes(bytes).map_err(|_| "malformed CashAIR STARK proof")?;
-    verify(CashStarkProof { proof, public: public_inputs(trace.public()) })
+    verify_trace_structure(CashStarkProof { proof, public: public_inputs(trace.public())? })
 }
 
 fn build_trace(
@@ -388,7 +410,7 @@ fn build_trace(
     }
     let length = (proof.rows().len() + 2).next_power_of_two().max(8);
     let mut trace = TraceTable::new(TRACE_WIDTH, length);
-    let mut current_root = root_elements(proof.public().pre_cells());
+    let mut current_root = root_elements(proof.public().pre_cells())?;
     trace.set(STEP, 0, BaseElement::ZERO);
     trace.set(APPLIED, 0, BaseElement::ZERO);
     trace.set(REJECTED, 0, BaseElement::ZERO);
@@ -400,7 +422,10 @@ fn build_trace(
     set_root(&mut trace, 0, current_root);
     let authenticated_mode = BaseElement::new(u128::from(authenticated.is_some()));
     let mut authenticated_root =
-        authenticated.map_or(current_root, |value| digest_elements(value.pre_root().into_digest()));
+        authenticated
+            .map(|value| digest_elements(value.pre_root().into_digest()))
+            .transpose()?
+            .unwrap_or(current_root);
     trace.set(AUTHENTICATED_MODE, 0, authenticated_mode);
     set_authenticated_root(&mut trace, 0, authenticated_root);
     let mut applied = 0_u64;
@@ -412,12 +437,17 @@ fn build_trace(
         } else {
             rejected += 1;
         }
-        current_root = root_elements(row.post_cells());
+        current_root = root_elements(row.post_cells())?;
         trace.set(STEP, index, BaseElement::new(index as u128));
         trace.set(APPLIED, index, BaseElement::new(applied.into()));
         trace.set(REJECTED, index, BaseElement::new(rejected.into()));
         trace.set(ACTIVE, index, BaseElement::ONE);
         trace.set(ACCEPTED, index, BaseElement::new(u128::from(row.accepted())));
+        for value in [row.input_value(), row.output_value(), row.fee()] {
+            if u128::from(value) > u64::MAX as u128 {
+                return Err("CashAIR value exceeds the 64-bit range");
+            }
+        }
         trace.set(INPUT_VALUE, index, BaseElement::new(row.input_value().into()));
         trace.set(OUTPUT_VALUE, index, BaseElement::new(row.output_value().into()));
         trace.set(FEE, index, BaseElement::new(row.fee().into()));
@@ -426,7 +456,7 @@ fn build_trace(
         if let Some(authenticated) = authenticated {
             match (row.accepted(), &authenticated.mutations()[offset]) {
                 (true, Some(mutation)) => {
-                    authenticated_root = digest_elements(mutation.post_root().into_digest())
+                    authenticated_root = digest_elements(mutation.post_root().into_digest())?
                 }
                 (false, None) => {}
                 _ => return Err("authenticated CashAIR row/mutation mismatch"),
@@ -452,49 +482,55 @@ fn build_trace(
     Ok(trace)
 }
 
-fn public_inputs(public: &activechain_cash_kernel::CashAirPublicInputs) -> CashStarkPublicInputs {
-    CashStarkPublicInputs {
-        pre_root: root_elements(public.pre_cells()),
-        post_root: root_elements(public.post_cells()),
+fn public_inputs(public: &activechain_cash_kernel::CashAirPublicInputs) -> Result<CashStarkPublicInputs, &'static str> {
+    Ok(CashStarkPublicInputs {
+        pre_root: root_elements(public.pre_cells())?,
+        post_root: root_elements(public.post_cells())?,
         applied: BaseElement::new(public.applied().into()),
         rejected: BaseElement::new(public.rejected().into()),
         authenticated_mode: BaseElement::ZERO,
-        authenticated_pre_root: root_elements(public.pre_cells()),
-        authenticated_post_root: root_elements(public.post_cells()),
+        authenticated_pre_root: root_elements(public.pre_cells())?,
+        authenticated_post_root: root_elements(public.post_cells())?,
         authenticated_row_roots: Vec::new(),
-    }
+    })
 }
 
-fn authenticated_public_inputs(proof: &AuthenticatedCashAirProofV1) -> CashStarkPublicInputs {
-    let mut public = public_inputs(proof.execution().public());
+fn authenticated_public_inputs(proof: &AuthenticatedCashAirProofV1) -> Result<CashStarkPublicInputs, &'static str> {
+    let mut public = public_inputs(proof.execution().public())?;
     public.authenticated_mode = BaseElement::ONE;
-    public.authenticated_pre_root = digest_elements(proof.pre_root().into_digest());
-    public.authenticated_post_root = digest_elements(proof.post_root().into_digest());
+    public.authenticated_pre_root = digest_elements(proof.pre_root().into_digest())?;
+    public.authenticated_post_root = digest_elements(proof.post_root().into_digest())?;
     let mut current = public.authenticated_pre_root;
-    public.authenticated_row_roots = proof
-        .mutations()
-        .iter()
-        .map(|mutation| {
-            if let Some(mutation) = mutation {
-                current = digest_elements(mutation.post_root().into_digest());
-            }
-            current
-        })
-        .collect();
-    public
+    public.authenticated_row_roots = Vec::with_capacity(proof.mutations().len());
+    for mutation in proof.mutations() {
+        if let Some(mutation) = mutation {
+            current = digest_elements(mutation.post_root().into_digest())?;
+        }
+        public.authenticated_row_roots.push(current);
+    }
+    Ok(public)
 }
 
-fn root_elements(root: CoinCellSetRoot) -> [BaseElement; 3] {
+fn root_elements(root: CoinCellSetRoot) -> Result<[BaseElement; 3], &'static str> {
     digest_elements(root.into_digest())
 }
 
-fn digest_elements(digest: Digest384) -> [BaseElement; 3] {
+fn digest_elements(digest: Digest384) -> Result<[BaseElement; 3], &'static str> {
     let bytes = digest.as_bytes();
-    core::array::from_fn(|index| {
+    let mut result = [BaseElement::ZERO; 3];
+    for (index, slot) in result.iter_mut().enumerate() {
         let mut limb = [0_u8; 16];
         limb.copy_from_slice(&bytes[index * 16..(index + 1) * 16]);
-        BaseElement::new(u128::from_be_bytes(limb))
-    })
+        // The f128 modulus is slightly below 2^128. Rejecting rather than
+        // reducing keeps the digest-to-field encoding injective.
+        let value = u128::from_be_bytes(limb);
+        const F128_MODULUS: u128 = u128::MAX - (45_u128 << 40) + 2;
+        if value >= F128_MODULUS {
+            return Err("digest limb is not canonically representable in CashAIR field");
+        }
+        *slot = BaseElement::new(value);
+    }
+    Ok(result)
 }
 
 fn set_authenticated_root(trace: &mut TraceTable<BaseElement>, row: usize, root: [BaseElement; 3]) {
@@ -511,9 +547,9 @@ fn set_root(trace: &mut TraceTable<BaseElement>, row: usize, root: [BaseElement;
 
 fn proof_options() -> ProofOptions {
     ProofOptions::new(
-        32,
+        40,
         8,
-        0,
+        16,
         FieldExtension::None,
         8,
         31,
@@ -532,12 +568,22 @@ mod tests {
     use activechain_protocol_types::{ChainId, CoinCellId, Digest384, PrincipalId};
 
     use super::{
-        BaseElement, prove, prove_authenticated_composite, prove_authenticated_parent, verify,
+        AuthenticatedCashCompositeStarkProof, BaseElement, CashStarkProof,
+        CASH_AIR_COMPOSITE_SUITE_ID, CASH_AIR_PARENT_SUITE_ID, prove,
+        prove_authenticated_composite, prove_authenticated_parent, verify,
         verify_authenticated_composite,
     };
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
+    }
+
+    #[test]
+    fn registered_suite_ids_are_distinct() {
+        assert_ne!(CASH_AIR_PARENT_SUITE_ID, CASH_AIR_COMPOSITE_SUITE_ID);
+        assert_ne!(CASH_AIR_PARENT_SUITE_ID, crate::shake::CASH_AIR_SHAKE_SUITE_ID);
+        assert_eq!(CashStarkProof::suite_id(), CASH_AIR_PARENT_SUITE_ID);
+        assert_eq!(AuthenticatedCashCompositeStarkProof::suite_id(), CASH_AIR_COMPOSITE_SUITE_ID);
     }
 
     fn principal(byte: u8) -> PrincipalId {

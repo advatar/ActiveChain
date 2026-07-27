@@ -14,6 +14,17 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
   accumulator-only scope.
 - [x] Add an independent no-STARK model verifier and CLI cross-check for canonical vectors.
 - [x] Add a negative model-verifier regression for mutated post-state commitments.
+
+## CashAIR P-060 hardening
+
+- [x] Register explicit parent, SHAKE permutation, and composite suite identifiers.
+- [x] Replace Plonky3 benchmark FRI defaults with pinned protocol parameters and a documented
+  100-bit-plus conjectured-security target.
+- [x] Raise Winterfell CashAIR and session acceptance floors to 100 bits and enable grinding.
+- [x] Reject out-of-range value columns before trace construction.
+- [x] Make digest-to-f128 conversion reject non-canonical limbs instead of reducing them.
+- [x] Name the structural verifier explicitly while retaining a compatibility alias.
+- [ ] Add authenticated proof byte-envelope decoding and a reduced-depth composite happy-path test.
 - [x] Make the reference package independently testable outside the root workspace.
 - [ ] Refine the AIR against P-050 ObjectVM semantics and publish an independent second verifier.
 - [ ] Qualify proof parameters against the required soundness and verifier-cost gates before consensus activation.

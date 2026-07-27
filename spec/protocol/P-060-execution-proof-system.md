@@ -283,6 +283,11 @@ and mutation/totality tests. It intentionally proves only an accumulator transit
 `P-050` refinement is complete. `P-111` remains a separate private-relation proof path and does
 not provide execution validity for public blocks.
 
+The CashAIR crate is a separate specialized Option-A demonstration for the cash lane. Its
+authenticated composite is registered as one suite identifier composed of the pinned Winterfell
+parent and SHAKE permutation suite; it is not a general ObjectVM execution proof and does not
+close the P-050 refinement gate.
+
 The cheapest next step is Gate 1: arithmetize the existing `P-050` interpreter and measure. That
 produces the evidence §10 requires and is useful work under every option, because a `P-050` AIR is
 needed for Option A, is a baseline for Option B, and is the comparison Option C must beat.

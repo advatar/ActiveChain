@@ -224,7 +224,7 @@ pub fn verify_session_budget(
         Blake3_256<BaseElement>,
         DefaultRandomCoin<Blake3_256<BaseElement>>,
         MerkleTree<Blake3_256<BaseElement>>,
-    >(proof.proof, expected, &AcceptableOptions::MinConjecturedSecurity(95))
+    >(proof.proof, expected, &AcceptableOptions::MinConjecturedSecurity(100))
     .map_err(|_| "cash session verification failed")
 }
 
@@ -325,9 +325,9 @@ fn public_inputs(
 
 fn proof_options() -> ProofOptions {
     ProofOptions::new(
-        32,
+        40,
         8,
-        0,
+        16,
         FieldExtension::None,
         8,
         31,
