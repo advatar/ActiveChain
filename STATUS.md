@@ -173,6 +173,9 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
 - [ ] Extend Kanalen ingestion/rehearsal, add adversarial tests, deploy, and verify the public RPC.
 - [x] Verify the currently deployed Kanalen testnet independently over localhost on the host:
   chain/genesis identity matches, finalized height advances to 4168, and health reports `Healthy`.
+- [x] Deploy the schema-2 RPC binary and matching probe without changing validator binaries or
+  snapshots; the host-local probe reports the same chain/genesis identity and `Healthy` at height
+  4182 while both legacy-compatible validators remain running.
 - [x] Re-run the complete seven-stage wallet/testnet rehearsal after validator certificate
   propagation changes: genesis-bound funding, replay rejection, three-validator finality,
   restart, and durable recovery all pass locally.
