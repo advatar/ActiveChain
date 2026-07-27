@@ -92,6 +92,8 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
   validator snapshot's immutable chain genesis.
 - [ ] Wire the proof-bearing Coin Cell record builder into the validator finalization publisher.
 - [ ] Persist finalized cash cells with the finalized header and reject root mismatches on restart.
+- [x] Expose a validator-service persistence boundary that accepts cash snapshots only at the
+  exact finalized height and immutable chain genesis.
 - [ ] Enable the Kanalen round runner to publish finalized cash snapshots when validator output is
   available; retain metadata-only ingestion until then.
 - [ ] Load a real device wallet profile and remove the hard-coded unavailable dashboard path.

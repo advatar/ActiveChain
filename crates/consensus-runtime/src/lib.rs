@@ -2467,6 +2467,7 @@ pub enum ValidatorEngineError {
     VoteLockLimit,
     CertifiedBlockLimit,
     InvalidFinalizedAnchor,
+    InvalidCashSnapshot,
     UnknownParentCertificate,
     ConflictingCertificate,
     ConflictingFinalizedPrefix,
@@ -2565,6 +2566,26 @@ impl ValidatorService {
     }
     pub fn state(&self) -> Result<ConsensusState, ValidatorServiceError> {
         self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned).map(|engine| engine.state())
+    }
+    /// Persists an execution-produced cash snapshot only when it exactly matches this validator's
+    /// finalized consensus identity and height. Execution remains the source of Coin Cells; this
+    /// boundary prevents an operator from publishing an optimistic or cross-chain snapshot.
+    pub fn persist_finalized_cash_snapshot(
+        &self,
+        path: &std::path::Path,
+        snapshot: &FinalizedCashSnapshot,
+    ) -> Result<(), ValidatorServiceError> {
+        let engine = self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
+        if snapshot.chain_genesis != engine.genesis_commitment
+            || snapshot.finalized_height != engine.state.finalized_height()
+            || snapshot.verify().is_err()
+        {
+            return Err(ValidatorServiceError::Engine(ValidatorEngineError::InvalidCashSnapshot));
+        }
+        snapshot
+            .save(path)
+            .map_err(ValidatorEngineError::Snapshot)
+            .map_err(ValidatorServiceError::Engine)
     }
     pub fn activate_finalized_validator_set(
         &self,
