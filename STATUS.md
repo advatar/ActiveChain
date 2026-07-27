@@ -2,6 +2,16 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Active milestone — P-060 execution proof system
+
+- [x] Publish the P-060 selection/security specification and explicit re-execution transition gate.
+- [x] Implement a standalone Gate-1 transparent STARK reference prover and verifier with protocol-bound receipts.
+- [x] Add strict decoding, public-input binding, mutation, malformed-input, determinism, and totality tests.
+- [x] Publish a deterministic positive receipt vector and benchmark metadata with honest soundness caveats.
+- [x] Make the reference package independently testable outside the root workspace.
+- [ ] Refine the AIR against P-050 ObjectVM semantics and publish an independent second verifier.
+- [ ] Qualify proof parameters against the required soundness and verifier-cost gates before consensus activation.
+
 ## Kanalen snapshot compatibility gate
 
 - [x] Publish the persisted validator snapshot schema marker through the read-only indexer.

@@ -1,0 +1,61 @@
+{
+  "date": "2026-07-27",
+  "profile": "release",
+  "backend": "winterfell 0.13.1, single-threaded",
+  "machine": "Apple M5 Max",
+  "platform": "macOS arm64",
+  "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+  "samples": [
+    {
+      "actions": 3,
+      "trace_length": 8,
+      "proof_bytes": 4695,
+      "receipt_bytes": 5019,
+      "prove_millis": 287.102167,
+      "verify_runs": 10,
+      "verify_millis_min": 0.238417,
+      "verify_millis_mean": 0.3852336,
+      "verify_millis_max": 1.608625,
+      "conjectured_soundness_bits": 127,
+      "proven_ldr_bits": 77,
+      "proven_udr_bits": 53
+    },
+    {
+      "actions": 128,
+      "trace_length": 256,
+      "proof_bytes": 36274,
+      "receipt_bytes": 38598,
+      "prove_millis": 24.012041,
+      "verify_runs": 10,
+      "verify_millis_min": 2.474125,
+      "verify_millis_mean": 2.9782833,
+      "verify_millis_max": 4.213875,
+      "conjectured_soundness_bits": 127,
+      "proven_ldr_bits": 82,
+      "proven_udr_bits": 55
+    },
+    {
+      "actions": 1024,
+      "trace_length": 2048,
+      "proof_bytes": 65627,
+      "receipt_bytes": 82287,
+      "prove_millis": 589.199875,
+      "verify_runs": 10,
+      "verify_millis_min": 36.897209,
+      "verify_millis_mean": 42.8661666,
+      "verify_millis_max": 53.483083,
+      "conjectured_soundness_bits": 127,
+      "proven_ldr_bits": 79,
+      "proven_udr_bits": 55
+    }
+  ],
+  "memory": {
+    "max_receipt_verifier_max_rss_bytes": 4947968,
+    "max_receipt_combined_prove_verify_max_rss_bytes": 144146432
+  },
+  "notes": [
+    "Proving time is a single sample and includes 16-bit proof-of-work grinding.",
+    "Verification statistics are ten runs of one deterministically generated receipt.",
+    "These measurements are architecture-selection evidence, not production throughput claims."
+  ]
+}
