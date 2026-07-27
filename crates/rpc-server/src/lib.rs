@@ -574,6 +574,16 @@ impl DurableRpcStore {
         {
             return Err(RpcStoreError::Invalid);
         }
+        // Never persist an execution-produced record merely because its
+        // envelope is well formed. Every record must independently prove the
+        // same finalized chain and height before entering the durable index.
+        for record in &records {
+            if record.finalized_height() != finalized_height
+                || verify_query_record_with_chain_genesis(record, expected_genesis).is_err()
+            {
+                return Err(RpcStoreError::Invalid);
+            }
+        }
         let next = RpcIndex::new(
             current.chain_id,
             current.genesis_commitment,
