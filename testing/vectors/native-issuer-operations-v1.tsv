@@ -7,3 +7,6 @@ symbol_substitution\tdefinition=EUR,transition=USD\treject\tAssetId is authorita
 single_key_pause\tthreshold=2-of-3,signers=1\treject\tthreshold not met
 arbitrary_seizure\tpause-capability,holder=unrelated\treject\tbounded emergency authority
 retire_nonzero\tsupply=1,retire\treject\twind-down incomplete
+lifecycle_action_window\tpause,effective=10,expires=20\taccept\tbounded activation window
+lifecycle_action_expired\tretire,effective=20,expires=20\treject\tnonempty half-open window required
+lifecycle_reason_missing\tresume,reason_commitment=zero\treject\toperator rationale is committed

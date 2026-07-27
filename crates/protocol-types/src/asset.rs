@@ -323,6 +323,120 @@ impl CanonicalType for FungibleAssetPolicyRegistry {
     const MAX_ENCODED_LEN: usize = 2 + MAX_FUNGIBLE_ASSETS * FungibleAssetPolicyV1::MAX_ENCODED_LEN;
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum FungibleAssetLifecycleAction {
+    Pause = 0,
+    Resume = 1,
+    Retire = 2,
+}
+impl CanonicalEncode for FungibleAssetLifecycleAction {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(e)
+    }
+}
+impl CanonicalDecode for FungibleAssetLifecycleAction {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(d)? {
+            0 => Ok(Self::Pause),
+            1 => Ok(Self::Resume),
+            2 => Ok(Self::Retire),
+            tag => {
+                Err(DecodeError::InvalidEnumTag { type_name: "FungibleAssetLifecycleAction", tag })
+            }
+        }
+    }
+}
+
+/// Authority-controlled lifecycle action for one finalized fungible asset policy.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FungibleAssetLifecycleActionV1 {
+    asset_id: AssetId,
+    expected_policy: Digest384,
+    authority_set: Digest384,
+    reason_commitment: Digest384,
+    action: FungibleAssetLifecycleAction,
+    effective_height: u64,
+    expires_height: u64,
+}
+impl FungibleAssetLifecycleActionV1 {
+    pub const TYPE_TAG: u16 = 0x00B2;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 4 + 1 + 8 + 8;
+    pub fn new(
+        asset_id: AssetId,
+        expected_policy: Digest384,
+        authority_set: Digest384,
+        reason_commitment: Digest384,
+        action: FungibleAssetLifecycleAction,
+        effective_height: u64,
+        expires_height: u64,
+    ) -> Result<Self, AssetDefinitionError> {
+        if asset_id.digest() == &Digest384::ZERO
+            || expected_policy == Digest384::ZERO
+            || authority_set == Digest384::ZERO
+            || reason_commitment == Digest384::ZERO
+            || effective_height >= expires_height
+        {
+            return Err(AssetDefinitionError::InvalidDecimals);
+        }
+        Ok(Self {
+            asset_id,
+            expected_policy,
+            authority_set,
+            reason_commitment,
+            action,
+            effective_height,
+            expires_height,
+        })
+    }
+    pub const fn asset_id(&self) -> AssetId {
+        self.asset_id
+    }
+    pub const fn action(&self) -> FungibleAssetLifecycleAction {
+        self.action
+    }
+    pub const fn effective_height(&self) -> u64 {
+        self.effective_height
+    }
+    pub const fn expires_height(&self) -> u64 {
+        self.expires_height
+    }
+    pub const fn active_at(&self, height: u64) -> bool {
+        height >= self.effective_height && height < self.expires_height
+    }
+}
+impl CanonicalEncode for FungibleAssetLifecycleActionV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.asset_id.encode(e)?;
+        self.expected_policy.encode(e)?;
+        self.authority_set.encode(e)?;
+        self.reason_commitment.encode(e)?;
+        self.action.encode(e)?;
+        self.effective_height.encode(e)?;
+        self.expires_height.encode(e)
+    }
+}
+impl CanonicalDecode for FungibleAssetLifecycleActionV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            AssetId::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            FungibleAssetLifecycleAction::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid asset lifecycle action"))
+    }
+}
+impl CanonicalType for FungibleAssetLifecycleActionV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -434,6 +548,38 @@ mod tests {
         assert_eq!(
             FungibleAssetPolicyRegistry::new(vec![make(2), make(1)]),
             Err(AssetDefinitionError::AssetsNotOrdered)
+        );
+    }
+
+    #[test]
+    fn lifecycle_action_is_bounded_and_time_scoped() {
+        let action = FungibleAssetLifecycleActionV1::new(
+            id(1),
+            Digest384::new([2; 48]),
+            Digest384::new([3; 48]),
+            Digest384::new([4; 48]),
+            FungibleAssetLifecycleAction::Pause,
+            10,
+            20,
+        )
+        .unwrap();
+        assert_eq!(
+            decode_envelope::<FungibleAssetLifecycleActionV1>(&encode_envelope(&action).unwrap()),
+            Ok(action)
+        );
+        assert!(action.active_at(10));
+        assert!(!action.active_at(20));
+        assert!(
+            FungibleAssetLifecycleActionV1::new(
+                id(1),
+                Digest384::new([2; 48]),
+                Digest384::new([3; 48]),
+                Digest384::new([4; 48]),
+                FungibleAssetLifecycleAction::Retire,
+                20,
+                20,
+            )
+            .is_err()
         );
     }
 }

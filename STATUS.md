@@ -274,6 +274,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
 
 - [ ] Define issuer registration, threshold-controlled mint/burn, redemption, pause/recovery,
   and supply-attestation lifecycle semantics with deterministic vectors.
+- [x] Freeze canonical bounded pause/resume/retire lifecycle actions with policy, authority,
+  reason, and activation/expiry bindings.
 - [ ] Specify confidential evidence retention, deletion, access, breach handling, and offline
   verification boundaries with deterministic vectors.
 
