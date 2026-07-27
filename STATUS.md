@@ -965,6 +965,10 @@ Tracked by [GitHub issue #2](https://github.com/advatar/ActiveChain/issues/2).
 
 ## Completed milestone — typed ObjectVM verifier and metered interpreter
 
+- [x] Qualify the bytecode verifier boundary: all 10 tests pass for linear-resource ownership,
+  branch merge safety, declared u8 destinations, initialization/event bounds, forward reachability,
+  malformed-byte rejection, canonical body bounds, and runtime entry certificates.
+
 - [x] Qualify ObjectVM execution: all 12 tests pass for deterministic execution, exhaustive
   small-gas oracle agreement, full instruction-set refinement, checked arithmetic failure,
   evidence substitution rejection, gas-before-failure accounting, and exact result bounds.
