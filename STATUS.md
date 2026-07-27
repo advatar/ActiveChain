@@ -1150,6 +1150,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
   chains against the public inputs during canonical decoding.
 - [x] Reject accepted CashAIR rows whose bounded output-plus-fee arithmetic overflows or exceeds
   the input value before direct re-execution.
+- [x] Reject accepted CashAIR rows with zero input value at canonical decode time.
   - [x] Add a dedicated transparent STARK prover/verifier for row progression, outcome booleanity,
     failed-row atomicity, accepted/rejected counts, and pre/post Coin Cell root binding.
   - [ ] Add specialized SHAKE, ML-DSA, membership, consumption, value/fee arithmetic,
