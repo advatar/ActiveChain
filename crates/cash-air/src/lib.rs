@@ -85,6 +85,14 @@ impl FungibleCashAirPublicInputsV1 {
         }
         Ok(Self { asset_id, registry_commitment, pre_supply, issuance, burn, post_supply, input_value, output_value, fee })
     }
+
+    /// Domain-separated statement commitment consumed by the future fungible AIR.
+    pub fn commitment(&self) -> Result<Digest384, EncodeError> {
+        activechain_protocol_commitment::commit(
+            activechain_protocol_commitment::DomainTag::CANONICAL_VALUE,
+            self,
+        )
+    }
 }
 
 impl CanonicalEncode for FungibleCashAirPublicInputsV1 {
@@ -849,6 +857,7 @@ mod tests {
         .unwrap();
         let bytes = encode_envelope(&value).unwrap();
         assert_eq!(decode_envelope::<FungibleCashAirPublicInputsV1>(&bytes), Ok(value));
+        assert_ne!(value.commitment().unwrap(), Digest384::ZERO);
         assert!(FungibleCashAirPublicInputsV1::new(
             AssetId::new(digest(1)), digest(2), 100, 25, 5, 121, 40, 39, 1
         ).is_err());
