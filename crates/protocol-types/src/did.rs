@@ -262,6 +262,16 @@ impl DidControllerOperationV1 {
     pub const fn previous_commitment(&self) -> Option<Digest384> { self.previous_commitment }
     pub const fn next(&self) -> &DidControllerRecordV1 { &self.next }
     pub const fn authorization_commitment(&self) -> Digest384 { self.authorization_commitment }
+
+    pub fn commitment(&self) -> Result<Digest384, EncodeError> {
+        let bytes = activechain_canonical_codec::encode_envelope(self)?;
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-DID-CONTROLLER-OPERATION-V1");
+        hasher.update(&bytes);
+        let mut digest = [0_u8; 48];
+        hasher.finalize_xof().read(&mut digest);
+        Ok(Digest384::new(digest))
+    }
 }
 
 impl CanonicalEncode for DidOperationKind {
@@ -371,7 +381,8 @@ mod tests {
             digest(5),
         )
         .unwrap();
-        assert_eq!(decode_envelope::<DidControllerOperationV1>(&encode_envelope(&operation).unwrap()), Ok(operation));
+        assert_eq!(decode_envelope::<DidControllerOperationV1>(&encode_envelope(&operation).unwrap()), Ok(operation.clone()));
+        assert_ne!(operation.commitment().unwrap(), Digest384::ZERO);
         assert!(DidControllerOperationV1::new(DidOperationKind::Create, principal(1), Some(digest(6)), record, digest(5)).is_err());
         assert!(DidControllerOperationV1::new(DidOperationKind::Create, principal(1), None, record, Digest384::ZERO).is_err());
     }
