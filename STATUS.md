@@ -288,6 +288,8 @@ Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163
   refinement.
 - [x] Add checked reconstruction of fungible AIR amount limbs with a bounded Kani round-trip
   proof and malformed-conservation rejection.
+- [x] Add a proof-system-independent fungible public-statement verifier with commitment and
+  conservation mismatch rejection.
 - [x] Bind wallet-side fungible membership verification to the exact owner, `AssetId`, record,
   and authenticated finalized root.
 - [x] Bind fungible transfer admission to the finalized asset policy and lifecycle.

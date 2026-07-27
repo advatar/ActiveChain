@@ -204,6 +204,27 @@ impl FungibleCashAirPublicInputsV1 {
     }
 }
 
+/// Independent model check for the fungible public statement.  This is
+/// deliberately proof-system agnostic and is suitable for receipt consumers
+/// that cannot run the AIR verifier.
+pub fn verify_fungible_public_inputs(
+    inputs: &FungibleCashAirPublicInputsV1,
+    expected_commitment: Digest384,
+) -> Result<(), &'static str> {
+    if expected_commitment == Digest384::ZERO {
+        return Err("fungible AIR expected commitment is zero");
+    }
+    let actual = inputs
+        .commitment()
+        .map_err(|_| "fungible AIR commitment encoding failed")?;
+    if actual != expected_commitment {
+        return Err("fungible AIR public statement commitment mismatch");
+    }
+    validate_fungible_amount_limbs(inputs.amount_limbs())
+        .map(|_| ())
+        .map_err(|_| "fungible AIR public statement is not conserved")
+}
+
 impl CanonicalEncode for FungibleCashAirPublicInputsV1 {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
         self.asset_id.encode(e)?;
@@ -932,6 +953,7 @@ mod tests {
         AuthenticatedCashAirReceiptV1, AuthenticatedCashCompositeStarkProof, BaseElement,
         CashAirReceiptV1, CashStarkProof,
         FungibleCashAirPublicInputsV1, validate_fungible_amount_limbs,
+        verify_fungible_public_inputs,
         decompose_u128_limbs, recompose_u128_limbs,
         fungible_conservation_holds,
         CASH_AIR_COMPOSITE_SUITE_ID, CASH_AIR_PARENT_SUITE_ID, prove,
@@ -969,6 +991,12 @@ mod tests {
         let bytes = encode_envelope(&value).unwrap();
         assert_eq!(decode_envelope::<FungibleCashAirPublicInputsV1>(&bytes), Ok(value));
         assert_ne!(value.commitment().unwrap(), Digest384::ZERO);
+        let commitment = value.commitment().unwrap();
+        assert!(verify_fungible_public_inputs(&value, commitment).is_ok());
+        assert_eq!(
+            verify_fungible_public_inputs(&value, Digest384::ZERO),
+            Err("fungible AIR expected commitment is zero")
+        );
         assert!(FungibleCashAirPublicInputsV1::new(
             AssetId::new(digest(1)), digest(2), 100, 25, 5, 121, 40, 39, 1
         ).is_err());
