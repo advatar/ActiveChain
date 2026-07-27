@@ -101,3 +101,17 @@ pub fn verify_quorum_certificate(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{VerificationError, verify_ml_dsa44};
+
+    #[test]
+    fn malformed_key_and_signature_lengths_fail_closed() {
+        assert_eq!(verify_ml_dsa44(&[], b"message", &[]), Err(VerificationError::InvalidKeyLength));
+        assert_eq!(
+            verify_ml_dsa44(&[0; 1_312], b"message", &[]),
+            Err(VerificationError::InvalidSignatureLength)
+        );
+    }
+}
