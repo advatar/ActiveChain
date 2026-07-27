@@ -422,6 +422,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
 Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164).
 
 - [ ] Freeze native fungible, non-fungible, and series asset definitions and lifecycle actions.
+- [x] Reject fungible definitions with zero asset, issuer, or policy identities before registry
+  admission; malformed identity vectors are deterministic.
 - [x] Add a canonical native NFT token record with nonzero metadata commitment and owner-bound
   transfer semantics; series assets and full issuer authorization remain separate gates.
 - [x] Add bounded NFT series definitions with metadata-schema commitments and checked mint

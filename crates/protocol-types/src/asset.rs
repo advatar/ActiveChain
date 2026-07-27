@@ -14,6 +14,7 @@ pub const MAX_FUNGIBLE_ASSETS: usize = 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AssetDefinitionError {
+    InvalidAssetIdentity,
     InvalidSymbol,
     InvalidDecimals,
     ZeroSupplyCap,
@@ -398,6 +399,12 @@ impl FungibleAssetDefinition {
         }
         if supply_cap == 0 {
             return Err(AssetDefinitionError::ZeroSupplyCap);
+        }
+        if asset_id.digest() == &Digest384::ZERO
+            || issuer.digest() == &Digest384::ZERO
+            || policy_hash == Digest384::ZERO
+        {
+            return Err(AssetDefinitionError::InvalidAssetIdentity);
         }
         Ok(Self { asset_id, issuer, symbol, decimals, supply_cap, policy_hash })
     }
@@ -1352,6 +1359,28 @@ mod tests {
         assert_eq!(
             FungibleAssetRegistry::new(vec![asset(1), asset(1)]),
             Err(AssetDefinitionError::AssetsNotOrdered)
+        );
+        assert_eq!(
+            FungibleAssetDefinition::new(
+                AssetId::new(Digest384::ZERO),
+                principal(1),
+                b"TEST".to_vec(),
+                6,
+                1,
+                Digest384::new([9; 48]),
+            ),
+            Err(AssetDefinitionError::InvalidAssetIdentity)
+        );
+        assert_eq!(
+            FungibleAssetDefinition::new(
+                id(1),
+                principal(1),
+                b"TEST".to_vec(),
+                6,
+                1,
+                Digest384::ZERO,
+            ),
+            Err(AssetDefinitionError::InvalidAssetIdentity)
         );
     }
 
