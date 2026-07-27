@@ -1,0 +1,10 @@
+{
+  "vector": "p060-execution-receipt-v1-malformed",
+  "source": "positive-v1.receipt",
+  "mutation": {
+    "offset": 0,
+    "xor": "ff"
+  },
+  "expected": "reject",
+  "reason": "receipt magic is not P060RCP1"
+}

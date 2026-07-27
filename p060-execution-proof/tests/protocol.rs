@@ -129,3 +129,13 @@ fn arbitrary_and_malformed_inputs_never_escape_as_panics() {
         assert!(catch_unwind(AssertUnwindSafe(|| verify_receipt(&bytes, None))).is_ok());
     }
 }
+
+#[test]
+fn published_malformed_vector_is_rejected() {
+    let mut bytes = include_bytes!("../vectors/positive-v1.receipt").to_vec();
+    bytes[0] ^= 0xff;
+    assert!(matches!(
+        verify_receipt(&bytes, None),
+        Err(VerifyError::Codec(_))
+    ));
+}

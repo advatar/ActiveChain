@@ -36,7 +36,7 @@ Use `-` as the operation list for an empty block.
 - `src/prover.rs` — trace construction and transparent prover.
 - `src/model.rs` — canonical block and stand-in transition model.
 - `tests/protocol.rs` — end-to-end, mutation, determinism, and totality tests.
-- `vectors/` — deterministic positive vector.
+- `vectors/` — deterministic positive and malformed receipt vectors.
 - `BENCHMARKS.json` — recorded Gate-1 measurements.
 
 ## Security status
