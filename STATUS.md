@@ -432,6 +432,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   metadata and supply admission.
 - [x] Add an immutable-identity NFT Coin Cell carrying asset/token/metadata commitments and
   owner-bound transfer semantics in the cash kernel.
+- [x] Reject cash-layer fungible and NFT Coin Cells with zero asset or owner identities before
+  authenticated-root admission.
 - [x] Add a Kani proof boundary for NFT transfer identity preservation and non-owner rejection.
 - [x] Add a canonical NFT Coin Cell record wrapper for proof-bearing RPC/indexing integration.
 - [x] Reserve an explicit RPC query kind for NFT Coin Cells; proof verification remains

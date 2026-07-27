@@ -334,6 +334,9 @@ impl CoinCell {
         amount: Amount,
         creation_height: Height,
     ) -> Result<Self, NativeMoneyError> {
+        if owner.digest() == &Digest384::ZERO {
+            return Err(NativeMoneyError::InvalidInputs);
+        }
         if amount == 0 {
             return Err(NativeMoneyError::ZeroAmount);
         }
@@ -402,6 +405,9 @@ impl FungibleCoinCell {
         amount: Amount,
         creation_height: Height,
     ) -> Result<Self, NativeMoneyError> {
+        if asset_id.digest() == &Digest384::ZERO || owner.digest() == &Digest384::ZERO {
+            return Err(NativeMoneyError::InvalidInputs);
+        }
         if amount == 0 {
             return Err(NativeMoneyError::ZeroAmount);
         }
@@ -454,6 +460,9 @@ impl NonFungibleCoinCell {
         metadata_commitment: Digest384,
         creation_height: Height,
     ) -> Result<Self, NativeMoneyError> {
+        if asset_id.digest() == &Digest384::ZERO || owner.digest() == &Digest384::ZERO {
+            return Err(NativeMoneyError::InvalidInputs);
+        }
         if token_id == Digest384::ZERO {
             return Err(NativeMoneyError::ZeroTokenId);
         }

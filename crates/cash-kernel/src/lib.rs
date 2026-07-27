@@ -96,7 +96,7 @@ mod tests {
     use super::{
         CashLedger, CashTransferV1, CashTransitionError, CoinBurnTransition, CoinMintTransition,
         CoinTransfer, EpochEconomicsTransition, GenesisAllocation, GenesisEconomy,
-        NativeAssetDefinition, NativeMoneyError, NativeSupply, NonFungibleCoinCell,
+        FungibleCoinCell, NativeAssetDefinition, NativeMoneyError, NativeSupply, NonFungibleCoinCell,
         NonFungibleCoinCellRecord, PartitionedCashPlan, RewardRedemption, RewardSettlement,
     };
 
@@ -126,6 +126,21 @@ mod tests {
         assert_eq!(
             decode_envelope::<NonFungibleCoinCellRecord>(&encode_envelope(&record).unwrap()),
             Ok(record)
+        );
+        assert_eq!(
+            NonFungibleCoinCell::new(
+                origin,
+                AssetId::new(Digest384::ZERO),
+                digest(3),
+                principal(4),
+                digest(5),
+                7,
+            ),
+            Err(NativeMoneyError::InvalidInputs)
+        );
+        assert_eq!(
+            FungibleCoinCell::new(origin, AssetId::new(digest(2)), PrincipalId::new(Digest384::ZERO), 1, 7),
+            Err(NativeMoneyError::InvalidInputs)
         );
     }
     fn principal(byte: u8) -> PrincipalId {
