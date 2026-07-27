@@ -19,6 +19,7 @@ target/release/p060 inspect receipt.bin
 
 # Regenerate the deterministic published vector
 target/release/p060 vector vectors
+target/release/p060 check-vectors vectors
 
 # Benchmark 1,024 actions and verify the receipt ten times
 target/release/p060 bench 1024 10

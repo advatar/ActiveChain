@@ -69,6 +69,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             println!("proof_bytes={}", receipt.proof.len());
         }
         Some("vector") if args.len() == 3 => write_vector(Path::new(&args[2]))?,
+        Some("check-vectors") if args.len() == 3 => check_vectors(Path::new(&args[2]))?,
         Some("bench") if args.len() == 4 => {
             let actions = args[2].parse::<usize>()?;
             let runs = args[3].parse::<usize>()?;
@@ -76,7 +77,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {
             eprintln!(
-                "usage:\n  p060 prove <pre-state> <add:N,mul:N|-> <receipt.bin>\n  p060 verify <receipt.bin>\n  p060 inspect <receipt.bin>\n  p060 vector <output-dir>\n  p060 bench <action-count> <verify-runs>"
+                "usage:\n  p060 prove <pre-state> <add:N,mul:N|-> <receipt.bin>\n  p060 verify <receipt.bin>\n  p060 inspect <receipt.bin>\n  p060 vector <output-dir>\n  p060 check-vectors <vector-dir>\n  p060 bench <action-count> <verify-runs>"
             );
             return Err("invalid arguments".into());
         }
@@ -141,6 +142,23 @@ fn write_vector(directory: &Path) -> Result<(), Box<dyn std::error::Error>> {
         serde_json::to_vec_pretty(&manifest)?,
     )?;
     println!("wrote vector to {}", directory.display());
+    Ok(())
+}
+
+fn check_vectors(directory: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let positive = fs::read(directory.join("positive-v1.receipt"))?;
+    verify_receipt(&positive, None)?;
+
+    let mut malformed = positive.clone();
+    malformed[0] ^= 0xff;
+    if verify_receipt(&malformed, None).is_ok() {
+        return Err("malformed-v1 vector was accepted".into());
+    }
+    let manifest = fs::read_to_string(directory.join("malformed-v1.json"))?;
+    if !manifest.contains("\"expected\": \"reject\"") {
+        return Err("malformed-v1 manifest does not declare rejection".into());
+    }
+    println!("vectors valid: positive accepted, malformed rejected");
     Ok(())
 }
 

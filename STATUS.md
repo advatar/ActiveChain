@@ -9,6 +9,7 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 - [x] Add strict decoding, public-input binding, mutation, malformed-input, determinism, and totality tests.
 - [x] Publish a deterministic positive receipt vector and benchmark metadata with honest soundness caveats.
 - [x] Publish a deterministic malformed receipt vector and exercise it through the verifier test suite.
+- [x] Add a CLI vector-check command that validates positive acceptance and malformed rejection.
 - [x] Make the reference package independently testable outside the root workspace.
 - [ ] Refine the AIR against P-050 ObjectVM semantics and publish an independent second verifier.
 - [ ] Qualify proof parameters against the required soundness and verifier-cost gates before consensus activation.
