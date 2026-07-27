@@ -28,6 +28,8 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 - [x] Add strict parent CashAIR proof byte-envelope decoding with suite binding and trailing-byte rejection.
 - [x] Add strict authenticated composite proof byte-envelope decoding with suite, row-count, and
   per-proof bounds; full-depth happy-path qualification remains an explicit benchmark gate.
+- [x] Cover authenticated envelope round-trip and suite mutation rejection without running the
+  full SHAKE proving benchmark.
 - [x] Make the reference package independently testable outside the root workspace.
 - [ ] Refine the AIR against P-050 ObjectVM semantics and publish an independent second verifier.
 - [ ] Qualify proof parameters against the required soundness and verifier-cost gates before consensus activation.

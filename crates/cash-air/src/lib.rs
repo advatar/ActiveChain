@@ -736,11 +736,13 @@ mod tests {
     use activechain_protocol_types::{ChainId, CoinCellId, Digest384, PrincipalId};
 
     use super::{
-        AuthenticatedCashCompositeStarkProof, BaseElement, CashAirReceiptV1, CashStarkProof,
+        AuthenticatedCashAirReceiptV1, AuthenticatedCashCompositeStarkProof, BaseElement,
+        CashAirReceiptV1, CashStarkProof,
         CASH_AIR_COMPOSITE_SUITE_ID, CASH_AIR_PARENT_SUITE_ID, prove,
         prove_authenticated_composite, prove_authenticated_parent, verify,
         verify_authenticated_composite,
     };
+    use activechain_canonical_codec::decode_envelope;
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
@@ -883,6 +885,33 @@ mod tests {
         let mut wrong_row = prove_authenticated_parent(&trace).unwrap();
         wrong_row.public.authenticated_row_roots[0][0] += BaseElement::new(1);
         assert!(verify(wrong_row).is_err());
+    }
+
+    #[test]
+    fn authenticated_receipt_envelope_round_trips_and_rejects_header_mutation() {
+        let (ledger, batch) = fixture();
+        let (trace, _) = prove_authenticated_cash_air(&ledger, &batch, 3, 16).unwrap();
+        let parent = prove_authenticated_parent(&trace).unwrap();
+        let receipt = AuthenticatedCashAirReceiptV1::new(
+            trace.clone(),
+            parent.to_bytes(),
+            trace.mutations().iter().map(|_| None).collect(),
+        )
+        .unwrap();
+        let encoded = receipt.encode_envelope().unwrap();
+        let decoded = decode_envelope::<AuthenticatedCashAirReceiptV1>(&encoded).unwrap();
+        assert_eq!(decoded.suite_id, CASH_AIR_COMPOSITE_SUITE_ID);
+        assert_eq!(decoded.trace, trace);
+
+        // The suite field is the first payload word after the canonical envelope header.
+        let mut wrong_suite = encoded.clone();
+        let suite_bytes = CASH_AIR_COMPOSITE_SUITE_ID.to_be_bytes();
+        let offset = encoded
+            .windows(4)
+            .position(|window| window == suite_bytes)
+            .unwrap();
+        wrong_suite[offset..offset + 4].copy_from_slice(&CASH_AIR_PARENT_SUITE_ID.to_be_bytes());
+        assert!(AuthenticatedCashAirReceiptV1::verify_bytes(&wrong_suite).is_err());
     }
 
     #[test]
