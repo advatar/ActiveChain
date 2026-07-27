@@ -340,6 +340,10 @@ Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163
 
 Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213).
 
+- [x] Qualify canonical protocol-type coverage: all 75 library tests pass across assets, issuer
+  lifecycle, consensus/QC, credentials, DID, compliance evidence, travel-rule bindings, and
+  strict canonical/malformed vectors.
+
 - [x] Validate the current compliance-provider registry and credential-predicate admission
   implementation: four focused application-primitive tests pass, including durable replay and
   malformed provider-key rejection.
