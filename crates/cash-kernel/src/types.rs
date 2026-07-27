@@ -68,6 +68,13 @@ impl NativeAssetDefinition {
         if genesis_supply == 0 {
             return Err(NativeMoneyError::ZeroGenesisSupply);
         }
+        if chain_id.digest() == &Digest384::ZERO
+            || issuance_policy_hash == Digest384::ZERO
+            || burn_policy_hash == Digest384::ZERO
+            || reward_policy_hash == Digest384::ZERO
+        {
+            return Err(NativeMoneyError::InvalidInputs);
+        }
         Ok(Self {
             chain_id,
             symbol,

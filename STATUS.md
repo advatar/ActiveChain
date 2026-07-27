@@ -434,6 +434,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   owner-bound transfer semantics in the cash kernel.
 - [x] Reject cash-layer fungible and NFT Coin Cells with zero asset or owner identities before
   authenticated-root admission.
+- [x] Reject native monetary constitutions with zero chain or policy commitments before genesis
+  allocation and supply partitioning.
 - [x] Add a Kani proof boundary for NFT transfer identity preservation and non-owner rejection.
 - [x] Add a canonical NFT Coin Cell record wrapper for proof-bearing RPC/indexing integration.
 - [x] Reserve an explicit RPC query kind for NFT Coin Cells; proof verification remains
