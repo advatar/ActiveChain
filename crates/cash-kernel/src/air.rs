@@ -238,6 +238,8 @@ impl CanonicalDecode for CashAirProof {
             if row.transfer_index != *expected
                 || (!row.accepted
                     && (row.input_value != 0 || row.output_value != 0 || row.fee != 0))
+                || (row.accepted
+                    && row.output_value.checked_add(row.fee).is_none_or(|total| total > row.input_value))
             {
                 return Err(DecodeError::InvalidValue("malformed CashAIR trace shape"));
             }
