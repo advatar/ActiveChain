@@ -459,6 +459,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
 Tracked by [GitHub issue #165](https://github.com/advatar/ActiveChain/issues/165).
 
 - [ ] Accept EUDI Wallet/OpenID4VP and supported VC presentations through a versioned verifier.
+- [x] Reject credential-status registries with zero registry, issuer, schema, root, or sequence
+  identities before status/freshness admission.
 - [ ] Bind minimal selective-disclosure and ZK attribute proofs to asset, action, audience, nonce,
   policy revision, holder key, expiry, and finalized credential-status evidence.
 - [ ] Compose asset-specific identity policies with APL and authorization without global KYC.

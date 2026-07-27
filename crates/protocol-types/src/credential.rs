@@ -334,15 +334,18 @@ impl CredentialStatusRegistry {
 
     #[must_use]
     pub fn is_well_formed(self) -> bool {
-        self.status_root != Digest384::ZERO && self.sequence > 0
+        self.registry_id.digest() != &Digest384::ZERO
+            && self.issuer.digest() != &Digest384::ZERO
+            && self.schema_id != Digest384::ZERO
+            && self.status_root != Digest384::ZERO
+            && self.sequence > 0
     }
 
     /// Binds a registry snapshot to the exact issuer/schema named by a credential
     /// and requires the snapshot to be effective at the finalized height.
     #[must_use]
     pub fn admits(self, statement: CredentialStatement, finalized_height: Height) -> bool {
-        self.status_root != Digest384::ZERO
-            && self.sequence > 0
+        self.is_well_formed()
             && self.issuer == statement.issuer
             && self.schema_id == statement.schema_id
             && match statement.status_registry {
@@ -815,6 +818,15 @@ mod tests {
         let zero_sequence =
             CredentialStatusRegistry::new(registry_id, principal(1), digest(3), digest(5), 0, 6);
         assert!(!zero_sequence.admits(statement, 6));
+        let zero_identity = CredentialStatusRegistry::new(
+            ObjectId::new(Digest384::ZERO),
+            PrincipalId::new(Digest384::ZERO),
+            Digest384::ZERO,
+            digest(5),
+            2,
+            6,
+        );
+        assert!(!zero_identity.is_well_formed());
         assert!(
             decode_envelope::<CredentialStatusRegistry>(&encode_envelope(&zero_root).unwrap())
                 .is_err()
