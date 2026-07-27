@@ -184,6 +184,16 @@ impl EvidenceRetentionPolicyV1 {
     pub const fn version(&self) -> u16 {
         self.version
     }
+    /// Returns whether evidence may be used at `height` for a disclosure that
+    /// must remain valid through `required_until`.
+    pub const fn admits_disclosure(&self, height: u64, required_until: u64) -> bool {
+        height <= self.retention_until && required_until <= self.retention_until
+    }
+    /// Retention policies always identify an offline verifier commitment; raw
+    /// evidence is never required for independent policy checking.
+    pub fn supports_offline_verification(&self) -> bool {
+        self.offline_verifier != Digest384::ZERO
+    }
 }
 impl CanonicalEncode for EvidenceRetentionPolicyV1 {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
@@ -1077,6 +1087,9 @@ mod tests {
             Ok(policy)
         );
         assert_eq!(policy.deletion_mode(), EvidenceDeletionMode::OnRequest);
+        assert!(policy.admits_disclosure(9_000, 10_000));
+        assert!(!policy.admits_disclosure(10_001, 10_001));
+        assert!(policy.supports_offline_verification());
         assert!(
             EvidenceRetentionPolicyV1::new(
                 d(1),

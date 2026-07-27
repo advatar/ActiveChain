@@ -8,3 +8,5 @@ design-only	tz.payment-operator.v1	TZ/payment_operator	reject-production
 retention_commitment_only	profile,jurisdiction,evidence,access,breach,offline commitments	accept	raw records stay off-ledger
 retention_zero_access	access_policy=zero	reject	confidential access policy required
 retention_expired	retention_until=0	reject	bounded retention deadline required
+disclosure_after_retention	height=10001,retention_until=10000	reject	no post-retention disclosure
+offline_verifier_present	offline_verifier_commitment=nonzero	accept	independent verification without raw evidence
