@@ -348,8 +348,10 @@ Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213
 
 Tracked by [GitHub issue #91](https://github.com/advatar/ActiveChain/issues/91).
 
-- [ ] Freeze chain identity, genesis, protocol revision, finality/health, supported proofs, and
-  proof-bearing state/action/receipt query semantics with deterministic vectors.
+- [x] Freeze chain identity, genesis, protocol revision, finality/health, supported proofs, and
+  proof-bearing state/action/receipt query semantics with deterministic vectors; `RpcStatus`,
+  bounded `QueryRecord`/page types, canonical decoding, and malformed substitution vectors now
+  enforce this contract.
 - [x] Add a stable network identity commitment over chain, genesis, protocol, and RPC schema
   revisions; head height and health are intentionally excluded.
 
