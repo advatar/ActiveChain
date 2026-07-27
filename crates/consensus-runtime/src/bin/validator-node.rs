@@ -81,6 +81,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let local_peer_id = index as u16 + 1;
         let signer =
             activechain_consensus_runtime::ValidatorSigner::from_seed(entry.validator(), seed);
+        if signer.public_key().as_slice() != entry.public_key() {
+            return Err(
+                format!("derived validator signer does not match genesis entry {index}").into()
+            );
+        }
         if run_once && !peer_specs.is_empty() {
             let service = std::sync::Arc::new(
                 ValidatorService::from_active_manifest(
@@ -167,6 +172,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
                 .map_err(|error| format!("network round failed: {error:?}"))?;
             println!("completed network round: finalized_height={}", state.finalized_height());
+            let metrics = service.metrics();
+            println!(
+                "network round metrics: proposals={} votes={} rejected={}",
+                metrics.proposals, metrics.votes, metrics.rejected_messages
+            );
             return Ok(());
         }
         if run_once {

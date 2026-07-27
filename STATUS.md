@@ -156,8 +156,10 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
 - [x] Load a real device wallet profile and remove the hard-coded unavailable dashboard path;
   balances remain fail-closed until the linked verifier accepts finalized owner proofs.
 - [ ] Extend Kanalen ingestion/rehearsal, add adversarial tests, deploy, and verify the public RPC.
-- [ ] Correct the local three-validator rehearsal's authenticated peer identity/signature wiring
-  and verify quorum/restart behavior against the generated genesis set.
+- [x] Correct the local three-validator rehearsal's authenticated peer identity/signature wiring;
+  the first live round now finalizes with three votes and zero rejections.
+- [ ] Preserve and advertise the finalized parent certificate across the second proposer/restart
+  round; current rehearsal reaches `UnknownParentCertificate` after restart.
   - [x] Verify the public TLS edge with a protocol-level status probe; validator/RPC health is
     observed independently of the HTTP landing service.
 
