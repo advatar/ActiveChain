@@ -610,6 +610,33 @@ mod tests {
         let paused = policy.apply_lifecycle_action(&action, 10).unwrap();
         assert_eq!(paused.lifecycle(), FungibleAssetLifecycle::Paused);
         assert!(policy.apply_lifecycle_action(&action, 20).is_err());
+        let zero_policy = FungibleAssetPolicyV1::new(
+            id(1),
+            principal(2),
+            Digest384::new([3; 48]),
+            Digest384::new([4; 48]),
+            Digest384::new([5; 48]),
+            Digest384::new([6; 48]),
+            1_000,
+            0,
+            FungibleAssetLifecycle::Registered,
+        )
+        .unwrap();
+        let retire = FungibleAssetLifecycleActionV1::new(
+            id(1),
+            zero_policy.commitment().unwrap(),
+            Digest384::new([6; 48]),
+            Digest384::new([5; 48]),
+            Digest384::new([4; 48]),
+            FungibleAssetLifecycleAction::Retire,
+            10,
+            20,
+        )
+        .unwrap();
+        assert_eq!(
+            zero_policy.apply_lifecycle_action(&retire, 10).unwrap().lifecycle(),
+            FungibleAssetLifecycle::Retired
+        );
     }
 
     #[test]
