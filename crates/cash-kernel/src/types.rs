@@ -3,6 +3,7 @@ use alloc::vec::Vec;
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
+use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
     Amount, AssetId, ChainId, CoinCellId, Digest384, Epoch, FungibleAssetLifecycle,
     FungibleAssetPolicyV1, FungibleIssuerApprovalV1, FungibleIssuerOperation, Height, PrincipalId,
@@ -806,6 +807,11 @@ impl FungibleTransferV1 {
     pub const fn amount(&self) -> Amount {
         self.amount
     }
+
+    /// Canonical asset-bound intent commitment for proof and receipt binding.
+    pub fn commitment(&self) -> Result<Digest384, EncodeError> {
+        commit(DomainTag::CANONICAL_VALUE, self)
+    }
     /// Verifies transfer admission against the finalized policy for this asset.
     pub fn validate_against_policy(
         &self,
@@ -1328,6 +1334,10 @@ mod fungible_cell_tests {
         .unwrap();
         let transfer = FungibleTransferV1::new(asset, owner, recipient, vec![cell], 42).unwrap();
         assert!(transfer.validate_against_policy(&policy).is_ok());
+        let commitment = transfer.commitment().unwrap();
+        let other_cell = FungibleCoinCell::new(origin, other, owner, 42, 7).unwrap();
+        let other_transfer = FungibleTransferV1::new(other, owner, recipient, vec![other_cell], 42).unwrap();
+        assert_ne!(commitment, other_transfer.commitment().unwrap());
     }
 
     #[test]
