@@ -13,7 +13,7 @@ use activechain_protocol_types::{
     BlockProposal, ChainId, ConsensusBlockRef, ConsensusSnapshot, ConsensusState,
     ConsensusStateError, ConsensusUpgradeAuthorization, ConsensusVoteContext, CryptoSuiteId,
     Digest384, PrincipalId, ProposalJustification, ProtocolSignature, QuorumCertificate,
-    ValidatorGenesis, ValidatorSet, ValidatorVote,
+    TransactionId, ValidatorGenesis, ValidatorSet, ValidatorVote,
 };
 use activechain_rpc_server::finalized_coin_cell_records_with_chain_genesis;
 use activechain_rpc_types::QueryRecord;
@@ -68,6 +68,44 @@ impl WalletTransactionGateway {
         height: u64,
     ) -> Result<(), activechain_wallet_core::WalletError> {
         self.ingress.submit_envelope(envelope, height)
+    }
+
+    /// Admits a faucet settlement only when the caller presents the exact
+    /// pre-signed cash intent that the faucet approved.
+    ///
+    /// The faucet reference is deliberately required to equal the canonical
+    /// intent id. This prevents an operator or RPC client from replaying a
+    /// valid transfer under a different grant, recipient, or amount. The
+    /// underlying ingress still performs signature, nonce, session, input,
+    /// height, and Coin Cell conservation checks; this method is only the
+    /// validator-owned binding boundary.
+    pub fn submit_faucet_authorized_envelope(
+        &mut self,
+        envelope: &[u8],
+        faucet_reference: Digest384,
+        recipient: PrincipalId,
+        amount: u128,
+        height: u64,
+    ) -> Result<TransactionId, activechain_wallet_core::WalletError> {
+        let authorized =
+            decode_envelope::<activechain_wallet_core::AuthorizedCashTransferV1>(envelope)
+                .map_err(|_| activechain_wallet_core::WalletError::MalformedAuthorization)?;
+        let request = authorized.request();
+        if request
+            .intent_id()
+            .map_err(|_| activechain_wallet_core::WalletError::MalformedAuthorization)?
+            != faucet_reference
+        {
+            return Err(activechain_wallet_core::WalletError::PolicyDenied);
+        }
+        if request.transfer().recipient() != recipient
+            || request.transfer().amount() != amount
+            || height > request.transfer().valid_until()
+        {
+            return Err(activechain_wallet_core::WalletError::PolicyDenied);
+        }
+        self.ingress.submit_envelope(envelope, height)?;
+        Ok(TransactionId::new(faucet_reference))
     }
 
     /// Registers one sender's finalized ML-DSA-44 cash-session key and initial nonce.
@@ -2658,9 +2696,9 @@ impl ValidatorService {
             let engine = self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
             (engine.genesis_commitment, engine.state.finalized_height())
         };
-        let snapshot = wallet
-            .finalized_cash_snapshot(genesis, height)
-            .map_err(|_| ValidatorServiceError::Engine(ValidatorEngineError::InvalidCashSnapshot))?;
+        let snapshot = wallet.finalized_cash_snapshot(genesis, height).map_err(|_| {
+            ValidatorServiceError::Engine(ValidatorEngineError::InvalidCashSnapshot)
+        })?;
         self.finalized_cash_rpc_records(&snapshot, finality)
     }
     pub fn activate_finalized_validator_set(
