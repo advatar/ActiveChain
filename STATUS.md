@@ -333,6 +333,10 @@ Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163
 
 Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213).
 
+- [x] Validate the current compliance-provider registry and credential-predicate admission
+  implementation: four focused application-primitive tests pass, including durable replay and
+  malformed provider-key rejection.
+
 - [ ] Specify versioned sanctions/KYC screening inputs, freshness, matching, overrides, and
   privacy-preserving evidence handling with deterministic vectors.
 - [x] Freeze the commitment-only screening decision envelope, bounded validity, outcomes, and
