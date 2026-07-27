@@ -690,6 +690,21 @@ mod tests {
         .unwrap();
         let updated = registry.apply_action(&action, 10).unwrap();
         assert_eq!(updated.find(id(1)).unwrap().lifecycle(), FungibleAssetLifecycle::Paused);
+        let wrong_policy = FungibleAssetLifecycleActionV1::new(
+            id(1),
+            Digest384::new([99; 48]),
+            Digest384::new([6; 48]),
+            Digest384::new([5; 48]),
+            Digest384::new([4; 48]),
+            FungibleAssetLifecycleAction::Pause,
+            10,
+            20,
+        )
+        .unwrap();
+        assert_eq!(
+            registry.apply_action(&wrong_policy, 10),
+            Err(AssetDefinitionError::InvalidLifecycleTransition)
+        );
     }
 
     #[test]
