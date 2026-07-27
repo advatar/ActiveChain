@@ -85,6 +85,8 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
 - [x] Define a bounded owner-scoped Coin Cell query and finalized proof-bearing response.
 - [x] Expose wallet-facing verification helpers that bind native and fungible owner queries to
   the requested owner, asset (where applicable), finalized membership proof, and trusted genesis.
+- [x] Bind the finalized cash-record publisher to the configured validator genesis before RPC
+  indexing.
 - [x] Persist and serve owner indexes without leaking unrelated owner state.
 - [ ] Verify exact chain, owner, finality, cell commitments, and pagination in wallet code.
 - [x] Persist and restore the authenticated wallet ledger with an explicit chain-id binding.

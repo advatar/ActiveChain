@@ -6,4 +6,5 @@ unknown_asset\tasset-id-unregistered\treject\tclient cannot sign unknown asset
 expired_proof\towner-proof-expired\treject\tfinalized proof required
 owner_mismatch\tfinalized cell owner != requested owner\treject\towner-scoped verification
 genesis_mismatch\tfinality bundle genesis != trusted chain genesis\treject\tchain identity binding
+publisher_cross_chain\tcash publisher receives a foreign finality bundle\treject\tno cross-network indexing
 fee_substitution\tfee-policy=ACT,selected-fee-cell=EUR\treject\texplicit fee asset

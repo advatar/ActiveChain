@@ -81,6 +81,26 @@ pub fn finalized_coin_cell_records(
     Ok(records)
 }
 
+/// Builds finalized Coin Cell records while binding the publisher to the
+/// operator's configured chain genesis. This is the production entry point;
+/// the legacy helper above remains useful for isolated fixtures.
+pub fn finalized_coin_cell_records_with_chain_genesis(
+    cells: &CoinCellSet,
+    finalized_height: u64,
+    finality: &[u8],
+    chain_genesis: Digest384,
+) -> Result<Vec<QueryRecord>, RpcStoreError> {
+    let bundle = activechain_verifier_api::verify_finality_bundle_with_chain_genesis(
+        finality,
+        chain_genesis,
+    )
+    .map_err(|_| RpcStoreError::Invalid)?;
+    if bundle.header().inputs.height != finalized_height {
+        return Err(RpcStoreError::Invalid);
+    }
+    finalized_coin_cell_records(cells, finalized_height, finality)
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RpcProofError {
     WrongKind,
@@ -1269,6 +1289,34 @@ mod tests {
         assert_eq!(
             verify_owner_coin_cell_record_with_chain_genesis(&record, owner, digest(250)),
             Err(RpcProofError::Finality)
+        );
+    }
+
+    #[test]
+    fn finalized_cash_publisher_rejects_cross_chain_finality() {
+        let owner = PrincipalId::new(digest(46));
+        let source = coin_cell_record(46, owner);
+        let cell = decode_envelope::<CoinCellRecord>(source.value()).unwrap();
+        let cells = CoinCellSet::new(vec![cell]).unwrap();
+        let bundle = activechain_verifier_api::verify_finality_bundle(source.finality()).unwrap();
+        let genesis = bundle.validator_genesis().genesis_commitment();
+        assert!(
+            finalized_coin_cell_records_with_chain_genesis(
+                &cells,
+                source.finalized_height(),
+                source.finality(),
+                genesis,
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            finalized_coin_cell_records_with_chain_genesis(
+                &cells,
+                source.finalized_height(),
+                source.finality(),
+                digest(251),
+            ),
+            Err(RpcStoreError::Invalid)
         );
     }
 
