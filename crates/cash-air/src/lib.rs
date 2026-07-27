@@ -91,6 +91,19 @@ pub const fn recompose_u128_limbs(limbs: [u16; 8]) -> u128 {
         | ((limbs[7] as u128) << 112)
 }
 
+/// Reconstructs the seven fungible AIR amount columns and checks their
+/// conservation equation before they can be admitted as a witness.
+pub fn validate_fungible_amount_limbs(columns: [[u16; 8]; 7]) -> Result<[u128; 7], &'static str> {
+    let amounts = columns.map(recompose_u128_limbs);
+    if fungible_conservation_holds(
+        amounts[0], amounts[1], amounts[2], amounts[3], amounts[4], amounts[5], amounts[6],
+    ) {
+        Ok(amounts)
+    } else {
+        Err("fungible AIR amount limbs violate conservation")
+    }
+}
+
 #[cfg(kani)]
 mod kani_proofs {
     use super::{decompose_u128_limbs, fungible_conservation_holds, recompose_u128_limbs};
@@ -113,6 +126,19 @@ mod kani_proofs {
     fn u128_limb_codec_is_lossless() {
         let value = kani::any();
         assert_eq!(recompose_u128_limbs(decompose_u128_limbs(value)), value);
+    }
+
+    #[kani::proof]
+    fn valid_limb_columns_reconstruct_exactly() {
+        let amounts: [u128; 7] = kani::any();
+        if !fungible_conservation_holds(
+            amounts[0], amounts[1], amounts[2], amounts[3], amounts[4], amounts[5], amounts[6],
+        ) {
+            return;
+        }
+        let columns = amounts.map(decompose_u128_limbs);
+        let reconstructed = validate_fungible_amount_limbs(columns).unwrap();
+        assert_eq!(reconstructed, amounts);
     }
 }
 
