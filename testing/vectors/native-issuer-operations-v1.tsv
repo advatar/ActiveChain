@@ -23,3 +23,7 @@ supply_attestation_valid\tasset/policy/issuer/supply/height/approval exact\tacce
 supply_attestation_zero_root\tpolicy commitment=zero\treject\tcommitment-only evidence is nonzero
 supply_attestation_zero_height\tfinalized_height=0\treject\tattestation must name finalized state
 supply_attestation_policy_substitution\tpolicy commitment differs\treject\tattestation cannot be replayed across policies
+registration_valid\tasset/issuer/authority/policy,effective=10,expires=20\taccept\tbounded issuer activation
+registration_at_effective\theight=10\taccept\thalf-open interval includes activation
+registration_at_expiry\theight=20\treject\thalf-open interval excludes expiry
+registration_zero_authority\tauthority-set=zero\treject\tissuer control set is mandatory
