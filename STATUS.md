@@ -1403,6 +1403,9 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
     conformance coverage without changing the legacy verifier entry points.
 - [x] Add malformed/tampered/wrong-version/trailing-byte fixtures to CI.
 - [x] Freeze light-client finality, checkpoint, state-sync, DA, and upgrade requirements.
+- [x] Qualify the embeddable light-client implementation: all four library tests pass for
+  wrong-genesis/signature rejection, finalized validator-set upgrades, stale/fork restart safety,
+  corruption rejection, and data-availability reconstruction binding.
 - [x] Add a local manifest checker for vector hashes and malformed fixtures.
 - [ ] Deliver the stable downstream integration contract required by dBrowser
   - [ ] Make Apple linkage readiness machine-readable and fail closed: distributions must
