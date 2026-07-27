@@ -33,6 +33,19 @@ impl FinalizedCashSnapshot {
         Ok(Self { chain_genesis, finalized_height, cash_cell_root, cells })
     }
 
+    /// Constructs an execution snapshot only after the finalized certificate
+    /// authenticates the resulting cash root and height.
+    pub fn new_verified(
+        chain_genesis: Digest384,
+        finalized_height: u64,
+        cells: CoinCellSet,
+        finality: &[u8],
+    ) -> Result<Self, &'static str> {
+        let snapshot = Self::new(chain_genesis, finalized_height, cells)?;
+        snapshot.verify_against_finality(finality)?;
+        Ok(snapshot)
+    }
+
     pub fn verify(&self) -> Result<(), &'static str> {
         if self.chain_genesis == Digest384::ZERO {
             return Err("zero chain genesis");

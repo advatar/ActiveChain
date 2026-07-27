@@ -95,6 +95,8 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
   wallet snapshots without a matching finalized cash-cell root remain in-process only.
 - [x] Add a validator-service API that emits proof-bearing RPC records only after exact finality,
   height, genesis, and cash-root verification.
+- [x] Add a verified snapshot constructor for execution adapters, preventing unverified cash state
+  from entering the validator-to-RPC publication boundary.
 - [x] Reject cash/finality ingestion when the supplied finality bundle is not bound to the
   validator snapshot's immutable chain genesis.
 - [x] Route the validator-to-RPC ingest command through the chain-genesis-bound cash-record
