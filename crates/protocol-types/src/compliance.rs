@@ -3,6 +3,10 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
 use alloc::vec::Vec;
+use sha3::{
+    Shake256,
+    digest::{ExtendableOutput, Update, XofReader},
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ComplianceError {
@@ -321,6 +325,15 @@ impl ScreeningDecisionV1 {
     pub const fn expires_at(&self) -> u64 {
         self.expires_at
     }
+    pub fn commitment(&self) -> Result<Digest384, EncodeError> {
+        let bytes = activechain_canonical_codec::encode_envelope(self)?;
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-SCREENING-DECISION-V1");
+        hasher.update(&bytes);
+        let mut output = [0_u8; 48];
+        XofReader::read(&mut hasher.finalize_xof(), &mut output);
+        Ok(Digest384::new(output))
+    }
 }
 impl CanonicalEncode for ScreeningDecisionV1 {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
@@ -426,6 +439,24 @@ impl ScreeningPolicyV1 {
         now: u64,
     ) -> bool {
         self.accepts(decision, now) && decision.chain_id == chain_id && decision.action == action
+    }
+    pub fn accepts_with_signature(
+        &self,
+        decision: &ScreeningDecisionV1,
+        signature: Option<&ComplianceSignatureEnvelopeV1>,
+        now: u64,
+    ) -> bool {
+        if !self.accepts(decision, now) {
+            return false;
+        }
+        if !self.require_provider_signature {
+            return true;
+        }
+        let Some(signature) = signature else { return false };
+        signature.profile() == self.profile
+            && signature.chain_id() == decision.chain_id
+            && signature.action() == decision.action
+            && signature.commitment() == decision.commitment().unwrap_or(Digest384::ZERO)
     }
 }
 impl CanonicalEncode for ScreeningPolicyV1 {
@@ -860,6 +891,7 @@ impl CanonicalType for TravelRuleBindingV1 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CryptoSuiteId;
     use activechain_canonical_codec::{decode_envelope, encode_envelope};
     use alloc::vec;
     fn d(n: u8) -> Digest384 {
@@ -1066,6 +1098,19 @@ mod tests {
             TransactionId::new(d(3)),
             50,
         ));
+
+        let signed_policy = ScreeningPolicyV1::new(d(1), d(5), d(7), 100, 2, true).unwrap();
+        assert!(!signed_policy.accepts_with_signature(&clear, None, 50));
+        let signature = ComplianceSignatureEnvelopeV1::new(
+            d(1),
+            ChainId::new(d(2)),
+            TransactionId::new(d(3)),
+            clear.commitment().unwrap(),
+            d(8),
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2_420]).unwrap(),
+        )
+        .unwrap();
+        assert!(signed_policy.accepts_with_signature(&clear, Some(&signature), 50));
     }
 
     #[test]

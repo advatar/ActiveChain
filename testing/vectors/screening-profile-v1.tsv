@@ -14,3 +14,6 @@ policy_fresh_clear\tmatching list/parameter commitments, age=40s\taccept\tdecisi
 policy_stale_clear\tmatching commitments, age exceeds max_age\treject\tfreshness is mandatory
 policy_mismatched_list\tdecision list commitment differs\treject\tlist authority is version-bound
 policy_wrong_action\tclear decision bound to another chain/action\treject\tdecision cannot be replayed across transfers
+policy_signature_missing\trequire_provider_signature=true,signature=absent\treject\tsigned provider evidence required
+policy_signature_substitution\tsignature commitment differs from decision\treject\tdecision commitment binding
+policy_signature_valid\tsignature profile/chain/action/commitment exact\taccept\tprovider signature admission
