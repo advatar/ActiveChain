@@ -379,6 +379,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   verification boundaries with deterministic vectors.
 - [x] Add a commitment-only retention policy for evidence class, jurisdiction, access, breach,
   deletion mode, retention deadline, and offline verifier; raw evidence remains off-chain.
+- [x] Publish the regulated screening profile boundary for list/provider commitments, refresh and
+  matching parameters, outcomes, bounded overrides, freeze decisions, and privacy/audit handling.
 
 ## Active launch sequencing — versioned feature contract
 
