@@ -363,6 +363,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
 - [x] Ship a deterministic issuer CLI for policy commitments and threshold-approval envelopes;
   malformed hex, operations, amounts, and validity windows fail closed.
 - [x] Extend the issuer CLI with deterministic, strict supply-attestation envelope generation.
+- [x] Extend the issuer CLI with deterministic issuer-registration envelope generation and
+  inverted-window rejection.
 - [ ] Complete wallet, compatibility, adversarial-test, migration, and independent-audit gates.
 
 ## Active design — privacy-preserving tokenization identity

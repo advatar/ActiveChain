@@ -1,7 +1,8 @@
 use activechain_canonical_codec::encode_envelope;
 use activechain_protocol_types::{
     AssetId, Digest384, FungibleAssetLifecycle, FungibleAssetPolicyV1, FungibleIssuerApprovalV1,
-    FungibleIssuerOperation, FungibleSupplyAttestationV1, PrincipalId,
+    FungibleIssuerOperation, FungibleIssuerRegistrationV1, FungibleSupplyAttestationV1,
+    PrincipalId,
 };
 
 fn hex_digest(value: &str) -> Result<Digest384, String> {
@@ -35,7 +36,7 @@ fn operation(value: &str) -> Result<FungibleIssuerOperation, String> {
 }
 
 fn usage() -> &'static str {
-    "usage:\n  activechain-issuer policy <asset> <issuer> <authority-set> <cap> <issued>\n  activechain-issuer approval <asset> <policy> <authority-set> <approval> <operation> <amount> <supply-before> <effective-height> <expires-height>\n  activechain-issuer attestation <asset> <policy> <issuer> <supply> <finalized-height> <approval>"
+    "usage:\n  activechain-issuer policy <asset> <issuer> <authority-set> <cap> <issued>\n  activechain-issuer approval <asset> <policy> <authority-set> <approval> <operation> <amount> <supply-before> <effective-height> <expires-height>\n  activechain-issuer attestation <asset> <policy> <issuer> <supply> <finalized-height> <approval>\n  activechain-issuer registration <asset> <issuer> <authority-set> <policy> <effective-height> <expires-height>"
 }
 
 fn hex_bytes(bytes: &[u8]) -> String {
@@ -89,6 +90,20 @@ fn run(args: &[String]) -> Result<String, String> {
             .map_err(|_| "invalid attestation values")?;
             Ok(hex_bytes(
                 &encode_envelope(&attestation).map_err(|_| "attestation encoding failed")?,
+            ))
+        }
+        Some("registration") if args.len() == 7 => {
+            let registration = FungibleIssuerRegistrationV1::new(
+                AssetId::new(hex_digest(&args[1])?),
+                PrincipalId::new(hex_digest(&args[2])?),
+                hex_digest(&args[3])?,
+                hex_digest(&args[4])?,
+                args[5].parse().map_err(|_| "effective-height must be an unsigned integer")?,
+                args[6].parse().map_err(|_| "expires-height must be an unsigned integer")?,
+            )
+            .map_err(|_| "invalid registration values")?;
+            Ok(hex_bytes(
+                &encode_envelope(&registration).map_err(|_| "registration encoding failed")?,
             ))
         }
         _ => Err(usage().into()),
@@ -147,5 +162,11 @@ mod tests {
         let mut malformed = args;
         malformed[6] = "GG".into();
         assert!(run(&malformed).is_err());
+    }
+
+    #[test]
+    fn registration_command_rejects_inverted_window() {
+        let args = vec!["registration".into(), d(), d(), d(), d(), "10".into(), "10".into()];
+        assert!(run(&args).is_err());
     }
 }
