@@ -580,6 +580,9 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 
 - [x] Publish the stable verifier SDK, wallet ABI, RPC/light-client, artifact-readiness, and
   honest-development-state contract for downstream dBrowser integration.
+- [x] Re-run the downstream verifier API qualification: all 10 principal, capability, policy,
+  authorization-chain, state-witness, receipt, finality-bundle, and finalized-anchor tests pass
+  with strict version/framing and real PQ vote checks.
 
 ## Active PQ-ZK/CashAIR qualification
 
