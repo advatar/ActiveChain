@@ -552,6 +552,7 @@ mod tests {
             digest(2),
             principal(recipient),
             digest(key),
+            digest(3),
             0,
             Vec::new(),
         )
@@ -594,6 +595,7 @@ mod tests {
             digest(2),
             principal(3),
             digest(4),
+            digest(5),
             0,
             Vec::new(),
         )

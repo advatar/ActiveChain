@@ -403,6 +403,7 @@ pub struct FaucetRequestV1 {
     genesis_commitment: Digest384,
     recipient: PrincipalId,
     idempotency_key: Digest384,
+    source_commitment: Digest384,
     challenge_nonce: u64,
     challenge_evidence: Vec<u8>,
 }
@@ -413,11 +414,13 @@ impl FaucetRequestV1 {
         genesis_commitment: Digest384,
         recipient: PrincipalId,
         idempotency_key: Digest384,
+        source_commitment: Digest384,
         challenge_nonce: u64,
         challenge_evidence: Vec<u8>,
     ) -> Result<Self, DecodeError> {
         if genesis_commitment == Digest384::ZERO
             || idempotency_key == Digest384::ZERO
+            || source_commitment == Digest384::ZERO
             || challenge_evidence.len() > MAX_FAUCET_PROOF_LENGTH
         {
             return Err(DecodeError::InvalidValue("invalid faucet request"));
@@ -427,6 +430,7 @@ impl FaucetRequestV1 {
             genesis_commitment,
             recipient,
             idempotency_key,
+            source_commitment,
             challenge_nonce,
             challenge_evidence,
         })
@@ -443,6 +447,9 @@ impl FaucetRequestV1 {
     pub const fn idempotency_key(&self) -> Digest384 {
         self.idempotency_key
     }
+    pub const fn source_commitment(&self) -> Digest384 {
+        self.source_commitment
+    }
     pub const fn challenge_nonce(&self) -> u64 {
         self.challenge_nonce
     }
@@ -456,6 +463,7 @@ impl CanonicalEncode for FaucetRequestV1 {
         self.genesis_commitment.encode(encoder)?;
         self.recipient.encode(encoder)?;
         self.idempotency_key.encode(encoder)?;
+        self.source_commitment.encode(encoder)?;
         self.challenge_nonce.encode(encoder)?;
         encoder.write_bytes(&self.challenge_evidence, MAX_FAUCET_PROOF_LENGTH)
     }
@@ -467,6 +475,7 @@ impl CanonicalDecode for FaucetRequestV1 {
             Digest384::decode(decoder)?,
             PrincipalId::decode(decoder)?,
             Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
             u64::decode(decoder)?,
             decoder.read_bytes(MAX_FAUCET_PROOF_LENGTH)?.to_vec(),
         )
@@ -475,7 +484,7 @@ impl CanonicalDecode for FaucetRequestV1 {
 impl CanonicalType for FaucetRequestV1 {
     const TYPE_TAG: u16 = 0x00c0;
     const SCHEMA_VERSION: u16 = 1;
-    const MAX_ENCODED_LEN: usize = 48 * 4 + 8 + 2 + MAX_FAUCET_PROOF_LENGTH;
+    const MAX_ENCODED_LEN: usize = 48 * 5 + 8 + 2 + MAX_FAUCET_PROOF_LENGTH;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1725,6 +1734,7 @@ mod tests {
             digest(2),
             PrincipalId::new(digest(3)),
             digest(4),
+            digest(5),
             9,
             vec![5, 6],
         )
