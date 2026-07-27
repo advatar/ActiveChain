@@ -28,9 +28,9 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 - [x] Add strict parent CashAIR proof byte-envelope decoding with suite binding and trailing-byte rejection.
 - [x] Add strict authenticated composite proof byte-envelope decoding with suite, row-count, and
   per-proof bounds; full-depth happy-path qualification remains an explicit benchmark gate.
-- [ ] Resolve the remaining CashAIR review gates: pin the SHAKE FRI security floor, wire amount
-  range constraints into the AIR, and replace the ignored composite happy-path with a bounded CI
-  fixture.
+- [ ] Resolve the remaining CashAIR review gates: wire amount range constraints into the AIR and
+  replace the ignored composite happy-path with a bounded CI fixture. The SHAKE FRI set is now
+  explicit, pinned at log_blowup=3, 32 queries, and 16 grinding bits (112-bit conjectured floor).
 - [x] Cover authenticated envelope round-trip and suite mutation rejection without running the
   full SHAKE proving benchmark.
 - [x] Make the reference package independently testable outside the root workspace.
