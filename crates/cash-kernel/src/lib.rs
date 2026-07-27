@@ -51,7 +51,7 @@ pub use types::{
     FungibleCoinCellMembershipProof, FungibleCoinCellRecord, FungibleCoinCellSet, FungibleMintV1,
     FungibleRedemptionV1, FungibleSettlementReceiptV1, FungibleTransferV1, GenesisAllocation,
     GenesisEconomy, MAX_COIN_CELLS, MAX_TRANSFER_INPUTS, NativeAssetDefinition, NativeMoneyError,
-    NativeSupply, NonFungibleCoinCell,
+    NativeSupply, NonFungibleCoinCell, NonFungibleCoinCellRecord,
 };
 
 #[cfg(kani)]
@@ -97,7 +97,7 @@ mod tests {
         CashLedger, CashTransferV1, CashTransitionError, CoinBurnTransition, CoinMintTransition,
         CoinTransfer, EpochEconomicsTransition, GenesisAllocation, GenesisEconomy,
         NativeAssetDefinition, NativeMoneyError, NativeSupply, NonFungibleCoinCell,
-        PartitionedCashPlan, RewardRedemption, RewardSettlement,
+        NonFungibleCoinCellRecord, PartitionedCashPlan, RewardRedemption, RewardSettlement,
     };
 
     fn digest(byte: u8) -> Digest384 {
@@ -122,6 +122,11 @@ mod tests {
         );
         assert_eq!(cell.transfer(principal(9), principal(10)), Err(NativeMoneyError::WrongOwner));
         assert_eq!(cell.transfer(principal(4), principal(10)).unwrap().owner(), principal(10));
+        let record = NonFungibleCoinCellRecord::new(CoinCellId::new(digest(8)), cell);
+        assert_eq!(
+            decode_envelope::<NonFungibleCoinCellRecord>(&encode_envelope(&record).unwrap()),
+            Ok(record)
+        );
     }
     fn principal(byte: u8) -> PrincipalId {
         PrincipalId::new(digest(byte))

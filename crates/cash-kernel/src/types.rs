@@ -515,6 +515,42 @@ impl CanonicalType for NonFungibleCoinCell {
     const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NonFungibleCoinCellRecord {
+    id: CoinCellId,
+    cell: NonFungibleCoinCell,
+}
+impl NonFungibleCoinCellRecord {
+    pub const TYPE_TAG: u16 = 0x00A5;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 + NonFungibleCoinCell::MAX_ENCODED_LEN;
+    pub const fn new(id: CoinCellId, cell: NonFungibleCoinCell) -> Self {
+        Self { id, cell }
+    }
+    pub const fn id(self) -> CoinCellId {
+        self.id
+    }
+    pub const fn cell(self) -> NonFungibleCoinCell {
+        self.cell
+    }
+}
+impl CanonicalEncode for NonFungibleCoinCellRecord {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.id.encode(e)?;
+        self.cell.encode(e)
+    }
+}
+impl CanonicalDecode for NonFungibleCoinCellRecord {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Ok(Self::new(CoinCellId::decode(d)?, NonFungibleCoinCell::decode(d)?))
+    }
+}
+impl CanonicalType for NonFungibleCoinCellRecord {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
 impl FungibleCoinCellRecord {
     pub const TYPE_TAG: u16 = 0x00A3;
     pub const SCHEMA_VERSION: u16 = 1;
