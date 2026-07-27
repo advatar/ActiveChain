@@ -279,6 +279,8 @@ Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163
 - [ ] Bind fungible Coin Cells and all transitions, authorizations, proofs, and receipts to `AssetId`.
 - [x] Expose an explicit canonical asset-bound fungible transfer commitment for proof/receipt
   consumers; dedicated fungible AIR remains open.
+- [x] Freeze canonical fungible AIR public inputs with asset/registry bindings and per-asset
+  supply/transfer conservation checks; arithmetization remains open.
 - [x] Bind wallet-side fungible membership verification to the exact owner, `AssetId`, record,
   and authenticated finalized root.
 - [x] Bind fungible transfer admission to the finalized asset policy and lifecycle.

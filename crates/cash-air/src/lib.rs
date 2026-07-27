@@ -11,7 +11,7 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     decode_envelope, encode_envelope,
 };
-use activechain_protocol_types::{CoinCellSetRoot, Digest384};
+use activechain_protocol_types::{AssetId, CoinCellSetRoot, Digest384};
 use winterfell::{
     AcceptableOptions, Air, AirContext, Assertion, AuxRandElements, BatchingMethod,
     CompositionPoly, CompositionPolyTrace, ConstraintCompositionCoefficients,
@@ -45,6 +45,82 @@ pub const CASH_AIR_PARENT_SUITE_ID: u32 = 0xCA50_0101;
 pub const CASH_AIR_COMPOSITE_SUITE_ID: u32 = 0xCA50_0201;
 pub const MAX_CASH_AIR_PROOF_BYTES: usize = 1 << 20;
 pub const MAX_CASH_AIR_COMPOSITE_BYTES: usize = 8 << 20;
+
+/// Canonical public binding for the future fungible CashAIR lane. It is kept
+/// separate from the native trace until the fungible transition semantics are
+/// arithmetized; no proof may claim fungible validity without these bindings.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FungibleCashAirPublicInputsV1 {
+    pub asset_id: AssetId,
+    pub registry_commitment: Digest384,
+    pub pre_supply: u128,
+    pub issuance: u128,
+    pub burn: u128,
+    pub post_supply: u128,
+    pub input_value: u128,
+    pub output_value: u128,
+    pub fee: u128,
+}
+
+impl FungibleCashAirPublicInputsV1 {
+    pub fn new(
+        asset_id: AssetId,
+        registry_commitment: Digest384,
+        pre_supply: u128,
+        issuance: u128,
+        burn: u128,
+        post_supply: u128,
+        input_value: u128,
+        output_value: u128,
+        fee: u128,
+    ) -> Result<Self, &'static str> {
+        if *asset_id.digest() == Digest384::ZERO || registry_commitment == Digest384::ZERO {
+            return Err("fungible CashAIR identity is unbound");
+        }
+        if pre_supply.checked_add(issuance).and_then(|v| v.checked_sub(burn)) != Some(post_supply) {
+            return Err("fungible supply conservation mismatch");
+        }
+        if output_value.checked_add(fee) != Some(input_value) {
+            return Err("fungible transfer conservation mismatch");
+        }
+        Ok(Self { asset_id, registry_commitment, pre_supply, issuance, burn, post_supply, input_value, output_value, fee })
+    }
+}
+
+impl CanonicalEncode for FungibleCashAirPublicInputsV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.asset_id.encode(e)?;
+        self.registry_commitment.encode(e)?;
+        self.pre_supply.encode(e)?;
+        self.issuance.encode(e)?;
+        self.burn.encode(e)?;
+        self.post_supply.encode(e)?;
+        self.input_value.encode(e)?;
+        self.output_value.encode(e)?;
+        self.fee.encode(e)
+    }
+}
+impl CanonicalDecode for FungibleCashAirPublicInputsV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            AssetId::decode(d)?,
+            Digest384::decode(d)?,
+            u128::decode(d)?,
+            u128::decode(d)?,
+            u128::decode(d)?,
+            u128::decode(d)?,
+            u128::decode(d)?,
+            u128::decode(d)?,
+            u128::decode(d)?,
+        )
+        .map_err(DecodeError::InvalidValue)
+    }
+}
+impl CanonicalType for FungibleCashAirPublicInputsV1 {
+    const TYPE_TAG: u16 = 0x00b0;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 + 48 + 16 * 7;
+}
 
 /// Canonical byte envelope for the Winterfell CashAIR parent proof.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -733,16 +809,17 @@ mod tests {
         GenesisAllocation, GenesisEconomy, NativeAssetDefinition, prove_authenticated_cash_air,
         prove_cash_air,
     };
-    use activechain_protocol_types::{ChainId, CoinCellId, Digest384, PrincipalId};
+    use activechain_protocol_types::{AssetId, ChainId, CoinCellId, Digest384, PrincipalId};
 
     use super::{
         AuthenticatedCashAirReceiptV1, AuthenticatedCashCompositeStarkProof, BaseElement,
         CashAirReceiptV1, CashStarkProof,
+        FungibleCashAirPublicInputsV1,
         CASH_AIR_COMPOSITE_SUITE_ID, CASH_AIR_PARENT_SUITE_ID, prove,
         prove_authenticated_composite, prove_authenticated_parent, verify,
         verify_authenticated_composite,
     };
-    use activechain_canonical_codec::decode_envelope;
+    use activechain_canonical_codec::{decode_envelope, encode_envelope};
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
@@ -754,6 +831,27 @@ mod tests {
         assert_ne!(CASH_AIR_PARENT_SUITE_ID, crate::shake::CASH_AIR_SHAKE_SUITE_ID);
         assert_eq!(CashStarkProof::suite_id(), CASH_AIR_PARENT_SUITE_ID);
         assert_eq!(AuthenticatedCashCompositeStarkProof::suite_id(), CASH_AIR_COMPOSITE_SUITE_ID);
+    }
+
+    #[test]
+    fn fungible_public_inputs_bind_asset_and_conserve_supply() {
+        let value = FungibleCashAirPublicInputsV1::new(
+            AssetId::new(digest(1)),
+            digest(2),
+            100,
+            25,
+            5,
+            120,
+            40,
+            39,
+            1,
+        )
+        .unwrap();
+        let bytes = encode_envelope(&value).unwrap();
+        assert_eq!(decode_envelope::<FungibleCashAirPublicInputsV1>(&bytes), Ok(value));
+        assert!(FungibleCashAirPublicInputsV1::new(
+            AssetId::new(digest(1)), digest(2), 100, 25, 5, 121, 40, 39, 1
+        ).is_err());
     }
 
     fn principal(byte: u8) -> PrincipalId {
