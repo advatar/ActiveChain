@@ -22,6 +22,19 @@ mod migration;
 mod object;
 mod package;
 
+/// Sparse allocation prevents deferred protocol versions from reinterpreting v1.0 bytes.
+pub const V1_TYPE_TAG_MIN: u16 = 0x0020;
+pub const V1_TYPE_TAG_MAX: u16 = 0x00D9;
+pub const RESERVED_V11_TYPE_TAG_START: u16 = 0x00E0;
+pub const RESERVED_V11_TYPE_TAG_END: u16 = 0x00EF;
+pub const RESERVED_V12_TYPE_TAG_START: u16 = 0x00F0;
+pub const RESERVED_V12_TYPE_TAG_END: u16 = 0x00FF;
+
+pub const fn is_reserved_future_type_tag(tag: u16) -> bool {
+    (tag >= RESERVED_V11_TYPE_TAG_START && tag <= RESERVED_V11_TYPE_TAG_END)
+        || (tag >= RESERVED_V12_TYPE_TAG_START && tag <= RESERVED_V12_TYPE_TAG_END)
+}
+
 pub use admission::{exact_frame_layout, fresh_sequence, length_prefixed_range};
 pub use asset::{
     AssetDefinitionError, FungibleAssetDefinition, FungibleAssetLifecycle,
@@ -485,6 +498,15 @@ mod tests {
             decode_envelope::<Principal>(&bytes),
             Err(DecodeError::InvalidValue("last_updated_at predates created_at"))
         );
+    }
+
+    #[test]
+    fn future_type_tag_ranges_are_reserved_and_disjoint_from_v1() {
+        assert!(crate::is_reserved_future_type_tag(crate::RESERVED_V11_TYPE_TAG_START));
+        assert!(crate::is_reserved_future_type_tag(crate::RESERVED_V12_TYPE_TAG_END));
+        assert!(!crate::is_reserved_future_type_tag(crate::V1_TYPE_TAG_MIN));
+        assert!(!crate::is_reserved_future_type_tag(crate::V1_TYPE_TAG_MAX));
+        assert!(crate::RESERVED_V11_TYPE_TAG_END < crate::RESERVED_V12_TYPE_TAG_START);
     }
 
     proptest! {

@@ -1,0 +1,5 @@
+case\tinput\texpected\treason
+reserved_v11_tag\ttag=0x00E0\treject\tv1.0 rejects deferred v1.1 tags
+reserved_v12_tag\ttag=0x00F0\treject\tv1.0 rejects deferred v1.2 tags
+known_v1_tag\ttag=0x0020\tdispatch\tknown v1 envelope remains available
+unknown_tag\ttag=0x0100\treject\tunknown tags never fall through

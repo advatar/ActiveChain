@@ -317,8 +317,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
 
 ## Active launch sequencing — versioned feature contract
 
-- [ ] Reserve future type tags, header fields, envelope extensions, and dispatch seams at v1.0;
-  publish the v1.0/v1.1/v1.2 qualification gates and unknown-tag rejection vectors.
+- [x] Reserve future type-tag ranges and publish fail-closed unknown-tag vectors for deferred
+  v1.1/v1.2 dispatch; header/envelope extension qualification remains a release gate.
 
 ## Active epic — native asset tokenization
 
