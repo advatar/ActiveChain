@@ -2991,6 +2991,7 @@ impl ValidatorService {
             self.propose_round(signer, height, round, block_digest, sequence)?;
         peers.broadcast_message(&proposal).map_err(ValidatorServiceError::Io)?;
         peers.broadcast_message(&own_vote).map_err(ValidatorServiceError::Io)?;
+        let mut certificate = None;
         for peer_id in peer_ids {
             let vote = peers.receive_verified(*peer_id).map_err(|error| match error {
                 PeerReceiveError::Io(io) => ValidatorServiceError::Io(io),
@@ -2999,7 +3000,20 @@ impl ValidatorService {
                 }
                 PeerReceiveError::UnknownPeer => ValidatorServiceError::UnknownSender,
             })?;
-            self.process_message(vote)?;
+            if let Some(proof) = self.process_message(vote)? {
+                certificate = Some(proof);
+            }
+        }
+        if let Some(proof) = certificate {
+            let sender = self.sender_for(signer)?;
+            let certificate_sequence = sequence
+                .checked_add(2)
+                .ok_or(ValidatorServiceError::Engine(ValidatorEngineError::SequenceOverflow))?;
+            self.reserve_sequence_range(sender, certificate_sequence, 1)?;
+            let message = signer
+                .sign_envelope(sender, certificate_sequence, ConsensusMessage::Certificate(proof))
+                .map_err(ValidatorServiceError::Engine)?;
+            peers.broadcast_message(&message).map_err(ValidatorServiceError::Io)?;
         }
         self.state()
     }
