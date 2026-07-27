@@ -383,6 +383,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   matching parameters, outcomes, bounded overrides, freeze decisions, and privacy/audit handling.
 - [x] Publish the privacy-preserving off-chain Travel Rule profile binding exact chain/action,
   asset/amount, parties, policy, nonce, expiry, and counterparty acknowledgement.
+- [x] Specify transaction-monitoring population reconciliation, versioned rules, case lifecycle,
+  freeze/escalation controls, FIU reporting boundaries, and stale-system fail-closed behavior.
 
 ## Active launch sequencing — versioned feature contract
 
