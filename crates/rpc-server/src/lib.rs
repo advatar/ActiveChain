@@ -651,6 +651,13 @@ pub struct RpcServer {
                 + Sync,
         >,
     >,
+    authorized_faucet_settlement: Option<
+        Arc<
+            dyn Fn(&[u8], PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError>
+                + Send
+                + Sync,
+        >,
+    >,
 }
 
 /// Production settlement boundary for faucet-authorized Coin Cell ingress.
@@ -681,7 +688,14 @@ where
 
 impl RpcServer {
     pub fn new(store: Arc<DurableRpcStore>) -> Self {
-        Self { store, access: None, anchors: None, faucet: None, faucet_settlement: None }
+        Self {
+            store,
+            access: None,
+            anchors: None,
+            faucet: None,
+            faucet_settlement: None,
+            authorized_faucet_settlement: None,
+        }
     }
 
     pub fn with_anchor_registry(mut self, anchors: DurableAnchorRegistry) -> Self {
@@ -705,6 +719,20 @@ impl RpcServer {
             + 'static,
     {
         self.faucet_settlement = Some(Arc::new(settlement));
+        self
+    }
+
+    /// Attach the validator-backed settlement callback for pre-signed faucet
+    /// envelopes. The callback receives the exact canonical bytes after
+    /// faucet policy admission and must submit those bytes to ingress.
+    pub fn with_authorized_faucet_settlement<F>(mut self, settlement: F) -> Self
+    where
+        F: Fn(&[u8], PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.authorized_faucet_settlement = Some(Arc::new(settlement));
         self
     }
 
@@ -732,6 +760,7 @@ impl RpcServer {
             anchors: None,
             faucet: None,
             faucet_settlement: None,
+            authorized_faucet_settlement: None,
         })
     }
 
@@ -809,10 +838,28 @@ impl RpcServer {
                     Err(_) => RpcResponse::Error(RpcError::InvalidRequest),
                 }
             }
-            // The schema is reserved and decoded, but remains fail-closed
-            // until a validator-backed authorized settlement adapter is wired.
-            RpcRequest::RequestAuthorizedFaucet { .. } => {
-                RpcResponse::Error(RpcError::InvalidRequest)
+            RpcRequest::RequestAuthorizedFaucet { request } => {
+                let (Some(faucet), Some(settlement)) =
+                    (&self.faucet, &self.authorized_faucet_settlement)
+                else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let envelope = request.envelope.clone();
+                let faucet_request = &request.request;
+                let Ok(mut faucet) = faucet.write() else {
+                    return RpcResponse::Error(RpcError::Internal);
+                };
+                match faucet.request(
+                    faucet_request,
+                    faucet_request.source_commitment(),
+                    now,
+                    |recipient, amount, reference| {
+                        settlement(&envelope, recipient, amount, reference)
+                    },
+                ) {
+                    Ok(receipt) => RpcResponse::FaucetReceipt(receipt),
+                    Err(_) => RpcResponse::Error(RpcError::InvalidRequest),
+                }
             }
             request => self.store.handle(request, now),
         }
@@ -1007,8 +1054,12 @@ mod tests {
         let path = temporary("typed-faucet-adapter");
         let _ = std::fs::remove_file(&path);
         let server = RpcServer::new(Arc::new(DurableRpcStore::create(path.clone(), index()).unwrap()))
-            .with_faucet_settlement_adapter(Adapter);
+            .with_faucet_settlement_adapter(Adapter)
+            .with_authorized_faucet_settlement(|_, _, _, reference| {
+                Ok(TransactionId::new(reference))
+            });
         assert!(server.faucet_settlement.is_some());
+        assert!(server.authorized_faucet_settlement.is_some());
         let _ = std::fs::remove_file(path);
     }
     fn signed_finality(byte: u8, inputs: ProofPublicInputs) -> Vec<u8> {

@@ -294,6 +294,8 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
 - [x] Add a strict validator-RPC bridge entry point that decodes the signed envelope and checks its
   intent identifier, recipient, and amount before handing bytes to an authoritative backend.
 - [x] Add a typed production faucet settlement adapter boundary for validator-backed ingress.
+- [x] Add an opt-in RPC authorized-settlement callback that receives the exact signed envelope
+  after faucet policy admission; absent this callback, the new request remains fail-closed.
 - [ ] Publish the end-to-end funding admission contract and adversarial vectors before public
   faucet deployment.
 - [x] Freeze the validator-bridge authorized-settlement request envelope with strict canonical
