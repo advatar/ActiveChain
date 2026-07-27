@@ -17,6 +17,7 @@ activechain-finality-types.workspace = true
 activechain-protocol-types.workspace = true
 activechain-rpc-types.workspace = true
 activechain-verifier-api.workspace = true
+activechain-wallet-core.workspace = true
 sha3.workspace = true
 
 [dev-dependencies]

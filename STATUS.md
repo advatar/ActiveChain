@@ -303,6 +303,8 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
 - [x] Provide a validator-runtime adapter backed by the real `WalletTransactionGateway`; it uses
   the consensus-owned finalized height and fail-closes malformed ingress (qualified in runtime
   tests).
+- [x] Add a direct `TransactionIngress`-backed RPC adapter for deployments that host wallet
+  admission in the RPC process, with chain, intent, recipient, amount, and height checks.
 - [ ] Publish the end-to-end funding admission contract and adversarial vectors before public
   faucet deployment.
 - [x] Freeze the validator-bridge authorized-settlement request envelope with strict canonical

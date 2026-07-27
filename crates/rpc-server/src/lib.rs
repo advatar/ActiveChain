@@ -18,6 +18,7 @@ use activechain_cash_kernel::{
     CoinCellMembershipProof, CoinCellRecord, CoinCellSet, FungibleCoinCellMembershipProof,
     FungibleCoinCellRecord, prove_coin_cell_membership,
 };
+use activechain_wallet_core::AuthorizedCashTransferV1;
 use activechain_finality_types::commit_parts;
 use activechain_protocol_types::{AssetId, ChainId, Digest384, Object, PrincipalId, TransactionId};
 use activechain_rpc_types::{
@@ -33,6 +34,7 @@ use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream, ToSocketAddrs},
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
     sync::{Arc, RwLock},
     time::Duration,
 };
@@ -682,6 +684,55 @@ pub trait AuthorizedFaucetSettlementAdapter: Send + Sync {
         amount: u128,
         reference: Digest384,
     ) -> Result<TransactionId, FaucetError>;
+}
+
+/// Direct validator-side adapter for deployments that host the authenticated
+/// wallet ingress in the RPC process. The ingress remains durable and shared;
+/// this boundary only admits exact signed envelopes.
+pub struct WalletIngressAuthorizedSettlementAdapter {
+    ingress: Arc<std::sync::Mutex<activechain_wallet_core::TransactionIngress>>,
+    chain_id: ChainId,
+    finalized_height: Arc<AtomicU64>,
+}
+
+impl WalletIngressAuthorizedSettlementAdapter {
+    pub fn new(
+        ingress: Arc<std::sync::Mutex<activechain_wallet_core::TransactionIngress>>,
+        chain_id: ChainId,
+        finalized_height: Arc<AtomicU64>,
+    ) -> Self {
+        Self { ingress, chain_id, finalized_height }
+    }
+
+    pub fn set_finalized_height(&self, height: u64) {
+        self.finalized_height.store(height, Ordering::Release);
+    }
+}
+
+impl AuthorizedFaucetSettlementAdapter for WalletIngressAuthorizedSettlementAdapter {
+    fn settle_authorized(
+        &self,
+        envelope: &[u8],
+        recipient: PrincipalId,
+        amount: u128,
+        reference: Digest384,
+    ) -> Result<TransactionId, FaucetError> {
+        let authorized = decode_envelope::<AuthorizedCashTransferV1>(envelope)
+            .map_err(|_| FaucetError::InvalidTransition)?;
+        let request = authorized.request();
+        if request.chain_id() != self.chain_id
+            || request.intent_id().map_err(|_| FaucetError::InvalidTransition)? != reference
+            || request.transfer().recipient() != recipient
+            || request.transfer().amount() != amount
+        {
+            return Err(FaucetError::InvalidTransition);
+        }
+        let height = self.finalized_height.load(Ordering::Acquire);
+        let mut ingress = self.ingress.lock().map_err(|_| FaucetError::Persistence)?;
+        ingress.submit_authorized(&authorized, height)
+            .map_err(|_| FaucetError::InvalidTransition)?;
+        Ok(TransactionId::new(reference))
+    }
 }
 
 impl<F> AuthorizedFaucetSettlementAdapter for F
