@@ -146,6 +146,8 @@ final class ActiveChainWalletTests: XCTestCase {
         )
         let status = try WalletRPCCodec.decodeStatus(response)
         XCTAssertEqual(status.networkState, .stale(finalizedHeight: 23))
+        XCTAssertTrue(status.supports(0))
+        XCTAssertFalse(status.supports(4))
         XCTAssertThrowsError(try WalletRPCCodec.decodeStatus(Data(response.dropLast())))
     }
 
