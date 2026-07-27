@@ -764,14 +764,12 @@ impl FungibleMintV1 {
         &self,
         policy: &FungibleAssetPolicyV1,
     ) -> Result<(), NativeMoneyError> {
-        if self.asset_id != policy.asset_id()
-            || self.issuer != policy.issuer()
-            || self.supply_before != policy.supply_issued()
-            || self.supply_cap != policy.supply_cap()
-            || policy.lifecycle() != FungibleAssetLifecycle::Registered
-        {
+        if self.asset_id != policy.asset_id() || self.supply_cap != policy.supply_cap() {
             return Err(NativeMoneyError::MintAuthorityMismatch);
         }
+        policy
+            .apply_mint(self.issuer, self.amount, self.supply_before)
+            .map_err(|_| NativeMoneyError::MintAuthorityMismatch)?;
         Ok(())
     }
 }
@@ -857,12 +855,12 @@ impl FungibleBurnV1 {
         &self,
         policy: &FungibleAssetPolicyV1,
     ) -> Result<(), NativeMoneyError> {
-        if self.asset_id != policy.asset_id()
-            || self.amount > policy.supply_issued()
-            || policy.lifecycle() != FungibleAssetLifecycle::Registered
-        {
+        if self.asset_id != policy.asset_id() {
             return Err(NativeMoneyError::InvalidInputs);
         }
+        policy
+            .apply_burn(self.amount, policy.supply_issued())
+            .map_err(|_| NativeMoneyError::InvalidInputs)?;
         Ok(())
     }
 }
@@ -950,12 +948,12 @@ impl FungibleRedemptionV1 {
         &self,
         policy: &FungibleAssetPolicyV1,
     ) -> Result<(), NativeMoneyError> {
-        if self.asset_id != policy.asset_id()
-            || self.amount > policy.supply_issued()
-            || policy.lifecycle() != FungibleAssetLifecycle::Registered
-        {
+        if self.asset_id != policy.asset_id() {
             return Err(NativeMoneyError::InvalidInputs);
         }
+        policy
+            .apply_burn(self.amount, policy.supply_issued())
+            .map_err(|_| NativeMoneyError::InvalidInputs)?;
         Ok(())
     }
 }
