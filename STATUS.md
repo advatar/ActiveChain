@@ -205,6 +205,7 @@ Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163
 - [ ] Add the backward-compatible canonical `FungibleCoinCellRecord` wire type before migrating
   authenticated roots and wallet/RPC APIs.
 - [ ] Add an ordered fungible-cell set and domain-separated authenticated root.
+- [ ] Add fungible-cell membership proofs bound to the asset record and set root.
 - [ ] Freeze the canonical multi-asset binding rules and positive/malformed vectors before
   changing execution or wallet surfaces.
 - [ ] Specify a finalized issuer-controlled asset metadata and supply registry.

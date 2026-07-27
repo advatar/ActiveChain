@@ -515,6 +515,70 @@ impl CanonicalType for FungibleCoinCellSet {
     const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FungibleCoinCellMembershipProof {
+    root: Digest384,
+    index: u16,
+    record: FungibleCoinCellRecord,
+    witness: FungibleCoinCellSet,
+}
+impl FungibleCoinCellMembershipProof {
+    pub const TYPE_TAG: u16 = 0x00A5;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub fn prove(set: &FungibleCoinCellSet, id: CoinCellId) -> Result<Self, NativeMoneyError> {
+        let index = set
+            .as_slice()
+            .binary_search_by_key(&id, |r| r.id())
+            .map_err(|_| NativeMoneyError::MissingCell)?;
+        Ok(Self {
+            root: set.root(),
+            index: index as u16,
+            record: set.as_slice()[index],
+            witness: set.clone(),
+        })
+    }
+    pub fn verify(&self) -> Result<(), NativeMoneyError> {
+        if self.witness.root() != self.root
+            || self.witness.as_slice().get(self.index as usize) != Some(&self.record)
+        {
+            return Err(NativeMoneyError::MissingCell);
+        }
+        Ok(())
+    }
+    pub const fn root(&self) -> Digest384 {
+        self.root
+    }
+    pub const fn record(&self) -> FungibleCoinCellRecord {
+        self.record
+    }
+}
+impl CanonicalEncode for FungibleCoinCellMembershipProof {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.root.encode(e)?;
+        self.index.encode(e)?;
+        self.record.encode(e)?;
+        self.witness.encode(e)
+    }
+}
+impl CanonicalDecode for FungibleCoinCellMembershipProof {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let p = Self {
+            root: Digest384::decode(d)?,
+            index: u16::decode(d)?,
+            record: FungibleCoinCellRecord::decode(d)?,
+            witness: FungibleCoinCellSet::decode(d)?,
+        };
+        p.verify().map_err(|_| DecodeError::InvalidValue("invalid fungible membership proof"))?;
+        Ok(p)
+    }
+}
+impl CanonicalType for FungibleCoinCellMembershipProof {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize =
+        48 + 2 + FungibleCoinCellRecord::MAX_ENCODED_LEN + FungibleCoinCellSet::MAX_ENCODED_LEN;
+}
 impl CanonicalEncode for FungibleCoinCell {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
         self.origin.encode(e)?;
