@@ -1126,6 +1126,9 @@ Tracked by [GitHub issue #10](https://github.com/advatar/ActiveChain/issues/10).
 - [x] Do not describe consensus, threshold encryption, or clients as quantum-safe until their implementations pass these gates.
 - [x] Add a canonical height-bounded PQ migration window primitive and boundary tests.
 - [x] Add a canonical ML-DSA-44-bound validator vote primitive for the future BFT boundary.
+- [x] Qualify the cryptographic provider boundary: all five tests pass for real ML-DSA-44
+  signatures, ML-KEM-768 round-trips/tamper rejection, associated-data-bound protected envelopes,
+  consensus vote payloads, and canonical quorum transcripts.
 
 ActiveChain is PQ-by-construction from its first protocol release. Migration windows exist for
 algorithm versioning and deprecation, never as permission to ship a classical safety dependency.
