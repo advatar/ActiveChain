@@ -5,6 +5,9 @@ retry\tsame request reference\treturn_same_receipt\tidempotent issuance
 amount_tamper\treceipt amount differs from transition\treject\texact binding
 chain_tamper\treceipt genesis differs\treject\ttestnet identity binding
 recipient_tamper\towner proof differs from request\treject\tno substitution
+malformed_finality\tproof is not a valid certificate bundle\treject\tfinalized funding requires verifier evidence
+wrong_genesis\tcertificate genesis differs from faucet policy\treject\tnetwork identity binding
+wrong_block\tcertificate height or block digest differs from receipt\treject\texact finality binding
 replay\tgrant nonce already consumed\treject\texactly once
 stale_finality\tproof height below configured finality\treject\tfinalized evidence required
 status_pending\treference with no finalized transaction\tdo_not_credit\tstatus is observable without optimistic balance

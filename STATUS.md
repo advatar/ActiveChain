@@ -197,6 +197,8 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
   request-to-response helper.
 - [x] Freeze canonical pending/finalized/rejected settlement status responses with state-consistent
   optional evidence and malformed vectors.
+- [x] Add a fail-closed finalization path that verifies certificate evidence against the faucet
+  genesis, exact finalized height, and block digest before funding is marked final.
 - [ ] Submit faucet-authorized Coin Cell transitions through real transaction ingress and expose
   pending/finalized/rejected proof-bearing status through the Kanalen gateway.
 - [ ] Publish the end-to-end funding admission contract and adversarial vectors before public

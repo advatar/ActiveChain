@@ -79,6 +79,7 @@ pub enum FaucetError {
     InvalidTransition,
     Persistence,
     Capacity,
+    InvalidFinalityEvidence,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -319,6 +320,30 @@ impl DurableFaucet {
             return Err(FaucetError::Persistence);
         }
         Ok(finalized)
+    }
+
+    /// Finalizes a grant only when the supplied evidence is a valid certificate
+    /// for the configured chain and exact block identity.  The legacy
+    /// `finalize` method remains available for local fixtures; production RPC
+    /// adapters should use this fail-closed boundary.
+    pub fn finalize_verified(
+        &mut self,
+        reference: Digest384,
+        height: u64,
+        block: Digest384,
+        proof: Vec<u8>,
+    ) -> Result<FaucetReceiptV1, FaucetError> {
+        let bundle = activechain_verifier_api::verify_finality_bundle_with_chain_genesis(
+            &proof,
+            self.policy.genesis_commitment,
+        )
+        .map_err(|_| FaucetError::InvalidFinalityEvidence)?;
+        if bundle.header().inputs.height != height
+            || bundle.header().digest().map_err(|_| FaucetError::InvalidFinalityEvidence)? != block
+        {
+            return Err(FaucetError::InvalidFinalityEvidence);
+        }
+        self.finalize(reference, height, block, proof)
     }
 
     fn verify_challenge(
@@ -629,6 +654,20 @@ mod tests {
         assert_eq!(
             DurableFaucet::open(policy(), path.clone()).unwrap().resolve(pending.reference()),
             Some(&finalized)
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn verified_finalization_rejects_untrusted_or_malformed_evidence() {
+        let path = path("verified-finalize");
+        let mut faucet = DurableFaucet::create(policy(), path.clone()).unwrap();
+        let pending = faucet
+            .request(&request(3, 4), digest(9), 100, |_, _, _| Ok(TransactionId::new(digest(10))))
+            .unwrap();
+        assert_eq!(
+            faucet.finalize_verified(pending.reference(), 12, digest(11), vec![1, 2, 3]),
+            Err(FaucetError::InvalidFinalityEvidence)
         );
         std::fs::remove_file(path).unwrap();
     }
