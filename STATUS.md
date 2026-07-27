@@ -295,6 +295,8 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
   nonce, expiry, and hidden-value bindings.
 - [x] Add application admission that enforces predicate chain/audience/action/expiry before handing
   hidden-value verification to the ZK circuit boundary.
+- [x] Add credential temporal validity and issuer/schema/status-registry freshness admission
+  helpers with exact finalized-height binding.
 
 ## Active independent-client qualification
 

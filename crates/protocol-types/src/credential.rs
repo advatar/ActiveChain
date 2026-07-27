@@ -116,6 +116,16 @@ impl CredentialStatement {
         self.claims_commitment
     }
 
+    /// Checks the temporal validity window at a verifier timestamp.
+    #[must_use]
+    pub fn is_valid_at(self, now: Timestamp) -> bool {
+        now >= self.valid_from
+            && match self.valid_until {
+                Some(until) => now <= until,
+                None => true,
+            }
+    }
+
     /// Returns the finalized height at which issuance was anchored.
     #[must_use]
     pub const fn issuance_height(self) -> Height {
@@ -320,6 +330,19 @@ impl CredentialStatusRegistry {
     #[must_use]
     pub const fn effective_height(self) -> Height {
         self.effective_height
+    }
+
+    /// Binds a registry snapshot to the exact issuer/schema named by a credential
+    /// and requires the snapshot to be effective at the finalized height.
+    #[must_use]
+    pub fn admits(self, statement: CredentialStatement, finalized_height: Height) -> bool {
+        self.issuer == statement.issuer
+            && self.schema_id == statement.schema_id
+            && match statement.status_registry {
+                Some(id) => id == self.registry_id,
+                None => false,
+            }
+            && self.effective_height <= finalized_height
     }
 }
 
@@ -715,6 +738,34 @@ mod tests {
 
     fn principal(byte: u8) -> PrincipalId {
         PrincipalId::new(digest(byte))
+    }
+
+    #[test]
+    fn credential_freshness_binds_registry_issuer_schema_and_height() {
+        let registry_id = ObjectId::new(digest(8));
+        let statement = CredentialStatement::new(
+            CREDENTIAL_FORMAT_VERSION,
+            principal(1),
+            digest(2),
+            digest(3),
+            digest(4),
+            4,
+            10,
+            Some(20),
+            Some(registry_id),
+            None,
+            None,
+        )
+        .unwrap();
+        let registry =
+            CredentialStatusRegistry::new(registry_id, principal(1), digest(3), digest(5), 2, 6);
+        assert!(statement.is_valid_at(10));
+        assert!(!statement.is_valid_at(21));
+        assert!(registry.admits(statement, 6));
+        assert!(!registry.admits(statement, 5));
+        let wrong_issuer =
+            CredentialStatusRegistry::new(registry_id, principal(9), digest(3), digest(5), 2, 6);
+        assert!(!wrong_issuer.admits(statement, 6));
     }
 
     fn statement() -> CredentialStatement {
