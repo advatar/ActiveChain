@@ -1181,7 +1181,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [x] Separate persistent canonical payment intents from short-lived PQ authorization witnesses.
 - [x] Add partitioned Coin Cell state, input locks, parallel execution, and conflict fallback
   ([GitHub issue #66](https://github.com/advatar/ActiveChain/issues/66)).
-- [ ] Implement the transparent specialized CashAIR and direct-reexecution comparison
+- [x] Implement the transparent specialized CashAIR and direct-reexecution comparison
   ([GitHub issue #69](https://github.com/advatar/ActiveChain/issues/69)).
   - [x] Reproduce the private-billboard guest image IDs and keep the published relation fixtures
     valid against both reference and guest execution
