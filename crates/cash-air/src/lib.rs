@@ -64,9 +64,36 @@ pub fn fungible_conservation_holds(
         && output_value.checked_add(fee) == Some(input_value)
 }
 
+/// Canonical little-endian 16-bit decomposition for u128 AIR range checks.
+#[must_use]
+pub const fn decompose_u128_limbs(value: u128) -> [u16; 8] {
+    [
+        value as u16,
+        (value >> 16) as u16,
+        (value >> 32) as u16,
+        (value >> 48) as u16,
+        (value >> 64) as u16,
+        (value >> 80) as u16,
+        (value >> 96) as u16,
+        (value >> 112) as u16,
+    ]
+}
+
+#[must_use]
+pub const fn recompose_u128_limbs(limbs: [u16; 8]) -> u128 {
+    (limbs[0] as u128)
+        | ((limbs[1] as u128) << 16)
+        | ((limbs[2] as u128) << 32)
+        | ((limbs[3] as u128) << 48)
+        | ((limbs[4] as u128) << 64)
+        | ((limbs[5] as u128) << 80)
+        | ((limbs[6] as u128) << 96)
+        | ((limbs[7] as u128) << 112)
+}
+
 #[cfg(kani)]
 mod kani_proofs {
-    use super::fungible_conservation_holds;
+    use super::{decompose_u128_limbs, fungible_conservation_holds, recompose_u128_limbs};
 
     #[kani::proof]
     fn overflow_never_counts_as_conservation() {
@@ -80,6 +107,12 @@ mod kani_proofs {
         if pre.checked_add(issuance).and_then(|value| value.checked_sub(burn)).is_none() {
             assert!(!fungible_conservation_holds(pre, issuance, burn, post, input, output, fee));
         }
+    }
+
+    #[kani::proof]
+    fn u128_limb_codec_is_lossless() {
+        let value = kani::any();
+        assert_eq!(recompose_u128_limbs(decompose_u128_limbs(value)), value);
     }
 }
 
@@ -859,6 +892,7 @@ mod tests {
         AuthenticatedCashAirReceiptV1, AuthenticatedCashCompositeStarkProof, BaseElement,
         CashAirReceiptV1, CashStarkProof,
         FungibleCashAirPublicInputsV1,
+        decompose_u128_limbs, recompose_u128_limbs,
         fungible_conservation_holds,
         CASH_AIR_COMPOSITE_SUITE_ID, CASH_AIR_PARENT_SUITE_ID, prove,
         prove_authenticated_composite, prove_authenticated_parent, verify,
@@ -899,6 +933,7 @@ mod tests {
             AssetId::new(digest(1)), digest(2), 100, 25, 5, 121, 40, 39, 1
         ).is_err());
         assert!(!fungible_conservation_holds(u128::MAX, 1, 0, 0, 1, 0, 0));
+        assert_eq!(recompose_u128_limbs(decompose_u128_limbs(u128::MAX)), u128::MAX);
     }
 
     fn principal(byte: u8) -> PrincipalId {
