@@ -25,6 +25,22 @@ pub enum ComplianceAdmissionError {
     ProfileNotSelected,
 }
 
+/// Verifies a provider's ML-DSA-44 signature over the exact canonical
+/// compliance envelope. The key registry remains an operator boundary; this
+/// function performs the cryptographic check and never accepts a shape-only
+/// signature.
+pub fn verify_compliance_signature(
+    public_key: &[u8],
+    signature: &ComplianceSignatureEnvelopeV1,
+) -> bool {
+    activechain_crypto_provider::verify_ml_dsa44(
+        public_key,
+        &signature.signing_payload(),
+        signature.signature().as_bytes(),
+    )
+    .is_ok()
+}
+
 pub fn require_selected_profile(
     selection: &ProfileSelection,
     profile: activechain_protocol_types::Digest384,

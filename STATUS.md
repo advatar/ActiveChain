@@ -260,6 +260,8 @@ Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213
 - [x] Bind screening acceptance to the exact regulated chain and transaction context.
 - [x] Enforce `require_provider_signature` through a decision commitment and exact profile,
   chain, and action signature envelope.
+- [x] Provide ML-DSA-44 verification wiring for compliance signature envelopes; key registry
+  selection remains an operator-controlled boundary.
 
 ## Active dBrowser development RPC contract
 

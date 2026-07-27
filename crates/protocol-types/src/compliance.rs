@@ -637,6 +637,19 @@ impl ComplianceSignatureEnvelopeV1 {
     pub const fn signature(&self) -> &ProtocolSignature {
         &self.signature
     }
+    pub fn signing_payload(&self) -> Vec<u8> {
+        let mut encoder = Encoder::new(Self::MAX_ENCODED_LEN);
+        self.profile.encode(&mut encoder).expect("validated field encodes");
+        self.chain_id.encode(&mut encoder).expect("validated field encodes");
+        self.action.encode(&mut encoder).expect("validated field encodes");
+        self.commitment.encode(&mut encoder).expect("validated field encodes");
+        self.nonce.encode(&mut encoder).expect("validated field encodes");
+        let bytes = encoder.finish();
+        let mut payload = Vec::with_capacity(38 + bytes.len());
+        payload.extend_from_slice(b"ACTIVECHAIN-COMPLIANCE-SIGNATURE-V1");
+        payload.extend_from_slice(&bytes);
+        payload
+    }
 }
 impl CanonicalEncode for ComplianceSignatureEnvelopeV1 {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
