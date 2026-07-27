@@ -4,4 +4,6 @@ symbol_only\tsymbol=EUR,no-asset-id\treject\tdisplay metadata is not authority
 cross_asset_input\tinput=EUR,output=USD\treject\tno implicit conversion
 unknown_asset\tasset-id-unregistered\treject\tclient cannot sign unknown asset
 expired_proof\towner-proof-expired\treject\tfinalized proof required
+owner_mismatch\tfinalized cell owner != requested owner\treject\towner-scoped verification
+genesis_mismatch\tfinality bundle genesis != trusted chain genesis\treject\tchain identity binding
 fee_substitution\tfee-policy=ACT,selected-fee-cell=EUR\treject\texplicit fee asset

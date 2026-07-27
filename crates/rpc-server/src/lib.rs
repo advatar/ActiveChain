@@ -89,6 +89,8 @@ pub enum RpcProofError {
     Height,
     Key,
     Relation,
+    Owner,
+    Asset,
 }
 
 pub fn verify_query_record(record: &QueryRecord) -> Result<(), RpcProofError> {
@@ -107,6 +109,48 @@ pub fn verify_query_record_with_chain_genesis(
     )
     .map_err(|_| RpcProofError::Finality)?;
     verify_query_record_with_finality(record, finality, Some(chain_genesis))
+}
+
+/// Verifies a finalized owner-scoped native Coin Cell record, including the
+/// exact owner requested by a wallet.  The generic record verifier proves
+/// membership in the finalized cash root; this boundary additionally prevents
+/// a valid cell belonging to another principal from being accepted as a
+/// wallet balance.
+pub fn verify_owner_coin_cell_record_with_chain_genesis(
+    record: &QueryRecord,
+    owner: PrincipalId,
+    chain_genesis: Digest384,
+) -> Result<(), RpcProofError> {
+    if record.kind() != QueryKind::CoinCell {
+        return Err(RpcProofError::WrongKind);
+    }
+    let cell =
+        decode_envelope::<CoinCellRecord>(record.value()).map_err(|_| RpcProofError::Malformed)?;
+    if cell.cell().owner() != owner {
+        return Err(RpcProofError::Owner);
+    }
+    verify_query_record_with_chain_genesis(record, chain_genesis)
+}
+
+/// Verifies a finalized owner- and asset-scoped fungible Coin Cell record.
+pub fn verify_owner_fungible_coin_cell_record_with_chain_genesis(
+    record: &QueryRecord,
+    owner: PrincipalId,
+    asset: AssetId,
+    chain_genesis: Digest384,
+) -> Result<(), RpcProofError> {
+    if record.kind() != QueryKind::FungibleCoinCell {
+        return Err(RpcProofError::WrongKind);
+    }
+    let cell = decode_envelope::<FungibleCoinCellRecord>(record.value())
+        .map_err(|_| RpcProofError::Malformed)?;
+    if cell.cell().owner() != owner {
+        return Err(RpcProofError::Owner);
+    }
+    if cell.cell().asset_id() != asset {
+        return Err(RpcProofError::Asset);
+    }
+    verify_query_record_with_chain_genesis(record, chain_genesis)
 }
 
 fn verify_query_record_with_finality(
@@ -1204,6 +1248,28 @@ mod tests {
         assert_eq!(discovered.cell().owner(), owner);
         assert!(verify_query_record(&page.records()[0]).is_ok());
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn owner_coin_cell_verification_binds_owner_and_chain_genesis() {
+        let owner = PrincipalId::new(digest(44));
+        let other = PrincipalId::new(digest(45));
+        let record = coin_cell_record(44, owner);
+        let bundle = activechain_verifier_api::verify_finality_bundle(record.finality()).unwrap();
+        let genesis = bundle.validator_genesis().genesis_commitment();
+
+        assert_eq!(
+            verify_owner_coin_cell_record_with_chain_genesis(&record, owner, genesis),
+            Ok(())
+        );
+        assert_eq!(
+            verify_owner_coin_cell_record_with_chain_genesis(&record, other, genesis),
+            Err(RpcProofError::Owner)
+        );
+        assert_eq!(
+            verify_owner_coin_cell_record_with_chain_genesis(&record, owner, digest(250)),
+            Err(RpcProofError::Finality)
+        );
     }
 
     #[test]
