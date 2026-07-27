@@ -86,7 +86,7 @@ struct WalletDeviceProfileStore {
     func load() -> WalletDeviceProfile? {
         guard let keychain = try? SharedKeychain(),
               let data = try? keychain.load(service: service, account: account),
-              let data, data.count == 96 else { return nil }
+              data.count == 96 else { return nil }
         let owner = Data(data.prefix(48))
         let genesis = Data(data.suffix(48))
         guard owner.contains(where: { $0 != 0 }), genesis.contains(where: { $0 != 0 }) else { return nil }
@@ -249,11 +249,11 @@ enum WalletRPCCodec {
             throw WalletRPCError.malformedResponse
         }
         return WalletRPCStatus(
+            supportedProofs: Set(proofs),
             protocolRevision: protocolRevision,
             schemaRevision: schemaRevision,
             finalizedHeight: finalizedHeight,
-            health: health,
-            supportedProofs: Set(proofs)
+            health: health
         )
     }
 

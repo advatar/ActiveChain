@@ -124,9 +124,9 @@ private struct BalanceCard: View {
 
     private var stateMessage: String {
         if let verifiedPage {
-            return "(verifiedPage.records.count) owner-scoped Coin Cell proof(s) verified at finalized state."
+            return "\(verifiedPage.records.count) owner-scoped Coin Cell proof(s) verified at finalized state."
         }
-        switch networkState {
+        return switch networkState {
         case .healthy: "The network is finalized, but no owner-scoped Coin Cell proof is loaded for this wallet."
         case .checking: "Waiting for a finalized RPC checkpoint before loading wallet state."
         case .stale: "The RPC checkpoint is stale; balances remain hidden until finality catches up."
