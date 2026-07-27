@@ -336,7 +336,9 @@ impl CredentialStatusRegistry {
     /// and requires the snapshot to be effective at the finalized height.
     #[must_use]
     pub fn admits(self, statement: CredentialStatement, finalized_height: Height) -> bool {
-        self.issuer == statement.issuer
+        self.status_root != Digest384::ZERO
+            && self.sequence > 0
+            && self.issuer == statement.issuer
             && self.schema_id == statement.schema_id
             && match statement.status_registry {
                 Some(id) => id == self.registry_id,
@@ -791,6 +793,18 @@ mod tests {
         let wrong_issuer =
             CredentialStatusRegistry::new(registry_id, principal(9), digest(3), digest(5), 2, 6);
         assert!(!wrong_issuer.admits(statement, 6));
+        let zero_root = CredentialStatusRegistry::new(
+            registry_id,
+            principal(1),
+            digest(3),
+            Digest384::ZERO,
+            2,
+            6,
+        );
+        assert!(!zero_root.admits(statement, 6));
+        let zero_sequence =
+            CredentialStatusRegistry::new(registry_id, principal(1), digest(3), digest(5), 0, 6);
+        assert!(!zero_sequence.admits(statement, 6));
     }
 
     #[test]

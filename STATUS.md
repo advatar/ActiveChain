@@ -299,6 +299,8 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
   helpers with exact finalized-height binding.
 - [x] Add one canonical acceptance-policy evaluator combining allowlists, validity, status
   requirement, and finalized-height freshness.
+- [x] Reject malformed credential-status snapshots (zero roots or zero sequence) before they can
+  satisfy registry freshness admission.
 
 ## Active independent-client qualification
 
