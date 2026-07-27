@@ -381,6 +381,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   deletion mode, retention deadline, and offline verifier; raw evidence remains off-chain.
 - [x] Publish the regulated screening profile boundary for list/provider commitments, refresh and
   matching parameters, outcomes, bounded overrides, freeze decisions, and privacy/audit handling.
+- [x] Publish the privacy-preserving off-chain Travel Rule profile binding exact chain/action,
+  asset/amount, parties, policy, nonce, expiry, and counterparty acknowledgement.
 
 ## Active launch sequencing — versioned feature contract
 
