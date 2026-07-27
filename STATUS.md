@@ -430,6 +430,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
 - [x] Add consensus-facing approved mint/burn boundaries that bind issuer, authority set, asset,
   policy commitment, operation, amount, pre-state, and activation height.
 - [ ] Expose proof-bearing asset, supply, owner, action, receipt, and attestation RPC contracts.
+- [x] Specify the proof-bearing native-asset RPC families and fail-closed empty/unsupported
+  semantics in `docs/NATIVE_ASSET_RPC_V1.md`; authenticated server wiring remains a gate.
 - [ ] Ship native issuer CLI and console workflows with threshold approval and recovery.
 - [x] Ship a deterministic issuer CLI for policy commitments and threshold-approval envelopes;
   malformed hex, operations, amounts, and validity windows fail closed.
