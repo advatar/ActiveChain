@@ -340,6 +340,8 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 
 - [x] Specify real testnet faucet transaction ingress, durable pending/finalized/rejected status,
   exact finality/Coin Cell proof binding, replay safety, and wallet no-optimism requirements.
+- [x] Add ingress-specific deterministic vectors for submission, replay, finalized membership, and
+  forged-proof rejection.
 
 ## Active native issuer operations
 

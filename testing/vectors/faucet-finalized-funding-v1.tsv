@@ -13,3 +13,7 @@ stale_finality\tproof height below configured finality\treject\tfinalized eviden
 status_pending\treference with no finalized transaction\tdo_not_credit\tstatus is observable without optimistic balance
 status_finalized_without_transaction\tfinalized state, transaction absent\treject\tstate/evidence consistency
 status_rejected_without_reason\trejected state, reason absent\treject\tbounded rejection evidence required
+ingress_submission_exact\tadmitted request -> authorized Coin Cell transition\tpending\tvalidator reference required before finality
+ingress_submission_replay\tsame idempotency key after submission\treturn_same_receipt\tno duplicate transition
+ingress_finalized_membership\tcertificate and owner Coin Cell proof exact\tcredit\tproof-bearing finalization
+ingress_forged_membership\towner proof root differs from certificate cash root\treject\tno forged funding
