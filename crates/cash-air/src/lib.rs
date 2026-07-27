@@ -162,6 +162,20 @@ impl FungibleCashAirPublicInputsV1 {
             self,
         )
     }
+
+    /// Returns the exact amount columns the range-constrained AIR will expose.
+    #[must_use]
+    pub fn amount_limbs(&self) -> [[u16; 8]; 7] {
+        [
+            decompose_u128_limbs(self.pre_supply),
+            decompose_u128_limbs(self.issuance),
+            decompose_u128_limbs(self.burn),
+            decompose_u128_limbs(self.post_supply),
+            decompose_u128_limbs(self.input_value),
+            decompose_u128_limbs(self.output_value),
+            decompose_u128_limbs(self.fee),
+        ]
+    }
 }
 
 impl CanonicalEncode for FungibleCashAirPublicInputsV1 {
@@ -934,6 +948,7 @@ mod tests {
         ).is_err());
         assert!(!fungible_conservation_holds(u128::MAX, 1, 0, 0, 1, 0, 0));
         assert_eq!(recompose_u128_limbs(decompose_u128_limbs(u128::MAX)), u128::MAX);
+        assert_eq!(value.amount_limbs()[0], decompose_u128_limbs(100));
     }
 
     fn principal(byte: u8) -> PrincipalId {

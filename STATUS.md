@@ -284,6 +284,8 @@ Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163
 - [x] Factor fungible conservation into a checked arithmetic kernel shared by runtime validation
   and future formal/AIR refinement.
 - [x] Add canonical u128-to-16-bit-limb decomposition/recomposition for fungible AIR range checks.
+- [x] Expose all fungible public amount columns through the canonical limb view used by AIR
+  refinement.
 - [x] Bind wallet-side fungible membership verification to the exact owner, `AssetId`, record,
   and authenticated finalized root.
 - [x] Bind fungible transfer admission to the finalized asset policy and lifecycle.
