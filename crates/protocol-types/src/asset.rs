@@ -235,6 +235,12 @@ impl NonFungibleTokenV1 {
         owner: PrincipalId,
         metadata_commitment: Digest384,
     ) -> Result<Self, AssetDefinitionError> {
+        if asset_id.digest() == &Digest384::ZERO
+            || issuer.digest() == &Digest384::ZERO
+            || owner.digest() == &Digest384::ZERO
+        {
+            return Err(AssetDefinitionError::InvalidAssetIdentity);
+        }
         if token_id == Digest384::ZERO || metadata_commitment == Digest384::ZERO {
             return Err(AssetDefinitionError::InvalidNftMetadata);
         }
@@ -313,6 +319,9 @@ impl NonFungibleSeriesV1 {
         minted: u64,
         metadata_schema: Digest384,
     ) -> Result<Self, AssetDefinitionError> {
+        if asset_id.digest() == &Digest384::ZERO || issuer.digest() == &Digest384::ZERO {
+            return Err(AssetDefinitionError::InvalidAssetIdentity);
+        }
         if max_supply == 0 || minted > max_supply || metadata_schema == Digest384::ZERO {
             return Err(AssetDefinitionError::SeriesSupplyExceeded);
         }
@@ -1227,6 +1236,16 @@ mod tests {
             )
             .is_err()
         );
+        assert_eq!(
+            NonFungibleTokenV1::new(
+                AssetId::new(Digest384::ZERO),
+                Digest384::new([2; 48]),
+                principal(3),
+                principal(4),
+                Digest384::new([5; 48]),
+            ),
+            Err(AssetDefinitionError::InvalidAssetIdentity)
+        );
     }
 
     #[test]
@@ -1241,6 +1260,16 @@ mod tests {
         assert_eq!(series.reserve_mint(3), Err(AssetDefinitionError::SeriesSupplyExceeded));
         assert!(
             NonFungibleSeriesV1::new(id(1), principal(2), 0, 0, Digest384::new([6; 48])).is_err()
+        );
+        assert_eq!(
+            NonFungibleSeriesV1::new(
+                AssetId::new(Digest384::ZERO),
+                principal(2),
+                1,
+                0,
+                Digest384::new([6; 48]),
+            ),
+            Err(AssetDefinitionError::InvalidAssetIdentity)
         );
     }
 
