@@ -4,6 +4,10 @@ use crate::{AssetId, Digest384, PrincipalId};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
+use sha3::{
+    Shake256,
+    digest::{ExtendableOutput, Update, XofReader},
+};
 
 pub const MAX_ASSET_SYMBOL_LENGTH: usize = 12;
 pub const MAX_FUNGIBLE_ASSETS: usize = 1024;
@@ -241,12 +245,31 @@ impl FungibleAssetPolicyV1 {
     pub const fn lifecycle(&self) -> FungibleAssetLifecycle {
         self.lifecycle
     }
+    pub const fn authority_set(&self) -> Digest384 {
+        self.authority_set
+    }
+    pub fn commitment(&self) -> Result<Digest384, EncodeError> {
+        let bytes = activechain_canonical_codec::encode_envelope(self)?;
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-FUNGIBLE-ASSET-POLICY-V1");
+        hasher.update(&bytes);
+        let mut digest = [0_u8; 48];
+        hasher.finalize_xof().read(&mut digest);
+        Ok(Digest384::new(digest))
+    }
     pub fn apply_lifecycle_action(
         &self,
         action: &FungibleAssetLifecycleActionV1,
         height: u64,
     ) -> Result<Self, AssetDefinitionError> {
-        if !action.active_at(height) || action.asset_id() != self.asset_id {
+        if !action.active_at(height)
+            || action.asset_id() != self.asset_id
+            || action.authority_set() != self.authority_set
+            || action.expected_policy()
+                != self
+                    .commitment()
+                    .map_err(|_| AssetDefinitionError::InvalidLifecycleTransition)?
+        {
             return Err(AssetDefinitionError::InvalidLifecycleTransition);
         }
         let lifecycle = match (self.lifecycle, action.action()) {
@@ -427,6 +450,12 @@ impl FungibleAssetLifecycleActionV1 {
     pub const fn action(&self) -> FungibleAssetLifecycleAction {
         self.action
     }
+    pub const fn expected_policy(&self) -> Digest384 {
+        self.expected_policy
+    }
+    pub const fn authority_set(&self) -> Digest384 {
+        self.authority_set
+    }
     pub const fn effective_height(&self) -> u64 {
         self.effective_height
     }
@@ -566,12 +595,13 @@ mod tests {
             )
             .is_err()
         );
+        let expected_policy = policy.commitment().unwrap();
         let action = FungibleAssetLifecycleActionV1::new(
             id(1),
-            Digest384::new([8; 48]),
-            Digest384::new([7; 48]),
+            expected_policy,
             Digest384::new([6; 48]),
             Digest384::new([5; 48]),
+            Digest384::new([4; 48]),
             FungibleAssetLifecycleAction::Pause,
             10,
             20,
