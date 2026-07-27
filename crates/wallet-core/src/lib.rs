@@ -40,10 +40,11 @@ pub use openwallet::{
 };
 
 use activechain_canonical_codec::decode_envelope;
-use activechain_cash_kernel::{CashLedger, CashTransitionError, GenesisEconomy};
 use activechain_cash_kernel::{
-    CoinCellRecord, CoinTransfer, FeeQuote, FungibleCoinCellSet, FungibleTransferV1,
+    AuthenticatedCoinCellRoot, CoinCellMembershipProof, CoinCellRecord, CoinTransfer, FeeQuote,
+    FungibleCoinCellSet, FungibleTransferV1, verify_coin_cell_membership,
 };
+use activechain_cash_kernel::{CashLedger, CashTransitionError, GenesisEconomy};
 use activechain_protocol_commitment::cash_transition_id;
 use activechain_protocol_types::{
     AuthenticatorId, ChainId, CoinCellId, Digest384, FungibleAssetPolicyV1,
@@ -169,6 +170,7 @@ pub enum WalletError {
     InvalidAuthorizationKey,
     InvalidSignature,
     InvalidIdentityProof,
+    InvalidCashProof,
     StaleIdentityProof,
     StateLimit,
     Persistence,
@@ -178,6 +180,24 @@ pub enum WalletError {
     AgentRevoked,
     AgentBudgetExceeded,
     MissingCapability,
+}
+
+/// Verifies one owner-scoped Coin Cell against the finalized authenticated
+/// cash root before a wallet treats it as spendable balance.
+pub fn verify_owner_coin_cell_proof(
+    record: &CoinCellRecord,
+    proof: &CoinCellMembershipProof,
+    owner: PrincipalId,
+    finalized_root: Digest384,
+) -> Result<(), WalletError> {
+    if record.cell().owner() != owner
+        || proof.record() != *record
+        || proof.root() != AuthenticatedCoinCellRoot::new(finalized_root)
+        || verify_coin_cell_membership(proof).is_err()
+    {
+        return Err(WalletError::InvalidCashProof);
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -850,8 +870,9 @@ mod tests {
     use super::*;
     use activechain_canonical_codec::encode_envelope;
     use activechain_cash_kernel::{
-        CoinCell, CoinCellOrigin, FungibleCoinCell, FungibleCoinCellRecord, FungibleCoinCellSet,
-        GenesisAllocation, NativeAssetDefinition,
+        CoinCell, CoinCellOrigin, CoinCellRecord, CoinCellSet, FungibleCoinCell,
+        FungibleCoinCellRecord, FungibleCoinCellSet, GenesisAllocation, NativeAssetDefinition,
+        prove_coin_cell_membership,
     };
     use activechain_protocol_types::{
         AuthenticatorDescriptor, AuthenticatorId, AuthenticatorPurpose, CoinCellId, CryptoSuiteId,
@@ -1093,6 +1114,26 @@ mod tests {
         let (payment, reserve) = select_cells(&cells, owner, 10, 2).unwrap();
         assert_ne!(payment, reserve);
         assert_eq!(select_cells(&cells, owner, 30, 2), Err(WalletError::InsufficientFunds));
+    }
+
+    #[test]
+    fn owner_cash_proof_binds_record_owner_and_finalized_root() {
+        let owner = principal(2);
+        let origin = CoinCellOrigin::new(TransactionId::new(digest(60)), 0);
+        let id = activechain_protocol_commitment::coin_cell_id(&origin).unwrap();
+        let record = CoinCellRecord::new(id, CoinCell::new(origin, owner, 25, 1).unwrap());
+        let set = CoinCellSet::new(vec![record]).unwrap();
+        let proof = prove_coin_cell_membership(&set, id).unwrap();
+        let root = proof.root().into_digest();
+        assert_eq!(verify_owner_coin_cell_proof(&record, &proof, owner, root), Ok(()));
+        assert_eq!(
+            verify_owner_coin_cell_proof(&record, &proof, principal(3), root),
+            Err(WalletError::InvalidCashProof)
+        );
+        assert_eq!(
+            verify_owner_coin_cell_proof(&record, &proof, owner, digest(62)),
+            Err(WalletError::InvalidCashProof)
+        );
     }
 
     #[test]

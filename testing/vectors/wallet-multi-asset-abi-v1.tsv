@@ -9,4 +9,6 @@ genesis_mismatch\tfinality bundle genesis != trusted chain genesis\treject\tchai
 publisher_cross_chain\tcash publisher receives a foreign finality bundle\treject\tno cross-network indexing
 policy_pause\tfinalized asset policy lifecycle=paused\treject\twallet must not construct disabled transfers
 policy_supply_stale\tpolicy supply pre-state differs from transition\treject\tno stale policy admission
+cash_proof_owner_mismatch\tproof record owner differs from wallet owner\treject\towner binding
+cash_proof_root_mismatch\tproof root differs from finalized cash root\treject\tfinality root binding
 fee_substitution\tfee-policy=ACT,selected-fee-cell=EUR\treject\texplicit fee asset
