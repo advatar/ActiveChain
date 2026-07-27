@@ -1,0 +1,7 @@
+case\tpublic-inputs\tproof\texpected\treason
+verified\texact genesis/action/root/policy\tvalid supported proof\taccept\tproof and reexecution agree
+missing\texact genesis/action/root/policy\tempty\tpending_or_reject\tprofile decides mandatory proof behavior
+malformed\texact genesis/action/root/root\ttruncated\treject\tproof framing fails closed
+genesis_substitution\tgenesis differs\totherwise valid\treject\tproof cannot cross networks
+action_substitution\taction ID differs\totherwise valid\treject\tproof cannot authorize another action
+unknown_kind\tvalid inputs\tunsupported proof kind\treject\tunknown proof kinds never fall through

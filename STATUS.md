@@ -452,6 +452,8 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 
 - [x] Specify proof public-input bindings, PQ authorization ordering, typed failure behavior,
   formal-assumption disclosure, and v1.0 CashAIR re-execution fallback.
+- [x] Publish executable proof-admission vectors for verified, missing, malformed, substituted,
+  and unknown proof states.
 
 - [ ] Freeze cross-repository schemas and deterministic vectors from TLSNotary evidence through
   self-issued or issuer-upgraded VC claims to ActiveChain circuit public inputs and receipts.
