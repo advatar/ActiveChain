@@ -212,6 +212,8 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
 Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163).
 
 - [ ] Bind fungible Coin Cells and all transitions, authorizations, proofs, and receipts to `AssetId`.
+- [x] Bind fungible settlement receipts to the exact redemption asset, amount, and settlement
+  reference.
 - [x] Add the backward-compatible canonical `FungibleCoinCellRecord` wire type before migrating
   authenticated roots and wallet/RPC APIs.
 - [x] Add an ordered fungible-cell set and domain-separated authenticated root.

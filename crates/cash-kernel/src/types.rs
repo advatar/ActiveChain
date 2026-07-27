@@ -1033,6 +1033,12 @@ impl FungibleSettlementReceiptV1 {
     pub const fn proof_commitment(self) -> Digest384 {
         self.proof_commitment
     }
+    /// Checks that finalized evidence settles exactly the redemption intent it claims to settle.
+    pub fn binds_redemption(self, redemption: &FungibleRedemptionV1) -> bool {
+        self.asset_id == redemption.asset_id
+            && self.redemption_reference == redemption.settlement_reference
+            && self.amount == redemption.amount
+    }
 }
 impl CanonicalEncode for FungibleSettlementReceiptV1 {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
@@ -1188,6 +1194,37 @@ mod fungible_cell_tests {
             redemption.validate_against_policy(&retired),
             Err(NativeMoneyError::InvalidInputs)
         );
+    }
+
+    #[test]
+    fn settlement_receipt_binds_exact_redemption() {
+        let asset = AssetId::new(Digest384::new([2; 48]));
+        let authority = PrincipalId::new(Digest384::new([3; 48]));
+        let origin = CoinCellOrigin::new(TransactionId::new(Digest384::new([1; 48])), 0);
+        let cell = FungibleCoinCell::new(origin, asset, authority, 10, 7).unwrap();
+        let redemption =
+            FungibleRedemptionV1::new(asset, authority, vec![cell], 10, Digest384::new([4; 48]))
+                .unwrap();
+        let receipt = FungibleSettlementReceiptV1::new(
+            asset,
+            redemption.settlement_reference(),
+            TransactionId::new(Digest384::new([5; 48])),
+            10,
+            8,
+            Digest384::new([6; 48]),
+        )
+        .unwrap();
+        assert!(receipt.binds_redemption(&redemption));
+        let wrong_amount = FungibleSettlementReceiptV1::new(
+            asset,
+            redemption.settlement_reference(),
+            TransactionId::new(Digest384::new([5; 48])),
+            9,
+            8,
+            Digest384::new([6; 48]),
+        )
+        .unwrap();
+        assert!(!wrong_amount.binds_redemption(&redemption));
     }
 }
 
