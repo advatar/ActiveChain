@@ -267,6 +267,8 @@ Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213
   privacy-preserving evidence handling with deterministic vectors.
 - [x] Freeze the commitment-only screening decision envelope, bounded validity, outcomes, and
   malformed vectors; private list matches and analyst evidence remain provider-held.
+- [x] Add explicit idempotent compliance-provider key revocation and replacement semantics;
+  cryptographic verification remains ML-DSA-44 and profile-scoped.
 - [x] Add the versioned screening policy boundary for list authority, parameter commitments,
   freshness, and clear-only admission.
 - [x] Bind screening acceptance to the exact regulated chain and transaction context.

@@ -35,6 +35,16 @@ impl ComplianceKeyRegistry {
         Ok(())
     }
 
+    /// Revoke all signatures for a profile. Revocation is idempotent so an
+    /// operator can safely replay a governance decision during restart.
+    pub fn revoke(&mut self, profile: Digest384) -> bool {
+        self.keys.remove(&profile).is_some()
+    }
+
+    pub fn contains(&self, profile: Digest384) -> bool {
+        self.keys.contains_key(&profile)
+    }
+
     pub fn verify(&self, signature: &ComplianceSignatureEnvelopeV1) -> bool {
         self.keys
             .get(&signature.profile())
@@ -230,8 +240,11 @@ mod tests {
     #[test]
     fn provider_key_registry_rejects_bad_shape_and_unknown_profiles() {
         let mut registry = ComplianceKeyRegistry::default();
+        let profile = Digest384::new([4; 48]);
         assert!(registry.register(Digest384::ZERO, vec![0; ML_DSA44_PUBLIC_KEY_LENGTH]).is_err());
-        assert!(registry.register(Digest384::new([4; 48]), vec![0; 32]).is_err());
+        assert!(registry.register(profile, vec![0; 32]).is_err());
+        assert!(!registry.contains(profile));
+        assert!(!registry.revoke(profile));
         let signature = ComplianceSignatureEnvelopeV1::new(
             Digest384::new([5; 48]),
             activechain_protocol_types::ChainId::new(Digest384::new([6; 48])),
@@ -246,6 +259,11 @@ mod tests {
         )
         .unwrap();
         assert!(!registry.verify(&signature));
+        assert!(registry.register(profile, vec![0; ML_DSA44_PUBLIC_KEY_LENGTH]).is_ok());
+        assert!(registry.contains(profile));
+        assert!(registry.revoke(profile));
+        assert!(!registry.contains(profile));
+        assert!(!registry.revoke(profile));
     }
 
     #[test]
