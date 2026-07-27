@@ -948,6 +948,15 @@ mod tests {
         let (trace, _) = prove_authenticated_cash_air(&ledger, &batch, 3, 16).unwrap();
         let proof = prove_authenticated_composite(&trace).unwrap();
         assert_eq!(proof.mutation_proof_count(), 2);
-        verify_authenticated_composite(proof, &trace).unwrap();
+        let parent_bytes = proof.parent.to_bytes();
+        let mutation_bytes = proof
+            .mutation_shake
+            .iter()
+            .map(|proof| proof.as_ref().map(|value| value.encode_bytes().unwrap()))
+            .collect();
+        let receipt = AuthenticatedCashAirReceiptV1::new(trace, parent_bytes, mutation_bytes)
+            .unwrap();
+        let encoded = receipt.encode_envelope().unwrap();
+        AuthenticatedCashAirReceiptV1::verify_bytes(&encoded).unwrap();
     }
 }
