@@ -311,6 +311,11 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 - [x] Publish the implementation-independent v1 conformance surface, required proof/asset/
   credential boundaries, and second-client qualification gates.
 
+## Active proof-liveness qualification
+
+- [x] Specify explicit v1.0 re-execution authority, mandatory-proof admission states, outage
+  behavior, upgrade activation, and fail-closed qualification requirements.
+
 ## Active native issuer operations
 
 Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164).
