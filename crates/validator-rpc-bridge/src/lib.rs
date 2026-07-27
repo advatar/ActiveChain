@@ -103,22 +103,24 @@ impl CanonicalType for SettlementRequest {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SettlementResponse {
+    pub reference: Digest384,
     pub transaction: TransactionId,
 }
 impl CanonicalEncode for SettlementResponse {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.reference.encode(e)?;
         self.transaction.encode(e)
     }
 }
 impl CanonicalDecode for SettlementResponse {
     fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
-        Ok(Self { transaction: TransactionId::decode(d)? })
+        Ok(Self { reference: Digest384::decode(d)?, transaction: TransactionId::decode(d)? })
     }
 }
 impl CanonicalType for SettlementResponse {
     const TYPE_TAG: u16 = 0x00D1;
     const SCHEMA_VERSION: u16 = 1;
-    const MAX_ENCODED_LEN: usize = 48;
+    const MAX_ENCODED_LEN: usize = 96;
 }
 
 #[cfg(test)]
@@ -165,16 +167,33 @@ mod tests {
         let request_frame = encode_request(&request).unwrap();
         assert_eq!(decode_request(&request_frame).unwrap(), request);
 
-        let response =
-            SettlementResponse { transaction: TransactionId::new(Digest384::new([9; 48])) };
+        let response = SettlementResponse {
+            reference: Digest384::new([7; 48]),
+            transaction: TransactionId::new(Digest384::new([9; 48])),
+        };
         let response_frame = encode_response(&response).unwrap();
         assert_eq!(decode_response(&response_frame).unwrap(), response);
     }
 
     #[test]
+    fn settlement_response_binds_request_reference() {
+        let bridge = ValidatorRpcBridge::new(Backend);
+        let request = SettlementRequest {
+            recipient: PrincipalId::new(Digest384::new([8; 48])),
+            amount: 10,
+            reference: Digest384::new([7; 48]),
+        };
+        let response = bridge.settle_request(&request).unwrap();
+        assert_eq!(response.reference, request.reference);
+        assert_eq!(response.transaction, TransactionId::new(request.reference));
+    }
+
+    #[test]
     fn frames_reject_truncation_and_trailing_bytes() {
-        let response =
-            SettlementResponse { transaction: TransactionId::new(Digest384::new([9; 48])) };
+        let response = SettlementResponse {
+            reference: Digest384::new([7; 48]),
+            transaction: TransactionId::new(Digest384::new([9; 48])),
+        };
         let frame = encode_response(&response).unwrap();
         assert!(matches!(decode_response(&frame[..3]), Err(DecodeError::UnexpectedEnd { .. })));
         let mut trailing = frame.clone();
@@ -201,5 +220,13 @@ impl<B: FaucetSettlementBackend> ValidatorRpcBridge<B> {
             return Err(FaucetError::InvalidChallenge);
         }
         self.backend.submit_and_await_finality(recipient, amount, reference)
+    }
+
+    pub fn settle_request(
+        &self,
+        request: &SettlementRequest,
+    ) -> Result<SettlementResponse, FaucetError> {
+        let transaction = self.settle(request.recipient, request.amount, request.reference)?;
+        Ok(SettlementResponse { reference: request.reference, transaction })
     }
 }
