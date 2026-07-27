@@ -1175,6 +1175,9 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
   - [x] Bind the active validator-set root into finalized epoch transitions and durable consensus snapshots.
   - [x] Gate validator-set replacement on a finalized activation height and atomically update the engine root/key set.
 - [x] Implement erasure-coded data availability, commitments, sampling, and authenticated snapshot distribution.
+- [x] Qualify the data-availability kernel: three unit tests, one checked-in fixture test, and
+  serialized reconstruction coverage pass for parity-loss recovery, commitment tamper detection,
+  deterministic bounded sampling, and distributed payload reconstruction.
   - [x] Add bounded Reed–Solomon shard construction/reconstruction with SHAKE commitments and deterministic sampling.
   - [x] Add authenticated distributed snapshot serialization, reconstruction, and restart tests.
 - [x] Add ML-KEM protected transaction submission without classical confidentiality dependencies.
