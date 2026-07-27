@@ -54,6 +54,7 @@ final class WalletLiveState: ObservableObject {
 }
 
 struct WalletRPCStatus: Equatable, Sendable {
+    let supportedProofs: Set<UInt8>
     enum Health: UInt8, Equatable, Sendable {
         case healthy = 0
         case stale = 1
@@ -64,6 +65,8 @@ struct WalletRPCStatus: Equatable, Sendable {
     let schemaRevision: UInt32
     let finalizedHeight: UInt64
     let health: Health
+
+    func supports(_ proof: UInt8) -> Bool { supportedProofs.contains(proof) }
 
     var networkState: WalletNetworkState {
         guard protocolRevision == WalletRPCCodec.supportedProtocolRevision,
@@ -200,7 +203,8 @@ enum WalletRPCCodec {
             protocolRevision: protocolRevision,
             schemaRevision: schemaRevision,
             finalizedHeight: finalizedHeight,
-            health: health
+            health: health,
+            supportedProofs: Set(proofs)
         )
     }
 
