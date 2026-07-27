@@ -10,3 +10,6 @@ raw_identity\tclear,raw-kyc-document-on-chain\treject\tconfidential evidence nev
 decision_zero_commitment\tlist_commitment=zero\treject\tall screening bindings are nonzero commitments
 decision_inverted_window\tscreened_at=20,expires_at=20\treject\tvalidity is a nonempty half-open window
 decision_match\tcommitment-only, outcome=match\treject\tpositive match cannot authorize transfer
+policy_fresh_clear\tmatching list/parameter commitments, age=40s\taccept\tdecision is fresh and clear
+policy_stale_clear\tmatching commitments, age exceeds max_age\treject\tfreshness is mandatory
+policy_mismatched_list\tdecision list commitment differs\treject\tlist authority is version-bound

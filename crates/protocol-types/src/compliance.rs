@@ -231,6 +231,94 @@ impl CanonicalType for ScreeningDecisionV1 {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
+/// Versioned screening controls referenced by `ScreeningDecisionV1`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ScreeningPolicyV1 {
+    profile: Digest384,
+    list_authority: Digest384,
+    matching_parameters: Digest384,
+    max_age_seconds: u64,
+    override_quorum: u8,
+    require_provider_signature: bool,
+}
+impl ScreeningPolicyV1 {
+    pub const TYPE_TAG: u16 = 0x00D6;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 3 + 8 + 1 + 1;
+    pub fn new(
+        profile: Digest384,
+        list_authority: Digest384,
+        matching_parameters: Digest384,
+        max_age_seconds: u64,
+        override_quorum: u8,
+        require_provider_signature: bool,
+    ) -> Result<Self, ComplianceError> {
+        if [profile, list_authority, matching_parameters].into_iter().any(|v| v == Digest384::ZERO)
+            || max_age_seconds == 0
+            || override_quorum == 0
+        {
+            return Err(ComplianceError::InvalidScreening);
+        }
+        Ok(Self {
+            profile,
+            list_authority,
+            matching_parameters,
+            max_age_seconds,
+            override_quorum,
+            require_provider_signature,
+        })
+    }
+    pub const fn profile(&self) -> Digest384 {
+        self.profile
+    }
+    pub const fn max_age_seconds(&self) -> u64 {
+        self.max_age_seconds
+    }
+    pub const fn override_quorum(&self) -> u8 {
+        self.override_quorum
+    }
+    pub const fn require_provider_signature(&self) -> bool {
+        self.require_provider_signature
+    }
+    pub fn accepts(&self, decision: &ScreeningDecisionV1, now: u64) -> bool {
+        decision.profile == self.profile
+            && decision.list_commitment == self.list_authority
+            && decision.parameters_commitment == self.matching_parameters
+            && now >= decision.screened_at
+            && now.saturating_sub(decision.screened_at) <= self.max_age_seconds
+            && now < decision.expires_at
+            && matches!(decision.outcome, ScreeningOutcome::Cleared)
+    }
+}
+impl CanonicalEncode for ScreeningPolicyV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.profile.encode(e)?;
+        self.list_authority.encode(e)?;
+        self.matching_parameters.encode(e)?;
+        self.max_age_seconds.encode(e)?;
+        self.override_quorum.encode(e)?;
+        self.require_provider_signature.encode(e)
+    }
+}
+impl CanonicalDecode for ScreeningPolicyV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            u64::decode(d)?,
+            u8::decode(d)?,
+            bool::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid screening policy"))
+    }
+}
+impl CanonicalType for ScreeningPolicyV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct ComplianceReplayKey {
     profile: Digest384,
@@ -794,5 +882,39 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn screening_policy_accepts_only_fresh_matching_clearances() {
+        let policy = ScreeningPolicyV1::new(d(1), d(5), d(7), 100, 2, true).unwrap();
+        let clear = ScreeningDecisionV1::new(
+            d(1),
+            ChainId::new(d(2)),
+            TransactionId::new(d(3)),
+            d(4),
+            d(5),
+            d(6),
+            d(7),
+            10,
+            200,
+            ScreeningOutcome::Cleared,
+        )
+        .unwrap();
+        assert!(policy.accepts(&clear, 50));
+        assert!(!policy.accepts(&clear, 111));
+        let match_result = ScreeningDecisionV1::new(
+            d(1),
+            ChainId::new(d(2)),
+            TransactionId::new(d(3)),
+            d(4),
+            d(5),
+            d(6),
+            d(7),
+            10,
+            200,
+            ScreeningOutcome::Match,
+        )
+        .unwrap();
+        assert!(!policy.accepts(&match_result, 50));
     }
 }
