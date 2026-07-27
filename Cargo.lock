@@ -130,6 +130,7 @@ dependencies = [
  "activechain-rpc-server",
  "activechain-state-tree",
  "activechain-transition",
+ "activechain-verifier-api",
  "activechain-wallet-core",
  "getrandom 0.3.4",
  "ml-dsa",
