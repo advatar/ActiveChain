@@ -123,7 +123,7 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
 - [x] Verify exact owner, finalized cash-root membership, cell commitment, and root binding in
   wallet code; chain/genesis binding remains enforced by the RPC finality verifier.
 - [x] Persist and restore the authenticated wallet ledger with an explicit chain-id binding.
-- [ ] Export finalized Coin Cell membership proofs from validator execution into the RPC index;
+- [x] Export finalized Coin Cell membership proofs from validator execution into the RPC index;
   wallet snapshots without a matching finalized cash-cell root remain in-process only.
 - [x] Add a validator-service API that emits proof-bearing RPC records only after exact finality,
   height, genesis, and cash-root verification.
