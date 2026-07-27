@@ -387,6 +387,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   freeze/escalation controls, FIU reporting boundaries, and stale-system fail-closed behavior.
 - [x] Specify confidential evidence lifecycle, least-privilege access, retention/deletion/legal
   hold, breach response, offline verification, and jurisdiction ambiguity handling.
+- [x] Specify release assurance evidence, operating-period records, independent engagement
+  requirements, claim restrictions, exceptions, and residual-risk ownership.
 
 ## Active launch sequencing — versioned feature contract
 
