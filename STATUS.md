@@ -337,6 +337,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
 - [x] Add a canonical NFT Coin Cell record wrapper for proof-bearing RPC/indexing integration.
 - [x] Reserve an explicit RPC query kind for NFT Coin Cells; proof verification remains
   fail-closed until an authenticated NFT membership tree is published.
+- [x] Add canonical request round-trip coverage for the NFT query tag and retain unsupported
+  proof rejection until the finalized root schema is extended.
 - [ ] Enforce issuer/controller authority, supply conservation, declared controls, and corporate
   actions in consensus, persistence, authorization, and formal proofs.
 - [x] Add canonical mint and burn supply-state transitions with exact pre-state, issuer, lifecycle,

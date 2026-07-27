@@ -1765,6 +1765,13 @@ mod tests {
         let invalid = RpcRequest::List { kind: QueryKind::State, after: None, limit: 0 };
         let bytes = encode_envelope(&invalid).unwrap();
         assert!(decode_envelope::<RpcRequest>(&bytes).is_err());
+
+        let nft_request =
+            RpcRequest::List { kind: QueryKind::NonFungibleCoinCell, after: None, limit: 1 };
+        assert_eq!(
+            decode_envelope::<RpcRequest>(&encode_envelope(&nft_request).unwrap()),
+            Ok(nft_request)
+        );
     }
 
     #[test]
