@@ -15,6 +15,8 @@ use activechain_protocol_types::{
     Digest384, PrincipalId, ProposalJustification, ProtocolSignature, QuorumCertificate,
     ValidatorGenesis, ValidatorSet, ValidatorVote,
 };
+use activechain_rpc_server::finalized_coin_cell_records_with_chain_genesis;
+use activechain_rpc_types::QueryRecord;
 use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
 use sha3::{
     Shake256,
@@ -2607,6 +2609,29 @@ impl ValidatorService {
             .save(path)
             .map_err(ValidatorEngineError::Snapshot)
             .map_err(ValidatorServiceError::Engine)
+    }
+
+    /// Builds proof-bearing RPC records from execution state only after the exact
+    /// finalized certificate has authenticated the snapshot root and height.
+    pub fn finalized_cash_rpc_records(
+        &self,
+        snapshot: &FinalizedCashSnapshot,
+        finality: &[u8],
+    ) -> Result<Vec<QueryRecord>, ValidatorServiceError> {
+        let engine = self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
+        if snapshot.chain_genesis != engine.genesis_commitment
+            || snapshot.finalized_height != engine.state.finalized_height()
+            || snapshot.verify_against_finality(finality).is_err()
+        {
+            return Err(ValidatorServiceError::Engine(ValidatorEngineError::InvalidCashSnapshot));
+        }
+        finalized_coin_cell_records_with_chain_genesis(
+            &snapshot.cells,
+            snapshot.finalized_height,
+            finality,
+            snapshot.chain_genesis,
+        )
+        .map_err(|_| ValidatorServiceError::Engine(ValidatorEngineError::InvalidCashSnapshot))
     }
     pub fn activate_finalized_validator_set(
         &self,
