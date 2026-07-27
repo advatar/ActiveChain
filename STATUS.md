@@ -386,6 +386,8 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 
 - [ ] Publish a bounded conformance surface and second-client milestone for the selected launch
   contract, with canonical vectors and no dependency on Rust implementation internals.
+- [x] Add a language-independent TSV conformance smoke client that verifies the published
+  positive/malformed case matrix without importing Rust implementation crates.
 - [x] Publish the implementation-independent v1 conformance surface, required proof/asset/
   credential boundaries, and second-client qualification gates.
 
