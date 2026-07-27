@@ -2644,6 +2644,25 @@ impl ValidatorService {
         )
         .map_err(|_| ValidatorServiceError::Engine(ValidatorEngineError::InvalidCashSnapshot))
     }
+
+    /// Materializes the execution wallet ledger and publishes its finalized,
+    /// proof-bearing records in one validator-bound operation. The finality
+    /// certificate remains mandatory; no optimistic wallet state can cross the
+    /// RPC boundary through this helper.
+    pub fn finalized_cash_rpc_records_from_wallet(
+        &self,
+        wallet: &WalletTransactionGateway,
+        finality: &[u8],
+    ) -> Result<Vec<QueryRecord>, ValidatorServiceError> {
+        let (genesis, height) = {
+            let engine = self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
+            (engine.genesis_commitment, engine.state.finalized_height())
+        };
+        let snapshot = wallet
+            .finalized_cash_snapshot(genesis, height)
+            .map_err(|_| ValidatorServiceError::Engine(ValidatorEngineError::InvalidCashSnapshot))?;
+        self.finalized_cash_rpc_records(&snapshot, finality)
+    }
     pub fn activate_finalized_validator_set(
         &self,
         authorization: &ConsensusUpgradeAuthorization,
