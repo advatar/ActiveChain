@@ -155,6 +155,22 @@ impl RpcStatus {
     pub fn supported_proofs(&self) -> &[ProofKind] {
         &self.supported_proofs
     }
+
+    /// Stable commitment to the network identity and wire contract advertised
+    /// by this status response. Health and finalized height are deliberately
+    /// excluded so the value remains stable across head advancement.
+    pub fn identity_commitment(&self) -> Digest384 {
+        let mut hasher = sha3::Shake256::default();
+        use sha3::digest::{ExtendableOutput, Update, XofReader};
+        hasher.update(b"ACTIVECHAIN-RPC-NETWORK-IDENTITY-V1");
+        hasher.update(self.chain_id.digest().as_bytes());
+        hasher.update(self.genesis_commitment.as_bytes());
+        hasher.update(&self.protocol_revision.to_be_bytes());
+        hasher.update(&self.rpc_schema_revision.to_be_bytes());
+        let mut bytes = [0_u8; 48];
+        XofReader::read(&mut hasher.finalize_xof(), &mut bytes);
+        Digest384::new(bytes)
+    }
 }
 
 impl CanonicalEncode for RpcStatus {
@@ -1673,6 +1689,45 @@ mod tests {
         stale[health] = Health::Stale as u8;
         let mut decoder = Decoder::new(&stale);
         assert!(RpcStatus::decode(&mut decoder).is_err());
+    }
+
+    #[test]
+    fn network_identity_commitment_is_stable_across_head_updates() {
+        let first = RpcStatus::new(
+            ChainId::new(digest(1)),
+            digest(2),
+            3,
+            4,
+            100,
+            105,
+            10,
+            alloc::vec![ProofKind::StateSparseMerkle, ProofKind::FinalityCertificate],
+        )
+        .unwrap();
+        let later = RpcStatus::new(
+            ChainId::new(digest(1)),
+            digest(2),
+            3,
+            99,
+            200,
+            205,
+            10,
+            alloc::vec![ProofKind::StateSparseMerkle, ProofKind::FinalityCertificate],
+        )
+        .unwrap();
+        assert_eq!(first.identity_commitment(), later.identity_commitment());
+        let different_revision = RpcStatus::new(
+            ChainId::new(digest(1)),
+            digest(2),
+            4,
+            4,
+            100,
+            105,
+            10,
+            alloc::vec![ProofKind::StateSparseMerkle, ProofKind::FinalityCertificate],
+        )
+        .unwrap();
+        assert_ne!(first.identity_commitment(), different_revision.identity_commitment());
     }
 
     #[test]

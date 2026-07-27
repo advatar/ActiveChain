@@ -7,3 +7,5 @@ wrong_genesis\tproof genesis differs from status\treject\tidentity binding
 unsupported_proof\tproof profile not advertised\tunsupported\texplicit capability
 page_unsorted\tkeys descend across page\treject\tdeterministic pagination
 timeout\tno response\tunavailable\tclient must not guess
+identity_commitment_head_advance\tchain/genesis/revisions unchanged, height advances\tstable\tpinnable network identity
+identity_commitment_revision_change\tprotocol revision changes\tdifferent\tupgrade boundary is explicit
