@@ -378,6 +378,21 @@ final class WalletRPCClient: @unchecked Sendable {
         return page
     }
 
+    func verifiedOwnerCoinCells(
+        profile: WalletDeviceProfile,
+        finalizedHeight: UInt64,
+        verifier: any WalletOwnerCoinProofVerifier,
+        limit: UInt16 = 4
+    ) async throws -> WalletOwnerCoinPage {
+        let page = try await ownerCoinCells(profile: profile, limit: limit)
+        return try page.validated(
+            owner: profile.owner,
+            chainGenesis: profile.chainGenesis,
+            finalizedHeight: finalizedHeight,
+            verifier: verifier
+        )
+    }
+
     private func waitUntilReady(_ connection: NWConnection) async throws {
         try await withCheckedThrowingContinuation { continuation in
             let gate = WalletContinuationGate()
