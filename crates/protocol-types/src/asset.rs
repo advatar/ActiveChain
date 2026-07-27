@@ -16,6 +16,7 @@ pub enum AssetDefinitionError {
     DuplicateAsset,
     TooManyAssets,
     AssetsNotOrdered,
+    InvalidLifecycleTransition,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -239,6 +240,32 @@ impl FungibleAssetPolicyV1 {
     }
     pub const fn lifecycle(&self) -> FungibleAssetLifecycle {
         self.lifecycle
+    }
+    pub fn apply_lifecycle_action(
+        &self,
+        action: &FungibleAssetLifecycleActionV1,
+        height: u64,
+    ) -> Result<Self, AssetDefinitionError> {
+        if !action.active_at(height) || action.asset_id() != self.asset_id {
+            return Err(AssetDefinitionError::InvalidLifecycleTransition);
+        }
+        let lifecycle = match (self.lifecycle, action.action()) {
+            (FungibleAssetLifecycle::Registered, FungibleAssetLifecycleAction::Pause)
+            | (FungibleAssetLifecycle::Paused, FungibleAssetLifecycleAction::Resume) => {
+                if matches!(action.action(), FungibleAssetLifecycleAction::Pause) {
+                    FungibleAssetLifecycle::Paused
+                } else {
+                    FungibleAssetLifecycle::Registered
+                }
+            }
+            (FungibleAssetLifecycle::Registered, FungibleAssetLifecycleAction::Retire)
+                if self.supply_issued == 0 =>
+            {
+                FungibleAssetLifecycle::Retired
+            }
+            _ => return Err(AssetDefinitionError::InvalidLifecycleTransition),
+        };
+        Ok(Self { lifecycle, ..*self })
     }
 }
 impl CanonicalEncode for FungibleAssetPolicyV1 {
@@ -539,6 +566,20 @@ mod tests {
             )
             .is_err()
         );
+        let action = FungibleAssetLifecycleActionV1::new(
+            id(1),
+            Digest384::new([8; 48]),
+            Digest384::new([7; 48]),
+            Digest384::new([6; 48]),
+            Digest384::new([5; 48]),
+            FungibleAssetLifecycleAction::Pause,
+            10,
+            20,
+        )
+        .unwrap();
+        let paused = policy.apply_lifecycle_action(&action, 10).unwrap();
+        assert_eq!(paused.lifecycle(), FungibleAssetLifecycle::Paused);
+        assert!(policy.apply_lifecycle_action(&action, 20).is_err());
     }
 
     #[test]
