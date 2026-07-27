@@ -857,6 +857,78 @@ pub unsafe extern "C" fn activechain_wallet_build_cash_intent(
     WALLET_OK
 }
 
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn activechain_wallet_build_fungible_transfer(
+    cells: *const u8,
+    cells_len: u32,
+    asset: *const u8,
+    sender: *const u8,
+    recipient: *const u8,
+    input_ids: *const u8,
+    input_count: u16,
+    amount_high: u64,
+    amount_low: u64,
+    output: *mut u8,
+    output_capacity: u32,
+    required_len: *mut u32,
+) -> u32 {
+    if (cells.is_null() && cells_len != 0)
+        || asset.is_null()
+        || sender.is_null()
+        || recipient.is_null()
+        || (input_ids.is_null() && input_count != 0)
+        || required_len.is_null()
+        || (output.is_null() && output_capacity != 0)
+    {
+        return WALLET_NULL_POINTER;
+    }
+    if cells_len > MAX_WALLET_INPUT || input_count == 0 {
+        return WALLET_MALFORMED;
+    }
+    let bytes = if cells_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(cells, cells_len as usize) }
+    };
+    let Ok(cells) = decode_envelope::<FungibleCoinCellSet>(bytes) else {
+        return WALLET_MALFORMED;
+    };
+    let ids = unsafe { core::slice::from_raw_parts(input_ids, input_count as usize * 48) };
+    let mut input_ids_vec = Vec::with_capacity(input_count as usize);
+    for chunk in ids.chunks_exact(48) {
+        input_ids_vec.push(CoinCellId::new(Digest384::new(chunk.try_into().unwrap())));
+    }
+    let Ok(transfer) = activechain_wallet_core::build_fungible_transfer(
+        &cells,
+        activechain_protocol_types::AssetId::new(unsafe { read_digest(asset) }),
+        PrincipalId::new(unsafe { read_digest(sender) }),
+        PrincipalId::new(unsafe { read_digest(recipient) }),
+        &input_ids_vec,
+        join_u128(amount_high, amount_low),
+    ) else {
+        return WALLET_MALFORMED;
+    };
+    let Ok(encoded) = encode_envelope(&transfer) else {
+        return WALLET_MALFORMED;
+    };
+    let Ok(length) = u32::try_from(encoded.len()) else {
+        return WALLET_TOO_LARGE;
+    };
+    unsafe {
+        *required_len = length;
+    }
+    if output_capacity < length {
+        return WALLET_BUFFER_TOO_SMALL;
+    }
+    if length != 0 {
+        unsafe {
+            core::ptr::copy_nonoverlapping(encoded.as_ptr(), output, encoded.len());
+        }
+    }
+    WALLET_OK
+}
+
 /// Invokes a secure-key callback for one exact canonical request and verifies its result.
 ///
 /// # Safety
