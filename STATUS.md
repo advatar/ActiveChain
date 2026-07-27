@@ -222,6 +222,8 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
   limits, restart equivalence, and exactly-once idempotency.
 - [x] Add bounded Kani proofs for admission limit monotonicity and cooldown precedence; these do
   not yet prove validator ingress or end-to-end issuance.
+- [x] Require an explicit testnet-only faucet deployment profile; production/regulated profiles
+  fail closed before durable faucet state is created.
 - [ ] Formally verify testnet-only validity, supply conservation, exactly-once issuance,
   rate-limit monotonicity, atomic restart equivalence, and receipt-to-finalized-transition binding;
   publish the proof scope and every remaining assumption or gap.

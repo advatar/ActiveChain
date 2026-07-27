@@ -28,6 +28,9 @@ pub enum SybilPolicy {
 pub struct FaucetPolicy {
     pub chain_id: ChainId,
     pub genesis_commitment: Digest384,
+    /// Faucet issuance is deliberately limited to a testnet deployment. A
+    /// production/regulated profile must use a separately governed issuer.
+    pub testnet_only: bool,
     pub enabled: bool,
     pub policy_revision: u64,
     pub valid_until: u64,
@@ -47,7 +50,8 @@ impl FaucetPolicy {
             SybilPolicy::CooldownOnly => 0,
             SybilPolicy::ProofOfWork { leading_zero_bits } => leading_zero_bits,
         };
-        if self.genesis_commitment == Digest384::ZERO
+        if !self.testnet_only
+            || self.genesis_commitment == Digest384::ZERO
             || self.grant_amount == 0
             || self.policy_revision == 0
             || self.valid_until == 0
@@ -622,6 +626,7 @@ mod tests {
         FaucetPolicy {
             chain_id: ChainId::new(digest(1)),
             genesis_commitment: digest(2),
+            testnet_only: true,
             enabled: true,
             policy_revision: 1,
             valid_until: 10_000,
@@ -634,6 +639,16 @@ mod tests {
             global_window_limit: 3,
             sybil_policy: SybilPolicy::CooldownOnly,
         }
+    }
+
+    #[test]
+    fn production_profile_is_rejected_before_faucet_creation() {
+        let mut policy = policy();
+        policy.testnet_only = false;
+        assert!(matches!(
+            DurableFaucet::create(policy, PathBuf::from("/definitely/not-created")),
+            Err(FaucetError::InvalidPolicy)
+        ));
     }
     fn request(recipient: u8, key: u8) -> FaucetRequestV1 {
         FaucetRequestV1::new(
