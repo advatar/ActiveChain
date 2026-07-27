@@ -15,7 +15,8 @@ use activechain_canonical_codec::{
     decode_envelope, encode_envelope,
 };
 use activechain_cash_kernel::{
-    CoinCellMembershipProof, CoinCellRecord, CoinCellSet, prove_coin_cell_membership,
+    CoinCellMembershipProof, CoinCellRecord, CoinCellSet, FungibleCoinCellMembershipProof,
+    FungibleCoinCellRecord, prove_coin_cell_membership,
 };
 use activechain_finality_types::commit_parts;
 use activechain_protocol_types::{ChainId, Digest384, Object, PrincipalId, TransactionId};
@@ -210,6 +211,19 @@ fn verify_query_record_with_finality(
             if proof.record() != cell
                 || proof.root().into_digest() != finality.header().inputs.cash_cell_root
             {
+                return Err(RpcProofError::Relation);
+            }
+            Ok(())
+        }
+        QueryKind::FungibleCoinCell => {
+            let cell = decode_envelope::<FungibleCoinCellRecord>(record.value())
+                .map_err(|_| RpcProofError::Malformed)?;
+            if cell.id().into_digest() != record.key() {
+                return Err(RpcProofError::Key);
+            }
+            let proof = decode_envelope::<FungibleCoinCellMembershipProof>(record.proof())
+                .map_err(|_| RpcProofError::Malformed)?;
+            if proof.record() != cell || proof.root() != finality.header().inputs.cash_cell_root {
                 return Err(RpcProofError::Relation);
             }
             Ok(())
