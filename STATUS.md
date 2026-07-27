@@ -31,6 +31,9 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 - [ ] Resolve the remaining CashAIR review gates: wire amount range constraints into the AIR and
   replace the ignored composite happy-path with a bounded CI fixture. The SHAKE FRI set is now
   explicit, pinned at log_blowup=3, 32 queries, and 16 grinding bits (112-bit conjectured floor).
+  As of 2026-07-27, `cargo test -p activechain-cash-air --offline` passes 22 tests with one
+  intentionally ignored full-depth timing gate; no FRI-parameter mismatch remains. The two
+  outstanding items are implementation work, not release claims.
 - [x] Cover authenticated envelope round-trip and suite mutation rejection without running the
   full SHAKE proving benchmark.
 - [x] Make the reference package independently testable outside the root workspace.
