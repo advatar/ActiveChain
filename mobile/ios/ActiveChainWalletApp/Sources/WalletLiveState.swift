@@ -78,6 +78,19 @@ struct WalletRPCStatus: Equatable, Sendable {
     }
 }
 
+struct WalletOwnerCoinRecord: Equatable, Sendable {
+    let key: Data
+    let finalizedHeight: UInt64
+    let value: Data
+    let proof: Data
+    let finality: Data
+}
+
+struct WalletOwnerCoinPage: Equatable, Sendable {
+    let records: [WalletOwnerCoinRecord]
+    let next: Data?
+}
+
 enum WalletRPCError: Error, Equatable {
     case transport
     case malformedResponse
@@ -168,6 +181,41 @@ enum WalletRPCCodec {
             health: health
         )
     }
+
+    static func decodeOwnerCoinPage(_ envelope: Data) throws -> WalletOwnerCoinPage {
+        var decoder = WalletBinaryDecoder(data: envelope)
+        guard try decoder.readUInt16() == 0x00a1,
+              try decoder.readUInt16() == 1 else { throw WalletRPCError.unexpectedResponse }
+        let bodyLength = try decoder.readULEB128(maximum: maximumStatusBodyLength)
+        guard bodyLength == decoder.remaining else { throw WalletRPCError.unexpectedResponse }
+        guard try decoder.readUInt8() == 2 else { throw WalletRPCError.unexpectedResponse }
+        let count = try decoder.readULEB128(maximum: 4)
+        var records: [WalletOwnerCoinRecord] = []
+        records.reserveCapacity(count)
+        var previous = Data()
+        for _ in 0..<count {
+            guard try decoder.readUInt8() == 0 else { throw WalletRPCError.unexpectedResponse }
+            let key = try decoder.read(count: 48)
+            guard key.contains(where: { $0 != 0 }), previous.isEmpty || previous.lexicographicallyPrecedes(key)
+            else { throw WalletRPCError.malformedResponse }
+            let height = try decoder.readUInt64()
+            let value = try decoder.readBlob(maximum: maximumFrameLength)
+            let proof = try decoder.readBlob(maximum: maximumFrameLength)
+            let finality = try decoder.readBlob(maximum: maximumFrameLength)
+            guard !value.isEmpty, !proof.isEmpty, !finality.isEmpty else { throw WalletRPCError.malformedResponse }
+            records.append(WalletOwnerCoinRecord(key: key, finalizedHeight: height, value: value, proof: proof, finality: finality))
+            previous = key
+        }
+        let hasNext = try decoder.readUInt8()
+        let next: Data?
+        switch hasNext {
+        case 0: next = nil
+        case 1: next = try decoder.read(count: 48)
+        default: throw WalletRPCError.malformedResponse
+        }
+        guard decoder.remaining == 0 else { throw WalletRPCError.malformedResponse }
+        return WalletOwnerCoinPage(records: records, next: next)
+    }
 }
 
 private struct WalletBinaryDecoder {
@@ -185,6 +233,11 @@ private struct WalletBinaryDecoder {
     mutating func readUInt16() throws -> UInt16 { try readInteger() }
     mutating func readUInt32() throws -> UInt32 { try readInteger() }
     mutating func readUInt64() throws -> UInt64 { try readInteger() }
+
+    mutating func readBlob(maximum: Int) throws -> Data {
+        let length = try readULEB128(maximum: maximum)
+        return try read(count: length)
+    }
 
     mutating func readULEB128(maximum: Int) throws -> Int {
         var value: UInt32 = 0

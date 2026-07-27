@@ -159,6 +159,15 @@ final class ActiveChainWalletTests: XCTestCase {
         XCTAssertThrowsError(try WalletRPCCodec.framedOwnerCoinCellRequest(owner: Data(repeating: 0, count: 48), limit: 5))
     }
 
+    func testOwnerCoinPageDecoderRejectsWrongRecordKind() throws {
+        var body = Data([2, 1, 1])
+        body.append(Data(repeating: 1, count: 48))
+        body.append(contentsOf: [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0])
+        var envelope = Data([0, 0xa1, 0, 1, UInt8(body.count)])
+        envelope.append(body)
+        XCTAssertThrowsError(try WalletRPCCodec.decodeOwnerCoinPage(envelope))
+    }
+
     func testWalletUISourceContainsNoFormerFabricatedValues() throws {
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
