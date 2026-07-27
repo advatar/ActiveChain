@@ -216,6 +216,15 @@ impl CanonicalDecode for CashAirProof {
         {
             return Err(DecodeError::InvalidValue("inconsistent CashAIR proof"));
         }
+        let expected_indices = plan.parallel().iter().chain(plan.fallback());
+        for (row, expected) in rows.iter().zip(expected_indices) {
+            if row.transfer_index != *expected
+                || (!row.accepted
+                    && (row.input_value != 0 || row.output_value != 0 || row.fee != 0))
+            {
+                return Err(DecodeError::InvalidValue("malformed CashAIR trace shape"));
+            }
+        }
         Ok(Self { public, plan, rows })
     }
 }

@@ -1142,8 +1142,10 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
       ([GitHub issue #123](https://github.com/advatar/ActiveChain/issues/123)).
     - [x] Enforce the anchor RPC size invariant without failing workspace-wide strict Clippy
       ([GitHub issue #124](https://github.com/advatar/ActiveChain/issues/124)).
-  - [x] Freeze canonical bounded public inputs, execution rows, partition-plan binding, trace
-    commitment, malformed/substitution tests, and exact direct-reexecution comparison.
+- [x] Freeze canonical bounded public inputs, execution rows, partition-plan binding, trace
+  commitment, malformed/substitution tests, and exact direct-reexecution comparison.
+- [x] Reject reordered CashAIR rows and nonzero value/fee columns on rejected rows during
+  canonical decoding, before direct re-execution.
   - [x] Add a dedicated transparent STARK prover/verifier for row progression, outcome booleanity,
     failed-row atomicity, accepted/rejected counts, and pre/post Coin Cell root binding.
   - [ ] Add specialized SHAKE, ML-DSA, membership, consumption, value/fee arithmetic,
