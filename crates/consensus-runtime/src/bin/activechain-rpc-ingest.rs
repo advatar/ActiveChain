@@ -34,6 +34,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err("cash snapshot does not match validator finality".into());
         }
         let finality = std::fs::read(finality_path)?;
+        activechain_verifier_api::verify_finality_bundle_with_chain_genesis(&finality, genesis)
+            .map_err(|_| "finality bundle does not match validator genesis")?;
         let records = finalized_coin_cell_records(&cash.cells, cash.finalized_height, &finality)
             .map_err(|error| format!("could not build finalized Coin Cell records: {error:?}"))?;
         store
