@@ -3343,6 +3343,10 @@ mod tests {
         )
         .unwrap();
         let mut gateway = WalletTransactionGateway::from_genesis(&economy).unwrap();
+        assert_eq!(
+            gateway.submit_faucet_authorized_envelope(&[], digest(30), owner, 10, 1,),
+            Err(activechain_wallet_core::WalletError::MalformedAuthorization)
+        );
         assert_eq!(gateway.owner_cells(owner).unwrap().as_slice().len(), 2);
         assert!(gateway.owner_cells(PrincipalId::new(digest(11))).unwrap().as_slice().is_empty());
         let snapshot = gateway.finalized_cash_snapshot(digest(20), 1).unwrap();
