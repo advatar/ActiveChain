@@ -54,6 +54,19 @@ pub fn select_profiles_with_inheritance(
     candidates: &[JurisdictionProfileCandidate],
     inheritance: &[JurisdictionProfileInheritance],
 ) -> ProfileSelection {
+    if candidates.iter().any(|candidate| candidate.id == Digest384::ZERO)
+        || inheritance.iter().any(|edge| {
+            edge.profile == Digest384::ZERO
+                || edge.parent == Some(Digest384::ZERO)
+                || edge.parent == Some(edge.profile)
+        })
+        || inheritance
+            .iter()
+            .enumerate()
+            .any(|(index, edge)| inheritance[index + 1..].iter().any(|other| other.profile == edge.profile))
+    {
+        return ProfileSelection::Rejected;
+    }
     let ProfileSelection::Selected(mut selected) = select_jurisdiction_profiles(candidates) else {
         return select_jurisdiction_profiles(candidates);
     };
@@ -1108,6 +1121,16 @@ mod tests {
                     parent: Some(d(99)),
                     stricter: true,
                 }]
+            ),
+            ProfileSelection::Rejected
+        );
+        assert_eq!(
+            select_profiles_with_inheritance(
+                &[child],
+                &[
+                    JurisdictionProfileInheritance { profile: d(3), parent: None, stricter: true },
+                    JurisdictionProfileInheritance { profile: d(3), parent: None, stricter: true },
+                ]
             ),
             ProfileSelection::Rejected
         );

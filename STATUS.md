@@ -271,6 +271,8 @@ Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213
   cryptographic verification remains ML-DSA-44 and profile-scoped.
 - [x] Reject jurisdiction-profile inheritance manifests with missing parent references; cycles,
   non-stricter edges, ambiguity, and inactive candidates remain fail-closed.
+- [x] Reject duplicate, self-referential, or zero-identity inheritance edges before profile
+  expansion, preventing first-match ambiguity in the selector.
 - [x] Persist the bounded provider-key registry through canonical atomic snapshots and restore it
   fail-closed on malformed, duplicate, or invalid-length records.
 - [x] Add the versioned screening policy boundary for list authority, parameter commitments,
