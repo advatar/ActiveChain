@@ -69,6 +69,12 @@ targets=(
   aarch64-apple-ios-sim
 )
 for target in "${targets[@]}"; do
+  target_libdir=$(rustc --print target-libdir --target "$target" 2>/dev/null || true)
+  if [[ -z "$target_libdir" ]] || ! compgen -G "$target_libdir/libcore-*.rlib" >/dev/null && [[ ! -f "$target_libdir/libcore.rlib" ]]; then
+    echo "Rust target sysroot is missing for $target." >&2
+    echo "Install it with: rustup target add $target" >&2
+    exit 1
+  fi
   cargo build --locked --release --manifest-path "$repo_root/Cargo.toml" \
     --target "$target" \
     -p activechain-verifier-ffi \
