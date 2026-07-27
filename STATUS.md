@@ -996,6 +996,9 @@ Tracked by [GitHub issue #6](https://github.com/advatar/ActiveChain/issues/6).
 Tracked by [GitHub issue #7](https://github.com/advatar/ActiveChain/issues/7).
 
 - [x] Draft the public-development `P-040` envelope, fee-ticket, resource, validity, and nonce semantics.
+- [x] Qualify the action kernel: all seven tests pass for resource-dimension charging, fee/nonce
+  bounds, replay-gap-exhaustion distinctions, exact envelope commitments, published lengths, and
+  nonce advancement.
 - [x] Define bounded canonical action-envelope, fee-ticket, block, action-receipt, and block-receipt schemas.
 - [x] Bind envelopes to chain, sender, payload commitment, validity, resources, fees, nonce channel, and authorization evidence.
 - [x] Implement exact nonce advancement, replay/gap rejection, and one-shot fee-ticket consumption.
