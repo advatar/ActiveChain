@@ -96,6 +96,28 @@ enum WalletRPCCodec {
         0x00, 0xa0, 0x00, 0x01, 0x01, 0x00
     ])
 
+    /// Canonical envelope for RpcRequest::ListOwnerCoinCells. The owner is a
+    /// 48-byte PrincipalId digest; pagination is deliberately bounded by the
+    /// protocol maximum and no local balance is inferred from the request.
+    static func framedOwnerCoinCellRequest(owner: Data, limit: UInt16 = 4) throws -> Data {
+        guard owner.count == 48, limit > 0, limit <= 4 else { throw WalletRPCError.unexpectedResponse }
+        var body = Data([8])
+        body.append(owner)
+        body.append(0) // Option<Digest384>::None
+        body.append(UInt8(limit >> 8))
+        body.append(UInt8(limit & 0xff))
+        var envelope = Data([0x00, 0xa0, 0x00, 0x01])
+        envelope.append(UInt8(body.count))
+        envelope.append(body)
+        var framed = Data()
+        framed.append(UInt8(envelope.count >> 24))
+        framed.append(UInt8(envelope.count >> 16))
+        framed.append(UInt8(envelope.count >> 8))
+        framed.append(UInt8(envelope.count & 0xff))
+        framed.append(envelope)
+        return framed
+    }
+
     static func decodeStatus(_ envelope: Data) throws -> WalletRPCStatus {
         var decoder = WalletBinaryDecoder(data: envelope)
         guard try decoder.readUInt16() == 0x00a1,
