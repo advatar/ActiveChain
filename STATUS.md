@@ -276,6 +276,8 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
   idempotency, optional escalating Sybil challenges, and durable restart-safe accounting.
 - [x] Add bounded canonical request/response framing for the validator RPC bridge, with strict
   length checks and malformed-frame regression vectors.
+- [x] Add a versioned `RequestAuthorizedFaucet` RPC schema carrying the exact signed envelope;
+  canonical round-trip and empty-envelope rejection are covered by RPC-type tests.
 - [x] Bind bridge settlement responses to the exact admitted faucet reference and expose a typed
   request-to-response helper.
 - [x] Freeze canonical pending/finalized/rejected settlement status responses with state-consistent

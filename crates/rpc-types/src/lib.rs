@@ -505,6 +505,36 @@ impl CanonicalType for FaucetRequestV1 {
     const MAX_ENCODED_LEN: usize = 48 * 5 + 8 + 2 + MAX_FAUCET_PROOF_LENGTH;
 }
 
+/// Faucet request carrying the exact pre-signed cash authorization that must
+/// be admitted by validator ingress. The envelope is opaque to the RPC wire
+/// but bounded and re-verified by the validator-side settlement boundary.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthorizedFaucetRequestV1 {
+    pub request: FaucetRequestV1,
+    pub envelope: Vec<u8>,
+}
+impl CanonicalEncode for AuthorizedFaucetRequestV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.request.encode(encoder)?;
+        encoder.write_bytes(&self.envelope, 64 * 1024)
+    }
+}
+impl CanonicalDecode for AuthorizedFaucetRequestV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let request = FaucetRequestV1::decode(decoder)?;
+        let envelope = decoder.read_bytes(64 * 1024)?.to_vec();
+        if envelope.is_empty() {
+            return Err(DecodeError::InvalidValue("empty authorized faucet envelope"));
+        }
+        Ok(Self { request, envelope })
+    }
+}
+impl CanonicalType for AuthorizedFaucetRequestV1 {
+    const TYPE_TAG: u16 = 0x00d3;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = FaucetRequestV1::MAX_ENCODED_LEN + 4 + 64 * 1024;
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum FaucetState {
@@ -653,6 +683,9 @@ pub enum RpcRequest {
     RequestFaucet {
         request: Box<FaucetRequestV1>,
     },
+    RequestAuthorizedFaucet {
+        request: Box<AuthorizedFaucetRequestV1>,
+    },
     ResolveFaucet {
         reference: Digest384,
     },
@@ -697,6 +730,10 @@ impl CanonicalEncode for RpcRequest {
                 5_u8.encode(encoder)?;
                 request.encode(encoder)
             }
+            Self::RequestAuthorizedFaucet { request } => {
+                10_u8.encode(encoder)?;
+                request.encode(encoder)
+            }
             Self::ResolveFaucet { reference } => {
                 6_u8.encode(encoder)?;
                 reference.encode(encoder)
@@ -738,6 +775,9 @@ impl CanonicalDecode for RpcRequest {
             3 => Ok(Self::SubmitAnchor { statement: decoder.read_bytes(512)?.to_vec() }),
             4 => Ok(Self::ResolveAnchor { reference: Digest384::decode(decoder)? }),
             5 => Ok(Self::RequestFaucet { request: Box::new(FaucetRequestV1::decode(decoder)?) }),
+            10 => Ok(Self::RequestAuthorizedFaucet {
+                request: Box::new(AuthorizedFaucetRequestV1::decode(decoder)?),
+            }),
             6 => Ok(Self::ResolveFaucet { reference: Digest384::decode(decoder)? }),
             7 => Ok(Self::FaucetTerms),
             8 => {
@@ -766,7 +806,7 @@ impl CanonicalDecode for RpcRequest {
 impl CanonicalType for RpcRequest {
     const TYPE_TAG: u16 = 0x00a0;
     const SCHEMA_VERSION: u16 = 1;
-    const MAX_ENCODED_LEN: usize = 1 + FaucetRequestV1::MAX_ENCODED_LEN;
+    const MAX_ENCODED_LEN: usize = 1 + AuthorizedFaucetRequestV1::MAX_ENCODED_LEN;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -922,6 +962,7 @@ impl RpcAccessTerms {
             | RpcRequest::SubmitAnchor { .. }
             | RpcRequest::ResolveAnchor { .. }
             | RpcRequest::RequestFaucet { .. }
+            | RpcRequest::RequestAuthorizedFaucet { .. }
             | RpcRequest::ResolveFaucet { .. } => Some(self.get_units),
             RpcRequest::List { limit, .. }
             | RpcRequest::ListOwnerCoinCells { limit, .. }
@@ -1772,6 +1813,25 @@ mod tests {
             decode_envelope::<RpcRequest>(&encode_envelope(&nft_request).unwrap()),
             Ok(nft_request)
         );
+
+        let faucet = FaucetRequestV1::new(
+            ChainId::new(digest(11)),
+            digest(12),
+            PrincipalId::new(digest(13)),
+            digest(14),
+            digest(15),
+            1,
+            vec![1],
+        )
+        .unwrap();
+        let authorized = RpcRequest::RequestAuthorizedFaucet {
+            request: Box::new(AuthorizedFaucetRequestV1 {
+                request: faucet,
+                envelope: vec![0xaa, 0xbb],
+            }),
+        };
+        let encoded = encode_envelope(&authorized).unwrap();
+        assert_eq!(decode_envelope::<RpcRequest>(&encoded), Ok(authorized));
     }
 
     #[test]

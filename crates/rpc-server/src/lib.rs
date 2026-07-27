@@ -628,6 +628,7 @@ impl DurableRpcStore {
             RpcRequest::SubmitAnchor { .. }
             | RpcRequest::ResolveAnchor { .. }
             | RpcRequest::RequestFaucet { .. }
+            | RpcRequest::RequestAuthorizedFaucet { .. }
             | RpcRequest::ResolveFaucet { .. }
             | RpcRequest::FaucetTerms => RpcResponse::Error(RpcError::InvalidRequest),
         }
@@ -807,6 +808,11 @@ impl RpcServer {
                     Ok(receipt) => RpcResponse::FaucetReceipt(receipt),
                     Err(_) => RpcResponse::Error(RpcError::InvalidRequest),
                 }
+            }
+            // The schema is reserved and decoded, but remains fail-closed
+            // until a validator-backed authorized settlement adapter is wired.
+            RpcRequest::RequestAuthorizedFaucet { .. } => {
+                RpcResponse::Error(RpcError::InvalidRequest)
             }
             request => self.store.handle(request, now),
         }
