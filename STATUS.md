@@ -316,6 +316,11 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 - [x] Specify explicit v1.0 re-execution authority, mandatory-proof admission states, outage
   behavior, upgrade activation, and fail-closed qualification requirements.
 
+## Active ordered protocol-version qualification
+
+- [x] Publish the ordered v1.0/v1.1/v1.2 mandatory/deferred feature contract, additive encoding
+  rule, activation bindings, and atomic upgrade gate.
+
 ## Active native issuer operations
 
 Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164).
