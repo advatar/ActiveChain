@@ -109,6 +109,9 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 - [x] Define the first canonical schema for protocol primitives and principals.
 - [x] Implement `no_std`, safe-Rust protocol primitive types.
 - [x] Implement a bounded canonical binary codec with strict trailing-data rejection.
+- [x] Qualify canonical codec behavior: all 10 tests pass for minimal length prefixes, bounded
+  byte strings, exact envelope layout, type/schema/trailing-data rejection, option tags, and
+  arbitrary round-trips.
 - [x] Implement SHAKE256/384 domain-separated commitments.
 - [x] Publish deterministic codec and commitment test vectors.
 - [x] Add unit and property tests for round trips, malformed input, bounds, and domain separation.
