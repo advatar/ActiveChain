@@ -4,7 +4,8 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
 use activechain_protocol_types::{
-    Amount, AssetId, ChainId, CoinCellId, Digest384, Epoch, Height, PrincipalId, TransactionId,
+    Amount, AssetId, ChainId, CoinCellId, Digest384, Epoch, FungibleAssetLifecycle,
+    FungibleAssetPolicyV1, Height, PrincipalId, TransactionId,
     authorized_issuance as compute_authorized_issuance, partition_total,
     post_supply as compute_post_supply,
 };
@@ -745,6 +746,21 @@ impl FungibleMintV1 {
     pub const fn supply_cap(self) -> Amount {
         self.supply_cap
     }
+    /// Verifies that this issuance intent is admissible under the finalized issuer policy.
+    pub fn validate_against_policy(
+        &self,
+        policy: &FungibleAssetPolicyV1,
+    ) -> Result<(), NativeMoneyError> {
+        if self.asset_id != policy.asset_id()
+            || self.issuer != policy.issuer()
+            || self.supply_before != policy.supply_issued()
+            || self.supply_cap != policy.supply_cap()
+            || policy.lifecycle() != FungibleAssetLifecycle::Registered
+        {
+            return Err(NativeMoneyError::MintAuthorityMismatch);
+        }
+        Ok(())
+    }
 }
 impl CanonicalEncode for FungibleMintV1 {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
@@ -822,6 +838,19 @@ impl FungibleBurnV1 {
     }
     pub const fn amount(&self) -> Amount {
         self.amount
+    }
+    /// Verifies that this burn consumes the policy's asset while issuance/redemption is active.
+    pub fn validate_against_policy(
+        &self,
+        policy: &FungibleAssetPolicyV1,
+    ) -> Result<(), NativeMoneyError> {
+        if self.asset_id != policy.asset_id()
+            || self.amount > policy.supply_issued()
+            || policy.lifecycle() != FungibleAssetLifecycle::Registered
+        {
+            return Err(NativeMoneyError::InvalidInputs);
+        }
+        Ok(())
     }
 }
 impl CanonicalEncode for FungibleBurnV1 {
@@ -1069,6 +1098,43 @@ mod fungible_cell_tests {
         let mint = FungibleMintV1::new(asset, issuer, recipient, 10, 90, 100).unwrap();
         assert_eq!(mint.supply_after(), 100);
         assert!(FungibleMintV1::new(asset, issuer, recipient, 11, 90, 100).is_err());
+    }
+
+    #[test]
+    fn mint_and_burn_require_registered_policy_state() {
+        let asset = AssetId::new(Digest384::new([2; 48]));
+        let issuer = PrincipalId::new(Digest384::new([3; 48]));
+        let recipient = PrincipalId::new(Digest384::new([5; 48]));
+        let policy = FungibleAssetPolicyV1::new(
+            asset,
+            issuer,
+            Digest384::new([6; 48]),
+            Digest384::new([7; 48]),
+            Digest384::new([8; 48]),
+            Digest384::new([9; 48]),
+            100,
+            90,
+            FungibleAssetLifecycle::Registered,
+        )
+        .unwrap();
+        let mint = FungibleMintV1::new(asset, issuer, recipient, 10, 90, 100).unwrap();
+        assert!(mint.validate_against_policy(&policy).is_ok());
+        let paused = FungibleAssetPolicyV1::new(
+            asset,
+            issuer,
+            Digest384::new([6; 48]),
+            Digest384::new([7; 48]),
+            Digest384::new([8; 48]),
+            Digest384::new([9; 48]),
+            100,
+            90,
+            FungibleAssetLifecycle::Paused,
+        )
+        .unwrap();
+        assert_eq!(
+            mint.validate_against_policy(&paused),
+            Err(NativeMoneyError::MintAuthorityMismatch)
+        );
     }
 }
 
