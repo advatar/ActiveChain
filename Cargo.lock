@@ -29,6 +29,7 @@ name = "activechain-application-primitives"
 version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
+ "activechain-crypto-provider",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
  "activechain-rpc-types",

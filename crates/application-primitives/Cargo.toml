@@ -11,6 +11,7 @@ std = []
 
 [dependencies]
 activechain-canonical-codec.workspace = true
+activechain-crypto-provider.workspace = true
 activechain-protocol-commitment.workspace = true
 activechain-protocol-types.workspace = true
 activechain-rpc-types.workspace = true
