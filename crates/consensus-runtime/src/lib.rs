@@ -2587,6 +2587,27 @@ impl ValidatorService {
             .map_err(ValidatorEngineError::Snapshot)
             .map_err(ValidatorServiceError::Engine)
     }
+
+    /// Persists execution cash only after binding it to the exact finalized
+    /// certificate. This is the production RPC publication boundary.
+    pub fn persist_finalized_cash_snapshot_with_finality(
+        &self,
+        path: &std::path::Path,
+        snapshot: &FinalizedCashSnapshot,
+        finality: &[u8],
+    ) -> Result<(), ValidatorServiceError> {
+        let engine = self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
+        if snapshot.chain_genesis != engine.genesis_commitment
+            || snapshot.finalized_height != engine.state.finalized_height()
+            || snapshot.verify_against_finality(finality).is_err()
+        {
+            return Err(ValidatorServiceError::Engine(ValidatorEngineError::InvalidCashSnapshot));
+        }
+        snapshot
+            .save(path)
+            .map_err(ValidatorEngineError::Snapshot)
+            .map_err(ValidatorServiceError::Engine)
+    }
     pub fn activate_finalized_validator_set(
         &self,
         authorization: &ConsensusUpgradeAuthorization,

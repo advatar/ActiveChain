@@ -98,6 +98,8 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
 - [x] Route the validator-to-RPC ingest command through the chain-genesis-bound cash-record
   publisher.
 - [ ] Wire the proof-bearing Coin Cell record builder into the validator finalization publisher.
+- [x] Add a validator publication method that requires the exact finalized certificate to match
+  the persisted cash root, height, and immutable chain genesis.
 - [ ] Persist finalized cash cells with the finalized header and reject root mismatches on restart.
 - [x] Add an atomic snapshot/finality verification boundary binding cash root, height, and genesis
   before RPC publication.
