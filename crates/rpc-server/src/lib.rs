@@ -672,6 +672,35 @@ pub trait FaucetSettlementAdapter: Send + Sync {
     ) -> Result<TransactionId, FaucetError>;
 }
 
+/// Typed production boundary for pre-signed faucet settlement. Implementors
+/// must submit the exact envelope bytes after validating the expected fields.
+pub trait AuthorizedFaucetSettlementAdapter: Send + Sync {
+    fn settle_authorized(
+        &self,
+        envelope: &[u8],
+        recipient: PrincipalId,
+        amount: u128,
+        reference: Digest384,
+    ) -> Result<TransactionId, FaucetError>;
+}
+
+impl<F> AuthorizedFaucetSettlementAdapter for F
+where
+    F: Fn(&[u8], PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError>
+        + Send
+        + Sync,
+{
+    fn settle_authorized(
+        &self,
+        envelope: &[u8],
+        recipient: PrincipalId,
+        amount: u128,
+        reference: Digest384,
+    ) -> Result<TransactionId, FaucetError> {
+        self(envelope, recipient, amount, reference)
+    }
+}
+
 impl<F> FaucetSettlementAdapter for F
 where
     F: Fn(PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError> + Send + Sync,
@@ -734,6 +763,18 @@ impl RpcServer {
     {
         self.authorized_faucet_settlement = Some(Arc::new(settlement));
         self
+    }
+
+    pub fn with_authorized_faucet_settlement_adapter<A>(
+        self,
+        adapter: A,
+    ) -> Self
+    where
+        A: AuthorizedFaucetSettlementAdapter + 'static,
+    {
+        self.with_authorized_faucet_settlement(move |envelope, recipient, amount, reference| {
+            adapter.settle_authorized(envelope, recipient, amount, reference)
+        })
     }
 
     /// Attach a typed validator-backed settlement adapter. This is the
@@ -1050,14 +1091,24 @@ mod tests {
                 Ok(TransactionId::new(digest(99)))
             }
         }
+        struct AuthorizedAdapter;
+        impl AuthorizedFaucetSettlementAdapter for AuthorizedAdapter {
+            fn settle_authorized(
+                &self,
+                _envelope: &[u8],
+                _recipient: PrincipalId,
+                _amount: u128,
+                reference: Digest384,
+            ) -> Result<TransactionId, FaucetError> {
+                Ok(TransactionId::new(reference))
+            }
+        }
 
         let path = temporary("typed-faucet-adapter");
         let _ = std::fs::remove_file(&path);
         let server = RpcServer::new(Arc::new(DurableRpcStore::create(path.clone(), index()).unwrap()))
             .with_faucet_settlement_adapter(Adapter)
-            .with_authorized_faucet_settlement(|_, _, _, reference| {
-                Ok(TransactionId::new(reference))
-            });
+            .with_authorized_faucet_settlement_adapter(AuthorizedAdapter);
         assert!(server.faucet_settlement.is_some());
         assert!(server.authorized_faucet_settlement.is_some());
         let _ = std::fs::remove_file(path);

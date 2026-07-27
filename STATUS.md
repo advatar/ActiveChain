@@ -298,6 +298,8 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
 - [x] Add a typed production faucet settlement adapter boundary for validator-backed ingress.
 - [x] Add an opt-in RPC authorized-settlement callback that receives the exact signed envelope
   after faucet policy admission; absent this callback, the new request remains fail-closed.
+- [x] Expose a typed authorized-settlement adapter API for validator implementations and qualify
+  its installation through the RPC server test suite.
 - [ ] Publish the end-to-end funding admission contract and adversarial vectors before public
   faucet deployment.
 - [x] Freeze the validator-bridge authorized-settlement request envelope with strict canonical
