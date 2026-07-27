@@ -18,6 +18,7 @@ mod consensus;
 mod consensus_state;
 mod credential;
 mod crypto;
+mod did;
 mod migration;
 mod object;
 mod package;
@@ -78,6 +79,7 @@ pub use crypto::{
     AuthenticatorDescriptor, AuthenticatorPurpose, AuthenticatorValidationError, CryptoFamily,
     CryptoSuiteError, CryptoSuiteId, ProtocolSignature, SignatureError,
 };
+pub use did::{DidControllerRecordV1, DidRecordError};
 pub use migration::{CryptoMigrationError, CryptoMigrationWindow};
 pub use object::{
     AccessManifest, AccessManifestError, AccessManifestFields, MAX_CREATED_OBJECTS,

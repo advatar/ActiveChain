@@ -1218,6 +1218,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [x] Freeze the method-specific identifier, PQ verification methods, resolver boundary, and
   finalized lifecycle operations in `spec/protocol/P-095-activechain-did-method.md`.
 - [ ] Implement canonical DID controller records and resolver responses.
+- [x] Add a canonical commitment-only `DidControllerRecordV1` with monotonic, previous-commitment
+  bound updates and explicit deactivation-safe lifecycle semantics.
 - [ ] Add ML-DSA rotation, ML-KEM agreement, SLH-DSA recovery, deactivation, and DID test vectors.
 - [ ] Add ENS alias records without treating ENS control as protocol authorization.
 - [ ] Add EUDI Wallet interoperability for OpenID4VCI/OpenID4VP and mdoc/VC presentations.

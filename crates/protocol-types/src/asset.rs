@@ -66,6 +66,7 @@ impl FungibleIssuerRegistrationV1 {
     ) -> Result<Self, AssetDefinitionError> {
         if asset_id.digest() == &Digest384::ZERO
             || issuer.digest() == &Digest384::ZERO
+            || authority_set == Digest384::ZERO
             || policy_commitment == Digest384::ZERO
             || effective_height >= expires_height
         {
