@@ -5,8 +5,8 @@ use activechain_canonical_codec::{
 };
 use activechain_protocol_types::{
     Amount, AssetId, ChainId, CoinCellId, Digest384, Epoch, FungibleAssetLifecycle,
-    FungibleAssetPolicyV1, Height, PrincipalId, TransactionId,
-    authorized_issuance as compute_authorized_issuance, partition_total,
+    FungibleAssetPolicyV1, FungibleIssuerApprovalV1, FungibleIssuerOperation, Height, PrincipalId,
+    TransactionId, authorized_issuance as compute_authorized_issuance, partition_total,
     post_supply as compute_post_supply,
 };
 use sha3::{
@@ -780,6 +780,23 @@ impl FungibleMintV1 {
             .map_err(|_| NativeMoneyError::MintAuthorityMismatch)?;
         Ok(())
     }
+    pub fn validate_against_policy_and_approval(
+        &self,
+        policy: &FungibleAssetPolicyV1,
+        approval: &FungibleIssuerApprovalV1,
+        height: u64,
+    ) -> Result<(), NativeMoneyError> {
+        if !approval.binds_context(
+            policy,
+            FungibleIssuerOperation::Mint,
+            self.amount,
+            self.supply_before,
+            height,
+        ) {
+            return Err(NativeMoneyError::MintAuthorityMismatch);
+        }
+        self.validate_against_policy(policy)
+    }
 }
 impl CanonicalEncode for FungibleMintV1 {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
@@ -870,6 +887,23 @@ impl FungibleBurnV1 {
             .apply_burn(self.amount, policy.supply_issued())
             .map_err(|_| NativeMoneyError::InvalidInputs)?;
         Ok(())
+    }
+    pub fn validate_against_policy_and_approval(
+        &self,
+        policy: &FungibleAssetPolicyV1,
+        approval: &FungibleIssuerApprovalV1,
+        height: u64,
+    ) -> Result<(), NativeMoneyError> {
+        if !approval.binds_context(
+            policy,
+            FungibleIssuerOperation::Burn,
+            self.amount,
+            policy.supply_issued(),
+            height,
+        ) {
+            return Err(NativeMoneyError::InvalidInputs);
+        }
+        self.validate_against_policy(policy)
     }
 }
 impl CanonicalEncode for FungibleBurnV1 {
@@ -963,6 +997,23 @@ impl FungibleRedemptionV1 {
             .apply_burn(self.amount, policy.supply_issued())
             .map_err(|_| NativeMoneyError::InvalidInputs)?;
         Ok(())
+    }
+    pub fn validate_against_policy_and_approval(
+        &self,
+        policy: &FungibleAssetPolicyV1,
+        approval: &FungibleIssuerApprovalV1,
+        height: u64,
+    ) -> Result<(), NativeMoneyError> {
+        if !approval.binds_context(
+            policy,
+            FungibleIssuerOperation::Redemption,
+            self.amount,
+            policy.supply_issued(),
+            height,
+        ) {
+            return Err(NativeMoneyError::InvalidInputs);
+        }
+        self.validate_against_policy(policy)
     }
 }
 impl CanonicalEncode for FungibleRedemptionV1 {
@@ -1171,6 +1222,23 @@ mod fungible_cell_tests {
         .unwrap();
         let mint = FungibleMintV1::new(asset, issuer, recipient, 10, 90, 100).unwrap();
         assert!(mint.validate_against_policy(&policy).is_ok());
+        let approval = FungibleIssuerApprovalV1::new(
+            asset,
+            policy.commitment().unwrap(),
+            policy.authority_set(),
+            Digest384::new([10; 48]),
+            FungibleIssuerOperation::Mint,
+            10,
+            90,
+            5,
+            10,
+        )
+        .unwrap();
+        assert!(mint.validate_against_policy_and_approval(&policy, &approval, 5).is_ok());
+        assert_eq!(
+            mint.validate_against_policy_and_approval(&policy, &approval, 10),
+            Err(NativeMoneyError::MintAuthorityMismatch)
+        );
         let paused = FungibleAssetPolicyV1::new(
             asset,
             issuer,
