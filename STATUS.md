@@ -336,6 +336,11 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 - [x] Define the v1 application settlement boundary for native payments, atomic swaps, merchant
   receipts, cross-network finality states, timeout refunds, and privacy-preserving commitments.
 
+## Active EUDI/TLSNotary/ZK qualification
+
+- [x] Freeze the off-chain evidence, selective-disclosure predicate, holder/action/policy binding,
+  finalized status, privacy, and fail-closed boundary for EU Wallet/TLSNotary integration.
+
 ## Active faucet ingress qualification
 
 - [x] Specify real testnet faucet transaction ingress, durable pending/finalized/rejected status,
