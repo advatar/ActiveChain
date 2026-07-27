@@ -79,7 +79,10 @@ pub use crypto::{
     AuthenticatorDescriptor, AuthenticatorPurpose, AuthenticatorValidationError, CryptoFamily,
     CryptoSuiteError, CryptoSuiteId, ProtocolSignature, SignatureError,
 };
-pub use did::{DidControllerRecordV1, DidRecordError, DidResolutionV1};
+pub use did::{
+    DidControllerOperationV1, DidControllerRecordV1, DidOperationKind, DidRecordError,
+    DidResolutionV1,
+};
 pub use migration::{CryptoMigrationError, CryptoMigrationWindow};
 pub use object::{
     AccessManifest, AccessManifestError, AccessManifestFields, MAX_CREATED_OBJECTS,

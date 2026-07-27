@@ -1222,6 +1222,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
   bound updates and explicit deactivation-safe lifecycle semantics.
 - [x] Add canonical `DidResolutionV1` responses binding a nonzero method DID to finalized height
   and an optional public controller record.
+- [x] Add canonical create/update/recover/deactivate DID operations with authorization and
+  previous-record commitment binding.
 - [ ] Add ML-DSA rotation, ML-KEM agreement, SLH-DSA recovery, deactivation, and DID test vectors.
 - [ ] Add ENS alias records without treating ENS control as protocol authorization.
 - [ ] Add EUDI Wallet interoperability for OpenID4VCI/OpenID4VP and mdoc/VC presentations.

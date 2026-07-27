@@ -11,6 +11,7 @@ pub enum DidRecordError {
     InvalidSequence,
     PreviousMismatch,
     Inactive,
+    InvalidOperation,
 }
 
 /// Public controller state for `did:activechain`. Private credentials,
@@ -188,6 +189,105 @@ impl CanonicalType for DidResolutionV1 {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum DidOperationKind {
+    Create = 0,
+    Update = 1,
+    Recover = 2,
+    Deactivate = 3,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DidControllerOperationV1 {
+    kind: DidOperationKind,
+    principal: PrincipalId,
+    previous_commitment: Option<Digest384>,
+    next: DidControllerRecordV1,
+    authorization_commitment: Digest384,
+}
+
+impl DidControllerOperationV1 {
+    pub const TYPE_TAG: u16 = 0x00da;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 1 + 48 + 1 + 48 + DidControllerRecordV1::MAX_ENCODED_LEN + 48;
+
+    pub fn new(
+        kind: DidOperationKind,
+        principal: PrincipalId,
+        previous_commitment: Option<Digest384>,
+        next: DidControllerRecordV1,
+        authorization_commitment: Digest384,
+    ) -> Result<Self, DidRecordError> {
+        if principal.digest() == &Digest384::ZERO
+            || next.principal() != principal
+            || authorization_commitment == Digest384::ZERO
+            || previous_commitment.is_some_and(|value| value == Digest384::ZERO)
+        {
+            return Err(DidRecordError::InvalidOperation);
+        }
+        match kind {
+            DidOperationKind::Create if previous_commitment.is_some() || next.sequence() != 1 => {
+                Err(DidRecordError::InvalidOperation)
+            }
+            DidOperationKind::Create if !next.active() => Err(DidRecordError::InvalidOperation),
+            DidOperationKind::Deactivate if next.active() || previous_commitment.is_none() => {
+                Err(DidRecordError::InvalidOperation)
+            }
+            DidOperationKind::Update | DidOperationKind::Recover if previous_commitment.is_none() => {
+                Err(DidRecordError::InvalidOperation)
+            }
+            _ => Ok(Self { kind, principal, previous_commitment, next, authorization_commitment }),
+        }
+    }
+    pub const fn kind(&self) -> DidOperationKind { self.kind }
+    pub const fn principal(&self) -> PrincipalId { self.principal }
+    pub const fn previous_commitment(&self) -> Option<Digest384> { self.previous_commitment }
+    pub const fn next(&self) -> &DidControllerRecordV1 { &self.next }
+    pub const fn authorization_commitment(&self) -> Digest384 { self.authorization_commitment }
+}
+
+impl CanonicalEncode for DidOperationKind {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> { (*self as u8).encode(e) }
+}
+impl CanonicalDecode for DidOperationKind {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(d)? {
+            0 => Ok(Self::Create),
+            1 => Ok(Self::Update),
+            2 => Ok(Self::Recover),
+            3 => Ok(Self::Deactivate),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "DidOperationKind", tag }),
+        }
+    }
+}
+impl CanonicalEncode for DidControllerOperationV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.kind.encode(e)?;
+        self.principal.encode(e)?;
+        self.previous_commitment.encode(e)?;
+        self.next.encode(e)?;
+        self.authorization_commitment.encode(e)
+    }
+}
+impl CanonicalDecode for DidControllerOperationV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            DidOperationKind::decode(d)?,
+            PrincipalId::decode(d)?,
+            Option::<Digest384>::decode(d)?,
+            DidControllerRecordV1::decode(d)?,
+            Digest384::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid did controller operation"))
+    }
+}
+impl CanonicalType for DidControllerOperationV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,5 +334,21 @@ mod tests {
         let resolution = DidResolutionV1::new(digest(20), 42, None).unwrap();
         assert_eq!(decode_envelope::<DidResolutionV1>(&encode_envelope(&resolution).unwrap()), Ok(resolution));
         assert!(DidResolutionV1::new(Digest384::ZERO, 42, None).is_err());
+    }
+
+    #[test]
+    fn operations_bind_kind_sequence_and_authorization() {
+        let record = DidControllerRecordV1::new(principal(1), digest(2), digest(3), digest(4), None, None, 1, true).unwrap();
+        let operation = DidControllerOperationV1::new(
+            DidOperationKind::Create,
+            principal(1),
+            None,
+            record,
+            digest(5),
+        )
+        .unwrap();
+        assert_eq!(decode_envelope::<DidControllerOperationV1>(&encode_envelope(&operation).unwrap()), Ok(operation));
+        assert!(DidControllerOperationV1::new(DidOperationKind::Create, principal(1), Some(digest(6)), record, digest(5)).is_err());
+        assert!(DidControllerOperationV1::new(DidOperationKind::Create, principal(1), None, record, Digest384::ZERO).is_err());
     }
 }
