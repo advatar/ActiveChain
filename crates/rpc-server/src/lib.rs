@@ -111,6 +111,7 @@ pub enum RpcProofError {
     Relation,
     Owner,
     Asset,
+    Unsupported,
 }
 
 pub fn verify_query_record(record: &QueryRecord) -> Result<(), RpcProofError> {
@@ -292,6 +293,7 @@ fn verify_query_record_with_finality(
             }
             Ok(())
         }
+        QueryKind::NonFungibleCoinCell => Err(RpcProofError::Unsupported),
     }
 }
 

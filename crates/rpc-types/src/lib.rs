@@ -240,6 +240,7 @@ pub enum QueryKind {
     ApplicationReceipt = 3,
     CoinCell = 4,
     FungibleCoinCell = 5,
+    NonFungibleCoinCell = 6,
 }
 
 impl CanonicalEncode for QueryKind {
@@ -256,6 +257,7 @@ impl CanonicalDecode for QueryKind {
             3 => Ok(Self::ApplicationReceipt),
             4 => Ok(Self::CoinCell),
             5 => Ok(Self::FungibleCoinCell),
+            6 => Ok(Self::NonFungibleCoinCell),
             tag => Err(DecodeError::InvalidEnumTag { type_name: "QueryKind", tag }),
         }
     }
