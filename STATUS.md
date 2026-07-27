@@ -331,6 +331,11 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 - [x] Specify compute jobs as application objects with commitment-only execution evidence,
   finalized receipts, pending/failure/dispute states, and no consensus-special execution primitive.
 
+## ActiveBridge qualification
+
+- [x] Define the v1 application settlement boundary for native payments, atomic swaps, merchant
+  receipts, cross-network finality states, timeout refunds, and privacy-preserving commitments.
+
 ## Active native issuer operations
 
 Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164).
