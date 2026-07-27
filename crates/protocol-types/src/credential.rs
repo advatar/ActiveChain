@@ -470,6 +470,31 @@ impl CredentialAcceptancePolicy {
     pub fn accepts_schema(&self, schema: &Digest384) -> bool {
         self.accepted_schemas.binary_search(schema).is_ok()
     }
+
+    /// Canonical policy admission for a credential presentation. Status data is
+    /// optional only when the policy explicitly permits it; freshness is measured
+    /// against finalized heights to avoid local-clock ambiguity.
+    #[must_use]
+    pub fn accepts(
+        &self,
+        credential: &Credential,
+        registry: Option<&CredentialStatusRegistry>,
+        now: Timestamp,
+        finalized_height: Height,
+    ) -> bool {
+        let statement = credential.statement();
+        self.accepts_issuer(&statement.issuer)
+            && self.accepts_schema(&statement.schema_id)
+            && statement.is_valid_at(now)
+            && match registry {
+                Some(snapshot) => {
+                    snapshot.admits(statement, finalized_height)
+                        && finalized_height.saturating_sub(snapshot.effective_height)
+                            <= self.maximum_status_age
+                }
+                None => !self.require_status,
+            }
+    }
 }
 
 impl CanonicalEncode for CredentialAcceptancePolicy {
@@ -766,6 +791,32 @@ mod tests {
         let wrong_issuer =
             CredentialStatusRegistry::new(registry_id, principal(9), digest(3), digest(5), 2, 6);
         assert!(!wrong_issuer.admits(statement, 6));
+    }
+
+    #[test]
+    fn acceptance_policy_combines_all_boundaries() {
+        let statement = statement();
+        let credential = credential();
+        let registry_id = statement.status_registry.unwrap();
+        let registry = CredentialStatusRegistry::new(
+            registry_id,
+            statement.issuer(),
+            statement.schema_id(),
+            digest(5),
+            1,
+            8,
+        );
+        let policy = CredentialAcceptancePolicy::new(
+            vec![statement.issuer()],
+            vec![statement.schema_id()],
+            4,
+            true,
+            false,
+        )
+        .unwrap();
+        assert!(policy.accepts(&credential, Some(&registry), 1_500, 10));
+        assert!(!policy.accepts(&credential, Some(&registry), 2_001, 10));
+        assert!(!policy.accepts(&credential, None, 1_500, 10));
     }
 
     fn statement() -> CredentialStatement {

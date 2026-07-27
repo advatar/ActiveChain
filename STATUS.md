@@ -297,6 +297,8 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
   hidden-value verification to the ZK circuit boundary.
 - [x] Add credential temporal validity and issuer/schema/status-registry freshness admission
   helpers with exact finalized-height binding.
+- [x] Add one canonical acceptance-policy evaluator combining allowlists, validity, status
+  requirement, and finalized-height freshness.
 
 ## Active independent-client qualification
 
