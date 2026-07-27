@@ -34,6 +34,9 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 - [x] Cover authenticated envelope round-trip and suite mutation rejection without running the
   full SHAKE proving benchmark.
 - [x] Make the reference package independently testable outside the root workspace.
+- [x] Exercise the standalone P-060 verifier package and protocol vectors: 14 unit/integration
+  tests pass, including deterministic positive proofs, malformed fixtures, strict codec bounds,
+  suite binding, and independent model verification.
 - [ ] Refine the AIR against P-050 ObjectVM semantics and publish an independent second verifier.
 - [ ] Qualify proof parameters against the required soundness and verifier-cost gates before consensus activation.
 
