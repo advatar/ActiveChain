@@ -17,3 +17,7 @@ policy_wrong_action\tclear decision bound to another chain/action\treject\tdecis
 policy_signature_missing\trequire_provider_signature=true,signature=absent\treject\tsigned provider evidence required
 policy_signature_substitution\tsignature commitment differs from decision\treject\tdecision commitment binding
 policy_signature_valid\tsignature profile/chain/action/commitment exact\taccept\tprovider signature admission
+override_missing_quorum\treviewer_count<override_quorum\treject\tdual control is mandatory
+override_wrong_decision\tdecision commitment differs\treject\tno substitution of screened case
+override_expired\texpires_at<=now\treject\toverrides are short lived
+override_valid\tmatching profile/decision/quorum/freshness\taccept\tbounded manual override

@@ -260,6 +260,8 @@ Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213
 - [x] Bind screening acceptance to the exact regulated chain and transaction context.
 - [x] Enforce `require_provider_signature` through a decision commitment and exact profile,
   chain, and action signature envelope.
+- [x] Add commitment-only, dual-control screening overrides with reviewer quorum, reason
+  commitment, profile/decision binding, expiry, and deterministic positive/malformed vectors.
 - [x] Provide ML-DSA-44 verification wiring for compliance signature envelopes; key registry
   selection remains an operator-controlled boundary.
 - [x] Add a bounded profile-scoped provider key registry with strict key shape and unknown-profile

@@ -19,6 +19,7 @@ pub enum ComplianceError {
     Unordered,
     InvalidScreening,
     InvalidRetention,
+    InvalidOverride,
 }
 
 pub const MAX_COMPLIANCE_REPLAY_KEYS: usize = 4096;
@@ -483,6 +484,87 @@ impl CanonicalDecode for ScreeningPolicyV1 {
     }
 }
 impl CanonicalType for ScreeningPolicyV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
+/// Commitment-only dual-control override for a non-clear screening result.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ScreeningOverrideV1 {
+    profile: Digest384,
+    decision_commitment: Digest384,
+    reviewer_set: Digest384,
+    reason_commitment: Digest384,
+    reviewer_count: u8,
+    expires_at: u64,
+}
+impl ScreeningOverrideV1 {
+    pub const TYPE_TAG: u16 = 0x00D9;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 4 + 1 + 8;
+    pub fn new(
+        profile: Digest384,
+        decision_commitment: Digest384,
+        reviewer_set: Digest384,
+        reason_commitment: Digest384,
+        reviewer_count: u8,
+        expires_at: u64,
+    ) -> Result<Self, ComplianceError> {
+        if [profile, decision_commitment, reviewer_set, reason_commitment]
+            .into_iter()
+            .any(|value| value == Digest384::ZERO)
+            || reviewer_count == 0
+            || expires_at == 0
+        {
+            return Err(ComplianceError::InvalidOverride);
+        }
+        Ok(Self {
+            profile,
+            decision_commitment,
+            reviewer_set,
+            reason_commitment,
+            reviewer_count,
+            expires_at,
+        })
+    }
+    pub fn admits(
+        &self,
+        policy: &ScreeningPolicyV1,
+        decision: &ScreeningDecisionV1,
+        now: u64,
+    ) -> bool {
+        self.profile == policy.profile
+            && self.decision_commitment == decision.commitment().ok().unwrap_or(Digest384::ZERO)
+            && self.reviewer_count >= policy.override_quorum
+            && now < self.expires_at
+            && !matches!(decision.outcome, ScreeningOutcome::Cleared)
+    }
+}
+impl CanonicalEncode for ScreeningOverrideV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.profile.encode(e)?;
+        self.decision_commitment.encode(e)?;
+        self.reviewer_set.encode(e)?;
+        self.reason_commitment.encode(e)?;
+        self.reviewer_count.encode(e)?;
+        self.expires_at.encode(e)
+    }
+}
+impl CanonicalDecode for ScreeningOverrideV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            u8::decode(d)?,
+            u64::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid screening override"))
+    }
+}
+impl CanonicalType for ScreeningOverrideV1 {
     const TYPE_TAG: u16 = Self::TYPE_TAG;
     const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
@@ -1124,6 +1206,39 @@ mod tests {
         )
         .unwrap();
         assert!(signed_policy.accepts_with_signature(&clear, Some(&signature), 50));
+    }
+
+    #[test]
+    fn screening_override_requires_quorum_commitment_and_freshness() {
+        let policy = ScreeningPolicyV1::new(d(1), d(5), d(7), 100, 2, false).unwrap();
+        let decision = ScreeningDecisionV1::new(
+            d(1),
+            ChainId::new(d(2)),
+            TransactionId::new(d(3)),
+            d(4),
+            d(5),
+            d(6),
+            d(7),
+            10,
+            200,
+            ScreeningOutcome::Match,
+        )
+        .unwrap();
+        let override_record =
+            ScreeningOverrideV1::new(d(1), decision.commitment().unwrap(), d(8), d(9), 2, 100)
+                .unwrap();
+        assert_eq!(
+            decode_envelope::<ScreeningOverrideV1>(&encode_envelope(&override_record).unwrap()),
+            Ok(override_record)
+        );
+        assert!(override_record.admits(&policy, &decision, 99));
+        assert!(!override_record.admits(&policy, &decision, 100));
+        let wrong_policy = ScreeningPolicyV1::new(d(10), d(5), d(7), 100, 2, false).unwrap();
+        assert!(!override_record.admits(&wrong_policy, &decision, 50));
+        let insufficient =
+            ScreeningOverrideV1::new(d(1), decision.commitment().unwrap(), d(8), d(9), 1, 100)
+                .unwrap();
+        assert!(!insufficient.admits(&policy, &decision, 50));
     }
 
     #[test]
