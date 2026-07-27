@@ -276,6 +276,53 @@ impl CanonicalType for FungibleAssetPolicyV1 {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
+/// Deterministically ordered finalized policy registry.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FungibleAssetPolicyRegistry(Vec<FungibleAssetPolicyV1>);
+impl FungibleAssetPolicyRegistry {
+    pub const TYPE_TAG: u16 = 0x00B1;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub fn new(entries: Vec<FungibleAssetPolicyV1>) -> Result<Self, AssetDefinitionError> {
+        if entries.len() > MAX_FUNGIBLE_ASSETS {
+            return Err(AssetDefinitionError::TooManyAssets);
+        }
+        if entries.windows(2).any(|w| w[0].asset_id() >= w[1].asset_id()) {
+            return Err(AssetDefinitionError::AssetsNotOrdered);
+        }
+        Ok(Self(entries))
+    }
+    pub fn entries(&self) -> &[FungibleAssetPolicyV1] {
+        &self.0
+    }
+    pub fn find(&self, id: AssetId) -> Option<&FungibleAssetPolicyV1> {
+        self.0.binary_search_by_key(&id, |entry| entry.asset_id()).ok().map(|i| &self.0[i])
+    }
+}
+impl CanonicalEncode for FungibleAssetPolicyRegistry {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        e.write_length(self.0.len(), MAX_FUNGIBLE_ASSETS)?;
+        for entry in &self.0 {
+            entry.encode(e)?;
+        }
+        Ok(())
+    }
+}
+impl CanonicalDecode for FungibleAssetPolicyRegistry {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let count = d.read_length(MAX_FUNGIBLE_ASSETS)?;
+        let mut entries = Vec::with_capacity(count);
+        for _ in 0..count {
+            entries.push(FungibleAssetPolicyV1::decode(d)?);
+        }
+        Self::new(entries).map_err(|_| DecodeError::InvalidValue("policy registry is not ordered"))
+    }
+}
+impl CanonicalType for FungibleAssetPolicyRegistry {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = 2 + MAX_FUNGIBLE_ASSETS * FungibleAssetPolicyV1::MAX_ENCODED_LEN;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -361,6 +408,32 @@ mod tests {
                 FungibleAssetLifecycle::Registered,
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn policy_registry_is_ordered_and_lookup_is_deterministic() {
+        let make = |n| {
+            FungibleAssetPolicyV1::new(
+                id(n),
+                principal(n),
+                Digest384::new([3; 48]),
+                Digest384::new([4; 48]),
+                Digest384::new([5; 48]),
+                Digest384::new([6; 48]),
+                1_000,
+                0,
+                FungibleAssetLifecycle::Registered,
+            )
+            .unwrap()
+        };
+        let registry = FungibleAssetPolicyRegistry::new(vec![make(1), make(2)]).unwrap();
+        let bytes = encode_envelope(&registry).unwrap();
+        assert_eq!(decode_envelope::<FungibleAssetPolicyRegistry>(&bytes), Ok(registry.clone()));
+        assert_eq!(registry.find(id(2)).unwrap().asset_id(), id(2));
+        assert_eq!(
+            FungibleAssetPolicyRegistry::new(vec![make(2), make(1)]),
+            Err(AssetDefinitionError::AssetsNotOrdered)
         );
     }
 }

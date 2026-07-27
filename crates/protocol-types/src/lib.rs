@@ -24,8 +24,9 @@ mod package;
 
 pub use admission::{exact_frame_layout, fresh_sequence, length_prefixed_range};
 pub use asset::{
-    AssetDefinitionError, FungibleAssetDefinition, FungibleAssetLifecycle, FungibleAssetPolicyV1,
-    FungibleAssetRegistry, MAX_ASSET_SYMBOL_LENGTH, MAX_FUNGIBLE_ASSETS,
+    AssetDefinitionError, FungibleAssetDefinition, FungibleAssetLifecycle,
+    FungibleAssetPolicyRegistry, FungibleAssetPolicyV1, FungibleAssetRegistry,
+    MAX_ASSET_SYMBOL_LENGTH, MAX_FUNGIBLE_ASSETS,
 };
 pub use authority::{
     BoundedActionSet, BoundedActionSetError, CapabilityGrant, CapabilityGrantFields,
