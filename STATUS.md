@@ -119,6 +119,8 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
   publication now consumes evidence-bearing persisted cash state.
 - [x] Add a validator publication method that requires the exact finalized certificate to match
   the persisted cash root, height, and immutable chain genesis.
+- [x] Add an execution-side snapshot materializer from the authenticated wallet ledger; certificate
+  binding remains mandatory before RPC publication.
 - [x] Make durable RPC replacement independently verify every proof-bearing record against the
   configured genesis and exact finalized height before persistence.
 - [x] Persist finalized cash cells with the exact finalized certificate and reject height, genesis,

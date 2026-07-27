@@ -116,6 +116,17 @@ impl WalletTransactionGateway {
                 .collect(),
         )
     }
+
+    /// Materializes the admitted cash ledger as an execution snapshot. The caller must still
+    /// authenticate this snapshot against the finalized block certificate before publishing it
+    /// through `ValidatorService::finalized_cash_rpc_records`.
+    pub fn finalized_cash_snapshot(
+        &self,
+        chain_genesis: Digest384,
+        finalized_height: u64,
+    ) -> Result<FinalizedCashSnapshot, &'static str> {
+        FinalizedCashSnapshot::new(chain_genesis, finalized_height, self.ledger().cells().clone())
+    }
 }
 
 const PEER_BODY_DOMAIN: &[u8] = b"ACTIVECHAIN-PEER-BODY-V1";
