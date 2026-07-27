@@ -27,6 +27,101 @@ pub enum AssetDefinitionError {
     InvalidNftMetadata,
     NftOwnerMismatch,
     SeriesSupplyExceeded,
+    InvalidSupplyAttestation,
+}
+
+/// Commitment-only finalized supply statement for independent wallets and RPC
+/// clients. Reserve evidence stays off-chain while the exact policy context is bound.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FungibleSupplyAttestationV1 {
+    asset_id: AssetId,
+    policy_commitment: Digest384,
+    issuer: PrincipalId,
+    supply_issued: u128,
+    finalized_height: u64,
+    approval_commitment: Digest384,
+}
+impl FungibleSupplyAttestationV1 {
+    pub const TYPE_TAG: u16 = 0x00B4;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 4 + 16 + 8;
+    pub fn new(
+        asset_id: AssetId,
+        policy_commitment: Digest384,
+        issuer: PrincipalId,
+        supply_issued: u128,
+        finalized_height: u64,
+        approval_commitment: Digest384,
+    ) -> Result<Self, AssetDefinitionError> {
+        if asset_id.digest() == &Digest384::ZERO
+            || policy_commitment == Digest384::ZERO
+            || approval_commitment == Digest384::ZERO
+            || supply_issued == 0
+            || finalized_height == 0
+        {
+            return Err(AssetDefinitionError::InvalidSupplyAttestation);
+        }
+        Ok(Self {
+            asset_id,
+            policy_commitment,
+            issuer,
+            supply_issued,
+            finalized_height,
+            approval_commitment,
+        })
+    }
+    pub const fn asset_id(&self) -> AssetId {
+        self.asset_id
+    }
+    pub const fn policy_commitment(&self) -> Digest384 {
+        self.policy_commitment
+    }
+    pub const fn issuer(&self) -> PrincipalId {
+        self.issuer
+    }
+    pub const fn supply_issued(&self) -> u128 {
+        self.supply_issued
+    }
+    pub const fn finalized_height(&self) -> u64 {
+        self.finalized_height
+    }
+    pub const fn approval_commitment(&self) -> Digest384 {
+        self.approval_commitment
+    }
+    pub fn binds_policy(&self, policy: &FungibleAssetPolicyV1) -> bool {
+        self.asset_id == policy.asset_id()
+            && self.issuer == policy.issuer()
+            && self.policy_commitment == policy.commitment().ok().unwrap_or(Digest384::ZERO)
+            && self.supply_issued == policy.supply_issued()
+    }
+}
+impl CanonicalEncode for FungibleSupplyAttestationV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.asset_id.encode(e)?;
+        self.policy_commitment.encode(e)?;
+        self.issuer.encode(e)?;
+        self.supply_issued.encode(e)?;
+        self.finalized_height.encode(e)?;
+        self.approval_commitment.encode(e)
+    }
+}
+impl CanonicalDecode for FungibleSupplyAttestationV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            AssetId::decode(d)?,
+            Digest384::decode(d)?,
+            PrincipalId::decode(d)?,
+            u128::decode(d)?,
+            u64::decode(d)?,
+            Digest384::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid supply attestation"))
+    }
+}
+impl CanonicalType for FungibleSupplyAttestationV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
 /// Canonical native non-fungible token record. Metadata is represented only by
@@ -991,6 +1086,47 @@ mod tests {
         assert_eq!(series.reserve_mint(3), Err(AssetDefinitionError::SeriesSupplyExceeded));
         assert!(
             NonFungibleSeriesV1::new(id(1), principal(2), 0, 0, Digest384::new([6; 48])).is_err()
+        );
+    }
+
+    #[test]
+    fn supply_attestation_binds_policy_and_rejects_malformed_values() {
+        let policy = FungibleAssetPolicyV1::new(
+            id(1),
+            principal(2),
+            Digest384::new([3; 48]),
+            Digest384::new([4; 48]),
+            Digest384::new([5; 48]),
+            Digest384::new([6; 48]),
+            100,
+            1,
+            FungibleAssetLifecycle::Registered,
+        )
+        .unwrap();
+        let attestation = FungibleSupplyAttestationV1::new(
+            policy.asset_id(),
+            policy.commitment().unwrap(),
+            policy.issuer(),
+            policy.supply_issued(),
+            9,
+            Digest384::new([8; 48]),
+        )
+        .unwrap();
+        assert_eq!(
+            decode_envelope::<FungibleSupplyAttestationV1>(&encode_envelope(&attestation).unwrap()),
+            Ok(attestation)
+        );
+        assert!(attestation.binds_policy(&policy));
+        assert!(
+            FungibleSupplyAttestationV1::new(
+                policy.asset_id(),
+                Digest384::ZERO,
+                policy.issuer(),
+                1,
+                1,
+                Digest384::new([8; 48])
+            )
+            .is_err()
         );
     }
 
