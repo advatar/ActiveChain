@@ -95,6 +95,12 @@ impl FungibleIssuerRegistrationV1 {
     pub const fn active_at(&self, height: u64) -> bool {
         height >= self.effective_height && height < self.expires_height
     }
+    pub fn binds_policy(&self, policy: &FungibleAssetPolicyV1) -> bool {
+        self.asset_id == policy.asset_id()
+            && self.issuer == policy.issuer()
+            && self.authority_set == policy.authority_set()
+            && self.policy_commitment == policy.commitment().ok().unwrap_or(Digest384::ZERO)
+    }
 }
 impl CanonicalEncode for FungibleIssuerRegistrationV1 {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
@@ -1243,6 +1249,28 @@ mod tests {
             )
             .is_err()
         );
+        let policy = FungibleAssetPolicyV1::new(
+            id(1),
+            principal(2),
+            Digest384::new([7; 48]),
+            Digest384::new([8; 48]),
+            Digest384::new([9; 48]),
+            Digest384::new([3; 48]),
+            100,
+            1,
+            FungibleAssetLifecycle::Registered,
+        )
+        .unwrap();
+        let bound = FungibleIssuerRegistrationV1::new(
+            id(1),
+            principal(2),
+            policy.authority_set(),
+            policy.commitment().unwrap(),
+            10,
+            20,
+        )
+        .unwrap();
+        assert!(bound.binds_policy(&policy));
     }
 
     #[test]
