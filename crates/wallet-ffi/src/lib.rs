@@ -1,7 +1,7 @@
 #![allow(unsafe_code)]
 
 use activechain_canonical_codec::{decode_envelope, encode_envelope};
-use activechain_cash_kernel::{CoinCellSet, CoinTransfer};
+use activechain_cash_kernel::{CoinCellSet, CoinTransfer, FungibleCoinCellSet};
 use activechain_protocol_types::{
     CapabilityId, ChainId, CoinCellId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature,
     TransactionId,
@@ -669,6 +669,54 @@ pub unsafe extern "C" fn activechain_wallet_select_cells(
     let fee = (u128::from(fee_high) << 64) | u128::from(fee_low);
     let Ok((payment, reserve)) =
         activechain_wallet_core::select_cells(cells.as_slice(), owner, amount, fee)
+    else {
+        return WALLET_INSUFFICIENT_FUNDS;
+    };
+    unsafe {
+        write_cell_id(payment_out, payment);
+        write_cell_id(fee_reserve_out, reserve);
+    }
+    WALLET_OK
+}
+
+/// Selects payment and fee-reserve cells from an explicit fungible asset set.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn activechain_wallet_select_fungible_cells(
+    cells: *const u8,
+    cells_len: u32,
+    owner: *const u8,
+    amount_high: u64,
+    amount_low: u64,
+    fee_high: u64,
+    fee_low: u64,
+    payment_out: *mut u8,
+    fee_reserve_out: *mut u8,
+) -> u32 {
+    if (cells.is_null() && cells_len != 0)
+        || owner.is_null()
+        || payment_out.is_null()
+        || fee_reserve_out.is_null()
+    {
+        return WALLET_NULL_POINTER;
+    }
+    if cells_len > MAX_WALLET_INPUT {
+        return WALLET_TOO_LARGE;
+    }
+    let bytes = if cells_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(cells, cells_len as usize) }
+    };
+    let Ok(cells) = decode_envelope::<FungibleCoinCellSet>(bytes) else {
+        return WALLET_MALFORMED;
+    };
+    let owner = PrincipalId::new(Digest384::new(
+        unsafe { core::slice::from_raw_parts(owner, 48) }.try_into().unwrap(),
+    ));
+    let amount = (u128::from(amount_high) << 64) | u128::from(amount_low);
+    let fee = (u128::from(fee_high) << 64) | u128::from(fee_low);
+    let Ok((payment, reserve)) =
+        activechain_wallet_core::select_fungible_cells(&cells, owner, amount, fee)
     else {
         return WALLET_INSUFFICIENT_FUNDS;
     };
