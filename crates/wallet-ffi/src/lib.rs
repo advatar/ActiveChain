@@ -1,7 +1,7 @@
 #![allow(unsafe_code)]
 
 use activechain_canonical_codec::{decode_envelope, encode_envelope};
-use activechain_cash_kernel::{CoinCellSet, CoinTransfer};
+use activechain_cash_kernel::{CoinCellSet, CoinTransfer, FungibleCoinCellSet};
 use activechain_protocol_types::{
     CapabilityId, ChainId, CoinCellId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature,
     TransactionId,
@@ -679,6 +679,58 @@ pub unsafe extern "C" fn activechain_wallet_select_cells(
     WALLET_OK
 }
 
+/// Selects payment and fee-reserve cells from an explicit fungible asset set.
+///
+/// # Safety
+/// All pointers must reference buffers valid for their declared lengths; output buffers must be
+/// writable for 48 bytes. No pointer is retained.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn activechain_wallet_select_fungible_cells(
+    cells: *const u8,
+    cells_len: u32,
+    owner: *const u8,
+    amount_high: u64,
+    amount_low: u64,
+    fee_high: u64,
+    fee_low: u64,
+    payment_out: *mut u8,
+    fee_reserve_out: *mut u8,
+) -> u32 {
+    if (cells.is_null() && cells_len != 0)
+        || owner.is_null()
+        || payment_out.is_null()
+        || fee_reserve_out.is_null()
+    {
+        return WALLET_NULL_POINTER;
+    }
+    if cells_len > MAX_WALLET_INPUT {
+        return WALLET_TOO_LARGE;
+    }
+    let bytes = if cells_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(cells, cells_len as usize) }
+    };
+    let Ok(cells) = decode_envelope::<FungibleCoinCellSet>(bytes) else {
+        return WALLET_MALFORMED;
+    };
+    let owner = PrincipalId::new(Digest384::new(
+        unsafe { core::slice::from_raw_parts(owner, 48) }.try_into().unwrap(),
+    ));
+    let amount = (u128::from(amount_high) << 64) | u128::from(amount_low);
+    let fee = (u128::from(fee_high) << 64) | u128::from(fee_low);
+    let Ok((payment, reserve)) =
+        activechain_wallet_core::select_fungible_cells(&cells, owner, amount, fee)
+    else {
+        return WALLET_INSUFFICIENT_FUNDS;
+    };
+    unsafe {
+        write_cell_id(payment_out, payment);
+        write_cell_id(fee_reserve_out, reserve);
+    }
+    WALLET_OK
+}
+
 /// Evaluates the exact wallet-core spending policy without side effects.
 ///
 /// # Safety
@@ -805,6 +857,83 @@ pub unsafe extern "C" fn activechain_wallet_build_cash_intent(
     };
     unsafe {
         core::ptr::copy_nonoverlapping(intent.as_bytes().as_ptr(), intent_out, 48);
+    }
+    WALLET_OK
+}
+
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+/// Builds a canonical asset-bound transfer envelope with size-query support.
+///
+/// # Safety
+/// All input pointers must reference readable buffers and `required_len` must be writable;
+/// `output` must be writable for `output_capacity` bytes.
+pub unsafe extern "C" fn activechain_wallet_build_fungible_transfer(
+    cells: *const u8,
+    cells_len: u32,
+    asset: *const u8,
+    sender: *const u8,
+    recipient: *const u8,
+    input_ids: *const u8,
+    input_count: u16,
+    amount_high: u64,
+    amount_low: u64,
+    output: *mut u8,
+    output_capacity: u32,
+    required_len: *mut u32,
+) -> u32 {
+    if (cells.is_null() && cells_len != 0)
+        || asset.is_null()
+        || sender.is_null()
+        || recipient.is_null()
+        || (input_ids.is_null() && input_count != 0)
+        || required_len.is_null()
+        || (output.is_null() && output_capacity != 0)
+    {
+        return WALLET_NULL_POINTER;
+    }
+    if cells_len > MAX_WALLET_INPUT || input_count == 0 {
+        return WALLET_MALFORMED;
+    }
+    let bytes = if cells_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(cells, cells_len as usize) }
+    };
+    let Ok(cells) = decode_envelope::<FungibleCoinCellSet>(bytes) else {
+        return WALLET_MALFORMED;
+    };
+    let ids = unsafe { core::slice::from_raw_parts(input_ids, input_count as usize * 48) };
+    let mut input_ids_vec = Vec::with_capacity(input_count as usize);
+    for chunk in ids.chunks_exact(48) {
+        input_ids_vec.push(CoinCellId::new(Digest384::new(chunk.try_into().unwrap())));
+    }
+    let Ok(transfer) = activechain_wallet_core::build_fungible_transfer(
+        &cells,
+        activechain_protocol_types::AssetId::new(unsafe { read_digest(asset) }),
+        PrincipalId::new(unsafe { read_digest(sender) }),
+        PrincipalId::new(unsafe { read_digest(recipient) }),
+        &input_ids_vec,
+        join_u128(amount_high, amount_low),
+    ) else {
+        return WALLET_MALFORMED;
+    };
+    let Ok(encoded) = encode_envelope(&transfer) else {
+        return WALLET_MALFORMED;
+    };
+    let Ok(length) = u32::try_from(encoded.len()) else {
+        return WALLET_TOO_LARGE;
+    };
+    unsafe {
+        *required_len = length;
+    }
+    if output_capacity < length {
+        return WALLET_BUFFER_TOO_SMALL;
+    }
+    if length != 0 {
+        unsafe {
+            core::ptr::copy_nonoverlapping(encoded.as_ptr(), output, encoded.len());
+        }
     }
     WALLET_OK
 }
@@ -1459,6 +1588,50 @@ mod tests {
                     1,
                     payment.as_mut_ptr(),
                     reserve.as_mut_ptr(),
+                )
+            },
+            WALLET_MALFORMED
+        );
+    }
+
+    #[test]
+    fn fungible_transfer_abi_rejects_null_and_malformed_inputs() {
+        let mut required = 0_u32;
+        assert_eq!(
+            unsafe {
+                activechain_wallet_build_fungible_transfer(
+                    core::ptr::null(),
+                    1,
+                    [1_u8; 48].as_ptr(),
+                    [2_u8; 48].as_ptr(),
+                    [3_u8; 48].as_ptr(),
+                    [4_u8; 48].as_ptr(),
+                    1,
+                    0,
+                    1,
+                    core::ptr::null_mut(),
+                    0,
+                    &mut required,
+                )
+            },
+            WALLET_NULL_POINTER
+        );
+        let malformed = [0_u8];
+        assert_eq!(
+            unsafe {
+                activechain_wallet_build_fungible_transfer(
+                    malformed.as_ptr(),
+                    malformed.len() as u32,
+                    [1_u8; 48].as_ptr(),
+                    [2_u8; 48].as_ptr(),
+                    [3_u8; 48].as_ptr(),
+                    [4_u8; 48].as_ptr(),
+                    1,
+                    0,
+                    1,
+                    core::ptr::null_mut(),
+                    0,
+                    &mut required,
                 )
             },
             WALLET_MALFORMED

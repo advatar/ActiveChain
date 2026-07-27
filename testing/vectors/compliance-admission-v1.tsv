@@ -1,0 +1,9 @@
+case_id	signature_verified	evidence_binding	travel_binding	replay_state	expected
+first-use	true	match	match	unused	admit-and-consume
+signature-failure	false	match	match	unused	reject-no-consume
+wrong-chain	true	mismatch	match	unused	reject-no-consume
+wrong-action	true	mismatch	match	unused	reject-no-consume
+expired-evidence	true	expired	match	unused	reject-no-consume
+travel-asset-substitution	true	match	mismatch	unused	reject-no-consume
+travel-expired	true	match	expired	unused	reject-no-consume
+replay	true	match	match	consumed	reject-replay

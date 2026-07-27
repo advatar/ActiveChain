@@ -8,6 +8,8 @@ extern crate alloc;
 extern crate std;
 
 mod anchor;
+#[cfg(feature = "std")]
+mod compliance;
 
 #[cfg(feature = "std")]
 pub use anchor::DurableAnchorRegistry;
@@ -15,6 +17,11 @@ pub use anchor::{
     AnchorBatchProofV1, AnchorError, AnchorFinalizedEvidenceV1, AnchorRecord, AnchorRegistry,
     AnchorStatus, DigestAnchorStatementV1, MAX_ANCHOR_APPLICATION_DOMAIN_LENGTH, anchor_leaf_hash,
     anchor_node_hash, verify_anchor_evidence,
+};
+#[cfg(feature = "std")]
+pub use compliance::{
+    ComplianceAdmissionError, CompliancePersistenceError, DurableComplianceReplayJournal,
+    admit_regulated_transfer, require_selected_profile,
 };
 
 use activechain_canonical_codec::{

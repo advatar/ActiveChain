@@ -101,8 +101,8 @@ The original gaps are retained below as the implementation checklist now covered
 1. Strictly decode and re-encode the canonical `DevnetBlock` before deterministic execution.
 2. Materialize `ProofPublicInputs` and `FinalizedBlockHeader`; the typed proposal entry point derives
    the only voteable digest from that header.
-3. Compose `devnet-kernel::apply_block` output into the exact receipt, economics, post-state, and
-   header digest checked at admission.
+3. Compose `devnet-kernel::apply_block` output into the exact receipt, economics, authenticated
+   Coin Cell root, post-state, and header digest checked at admission.
 4. Require a finalized authorization-verifier observation for every action and recompute the
    canonical authorization aggregate.
 5. Recompute DA and receipt commitments from canonical bytes and bind both to the QC header.
@@ -110,7 +110,7 @@ The original gaps are retained below as the implementation checklist now covered
    exact statement commitment.
 7. Crash-atomically publish proof finality, executed state, locks/nonces/tickets, fee/supply result,
    DA/proof/header metadata, and finalized block digest in `DurableFinalizedState`.
-8. Freeze the header vector and reject authorization/action/order/receipt/state/DA/revision
+8. Freeze the header vector and reject authorization/action/order/receipt/cash-root/state/DA/revision
    substitution, cross-job proofs, replay, corruption, backpressure, and duplicate rewards.
 9. Keep cryptographic soundness and collision resistance as explicit assumptions; the Rust path
    enforces the same concrete equality and strict-codec premises used by the Lean theorem.

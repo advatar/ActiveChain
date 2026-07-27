@@ -2,6 +2,68 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Kanalen snapshot compatibility gate
+
+- [x] Publish the persisted validator snapshot schema marker through the read-only indexer.
+- [x] Make the preflight script reject snapshots with an unexpected schema marker.
+
+## Kanalen recoverable clean rebuild
+
+- [x] Add an explicit-confirmation tool that archives incompatible state before rebuilding genesis.
+- [x] Cover validator, RPC, and PQ-session artifacts without touching launch configuration.
+
+## Workspace strict-Clippy qualification
+
+- [x] Resolve the current dead-code and argument-count diagnostics under `-D warnings`.
+- [x] Pass the exact workspace all-target/all-feature Clippy gate with `RISC0_SKIP_BUILD=1` (the CI qualification mode).
+
+## Clippy follow-up: regulated admission
+
+- [x] Clear the newly surfaced argument-count and nested-condition diagnostics in regulated transfer admission.
+
+## Clippy follow-up: agent enrollment
+
+- [x] Preserve the canonical enrollment constructor shape while clearing its argument-count diagnostic.
+
+## Clippy follow-up: consensus runtime feature build
+
+- [x] Disambiguate SHAKE reader calls when all workspace features are enabled.
+
+## Clippy follow-up: consensus runtime lint cleanup
+
+- [x] Document the intentional consensus message size and simplify constant error paths.
+
+## Clippy follow-up: vector generator API drift
+
+- [x] Keep the frozen epoch-upgrade table consumable while the runtime upgrade model evolves.
+
+## Clippy follow-up: verifier fixture API drift
+
+- [x] Update finality verifier fixtures for explicit proposal commitments in votes and certificates.
+
+## Clippy follow-up: light-client fixture API drift
+
+- [x] Update light-client finality and upgrade fixtures for explicit proposal commitments.
+
+## Clippy follow-up: verifier/RPC fixture API drift
+
+- [x] Update verifier API and RPC finality fixtures for explicit proposal commitments.
+
+## Kanalen reset/recovery automation
+
+- [x] Bootstrap the RPC index automatically when a testnet is reset to a new genesis.
+- [x] Rehearse a genesis reset end-to-end and verify the public RPC health response (fresh genesis finalized at height 7; RPC healthy).
+
+## Faucet RPC exposure
+
+- [x] Expose operator-configured faucet terms and persisted receipt resolution through the RPC server.
+- [x] Keep funding submission disabled until a validator-backed settlement adapter is attached.
+
+## Release branch hygiene
+
+- [x] Remove merged implementation branches while preserving intentional archive branches.
+- [x] Verify `origin/main` is the only active implementation branch after cleanup.
+
 ## Phase 0 — protocol foundation
 
 - [x] Establish a pinned stable-Rust workspace with consensus-kernel quality gates.
@@ -16,81 +78,22 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Phase 0 bootstrap is tracked by [GitHub issue #1](https://github.com/advatar/ActiveChain/issues/1).
 
-## Active landing-page clarification — native stablecoins
+## Active testnet fix — verified wallet state discovery
 
-Tracked by [GitHub issue #187](https://github.com/advatar/ActiveChain/issues/187).
+Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180).
 
-- [x] Explain protocol-native asset issuance and EUR/USD stablecoin use cases prominently.
-- [x] Describe bounded issuer controls, private policy proofs, reserve evidence, wallet discovery,
-  and configurable issuer policy without implying a launched regulated product.
-- [x] Qualify the landing build and responsive layout, publish the display submodule,
-  update the parent pointer, and merge both repositories.
-
-## Active landing-page fix — native-assets readability
-
-Tracked by [GitHub issue #191](https://github.com/advatar/ActiveChain/issues/191).
-
-- [x] Replace dense roadmap paragraphs with short summaries, grouped bullets, and explicit
-  shipped/verified/open-gate callouts.
-- [x] Improve desktop and mobile line length, spacing, and section hierarchy.
-- [x] Pass targeted lint and the production build.
-- [ ] Complete responsive browser verification when an integrated preview browser is available.
-- [x] Publish and merge the landing display plus updated ActiveChain submodule pointer.
-
-## Active epic — ActiveBridge native payments and merchant settlement
-
-Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189).
-
-- [x] Publish the dependency-ordered architecture and implementation plan for canonical payments,
-  provider connectors, nTZS sandbox integration, native settlement, wallets, and merchant tooling.
-- [ ] Validate current nTZS API, sandbox, custody, stablecoin, settlement, reconciliation,
-  regulatory, security, and operational contracts without assuming website claims are guarantees.
-- [ ] Freeze provider-independent payment, quote, intent, evidence, lifecycle, receipt, error,
-  idempotency, webhook, and compatibility specifications with deterministic vectors.
-- [ ] Complete multi-asset Coin Cells and the fungible native-asset registry required for
-  conservation-checked issuance, transfer, burn, redemption, and proof-bearing discovery.
-- [ ] Implement an isolated, operator-configurable connector host, durable operation journal,
-  deterministic simulator, webhook delivery, reconciliation, and emergency controls.
-- [ ] Implement and qualify the nTZS sandbox connector as the first regional adapter.
-- [ ] Join external evidence to capability/APL-authorized native ingress, egress, conversion,
-  paymaster sponsorship, and offline-verifiable finalized receipts.
-- [ ] Ship authenticated RPC/REST, TypeScript/Swift/Kotlin SDKs, honest wallet flows, merchant
-  treasury controls, and reconciliation tooling.
-- [ ] Prove lifecycle safety, conservation, idempotency, replay resistance, restart equivalence,
-  authorization, quote bounds, and receipt binding; publish all external trust assumptions.
-- [ ] Pass adversarial, privacy, recovery, reconciliation, Kanalen pilot, independent-audit, and
-  production-qualification gates before enabling real value.
-
-## Active wallet implementation — agent enrollment
-
-Tracked by [GitHub issue #182](https://github.com/advatar/ActiveChain/issues/182).
-
-- [ ] Freeze canonical bounded enrollment request, wallet grant, and lifecycle evidence types.
-  - [x] Define agent-signed ML-DSA-65 request and wallet-signed ML-DSA-44 attenuated grant
-    envelopes bound to chain, wallet, principal, authenticator, authority, validity, and nonce.
-  - [x] Define submitted, finalized, rejected, and expired lifecycle evidence envelopes with
-    monotonic transitions and exact request, transaction, block, and inclusion commitments.
-  - [x] Prove terminal immutability and exact-transaction finalization in the executable Lean
-    lifecycle model with an explicit implementation-refinement boundary.
-- [ ] Add durable request replay protection plus pending, finalized, rejected, and expired states.
-  - [x] Persist a fail-closed pending state and require the exact transaction commitment for
-    activation at a nonzero finalized height.
-  - [ ] Add durable request replay records and persist protocol-level rejected/expired evidence.
-    - [x] Add a checksummed atomic enrollment journal with nonce replay protection and monotonic
-      evidence replacement.
-    - [x] Enforce globally unique wallet envelope tags before publishing the journal schema.
-- [ ] Expose exact operations through the wallet ABI with deterministic malformed vectors.
-  - [x] Expose pending registration and exact finalization operations without changing existing
-    lifecycle numeric tags.
-  - [ ] Publish request/grant envelope validation and deterministic positive/malformed vectors.
-    - [x] Add canonical round-trip, deterministic commitment, signature, wrong-chain, expiry,
-      authority amplification, substitution, and trailing-data tests in wallet core.
-- [ ] Add QR/deep-link import, authority controls, authenticated confirmation, and explicit state UI.
-  - [x] Add a biometric-confirmed native developer entry form with bounded principal, sorted
-    capabilities, connection kind, budget, expiry, and explicit pending state.
-  - [ ] Replace raw entry with authenticated QR, universal-link, and same-team request import.
-- [ ] Pass Rust, Swift, iOS, and macOS qualification; publish and merge without sample agents.
-  - [x] Pass wallet-core/FFI tests, Swift tests, and iOS/macOS application builds.
+- [x] Define a bounded owner-scoped Coin Cell query and finalized proof-bearing response.
+- [x] Persist and serve owner indexes without leaking unrelated owner state.
+- [ ] Verify exact chain, owner, finality, cell commitments, and pagination in wallet code.
+- [x] Persist and restore the authenticated wallet ledger with an explicit chain-id binding.
+- [ ] Export finalized Coin Cell membership proofs from validator execution into the RPC index;
+  wallet snapshots without a matching finalized cash-cell root remain in-process only.
+- [ ] Wire the proof-bearing Coin Cell record builder into the validator finalization publisher.
+- [ ] Persist finalized cash cells with the finalized header and reject root mismatches on restart.
+- [ ] Enable the Kanalen round runner to publish finalized cash snapshots when validator output is
+  available; retain metadata-only ingestion until then.
+- [ ] Load a real device wallet profile and remove the hard-coded unavailable dashboard path.
+- [ ] Extend Kanalen ingestion/rehearsal, add adversarial tests, deploy, and verify the public RPC.
 
 ## Active recovery — abandoned checkout reconciliation
 
@@ -123,6 +126,9 @@ Tracked by [GitHub issue #129](https://github.com/advatar/ActiveChain/issues/129
 - [x] Build and verify the local wallet XCFramework and arm64 simulator app from a clean checkout.
 - [x] Preserve the shared Apple development-team ID in `project.yml` while keeping certificates,
   private keys, Xcode user data, and build state local.
+- [x] Keep the agent enrollment UI compatible with the currently packaged wallet XCFramework;
+  use the stable registration ABI until the pending-enrollment symbol is included in a rebuilt
+  signed distribution.
 
 ## Active implementation — native macOS wallet
 
@@ -179,11 +185,17 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
 - [x] Freeze canonical, testnet-bound faucet request, challenge, decision, and receipt/status types.
 - [x] Add operator-configurable grant amounts, global budgets, recipient cooldown/lifetime limits,
   idempotency, optional escalating Sybil challenges, and durable restart-safe accounting.
+- [x] Add bounded canonical request/response framing for the validator RPC bridge, with strict
+  length checks and malformed-frame regression vectors.
 - [ ] Submit faucet-authorized Coin Cell transitions through real transaction ingress and expose
   pending/finalized/rejected proof-bearing status through the Kanalen gateway.
+- [ ] Publish the end-to-end funding admission contract and adversarial vectors before public
+  faucet deployment.
 - [ ] Formally verify testnet-only validity, supply conservation, exactly-once issuance,
   rate-limit monotonicity, atomic restart equivalence, and receipt-to-finalized-transition binding;
   publish the proof scope and every remaining assumption or gap.
+- [ ] Freeze the faucet invariant model and executable conformance vectors before formal proof
+  integration.
 - [ ] Add an iOS/macOS testnet funding flow that never credits optimistic or local-only balances.
 - [ ] Pass replay, concurrency, forged-chain, exhaustion, restart, privacy, and end-to-end tests.
 
@@ -192,10 +204,63 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
 Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163).
 
 - [ ] Bind fungible Coin Cells and all transitions, authorizations, proofs, and receipts to `AssetId`.
+- [ ] Add the backward-compatible canonical `FungibleCoinCellRecord` wire type before migrating
+  authenticated roots and wallet/RPC APIs.
+- [ ] Add an ordered fungible-cell set and domain-separated authenticated root.
+- [ ] Add fungible-cell membership proofs bound to the asset record and set root.
+- [ ] Freeze the canonical multi-asset binding rules and positive/malformed vectors before
+  changing execution or wallet surfaces.
 - [ ] Specify a finalized issuer-controlled asset metadata and supply registry.
 - [ ] Add proof-bearing owner-and-asset RPC discovery with bounded pagination.
 - [ ] Extend the versioned wallet ABI for multi-asset balances, selection, signing, and submission.
+- [ ] Add deterministic wallet selection over `FungibleCoinCellSet` with explicit asset identity.
 - [ ] Qualify native, test-EUR, and test-USD assets with cross-asset adversarial vectors.
+
+## Active regulated-profile implementation — screening semantics
+
+Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213).
+
+- [ ] Specify versioned sanctions/KYC screening inputs, freshness, matching, overrides, and
+  privacy-preserving evidence handling with deterministic vectors.
+
+## Active dBrowser development RPC contract
+
+Tracked by [GitHub issue #91](https://github.com/advatar/ActiveChain/issues/91).
+
+- [ ] Freeze chain identity, genesis, protocol revision, finality/health, supported proofs, and
+  proof-bearing state/action/receipt query semantics with deterministic vectors.
+
+## Active Kanalen deployment compatibility gate
+
+- [ ] Add snapshot schema compatibility/version checks and a migration or rebuild procedure before
+  promoting new validator binaries; the 2026-07-25 canary was rolled back after snapshot decode
+  failure.
+
+## Active EUDI/TLSNotary credential pipeline
+
+Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169).
+
+- [ ] Freeze credential-to-ZK predicate boundaries, issuer/status freshness, holder binding,
+  audience/action binding, and selective-disclosure vectors.
+
+## Active independent-client qualification
+
+- [ ] Publish a bounded conformance surface and second-client milestone for the selected launch
+  contract, with canonical vectors and no dependency on Rust implementation internals.
+
+## Active native issuer operations
+
+Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164).
+
+- [ ] Define issuer registration, threshold-controlled mint/burn, redemption, pause/recovery,
+  and supply-attestation lifecycle semantics with deterministic vectors.
+- [ ] Specify confidential evidence retention, deletion, access, breach handling, and offline
+  verification boundaries with deterministic vectors.
+
+## Active launch sequencing — versioned feature contract
+
+- [ ] Reserve future type tags, header fields, envelope extensions, and dispatch seams at v1.0;
+  publish the v1.0/v1.1/v1.2 qualification gates and unknown-tag rejection vectors.
 
 ## Active epic — native asset tokenization
 
@@ -414,6 +479,9 @@ Tracked by [GitHub issue #42](https://github.com/advatar/ActiveChain/issues/42).
 
 Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
 
+- [ ] Recover and reconcile the unpublished consensus-safety and authorization-chain proof work
+  against current `origin/main`
+  ([GitHub issue #127](https://github.com/advatar/ActiveChain/issues/127)).
 - [x] Prove the initial wallet-agent HITL and replay properties in Tamarin.
 - [ ] Prove consensus QC, chain-prefix finality, replay, equivocation, view-change, reconfiguration,
   and crash-recovery properties.

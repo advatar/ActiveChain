@@ -1,0 +1,1 @@
+{"type":"withdrawal.completed","data":{"withdrawalId":"wdr_fixture_001","userId":"usr_fixture_payee","amountTzs":10000,"phoneNumber":"255700000000"}}

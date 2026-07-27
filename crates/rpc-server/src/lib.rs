@@ -14,8 +14,12 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     decode_envelope, encode_envelope,
 };
+use activechain_cash_kernel::{
+    CoinCellMembershipProof, CoinCellRecord, CoinCellSet, FungibleCoinCellMembershipProof,
+    FungibleCoinCellRecord, prove_coin_cell_membership,
+};
 use activechain_finality_types::commit_parts;
-use activechain_protocol_types::{ChainId, Digest384, Object, TransactionId};
+use activechain_protocol_types::{AssetId, ChainId, Digest384, Object, PrincipalId, TransactionId};
 use activechain_rpc_types::{
     ActionSetProof, Health, MAX_SUPPORTED_PROOFS, ProofKind, QueryKind, QueryPage, QueryRecord,
     RpcAccessRequest, RpcAccessResponse, RpcError, RpcRequest, RpcResponse, RpcStatus,
@@ -36,6 +40,46 @@ use std::{
 pub const MAX_RPC_FRAME: usize = 4 * 1024 * 1024;
 pub const RPC_IO_TIMEOUT: Duration = Duration::from_secs(2);
 pub const MAX_INDEXED_RECORDS: usize = 65_535;
+
+/// Builds proof-bearing RPC records from a finalized cash cell set.
+///
+/// The finality bundle is validated before any record is returned. This keeps the
+/// validator-to-index handoff fail-closed: a wallet snapshot or an unfinalized root
+/// cannot be published as an RPC balance.
+pub fn finalized_coin_cell_records(
+    cells: &CoinCellSet,
+    finalized_height: u64,
+    finality: &[u8],
+) -> Result<Vec<QueryRecord>, RpcStoreError> {
+    let bundle = activechain_verifier_api::verify_finality_bundle(finality)
+        .map_err(|_| RpcStoreError::Invalid)?;
+    if bundle.header().inputs.height != finalized_height {
+        return Err(RpcStoreError::Invalid);
+    }
+    let mut records = Vec::with_capacity(cells.as_slice().len());
+    for cell in cells.as_slice() {
+        let proof =
+            prove_coin_cell_membership(cells, cell.id()).map_err(|_| RpcStoreError::Invalid)?;
+        if proof.root().into_digest() != bundle.header().inputs.cash_cell_root
+            || proof.record() != *cell
+        {
+            return Err(RpcStoreError::Invalid);
+        }
+        records.push(
+            QueryRecord::new(
+                QueryKind::CoinCell,
+                cell.id().into_digest(),
+                finalized_height,
+                encode_envelope(cell).map_err(|_| RpcStoreError::Invalid)?,
+                encode_envelope(&proof).map_err(|_| RpcStoreError::Invalid)?,
+                finality.to_vec(),
+            )
+            .map_err(|_| RpcStoreError::Invalid)?,
+        );
+    }
+    records.sort_by_key(|record| record.key());
+    Ok(records)
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RpcProofError {
@@ -156,6 +200,34 @@ fn verify_query_record_with_finality(
             }
             Ok(())
         }
+        QueryKind::CoinCell => {
+            let cell = decode_envelope::<CoinCellRecord>(record.value())
+                .map_err(|_| RpcProofError::Malformed)?;
+            if cell.id().into_digest() != record.key() {
+                return Err(RpcProofError::Key);
+            }
+            let proof = decode_envelope::<CoinCellMembershipProof>(record.proof())
+                .map_err(|_| RpcProofError::Malformed)?;
+            if proof.record() != cell
+                || proof.root().into_digest() != finality.header().inputs.cash_cell_root
+            {
+                return Err(RpcProofError::Relation);
+            }
+            Ok(())
+        }
+        QueryKind::FungibleCoinCell => {
+            let cell = decode_envelope::<FungibleCoinCellRecord>(record.value())
+                .map_err(|_| RpcProofError::Malformed)?;
+            if cell.id().into_digest() != record.key() {
+                return Err(RpcProofError::Key);
+            }
+            let proof = decode_envelope::<FungibleCoinCellMembershipProof>(record.proof())
+                .map_err(|_| RpcProofError::Malformed)?;
+            if proof.record() != cell || proof.root() != finality.header().inputs.cash_cell_root {
+                return Err(RpcProofError::Relation);
+            }
+            Ok(())
+        }
     }
 }
 
@@ -252,6 +324,56 @@ impl RpcIndex {
             records.push(record.clone());
         }
         let has_more = matching.next().is_some();
+        let next = has_more.then(|| records.last().expect("a page with more has a record").key());
+        QueryPage::new(records, next).map_err(|_| RpcStoreError::Invalid)
+    }
+
+    fn list_owner_coin_cells(
+        &self,
+        owner: PrincipalId,
+        after: Option<Digest384>,
+        limit: u16,
+    ) -> Result<QueryPage, RpcStoreError> {
+        let mut records = Vec::with_capacity(limit as usize);
+        let mut has_more = false;
+        for record in self.records.iter().filter(|record| {
+            record.kind() == QueryKind::CoinCell
+                && after.is_none_or(|key| record.key() > key)
+                && decode_envelope::<CoinCellRecord>(record.value())
+                    .is_ok_and(|cell| cell.cell().owner() == owner)
+        }) {
+            if records.len() == limit as usize {
+                has_more = true;
+                break;
+            }
+            records.push(record.clone());
+        }
+        let next = has_more.then(|| records.last().expect("a page with more has a record").key());
+        QueryPage::new(records, next).map_err(|_| RpcStoreError::Invalid)
+    }
+
+    fn list_owner_fungible_coin_cells(
+        &self,
+        owner: PrincipalId,
+        asset: AssetId,
+        after: Option<Digest384>,
+        limit: u16,
+    ) -> Result<QueryPage, RpcStoreError> {
+        let mut records = Vec::with_capacity(limit as usize);
+        let mut has_more = false;
+        for record in self.records.iter().filter(|record| {
+            record.kind() == QueryKind::FungibleCoinCell
+                && after.is_none_or(|key| record.key() > key)
+                && decode_envelope::<FungibleCoinCellRecord>(record.value()).is_ok_and(|cell| {
+                    cell.cell().owner() == owner && cell.cell().asset_id() == asset
+                })
+        }) {
+            if records.len() == limit as usize {
+                has_more = true;
+                break;
+            }
+            records.push(record.clone());
+        }
         let next = has_more.then(|| records.last().expect("a page with more has a record").key());
         QueryPage::new(records, next).map_err(|_| RpcStoreError::Invalid)
     }
@@ -372,6 +494,33 @@ impl DurableRpcStore {
         self.replace(next)
     }
 
+    pub fn replace_finalized_records(
+        &self,
+        expected_genesis: Digest384,
+        finalized_height: u64,
+        finalized_at_unix_seconds: u64,
+        records: Vec<QueryRecord>,
+    ) -> Result<(), RpcStoreError> {
+        let current = self.index.read().map_err(|_| RpcStoreError::Io)?.clone();
+        if current.genesis_commitment != expected_genesis
+            || finalized_height < current.finalized_height
+            || finalized_at_unix_seconds < current.finalized_at_unix_seconds
+        {
+            return Err(RpcStoreError::Invalid);
+        }
+        let next = RpcIndex::new(
+            current.chain_id,
+            current.genesis_commitment,
+            current.protocol_revision,
+            finalized_height,
+            finalized_at_unix_seconds,
+            current.maximum_staleness_seconds,
+            current.supported_proofs,
+            records,
+        )?;
+        self.replace(next)
+    }
+
     pub fn handle(&self, request: RpcRequest, now: u64) -> RpcResponse {
         let Ok(index) = self.index.read() else {
             return RpcResponse::Error(RpcError::Internal);
@@ -394,6 +543,12 @@ impl DurableRpcStore {
             RpcRequest::List { kind, after, limit } => index
                 .list(kind, after, limit)
                 .map_or(RpcResponse::Error(RpcError::Internal), RpcResponse::Page),
+            RpcRequest::ListOwnerCoinCells { owner, after, limit } => index
+                .list_owner_coin_cells(owner, after, limit)
+                .map_or(RpcResponse::Error(RpcError::Internal), RpcResponse::Page),
+            RpcRequest::ListOwnerFungibleCoinCells { owner, asset, after, limit } => index
+                .list_owner_fungible_coin_cells(owner, asset, after, limit)
+                .map_or(RpcResponse::Error(RpcError::Internal), RpcResponse::Page),
             RpcRequest::SubmitAnchor { .. }
             | RpcRequest::ResolveAnchor { .. }
             | RpcRequest::RequestFaucet { .. }
@@ -411,14 +566,41 @@ pub struct RpcServer {
     store: Arc<DurableRpcStore>,
     access: Option<Arc<RpcAccessController>>,
     anchors: Option<Arc<RwLock<DurableAnchorRegistry>>>,
+    faucet: Option<Arc<RwLock<DurableFaucet>>>,
+    faucet_settlement: Option<
+        Arc<
+            dyn Fn(PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError>
+                + Send
+                + Sync,
+        >,
+    >,
 }
 impl RpcServer {
     pub fn new(store: Arc<DurableRpcStore>) -> Self {
-        Self { store, access: None, anchors: None }
+        Self { store, access: None, anchors: None, faucet: None, faucet_settlement: None }
     }
 
     pub fn with_anchor_registry(mut self, anchors: DurableAnchorRegistry) -> Self {
         self.anchors = Some(Arc::new(RwLock::new(anchors)));
+        self
+    }
+
+    /// Attach the operator's durable faucet policy and receipt journal.
+    /// Funding requests remain unavailable until a settlement adapter is wired;
+    /// terms and receipt resolution are safe to expose independently.
+    pub fn with_faucet(mut self, faucet: DurableFaucet) -> Self {
+        self.faucet = Some(Arc::new(RwLock::new(faucet)));
+        self
+    }
+
+    pub fn with_faucet_settlement<F>(mut self, settlement: F) -> Self
+    where
+        F: Fn(PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.faucet_settlement = Some(Arc::new(settlement));
         self
     }
 
@@ -429,7 +611,13 @@ impl RpcServer {
         if store.chain_id()? != access.terms().chain_id() {
             return Err(RpcStoreError::Invalid);
         }
-        Ok(Self { store, access: Some(access), anchors: None })
+        Ok(Self {
+            store,
+            access: Some(access),
+            anchors: None,
+            faucet: None,
+            faucet_settlement: None,
+        })
     }
 
     fn handle(&self, request: RpcRequest, now: u64) -> RpcResponse {
@@ -462,6 +650,48 @@ impl RpcServer {
                 match encode_envelope(record) {
                     Ok(record) => RpcResponse::AnchorRecord(record),
                     Err(_) => RpcResponse::Error(RpcError::Internal),
+                }
+            }
+            RpcRequest::FaucetTerms => {
+                let Some(faucet) = &self.faucet else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let Ok(faucet) = faucet.read() else {
+                    return RpcResponse::Error(RpcError::Internal);
+                };
+                match faucet.terms() {
+                    Ok(terms) => RpcResponse::FaucetTerms(terms),
+                    Err(_) => RpcResponse::Error(RpcError::Internal),
+                }
+            }
+            RpcRequest::ResolveFaucet { reference } => {
+                let Some(faucet) = &self.faucet else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let Ok(faucet) = faucet.read() else {
+                    return RpcResponse::Error(RpcError::Internal);
+                };
+                faucet
+                    .resolve(reference)
+                    .cloned()
+                    .map_or(RpcResponse::Error(RpcError::NotFound), RpcResponse::FaucetReceipt)
+            }
+            RpcRequest::RequestFaucet { request } => {
+                let (Some(faucet), Some(settlement)) = (&self.faucet, &self.faucet_settlement)
+                else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let Ok(mut faucet) = faucet.write() else {
+                    return RpcResponse::Error(RpcError::Internal);
+                };
+                match faucet.request(
+                    &request,
+                    request.source_commitment(),
+                    now,
+                    |recipient, amount, reference| settlement(recipient, amount, reference),
+                ) {
+                    Ok(receipt) => RpcResponse::FaucetReceipt(receipt),
+                    Err(_) => RpcResponse::Error(RpcError::InvalidRequest),
                 }
             }
             request => self.store.handle(request, now),
@@ -611,6 +841,9 @@ mod tests {
     use activechain_application_primitives::{
         AnchorRecord, AnchorStatus, ApplicationReceipt, DigestAnchorStatementV1, JobStatus,
     };
+    use activechain_cash_kernel::{
+        CoinCell, CoinCellOrigin, CoinCellSet, prove_coin_cell_membership,
+    };
     use activechain_devnet_kernel::BlockReceipt;
     use activechain_finality_types::{
         FinalityCertificateBundle, FinalizedBlockHeader, ProofPublicInputs,
@@ -622,8 +855,8 @@ mod tests {
     use activechain_protocol_types::{
         AccessManifest, AccessManifestFields, ConsensusVoteContext, CryptoSuiteId, FreezeState,
         JobId, ObjectFields, ObjectFlags, ObjectId, ObjectOwner, ObjectVersionRef, PrincipalId,
-        ProtocolSignature, QuorumCertificate, ValidatorGenesis, ValidatorGenesisEntry,
-        ValidatorVote,
+        ProtocolSignature, QuorumCertificate, TransactionId, ValidatorGenesis,
+        ValidatorGenesisEntry, ValidatorVote,
     };
     use activechain_rpc_types::{
         ActionSetProof, MAX_RPC_PAGE_SIZE, RPC_SCHEMA_REVISION, RpcAccessMode, RpcAccessTerms,
@@ -669,6 +902,7 @@ mod tests {
             7,
             2,
             header.digest().unwrap(),
+            header.proof_statement_commitment,
             ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2_420]).unwrap(),
         )
         .unwrap();
@@ -679,6 +913,7 @@ mod tests {
             7,
             2,
             header.digest().unwrap(),
+            header.proof_statement_commitment,
             ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec()).unwrap(),
         )
         .unwrap();
@@ -694,6 +929,7 @@ mod tests {
             7,
             2,
             header.digest().unwrap(),
+            header.proof_statement_commitment,
             Digest384::new(vote_root),
             1,
             1,
@@ -721,6 +957,7 @@ mod tests {
             issuance: 0,
             burn: 0,
             post_supply: 0,
+            cash_cell_root: digest(76),
             post_state,
             receipt_root: digest(77),
             data_availability_commitment: digest(75),
@@ -742,6 +979,30 @@ mod tests {
             encode_envelope(&receipt).unwrap(),
             vec![],
             finality,
+        )
+        .unwrap()
+    }
+
+    fn coin_cell_record(byte: u8, owner: PrincipalId) -> QueryRecord {
+        let origin = CoinCellOrigin::new(TransactionId::new(digest(byte + 30)), 0);
+        let id = activechain_protocol_commitment::coin_cell_id(&origin).unwrap();
+        let cell = CoinCellRecord::new(id, CoinCell::new(origin, owner, 100, 1).unwrap());
+        let cells = CoinCellSet::new(vec![cell]).unwrap();
+        let proof = prove_coin_cell_membership(&cells, id).unwrap();
+        let inputs = ProofPublicInputs {
+            cash_cell_root: proof.root().into_digest(),
+            ..public_inputs(
+                StateCommitment::new(digest(80), 0),
+                StateCommitment::new(digest(81), 0),
+            )
+        };
+        QueryRecord::new(
+            QueryKind::CoinCell,
+            id.into_digest(),
+            7,
+            encode_envelope(&cell).unwrap(),
+            encode_envelope(&proof).unwrap(),
+            signed_finality(byte, inputs),
         )
         .unwrap()
     }
@@ -906,6 +1167,42 @@ mod tests {
         corrupt[10] ^= 1;
         std::fs::write(&path, corrupt).unwrap();
         assert!(matches!(DurableRpcStore::load(path.clone()), Err(RpcStoreError::Corrupt)));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn owner_coin_cell_discovery_never_returns_another_owner() {
+        let owner = PrincipalId::new(digest(40));
+        let other = PrincipalId::new(digest(41));
+        let mut base = index();
+        let mut records = base.records.clone();
+        records.push(coin_cell_record(1, owner));
+        records.push(coin_cell_record(2, other));
+        records.sort_by_key(|record| (record.kind(), record.key()));
+        base = RpcIndex::new(
+            base.chain_id,
+            base.genesis_commitment,
+            base.protocol_revision,
+            base.finalized_height,
+            base.finalized_at_unix_seconds,
+            base.maximum_staleness_seconds,
+            base.supported_proofs,
+            records,
+        )
+        .unwrap();
+        let path = temporary("owner-cells");
+        let _ = std::fs::remove_file(&path);
+        let store = DurableRpcStore::create(path.clone(), base).unwrap();
+        let RpcResponse::Page(page) = store.handle(
+            RpcRequest::ListOwnerCoinCells { owner, after: None, limit: MAX_RPC_PAGE_SIZE },
+            105,
+        ) else {
+            panic!("owner page expected");
+        };
+        assert_eq!(page.records().len(), 1);
+        let discovered = decode_envelope::<CoinCellRecord>(page.records()[0].value()).unwrap();
+        assert_eq!(discovered.cell().owner(), owner);
+        assert!(verify_query_record(&page.records()[0]).is_ok());
         let _ = std::fs::remove_file(path);
     }
 

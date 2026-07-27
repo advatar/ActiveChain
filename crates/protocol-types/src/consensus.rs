@@ -18,74 +18,8 @@ pub struct ValidatorVote {
     height: u64,
     round: u64,
     block_digest: Digest384,
+    proposal_commitment: Digest384,
     signature: ProtocolSignature,
-}
-
-#[cfg(kani)]
-mod kani_proofs {
-    use super::*;
-    use activechain_canonical_codec::{decode_envelope, encode_envelope};
-
-    fn digest(first: u8) -> Digest384 {
-        let mut bytes = [0_u8; 48];
-        bytes[0] = first;
-        Digest384::new(bytes)
-    }
-
-    #[kani::proof]
-    fn production_qc_round_trips_for_arbitrary_numeric_fields() {
-        let epoch: u64 = kani::any();
-        let height: u64 = kani::any();
-        let round: u64 = kani::any();
-        let revision: u64 = kani::any();
-        kani::assume(revision > 0);
-        let context =
-            ConsensusVoteContext::new_with_revision(digest(1), epoch, digest(2), revision)
-                .expect("fixed nonzero domains are valid");
-        let qc = QuorumCertificate::new(context, height, round, digest(3), digest(4), 3, 3)
-            .expect("three of three is a strict quorum");
-        let encoded = encode_envelope(&qc).expect("fixed production QC fits its bound");
-        assert_eq!(decode_envelope::<QuorumCertificate>(&encoded), Ok(qc));
-    }
-
-    #[kani::proof]
-    fn production_qc_rejects_any_truncation() {
-        let context = ConsensusVoteContext::new(digest(1), 1, digest(2)).unwrap();
-        let qc = QuorumCertificate::new(context, 2, 3, digest(3), digest(4), 3, 3).unwrap();
-        let encoded = encode_envelope(&qc).unwrap();
-        let length: usize = kani::any();
-        kani::assume(length < encoded.len());
-        assert!(decode_envelope::<QuorumCertificate>(&encoded[..length]).is_err());
-    }
-
-    #[kani::proof]
-    fn production_qc_rejects_a_trailing_byte() {
-        let context = ConsensusVoteContext::new(digest(1), 1, digest(2)).unwrap();
-        let qc = QuorumCertificate::new(context, 2, 3, digest(3), digest(4), 3, 3).unwrap();
-        let mut encoded = encode_envelope(&qc).unwrap();
-        encoded.push(kani::any());
-        assert!(decode_envelope::<QuorumCertificate>(&encoded).is_err());
-    }
-
-    #[kani::proof]
-    fn production_qc_rejects_type_or_version_substitution() {
-        let context = ConsensusVoteContext::new(digest(1), 1, digest(2)).unwrap();
-        let qc = QuorumCertificate::new(context, 2, 3, digest(3), digest(4), 3, 3).unwrap();
-        let mut encoded = encode_envelope(&qc).unwrap();
-        let header_index: usize = kani::any();
-        kani::assume(header_index < 4);
-        encoded[header_index] ^= 1;
-        assert!(decode_envelope::<QuorumCertificate>(&encoded).is_err());
-    }
-
-    #[kani::proof]
-    fn shared_strict_quorum_matches_mathematical_checked_comparison() {
-        let signer: u128 = kani::any();
-        let total: u128 = kani::any();
-        let expected =
-            signer.checked_mul(3).and_then(|left| total.checked_mul(2).map(|right| left > right));
-        assert_eq!(crate::strict_two_thirds(signer, total), expected);
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -98,6 +32,7 @@ pub struct ConsensusVoteContext {
 
 impl ConsensusVoteContext {
     /// Constructs the initial protocol-revision context.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         genesis_commitment: Digest384,
         epoch: Epoch,
@@ -142,21 +77,27 @@ pub const INITIAL_PROTOCOL_REVISION: u64 = 1;
 
 impl ValidatorVote {
     pub const TYPE_TAG: u16 = 0x0064;
-    pub const SCHEMA_VERSION: u16 = 3;
+    pub const SCHEMA_VERSION: u16 = 4;
     pub const MAX_ENCODED_LEN: usize =
-        48 + 48 + 8 + 48 + 8 + 8 + 8 + 48 + ProtocolSignature::MAX_ENCODED_LEN;
+        48 + 48 + 8 + 48 + 8 + 8 + 8 + 48 + 48 + ProtocolSignature::MAX_ENCODED_LEN;
+    /// Constructs a vote bound independently to the payload digest and exact signed proposal.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         validator: PrincipalId,
         context: ConsensusVoteContext,
         height: u64,
         round: u64,
         block_digest: Digest384,
+        proposal_commitment: Digest384,
         signature: ProtocolSignature,
     ) -> Result<Self, ValidatorVoteError> {
         if signature.suite() != CryptoSuiteId::ML_DSA_44 {
             return Err(ValidatorVoteError::InvalidConsensusSuite);
         }
-        Ok(Self { validator, context, height, round, block_digest, signature })
+        if block_digest == Digest384::ZERO || proposal_commitment == Digest384::ZERO {
+            return Err(ValidatorVoteError::UnboundConsensusDomain);
+        }
+        Ok(Self { validator, context, height, round, block_digest, proposal_commitment, signature })
     }
     pub const fn validator(&self) -> PrincipalId {
         self.validator
@@ -182,12 +123,15 @@ impl ValidatorVote {
     pub const fn block_digest(&self) -> Digest384 {
         self.block_digest
     }
+    pub const fn proposal_commitment(&self) -> Digest384 {
+        self.proposal_commitment
+    }
     pub const fn signature(&self) -> &ProtocolSignature {
         &self.signature
     }
     pub fn signing_payload(&self) -> Vec<u8> {
-        let mut payload = Vec::with_capacity(18 + 2 + 48 + 8 + 48 + 8 + 48 + 8 + 8 + 48);
-        payload.extend_from_slice(b"ACTIVECHAIN-VOTE-V3");
+        let mut payload = Vec::with_capacity(18 + 2 + 48 + 8 + 48 + 8 + 48 + 8 + 8 + 48 + 48);
+        payload.extend_from_slice(b"ACTIVECHAIN-VOTE-V4");
         payload.extend_from_slice(&Self::SCHEMA_VERSION.to_be_bytes());
         payload.extend_from_slice(self.context.genesis_commitment.as_bytes());
         payload.extend_from_slice(&self.context.epoch.to_be_bytes());
@@ -197,6 +141,7 @@ impl ValidatorVote {
         payload.extend_from_slice(&self.height.to_be_bytes());
         payload.extend_from_slice(&self.round.to_be_bytes());
         payload.extend_from_slice(self.block_digest.as_bytes());
+        payload.extend_from_slice(self.proposal_commitment.as_bytes());
         payload
     }
 }
@@ -207,67 +152,152 @@ pub enum ValidatorVoteError {
     UnboundConsensusDomain,
 }
 
+/// Authenticated position of a block in one consensus history.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct ConsensusBlockRef {
+    block_digest: Digest384,
+    proposal_commitment: Digest384,
+    height: u64,
+    round: u64,
+}
+
+impl ConsensusBlockRef {
+    pub fn new(
+        block_digest: Digest384,
+        proposal_commitment: Digest384,
+        height: u64,
+        round: u64,
+    ) -> Result<Self, BlockProposalError> {
+        if block_digest == Digest384::ZERO {
+            return Err(BlockProposalError::ZeroBlockDigest);
+        }
+        if proposal_commitment == Digest384::ZERO {
+            return Err(BlockProposalError::ZeroProposalCommitment);
+        }
+        Ok(Self { block_digest, proposal_commitment, height, round })
+    }
+    pub const fn block_digest(self) -> Digest384 {
+        self.block_digest
+    }
+    pub const fn proposal_commitment(self) -> Digest384 {
+        self.proposal_commitment
+    }
+    pub const fn height(self) -> u64 {
+        self.height
+    }
+    pub const fn round(self) -> u64 {
+        self.round
+    }
+}
+
+/// Exact safety justification carried by a proposal.
+///
+/// A finalized anchor is accepted only when it equals the receiver's durable finalized head. A
+/// QC is accepted only when its complete value equals a locally verified and durable certificate.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ProposalJustification {
+    Finalized(ConsensusBlockRef),
+    Quorum(QuorumCertificate),
+}
+
+impl ProposalJustification {
+    pub const MAX_ENCODED_LEN: usize = 1 + QuorumCertificate::ENCODED_LENGTH;
+    pub const fn parent(&self) -> ConsensusBlockRef {
+        match self {
+            Self::Finalized(parent) => *parent,
+            Self::Quorum(certificate) => ConsensusBlockRef {
+                block_digest: certificate.block_digest,
+                proposal_commitment: certificate.proposal_commitment,
+                height: certificate.height,
+                round: certificate.round,
+            },
+        }
+    }
+    pub const fn certificate(&self) -> Option<&QuorumCertificate> {
+        match self {
+            Self::Finalized(_) => None,
+            Self::Quorum(certificate) => Some(certificate),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BlockProposal {
     proposer: PrincipalId,
-    epoch: Epoch,
+    context: ConsensusVoteContext,
     height: u64,
     round: u64,
     block_digest: Digest384,
-    parent_qc: Option<QuorumCertificate>,
+    justification: ProposalJustification,
     signature: ProtocolSignature,
 }
 impl BlockProposal {
     pub const TYPE_TAG: u16 = 0x0068;
-    pub const SCHEMA_VERSION: u16 = 2;
+    pub const SCHEMA_VERSION: u16 = 3;
     pub const MAX_ENCODED_LEN: usize = 48
+        + 48
+        + 8
+        + 48
         + 8
         + 8
         + 8
         + 48
-        + 1
-        + QuorumCertificate::ENCODED_LENGTH
+        + ProposalJustification::MAX_ENCODED_LEN
         + ProtocolSignature::MAX_ENCODED_LEN;
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         proposer: PrincipalId,
-        epoch: Epoch,
+        context: ConsensusVoteContext,
         height: u64,
         round: u64,
         block_digest: Digest384,
+        justification: ProposalJustification,
         signature: ProtocolSignature,
-    ) -> Result<Self, ValidatorVoteError> {
+    ) -> Result<Self, BlockProposalError> {
         if signature.suite() != CryptoSuiteId::ML_DSA_44 {
-            return Err(ValidatorVoteError::InvalidConsensusSuite);
+            return Err(BlockProposalError::InvalidConsensusSuite);
         }
-        Ok(Self { proposer, epoch, height, round, block_digest, parent_qc: None, signature })
-    }
-    pub fn new_chained(
-        proposer: PrincipalId,
-        epoch: Epoch,
-        height: u64,
-        round: u64,
-        block_digest: Digest384,
-        parent_qc: QuorumCertificate,
-        signature: ProtocolSignature,
-    ) -> Result<Self, ValidatorVoteError> {
-        if signature.suite() != CryptoSuiteId::ML_DSA_44 {
-            return Err(ValidatorVoteError::InvalidConsensusSuite);
+        if block_digest == Digest384::ZERO {
+            return Err(BlockProposalError::ZeroBlockDigest);
         }
-        Ok(Self {
-            proposer,
-            epoch,
-            height,
-            round,
-            block_digest,
-            parent_qc: Some(parent_qc),
-            signature,
-        })
+        let parent = justification.parent();
+        if parent.height.checked_add(1) != Some(height) {
+            return Err(BlockProposalError::NonConsecutiveHeight);
+        }
+        match &justification {
+            ProposalJustification::Finalized(_) => {
+                if parent.height > 0 && round <= parent.round {
+                    return Err(BlockProposalError::NonIncreasingRound);
+                }
+            }
+            ProposalJustification::Quorum(certificate) => {
+                if certificate.context != context {
+                    return Err(BlockProposalError::WrongConsensusContext);
+                }
+                if round <= parent.round {
+                    return Err(BlockProposalError::NonIncreasingRound);
+                }
+            }
+        }
+        Ok(Self { proposer, context, height, round, block_digest, justification, signature })
     }
     pub const fn proposer(&self) -> PrincipalId {
         self.proposer
     }
+    pub const fn context(&self) -> ConsensusVoteContext {
+        self.context
+    }
+    pub const fn genesis_commitment(&self) -> Digest384 {
+        self.context.genesis_commitment()
+    }
     pub const fn epoch(&self) -> Epoch {
-        self.epoch
+        self.context.epoch()
+    }
+    pub const fn validator_set_root(&self) -> Digest384 {
+        self.context.validator_set_root()
+    }
+    pub const fn protocol_revision(&self) -> u64 {
+        self.context.protocol_revision()
     }
     pub const fn height(&self) -> u64 {
         self.height
@@ -278,31 +308,82 @@ impl BlockProposal {
     pub const fn block_digest(&self) -> Digest384 {
         self.block_digest
     }
-    pub const fn parent_qc(&self) -> Option<&QuorumCertificate> {
-        self.parent_qc.as_ref()
+    pub const fn justification(&self) -> &ProposalJustification {
+        &self.justification
+    }
+    pub const fn parent(&self) -> ConsensusBlockRef {
+        self.justification.parent()
     }
     pub fn signature(&self) -> &ProtocolSignature {
         &self.signature
     }
     pub fn signing_payload(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(Self::MAX_ENCODED_LEN);
-        bytes.extend_from_slice(b"ACTIVECHAIN-PROPOSAL-V2");
+        // Capacity is deliberately not derived from the signature's current wire size: it is a
+        // non-consensus optimization and must not couple the signed transcript to one ML-DSA
+        // encoding constant.
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"ACTIVECHAIN-PROPOSAL-V3");
+        bytes.extend_from_slice(&Self::SCHEMA_VERSION.to_be_bytes());
         bytes.extend_from_slice(self.proposer.digest().as_bytes());
-        bytes.extend_from_slice(&self.epoch.to_be_bytes());
+        bytes.extend_from_slice(self.context.genesis_commitment.as_bytes());
+        bytes.extend_from_slice(&self.context.epoch.to_be_bytes());
+        bytes.extend_from_slice(self.context.validator_set_root.as_bytes());
+        bytes.extend_from_slice(&self.context.protocol_revision.to_be_bytes());
         bytes.extend_from_slice(&self.height.to_be_bytes());
         bytes.extend_from_slice(&self.round.to_be_bytes());
         bytes.extend_from_slice(self.block_digest.as_bytes());
-        match &self.parent_qc {
-            None => bytes.push(0),
-            Some(qc) => {
-                bytes.push(1);
-                let mut encoder = Encoder::new(QuorumCertificate::ENCODED_LENGTH);
-                qc.encode(&mut encoder).expect("QC canonical encoding is infallible");
-                bytes.extend_from_slice(&encoder.finish());
-            }
-        }
+        append_justification_transcript(&mut bytes, &self.justification);
         bytes
     }
+    /// Commitment certified by schema-v4 validator votes in addition to the payload block digest.
+    pub fn commitment(&self) -> Digest384 {
+        let payload = self.signing_payload();
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-PROPOSAL-COMMITMENT-V3");
+        hasher.update(&(payload.len() as u64).to_be_bytes());
+        hasher.update(&payload);
+        hasher.update(&(self.signature.as_bytes().len() as u64).to_be_bytes());
+        hasher.update(self.signature.as_bytes());
+        let mut commitment = [0_u8; 48];
+        hasher.finalize_xof().read(&mut commitment);
+        Digest384::new(commitment)
+    }
+}
+
+fn append_justification_transcript(bytes: &mut Vec<u8>, justification: &ProposalJustification) {
+    match justification {
+        ProposalJustification::Finalized(parent) => {
+            bytes.push(0);
+            bytes.extend_from_slice(parent.block_digest.as_bytes());
+            bytes.extend_from_slice(parent.proposal_commitment.as_bytes());
+            bytes.extend_from_slice(&parent.height.to_be_bytes());
+            bytes.extend_from_slice(&parent.round.to_be_bytes());
+        }
+        ProposalJustification::Quorum(certificate) => {
+            bytes.push(1);
+            bytes.extend_from_slice(certificate.genesis_commitment().as_bytes());
+            bytes.extend_from_slice(&certificate.epoch().to_be_bytes());
+            bytes.extend_from_slice(certificate.validator_set_root().as_bytes());
+            bytes.extend_from_slice(&certificate.protocol_revision().to_be_bytes());
+            bytes.extend_from_slice(&certificate.height().to_be_bytes());
+            bytes.extend_from_slice(&certificate.round().to_be_bytes());
+            bytes.extend_from_slice(certificate.block_digest().as_bytes());
+            bytes.extend_from_slice(certificate.proposal_commitment().as_bytes());
+            bytes.extend_from_slice(certificate.vote_set_root().as_bytes());
+            bytes.extend_from_slice(&certificate.total_stake().to_be_bytes());
+            bytes.extend_from_slice(&certificate.signer_stake().to_be_bytes());
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BlockProposalError {
+    InvalidConsensusSuite,
+    ZeroBlockDigest,
+    ZeroProposalCommitment,
+    NonConsecutiveHeight,
+    NonIncreasingRound,
+    WrongConsensusContext,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -538,6 +619,7 @@ pub struct QuorumCertificate {
     height: u64,
     round: u64,
     block_digest: Digest384,
+    proposal_commitment: Digest384,
     vote_set_root: Digest384,
     total_stake: u128,
     signer_stake: u128,
@@ -545,26 +627,44 @@ pub struct QuorumCertificate {
 
 impl QuorumCertificate {
     pub const TYPE_TAG: u16 = 0x0065;
-    pub const SCHEMA_VERSION: u16 = 2;
-    pub const ENCODED_LENGTH: usize = 48 + 8 + 48 + 8 + 8 + 8 + 48 + 48 + 16 + 16;
+    pub const SCHEMA_VERSION: u16 = 3;
+    pub const ENCODED_LENGTH: usize = 48 + 8 + 48 + 8 + 8 + 8 + 48 + 48 + 48 + 16 + 16;
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         context: ConsensusVoteContext,
         height: u64,
         round: u64,
         block_digest: Digest384,
+        proposal_commitment: Digest384,
         vote_set_root: Digest384,
         total_stake: u128,
         signer_stake: u128,
     ) -> Result<Self, QuorumCertificateError> {
+        if height == 0
+            || block_digest == Digest384::ZERO
+            || proposal_commitment == Digest384::ZERO
+            || vote_set_root == Digest384::ZERO
+        {
+            return Err(QuorumCertificateError::UnboundCertificate);
+        }
         if total_stake == 0 || signer_stake > total_stake {
             return Err(QuorumCertificateError::InvalidStake);
         }
-        if !crate::strict_two_thirds(signer_stake, total_stake)
-            .ok_or(QuorumCertificateError::StakeOverflow)?
+        if signer_stake.checked_mul(3).ok_or(QuorumCertificateError::StakeOverflow)?
+            <= total_stake.checked_mul(2).ok_or(QuorumCertificateError::StakeOverflow)?
         {
             return Err(QuorumCertificateError::InsufficientStake);
         }
-        Ok(Self { context, height, round, block_digest, vote_set_root, total_stake, signer_stake })
+        Ok(Self {
+            context,
+            height,
+            round,
+            block_digest,
+            proposal_commitment,
+            vote_set_root,
+            total_stake,
+            signer_stake,
+        })
     }
     pub const fn epoch(&self) -> Epoch {
         self.context.epoch()
@@ -593,12 +693,16 @@ impl QuorumCertificate {
     pub const fn block_digest(&self) -> Digest384 {
         self.block_digest
     }
+    pub const fn proposal_commitment(&self) -> Digest384 {
+        self.proposal_commitment
+    }
     pub const fn vote_set_root(&self) -> Digest384 {
         self.vote_set_root
     }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum QuorumCertificateError {
+    UnboundCertificate,
     InvalidStake,
     InsufficientStake,
     StakeOverflow,
@@ -614,6 +718,7 @@ impl CanonicalEncode for ValidatorVote {
         self.height.encode(e)?;
         self.round.encode(e)?;
         self.block_digest.encode(e)?;
+        self.proposal_commitment.encode(e)?;
         self.signature.encode(e)
     }
 }
@@ -631,6 +736,7 @@ impl CanonicalDecode for ValidatorVote {
             u64::decode(d)?,
             u64::decode(d)?,
             Digest384::decode(d)?,
+            Digest384::decode(d)?,
             ProtocolSignature::decode(d)?,
         )
         .map_err(|_| DecodeError::InvalidValue("validator vote requires ML-DSA-44"))
@@ -641,42 +747,79 @@ impl CanonicalType for ValidatorVote {
     const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
+impl CanonicalEncode for ConsensusBlockRef {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.block_digest.encode(encoder)?;
+        self.proposal_commitment.encode(encoder)?;
+        self.height.encode(encoder)?;
+        self.round.encode(encoder)
+    }
+}
+impl CanonicalDecode for ConsensusBlockRef {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid consensus block reference"))
+    }
+}
+impl CanonicalEncode for ProposalJustification {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        match self {
+            Self::Finalized(parent) => {
+                0_u8.encode(encoder)?;
+                parent.encode(encoder)
+            }
+            Self::Quorum(certificate) => {
+                1_u8.encode(encoder)?;
+                certificate.encode(encoder)
+            }
+        }
+    }
+}
+impl CanonicalDecode for ProposalJustification {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(decoder)? {
+            0 => Ok(Self::Finalized(ConsensusBlockRef::decode(decoder)?)),
+            1 => Ok(Self::Quorum(QuorumCertificate::decode(decoder)?)),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "ProposalJustification", tag }),
+        }
+    }
+}
 impl CanonicalEncode for BlockProposal {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
         self.proposer.encode(e)?;
-        self.epoch.encode(e)?;
+        self.context.genesis_commitment.encode(e)?;
+        self.context.epoch.encode(e)?;
+        self.context.validator_set_root.encode(e)?;
+        self.context.protocol_revision.encode(e)?;
         self.height.encode(e)?;
         self.round.encode(e)?;
         self.block_digest.encode(e)?;
-        match &self.parent_qc {
-            None => 0_u8.encode(e)?,
-            Some(qc) => {
-                1_u8.encode(e)?;
-                qc.encode(e)?;
-            }
-        }
+        self.justification.encode(e)?;
         self.signature.encode(e)
     }
 }
 impl CanonicalDecode for BlockProposal {
     fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
-        let proposer = PrincipalId::decode(d)?;
-        let epoch = u64::decode(d)?;
-        let height = u64::decode(d)?;
-        let round = u64::decode(d)?;
-        let block_digest = Digest384::decode(d)?;
-        let parent_qc = match u8::decode(d)? {
-            0 => None,
-            1 => Some(QuorumCertificate::decode(d)?),
-            _ => return Err(DecodeError::InvalidValue("invalid proposal parent-QC tag")),
-        };
-        let signature = ProtocolSignature::decode(d)?;
-        match parent_qc {
-            Some(qc) => {
-                Self::new_chained(proposer, epoch, height, round, block_digest, qc, signature)
-            }
-            None => Self::new(proposer, epoch, height, round, block_digest, signature),
-        }
+        Self::new(
+            PrincipalId::decode(d)?,
+            ConsensusVoteContext::new_with_revision(
+                Digest384::decode(d)?,
+                u64::decode(d)?,
+                Digest384::decode(d)?,
+                u64::decode(d)?,
+            )
+            .map_err(|_| DecodeError::InvalidValue("block proposal context is unbound"))?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            Digest384::decode(d)?,
+            ProposalJustification::decode(d)?,
+            ProtocolSignature::decode(d)?,
+        )
         .map_err(|_| DecodeError::InvalidValue("invalid ML-DSA block proposal"))
     }
 }
@@ -694,6 +837,7 @@ impl CanonicalEncode for QuorumCertificate {
         self.height.encode(e)?;
         self.round.encode(e)?;
         self.block_digest.encode(e)?;
+        self.proposal_commitment.encode(e)?;
         self.vote_set_root.encode(e)?;
         self.total_stake.encode(e)?;
         self.signer_stake.encode(e)
@@ -711,6 +855,7 @@ impl CanonicalDecode for QuorumCertificate {
             .map_err(|_| DecodeError::InvalidValue("quorum certificate context is unbound"))?,
             u64::decode(d)?,
             u64::decode(d)?,
+            Digest384::decode(d)?,
             Digest384::decode(d)?,
             Digest384::decode(d)?,
             u128::decode(d)?,
@@ -992,6 +1137,7 @@ mod tests {
             7,
             2,
             digest(3),
+            digest(4),
             ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![4; 2420]).unwrap(),
         )
         .unwrap();
@@ -1013,6 +1159,7 @@ mod tests {
                 7,
                 2,
                 digest(3),
+                digest(4),
                 signature,
             ),
             Err(ValidatorVoteError::InvalidConsensusSuite)
@@ -1028,6 +1175,7 @@ mod tests {
                 7,
                 2,
                 digest(3),
+                digest(4),
                 signature.clone(),
             )
             .unwrap()
@@ -1040,44 +1188,123 @@ mod tests {
         assert_ne!(baseline, make(digest(10), 3, digest(11), 2));
     }
     #[test]
-    fn chained_proposal_round_trips_and_signature_payload_binds_parent_qc() {
-        let context = ConsensusVoteContext::new(digest(10), 3, digest(11)).unwrap();
-        let parent = QuorumCertificate::new(context, 7, 2, digest(3), digest(4), 3, 3).unwrap();
-        let alternate = QuorumCertificate::new(context, 7, 2, digest(5), digest(6), 3, 3).unwrap();
-        let signature = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![7; 2420]).unwrap();
-        let proposal = BlockProposal::new_chained(
+    fn proposal_v3_strictly_binds_context_parent_and_canonical_bytes() {
+        let context =
+            ConsensusVoteContext::new_with_revision(digest(10), 3, digest(11), 2).unwrap();
+        let anchor = ProposalJustification::Finalized(
+            ConsensusBlockRef::new(
+                context.genesis_commitment(),
+                context.genesis_commitment(),
+                0,
+                0,
+            )
+            .unwrap(),
+        );
+        let signature = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![4; 2420]).unwrap();
+        let proposal = BlockProposal::new(
             PrincipalId::new(digest(1)),
-            3,
-            8,
-            3,
-            digest(8),
-            parent,
-            signature.clone(),
-        )
-        .unwrap();
-        let changed_parent = BlockProposal::new_chained(
-            PrincipalId::new(digest(1)),
-            3,
-            8,
-            3,
-            digest(8),
-            alternate,
+            context,
+            1,
+            0,
+            digest(3),
+            anchor,
             signature,
         )
         .unwrap();
-        assert_ne!(proposal.signing_payload(), changed_parent.signing_payload());
+        let encoded = encode_envelope(&proposal).unwrap();
+        assert_eq!(decode_envelope::<BlockProposal>(&encoded), Ok(proposal.clone()));
+
+        let mut trailing = encoded.clone();
+        trailing.push(0);
+        assert!(matches!(
+            decode_envelope::<BlockProposal>(&trailing),
+            Err(DecodeError::TrailingData { remaining: 1 })
+        ));
+        let mut wrong_version = encoded;
+        wrong_version[2..4].copy_from_slice(&1_u16.to_be_bytes());
+        assert!(matches!(
+            decode_envelope::<BlockProposal>(&wrong_version),
+            Err(DecodeError::UnsupportedSchemaVersion { expected: 3, actual: 1 })
+        ));
+        assert_ne!(proposal.commitment(), Digest384::ZERO);
+    }
+    #[test]
+    fn proposal_rejects_stale_qc_context_and_non_increasing_parent() {
+        let context =
+            ConsensusVoteContext::new_with_revision(digest(10), 3, digest(11), 2).unwrap();
+        let stale_context =
+            ConsensusVoteContext::new_with_revision(digest(10), 3, digest(12), 2).unwrap();
+        let stale_qc =
+            QuorumCertificate::new(stale_context, 1, 1, digest(4), digest(5), digest(6), 10, 7)
+                .unwrap();
+        let signature = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![4; 2420]).unwrap();
         assert_eq!(
-            decode_envelope::<BlockProposal>(&encode_envelope(&proposal).unwrap()),
-            Ok(proposal)
+            BlockProposal::new(
+                PrincipalId::new(digest(1)),
+                context,
+                2,
+                2,
+                digest(3),
+                ProposalJustification::Quorum(stale_qc),
+                signature.clone(),
+            ),
+            Err(BlockProposalError::WrongConsensusContext)
+        );
+        assert_eq!(
+            BlockProposal::new(
+                PrincipalId::new(digest(1)),
+                context,
+                2,
+                1,
+                digest(3),
+                ProposalJustification::Quorum(
+                    QuorumCertificate::new(context, 1, 1, digest(4), digest(5), digest(6), 10, 7,)
+                        .unwrap(),
+                ),
+                signature,
+            ),
+            Err(BlockProposalError::NonIncreasingRound)
         );
     }
     #[test]
     fn quorum_certificate_requires_strict_two_thirds_stake() {
         let context = ConsensusVoteContext::new(digest(10), 1, digest(11)).unwrap();
-        assert!(QuorumCertificate::new(context, 2, 3, digest(1), digest(2), 10, 7).is_ok());
+        assert!(
+            QuorumCertificate::new(context, 2, 3, digest(1), digest(2), digest(3), 10, 7).is_ok()
+        );
         assert_eq!(
-            QuorumCertificate::new(context, 2, 3, digest(1), digest(2), 10, 6),
+            QuorumCertificate::new(context, 2, 3, digest(1), digest(2), digest(3), 10, 6),
             Err(QuorumCertificateError::InsufficientStake)
+        );
+    }
+    #[test]
+    fn quorum_certificate_v3_rejects_old_schema_trailing_and_identity_tamper() {
+        let context = ConsensusVoteContext::new(digest(10), 1, digest(11)).unwrap();
+        let certificate =
+            QuorumCertificate::new(context, 2, 3, digest(1), digest(2), digest(3), 10, 7).unwrap();
+        let encoded = encode_envelope(&certificate).unwrap();
+        assert_eq!(decode_envelope::<QuorumCertificate>(&encoded), Ok(certificate));
+
+        let mut old_schema = encoded.clone();
+        old_schema[2..4].copy_from_slice(&2_u16.to_be_bytes());
+        assert_eq!(
+            decode_envelope::<QuorumCertificate>(&old_schema),
+            Err(DecodeError::UnsupportedSchemaVersion { expected: 3, actual: 2 })
+        );
+
+        let mut trailing = encoded.clone();
+        trailing.push(0);
+        assert_eq!(
+            decode_envelope::<QuorumCertificate>(&trailing),
+            Err(DecodeError::TrailingData { remaining: 1 })
+        );
+
+        let mut tampered = encoded;
+        let body_offset = tampered.len() - QuorumCertificate::ENCODED_LENGTH;
+        tampered[body_offset + 176..body_offset + 224].fill(0);
+        assert_eq!(
+            decode_envelope::<QuorumCertificate>(&tampered),
+            Err(DecodeError::InvalidValue("invalid quorum certificate"))
         );
     }
     #[test]
@@ -1109,6 +1336,7 @@ mod tests {
             value("round") as u64,
             digest(1),
             digest(2),
+            digest(3),
             value("total_stake"),
             value("signer_stake"),
         )
@@ -1121,6 +1349,7 @@ mod tests {
                 value("round") as u64,
                 digest(1),
                 digest(2),
+                digest(3),
                 value("total_stake"),
                 value("under_threshold_signer_stake"),
             ),

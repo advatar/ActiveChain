@@ -256,6 +256,29 @@ uint32_t activechain_wallet_select_cells(const uint8_t *cells,
                                          uint8_t *payment_out,
                                          uint8_t *fee_reserve_out);
 
+uint32_t activechain_wallet_select_fungible_cells(const uint8_t *cells,
+                                                  uint32_t cells_len,
+                                                  const uint8_t *owner,
+                                                  uint64_t amount_high,
+                                                  uint64_t amount_low,
+                                                  uint64_t fee_high,
+                                                  uint64_t fee_low,
+                                                  uint8_t *payment_out,
+                                                  uint8_t *fee_reserve_out);
+
+uint32_t activechain_wallet_build_fungible_transfer(const uint8_t *cells,
+                                                    uint32_t cells_len,
+                                                    const uint8_t *asset,
+                                                    const uint8_t *sender,
+                                                    const uint8_t *recipient,
+                                                    const uint8_t *input_ids,
+                                                    uint16_t input_count,
+                                                    uint64_t amount_high,
+                                                    uint64_t amount_low,
+                                                    uint8_t *output,
+                                                    uint32_t output_capacity,
+                                                    uint32_t *required_len);
+
 /**
  * Evaluates the exact wallet-core spending policy without side effects.
  *

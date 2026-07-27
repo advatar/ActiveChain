@@ -1,0 +1,8 @@
+case_id	profile_revision	chain_binding	validity	expected
+positive-minimal	1	bound	valid
+wrong-chain	1	mismatch	invalid
+expired	1	bound	invalid
+duplicate-credential-commitment	1	bound	invalid
+empty-required-screening	1	bound	invalid
+trailing-byte	1	bound	invalid
+unknown-revision	2	bound	invalid

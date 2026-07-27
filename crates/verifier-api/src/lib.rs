@@ -892,6 +892,7 @@ mod tests {
             issuance: 0,
             burn: 0,
             post_supply: 0,
+            cash_cell_root: digest(50),
             post_state,
             receipt_root,
             data_availability_commitment: digest(48),
@@ -919,6 +920,7 @@ mod tests {
                 9,
                 2,
                 block_digest,
+                digest(49),
                 ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2_420]).unwrap(),
             )
             .unwrap();
@@ -929,6 +931,7 @@ mod tests {
                 9,
                 2,
                 block_digest,
+                digest(49),
                 ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec())
                     .unwrap(),
             )
@@ -945,6 +948,7 @@ mod tests {
             9,
             2,
             block_digest,
+            digest(49),
             Digest384::new(vote_set_root),
             2,
             2,

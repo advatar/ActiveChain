@@ -1,0 +1,13 @@
+request	case	expected
+deposit_mobile	minimum_500	accept
+deposit_mobile	below_500	reject
+deposit_card	https_redirects	accept
+deposit_card	http_redirect	reject
+transfer_tzs	user_destination	accept
+transfer_tzs	evm_destination	accept
+transfer_tzs	both_destinations	unrepresentable
+transfer_usdc	six_decimals	accept
+transfer_usdc	seventh_decimal	reject
+withdrawal	minimum_5000	accept
+withdrawal	below_5000	reject
+withdrawal	noncanonical_phone	reject

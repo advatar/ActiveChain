@@ -571,6 +571,7 @@ mod tests {
                 issuance: 0,
                 burn: 0,
                 post_supply: 0,
+                cash_cell_root: digest(18),
                 post_state: StateCommitment::new(digest(14), 0),
                 receipt_root: digest(15),
                 data_availability_commitment: digest(16),
@@ -590,6 +591,7 @@ mod tests {
             height,
             2,
             header.digest().unwrap(),
+            header.proof_statement_commitment,
             ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2_420]).unwrap(),
         )
         .unwrap();
@@ -600,6 +602,7 @@ mod tests {
             height,
             2,
             header.digest().unwrap(),
+            header.proof_statement_commitment,
             ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec()).unwrap(),
         )
         .unwrap();
@@ -615,6 +618,7 @@ mod tests {
             height,
             2,
             header.digest().unwrap(),
+            header.proof_statement_commitment,
             Digest384::new(root),
             1,
             1,
@@ -662,6 +666,7 @@ mod tests {
             authorization.authorization_height(),
             2,
             authorization.commitment(),
+            authorization.commitment(),
             ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2_420]).unwrap(),
         )
         .unwrap();
@@ -671,6 +676,7 @@ mod tests {
             context,
             authorization.authorization_height(),
             2,
+            authorization.commitment(),
             authorization.commitment(),
             ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec()).unwrap(),
         )
@@ -686,6 +692,7 @@ mod tests {
             context,
             authorization.authorization_height(),
             2,
+            authorization.commitment(),
             authorization.commitment(),
             Digest384::new(root),
             1,

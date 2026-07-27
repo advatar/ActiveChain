@@ -41,7 +41,9 @@ pub use openwallet::{
 
 use activechain_canonical_codec::decode_envelope;
 use activechain_cash_kernel::{CashLedger, CashTransitionError, GenesisEconomy};
-use activechain_cash_kernel::{CoinCellRecord, CoinTransfer, FeeQuote};
+use activechain_cash_kernel::{
+    CoinCellRecord, CoinTransfer, FeeQuote, FungibleCoinCellSet, FungibleTransferV1,
+};
 use activechain_protocol_commitment::cash_transition_id;
 use activechain_protocol_types::{
     AuthenticatorId, ChainId, CoinCellId, Digest384, ML_DSA44_PUBLIC_KEY_LENGTH, PrincipalId,
@@ -705,6 +707,65 @@ pub fn select_cells(
     }
 }
 
+/// Selects payment and reserve cells from one explicit fungible asset set.
+pub fn select_fungible_cells(
+    cells: &FungibleCoinCellSet,
+    owner: PrincipalId,
+    amount: u128,
+    fee: u128,
+) -> Result<
+    (activechain_protocol_types::CoinCellId, activechain_protocol_types::CoinCellId),
+    WalletError,
+> {
+    let required = amount.checked_add(fee).ok_or(WalletError::InsufficientFunds)?;
+    let mut payment = None;
+    let mut reserve = None;
+    for record in cells.as_slice() {
+        if record.cell().owner() != owner {
+            continue;
+        }
+        if payment.is_none() && record.cell().amount() >= required {
+            payment = Some(record.id());
+            continue;
+        }
+        if reserve.is_none() && record.cell().amount() >= fee {
+            reserve = Some(record.id());
+        }
+        if payment.is_some() && reserve.is_some() {
+            break;
+        }
+    }
+    match (payment, reserve) {
+        (Some(payment), Some(reserve)) if payment != reserve => Ok((payment, reserve)),
+        _ => Err(WalletError::InsufficientFunds),
+    }
+}
+
+/// Builds a canonical asset-bound transfer from selected fungible cells.
+pub fn build_fungible_transfer(
+    cells: &FungibleCoinCellSet,
+    asset: activechain_protocol_types::AssetId,
+    sender: PrincipalId,
+    recipient: PrincipalId,
+    input_ids: &[CoinCellId],
+    amount: u128,
+) -> Result<FungibleTransferV1, WalletError> {
+    if input_ids.is_empty() {
+        return Err(WalletError::InsufficientFunds);
+    }
+    let mut inputs = Vec::with_capacity(input_ids.len());
+    for id in input_ids {
+        let record = cells
+            .as_slice()
+            .iter()
+            .find(|record| record.id() == *id)
+            .ok_or(WalletError::InsufficientFunds)?;
+        inputs.push(record.cell());
+    }
+    FungibleTransferV1::new(asset, sender, recipient, inputs, amount)
+        .map_err(|_| WalletError::InsufficientFunds)
+}
+
 pub fn authorize_intent(
     policy: SpendPolicy,
     intent: WalletIntent,
@@ -771,11 +832,12 @@ mod tests {
     use super::*;
     use activechain_canonical_codec::encode_envelope;
     use activechain_cash_kernel::{
-        CoinCell, CoinCellOrigin, GenesisAllocation, NativeAssetDefinition,
+        CoinCell, CoinCellOrigin, FungibleCoinCell, FungibleCoinCellRecord, FungibleCoinCellSet,
+        GenesisAllocation, NativeAssetDefinition,
     };
     use activechain_protocol_types::{
-        AuthenticatorDescriptor, AuthenticatorId, AuthenticatorPurpose, CryptoSuiteId, FreezeState,
-        Principal, PrincipalKind, ProtocolSignature, TransactionId,
+        AuthenticatorDescriptor, AuthenticatorId, AuthenticatorPurpose, CoinCellId, CryptoSuiteId,
+        FreezeState, Principal, PrincipalKind, ProtocolSignature, TransactionId,
     };
     use alloc::vec;
     use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
@@ -1013,6 +1075,52 @@ mod tests {
         let (payment, reserve) = select_cells(&cells, owner, 10, 2).unwrap();
         assert_ne!(payment, reserve);
         assert_eq!(select_cells(&cells, owner, 30, 2), Err(WalletError::InsufficientFunds));
+    }
+
+    #[test]
+    fn fungible_selection_is_owner_bound_and_keeps_reserve_separate() {
+        let owner = principal(2);
+        let asset = activechain_protocol_types::AssetId::new(digest(44));
+        let first = FungibleCoinCellRecord::new(
+            CoinCellId::new(digest(4)),
+            FungibleCoinCell::new(
+                CoinCellOrigin::new(TransactionId::new(digest(6)), 0),
+                asset,
+                owner,
+                20,
+                1,
+            )
+            .unwrap(),
+        );
+        let second = FungibleCoinCellRecord::new(
+            CoinCellId::new(digest(5)),
+            FungibleCoinCell::new(
+                CoinCellOrigin::new(TransactionId::new(digest(7)), 0),
+                asset,
+                owner,
+                5,
+                1,
+            )
+            .unwrap(),
+        );
+        let set = FungibleCoinCellSet::new(vec![first, second]).unwrap();
+        let (payment, reserve) = select_fungible_cells(&set, owner, 10, 2).unwrap();
+        assert_ne!(payment, reserve);
+        let transfer =
+            build_fungible_transfer(&set, asset, owner, principal(3), &[payment], 20).unwrap();
+        assert_eq!(transfer.asset_id(), asset);
+        assert_eq!(transfer.amount(), 20);
+        assert!(
+            build_fungible_transfer(
+                &set,
+                activechain_protocol_types::AssetId::new(digest(45)),
+                owner,
+                principal(3),
+                &[payment],
+                20
+            )
+            .is_err()
+        );
     }
 
     #[test]

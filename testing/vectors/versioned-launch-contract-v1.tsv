@@ -1,0 +1,7 @@
+case\tinput\texpected\treason
+v1_known_core\tversion=1,core-cash-tag\taccept\tknown genesis feature
+v1_unknown_tag\tversion=1,tag=shielded-note\treject\treserved future tag cannot be ignored
+v1_unknown_feature\tversion=1,feature=proof-carrying-validity\treject\tunsupported activation bit
+v1_bad_extension_length\tversion=1,extension-length exceeds envelope\treject\tlength-delimited dispatch is strict
+v11_proof_profile\tversion=2,proof-profile=pq-zk-v1\taccept\tactivated profile is explicit
+v10_proof_claim\tversion=1,proof-profile=pq-zk-v1\treject\tv1.0 cannot claim proof-carrying validity

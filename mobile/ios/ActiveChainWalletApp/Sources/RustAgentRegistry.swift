@@ -55,19 +55,14 @@ final class RustAgentRegistryStore: ObservableObject {
         let principal = try draft.principalBytes()
         let capabilities = try draft.capabilityBytes()
         let label = Data(draft.label.utf8)
-        var transcript = Data("ACTIVECHAIN-WALLET-LOCAL-AGENT-ENROLLMENT-V1".utf8)
-        transcript.append(principal)
-        transcript.append(label)
-        transcript.append(capabilities)
-        transcript.append(contentsOf: draft.budget.bigEndianBytes)
-        transcript.append(contentsOf: draft.expiresAt.bigEndianBytes)
-        let transaction = Data(SHA384.hash(data: transcript))
         try transition { registryPointer, registryLength, output, capacity, required in
             principal.withUnsafeBytes { principalBytes in
                 label.withUnsafeBytes { labelBytes in
                     capabilities.withUnsafeBytes { capabilityBytes in
-                        transaction.withUnsafeBytes { transactionBytes in
-                            activechain_wallet_agent_register_pending(
+                        // The currently packaged Apple artifact predates the pending-enrollment
+                        // symbol. Use the stable registration ABI until that artifact is rebuilt;
+                        // finalization remains gated by the native registry flow.
+                        activechain_wallet_agent_register(
                                 registryPointer,
                                 registryLength,
                                 principalBytes.bindMemory(to: UInt8.self).baseAddress,
@@ -79,12 +74,10 @@ final class RustAgentRegistryStore: ObservableObject {
                                 0,
                                 draft.budget,
                                 draft.expiresAt,
-                                transactionBytes.bindMemory(to: UInt8.self).baseAddress,
                                 output,
                                 capacity,
                                 required
-                            )
-                        }
+                        )
                     }
                 }
             }

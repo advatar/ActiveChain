@@ -169,6 +169,7 @@ pub struct AgentEnrollmentEvidenceV1 {
 }
 
 impl AgentEnrollmentEvidenceV1 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         chain_id: ChainId,
         wallet: PrincipalId,
@@ -471,6 +472,7 @@ pub struct AgentEnrollmentRequestV1 {
 }
 
 impl AgentEnrollmentRequestV1 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         chain_id: ChainId,
         wallet: PrincipalId,

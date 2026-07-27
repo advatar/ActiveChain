@@ -24,4 +24,7 @@
   retire branches whose work is superseded, duplicated, stale, or unsafe.
 - Other agents may be working in the same repo; mind your own business and avoid unrelated investigation or edits.
 - When you have unchecked tasks, complete them one by one after passing tests, do not stop
+- If any open issue or unchecked roadmap task remains, do not stop to report status to the user;
+  continue directly with the next actionable step. Pause only when a genuinely blocking decision
+  or missing authority requires user input.
 - When adding new functionality add unit tests

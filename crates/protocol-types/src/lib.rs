@@ -7,9 +7,13 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
 
+extern crate alloc;
+
 mod admission;
+mod asset;
 mod authority;
 mod checked_arithmetic;
+mod compliance;
 mod consensus;
 mod consensus_state;
 mod credential;
@@ -19,6 +23,10 @@ mod object;
 mod package;
 
 pub use admission::{exact_frame_layout, fresh_sequence, length_prefixed_range};
+pub use asset::{
+    AssetDefinitionError, FungibleAssetDefinition, FungibleAssetRegistry, MAX_ASSET_SYMBOL_LENGTH,
+    MAX_FUNGIBLE_ASSETS,
+};
 pub use authority::{
     BoundedActionSet, BoundedActionSetError, CapabilityGrant, CapabilityGrantFields,
     CapabilityValidationError, DataSelector, HolderBinding, RateLimit, RateLimitError,
@@ -27,12 +35,18 @@ pub use authority::{
 pub use checked_arithmetic::{
     authorized_issuance, fee_total, next_base_fee, partition_total, post_supply, strict_two_thirds,
 };
+pub use compliance::{
+    ComplianceError, ComplianceEvidenceBindingV1, ComplianceReplayKey, ComplianceReplaySet,
+    ComplianceSignatureEnvelopeV1, JurisdictionProfileCandidate, ProfileSelection,
+    TravelRuleBindingV1, select_jurisdiction_profiles,
+};
 pub use consensus::{
-    BlockProposal, ConsensusUpgradeAuthorization, ConsensusUpgradeAuthorizationError,
-    ConsensusVoteContext, EpochTransition, EpochTransitionError, INITIAL_PROTOCOL_REVISION,
-    MAX_VALIDATORS_PER_EPOCH, ML_DSA44_PUBLIC_KEY_LENGTH, QuorumCertificate,
-    QuorumCertificateError, ValidatorGenesis, ValidatorGenesisEntry, ValidatorGenesisError,
-    ValidatorSet, ValidatorSetError, ValidatorVote, ValidatorVoteError, ValidatorWeight,
+    BlockProposal, BlockProposalError, ConsensusBlockRef, ConsensusUpgradeAuthorization,
+    ConsensusUpgradeAuthorizationError, ConsensusVoteContext, EpochTransition,
+    EpochTransitionError, INITIAL_PROTOCOL_REVISION, MAX_VALIDATORS_PER_EPOCH,
+    ML_DSA44_PUBLIC_KEY_LENGTH, ProposalJustification, QuorumCertificate, QuorumCertificateError,
+    ValidatorGenesis, ValidatorGenesisEntry, ValidatorGenesisError, ValidatorSet,
+    ValidatorSetError, ValidatorVote, ValidatorVoteError, ValidatorWeight,
 };
 pub use consensus_state::{
     ConsensusSnapshot, ConsensusState, ConsensusStateError, GenesisConfig, GenesisConfigError,

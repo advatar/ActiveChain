@@ -9,7 +9,7 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
 use activechain_protocol_types::{
-    ChainId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature, TransactionId,
+    AssetId, ChainId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature, TransactionId,
 };
 use alloc::{boxed::Box, vec::Vec};
 use sha3::{
@@ -222,6 +222,8 @@ pub enum QueryKind {
     Action = 1,
     Receipt = 2,
     ApplicationReceipt = 3,
+    CoinCell = 4,
+    FungibleCoinCell = 5,
 }
 
 impl CanonicalEncode for QueryKind {
@@ -236,6 +238,8 @@ impl CanonicalDecode for QueryKind {
             1 => Ok(Self::Action),
             2 => Ok(Self::Receipt),
             3 => Ok(Self::ApplicationReceipt),
+            4 => Ok(Self::CoinCell),
+            5 => Ok(Self::FungibleCoinCell),
             tag => Err(DecodeError::InvalidEnumTag { type_name: "QueryKind", tag }),
         }
     }
@@ -399,6 +403,7 @@ pub struct FaucetRequestV1 {
     genesis_commitment: Digest384,
     recipient: PrincipalId,
     idempotency_key: Digest384,
+    source_commitment: Digest384,
     challenge_nonce: u64,
     challenge_evidence: Vec<u8>,
 }
@@ -409,11 +414,13 @@ impl FaucetRequestV1 {
         genesis_commitment: Digest384,
         recipient: PrincipalId,
         idempotency_key: Digest384,
+        source_commitment: Digest384,
         challenge_nonce: u64,
         challenge_evidence: Vec<u8>,
     ) -> Result<Self, DecodeError> {
         if genesis_commitment == Digest384::ZERO
             || idempotency_key == Digest384::ZERO
+            || source_commitment == Digest384::ZERO
             || challenge_evidence.len() > MAX_FAUCET_PROOF_LENGTH
         {
             return Err(DecodeError::InvalidValue("invalid faucet request"));
@@ -423,6 +430,7 @@ impl FaucetRequestV1 {
             genesis_commitment,
             recipient,
             idempotency_key,
+            source_commitment,
             challenge_nonce,
             challenge_evidence,
         })
@@ -439,6 +447,9 @@ impl FaucetRequestV1 {
     pub const fn idempotency_key(&self) -> Digest384 {
         self.idempotency_key
     }
+    pub const fn source_commitment(&self) -> Digest384 {
+        self.source_commitment
+    }
     pub const fn challenge_nonce(&self) -> u64 {
         self.challenge_nonce
     }
@@ -452,6 +463,7 @@ impl CanonicalEncode for FaucetRequestV1 {
         self.genesis_commitment.encode(encoder)?;
         self.recipient.encode(encoder)?;
         self.idempotency_key.encode(encoder)?;
+        self.source_commitment.encode(encoder)?;
         self.challenge_nonce.encode(encoder)?;
         encoder.write_bytes(&self.challenge_evidence, MAX_FAUCET_PROOF_LENGTH)
     }
@@ -463,6 +475,7 @@ impl CanonicalDecode for FaucetRequestV1 {
             Digest384::decode(decoder)?,
             PrincipalId::decode(decoder)?,
             Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
             u64::decode(decoder)?,
             decoder.read_bytes(MAX_FAUCET_PROOF_LENGTH)?.to_vec(),
         )
@@ -471,7 +484,7 @@ impl CanonicalDecode for FaucetRequestV1 {
 impl CanonicalType for FaucetRequestV1 {
     const TYPE_TAG: u16 = 0x00c0;
     const SCHEMA_VERSION: u16 = 1;
-    const MAX_ENCODED_LEN: usize = 48 * 4 + 8 + 2 + MAX_FAUCET_PROOF_LENGTH;
+    const MAX_ENCODED_LEN: usize = 48 * 5 + 8 + 2 + MAX_FAUCET_PROOF_LENGTH;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -604,13 +617,39 @@ impl CanonicalType for FaucetReceiptV1 {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RpcRequest {
     Status,
-    Get { kind: QueryKind, key: Digest384 },
-    List { kind: QueryKind, after: Option<Digest384>, limit: u16 },
-    SubmitAnchor { statement: Vec<u8> },
-    ResolveAnchor { reference: Digest384 },
-    RequestFaucet { request: Box<FaucetRequestV1> },
-    ResolveFaucet { reference: Digest384 },
+    Get {
+        kind: QueryKind,
+        key: Digest384,
+    },
+    List {
+        kind: QueryKind,
+        after: Option<Digest384>,
+        limit: u16,
+    },
+    SubmitAnchor {
+        statement: Vec<u8>,
+    },
+    ResolveAnchor {
+        reference: Digest384,
+    },
+    RequestFaucet {
+        request: Box<FaucetRequestV1>,
+    },
+    ResolveFaucet {
+        reference: Digest384,
+    },
     FaucetTerms,
+    ListOwnerCoinCells {
+        owner: PrincipalId,
+        after: Option<Digest384>,
+        limit: u16,
+    },
+    ListOwnerFungibleCoinCells {
+        owner: PrincipalId,
+        asset: AssetId,
+        after: Option<Digest384>,
+        limit: u16,
+    },
 }
 
 impl CanonicalEncode for RpcRequest {
@@ -645,6 +684,19 @@ impl CanonicalEncode for RpcRequest {
                 reference.encode(encoder)
             }
             Self::FaucetTerms => 7_u8.encode(encoder),
+            Self::ListOwnerCoinCells { owner, after, limit } => {
+                8_u8.encode(encoder)?;
+                owner.encode(encoder)?;
+                after.encode(encoder)?;
+                limit.encode(encoder)
+            }
+            Self::ListOwnerFungibleCoinCells { owner, asset, after, limit } => {
+                9_u8.encode(encoder)?;
+                owner.encode(encoder)?;
+                asset.encode(encoder)?;
+                after.encode(encoder)?;
+                limit.encode(encoder)
+            }
         }
     }
 }
@@ -670,6 +722,25 @@ impl CanonicalDecode for RpcRequest {
             5 => Ok(Self::RequestFaucet { request: Box::new(FaucetRequestV1::decode(decoder)?) }),
             6 => Ok(Self::ResolveFaucet { reference: Digest384::decode(decoder)? }),
             7 => Ok(Self::FaucetTerms),
+            8 => {
+                let owner = PrincipalId::decode(decoder)?;
+                let after = Option::<Digest384>::decode(decoder)?;
+                let limit = u16::decode(decoder)?;
+                if limit == 0 || limit > MAX_RPC_PAGE_SIZE {
+                    return Err(DecodeError::InvalidValue("RPC page limit is out of bounds"));
+                }
+                Ok(Self::ListOwnerCoinCells { owner, after, limit })
+            }
+            9 => {
+                let owner = PrincipalId::decode(decoder)?;
+                let asset = AssetId::decode(decoder)?;
+                let after = Option::<Digest384>::decode(decoder)?;
+                let limit = u16::decode(decoder)?;
+                if limit == 0 || limit > MAX_RPC_PAGE_SIZE {
+                    return Err(DecodeError::InvalidValue("RPC page limit is out of bounds"));
+                }
+                Ok(Self::ListOwnerFungibleCoinCells { owner, asset, after, limit })
+            }
             tag => Err(DecodeError::InvalidEnumTag { type_name: "RpcRequest", tag }),
         }
     }
@@ -834,7 +905,9 @@ impl RpcAccessTerms {
             | RpcRequest::ResolveAnchor { .. }
             | RpcRequest::RequestFaucet { .. }
             | RpcRequest::ResolveFaucet { .. } => Some(self.get_units),
-            RpcRequest::List { limit, .. } => self
+            RpcRequest::List { limit, .. }
+            | RpcRequest::ListOwnerCoinCells { limit, .. }
+            | RpcRequest::ListOwnerFungibleCoinCells { limit, .. } => self
                 .list_item_units
                 .checked_mul(*limit as u64)
                 .and_then(|items| self.list_base_units.checked_add(items)),
@@ -1661,6 +1734,7 @@ mod tests {
             digest(2),
             PrincipalId::new(digest(3)),
             digest(4),
+            digest(5),
             9,
             vec![5, 6],
         )

@@ -1,0 +1,8 @@
+case\tevidence_state\texpected\treason
+current_signed\tvalid,unexpired,not-revoked\tverified\tminimum signed result is sufficient
+expired\tvalid,expired\texpired\tno freshness bypass
+revoked\tvalid,revoked\trevoked\trevocation is explicit
+missing_source\tdigest-present,source-unavailable\tunavailable\tdigest is not a recovery mechanism
+bad_audience\tvalid,wrong-audience\treject\tpurpose binding fails
+legal_hold\texpired,legal-hold-off-chain\texpired\thold does not extend receipt validity
+raw_document\tpersonal-document-in-public-receipt\treject\tsensitive material remains off-chain
