@@ -34,6 +34,35 @@ pub fn decode_request(frame: &[u8]) -> Result<SettlementRequest, DecodeError> {
     activechain_canonical_codec::decode_envelope(&frame[4..])
 }
 
+pub fn encode_authorized_request(
+    request: &AuthorizedSettlementRequest,
+) -> Result<Vec<u8>, EncodeError> {
+    let body = activechain_canonical_codec::encode_envelope(request)?;
+    if body.len() > MAX_BRIDGE_FRAME {
+        return Err(EncodeError::OutputLimitExceeded {
+            attempted: body.len(),
+            maximum: MAX_BRIDGE_FRAME,
+        });
+    }
+    let mut frame = Vec::with_capacity(4 + body.len());
+    frame.extend_from_slice(&(body.len() as u32).to_be_bytes());
+    frame.extend_from_slice(&body);
+    Ok(frame)
+}
+
+pub fn decode_authorized_request(
+    frame: &[u8],
+) -> Result<AuthorizedSettlementRequest, DecodeError> {
+    if frame.len() < 4 {
+        return Err(DecodeError::UnexpectedEnd { needed: 4, remaining: frame.len() });
+    }
+    let len = u32::from_be_bytes(frame[..4].try_into().unwrap()) as usize;
+    if len > MAX_BRIDGE_FRAME || frame.len() != len + 4 {
+        return Err(DecodeError::InvalidValue("invalid bridge frame length"));
+    }
+    activechain_canonical_codec::decode_envelope(&frame[4..])
+}
+
 pub fn encode_response(response: &SettlementResponse) -> Result<Vec<u8>, EncodeError> {
     let body = activechain_canonical_codec::encode_envelope(response)?;
     if body.len() > MAX_BRIDGE_FRAME {
@@ -343,6 +372,12 @@ mod tests {
             &malformed
         )
         .is_err());
+
+        let frame = encode_authorized_request(&request).unwrap();
+        assert_eq!(decode_authorized_request(&frame).unwrap(), request);
+        let mut trailing = frame;
+        trailing.push(0);
+        assert!(decode_authorized_request(&trailing).is_err());
     }
 
     #[test]

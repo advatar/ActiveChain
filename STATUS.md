@@ -296,6 +296,8 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
   faucet deployment.
 - [x] Freeze the validator-bridge authorized-settlement request envelope with strict canonical
   round-trip, trailing-byte, empty, malformed, and intent/recipient/amount-binding vectors.
+- [x] Add bounded length-prefixed bridge framing for authorized settlement requests with strict
+  truncation and trailing-byte rejection.
 - [x] Freeze executable faucet invariant vectors for failed-settlement atomicity, source/global
   limits, restart equivalence, and exactly-once idempotency.
 - [x] Add bounded Kani proofs for admission limit monotonicity and cooldown precedence; these do
