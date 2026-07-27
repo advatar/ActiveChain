@@ -41,7 +41,9 @@ pub use openwallet::{
 
 use activechain_canonical_codec::decode_envelope;
 use activechain_cash_kernel::{CashLedger, CashTransitionError, GenesisEconomy};
-use activechain_cash_kernel::{CoinCellRecord, CoinTransfer, FeeQuote, FungibleCoinCellSet};
+use activechain_cash_kernel::{
+    CoinCellRecord, CoinTransfer, FeeQuote, FungibleCoinCellSet, FungibleTransferV1,
+};
 use activechain_protocol_commitment::cash_transition_id;
 use activechain_protocol_types::{
     AuthenticatorId, ChainId, CoinCellId, Digest384, ML_DSA44_PUBLIC_KEY_LENGTH, PrincipalId,
@@ -737,6 +739,31 @@ pub fn select_fungible_cells(
         (Some(payment), Some(reserve)) if payment != reserve => Ok((payment, reserve)),
         _ => Err(WalletError::InsufficientFunds),
     }
+}
+
+/// Builds a canonical asset-bound transfer from selected fungible cells.
+pub fn build_fungible_transfer(
+    cells: &FungibleCoinCellSet,
+    asset: activechain_protocol_types::AssetId,
+    sender: PrincipalId,
+    recipient: PrincipalId,
+    input_ids: &[CoinCellId],
+    amount: u128,
+) -> Result<FungibleTransferV1, WalletError> {
+    if input_ids.is_empty() {
+        return Err(WalletError::InsufficientFunds);
+    }
+    let mut inputs = Vec::with_capacity(input_ids.len());
+    for id in input_ids {
+        let record = cells
+            .as_slice()
+            .iter()
+            .find(|record| record.id() == *id)
+            .ok_or(WalletError::InsufficientFunds)?;
+        inputs.push(record.cell());
+    }
+    FungibleTransferV1::new(asset, sender, recipient, inputs, amount)
+        .map_err(|_| WalletError::InsufficientFunds)
 }
 
 pub fn authorize_intent(
