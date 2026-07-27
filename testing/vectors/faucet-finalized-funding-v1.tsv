@@ -7,3 +7,6 @@ chain_tamper\treceipt genesis differs\treject\ttestnet identity binding
 recipient_tamper\towner proof differs from request\treject\tno substitution
 replay\tgrant nonce already consumed\treject\texactly once
 stale_finality\tproof height below configured finality\treject\tfinalized evidence required
+status_pending\treference with no finalized transaction\tdo_not_credit\tstatus is observable without optimistic balance
+status_finalized_without_transaction\tfinalized state, transaction absent\treject\tstate/evidence consistency
+status_rejected_without_reason\trejected state, reason absent\treject\tbounded rejection evidence required

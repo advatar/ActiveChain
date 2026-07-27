@@ -123,6 +123,82 @@ impl CanonicalType for SettlementResponse {
     const MAX_ENCODED_LEN: usize = 96;
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum SettlementState {
+    Pending = 0,
+    Finalized = 1,
+    Rejected = 2,
+}
+impl CanonicalEncode for SettlementState {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(e)
+    }
+}
+impl CanonicalDecode for SettlementState {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(d)? {
+            0 => Ok(Self::Pending),
+            1 => Ok(Self::Finalized),
+            2 => Ok(Self::Rejected),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "SettlementState", tag }),
+        }
+    }
+}
+
+/// Proof-neutral status envelope used while a faucet transition moves through validator finality.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SettlementStatusResponse {
+    pub reference: Digest384,
+    pub state: SettlementState,
+    pub transaction: Option<TransactionId>,
+    pub reason: Option<Digest384>,
+}
+impl SettlementStatusResponse {
+    pub const TYPE_TAG: u16 = 0x00D2;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 + 1 + 1 + 48 + 1 + 48;
+    pub fn new(
+        reference: Digest384,
+        state: SettlementState,
+        transaction: Option<TransactionId>,
+        reason: Option<Digest384>,
+    ) -> Result<Self, DecodeError> {
+        if reference == Digest384::ZERO {
+            return Err(DecodeError::InvalidValue("zero settlement reference"));
+        }
+        if matches!(state, SettlementState::Finalized) != transaction.is_some()
+            || matches!(state, SettlementState::Rejected) != reason.is_some()
+        {
+            return Err(DecodeError::InvalidValue("inconsistent settlement status"));
+        }
+        Ok(Self { reference, state, transaction, reason })
+    }
+}
+impl CanonicalEncode for SettlementStatusResponse {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.reference.encode(e)?;
+        self.state.encode(e)?;
+        self.transaction.encode(e)?;
+        self.reason.encode(e)
+    }
+}
+impl CanonicalDecode for SettlementStatusResponse {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            Digest384::decode(d)?,
+            SettlementState::decode(d)?,
+            Option::<TransactionId>::decode(d)?,
+            Option::<Digest384>::decode(d)?,
+        )
+    }
+}
+impl CanonicalType for SettlementStatusResponse {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,6 +278,40 @@ mod tests {
         let mut oversized = frame;
         oversized[..4].copy_from_slice(&((MAX_BRIDGE_FRAME as u32) + 1).to_be_bytes());
         assert!(matches!(decode_response(&oversized), Err(DecodeError::InvalidValue(_))));
+    }
+
+    #[test]
+    fn settlement_status_requires_state_consistent_evidence() {
+        let pending = SettlementStatusResponse::new(
+            Digest384::new([7; 48]),
+            SettlementState::Pending,
+            None,
+            None,
+        )
+        .unwrap();
+        let bytes = activechain_canonical_codec::encode_envelope(&pending).unwrap();
+        assert_eq!(
+            activechain_canonical_codec::decode_envelope::<SettlementStatusResponse>(&bytes),
+            Ok(pending)
+        );
+        assert!(
+            SettlementStatusResponse::new(
+                Digest384::new([7; 48]),
+                SettlementState::Finalized,
+                None,
+                None,
+            )
+            .is_err()
+        );
+        assert!(
+            SettlementStatusResponse::new(
+                Digest384::new([7; 48]),
+                SettlementState::Rejected,
+                None,
+                None,
+            )
+            .is_err()
+        );
     }
 }
 

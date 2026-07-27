@@ -193,6 +193,8 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
   length checks and malformed-frame regression vectors.
 - [x] Bind bridge settlement responses to the exact admitted faucet reference and expose a typed
   request-to-response helper.
+- [x] Freeze canonical pending/finalized/rejected settlement status responses with state-consistent
+  optional evidence and malformed vectors.
 - [ ] Submit faucet-authorized Coin Cell transitions through real transaction ingress and expose
   pending/finalized/rejected proof-bearing status through the Kanalen gateway.
 - [ ] Publish the end-to-end funding admission contract and adversarial vectors before public
