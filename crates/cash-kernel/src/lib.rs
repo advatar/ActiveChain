@@ -51,7 +51,7 @@ pub use types::{
     FungibleCoinCellMembershipProof, FungibleCoinCellRecord, FungibleCoinCellSet, FungibleMintV1,
     FungibleRedemptionV1, FungibleSettlementReceiptV1, FungibleTransferV1, GenesisAllocation,
     GenesisEconomy, MAX_COIN_CELLS, MAX_TRANSFER_INPUTS, NativeAssetDefinition, NativeMoneyError,
-    NativeSupply,
+    NativeSupply, NonFungibleCoinCell,
 };
 
 #[cfg(test)]
@@ -61,19 +61,41 @@ mod tests {
     use activechain_canonical_codec::{decode_envelope, encode_envelope};
     use activechain_privacy_kernel::{ShieldIntent, UnshieldIntent, VerifiedPrivacyProof};
     use activechain_protocol_commitment::{DomainTag, commit};
-    use activechain_protocol_types::{ChainId, CoinCellId, Digest384, PrincipalId};
+    use activechain_protocol_types::{
+        AssetId, ChainId, CoinCellId, Digest384, PrincipalId, TransactionId,
+    };
     use alloc::vec;
     use proptest::prelude::*;
 
     use super::{
         CashLedger, CashTransferV1, CashTransitionError, CoinBurnTransition, CoinMintTransition,
         CoinTransfer, EpochEconomicsTransition, GenesisAllocation, GenesisEconomy,
-        NativeAssetDefinition, NativeMoneyError, NativeSupply, PartitionedCashPlan,
-        RewardRedemption, RewardSettlement,
+        NativeAssetDefinition, NativeMoneyError, NativeSupply, NonFungibleCoinCell,
+        PartitionedCashPlan, RewardRedemption, RewardSettlement,
     };
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
+    }
+
+    #[test]
+    fn nft_coin_cell_binds_identity_and_owner() {
+        let origin = super::CoinCellOrigin::new(TransactionId::new(digest(1)), 0);
+        let cell = NonFungibleCoinCell::new(
+            origin,
+            AssetId::new(digest(2)),
+            digest(3),
+            principal(4),
+            digest(5),
+            7,
+        )
+        .unwrap();
+        assert_eq!(
+            decode_envelope::<NonFungibleCoinCell>(&encode_envelope(&cell).unwrap()),
+            Ok(cell)
+        );
+        assert_eq!(cell.transfer(principal(9), principal(10)), Err(NativeMoneyError::WrongOwner));
+        assert_eq!(cell.transfer(principal(4), principal(10)).unwrap().owner(), principal(10));
     }
     fn principal(byte: u8) -> PrincipalId {
         PrincipalId::new(digest(byte))

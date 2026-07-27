@@ -430,6 +430,91 @@ pub struct FungibleCoinCellRecord {
     id: CoinCellId,
     cell: FungibleCoinCell,
 }
+
+/// A one-of-one native asset cell. The token and metadata commitments are
+/// immutable; only ownership changes across a valid transition.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NonFungibleCoinCell {
+    origin: CoinCellOrigin,
+    asset_id: AssetId,
+    token_id: Digest384,
+    owner: PrincipalId,
+    metadata_commitment: Digest384,
+    creation_height: Height,
+}
+impl NonFungibleCoinCell {
+    pub const TYPE_TAG: u16 = 0x00A4;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = CoinCellOrigin::MAX_ENCODED_LEN + 48 * 4 + 8;
+    pub fn new(
+        origin: CoinCellOrigin,
+        asset_id: AssetId,
+        token_id: Digest384,
+        owner: PrincipalId,
+        metadata_commitment: Digest384,
+        creation_height: Height,
+    ) -> Result<Self, NativeMoneyError> {
+        if token_id == Digest384::ZERO {
+            return Err(NativeMoneyError::ZeroTokenId);
+        }
+        if metadata_commitment == Digest384::ZERO {
+            return Err(NativeMoneyError::ZeroMetadataCommitment);
+        }
+        Ok(Self { origin, asset_id, token_id, owner, metadata_commitment, creation_height })
+    }
+    pub const fn origin(self) -> CoinCellOrigin {
+        self.origin
+    }
+    pub const fn asset_id(self) -> AssetId {
+        self.asset_id
+    }
+    pub const fn token_id(self) -> Digest384 {
+        self.token_id
+    }
+    pub const fn owner(self) -> PrincipalId {
+        self.owner
+    }
+    pub const fn metadata_commitment(self) -> Digest384 {
+        self.metadata_commitment
+    }
+    pub const fn creation_height(self) -> Height {
+        self.creation_height
+    }
+    pub fn transfer(self, from: PrincipalId, to: PrincipalId) -> Result<Self, NativeMoneyError> {
+        if self.owner != from {
+            return Err(NativeMoneyError::WrongOwner);
+        }
+        Ok(Self { owner: to, ..self })
+    }
+}
+impl CanonicalEncode for NonFungibleCoinCell {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.origin.encode(e)?;
+        self.asset_id.encode(e)?;
+        self.token_id.encode(e)?;
+        self.owner.encode(e)?;
+        self.metadata_commitment.encode(e)?;
+        self.creation_height.encode(e)
+    }
+}
+impl CanonicalDecode for NonFungibleCoinCell {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            CoinCellOrigin::decode(d)?,
+            AssetId::decode(d)?,
+            Digest384::decode(d)?,
+            PrincipalId::decode(d)?,
+            Digest384::decode(d)?,
+            Height::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid NFT coin cell"))
+    }
+}
+impl CanonicalType for NonFungibleCoinCell {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
 impl FungibleCoinCellRecord {
     pub const TYPE_TAG: u16 = 0x00A3;
     pub const SCHEMA_VERSION: u16 = 1;
@@ -2050,6 +2135,8 @@ pub enum NativeMoneyError {
     GenesisSupplyMismatch,
     AmountOverflow,
     ZeroAmount,
+    ZeroTokenId,
+    ZeroMetadataCommitment,
     InvalidReserve,
     SupplyEquationMismatch,
     SupplyPartitionMismatch,

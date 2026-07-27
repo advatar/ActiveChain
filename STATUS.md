@@ -331,6 +331,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   transfer semantics; series assets and full issuer authorization remain separate gates.
 - [x] Add bounded NFT series definitions with metadata-schema commitments and checked mint
   reservation accounting; issuer authorization remains enforced by the action layer.
+- [x] Add an immutable-identity NFT Coin Cell carrying asset/token/metadata commitments and
+  owner-bound transfer semantics in the cash kernel.
 - [ ] Enforce issuer/controller authority, supply conservation, declared controls, and corporate
   actions in consensus, persistence, authorization, and formal proofs.
 - [x] Add canonical mint and burn supply-state transitions with exact pre-state, issuer, lifecycle,
