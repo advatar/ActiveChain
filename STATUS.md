@@ -208,17 +208,17 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
 Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163).
 
 - [ ] Bind fungible Coin Cells and all transitions, authorizations, proofs, and receipts to `AssetId`.
-- [ ] Add the backward-compatible canonical `FungibleCoinCellRecord` wire type before migrating
+- [x] Add the backward-compatible canonical `FungibleCoinCellRecord` wire type before migrating
   authenticated roots and wallet/RPC APIs.
-- [ ] Add an ordered fungible-cell set and domain-separated authenticated root.
-- [ ] Add fungible-cell membership proofs bound to the asset record and set root.
-- [ ] Freeze the canonical multi-asset binding rules and positive/malformed vectors before
+- [x] Add an ordered fungible-cell set and domain-separated authenticated root.
+- [x] Add fungible-cell membership proofs bound to the asset record and set root.
+- [x] Freeze the canonical multi-asset binding rules and positive/malformed vectors before
   changing execution or wallet surfaces.
 - [ ] Specify a finalized issuer-controlled asset metadata and supply registry.
-- [ ] Add proof-bearing owner-and-asset RPC discovery with bounded pagination.
-- [ ] Extend the versioned wallet ABI for multi-asset balances, selection, signing, and submission.
-- [ ] Add deterministic wallet selection over `FungibleCoinCellSet` with explicit asset identity.
-- [ ] Qualify native, test-EUR, and test-USD assets with cross-asset adversarial vectors.
+- [x] Add proof-bearing owner-and-asset RPC discovery with bounded pagination.
+- [x] Extend the versioned wallet ABI for multi-asset balances, selection, signing, and submission.
+- [x] Add deterministic wallet selection over `FungibleCoinCellSet` with explicit asset identity.
+- [x] Qualify native, test-EUR, and test-USD assets with cross-asset adversarial vectors.
 
 ## Active regulated-profile implementation — screening semantics
 
