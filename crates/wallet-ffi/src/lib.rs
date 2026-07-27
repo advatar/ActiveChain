@@ -1595,6 +1595,50 @@ mod tests {
     }
 
     #[test]
+    fn fungible_transfer_abi_rejects_null_and_malformed_inputs() {
+        let mut required = 0_u32;
+        assert_eq!(
+            unsafe {
+                activechain_wallet_build_fungible_transfer(
+                    core::ptr::null(),
+                    1,
+                    [1_u8; 48].as_ptr(),
+                    [2_u8; 48].as_ptr(),
+                    [3_u8; 48].as_ptr(),
+                    [4_u8; 48].as_ptr(),
+                    1,
+                    0,
+                    1,
+                    core::ptr::null_mut(),
+                    0,
+                    &mut required,
+                )
+            },
+            WALLET_NULL_POINTER
+        );
+        let malformed = [0_u8];
+        assert_eq!(
+            unsafe {
+                activechain_wallet_build_fungible_transfer(
+                    malformed.as_ptr(),
+                    malformed.len() as u32,
+                    [1_u8; 48].as_ptr(),
+                    [2_u8; 48].as_ptr(),
+                    [3_u8; 48].as_ptr(),
+                    [4_u8; 48].as_ptr(),
+                    1,
+                    0,
+                    1,
+                    core::ptr::null_mut(),
+                    0,
+                    &mut required,
+                )
+            },
+            WALLET_MALFORMED
+        );
+    }
+
+    #[test]
     fn policy_abi_matches_limits_and_optional_recipient_pinning() {
         let recipient = digest(40);
         assert_eq!(
