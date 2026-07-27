@@ -7,6 +7,10 @@
 //! tables required by `CASH.md` remain separate, explicit roadmap gates.
 
 use activechain_cash_kernel::{AuthenticatedCashAirProofV1, CashAirProof};
+use activechain_canonical_codec::{
+    CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
+    decode_envelope, encode_envelope,
+};
 use activechain_protocol_types::{CoinCellSetRoot, Digest384};
 use winterfell::{
     AcceptableOptions, Air, AirContext, Assertion, AuxRandElements, BatchingMethod,
@@ -39,6 +43,63 @@ pub use shake::{
 /// persist this identifier with any proof envelope.
 pub const CASH_AIR_PARENT_SUITE_ID: u32 = 0xCA50_0101;
 pub const CASH_AIR_COMPOSITE_SUITE_ID: u32 = 0xCA50_0201;
+pub const MAX_CASH_AIR_PROOF_BYTES: usize = 1 << 20;
+
+/// Canonical byte envelope for the Winterfell CashAIR parent proof.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CashAirReceiptV1 {
+    pub suite_id: u32,
+    pub trace: CashAirProof,
+    pub proof_bytes: Vec<u8>,
+}
+
+impl CashAirReceiptV1 {
+    pub fn new(trace: CashAirProof, proof_bytes: Vec<u8>) -> Result<Self, &'static str> {
+        if proof_bytes.is_empty() || proof_bytes.len() > MAX_CASH_AIR_PROOF_BYTES {
+            return Err("CashAIR proof byte length is outside the registered bound");
+        }
+        Ok(Self { suite_id: CASH_AIR_PARENT_SUITE_ID, trace, proof_bytes })
+    }
+
+    pub fn verify_bytes(bytes: &[u8]) -> Result<(), &'static str> {
+        let envelope: Self = decode_envelope(bytes).map_err(|_| "malformed CashAIR receipt")?;
+        if envelope.suite_id != CASH_AIR_PARENT_SUITE_ID {
+            return Err("unregistered CashAIR receipt suite");
+        }
+        verify_bytes(&envelope.proof_bytes, &envelope.trace)
+    }
+
+    pub fn encode_envelope(&self) -> Result<Vec<u8>, EncodeError> {
+        encode_envelope(self)
+    }
+}
+
+impl CanonicalEncode for CashAirReceiptV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.suite_id.encode(e)?;
+        self.trace.encode(e)?;
+        e.write_bytes(&self.proof_bytes, MAX_CASH_AIR_PROOF_BYTES)
+    }
+}
+impl CanonicalDecode for CashAirReceiptV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let suite_id = u32::decode(d)?;
+        if suite_id != CASH_AIR_PARENT_SUITE_ID {
+            return Err(DecodeError::InvalidValue("unregistered CashAIR receipt suite"));
+        }
+        let trace = CashAirProof::decode(d)?;
+        let proof_bytes = d.read_bytes(MAX_CASH_AIR_PROOF_BYTES)?.to_vec();
+        if proof_bytes.is_empty() {
+            return Err(DecodeError::InvalidValue("empty CashAIR proof"));
+        }
+        Ok(Self { suite_id, trace, proof_bytes })
+    }
+}
+impl CanonicalType for CashAirReceiptV1 {
+    const TYPE_TAG: u16 = 0x00a0;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 4 + CashAirProof::MAX_ENCODED_LEN + 4 + MAX_CASH_AIR_PROOF_BYTES;
+}
 
 const TRACE_WIDTH: usize = 15;
 const STEP: usize = 0;
@@ -568,7 +629,7 @@ mod tests {
     use activechain_protocol_types::{ChainId, CoinCellId, Digest384, PrincipalId};
 
     use super::{
-        AuthenticatedCashCompositeStarkProof, BaseElement, CashStarkProof,
+        AuthenticatedCashCompositeStarkProof, BaseElement, CashAirReceiptV1, CashStarkProof,
         CASH_AIR_COMPOSITE_SUITE_ID, CASH_AIR_PARENT_SUITE_ID, prove,
         prove_authenticated_composite, prove_authenticated_parent, verify,
         verify_authenticated_composite,
@@ -670,10 +731,16 @@ mod tests {
         verify(proof).unwrap();
         super::verify_bytes(&bytes, &trace).unwrap();
         assert!(super::verify_bytes(&bytes[..bytes.len() - 1], &trace).is_err());
-        let mut tampered = bytes;
+        let mut tampered = bytes.clone();
         let midpoint = tampered.len() / 2;
         tampered[midpoint] ^= 1;
         assert!(super::verify_bytes(&tampered, &trace).is_err());
+        let receipt = CashAirReceiptV1::new(trace.clone(), bytes).unwrap();
+        let encoded = receipt.encode_envelope().unwrap();
+        assert_eq!(CashAirReceiptV1::verify_bytes(&encoded), Ok(()));
+        let mut trailing = encoded;
+        trailing.push(0);
+        assert!(CashAirReceiptV1::verify_bytes(&trailing).is_err());
     }
 
     #[test]
