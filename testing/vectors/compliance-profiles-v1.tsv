@@ -5,3 +5,6 @@ us-kenya	us.msb.transfer.v1,ke.virtual-asset-service.v1	US+KE/hosted_transfer	in
 ambiguous-jurisdiction	eu.casp.transfer.v1,us.msb.transfer.v1	EU+US/unknown_entity	manual-review
 expired-profile	eu.casp.transfer.v1	EU/hosted_transfer/expired	reject
 design-only	tz.payment-operator.v1	TZ/payment_operator	reject-production
+retention_commitment_only	profile,jurisdiction,evidence,access,breach,offline commitments	accept	raw records stay off-ledger
+retention_zero_access	access_policy=zero	reject	confidential access policy required
+retention_expired	retention_until=0	reject	bounded retention deadline required

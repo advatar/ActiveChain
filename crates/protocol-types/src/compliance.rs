@@ -14,6 +14,7 @@ pub enum ComplianceError {
     TooManyEntries,
     Unordered,
     InvalidScreening,
+    InvalidRetention,
 }
 
 pub const MAX_COMPLIANCE_REPLAY_KEYS: usize = 4096;
@@ -100,6 +101,123 @@ pub fn select_jurisdiction_profiles(
         return ProfileSelection::Rejected;
     }
     ProfileSelection::Selected(ids)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum EvidenceDeletionMode {
+    Scheduled = 0,
+    OnRequest = 1,
+    LegalHold = 2,
+}
+impl CanonicalEncode for EvidenceDeletionMode {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(e)
+    }
+}
+impl CanonicalDecode for EvidenceDeletionMode {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(d)? {
+            0 => Ok(Self::Scheduled),
+            1 => Ok(Self::OnRequest),
+            2 => Ok(Self::LegalHold),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "EvidenceDeletionMode", tag }),
+        }
+    }
+}
+
+/// Commitment-only regulated evidence handling policy. Raw KYC, sanctions,
+/// Travel Rule, and case records never enter this type or the public ledger.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EvidenceRetentionPolicyV1 {
+    profile: Digest384,
+    jurisdiction: Digest384,
+    evidence_class: Digest384,
+    access_policy: Digest384,
+    breach_policy: Digest384,
+    offline_verifier: Digest384,
+    retention_until: u64,
+    deletion_mode: EvidenceDeletionMode,
+    version: u16,
+}
+impl EvidenceRetentionPolicyV1 {
+    pub const TYPE_TAG: u16 = 0x00D8;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 6 + 8 + 1 + 2;
+    pub fn new(
+        profile: Digest384,
+        jurisdiction: Digest384,
+        evidence_class: Digest384,
+        access_policy: Digest384,
+        breach_policy: Digest384,
+        offline_verifier: Digest384,
+        retention_until: u64,
+        deletion_mode: EvidenceDeletionMode,
+        version: u16,
+    ) -> Result<Self, ComplianceError> {
+        if [profile, jurisdiction, evidence_class, access_policy, breach_policy, offline_verifier]
+            .into_iter()
+            .any(|value| value == Digest384::ZERO)
+            || retention_until == 0
+            || version == 0
+        {
+            return Err(ComplianceError::InvalidRetention);
+        }
+        Ok(Self {
+            profile,
+            jurisdiction,
+            evidence_class,
+            access_policy,
+            breach_policy,
+            offline_verifier,
+            retention_until,
+            deletion_mode,
+            version,
+        })
+    }
+    pub const fn retention_until(&self) -> u64 {
+        self.retention_until
+    }
+    pub const fn deletion_mode(&self) -> EvidenceDeletionMode {
+        self.deletion_mode
+    }
+    pub const fn version(&self) -> u16 {
+        self.version
+    }
+}
+impl CanonicalEncode for EvidenceRetentionPolicyV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.profile.encode(e)?;
+        self.jurisdiction.encode(e)?;
+        self.evidence_class.encode(e)?;
+        self.access_policy.encode(e)?;
+        self.breach_policy.encode(e)?;
+        self.offline_verifier.encode(e)?;
+        self.retention_until.encode(e)?;
+        self.deletion_mode.encode(e)?;
+        self.version.encode(e)
+    }
+}
+impl CanonicalDecode for EvidenceRetentionPolicyV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            u64::decode(d)?,
+            EvidenceDeletionMode::decode(d)?,
+            u16::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid evidence retention policy"))
+    }
+}
+impl CanonicalType for EvidenceRetentionPolicyV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -938,5 +1056,40 @@ mod tests {
             TransactionId::new(d(3)),
             50,
         ));
+    }
+
+    #[test]
+    fn retention_policy_is_commitment_only_and_strictly_bounded() {
+        let policy = EvidenceRetentionPolicyV1::new(
+            d(1),
+            d(2),
+            d(3),
+            d(4),
+            d(5),
+            d(6),
+            10_000,
+            EvidenceDeletionMode::OnRequest,
+            1,
+        )
+        .unwrap();
+        assert_eq!(
+            decode_envelope::<EvidenceRetentionPolicyV1>(&encode_envelope(&policy).unwrap()),
+            Ok(policy)
+        );
+        assert_eq!(policy.deletion_mode(), EvidenceDeletionMode::OnRequest);
+        assert!(
+            EvidenceRetentionPolicyV1::new(
+                d(1),
+                d(2),
+                d(3),
+                d(4),
+                d(5),
+                Digest384::ZERO,
+                10_000,
+                EvidenceDeletionMode::Scheduled,
+                1,
+            )
+            .is_err()
+        );
     }
 }

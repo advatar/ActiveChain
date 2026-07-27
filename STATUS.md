@@ -302,6 +302,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   authority, amount, pre-supply, operation, and validity bindings.
 - [ ] Specify confidential evidence retention, deletion, access, breach handling, and offline
   verification boundaries with deterministic vectors.
+- [x] Add a commitment-only retention policy for evidence class, jurisdiction, access, breach,
+  deletion mode, retention deadline, and offline verifier; raw evidence remains off-chain.
 
 ## Active launch sequencing — versioned feature contract
 
