@@ -254,7 +254,7 @@ Tracked by [GitHub issue #91](https://github.com/advatar/ActiveChain/issues/91).
 - [x] Add snapshot schema and immutable genesis compatibility checks before
   promoting new validator binaries; the 2026-07-25 canary was rolled back after snapshot decode
   failure.
-- [ ] Publish an operator migration/rebuild procedure for incompatible snapshots.
+- [x] Publish an operator migration/rebuild procedure for incompatible snapshots.
 
 ## Active EUDI/TLSNotary credential pipeline
 
