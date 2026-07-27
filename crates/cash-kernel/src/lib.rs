@@ -54,6 +54,32 @@ pub use types::{
     NativeSupply, NonFungibleCoinCell,
 };
 
+#[cfg(kani)]
+mod nft_kani_proofs {
+    use super::*;
+    use activechain_protocol_types::{AssetId, Digest384, PrincipalId, TransactionId};
+
+    #[kani::proof]
+    fn nft_transfer_preserves_identity_and_rejects_non_owner() {
+        let owner = PrincipalId::new(Digest384::new([4; 48]));
+        let destination = PrincipalId::new(Digest384::new([5; 48]));
+        let cell = NonFungibleCoinCell::new(
+            CoinCellOrigin::new(TransactionId::new(Digest384::new([1; 48])), 0),
+            AssetId::new(Digest384::new([2; 48])),
+            Digest384::new([3; 48]),
+            owner,
+            Digest384::new([6; 48]),
+            7,
+        )
+        .unwrap();
+        assert!(cell.transfer(destination, owner).is_err());
+        let moved = cell.transfer(owner, destination).unwrap();
+        assert_eq!(moved.asset_id(), cell.asset_id());
+        assert_eq!(moved.token_id(), cell.token_id());
+        assert_eq!(moved.metadata_commitment(), cell.metadata_commitment());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     extern crate alloc;
