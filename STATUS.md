@@ -427,6 +427,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
 - [x] Add canonical mint and burn supply-state transitions with exact pre-state, issuer, lifecycle,
   cap, overflow, and conservation checks.
 - [x] Add bounded Kani proofs for mint cap/conservation and burn non-underflow invariants.
+- [x] Add consensus-facing approved mint/burn boundaries that bind issuer, authority set, asset,
+  policy commitment, operation, amount, pre-state, and activation height.
 - [ ] Expose proof-bearing asset, supply, owner, action, receipt, and attestation RPC contracts.
 - [ ] Ship native issuer CLI and console workflows with threshold approval and recovery.
 - [x] Ship a deterministic issuer CLI for policy commitments and threshold-approval envelopes;

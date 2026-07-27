@@ -674,6 +674,44 @@ impl FungibleAssetPolicyV1 {
         }
         Ok(Self { supply_issued: supply_before - amount, ..*self })
     }
+
+    /// Applies a mint only when a threshold approval binds this exact policy,
+    /// authority set, amount, pre-state, operation, and finalized height.
+    pub fn apply_approved_mint(
+        &self,
+        issuer: PrincipalId,
+        approval: &FungibleIssuerApprovalV1,
+        height: u64,
+    ) -> Result<Self, AssetDefinitionError> {
+        if issuer != self.issuer
+            || !approval.binds_context(
+                self,
+                FungibleIssuerOperation::Mint,
+                approval.amount(),
+                self.supply_issued,
+                height,
+            )
+        {
+            return Err(AssetDefinitionError::InvalidSupplyTransition);
+        }
+        self.apply_mint(issuer, approval.amount(), approval.supply_before())
+    }
+
+    /// Applies a burn or redemption only when its approval binds the exact
+    /// finalized policy context.
+    pub fn apply_approved_burn(
+        &self,
+        approval: &FungibleIssuerApprovalV1,
+        operation: FungibleIssuerOperation,
+        height: u64,
+    ) -> Result<Self, AssetDefinitionError> {
+        if !matches!(operation, FungibleIssuerOperation::Burn | FungibleIssuerOperation::Redemption)
+            || !approval.binds_context(self, operation, approval.amount(), self.supply_issued, height)
+        {
+            return Err(AssetDefinitionError::InvalidSupplyTransition);
+        }
+        self.apply_burn(approval.amount(), approval.supply_before())
+    }
 }
 impl CanonicalEncode for FungibleAssetPolicyV1 {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
@@ -1519,5 +1557,52 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn approved_supply_transition_binds_policy_and_height() {
+        let policy = FungibleAssetPolicyV1::new(
+            id(1),
+            PrincipalId::new(Digest384::new([9; 48])),
+            Digest384::new([2; 48]),
+            Digest384::new([3; 48]),
+            Digest384::new([4; 48]),
+            Digest384::new([5; 48]),
+            100,
+            10,
+            FungibleAssetLifecycle::Registered,
+        )
+        .unwrap();
+        let approval = FungibleIssuerApprovalV1::new(
+            id(1),
+            policy.commitment().unwrap(),
+            policy.authority_set(),
+            Digest384::new([6; 48]),
+            FungibleIssuerOperation::Mint,
+            5,
+            10,
+            20,
+            30,
+        )
+        .unwrap();
+        let issuer = policy.issuer();
+        assert_eq!(policy.apply_approved_mint(issuer, &approval, 20).unwrap().supply_issued(), 15);
+        assert_eq!(
+            policy.apply_approved_mint(issuer, &approval, 30),
+            Err(AssetDefinitionError::InvalidSupplyTransition)
+        );
+        let wrong = FungibleIssuerApprovalV1::new(
+            id(2),
+            policy.commitment().unwrap(),
+            policy.authority_set(),
+            Digest384::new([7; 48]),
+            FungibleIssuerOperation::Mint,
+            5,
+            10,
+            20,
+            30,
+        )
+        .unwrap();
+        assert!(policy.apply_approved_mint(issuer, &wrong, 20).is_err());
     }
 }
