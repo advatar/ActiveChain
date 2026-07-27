@@ -93,6 +93,29 @@ impl FinalizedCashSnapshot {
         std::fs::rename(tmp, path)
     }
 
+    /// Persist the cash snapshot together with the exact finalized certificate
+    /// that authenticated its height and root. Restart callers must use
+    /// `load_verified` before publishing any records.
+    pub fn save_with_finality(&self, path: &Path, finality: &[u8]) -> std::io::Result<()> {
+        self.verify_against_finality(finality)
+            .map_err(std::io::Error::other)?;
+        let persisted = PersistedFinalizedCash { snapshot: self.clone(), finality: finality.to_vec() };
+        let body = activechain_canonical_codec::encode_envelope(&persisted)
+            .map_err(|_| std::io::Error::other("cash persistence encoding failed"))?;
+        let tmp = path.with_extension("tmp");
+        std::fs::write(&tmp, body)?;
+        std::fs::rename(tmp, path)
+    }
+
+    pub fn load_verified(path: &Path) -> std::io::Result<Self> {
+        let bytes = std::fs::read(path)?;
+        let persisted: PersistedFinalizedCash = activechain_canonical_codec::decode_envelope(&bytes)
+            .map_err(|_| std::io::Error::other("cash persistence malformed"))?;
+        persisted.snapshot.verify_against_finality(&persisted.finality)
+            .map_err(std::io::Error::other)?;
+        Ok(persisted.snapshot)
+    }
+
     pub fn load(path: &Path) -> std::io::Result<Self> {
         let bytes = std::fs::read(path)?;
         if bytes.len() < 32 {
@@ -111,6 +134,31 @@ impl FinalizedCashSnapshot {
         activechain_canonical_codec::decode_envelope(body)
             .map_err(|_| std::io::Error::other("cash snapshot malformed"))
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PersistedFinalizedCash {
+    snapshot: FinalizedCashSnapshot,
+    finality: Vec<u8>,
+}
+
+impl CanonicalEncode for PersistedFinalizedCash {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.snapshot.encode(e)?;
+        e.write_bytes(&self.finality, 16 * 1024)
+    }
+}
+impl CanonicalDecode for PersistedFinalizedCash {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let value = Self { snapshot: FinalizedCashSnapshot::decode(d)?, finality: d.read_bytes(16 * 1024)?.to_vec() };
+        if value.finality.is_empty() { return Err(DecodeError::InvalidValue("empty finality evidence")); }
+        Ok(value)
+    }
+}
+impl CanonicalType for PersistedFinalizedCash {
+    const TYPE_TAG: u16 = 0x0092;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = FinalizedCashSnapshot::MAX_ENCODED_LEN + 16 * 1024;
 }
 
 impl CanonicalEncode for FinalizedCashSnapshot {
