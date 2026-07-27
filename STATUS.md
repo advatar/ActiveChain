@@ -1000,6 +1000,9 @@ Tracked by [GitHub issue #7](https://github.com/advatar/ActiveChain/issues/7).
   bounds, replay-gap-exhaustion distinctions, exact envelope commitments, published lengths, and
   nonce advancement.
 - [x] Define bounded canonical action-envelope, fee-ticket, block, action-receipt, and block-receipt schemas.
+- [x] Qualify the generic transition kernel: all eight tests pass for atomic receipt publication,
+  scratch-state rollback, ordered/nonempty commands, typed semantic failures, canonical
+  round-trips, and exactly-once object advancement.
 - [x] Bind envelopes to chain, sender, payload commitment, validity, resources, fees, nonce channel, and authorization evidence.
 - [x] Implement exact nonce advancement, replay/gap rejection, and one-shot fee-ticket consumption.
 - [x] Apply canonically ordered admitted transfers with total receipts and no partial semantic effects.
