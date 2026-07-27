@@ -368,6 +368,16 @@ final class WalletRPCClient: @unchecked Sendable {
         return try WalletRPCCodec.decodeOwnerCoinPage(try await receiveExactly(length, over: connection))
     }
 
+    func ownerCoinCells(profile: WalletDeviceProfile, limit: UInt16 = 4) async throws -> WalletOwnerCoinPage {
+        let page = try await ownerCoinCells(owner: profile.owner, limit: limit)
+        // The finality bytes are retained for the linked verifier, which must
+        // bind each record to this exact trusted genesis before UI use.
+        guard page.records.allSatisfy({ !$0.finality.isEmpty }) else {
+            throw WalletRPCError.malformedResponse
+        }
+        return page
+    }
+
     private func waitUntilReady(_ connection: NWConnection) async throws {
         try await withCheckedThrowingContinuation { continuation in
             let gate = WalletContinuationGate()
