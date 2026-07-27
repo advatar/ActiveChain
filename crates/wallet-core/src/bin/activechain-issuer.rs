@@ -1,7 +1,7 @@
 use activechain_canonical_codec::encode_envelope;
 use activechain_protocol_types::{
     AssetId, Digest384, FungibleAssetLifecycle, FungibleAssetPolicyV1, FungibleIssuerApprovalV1,
-    FungibleIssuerOperation, PrincipalId,
+    FungibleIssuerOperation, FungibleSupplyAttestationV1, PrincipalId,
 };
 
 fn hex_digest(value: &str) -> Result<Digest384, String> {
@@ -35,7 +35,7 @@ fn operation(value: &str) -> Result<FungibleIssuerOperation, String> {
 }
 
 fn usage() -> &'static str {
-    "usage:\n  activechain-issuer policy <asset> <issuer> <authority-set> <cap> <issued>\n  activechain-issuer approval <asset> <policy> <authority-set> <approval> <operation> <amount> <supply-before> <effective-height> <expires-height>"
+    "usage:\n  activechain-issuer policy <asset> <issuer> <authority-set> <cap> <issued>\n  activechain-issuer approval <asset> <policy> <authority-set> <approval> <operation> <amount> <supply-before> <effective-height> <expires-height>\n  activechain-issuer attestation <asset> <policy> <issuer> <supply> <finalized-height> <approval>"
 }
 
 fn hex_bytes(bytes: &[u8]) -> String {
@@ -76,6 +76,20 @@ fn run(args: &[String]) -> Result<String, String> {
             .map_err(|_| "invalid approval values")?;
             let bytes = encode_envelope(&approval).map_err(|_| "approval encoding failed")?;
             Ok(hex_bytes(&bytes))
+        }
+        Some("attestation") if args.len() == 7 => {
+            let attestation = FungibleSupplyAttestationV1::new(
+                AssetId::new(hex_digest(&args[1])?),
+                hex_digest(&args[2])?,
+                PrincipalId::new(hex_digest(&args[3])?),
+                args[4].parse().map_err(|_| "supply must be an unsigned integer")?,
+                args[5].parse().map_err(|_| "finalized-height must be an unsigned integer")?,
+                hex_digest(&args[6])?,
+            )
+            .map_err(|_| "invalid attestation values")?;
+            Ok(hex_bytes(
+                &encode_envelope(&attestation).map_err(|_| "attestation encoding failed")?,
+            ))
         }
         _ => Err(usage().into()),
     }
@@ -124,5 +138,14 @@ mod tests {
             "10".into(),
         ];
         assert!(run(&args).is_err());
+    }
+
+    #[test]
+    fn attestation_command_is_deterministic_and_strict() {
+        let args = vec!["attestation".into(), d(), d(), d(), "10".into(), "7".into(), d()];
+        assert_eq!(run(&args).unwrap(), run(&args).unwrap());
+        let mut malformed = args;
+        malformed[6] = "GG".into();
+        assert!(run(&malformed).is_err());
     }
 }
