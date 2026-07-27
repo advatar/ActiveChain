@@ -8,6 +8,10 @@ use activechain_protocol_types::{
     authorized_issuance as compute_authorized_issuance, partition_total,
     post_supply as compute_post_supply,
 };
+use sha3::{
+    Shake256,
+    digest::{ExtendableOutput, Update, XofReader},
+};
 
 /// Maximum number of native cells in the first bounded reference ledger.
 pub const MAX_COIN_CELLS: usize = 4_096;
@@ -451,6 +455,62 @@ impl CanonicalDecode for FungibleCoinCellRecord {
     }
 }
 impl CanonicalType for FungibleCoinCellRecord {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FungibleCoinCellSet(Vec<FungibleCoinCellRecord>);
+impl FungibleCoinCellSet {
+    pub const TYPE_TAG: u16 = 0x00A4;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 2 + MAX_COIN_CELLS * FungibleCoinCellRecord::MAX_ENCODED_LEN;
+    pub fn new(records: Vec<FungibleCoinCellRecord>) -> Result<Self, NativeMoneyError> {
+        if records.len() > MAX_COIN_CELLS {
+            return Err(NativeMoneyError::TooManyCells);
+        }
+        if records.windows(2).any(|pair| pair[0].id() >= pair[1].id()) {
+            return Err(NativeMoneyError::CellsNotOrdered);
+        }
+        Ok(Self(records))
+    }
+    pub fn as_slice(&self) -> &[FungibleCoinCellRecord] {
+        &self.0
+    }
+    pub fn root(&self) -> Digest384 {
+        let mut h = Shake256::default();
+        h.update(b"ACTIVECHAIN-FUNGIBLE-CELL-SET-ROOT-V1");
+        for record in &self.0 {
+            let bytes =
+                activechain_canonical_codec::encode_envelope(record).expect("bounded record");
+            h.update(&bytes);
+        }
+        let mut out = [0_u8; 48];
+        h.finalize_xof().read(&mut out);
+        Digest384::new(out)
+    }
+}
+impl CanonicalEncode for FungibleCoinCellSet {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        e.write_length(self.0.len(), MAX_COIN_CELLS)?;
+        for r in &self.0 {
+            r.encode(e)?;
+        }
+        Ok(())
+    }
+}
+impl CanonicalDecode for FungibleCoinCellSet {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let n = d.read_length(MAX_COIN_CELLS)?;
+        let mut v = Vec::with_capacity(n);
+        for _ in 0..n {
+            v.push(FungibleCoinCellRecord::decode(d)?);
+        }
+        Self::new(v).map_err(|_| DecodeError::InvalidValue("fungible cells are not ordered"))
+    }
+}
+impl CanonicalType for FungibleCoinCellSet {
     const TYPE_TAG: u16 = Self::TYPE_TAG;
     const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
