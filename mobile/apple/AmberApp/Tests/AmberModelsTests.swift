@@ -132,7 +132,7 @@ final class AmberModelsTests: XCTestCase {
     func testStatusDecoderMapsStaleAndRejectsMalformedEnvelope() throws {
         let response = makeStatusResponse(
             protocolRevision: 1,
-            schemaRevision: 1,
+            schemaRevision: 2,
             finalizedHeight: 0,
             finalizedAt: 10,
             servedAt: 100,
@@ -147,7 +147,7 @@ final class AmberModelsTests: XCTestCase {
     func testStatusDecoderReportsIncompatibleRevision() throws {
         let response = makeStatusResponse(
             protocolRevision: 2,
-            schemaRevision: 1,
+            schemaRevision: 2,
             finalizedHeight: 12,
             finalizedAt: 90,
             servedAt: 100,

@@ -708,6 +708,8 @@ Tracked by [GitHub issue #138](https://github.com/advatar/ActiveChain/issues/138
 - [x] Add unit coverage for identifiers, bounds, ordering, and platform-neutral view state.
 - [x] Feature Amber honestly as the first reference application on the ActiveChain landing page.
 - [x] Document and pass reproducible iOS Simulator and macOS builds.
+- [x] Update Amber's RPC client to schema revision 2 and qualify its status decoder against the
+  deployed Kanalen RPC; unsigned CLI test installation remains an expected local signing gate.
 
 ## Active implementation — Amber live RPC health
 

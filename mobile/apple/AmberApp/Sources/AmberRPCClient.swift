@@ -37,7 +37,7 @@ enum AmberRPCError: Error, Equatable {
 
 enum AmberRPCCodec {
     static let supportedProtocolRevision: UInt64 = 1
-    static let supportedSchemaRevision: UInt32 = 1
+    static let supportedSchemaRevision: UInt32 = 2
     static let maximumFrameLength = 4 * 1_024 * 1_024
     private static let responseTypeTag: UInt16 = 0x00a1
     private static let envelopeSchema: UInt16 = 1
