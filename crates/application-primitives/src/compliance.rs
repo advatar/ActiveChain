@@ -1,8 +1,8 @@
 use activechain_canonical_codec::{decode_envelope, encode_envelope};
 use activechain_protocol_types::{
     AssetId, ChainId, ComplianceError, ComplianceEvidenceBindingV1, ComplianceReplayKey,
-    ComplianceReplaySet, ComplianceSignatureEnvelopeV1, Digest384, ML_DSA44_PUBLIC_KEY_LENGTH,
-    ProfileSelection, TransactionId, TravelRuleBindingV1,
+    ComplianceReplaySet, ComplianceSignatureEnvelopeV1, CredentialPredicateV1, Digest384,
+    ML_DSA44_PUBLIC_KEY_LENGTH, ProfileSelection, TransactionId, TravelRuleBindingV1,
 };
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -57,6 +57,34 @@ pub enum ComplianceAdmissionError {
     Replay(CompliancePersistenceError),
     InvalidSignature,
     ProfileNotSelected,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum CredentialPredicateAdmissionError {
+    Expired,
+    ContextMismatch,
+    InvalidValueProof,
+}
+
+/// Admits a selective-disclosure predicate without exposing credential claims.
+pub fn admit_credential_predicate(
+    predicate: &CredentialPredicateV1,
+    chain_id: ChainId,
+    audience: activechain_protocol_types::PrincipalId,
+    action: TransactionId,
+    height: u64,
+    verify_value: impl FnOnce(&CredentialPredicateV1) -> bool,
+) -> Result<(), CredentialPredicateAdmissionError> {
+    if !predicate.valid_at(height) {
+        return Err(CredentialPredicateAdmissionError::Expired);
+    }
+    if !predicate.binds_action(chain_id, audience, action) {
+        return Err(CredentialPredicateAdmissionError::ContextMismatch);
+    }
+    if !verify_value(predicate) {
+        return Err(CredentialPredicateAdmissionError::InvalidValueProof);
+    }
+    Ok(())
 }
 
 /// Verifies a provider's ML-DSA-44 signature over the exact canonical
@@ -218,5 +246,44 @@ mod tests {
         )
         .unwrap();
         assert!(!registry.verify(&signature));
+    }
+
+    #[test]
+    fn credential_predicate_admission_binds_context_and_expiry() {
+        let chain = ChainId::new(Digest384::new([10; 48]));
+        let audience = PrincipalId::new(Digest384::new([11; 48]));
+        let action = TransactionId::new(Digest384::new([12; 48]));
+        let predicate = CredentialPredicateV1::new(
+            Digest384::new([1; 48]),
+            Digest384::new([2; 48]),
+            Digest384::new([3; 48]),
+            chain,
+            audience,
+            action,
+            Digest384::new([4; 48]),
+            1,
+            100,
+            activechain_protocol_types::CredentialPredicateKind::AgeAtLeast,
+            Digest384::new([5; 48]),
+        )
+        .unwrap();
+        assert!(
+            admit_credential_predicate(&predicate, chain, audience, action, 50, |_| true).is_ok()
+        );
+        assert_eq!(
+            admit_credential_predicate(&predicate, chain, audience, action, 100, |_| true),
+            Err(CredentialPredicateAdmissionError::Expired)
+        );
+        assert_eq!(
+            admit_credential_predicate(
+                &predicate,
+                chain,
+                PrincipalId::new(Digest384::new([9; 48])),
+                action,
+                50,
+                |_| true
+            ),
+            Err(CredentialPredicateAdmissionError::ContextMismatch)
+        );
     }
 }

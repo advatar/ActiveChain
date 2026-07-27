@@ -289,6 +289,8 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
   audience/action binding, and selective-disclosure vectors.
 - [x] Add the canonical commitment-only predicate boundary with holder, audience, action, policy,
   nonce, expiry, and hidden-value bindings.
+- [x] Add application admission that enforces predicate chain/audience/action/expiry before handing
+  hidden-value verification to the ZK circuit boundary.
 
 ## Active independent-client qualification
 

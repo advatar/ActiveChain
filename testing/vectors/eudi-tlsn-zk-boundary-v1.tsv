@@ -11,3 +11,5 @@ predicate_clear_binding\tpolicy_revision=7;expires_height=900;action=transfer-01
 predicate_zero_policy\tpolicy_revision=0\treject\tpolicy revision is mandatory
 predicate_wrong_action\taction=transfer-02;expected=transfer-01\treject\texact action binding
 predicate_expired\texpires_height=100;current_height=100\treject\texpiry is inclusive and cannot be stale
+predicate_context_mismatch\taudience/action/chain differs from request\treject\tpublic context binding
+predicate_value_proof_rejected\tcontext valid;ZK verifier returns false\treject\tclaim proof remains mandatory

@@ -7,6 +7,10 @@ use alloc::vec::Vec;
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
+use sha3::{
+    Shake256,
+    digest::{ExtendableOutput, Update, XofReader},
+};
 
 use crate::{
     ChainId, CryptoSuiteId, Digest384, Height, ObjectId, PrincipalId, ProtocolSignature, Timestamp,
@@ -584,6 +588,15 @@ impl CredentialPredicateV1 {
         action: TransactionId,
     ) -> bool {
         self.chain_id == chain_id && self.audience == audience && self.action == action
+    }
+    pub fn commitment(&self) -> Result<Digest384, EncodeError> {
+        let bytes = activechain_canonical_codec::encode_envelope(self)?;
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-CREDENTIAL-PREDICATE-V1");
+        hasher.update(&bytes);
+        let mut output = [0_u8; 48];
+        XofReader::read(&mut hasher.finalize_xof(), &mut output);
+        Ok(Digest384::new(output))
     }
 }
 impl CanonicalEncode for CredentialPredicateV1 {
