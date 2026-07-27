@@ -448,6 +448,11 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 - [x] Publish the stable verifier SDK, wallet ABI, RPC/light-client, artifact-readiness, and
   honest-development-state contract for downstream dBrowser integration.
 
+## Active PQ-ZK/CashAIR qualification
+
+- [x] Specify proof public-input bindings, PQ authorization ordering, typed failure behavior,
+  formal-assumption disclosure, and v1.0 CashAIR re-execution fallback.
+
 - [ ] Freeze cross-repository schemas and deterministic vectors from TLSNotary evidence through
   self-issued or issuer-upgraded VC claims to ActiveChain circuit public inputs and receipts.
 - [ ] Preserve explicit provenance and assurance classes: notarized TLS evidence and holder
