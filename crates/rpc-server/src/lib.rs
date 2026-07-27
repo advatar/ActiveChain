@@ -983,6 +983,28 @@ mod tests {
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
     }
+
+    #[test]
+    fn typed_faucet_adapter_is_installed_on_rpc_server() {
+        struct Adapter;
+        impl FaucetSettlementAdapter for Adapter {
+            fn settle(
+                &self,
+                _recipient: PrincipalId,
+                _amount: u128,
+                _reference: Digest384,
+            ) -> Result<TransactionId, FaucetError> {
+                Ok(TransactionId::new(digest(99)))
+            }
+        }
+
+        let path = temporary("typed-faucet-adapter");
+        let _ = std::fs::remove_file(&path);
+        let server = RpcServer::new(Arc::new(DurableRpcStore::create(path.clone(), index()).unwrap()))
+            .with_faucet_settlement_adapter(Adapter);
+        assert!(server.faucet_settlement.is_some());
+        let _ = std::fs::remove_file(path);
+    }
     fn signed_finality(byte: u8, inputs: ProofPublicInputs) -> Vec<u8> {
         let key = SigningKey::<MlDsa44>::from_seed(&Seed::from([byte; 32]));
         let validator = PrincipalId::new(digest(70));
