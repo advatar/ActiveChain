@@ -395,6 +395,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   requirements, claim restrictions, exceptions, and residual-risk ownership.
 - [x] Specify reproducible Apple artifact formats, generated interfaces, compatibility manifests,
   revision reporting, and fail-closed upgrade/migration policy.
+- [x] Specify proof-bearing native-asset RPC query families and bindings for definitions, supply,
+  owners, NFT records, actions, receipts, attestations, and empty/unsupported responses.
 
 ## Active launch sequencing — versioned feature contract
 
