@@ -140,3 +140,12 @@ fn published_malformed_vector_is_rejected() {
         Err(VerifyError::Codec(_))
     ));
 }
+
+#[test]
+fn independent_model_verifier_rejects_mutated_post_state() {
+    let (_, mut bytes) = sample();
+    // The fixed header carries the post-state root at offset 180; mutating it
+    // must fail before any proof-system code is consulted.
+    bytes[180] ^= 1;
+    assert!(verify_model_receipt(&bytes).is_err());
+}
