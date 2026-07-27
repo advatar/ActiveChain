@@ -347,6 +347,19 @@ impl FungibleAssetPolicyRegistry {
     pub fn find(&self, id: AssetId) -> Option<&FungibleAssetPolicyV1> {
         self.0.binary_search_by_key(&id, |entry| entry.asset_id()).ok().map(|i| &self.0[i])
     }
+    pub fn apply_action(
+        &self,
+        action: &FungibleAssetLifecycleActionV1,
+        height: u64,
+    ) -> Result<Self, AssetDefinitionError> {
+        let index = self
+            .0
+            .binary_search_by_key(&action.asset_id(), |entry| entry.asset_id())
+            .map_err(|_| AssetDefinitionError::DuplicateAsset)?;
+        let mut entries = self.0.clone();
+        entries[index] = entries[index].apply_lifecycle_action(action, height)?;
+        Self::new(entries)
+    }
 }
 impl CanonicalEncode for FungibleAssetPolicyRegistry {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
@@ -663,6 +676,20 @@ mod tests {
             FungibleAssetPolicyRegistry::new(vec![make(2), make(1)]),
             Err(AssetDefinitionError::AssetsNotOrdered)
         );
+        let policy = make(1);
+        let action = FungibleAssetLifecycleActionV1::new(
+            id(1),
+            policy.commitment().unwrap(),
+            Digest384::new([6; 48]),
+            Digest384::new([5; 48]),
+            Digest384::new([4; 48]),
+            FungibleAssetLifecycleAction::Pause,
+            10,
+            20,
+        )
+        .unwrap();
+        let updated = registry.apply_action(&action, 10).unwrap();
+        assert_eq!(updated.find(id(1)).unwrap().lifecycle(), FungibleAssetLifecycle::Paused);
     }
 
     #[test]
