@@ -14,6 +14,21 @@ pub enum DidRecordError {
     InvalidOperation,
 }
 
+/// Derives the stable `did:activechain` method-specific identifier from the
+/// principal commitment and method version. Key material and ENS aliases are
+/// intentionally excluded from this identity function.
+pub fn derive_activechain_did(principal: PrincipalId) -> Result<Digest384, DidRecordError> {
+    if principal.digest() == &Digest384::ZERO {
+        return Err(DidRecordError::InvalidIdentity);
+    }
+    let mut hasher = Shake256::default();
+    hasher.update(b"ACTIVECHAIN-DID-METHOD-V1");
+    hasher.update(principal.digest().as_bytes());
+    let mut bytes = [0_u8; 48];
+    hasher.finalize_xof().read(&mut bytes);
+    Ok(Digest384::new(bytes))
+}
+
 /// Public controller state for `did:activechain`. Private credentials,
 /// transaction history, and key material are represented only by commitments.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -327,6 +342,13 @@ mod tests {
             ),
             Err(DidRecordError::InvalidCommitment)
         );
+    }
+
+    #[test]
+    fn method_did_derivation_is_stable_and_domain_separated() {
+        assert_eq!(derive_activechain_did(principal(1)), derive_activechain_did(principal(1)));
+        assert_ne!(derive_activechain_did(principal(1)), derive_activechain_did(principal(2)));
+        assert!(derive_activechain_did(PrincipalId::new(Digest384::ZERO)).is_err());
     }
 
     #[test]

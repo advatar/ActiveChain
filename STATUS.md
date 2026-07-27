@@ -1224,6 +1224,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
   and an optional public controller record.
 - [x] Add canonical create/update/recover/deactivate DID operations with authorization and
   previous-record commitment binding.
+- [x] Implement the domain-separated SHAKE method-specific DID derivation from `PrincipalId` and
+  method version; reject zero principals and key/name-derived aliases.
 - [ ] Add ML-DSA rotation, ML-KEM agreement, SLH-DSA recovery, deactivation, and DID test vectors.
 - [ ] Add ENS alias records without treating ENS control as protocol authorization.
 - [ ] Add EUDI Wallet interoperability for OpenID4VCI/OpenID4VP and mdoc/VC presentations.
