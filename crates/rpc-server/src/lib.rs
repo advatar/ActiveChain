@@ -1660,7 +1660,7 @@ mod tests {
 
     #[test]
     fn published_revisions_are_stable() {
-        assert_eq!(RPC_SCHEMA_REVISION, 1);
+        assert_eq!(RPC_SCHEMA_REVISION, 2);
         assert_eq!(RpcAccessTerms::TYPE_TAG, 0x00ba);
         assert_eq!(RpcAccessRequest::TYPE_TAG, 0x00bc);
         assert_eq!(RpcAccessResponse::TYPE_TAG, 0x00bd);

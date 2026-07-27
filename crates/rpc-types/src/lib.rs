@@ -17,7 +17,7 @@ use sha3::{
     digest::{ExtendableOutput, Update, XofReader},
 };
 
-pub const RPC_SCHEMA_REVISION: u32 = 1;
+pub const RPC_SCHEMA_REVISION: u32 = 2;
 pub const MAX_RPC_BLOB_LENGTH: usize = 256 * 1024;
 pub const MAX_RPC_PAGE_SIZE: u16 = 4;
 pub const MAX_SUPPORTED_PROOFS: usize = 8;

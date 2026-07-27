@@ -278,6 +278,8 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
   length checks and malformed-frame regression vectors.
 - [x] Add a versioned `RequestAuthorizedFaucet` RPC schema carrying the exact signed envelope;
   canonical round-trip and empty-envelope rejection are covered by RPC-type tests.
+- [x] Advance the advertised RPC schema revision to 2 so clients cannot silently interpret the
+  new authorized-faucet request as an older wire shape.
 - [x] Bind bridge settlement responses to the exact admitted faucet reference and expose a typed
   request-to-response helper.
 - [x] Freeze canonical pending/finalized/rejected settlement status responses with state-consistent
