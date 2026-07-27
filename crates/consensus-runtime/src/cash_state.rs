@@ -197,4 +197,13 @@ mod tests {
         let snapshot = FinalizedCashSnapshot::new(Digest384::new([1; 48]), 7, cells).unwrap();
         assert_eq!(snapshot.verify_against_finality(&[1, 2, 3]), Err("invalid finality bundle"));
     }
+
+    #[test]
+    fn persisted_cash_rejects_empty_finality_evidence() {
+        let cells = CoinCellSet::new(Vec::new()).unwrap();
+        let snapshot = FinalizedCashSnapshot::new(Digest384::new([1; 48]), 7, cells).unwrap();
+        let persisted = PersistedFinalizedCash { snapshot, finality: Vec::new() };
+        let encoded = activechain_canonical_codec::encode_envelope(&persisted).unwrap();
+        assert!(activechain_canonical_codec::decode_envelope::<PersistedFinalizedCash>(&encoded).is_err());
+    }
 }
