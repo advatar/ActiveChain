@@ -64,4 +64,15 @@ mod tests {
         assert_eq!(8, trace_length(0));
         assert!(trace_length(MAX_ACTIONS) <= MAX_TRACE_LENGTH);
     }
+
+    #[test]
+    fn parameter_set_is_explicitly_above_security_floor() {
+        assert!(NUM_QUERIES >= 32);
+        assert!(BLOWUP_FACTOR >= 2);
+        assert!(GRINDING_BITS >= 16);
+        assert!(MIN_CONJECTURED_SOUNDNESS_BITS >= 100);
+        assert!(NUM_QUERIES * BLOWUP_FACTOR + GRINDING_BITS as usize
+            >= MIN_CONJECTURED_SOUNDNESS_BITS as usize);
+        let _ = proof_options();
+    }
 }
