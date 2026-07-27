@@ -168,6 +168,17 @@ final class ActiveChainWalletTests: XCTestCase {
         XCTAssertThrowsError(try WalletRPCCodec.decodeOwnerCoinPage(envelope))
     }
 
+    func testOwnerCoinPageValidationFailsClosedWithoutProofVerifierAcceptance() throws {
+        let record = WalletOwnerCoinRecord(key: Data(repeating: 3, count: 48), finalizedHeight: 4, value: Data([1]), proof: Data([2]), finality: Data([3]))
+        let page = WalletOwnerCoinPage(records: [record], next: nil)
+        let verifier = RejectingOwnerProofVerifier()
+        XCTAssertThrowsError(try page.validated(owner: Data(repeating: 1, count: 48), chainGenesis: Data(repeating: 2, count: 48), finalizedHeight: 4, verifier: verifier))
+    }
+
+    private struct RejectingOwnerProofVerifier: WalletOwnerCoinProofVerifier {
+        func verify(record: WalletOwnerCoinRecord, owner: Data, chainGenesis: Data) -> Bool { false }
+    }
+
     func testWalletUISourceContainsNoFormerFabricatedValues() throws {
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

@@ -89,6 +89,28 @@ struct WalletOwnerCoinRecord: Equatable, Sendable {
 struct WalletOwnerCoinPage: Equatable, Sendable {
     let records: [WalletOwnerCoinRecord]
     let next: Data?
+
+    func validated(
+        owner: Data,
+        chainGenesis: Data,
+        finalizedHeight: UInt64,
+        verifier: any WalletOwnerCoinProofVerifier
+    ) throws -> WalletOwnerCoinPage {
+        guard owner.count == 48, chainGenesis.count == 48 else { throw WalletRPCError.malformedResponse }
+        for record in records {
+            guard record.finalizedHeight == finalizedHeight,
+                  verifier.verify(record: record, owner: owner, chainGenesis: chainGenesis)
+            else { throw WalletRPCError.unexpectedResponse }
+        }
+        return self
+    }
+}
+
+/// Cryptographic verification is deliberately injected so the Swift UI cannot
+/// accidentally treat transport decoding as proof verification. The production
+/// implementation is supplied by the linked ActiveChain verifier artifact.
+protocol WalletOwnerCoinProofVerifier: Sendable {
+    func verify(record: WalletOwnerCoinRecord, owner: Data, chainGenesis: Data) -> Bool
 }
 
 enum WalletRPCError: Error, Equatable {
