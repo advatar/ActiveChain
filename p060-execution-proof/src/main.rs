@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::time::Instant;
 
-use p060::{Action, Block, Opcode, Receipt, prove, verify_receipt};
+use p060::{Action, Block, Opcode, Receipt, prove, verify_model_receipt, verify_receipt};
 use serde::Serialize;
 
 fn main() -> ExitCode {
@@ -47,6 +47,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 report.post_state
             );
         }
+        Some("model-verify") if args.len() == 3 => {
+            let bytes = fs::read(&args[2])?;
+            let post_state = verify_model_receipt(&bytes)?;
+            println!("model-valid: post_state={post_state}");
+        }
         Some("inspect") if args.len() == 3 => {
             let bytes = fs::read(&args[2])?;
             let receipt = Receipt::decode(&bytes)?;
@@ -77,7 +82,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {
             eprintln!(
-                "usage:\n  p060 prove <pre-state> <add:N,mul:N|-> <receipt.bin>\n  p060 verify <receipt.bin>\n  p060 inspect <receipt.bin>\n  p060 vector <output-dir>\n  p060 check-vectors <vector-dir>\n  p060 bench <action-count> <verify-runs>"
+                "usage:\n  p060 prove <pre-state> <add:N,mul:N|-> <receipt.bin>\n  p060 verify <receipt.bin>\n  p060 model-verify <receipt.bin>\n  p060 inspect <receipt.bin>\n  p060 vector <output-dir>\n  p060 check-vectors <vector-dir>\n  p060 bench <action-count> <verify-runs>"
             );
             return Err("invalid arguments".into());
         }

@@ -153,6 +153,22 @@ pub fn verify_receipt(
     })
 }
 
+/// Independent semantic cross-check for clients that do not embed Winterfell.
+/// This verifies canonical decoding, all protocol bindings, and re-executes the
+/// transition; it deliberately does not treat model execution as a substitute
+/// for cryptographic proof verification.
+pub fn verify_model_receipt(receipt_bytes: &[u8]) -> Result<u64, VerifyError> {
+    let receipt = Receipt::decode(receipt_bytes)?;
+    receipt
+        .header
+        .validate_bindings(receipt.pre_state, receipt.post_state, &receipt.block)?;
+    let recomputed = receipt.block.execute(receipt.pre_state)?;
+    if recomputed != receipt.post_state {
+        return Err(VerifyError::ContextMismatch("model post-state"));
+    }
+    Ok(recomputed)
+}
+
 fn verify_registered_header(receipt: &Receipt) -> Result<(), VerifyError> {
     let h = &receipt.header;
     if h.codec_version != RECEIPT_CODEC_VERSION {

@@ -11,4 +11,6 @@ pub mod verifier;
 pub use codec::{Receipt, ReceiptHeader};
 pub use model::{Action, Block, Opcode};
 pub use prover::{ProveError, prove};
-pub use verifier::{ExpectedContext, VerificationReport, VerifyError, verify_receipt};
+pub use verifier::{
+    ExpectedContext, VerificationReport, VerifyError, verify_model_receipt, verify_receipt,
+};

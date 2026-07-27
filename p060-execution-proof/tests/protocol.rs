@@ -1,6 +1,6 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use p060::{Action, Block, ExpectedContext, Receipt, VerifyError, prove, verify_receipt};
+use p060::{Action, Block, ExpectedContext, Receipt, VerifyError, prove, verify_model_receipt, verify_receipt};
 
 fn sample() -> (Block, Vec<u8>) {
     let block = Block::new(vec![Action::add(7), Action::mul(9), Action::add(11)]).unwrap();
@@ -21,6 +21,7 @@ fn positive_proof_is_deterministic_and_verifies() {
     let report = verify_receipt(&first, Some(&expected)).unwrap();
     assert_eq!(119, report.post_state);
     assert!(report.conjectured_soundness_bits >= 100);
+    assert_eq!(119, verify_model_receipt(&first).unwrap());
 }
 
 #[test]

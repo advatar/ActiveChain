@@ -12,6 +12,7 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 - [x] Add a CLI vector-check command that validates positive acceptance and malformed rejection.
 - [x] Reconcile the normative P-060 status with the shipped Gate-1 reference and its explicit
   accumulator-only scope.
+- [x] Add an independent no-STARK model verifier and CLI cross-check for canonical vectors.
 - [x] Make the reference package independently testable outside the root workspace.
 - [ ] Refine the AIR against P-050 ObjectVM semantics and publish an independent second verifier.
 - [ ] Qualify proof parameters against the required soundness and verifier-cost gates before consensus activation.

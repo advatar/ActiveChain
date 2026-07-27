@@ -15,6 +15,7 @@ cargo build --release
 # Pre-state 5; add 7, multiply by 9, add 11; output receipt.bin
 target/release/p060 prove 5 add:7,mul:9,add:11 receipt.bin
 target/release/p060 verify receipt.bin
+target/release/p060 model-verify receipt.bin
 target/release/p060 inspect receipt.bin
 
 # Regenerate the deterministic published vector
