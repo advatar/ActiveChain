@@ -33,6 +33,10 @@ def main() -> int:
         raw = raw.replace(r"\t", "\t")
     rows = list(csv.DictReader(raw.splitlines(), delimiter="\t"))
 
+    cases = [row.get("case", "") for row in rows]
+    if len(cases) != len(set(cases)):
+        print("duplicate conformance case", file=sys.stderr)
+        return 1
     by_case = {row["case"]: row for row in rows}
     missing = sorted(set(REQUIRED) - set(by_case))
     if missing:
@@ -47,6 +51,10 @@ def main() -> int:
     ]
     if malformed:
         print(f"invalid conformance rows: {', '.join(malformed)}", file=sys.stderr)
+        return 1
+    unexpected = sorted(set(by_case) - set(REQUIRED))
+    if unexpected:
+        print(f"unexpected conformance cases: {', '.join(unexpected)}", file=sys.stderr)
         return 1
     print(f"independent-client conformance: {len(rows)} published cases verified")
     return 0
