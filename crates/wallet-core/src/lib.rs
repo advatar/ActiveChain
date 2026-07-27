@@ -1106,6 +1106,21 @@ mod tests {
         let set = FungibleCoinCellSet::new(vec![first, second]).unwrap();
         let (payment, reserve) = select_fungible_cells(&set, owner, 10, 2).unwrap();
         assert_ne!(payment, reserve);
+        let transfer =
+            build_fungible_transfer(&set, asset, owner, principal(3), &[payment], 20).unwrap();
+        assert_eq!(transfer.asset_id(), asset);
+        assert_eq!(transfer.amount(), 20);
+        assert!(
+            build_fungible_transfer(
+                &set,
+                activechain_protocol_types::AssetId::new(digest(45)),
+                owner,
+                principal(3),
+                &[payment],
+                20
+            )
+            .is_err()
+        );
     }
 
     #[test]
