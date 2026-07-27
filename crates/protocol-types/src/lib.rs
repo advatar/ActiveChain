@@ -39,7 +39,7 @@ pub use checked_arithmetic::{
 pub use compliance::{
     ComplianceError, ComplianceEvidenceBindingV1, ComplianceReplayKey, ComplianceReplaySet,
     ComplianceSignatureEnvelopeV1, JurisdictionProfileCandidate, ProfileSelection,
-    TravelRuleBindingV1, select_jurisdiction_profiles,
+    ScreeningDecisionV1, ScreeningOutcome, TravelRuleBindingV1, select_jurisdiction_profiles,
 };
 pub use consensus::{
     BlockProposal, BlockProposalError, ConsensusBlockRef, ConsensusUpgradeAuthorization,

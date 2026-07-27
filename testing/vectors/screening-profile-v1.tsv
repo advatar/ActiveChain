@@ -7,3 +7,6 @@ unknown_provider\tunapproved-list-digest,clear\treject\tprovider not in profile
 single_override\tmatch,one-reviewer,reason=typo\treject\tdual control required
 dual_override\tmatch,two-reviewers,expiry=24h\tmanual_review\tcase remains auditable and bounded
 raw_identity\tclear,raw-kyc-document-on-chain\treject\tconfidential evidence never public
+decision_zero_commitment\tlist_commitment=zero\treject\tall screening bindings are nonzero commitments
+decision_inverted_window\tscreened_at=20,expires_at=20\treject\tvalidity is a nonempty half-open window
+decision_match\tcommitment-only, outcome=match\treject\tpositive match cannot authorize transfer

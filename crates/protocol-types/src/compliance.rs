@@ -13,6 +13,7 @@ pub enum ComplianceError {
     Replay,
     TooManyEntries,
     Unordered,
+    InvalidScreening,
 }
 
 pub const MAX_COMPLIANCE_REPLAY_KEYS: usize = 4096;
@@ -99,6 +100,135 @@ pub fn select_jurisdiction_profiles(
         return ProfileSelection::Rejected;
     }
     ProfileSelection::Selected(ids)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum ScreeningOutcome {
+    Cleared = 0,
+    Match = 1,
+    ManualReview = 2,
+}
+impl CanonicalEncode for ScreeningOutcome {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(e)
+    }
+}
+impl CanonicalDecode for ScreeningOutcome {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(d)? {
+            0 => Ok(Self::Cleared),
+            1 => Ok(Self::Match),
+            2 => Ok(Self::ManualReview),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "ScreeningOutcome", tag }),
+        }
+    }
+}
+
+/// Commitment-only sanctions/screening result. Sensitive list matches and analyst evidence stay
+/// with the screening provider; this envelope binds the decision to the exact chain action and
+/// versioned profile without making the subject publicly identifiable.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ScreeningDecisionV1 {
+    profile: Digest384,
+    chain_id: ChainId,
+    action: TransactionId,
+    subject_commitment: Digest384,
+    list_commitment: Digest384,
+    provider_commitment: Digest384,
+    parameters_commitment: Digest384,
+    screened_at: u64,
+    expires_at: u64,
+    outcome: ScreeningOutcome,
+}
+impl ScreeningDecisionV1 {
+    pub const TYPE_TAG: u16 = 0x00D5;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 8 + 8 * 2 + 1;
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        profile: Digest384,
+        chain_id: ChainId,
+        action: TransactionId,
+        subject_commitment: Digest384,
+        list_commitment: Digest384,
+        provider_commitment: Digest384,
+        parameters_commitment: Digest384,
+        screened_at: u64,
+        expires_at: u64,
+        outcome: ScreeningOutcome,
+    ) -> Result<Self, ComplianceError> {
+        if [
+            profile,
+            subject_commitment,
+            list_commitment,
+            provider_commitment,
+            parameters_commitment,
+        ]
+        .into_iter()
+        .any(|value| value == Digest384::ZERO)
+            || screened_at >= expires_at
+        {
+            return Err(ComplianceError::InvalidScreening);
+        }
+        Ok(Self {
+            profile,
+            chain_id,
+            action,
+            subject_commitment,
+            list_commitment,
+            provider_commitment,
+            parameters_commitment,
+            screened_at,
+            expires_at,
+            outcome,
+        })
+    }
+    pub const fn outcome(&self) -> ScreeningOutcome {
+        self.outcome
+    }
+    pub const fn screened_at(&self) -> u64 {
+        self.screened_at
+    }
+    pub const fn expires_at(&self) -> u64 {
+        self.expires_at
+    }
+}
+impl CanonicalEncode for ScreeningDecisionV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.profile.encode(e)?;
+        self.chain_id.encode(e)?;
+        self.action.encode(e)?;
+        self.subject_commitment.encode(e)?;
+        self.list_commitment.encode(e)?;
+        self.provider_commitment.encode(e)?;
+        self.parameters_commitment.encode(e)?;
+        self.screened_at.encode(e)?;
+        self.expires_at.encode(e)?;
+        self.outcome.encode(e)
+    }
+}
+impl CanonicalDecode for ScreeningDecisionV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            Digest384::decode(d)?,
+            ChainId::decode(d)?,
+            TransactionId::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            ScreeningOutcome::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid screening decision"))
+    }
+}
+impl CanonicalType for ScreeningDecisionV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -611,6 +741,58 @@ mod tests {
                 }]
             ),
             ProfileSelection::ManualReview
+        );
+    }
+
+    #[test]
+    fn screening_decision_is_commitment_only_and_time_bounded() {
+        let decision = ScreeningDecisionV1::new(
+            d(1),
+            ChainId::new(d(2)),
+            TransactionId::new(d(3)),
+            d(4),
+            d(5),
+            d(6),
+            d(7),
+            10,
+            20,
+            ScreeningOutcome::Cleared,
+        )
+        .unwrap();
+        assert_eq!(
+            decode_envelope::<ScreeningDecisionV1>(&encode_envelope(&decision).unwrap()),
+            Ok(decision)
+        );
+        assert_eq!(decision.outcome(), ScreeningOutcome::Cleared);
+        assert!(
+            ScreeningDecisionV1::new(
+                d(1),
+                ChainId::new(d(2)),
+                TransactionId::new(d(3)),
+                d(4),
+                d(5),
+                d(6),
+                d(7),
+                20,
+                20,
+                ScreeningOutcome::Match,
+            )
+            .is_err()
+        );
+        assert!(
+            ScreeningDecisionV1::new(
+                d(1),
+                ChainId::new(d(2)),
+                TransactionId::new(d(3)),
+                d(4),
+                Digest384::ZERO,
+                d(6),
+                d(7),
+                10,
+                20,
+                ScreeningOutcome::Cleared,
+            )
+            .is_err()
         );
     }
 }

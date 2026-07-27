@@ -231,6 +231,8 @@ Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213
 
 - [ ] Specify versioned sanctions/KYC screening inputs, freshness, matching, overrides, and
   privacy-preserving evidence handling with deterministic vectors.
+- [x] Freeze the commitment-only screening decision envelope, bounded validity, outcomes, and
+  malformed vectors; private list matches and analyst evidence remain provider-held.
 
 ## Active dBrowser development RPC contract
 
