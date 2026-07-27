@@ -1,0 +1,6 @@
+case\tmutation\texpected\treason
+old_proposal\tproposal genesis != configured genesis\treject\tcanary state is network-bound
+old_qc\tcertificate genesis != configured genesis\treject\tfinality cannot cross a reset
+old_cash_snapshot\tcash snapshot genesis != configured genesis\treject\twallet state cannot be reused
+old_faucet_receipt\treceipt genesis != configured genesis\treject\tissuance is exactly testnet-bound
+new_genesis\tall identities and roots regenerated\taccept\treset requires complete requalification

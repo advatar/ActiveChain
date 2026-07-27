@@ -347,6 +347,8 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 
 - [x] Publish a fail-closed development testnet release gate covering validator finality, Coin Cell
   extraction, RPC, faucet ingress, wallet funding, independent-client conformance, and claims.
+- [x] Publish genesis-reset vectors rejecting old proposals, certificates, snapshots, and faucet
+  receipts after a Kanalen development-network reset.
 
 ## Active native issuer operations
 
