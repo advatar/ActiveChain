@@ -1279,7 +1279,9 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 
 - [x] Freeze the method-specific identifier, PQ verification methods, resolver boundary, and
   finalized lifecycle operations in `spec/protocol/P-095-activechain-did-method.md`.
-- [ ] Implement canonical DID controller records and resolver responses.
+- [x] Implement canonical DID controller records and resolver responses; strict constructors,
+  lifecycle binding, canonical round-trip, and malformed zero-identity vectors are covered in
+  `protocol-types` tests.
 - [x] Add a canonical commitment-only `DidControllerRecordV1` with monotonic, previous-commitment
   bound updates and explicit deactivation-safe lifecycle semantics.
 - [x] Add canonical `DidResolutionV1` responses binding a nonzero method DID to finalized height
