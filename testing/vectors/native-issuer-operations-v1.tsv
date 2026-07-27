@@ -17,3 +17,5 @@ burn_underflow\tburn exceeds finalized issued supply\treject\tsupply conservatio
 approval_operation_substitution\tapproval=mint,execution=burn\treject\tcorporate-action binding
 approval_stale_policy\tapproval policy commitment != finalized policy\treject\tpolicy binding
 approval_expired\theight outside approval validity window\treject\tbounded approval lifetime
+issuer_cli_policy\tvalid policy arguments\tcommitment\tdeterministic canonical policy commitment
+issuer_cli_bad_hex\tpolicy asset contains non-hex input\treject\tstrict CLI parsing

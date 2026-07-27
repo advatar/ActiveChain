@@ -320,6 +320,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
 - [x] Add bounded Kani proofs for mint cap/conservation and burn non-underflow invariants.
 - [ ] Expose proof-bearing asset, supply, owner, action, receipt, and attestation RPC contracts.
 - [ ] Ship native issuer CLI and console workflows with threshold approval and recovery.
+- [x] Ship a deterministic issuer CLI for policy commitments and threshold-approval envelopes;
+  malformed hex, operations, amounts, and validity windows fail closed.
 - [ ] Complete wallet, compatibility, adversarial-test, migration, and independent-audit gates.
 
 ## Active design — privacy-preserving tokenization identity
