@@ -9,7 +9,8 @@ use activechain_canonical_codec::{
 };
 
 use crate::{
-    CryptoSuiteId, Digest384, Height, ObjectId, PrincipalId, ProtocolSignature, Timestamp,
+    ChainId, CryptoSuiteId, Digest384, Height, ObjectId, PrincipalId, ProtocolSignature, Timestamp,
+    TransactionId,
 };
 
 /// Initial canonical credential format.
@@ -489,6 +490,141 @@ impl CanonicalType for CredentialAcceptancePolicy {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum CredentialPredicateKind {
+    AgeAtLeast = 0,
+    JurisdictionNotIn = 1,
+    AssetAmountAtLeast = 2,
+}
+impl CanonicalEncode for CredentialPredicateKind {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(e)
+    }
+}
+impl CanonicalDecode for CredentialPredicateKind {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(d)? {
+            0 => Ok(Self::AgeAtLeast),
+            1 => Ok(Self::JurisdictionNotIn),
+            2 => Ok(Self::AssetAmountAtLeast),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "CredentialPredicateKind", tag }),
+        }
+    }
+}
+
+/// Public-input boundary for a selective-disclosure or ZK credential predicate.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CredentialPredicateV1 {
+    schema_id: Digest384,
+    claims_commitment: Digest384,
+    holder_binding: Digest384,
+    chain_id: ChainId,
+    audience: PrincipalId,
+    action: TransactionId,
+    nonce: Digest384,
+    policy_revision: u64,
+    expires_height: Height,
+    kind: CredentialPredicateKind,
+    value_commitment: Digest384,
+}
+impl CredentialPredicateV1 {
+    pub const TYPE_TAG: u16 = 0x0027;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 8 + 8 * 2 + 1;
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        schema_id: Digest384,
+        claims_commitment: Digest384,
+        holder_binding: Digest384,
+        chain_id: ChainId,
+        audience: PrincipalId,
+        action: TransactionId,
+        nonce: Digest384,
+        policy_revision: u64,
+        expires_height: Height,
+        kind: CredentialPredicateKind,
+        value_commitment: Digest384,
+    ) -> Result<Self, CredentialValidationError> {
+        if [schema_id, claims_commitment, holder_binding, nonce, value_commitment]
+            .into_iter()
+            .any(|v| v == Digest384::ZERO)
+            || policy_revision == 0
+            || expires_height == 0
+        {
+            return Err(CredentialValidationError::InvalidPredicateBinding);
+        }
+        Ok(Self {
+            schema_id,
+            claims_commitment,
+            holder_binding,
+            chain_id,
+            audience,
+            action,
+            nonce,
+            policy_revision,
+            expires_height,
+            kind,
+            value_commitment,
+        })
+    }
+    pub const fn kind(&self) -> CredentialPredicateKind {
+        self.kind
+    }
+    pub const fn expires_height(&self) -> Height {
+        self.expires_height
+    }
+    pub const fn valid_at(&self, height: Height) -> bool {
+        height < self.expires_height
+    }
+    pub fn binds_action(
+        &self,
+        chain_id: ChainId,
+        audience: PrincipalId,
+        action: TransactionId,
+    ) -> bool {
+        self.chain_id == chain_id && self.audience == audience && self.action == action
+    }
+}
+impl CanonicalEncode for CredentialPredicateV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.schema_id.encode(e)?;
+        self.claims_commitment.encode(e)?;
+        self.holder_binding.encode(e)?;
+        self.chain_id.encode(e)?;
+        self.audience.encode(e)?;
+        self.action.encode(e)?;
+        self.nonce.encode(e)?;
+        self.policy_revision.encode(e)?;
+        self.expires_height.encode(e)?;
+        self.kind.encode(e)?;
+        self.value_commitment.encode(e)
+    }
+}
+impl CanonicalDecode for CredentialPredicateV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            ChainId::decode(d)?,
+            PrincipalId::decode(d)?,
+            TransactionId::decode(d)?,
+            Digest384::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            CredentialPredicateKind::decode(d)?,
+            Digest384::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid credential predicate"))
+    }
+}
+impl CanonicalType for CredentialPredicateV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 /// Structural credential and acceptance-policy construction failures.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CredentialValidationError {
@@ -506,6 +642,8 @@ pub enum CredentialValidationError {
     TooManyAcceptedSchemas { actual: usize, maximum: usize },
     /// Accepted schemas are duplicated or not canonically ordered.
     AcceptedSchemasNotStrictlyIncreasing,
+    /// Predicate public inputs are zero, expired, or otherwise not action-bound.
+    InvalidPredicateBinding,
 }
 
 fn strictly_increasing<T: Ord>(values: &[T]) -> bool {
@@ -535,6 +673,9 @@ fn credential_decode_error(error: CredentialValidationError) -> DecodeError {
         CredentialValidationError::AcceptedSchemasNotStrictlyIncreasing => {
             DecodeError::InvalidValue("credential policy schemas are not strictly increasing")
         }
+        CredentialValidationError::InvalidPredicateBinding => {
+            DecodeError::InvalidValue("credential predicate binding is invalid")
+        }
     }
 }
 
@@ -547,10 +688,13 @@ mod tests {
     use activechain_canonical_codec::{decode_envelope, encode_body, encode_envelope};
 
     use super::{
-        CREDENTIAL_FORMAT_VERSION, Credential, CredentialAcceptancePolicy, CredentialStatement,
-        CredentialStatusRegistry, CredentialValidationError,
+        CREDENTIAL_FORMAT_VERSION, Credential, CredentialAcceptancePolicy, CredentialPredicateKind,
+        CredentialPredicateV1, CredentialStatement, CredentialStatusRegistry,
+        CredentialValidationError,
     };
-    use crate::{CryptoSuiteId, Digest384, ObjectId, PrincipalId, ProtocolSignature};
+    use crate::{
+        ChainId, CryptoSuiteId, Digest384, ObjectId, PrincipalId, ProtocolSignature, TransactionId,
+    };
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
@@ -740,6 +884,56 @@ mod tests {
         assert_eq!(
             encode_body(&registry).expect("registry encodes").len(),
             CredentialStatusRegistry::ENCODED_LENGTH
+        );
+    }
+
+    #[test]
+    fn predicate_binds_holder_action_and_hidden_value_commitment() {
+        let predicate = CredentialPredicateV1::new(
+            digest(1),
+            digest(2),
+            digest(3),
+            ChainId::new(digest(4)),
+            principal(5),
+            TransactionId::new(digest(6)),
+            digest(7),
+            1,
+            100,
+            CredentialPredicateKind::JurisdictionNotIn,
+            digest(8),
+        )
+        .unwrap();
+        assert_eq!(
+            decode_envelope::<CredentialPredicateV1>(&encode_envelope(&predicate).unwrap()),
+            Ok(predicate)
+        );
+        assert!(predicate.valid_at(99));
+        assert!(!predicate.valid_at(100));
+        assert!(predicate.binds_action(
+            ChainId::new(digest(4)),
+            principal(5),
+            TransactionId::new(digest(6))
+        ));
+        assert!(!predicate.binds_action(
+            ChainId::new(digest(9)),
+            principal(5),
+            TransactionId::new(digest(6))
+        ));
+        assert!(
+            CredentialPredicateV1::new(
+                digest(1),
+                digest(2),
+                digest(3),
+                ChainId::new(digest(4)),
+                principal(5),
+                TransactionId::new(digest(6)),
+                digest(7),
+                0,
+                100,
+                CredentialPredicateKind::AgeAtLeast,
+                digest(8),
+            )
+            .is_err()
         );
     }
 }

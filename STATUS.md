@@ -262,6 +262,8 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 
 - [ ] Freeze credential-to-ZK predicate boundaries, issuer/status freshness, holder binding,
   audience/action binding, and selective-disclosure vectors.
+- [x] Add the canonical commitment-only predicate boundary with holder, audience, action, policy,
+  nonce, expiry, and hidden-value bindings.
 
 ## Active independent-client qualification
 
