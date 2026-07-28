@@ -14,13 +14,6 @@ class RustAgentRegistry(private val snapshotFile: File) {
 
     fun resume(id: String) = replace(nativeSetPaused(snapshot, principal(id), false))
 
-    fun revoke(id: String) = replace(nativeRevoke(snapshot, principal(id), 0))
-
-    fun finalizeRevocation(id: String, height: Long) {
-        require(height > 0) { "finalized height must be positive" }
-        replace(nativeRevoke(snapshot, principal(id), height))
-    }
-
     private fun replace(next: ByteArray) {
         snapshot = next
         persist()
@@ -51,12 +44,6 @@ class RustAgentRegistry(private val snapshotFile: File) {
             snapshot: ByteArray,
             principal: ByteArray,
             paused: Boolean,
-        ): ByteArray
-
-        @JvmStatic private external fun nativeRevoke(
-            snapshot: ByteArray,
-            principal: ByteArray,
-            finalizedHeight: Long,
         ): ByteArray
 
         @JvmStatic private external fun nativeCount(snapshot: ByteArray): Int

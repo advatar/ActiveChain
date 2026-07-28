@@ -96,6 +96,26 @@ final class ActiveChainWalletTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: snapshot.path))
     }
 
+    func testAgentEnrollmentCannotCreateActiveLocalAuthorityWithoutSubmission() {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let snapshot = directory.appendingPathComponent("agents-v1.bin")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = RustAgentRegistryStore(snapshotURL: snapshot)
+        let draft = AgentEnrollmentDraft(
+            label: "Unsubmitted agent",
+            principal: String(repeating: "aa", count: 48),
+            capabilityIDs: String(repeating: "11", count: 48),
+            connection: .thirdParty,
+            budget: 100,
+            expiresAt: 500
+        )
+
+        XCTAssertThrowsError(try store.prepareEnrollment(draft))
+        XCTAssertTrue(store.agents.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: snapshot.path))
+    }
+
     func testAgentEnrollmentDraftRequiresCanonicalSortedCapabilityIDs() throws {
         let first = String(repeating: "11", count: 48)
         let second = String(repeating: "22", count: 48)

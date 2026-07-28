@@ -1,11 +1,19 @@
 import ActiveChainWallet
 import Foundation
 import Combine
-import CryptoKit
 
-enum RustAgentRegistryError: Error {
+enum RustAgentRegistryError: LocalizedError {
     case ffi(UInt32)
     case malformedSummary
+    case submissionUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case let .ffi(code): "Wallet registry operation failed with code \(code)."
+        case .malformedSummary: "The persisted agent registry is malformed."
+        case .submissionUnavailable: "Validator-backed agent submission is unavailable in this build."
+        }
+    }
 }
 
 final class RustAgentRegistryStore: ObservableObject {
@@ -30,79 +38,9 @@ final class RustAgentRegistryStore: ObservableObject {
         try? setPaused(agentID: agentID, paused: false)
     }
 
-    func revoke(agentID: String) {
-        guard let principal = principal(for: agentID) else { return }
-        let transaction = Data(principal.map { $0 ^ 0x5a })
-        try? transition { registryPointer, registryLength, output, capacity, required in
-            principal.withUnsafeBytes { principalBytes in
-                transaction.withUnsafeBytes { transactionBytes in
-                    activechain_wallet_agent_revoke(
-                        registryPointer,
-                        registryLength,
-                        principalBytes.bindMemory(to: UInt8.self).baseAddress,
-                        transactionBytes.bindMemory(to: UInt8.self).baseAddress,
-                        0,
-                        output,
-                        capacity,
-                        required
-                    )
-                }
-            }
-        }
-    }
-
     func prepareEnrollment(_ draft: AgentEnrollmentDraft) throws {
-        let principal = try draft.principalBytes()
-        let capabilities = try draft.capabilityBytes()
-        let label = Data(draft.label.utf8)
-        try transition { registryPointer, registryLength, output, capacity, required in
-            principal.withUnsafeBytes { principalBytes in
-                label.withUnsafeBytes { labelBytes in
-                    capabilities.withUnsafeBytes { capabilityBytes in
-                        // The currently packaged Apple artifact predates the pending-enrollment
-                        // symbol. Use the stable registration ABI until that artifact is rebuilt;
-                        // finalization remains gated by the native registry flow.
-                        activechain_wallet_agent_register(
-                                registryPointer,
-                                registryLength,
-                                principalBytes.bindMemory(to: UInt8.self).baseAddress,
-                                labelBytes.bindMemory(to: UInt8.self).baseAddress,
-                                UInt32(label.count),
-                                draft.connection.abiValue,
-                                capabilityBytes.bindMemory(to: UInt8.self).baseAddress,
-                                UInt32(capabilities.count / 48),
-                                0,
-                                draft.budget,
-                                draft.expiresAt,
-                                output,
-                                capacity,
-                                required
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    func finalizeRevocation(agentID: String, height: UInt64) {
-        guard let principal = principal(for: agentID), height > 0 else { return }
-        let transaction = Data(principal.map { $0 ^ 0x5a })
-        try? transition { registryPointer, registryLength, output, capacity, required in
-            principal.withUnsafeBytes { principalBytes in
-                transaction.withUnsafeBytes { transactionBytes in
-                    activechain_wallet_agent_revoke(
-                        registryPointer,
-                        registryLength,
-                        principalBytes.bindMemory(to: UInt8.self).baseAddress,
-                        transactionBytes.bindMemory(to: UInt8.self).baseAddress,
-                        height,
-                        output,
-                        capacity,
-                        required
-                    )
-                }
-            }
-        }
+        try draft.validate()
+        throw RustAgentRegistryError.submissionUnavailable
     }
 
     private func setPaused(agentID: String, paused: Bool) throws {

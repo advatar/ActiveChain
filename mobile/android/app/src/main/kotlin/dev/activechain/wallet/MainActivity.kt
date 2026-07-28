@@ -330,9 +330,9 @@ class MainActivity : Activity() {
             setPadding(dp(18), dp(18), dp(18), dp(18))
             background = rounded(Palette.panel, 22, Color.argb(28, 255, 255, 255))
             val status = when (val lifecycle = agent.lifecycle) {
-                AgentLifecycle.Active -> "Active"
-                AgentLifecycle.Paused -> "Paused"
-                AgentLifecycle.RevocationPending -> "Revocation pending"
+                AgentLifecycle.Active -> "Local active"
+                AgentLifecycle.Paused -> "Local paused"
+                AgentLifecycle.RevocationPending -> "Local revocation draft"
                 is AgentLifecycle.Revoked -> "Revoked at block ${lifecycle.finalizedHeight}"
             }
             val statusColor = when (agent.lifecycle) {
@@ -352,24 +352,20 @@ class MainActivity : Activity() {
                 Palette.muted,
             ).apply { setPadding(0, dp(12), 0, dp(14)) })
             if (agent.lifecycle == AgentLifecycle.Active || agent.lifecycle == AgentLifecycle.Paused) {
-                addView(LinearLayout(context).apply {
-                    addView(Button(context).apply {
-                        text = if (agent.lifecycle == AgentLifecycle.Active) "Pause" else "Resume"
-                        setTextColor(Palette.white)
-                        background = rounded(Color.rgb(42, 50, 64), 15)
-                        setOnClickListener {
-                            if (agent.lifecycle == AgentLifecycle.Active) agents.pause(agent.id) else agents.resume(agent.id)
-                            refresh()
-                        }
-                    }, weighted())
-                    addView(Button(context).apply {
-                        text = "Revoke"
-                        setTextColor(Palette.ink)
-                        typeface = Typeface.DEFAULT_BOLD
-                        background = rounded(Palette.danger, 15)
-                        setOnClickListener { agents.revoke(agent.id); refresh() }
-                    }, weighted(10))
-                })
+                addView(Button(context).apply {
+                    text = if (agent.lifecycle == AgentLifecycle.Active) "Pause locally" else "Resume locally"
+                    setTextColor(Palette.white)
+                    background = rounded(Color.rgb(42, 50, 64), 15)
+                    setOnClickListener {
+                        if (agent.lifecycle == AgentLifecycle.Active) agents.pause(agent.id) else agents.resume(agent.id)
+                        refresh()
+                    }
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)))
+                addView(label(
+                    "Capability revocation requires unavailable validator-backed submission.",
+                    11,
+                    Palette.muted,
+                ).apply { setPadding(0, dp(12), 0, 0) })
             }
         }
 

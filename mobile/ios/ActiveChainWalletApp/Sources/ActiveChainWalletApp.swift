@@ -109,13 +109,6 @@ private struct Header: View {
                     .font(.title2.bold())
             }
             Spacer()
-            Button(action: {}) {
-                Image(systemName: "qrcode.viewfinder")
-                    .font(.title3.weight(.semibold))
-                    .frame(width: 44, height: 44)
-                    .background(.white.opacity(0.08), in: Circle())
-            }
-            .accessibilityLabel("Scan QR code")
         }
         .padding(.top, 14)
     }
@@ -232,10 +225,6 @@ private struct AssetSection: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Assets").font(.title3.bold())
-                Spacer()
-                Button("Manage") {}
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(WalletPalette.mint)
             }
             ContentUnavailableView(
                 "No verified assets",
@@ -344,14 +333,13 @@ private struct ApprovalsView: View {
 
 private struct AgentInventoryView: View {
     @ObservedObject var store: RustAgentRegistryStore
-    @State private var showingEnrollment = false
 
     var body: some View {
         ZStack {
             WalletBackground()
             ScrollView {
                 VStack(spacing: 14) {
-                    Text("Agents are authenticated principals, not apps the wallet can inspect. Controls below limit their ActiveChain authority.")
+                    Text("Agents are authenticated principals, not apps the wallet can inspect. Available controls affect only this wallet's local signing authority.")
                         .font(.caption)
                         .foregroundStyle(WalletPalette.muted)
                         .padding(16)
@@ -361,10 +349,7 @@ private struct AgentInventoryView: View {
                         ContentUnavailableView {
                             Label("No agents yet", systemImage: "person.badge.key")
                         } description: {
-                            Text("Import an agent enrollment request, choose its authority, and approve it in this wallet.")
-                        } actions: {
-                            Button("Add agent") { showingEnrollment = true }
-                                .buttonStyle(PrimaryWalletButton())
+                            Text("Agent enrollment requires validator-backed submission and finality, which are unavailable in this build.")
                         }
                         .cardStyle()
                     }
@@ -382,16 +367,6 @@ private struct AgentInventoryView: View {
         }
         .navigationTitle("Agents")
         .walletNavigationBarBackground()
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button { showingEnrollment = true } label: {
-                    Label("Add agent", systemImage: "plus")
-                }
-            }
-        }
-        .sheet(isPresented: $showingEnrollment) {
-            AgentEnrollmentView(store: store)
-        }
     }
 }
 
@@ -424,10 +399,10 @@ private struct AgentRow: View {
 
     private var statusLabel: String {
         switch agent.lifecycle {
-        case .enrollmentPending: "Pending"
-        case .active: "Active"
-        case .paused: "Paused"
-        case .revocationPending: "Revoking"
+        case .enrollmentPending: "Local draft"
+        case .active: "Local active"
+        case .paused: "Local paused"
+        case .revocationPending: "Local revocation draft"
         case .revoked: "Revoked"
         }
     }
@@ -481,22 +456,24 @@ private struct AgentDetailView: View {
     private func lifecycleControls(_ agent: AgentDelegation) -> some View {
         switch agent.lifecycle {
         case .enrollmentPending:
-            Label("Prepared locally · awaiting testnet submission and finality",
+            Label("Prepared locally · testnet submission and finality unavailable",
                   systemImage: "clock.badge.exclamationmark")
                 .font(.subheadline.weight(.semibold)).foregroundStyle(WalletPalette.violet)
         case .active:
             Button("Pause agent") { store.pause(agentID: agent.id) }
                 .buttonStyle(SecondaryWalletButton())
-            Button("Revoke capabilities") { store.revoke(agentID: agent.id) }
-                .buttonStyle(PrimaryWalletButton())
-                .tint(.red)
+            Label("Capability revocation requires unavailable testnet submission",
+                  systemImage: "network.slash")
+                .font(.caption).foregroundStyle(WalletPalette.muted)
         case .paused:
             Button("Resume agent") { store.resume(agentID: agent.id) }
                 .buttonStyle(PrimaryWalletButton())
-            Button("Revoke capabilities") { store.revoke(agentID: agent.id) }
-                .buttonStyle(SecondaryWalletButton())
+            Label("Capability revocation requires unavailable testnet submission",
+                  systemImage: "network.slash")
+                .font(.caption).foregroundStyle(WalletPalette.muted)
         case .revocationPending:
-            Label("Revocation submitted · awaiting finality", systemImage: "clock.badge.checkmark")
+            Label("Revocation prepared locally · submission and finality unavailable",
+                  systemImage: "clock.badge.exclamationmark")
                 .font(.subheadline.weight(.semibold)).foregroundStyle(WalletPalette.violet)
         case .revoked(let height):
             Label("Revoked at finalized block \(height)", systemImage: "xmark.shield.fill")
