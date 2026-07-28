@@ -1,0 +1,23 @@
+# Verification-only metadata shim. The library target is the production application-primitives source.
+[package]
+name = "activechain-application-primitives"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[features]
+default = ["std"]
+std = []
+
+[lib]
+path = "../../../application-primitives/src/lib.rs"
+
+[dependencies]
+activechain-canonical-codec.workspace = true
+activechain-crypto-provider.workspace = true
+activechain-protocol-commitment.workspace = true
+activechain-protocol-types.workspace = true
+activechain-rpc-types.workspace = true
+sha2.workspace = true

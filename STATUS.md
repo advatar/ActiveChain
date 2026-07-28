@@ -20,6 +20,13 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
   signed action requests and re-prove every authorization lemma.
 - [x] Model signed action submission as an explicit canonical envelope rather than a destructured
   transport tuple, while retaining public request/signature visibility and replayability.
+- [x] Install the pinned Kani toolchain in the deterministic-kernel job instead of relying on
+  mutable self-hosted runner state, then run every bounded-model harness on that exact version.
+- [x] Reconcile the isolated verifier-FFI Kani workspace with the production dependency closure so
+  application primitives, the crypto provider, and RPC types cannot bypass ABI proofs.
+- [x] Keep the supply-attestation Kani claim structural and compositional by factoring exact policy
+  binding from the separately tested SHA3 commitment path; retain unwinding assertions as hard
+  failures and prove the production helper rather than a copied model.
 - [ ] Verify the repaired baseline through the required deterministic-kernel CI job.
 
 ## Active milestone — P-060 execution proof system
