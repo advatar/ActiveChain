@@ -31,6 +31,8 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
   an uncached `libc` crate while invoking Cargo in offline mode.
 - [x] Update the finite Verus/Rust parity bridge for the production quorum certificate's added
   commitment field and retain accepted, threshold-rejected, and overflow vectors.
+- [x] Repair the stale finalized-header negative schema test so it actually substitutes an
+  unsupported version after the production schema moved to version 2.
 - [ ] Verify the repaired baseline through the required deterministic-kernel CI job.
 
 ## Active milestone — P-060 execution proof system
