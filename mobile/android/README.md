@@ -10,14 +10,16 @@ unavailable until Android has proof-bearing owner queries, secure profile provis
 signing/submission path. The UI never substitutes sample or optimistic wallet data. Persisted agent
 authority is decoded through the versioned Rust FFI, and an empty registry stays empty.
 
-Gradle invokes `scripts/build-android-wallet-library.sh`, builds the exact checkout for `arm64-v8a`
-with NDK 28.2, and packages the resulting shared library without checking it into Git.
+The checked-in Gradle 8.7 wrapper invokes `scripts/build-android-wallet-library.sh`, builds the
+exact checkout for `arm64-v8a` with NDK 28.2, and packages the resulting shared library without
+checking it into Git. Gradle 8.7 and JDK 17 are the supported defaults for Android Gradle Plugin
+8.6; use the wrapper instead of a host-installed Gradle.
 
 From `mobile/android`, run:
 
 ```text
-ANDROID_HOME="$ANDROID_SDK_ROOT" gradle testDebugUnitTest assembleDebug
-ANDROID_HOME="$ANDROID_SDK_ROOT" gradle connectedDebugAndroidTest
+ANDROID_HOME="$ANDROID_SDK_ROOT" ./gradlew testDebugUnitTest assembleDebug
+ANDROID_HOME="$ANDROID_SDK_ROOT" ./gradlew connectedDebugAndroidTest
 ```
 
 The first command validates the canonical RPC codec and builds the APK. The second verifies that an

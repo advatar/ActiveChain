@@ -48,8 +48,6 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.statusBarColor = Color.TRANSPARENT
-        window.navigationBarColor = Palette.ink
         agents = RustAgentRegistry(File(filesDir, "agents-v1.bin"))
 
         val root = LinearLayout(this).apply {

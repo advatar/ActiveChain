@@ -156,12 +156,17 @@ Tracked by [GitHub issue #318](https://github.com/advatar/ActiveChain/issues/318
   consistency, proof ordering, frame bounds, and trailing-data rejection.
 - [x] Regenerate the managed wallet C header after integrating the restored `main` baseline, so
   owner-proof documentation and constant layout remain pinned-cbindgen reproducible.
+- [x] Remove the deprecated Android system-bar color assignments exposed by the clean exact-head
+  rebuild; the edge-to-edge root already paints the intended system-bar background.
+- [x] Add the missing Android Gradle wrapper pinned to AGP 8.6's supported/default Gradle 8.7,
+  preventing host Gradle 9/10 drift and its plugin deprecation path.
 - [x] Pass Apple, Android, Rust, and live Kanalen qualification.
 
 Qualification on 2026-07-28 passed 21 tests on each Apple target, the exact-revision iOS build and
-universal macOS archive, the Android JVM tests and debug APK build, 102 targeted Rust tests, and the
+universal macOS archive, the checksum-pinned Gradle 8.7 Android JVM tests and debug APK build, the
+complete locked all-feature Rust workspace suite, strict all-target/all-feature Clippy, and the four
 adversarial Python probe tests. The live TLS 1.3 probe verified the exact Kanalen identity at healthy
-finalized height 5,872. The final merge and reachability check are tracked in issue #318.
+finalized height 7,052. The final merge and reachability check are tracked in issue #318.
 
 ## Phase 0 — protocol foundation
 
