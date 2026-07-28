@@ -6,6 +6,7 @@ VERUS_RELEASE_TAG="release/0.2026.05.24.ecee80a"
 VERUS_RELEASE_COMMIT="ecee80a2139923d503338e6989f79fb690ec7847"
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+REPOSITORY_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
 PLATFORM=$(uname -s)
 ARCHITECTURE=$(uname -m)
 
@@ -26,6 +27,11 @@ case "$PLATFORM:$ARCHITECTURE" in
         exit 1
         ;;
 esac
+
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "python3 is required for Verus parity lock preflight" >&2
+    exit 1
+fi
 
 TASK_TEMP_BASE=${TMPDIR:-/tmp}
 VERUS_CACHE_ROOT=${ACTIVECHAIN_VERUS_CACHE_DIR:-"$TASK_TEMP_BASE/activechain-verus-${VERUS_VERSION}"}
@@ -90,6 +96,33 @@ fi
 printf '%s\n' "$VERUS_VERSION_OUTPUT" | grep -F "Version: $VERUS_VERSION" >/dev/null
 
 mkdir -p "$VERUS_BUILD_ROOT" "$PARITY_TARGET_ROOT"
+python3 - "$REPOSITORY_ROOT/Cargo.lock" "$SCRIPT_DIR/parity/Cargo.lock" <<'PY'
+from pathlib import Path
+import sys
+import tomllib
+
+
+def external_entries(path):
+    lock = tomllib.loads(Path(path).read_text())
+    return {
+        (entry["name"], entry["version"], entry.get("source"), entry.get("checksum"))
+        for entry in lock["package"]
+        if entry.get("source") is not None
+    }
+
+
+production = external_entries(sys.argv[1])
+parity = external_entries(sys.argv[2])
+drift = sorted(parity - production)
+if drift:
+    raise SystemExit(
+        "Verus parity dependency lock diverged from the production workspace: "
+        + repr(drift)
+    )
+PY
+CARGO_TARGET_DIR="$PARITY_TARGET_ROOT" cargo fetch \
+    --manifest-path "$SCRIPT_DIR/parity/Cargo.toml" \
+    --locked
 CARGO_TARGET_DIR="$PARITY_TARGET_ROOT" cargo metadata \
     --manifest-path "$SCRIPT_DIR/parity/Cargo.toml" \
     --locked \
@@ -110,6 +143,7 @@ CARGO_TARGET_DIR="$PARITY_TARGET_ROOT" cargo metadata \
 CARGO_TARGET_DIR="$PARITY_TARGET_ROOT" cargo run \
     --manifest-path "$SCRIPT_DIR/parity/Cargo.toml" \
     --locked \
+    --offline \
     --quiet
 
 printf '%s\n' \

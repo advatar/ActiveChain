@@ -178,11 +178,18 @@ impl FungibleSupplyAttestationV1 {
     pub const fn approval_commitment(&self) -> Digest384 {
         self.approval_commitment
     }
-    pub fn binds_policy(&self, policy: &FungibleAssetPolicyV1) -> bool {
+    fn binds_policy_fields(
+        &self,
+        policy: &FungibleAssetPolicyV1,
+        policy_commitment: Digest384,
+    ) -> bool {
         self.asset_id == policy.asset_id()
             && self.issuer == policy.issuer()
-            && self.policy_commitment == policy.commitment().ok().unwrap_or(Digest384::ZERO)
+            && self.policy_commitment == policy_commitment
             && self.supply_issued == policy.supply_issued()
+    }
+    pub fn binds_policy(&self, policy: &FungibleAssetPolicyV1) -> bool {
+        policy.commitment().is_ok_and(|commitment| self.binds_policy_fields(policy, commitment))
     }
 }
 impl CanonicalEncode for FungibleSupplyAttestationV1 {
@@ -725,7 +732,13 @@ impl FungibleAssetPolicyV1 {
         height: u64,
     ) -> Result<Self, AssetDefinitionError> {
         if !matches!(operation, FungibleIssuerOperation::Burn | FungibleIssuerOperation::Redemption)
-            || !approval.binds_context(self, operation, approval.amount(), self.supply_issued, height)
+            || !approval.binds_context(
+                self,
+                operation,
+                approval.amount(),
+                self.supply_issued,
+                height,
+            )
         {
             return Err(AssetDefinitionError::InvalidSupplyTransition);
         }
@@ -868,6 +881,7 @@ impl FungibleAssetLifecycleActionV1 {
     pub const TYPE_TAG: u16 = 0x00B2;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 * 5 + 1 + 8 + 8;
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         asset_id: AssetId,
         expected_policy: Digest384,
@@ -1164,16 +1178,18 @@ mod kani_proofs {
         kani::assume(cap > 0);
         kani::assume(supply > 0 && supply <= cap);
         let current = policy(supply, cap);
+        let policy_commitment = Digest384::new([8; 48]);
         let attestation = FungibleSupplyAttestationV1::new(
             current.asset_id(),
-            current.commitment().unwrap(),
+            policy_commitment,
             current.issuer(),
             supply,
             1,
             Digest384::new([7; 48]),
         )
         .unwrap();
-        assert!(attestation.binds_policy(&current));
+        assert!(attestation.binds_policy_fields(&current, policy_commitment));
+        assert!(!attestation.binds_policy_fields(&current, Digest384::new([9; 48])));
         assert_eq!(attestation.supply_issued(), current.supply_issued());
         assert_eq!(attestation.asset_id(), current.asset_id());
     }
@@ -1708,8 +1724,10 @@ mod tests {
             30,
         )
         .unwrap();
-        assert!(policy
-            .apply_approved_burn(&wrong_burn_authority, FungibleIssuerOperation::Redemption, 20)
-            .is_err());
+        assert!(
+            policy
+                .apply_approved_burn(&wrong_burn_authority, FungibleIssuerOperation::Redemption, 20)
+                .is_err()
+        );
     }
 }

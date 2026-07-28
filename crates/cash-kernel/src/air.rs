@@ -232,8 +232,7 @@ impl CanonicalDecode for CashAirProof {
                 row.post_cells != public.post_cells || row.post_supply != public.post_supply
             })
             || rows.windows(2).any(|pair| {
-                pair[0].post_cells != pair[1].pre_cells
-                    || pair[0].post_supply != pair[1].pre_supply
+                pair[0].post_cells != pair[1].pre_cells || pair[0].post_supply != pair[1].pre_supply
             })
         {
             return Err(DecodeError::InvalidValue("inconsistent CashAIR root chain"));
@@ -245,7 +244,10 @@ impl CanonicalDecode for CashAirProof {
                     && (row.input_value != 0 || row.output_value != 0 || row.fee != 0))
                 || (row.accepted
                     && (row.input_value == 0
-                        || row.output_value.checked_add(row.fee).is_none_or(|total| total > row.input_value)))
+                        || row
+                            .output_value
+                            .checked_add(row.fee)
+                            .is_none_or(|total| total > row.input_value)))
             {
                 return Err(DecodeError::InvalidValue("malformed CashAIR trace shape"));
             }

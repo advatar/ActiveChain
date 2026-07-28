@@ -6,11 +6,11 @@
 //! atomicity, row count, and pre/post Coin Cell root binding. The cryptographic and membership
 //! tables required by `CASH.md` remain separate, explicit roadmap gates.
 
-use activechain_cash_kernel::{AuthenticatedCashAirProofV1, CashAirProof};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     decode_envelope, encode_envelope,
 };
+use activechain_cash_kernel::{AuthenticatedCashAirProofV1, CashAirProof};
 use activechain_protocol_types::{AssetId, CoinCellSetRoot, Digest384};
 use winterfell::{
     AcceptableOptions, Air, AirContext, Assertion, AuxRandElements, BatchingMethod,
@@ -57,10 +57,7 @@ pub fn fungible_conservation_holds(
     output_value: u128,
     fee: u128,
 ) -> bool {
-    pre_supply
-        .checked_add(issuance)
-        .and_then(|value| value.checked_sub(burn))
-        == Some(post_supply)
+    pre_supply.checked_add(issuance).and_then(|value| value.checked_sub(burn)) == Some(post_supply)
         && output_value.checked_add(fee) == Some(input_value)
 }
 
@@ -159,6 +156,7 @@ pub struct FungibleCashAirPublicInputsV1 {
 }
 
 impl FungibleCashAirPublicInputsV1 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         asset_id: AssetId,
         registry_commitment: Digest384,
@@ -174,11 +172,27 @@ impl FungibleCashAirPublicInputsV1 {
             return Err("fungible CashAIR identity is unbound");
         }
         if !fungible_conservation_holds(
-            pre_supply, issuance, burn, post_supply, input_value, output_value, fee,
+            pre_supply,
+            issuance,
+            burn,
+            post_supply,
+            input_value,
+            output_value,
+            fee,
         ) {
             return Err("fungible transfer conservation mismatch");
         }
-        Ok(Self { asset_id, registry_commitment, pre_supply, issuance, burn, post_supply, input_value, output_value, fee })
+        Ok(Self {
+            asset_id,
+            registry_commitment,
+            pre_supply,
+            issuance,
+            burn,
+            post_supply,
+            input_value,
+            output_value,
+            fee,
+        })
     }
 
     /// Domain-separated statement commitment consumed by the future fungible AIR.
@@ -214,9 +228,7 @@ pub fn verify_fungible_public_inputs(
     if expected_commitment == Digest384::ZERO {
         return Err("fungible AIR expected commitment is zero");
     }
-    let actual = inputs
-        .commitment()
-        .map_err(|_| "fungible AIR commitment encoding failed")?;
+    let actual = inputs.commitment().map_err(|_| "fungible AIR commitment encoding failed")?;
     if actual != expected_commitment {
         return Err("fungible AIR public statement commitment mismatch");
     }
@@ -347,7 +359,8 @@ impl AuthenticatedCashAirReceiptV1 {
     }
 
     pub fn verify_bytes(bytes: &[u8]) -> Result<(), &'static str> {
-        let envelope: Self = decode_envelope(bytes).map_err(|_| "malformed authenticated CashAIR receipt")?;
+        let envelope: Self =
+            decode_envelope(bytes).map_err(|_| "malformed authenticated CashAIR receipt")?;
         if envelope.suite_id != CASH_AIR_COMPOSITE_SUITE_ID {
             return Err("unregistered authenticated CashAIR suite");
         }
@@ -356,9 +369,13 @@ impl AuthenticatedCashAirReceiptV1 {
         let public = authenticated_public_inputs(&envelope.trace)?;
         let mut mutation_shake = Vec::with_capacity(envelope.mutation_proof_bytes.len());
         for bytes in envelope.mutation_proof_bytes {
-            mutation_shake.push(bytes.map(|value| {
-                crate::shake::AuthenticatedCashShakeStarkProof::decode_bytes(&value)
-            }).transpose()?);
+            mutation_shake.push(
+                bytes
+                    .map(|value| {
+                        crate::shake::AuthenticatedCashShakeStarkProof::decode_bytes(&value)
+                    })
+                    .transpose()?,
+            );
         }
         verify_authenticated_composite(
             AuthenticatedCashCompositeStarkProof {
@@ -417,8 +434,11 @@ impl CanonicalDecode for AuthenticatedCashAirReceiptV1 {
 impl CanonicalType for AuthenticatedCashAirReceiptV1 {
     const TYPE_TAG: u16 = 0x00a1;
     const SCHEMA_VERSION: u16 = 1;
-    const MAX_ENCODED_LEN: usize = 4 + AuthenticatedCashAirProofV1::MAX_ENCODED_LEN
-        + 4 + MAX_CASH_AIR_PROOF_BYTES + 2
+    const MAX_ENCODED_LEN: usize = 4
+        + AuthenticatedCashAirProofV1::MAX_ENCODED_LEN
+        + 4
+        + MAX_CASH_AIR_PROOF_BYTES
+        + 2
         + 1024 * (1 + 4 + MAX_CASH_AIR_PROOF_BYTES);
 }
 
@@ -803,11 +823,10 @@ fn build_trace(
     trace.set(FEE, 0, BaseElement::ZERO);
     set_root(&mut trace, 0, current_root);
     let authenticated_mode = BaseElement::new(u128::from(authenticated.is_some()));
-    let mut authenticated_root =
-        authenticated
-            .map(|value| digest_elements(value.pre_root().into_digest()))
-            .transpose()?
-            .unwrap_or(current_root);
+    let mut authenticated_root = authenticated
+        .map(|value| digest_elements(value.pre_root().into_digest()))
+        .transpose()?
+        .unwrap_or(current_root);
     trace.set(AUTHENTICATED_MODE, 0, authenticated_mode);
     set_authenticated_root(&mut trace, 0, authenticated_root);
     let mut applied = 0_u64;
@@ -864,7 +883,9 @@ fn build_trace(
     Ok(trace)
 }
 
-fn public_inputs(public: &activechain_cash_kernel::CashAirPublicInputs) -> Result<CashStarkPublicInputs, &'static str> {
+fn public_inputs(
+    public: &activechain_cash_kernel::CashAirPublicInputs,
+) -> Result<CashStarkPublicInputs, &'static str> {
     Ok(CashStarkPublicInputs {
         pre_root: root_elements(public.pre_cells())?,
         post_root: root_elements(public.post_cells())?,
@@ -877,7 +898,9 @@ fn public_inputs(public: &activechain_cash_kernel::CashAirPublicInputs) -> Resul
     })
 }
 
-fn authenticated_public_inputs(proof: &AuthenticatedCashAirProofV1) -> Result<CashStarkPublicInputs, &'static str> {
+fn authenticated_public_inputs(
+    proof: &AuthenticatedCashAirProofV1,
+) -> Result<CashStarkPublicInputs, &'static str> {
     let mut public = public_inputs(proof.execution().public())?;
     public.authenticated_mode = BaseElement::ONE;
     public.authenticated_pre_root = digest_elements(proof.pre_root().into_digest())?;
@@ -951,14 +974,11 @@ mod tests {
 
     use super::{
         AuthenticatedCashAirReceiptV1, AuthenticatedCashCompositeStarkProof, BaseElement,
-        CashAirReceiptV1, CashStarkProof,
-        FungibleCashAirPublicInputsV1, validate_fungible_amount_limbs,
+        CASH_AIR_COMPOSITE_SUITE_ID, CASH_AIR_PARENT_SUITE_ID, CashAirReceiptV1, CashStarkProof,
+        FungibleCashAirPublicInputsV1, decompose_u128_limbs, fungible_conservation_holds, prove,
+        prove_authenticated_composite, prove_authenticated_parent, recompose_u128_limbs,
+        validate_fungible_amount_limbs, verify, verify_authenticated_composite,
         verify_fungible_public_inputs,
-        decompose_u128_limbs, recompose_u128_limbs,
-        fungible_conservation_holds,
-        CASH_AIR_COMPOSITE_SUITE_ID, CASH_AIR_PARENT_SUITE_ID, prove,
-        prove_authenticated_composite, prove_authenticated_parent, verify,
-        verify_authenticated_composite,
     };
     use activechain_canonical_codec::{decode_envelope, encode_envelope};
 
@@ -997,9 +1017,20 @@ mod tests {
             verify_fungible_public_inputs(&value, Digest384::ZERO),
             Err("fungible AIR expected commitment is zero")
         );
-        assert!(FungibleCashAirPublicInputsV1::new(
-            AssetId::new(digest(1)), digest(2), 100, 25, 5, 121, 40, 39, 1
-        ).is_err());
+        assert!(
+            FungibleCashAirPublicInputsV1::new(
+                AssetId::new(digest(1)),
+                digest(2),
+                100,
+                25,
+                5,
+                121,
+                40,
+                39,
+                1
+            )
+            .is_err()
+        );
         assert!(!fungible_conservation_holds(u128::MAX, 1, 0, 0, 1, 0, 0));
         assert_eq!(recompose_u128_limbs(decompose_u128_limbs(u128::MAX)), u128::MAX);
         assert_eq!(value.amount_limbs()[0], decompose_u128_limbs(100));
@@ -1162,10 +1193,7 @@ mod tests {
         // The suite field is the first payload word after the canonical envelope header.
         let mut wrong_suite = encoded.clone();
         let suite_bytes = CASH_AIR_COMPOSITE_SUITE_ID.to_be_bytes();
-        let offset = encoded
-            .windows(4)
-            .position(|window| window == suite_bytes)
-            .unwrap();
+        let offset = encoded.windows(4).position(|window| window == suite_bytes).unwrap();
         wrong_suite[offset..offset + 4].copy_from_slice(&CASH_AIR_PARENT_SUITE_ID.to_be_bytes());
         assert!(AuthenticatedCashAirReceiptV1::verify_bytes(&wrong_suite).is_err());
     }
@@ -1210,8 +1238,8 @@ mod tests {
             .iter()
             .map(|proof| proof.as_ref().map(|value| value.encode_bytes().unwrap()))
             .collect();
-        let receipt = AuthenticatedCashAirReceiptV1::new(trace, parent_bytes, mutation_bytes)
-            .unwrap();
+        let receipt =
+            AuthenticatedCashAirReceiptV1::new(trace, parent_bytes, mutation_bytes).unwrap();
         let encoded = receipt.encode_envelope().unwrap();
         AuthenticatedCashAirReceiptV1::verify_bytes(&encoded).unwrap();
     }

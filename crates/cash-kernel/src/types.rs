@@ -1336,7 +1336,8 @@ mod fungible_cell_tests {
         assert!(transfer.validate_against_policy(&policy).is_ok());
         let commitment = transfer.commitment().unwrap();
         let other_cell = FungibleCoinCell::new(origin, other, owner, 42, 7).unwrap();
-        let other_transfer = FungibleTransferV1::new(other, owner, recipient, vec![other_cell], 42).unwrap();
+        let other_transfer =
+            FungibleTransferV1::new(other, owner, recipient, vec![other_cell], 42).unwrap();
         assert_ne!(commitment, other_transfer.commitment().unwrap());
     }
 

@@ -169,8 +169,11 @@ uint32_t activechain_verify_block_receipt_code(const uint8_t *finality,
                                                uint32_t receipt_len);
 
 /**
- * Verifies finalized digest-anchor evidence against explicit trusted network parameters.
- * `chain_id` and `genesis` are each exactly 48 bytes.
+ * Verifies canonical finalized anchor evidence against explicit trusted network parameters.
+ *
+ * # Safety
+ * Evidence and statement buffers must be readable for their declared lengths. `chain_id` and
+ * `genesis` must each point to readable 48-byte values. No pointer is retained.
  */
 uint32_t activechain_verify_anchor_finalized_evidence_code(const uint8_t *evidence,
                                                            uint32_t evidence_len,

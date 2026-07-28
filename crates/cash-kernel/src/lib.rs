@@ -95,8 +95,8 @@ mod tests {
 
     use super::{
         CashLedger, CashTransferV1, CashTransitionError, CoinBurnTransition, CoinMintTransition,
-        CoinTransfer, EpochEconomicsTransition, GenesisAllocation, GenesisEconomy,
-        FungibleCoinCell, NativeAssetDefinition, NativeMoneyError, NativeSupply, NonFungibleCoinCell,
+        CoinTransfer, EpochEconomicsTransition, FungibleCoinCell, GenesisAllocation,
+        GenesisEconomy, NativeAssetDefinition, NativeMoneyError, NativeSupply, NonFungibleCoinCell,
         NonFungibleCoinCellRecord, PartitionedCashPlan, RewardRedemption, RewardSettlement,
     };
 
@@ -139,7 +139,13 @@ mod tests {
             Err(NativeMoneyError::InvalidInputs)
         );
         assert_eq!(
-            FungibleCoinCell::new(origin, AssetId::new(digest(2)), PrincipalId::new(Digest384::ZERO), 1, 7),
+            FungibleCoinCell::new(
+                origin,
+                AssetId::new(digest(2)),
+                PrincipalId::new(Digest384::ZERO),
+                1,
+                7
+            ),
             Err(NativeMoneyError::InvalidInputs)
         );
     }
