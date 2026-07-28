@@ -131,7 +131,13 @@ uint32_t activechain_wallet_agent_register(const uint8_t *registry,
                                            uint32_t output_capacity,
                                            uint32_t *required_len);
 
-/** Creates a durable non-authorizing enrollment pending exact transaction finality. */
+/**
+ * Creates a non-authorizing agent record that can become active only after exact finality.
+ *
+ * # Safety
+ *
+ * Inputs follow `activechain_wallet_agent_register`; `transaction` points to 48 readable bytes.
+ */
 uint32_t activechain_wallet_agent_register_pending(const uint8_t *registry,
                                                    uint32_t registry_len,
                                                    const uint8_t *principal,
@@ -148,7 +154,14 @@ uint32_t activechain_wallet_agent_register_pending(const uint8_t *registry,
                                                    uint32_t output_capacity,
                                                    uint32_t *required_len);
 
-/** Activates the exact pending enrollment after finalized chain evidence is verified. */
+/**
+ * Activates the exact pending enrollment after its transaction is finalized.
+ *
+ * # Safety
+ *
+ * Principal and transaction point to 48 readable bytes; registry/output follow
+ * `activechain_wallet_agent_apply`.
+ */
 uint32_t activechain_wallet_agent_finalize_enrollment(const uint8_t *registry,
                                                       uint32_t registry_len,
                                                       const uint8_t *principal,
@@ -256,6 +269,13 @@ uint32_t activechain_wallet_select_cells(const uint8_t *cells,
                                          uint8_t *payment_out,
                                          uint8_t *fee_reserve_out);
 
+/**
+ * Selects payment and fee-reserve cells from an explicit fungible asset set.
+ *
+ * # Safety
+ * All pointers must reference buffers valid for their declared lengths; output buffers must be
+ * writable for 48 bytes. No pointer is retained.
+ */
 uint32_t activechain_wallet_select_fungible_cells(const uint8_t *cells,
                                                   uint32_t cells_len,
                                                   const uint8_t *owner,
@@ -265,19 +285,6 @@ uint32_t activechain_wallet_select_fungible_cells(const uint8_t *cells,
                                                   uint64_t fee_low,
                                                   uint8_t *payment_out,
                                                   uint8_t *fee_reserve_out);
-
-uint32_t activechain_wallet_build_fungible_transfer(const uint8_t *cells,
-                                                    uint32_t cells_len,
-                                                    const uint8_t *asset,
-                                                    const uint8_t *sender,
-                                                    const uint8_t *recipient,
-                                                    const uint8_t *input_ids,
-                                                    uint16_t input_count,
-                                                    uint64_t amount_high,
-                                                    uint64_t amount_low,
-                                                    uint8_t *output,
-                                                    uint32_t output_capacity,
-                                                    uint32_t *required_len);
 
 /**
  * Evaluates the exact wallet-core spending policy without side effects.
@@ -324,6 +331,26 @@ uint32_t activechain_wallet_build_cash_intent(const uint8_t *chain_id,
                                               uint32_t output_capacity,
                                               uint32_t *required_len,
                                               uint8_t *intent_out);
+
+/**
+ * Builds a canonical asset-bound transfer envelope with size-query support.
+ *
+ * # Safety
+ * All input pointers must reference readable buffers and `required_len` must be writable;
+ * `output` must be writable for `output_capacity` bytes.
+ */
+uint32_t activechain_wallet_build_fungible_transfer(const uint8_t *cells,
+                                                    uint32_t cells_len,
+                                                    const uint8_t *asset,
+                                                    const uint8_t *sender,
+                                                    const uint8_t *recipient,
+                                                    const uint8_t *input_ids,
+                                                    uint16_t input_count,
+                                                    uint64_t amount_high,
+                                                    uint64_t amount_low,
+                                                    uint8_t *output,
+                                                    uint32_t output_capacity,
+                                                    uint32_t *required_len);
 
 /**
  * Invokes a secure-key callback for one exact canonical request and verifies its result.

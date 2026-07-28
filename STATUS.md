@@ -33,6 +33,8 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
   commitment field and retain accepted, threshold-rejected, and overflow vectors.
 - [x] Repair the stale finalized-header negative schema test so it actually substitutes an
   unsupported version after the production schema moved to version 2.
+- [ ] Regenerate the checked-in verifier and wallet C headers after their public safety contracts
+  and declaration order changed, restoring the Apple distribution reproducibility gate.
 - [ ] Verify the repaired baseline through the required deterministic-kernel CI job.
 
 ## Active milestone — P-060 execution proof system
