@@ -27,6 +27,10 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 - [x] Keep the supply-attestation Kani claim structural and compositional by factoring exact policy
   binding from the separately tested SHA3 commitment path; retain unwinding assertions as hard
   failures and prove the production helper rather than a copied model.
+- [x] Make the isolated Verus arithmetic gate reproducible from a clean runner instead of requiring
+  an uncached `libc` crate while invoking Cargo in offline mode.
+- [x] Update the finite Verus/Rust parity bridge for the production quorum certificate's added
+  commitment field and retain accepted, threshold-rejected, and overflow vectors.
 - [ ] Verify the repaired baseline through the required deterministic-kernel CI job.
 
 ## Active milestone — P-060 execution proof system

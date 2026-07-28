@@ -41,7 +41,9 @@ also records the official x86-64 Linux artifact:
 
 The runner downloads only over TLS, checks the selected archive before extraction, checks the binary's
 reported version, and keeps downloaded and generated artifacts outside the repository by default.
-Run the complete slice from the repository root:
+Before the parity build, it rejects any external lock entry absent from the production `Cargo.lock`,
+fetches the exact locked crates for a clean runner, and then runs metadata and parity execution in
+offline mode. Run the complete slice from the repository root:
 
 ```sh
 formal/verus/verify.sh
