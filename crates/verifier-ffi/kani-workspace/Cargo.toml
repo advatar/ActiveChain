@@ -5,6 +5,7 @@ members = [
     "application-primitives",
     "canonical-codec",
     "capability",
+    "cash-kernel",
     "consensus-verifier",
     "crypto-provider",
     "devnet-kernel",
@@ -12,6 +13,7 @@ members = [
     "finality-types",
     "object",
     "policy-kernel",
+    "privacy-kernel",
     "protocol-commitment",
     "protocol-types",
     "rpc-types",
@@ -31,12 +33,14 @@ activechain-action-kernel = { path = "action-kernel", version = "0.1.0" }
 activechain-application-primitives = { path = "application-primitives", version = "0.1.0" }
 activechain-canonical-codec = { path = "canonical-codec", version = "0.1.0" }
 activechain-capability = { path = "capability", version = "0.1.0" }
+activechain-cash-kernel = { path = "cash-kernel", version = "0.1.0" }
 activechain-consensus-verifier = { path = "consensus-verifier", version = "0.1.0" }
 activechain-crypto-provider = { path = "crypto-provider", version = "0.1.0" }
 activechain-devnet-kernel = { path = "devnet-kernel", version = "0.1.0" }
 activechain-finality-types = { path = "finality-types", version = "0.1.0" }
 activechain-object = { path = "object", version = "0.1.0" }
 activechain-policy-kernel = { path = "policy-kernel", version = "0.1.0" }
+activechain-privacy-kernel = { path = "privacy-kernel", version = "0.1.0" }
 activechain-protocol-commitment = { path = "protocol-commitment", version = "0.1.0" }
 activechain-protocol-types = { path = "protocol-types", version = "0.1.0" }
 activechain-rpc-types = { path = "rpc-types", version = "0.1.0" }

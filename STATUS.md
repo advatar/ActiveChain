@@ -160,6 +160,8 @@ Tracked by [GitHub issue #318](https://github.com/advatar/ActiveChain/issues/318
   rebuild; the edge-to-edge root already paints the intended system-bar background.
 - [x] Add the missing Android Gradle wrapper pinned to AGP 8.6's supported/default Gradle 8.7,
   preventing host Gradle 9/10 drift and its plugin deprecation path.
+- [x] Extend the verifier-FFI Kani shadow workspace with the production cash/privacy dependency
+  closure introduced by owner Coin Cell verification, then re-prove every ABI harness.
 - [x] Pass Apple, Android, Rust, and live Kanalen qualification.
 
 Qualification on 2026-07-28 passed 21 tests on each Apple target, the exact-revision iOS build and
