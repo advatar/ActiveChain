@@ -2,6 +2,12 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Workspace formatting gate
+
+- [ ] Restore the clean-checkout `cargo fmt --all --check` gate
+  ([GitHub issue #320](https://github.com/advatar/ActiveChain/issues/320)).
+- [ ] Verify the formatter-only repair through the required deterministic-kernel CI job.
+
 ## Active milestone — P-060 execution proof system
 
 - [x] Publish the P-060 selection/security specification and explicit re-execution transition gate.
