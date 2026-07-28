@@ -8,14 +8,7 @@ class RustAgentRegistry(private val snapshotFile: File) {
 
     private var snapshot = if (snapshotFile.isFile) snapshotFile.readBytes() else ByteArray(0)
 
-    init {
-        if (snapshot.isEmpty()) {
-            snapshot = nativeRegister(snapshot, 0x31, 0x41, "Research agent", 1, 50, 240_000)
-            snapshot = nativeRegister(snapshot, 0x32, 0x42, "Travel planner", 2, 10, 210_000)
-            persist()
-        }
-        refresh()
-    }
+    init { refresh() }
 
     fun pause(id: String) = replace(nativeSetPaused(snapshot, principal(id), true))
 
@@ -42,23 +35,17 @@ class RustAgentRegistry(private val snapshotFile: File) {
     }
 
     private fun refresh() {
-        agents = (0 until nativeCount(snapshot)).map { parseSummary(nativeSummary(snapshot, it)) }
+        agents = if (snapshot.isEmpty()) {
+            emptyList()
+        } else {
+            (0 until nativeCount(snapshot)).map { parseSummary(nativeSummary(snapshot, it)) }
+        }
     }
 
     companion object {
         init {
             System.loadLibrary("activechain_wallet_ffi")
         }
-
-        @JvmStatic private external fun nativeRegister(
-            snapshot: ByteArray,
-            principalByte: Int,
-            capabilityByte: Int,
-            label: String,
-            connection: Int,
-            budget: Long,
-            expiresAt: Long,
-        ): ByteArray
 
         @JvmStatic private external fun nativeSetPaused(
             snapshot: ByteArray,
