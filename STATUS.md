@@ -10,8 +10,8 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
   all-target, all-feature workspace Clippy gate used by CI.
 - [ ] Capture Tamarin stderr in the formal evidence file so derivation completion and warnings are
   checked rather than bypassing the gate.
-- [ ] Give the unchanged eighteen-lemma authorization proof enough process time to complete on the
-  ARM64 qualification runner while retaining timeout-as-failure behavior.
+- [ ] Run each unchanged authorization lemma in an independently bounded prover process so the
+  complete eighteen-lemma manifest finishes while retaining timeout-as-failure behavior.
 - [ ] Verify the repaired baseline through the required deterministic-kernel CI job.
 
 ## Active milestone — P-060 execution proof system
