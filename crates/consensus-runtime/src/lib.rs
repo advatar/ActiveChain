@@ -28,8 +28,8 @@ use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{self, Receiver, SyncSender};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 mod cash_state;
@@ -3397,16 +3397,12 @@ mod tests {
         )
         .unwrap();
         let mut gateway = WalletTransactionGateway::from_genesis(&economy).unwrap();
-        let shared_gateway = Arc::new(Mutex::new(WalletTransactionGateway::from_genesis(&economy).unwrap()));
+        let shared_gateway =
+            Arc::new(Mutex::new(WalletTransactionGateway::from_genesis(&economy).unwrap()));
         let finalized_height = Arc::new(AtomicU64::new(1));
         let adapter = ValidatorFaucetSettlementAdapter::new(shared_gateway, finalized_height);
         assert_eq!(
-            adapter.settle_authorized(
-                &[0xff],
-                owner,
-                10,
-                digest(30),
-            ),
+            adapter.settle_authorized(&[0xff], owner, 10, digest(30),),
             Err(FaucetError::InvalidTransition)
         );
         assert_eq!(

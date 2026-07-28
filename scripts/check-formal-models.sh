@@ -2,12 +2,15 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
+# shellcheck source=scripts/lib/formal-output.sh
+source "$root/scripts/lib/formal-output.sh"
 derivcheck_timeout=${ACTIVECHAIN_TAMARIN_DERIVCHECK_TIMEOUT:-180}
 tamarin_process_timeout=${ACTIVECHAIN_TAMARIN_PROCESS_TIMEOUT:-300}
 authorization_derivcheck_timeout=${ACTIVECHAIN_AUTHORIZATION_DERIVCHECK_TIMEOUT:-900}
 authorization_preflight_timeout=${ACTIVECHAIN_AUTHORIZATION_PREFLIGHT_TIMEOUT:-1200}
-authorization_proof_timeout=${ACTIVECHAIN_AUTHORIZATION_PROOF_TIMEOUT:-1200}
+authorization_lemma_timeout=${ACTIVECHAIN_AUTHORIZATION_LEMMA_TIMEOUT:-600}
 
+"$root/scripts/test-formal-output-capture.sh"
 python3 "$root/scripts/check-formal-coverage.py"
 
 if ! tamarin_version=$(tamarin-prover --version 2>&1); then
@@ -41,7 +44,7 @@ for model in "$root"/formal/tamarin/*.spthy; do
       exit 1
     }
     model_hash_before=$(shasum -a 256 "$model" | awk '{print $1}')
-    perl -e '$seconds=shift; alarm $seconds; exec @ARGV' \
+    capture_formal_output perl -e '$seconds=shift; alarm $seconds; exec @ARGV' \
       "$authorization_preflight_timeout" tamarin-prover "$model" \
       --precompute-only --quiet --open-chains=50 \
       --derivcheck-timeout="$authorization_derivcheck_timeout" \
@@ -60,41 +63,38 @@ for model in "$root"/formal/tamarin/*.spthy; do
       exit 1
     fi
 
-    authorization_prove_args=()
+    authorization_lemma_count=0
     while IFS= read -r lemma; do
       test -n "$lemma" || continue
-      authorization_prove_args+=(--prove="$lemma")
+      authorization_lemma_count=$((authorization_lemma_count + 1))
+      lemma_output=$(mktemp "${TMPDIR:-/tmp}/activechain-tamarin-authorization.XXXXXX")
+      capture_formal_output perl -e '$seconds=shift; alarm $seconds; exec @ARGV' \
+        "$authorization_lemma_timeout" tamarin-prover "$model" \
+        --prove="$lemma" --quiet --open-chains=50 \
+        --derivcheck-timeout=0 --quit-on-warning \
+        | tee "$lemma_output" | tee -a "$output"
+      if ! grep -Eq "^[[:space:]]*${lemma} .*: verified" "$lemma_output"; then
+        echo "authorization lemma was not verified: $lemma" >&2
+        rm -f "$lemma_output"
+        exit 1
+      fi
+      rm -f "$lemma_output"
     done < "$lemma_file"
-    test "${#authorization_prove_args[@]}" -gt 0 || {
+    test "$authorization_lemma_count" -gt 0 || {
       echo "authorization-chain lemma manifest is empty" >&2
       exit 1
     }
-    perl -e '$seconds=shift; alarm $seconds; exec @ARGV' \
-      "$authorization_proof_timeout" tamarin-prover "$model" \
-      "${authorization_prove_args[@]}" --quiet --open-chains=50 \
-      --derivcheck-timeout=0 --quit-on-warning | tee -a "$output"
     model_hash_proved=$(shasum -a 256 "$model" | awk '{print $1}')
     if [[ "$model_hash_before" != "$model_hash_proved" ]]; then
       echo "authorization model changed between preflight and proof" >&2
-      exit 1
-    fi
-
-    while IFS= read -r lemma; do
-      test -n "$lemma" || continue
-      if ! grep -Eq "^[[:space:]]+${lemma} .*: verified" "$output"; then
-        echo "authorization lemma was not verified: $lemma" >&2
-        exit 1
-      fi
-    done < "$lemma_file"
-    if grep -q 'analysis incomplete' "$output"; then
-      echo "authorization proof selection left an incomplete lemma" >&2
       exit 1
     fi
   elif test -f "$lemma_file"; then
     while IFS= read -r lemma; do
       test -n "$lemma" || continue
       lemma_output=$(mktemp "${TMPDIR:-/tmp}/activechain-tamarin-lemma.XXXXXX")
-      perl -e '$seconds=shift; alarm $seconds; exec @ARGV' "$tamarin_process_timeout" \
+      capture_formal_output perl -e '$seconds=shift; alarm $seconds; exec @ARGV' \
+        "$tamarin_process_timeout" \
         tamarin-prover "$model" --prove="$lemma" "${tamarin_args[@]}" \
         | tee "$lemma_output" | tee -a "$output"
       if ! grep -Eq "^[[:space:]]*${lemma} .*: verified" "$lemma_output"; then
@@ -105,7 +105,8 @@ for model in "$root"/formal/tamarin/*.spthy; do
       rm -f "$lemma_output"
     done < "$lemma_file"
   else
-    perl -e '$seconds=shift; alarm $seconds; exec @ARGV' "$tamarin_process_timeout" \
+    capture_formal_output perl -e '$seconds=shift; alarm $seconds; exec @ARGV' \
+      "$tamarin_process_timeout" \
       tamarin-prover "$model" --prove "${tamarin_args[@]}" | tee "$output"
   fi
   if grep -Eq 'falsified|WARNING:|wellformedness check failed' "$output"; then

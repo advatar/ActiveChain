@@ -60,10 +60,9 @@ pub fn select_profiles_with_inheritance(
                 || edge.parent == Some(Digest384::ZERO)
                 || edge.parent == Some(edge.profile)
         })
-        || inheritance
-            .iter()
-            .enumerate()
-            .any(|(index, edge)| inheritance[index + 1..].iter().any(|other| other.profile == edge.profile))
+        || inheritance.iter().enumerate().any(|(index, edge)| {
+            inheritance[index + 1..].iter().any(|other| other.profile == edge.profile)
+        })
     {
         return ProfileSelection::Rejected;
     }
@@ -167,6 +166,7 @@ impl EvidenceRetentionPolicyV1 {
     pub const TYPE_TAG: u16 = 0x00D8;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 * 6 + 8 + 1 + 2;
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         profile: Digest384,
         jurisdiction: Digest384,

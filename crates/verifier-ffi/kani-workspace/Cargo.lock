@@ -14,6 +14,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-application-primitives"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-crypto-provider",
+ "activechain-protocol-commitment",
+ "activechain-protocol-types",
+ "activechain-rpc-types",
+ "sha2",
+]
+
+[[package]]
 name = "activechain-canonical-codec"
 version = "0.1.0"
 
@@ -30,7 +42,18 @@ version = "0.1.0"
 dependencies = [
  "activechain-protocol-types",
  "ml-dsa",
- "sha3",
+ "sha3 0.10.9",
+]
+
+[[package]]
+name = "activechain-crypto-provider"
+version = "0.1.0"
+dependencies = [
+ "activechain-consensus-verifier",
+ "activechain-protocol-types",
+ "ml-dsa",
+ "ml-kem",
+ "sha3 0.10.9",
 ]
 
 [[package]]
@@ -52,7 +75,7 @@ dependencies = [
  "activechain-canonical-codec",
  "activechain-protocol-types",
  "activechain-state-tree",
- "sha3",
+ "sha3 0.10.9",
 ]
 
 [[package]]
@@ -76,7 +99,7 @@ version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
  "activechain-protocol-types",
- "sha3",
+ "sha3 0.10.9",
 ]
 
 [[package]]
@@ -84,7 +107,16 @@ name = "activechain-protocol-types"
 version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
- "sha3",
+ "sha3 0.10.9",
+]
+
+[[package]]
+name = "activechain-rpc-types"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-protocol-types",
+ "sha3 0.10.9",
 ]
 
 [[package]]
@@ -93,7 +125,7 @@ version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
  "activechain-protocol-types",
- "sha3",
+ "sha3 0.10.9",
 ]
 
 [[package]]
@@ -111,6 +143,8 @@ dependencies = [
 name = "activechain-verifier-api"
 version = "0.1.0"
 dependencies = [
+ "activechain-action-kernel",
+ "activechain-application-primitives",
  "activechain-canonical-codec",
  "activechain-capability",
  "activechain-consensus-verifier",
@@ -120,7 +154,7 @@ dependencies = [
  "activechain-protocol-commitment",
  "activechain-protocol-types",
  "activechain-state-tree",
- "sha3",
+ "sha3 0.10.9",
 ]
 
 [[package]]
@@ -150,6 +184,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
 dependencies = [
  "generic-array",
+]
+
+[[package]]
+name = "block-buffer"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2f6c7dbe95a6ed67ad9f18e57daf93a2f034c524b99fd2b76d18fdfeb6660aa"
+dependencies = [
+ "hybrid-array",
 ]
 
 [[package]]
@@ -234,7 +277,7 @@ version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
- "block-buffer",
+ "block-buffer 0.10.4",
  "crypto-common 0.1.7",
 ]
 
@@ -244,6 +287,7 @@ version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
 dependencies = [
+ "block-buffer 0.12.1",
  "crypto-common 0.2.2",
 ]
 
@@ -299,6 +343,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "kem"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01737161ba802849cfd486b5bd209d38ba4943494c249a8126005170c7621edd"
+dependencies = [
+ "crypto-common 0.2.2",
+ "rand_core",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.186"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -318,6 +372,20 @@ dependencies = [
  "pkcs8",
  "shake",
  "signature",
+]
+
+[[package]]
+name = "ml-kem"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e15f3e5b957493873e396a66914e83e616b6afe335cdef7efe5c6e1216aba66"
+dependencies = [
+ "hybrid-array",
+ "kem",
+ "module-lattice",
+ "pkcs8",
+ "rand_core",
+ "sha3 0.11.0",
 ]
 
 [[package]]
@@ -363,6 +431,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
 
 [[package]]
+name = "sha2"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.2.17",
+ "digest 0.10.7",
+]
+
+[[package]]
 name = "sha3"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -370,6 +449,16 @@ checksum = "77fd7028345d415a4034cf8777cd4f8ab1851274233b45f84e3d955502d93874"
 dependencies = [
  "digest 0.10.7",
  "keccak 0.1.6",
+]
+
+[[package]]
+name = "sha3"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be176f1a57ce4e3d31c1a166222d9768de5954f811601fb7ca06fc8203905ce1"
+dependencies = [
+ "digest 0.11.3",
+ "keccak 0.2.0",
 ]
 
 [[package]]

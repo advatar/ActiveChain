@@ -27,10 +27,14 @@ credential issuer, a root capability issuer, and two delegates. The finite trace
    a single-use-consumption obligation; and
 10. one transition from `version` to the symbolic checked successor `next_version(version)`.
 
-Credential and capability bytes are public and may be replayed. The action-request bytes pass
-through Tamarin's Dolev-Yao network. The only accepting request rule matches the complete signed
-transcript and consumes its pending request. The authorization snapshot, leaf use, and object
-write are linear facts shared by both competing requests.
+Credential, capability, state-proof, and action-request bytes are public. The action request and
+signature are additionally wrapped in an explicit canonical envelope that passes through
+Tamarin's Dolev-Yao network; the original pair remains public so the envelope does not model
+confidentiality. The only accepting request rule matches the complete signed envelope and consumes
+its pending request. Credential, capability, and state-proof verification read the exact records
+already bound into the linear authorization snapshot rather than requiring the adversary to
+re-deliver identical authoritative state. The authorization snapshot, leaf use, and object write
+are linear facts shared by both competing requests.
 
 ## Proved all-traces properties
 
@@ -110,9 +114,9 @@ The authorization model has a dedicated two-phase gate because Tamarin's message
 is substantially more expensive than any individual lemma. The gate first runs an exact-source
 preflight on the model bytes with Tamarin 1.12.0, `--open-chains=50`, derivation checking enabled,
 and `--quit-on-warning`. It hashes the model before and after the preflight. Only after that succeeds
-does one proof process select every name in
+does one independently bounded proof process select each name in
 `formal/tamarin/activechain_authorization_chain.lemmas`; derivation checking is disabled only for
-that second process because the identical model bytes already passed it once.
+those proof processes because the identical model bytes already passed it once.
 
 The gate rejects a changed hash, a warning, a failed wellformedness check, a falsified or incomplete
 selected lemma, a missing lemma summary, or a non-zero prover exit. Run it with:
@@ -121,6 +125,12 @@ selected lemma, a missing lemma summary, or a non-zero prover exit. Run it with:
 bash scripts/check-formal-models.sh
 ```
 
-The default authorization preflight and proof process bounds are intentionally longer than the
-other small Tamarin models. They may be overridden for diagnostics, but a release record must retain
-the complete preflight and all eighteen verified summaries from a clean checkout.
+The default authorization bounds are intentionally longer than the other small Tamarin models:
+1,200 seconds for preflight and 600 seconds for each required lemma. The per-lemma strategy replaces
+an observed pathological multi-selection that remained CPU-active until killed at both 1,200 and
+2,400 seconds. After removing redundant authoritative-record delivery premises and modeling the
+signed submission as an explicit canonical envelope, the two complete-transition witnesses
+verified independently in 186 and 193 seconds on the ARM64 qualification host. Both bounds may be
+overridden for diagnostics, but a release record must retain the complete preflight and all
+eighteen independently verified summaries from a clean checkout; any individual timeout remains a
+hard failure.

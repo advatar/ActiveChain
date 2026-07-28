@@ -2,6 +2,43 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Deterministic-kernel CI baseline
+
+- [x] Restore the clean-checkout `cargo fmt --all --check` gate
+  ([GitHub issue #320](https://github.com/advatar/ActiveChain/issues/320)).
+- [x] Reconcile `Cargo.lock` with current workspace manifests and pass the exact locked,
+  all-target, all-feature workspace Clippy gate used by CI.
+- [x] Capture Tamarin stderr in the formal evidence file so derivation completion and warnings are
+  checked rather than bypassing the gate.
+- [x] Run each unchanged authorization lemma in an independently bounded prover process so the
+  complete eighteen-lemma manifest finishes while retaining timeout-as-failure behavior.
+- [x] Give the authorization executability witnesses a deterministic bounded proof strategy; the
+  default search reached the per-lemma limit on `exists_complete_authorized_transition` after the
+  first thirteen manifest lemmas completed.
+- [x] Remove redundant attacker-delivery premises for credential, capability, and state-proof
+  records that are already bound into the authoritative snapshot; retain adversarial delivery for
+  signed action requests and re-prove every authorization lemma.
+- [x] Model signed action submission as an explicit canonical envelope rather than a destructured
+  transport tuple, while retaining public request/signature visibility and replayability.
+- [x] Install the pinned Kani toolchain in the deterministic-kernel job instead of relying on
+  mutable self-hosted runner state, then run every bounded-model harness on that exact version.
+- [x] Reconcile the isolated verifier-FFI Kani workspace with the production dependency closure so
+  application primitives, the crypto provider, and RPC types cannot bypass ABI proofs.
+- [x] Keep the supply-attestation Kani claim structural and compositional by factoring exact policy
+  binding from the separately tested SHA3 commitment path; retain unwinding assertions as hard
+  failures and prove the production helper rather than a copied model.
+- [x] Make the isolated Verus arithmetic gate reproducible from a clean runner instead of requiring
+  an uncached `libc` crate while invoking Cargo in offline mode.
+- [x] Update the finite Verus/Rust parity bridge for the production quorum certificate's added
+  commitment field and retain accepted, threshold-rejected, and overflow vectors.
+- [x] Repair the stale finalized-header negative schema test so it actually substitutes an
+  unsupported version after the production schema moved to version 2.
+- [x] Regenerate the checked-in verifier and wallet C headers after their public safety contracts
+  and declaration order changed, restoring the Apple distribution reproducibility gate.
+- [x] Correct the standalone validator restart rehearsal to retain zero finality without a quorum,
+  while proving durable progress separately from the three-process quorum rehearsal.
+- [x] Verify the repaired baseline through the required deterministic-kernel CI job.
+
 ## Active milestone — P-060 execution proof system
 
 - [x] Publish the P-060 selection/security specification and explicit re-execution transition gate.

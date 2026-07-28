@@ -40,10 +40,10 @@ use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
     AccessManifest, AccessManifestFields, ActionId, AuthenticatorDescriptor, AuthenticatorId,
     AuthenticatorPurpose, BoundedActionSet, CREDENTIAL_FORMAT_VERSION, CapabilityGrant,
-    CapabilityGrantFields, CapabilityId, ChainId, Credential, CredentialAcceptancePolicy, CredentialId,
-    CredentialStatement, CredentialStatusRegistry, CryptoSuiteId, DataSelector, Digest384,
-    FreezeState, HolderBinding, Object, ObjectFields, ObjectFlags, ObjectId, ObjectOwner,
-    ObjectVersionRef, Principal, PrincipalId, PrincipalKind, ProtocolSignature,
+    CapabilityGrantFields, CapabilityId, ChainId, Credential, CredentialAcceptancePolicy,
+    CredentialId, CredentialStatement, CredentialStatusRegistry, CryptoSuiteId, DataSelector,
+    Digest384, FreezeState, HolderBinding, Object, ObjectFields, ObjectFlags, ObjectId,
+    ObjectOwner, ObjectVersionRef, Principal, PrincipalId, PrincipalKind, ProtocolSignature,
     RateLimit, RecoveryRequest, ResourceSelector,
 };
 use activechain_state_tree::{

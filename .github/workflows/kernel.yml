@@ -41,6 +41,14 @@ jobs:
           if ! elan toolchain list | rg --fixed-strings --line-regexp 'leanprover/lean4:v4.32.0'; then
             elan toolchain install leanprover/lean4:v4.32.0
           fi
+      - name: Install pinned Kani verifier
+        run: |
+          kani_version=0.67.0
+          if [[ "$(cargo kani --version 2>/dev/null || true)" != "cargo-kani ${kani_version}" ]]; then
+            cargo install --locked kani-verifier --version "${kani_version}" --force
+          fi
+          cargo kani setup
+          [[ "$(cargo kani --version)" == "cargo-kani ${kani_version}" ]]
       - name: Isolate public Docker authentication
         run: |
           ci_docker_config="${RUNNER_TEMP}/activechain-docker-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"

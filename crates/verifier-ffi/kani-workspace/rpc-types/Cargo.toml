@@ -1,0 +1,16 @@
+# Verification-only metadata shim. The library target is the production rpc-types source.
+[package]
+name = "activechain-rpc-types"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+path = "../../../rpc-types/src/lib.rs"
+
+[dependencies]
+activechain-canonical-codec.workspace = true
+activechain-protocol-types.workspace = true
+sha3.workspace = true

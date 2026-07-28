@@ -2,9 +2,11 @@
 members = [
     "action-kernel",
     "api",
+    "application-primitives",
     "canonical-codec",
     "capability",
     "consensus-verifier",
+    "crypto-provider",
     "devnet-kernel",
     "ffi",
     "finality-types",
@@ -12,6 +14,7 @@ members = [
     "policy-kernel",
     "protocol-commitment",
     "protocol-types",
+    "rpc-types",
     "state-tree",
     "transition",
 ]
@@ -25,17 +28,22 @@ repository = "https://github.com/advatar/ActiveChain"
 
 [workspace.dependencies]
 activechain-action-kernel = { path = "action-kernel", version = "0.1.0" }
+activechain-application-primitives = { path = "application-primitives", version = "0.1.0" }
 activechain-canonical-codec = { path = "canonical-codec", version = "0.1.0" }
 activechain-capability = { path = "capability", version = "0.1.0" }
 activechain-consensus-verifier = { path = "consensus-verifier", version = "0.1.0" }
+activechain-crypto-provider = { path = "crypto-provider", version = "0.1.0" }
 activechain-devnet-kernel = { path = "devnet-kernel", version = "0.1.0" }
 activechain-finality-types = { path = "finality-types", version = "0.1.0" }
 activechain-object = { path = "object", version = "0.1.0" }
 activechain-policy-kernel = { path = "policy-kernel", version = "0.1.0" }
 activechain-protocol-commitment = { path = "protocol-commitment", version = "0.1.0" }
 activechain-protocol-types = { path = "protocol-types", version = "0.1.0" }
+activechain-rpc-types = { path = "rpc-types", version = "0.1.0" }
 activechain-state-tree = { path = "state-tree", version = "0.1.0" }
 activechain-transition = { path = "transition", version = "0.1.0" }
 activechain-verifier-api = { path = "api", version = "0.1.0" }
 ml-dsa = "=0.1.1"
+ml-kem = { version = "=0.3.2", features = ["getrandom"] }
+sha2 = { version = "=0.10.9", default-features = false }
 sha3 = { version = "=0.10.9", default-features = false }

@@ -298,8 +298,8 @@ mod tests {
         substituted.inputs.receipt_root = digest(21);
         assert_ne!(header.digest().unwrap(), substituted.digest().unwrap());
 
-        let mut wrong_version = encoded;
-        wrong_version[3] = 2;
-        assert!(decode_envelope::<FinalizedBlockHeader>(&wrong_version).is_err());
+        let mut old_schema = encoded;
+        old_schema[2..4].copy_from_slice(&1_u16.to_be_bytes());
+        assert!(decode_envelope::<FinalizedBlockHeader>(&old_schema).is_err());
     }
 }

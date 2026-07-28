@@ -6,6 +6,7 @@ builtins: signing, hashing
 
 functions:
   auth_context/14,
+  action_envelope/2,
   signing_keys/5,
   credential_record/7,
   capability_record/8,
@@ -398,6 +399,8 @@ rule CreateCompetingActionRequests:
     PendingActionRequest(
       ~operation_b, context, actor_key, credential_id, leaf,
       request_b, signature_b),
+    Out(action_envelope(request_a, signature_a)),
+    Out(action_envelope(request_b, signature_b)),
     Out(<request_a, signature_a>),
     Out(<request_b, signature_b>) ]
 
@@ -413,7 +416,7 @@ rule AuthenticateActionRequest:
   in
   [ PendingActionRequest(
       operation, context, actor_key, credential_id, leaf, request, signature),
-    In(<request, signature>) ]
+    In(action_envelope(request, signature)) ]
   --[ ActionRequestAuthenticated(
         operation, chain, epoch, height, actor, action,
         object, version, policy, credential_id, leaf,
@@ -425,6 +428,12 @@ rule AuthenticateActionRequest:
 /* ------------------------------------------------------------------------- */
 /* Exact verification and atomic settlement pipeline                         */
 /* ------------------------------------------------------------------------- */
+
+/* Credential, capability, and state-proof records below are read from the
+ * linear AuthorizationSnapshot assembled by the setup pipeline. Their public
+ * Out facts remain available to the adversary, but validator verification does
+ * not depend on the adversary re-delivering byte-identical authoritative state.
+ * Signed action requests retain an explicit In premise above. */
 
 rule VerifyCredentialForRequest:
   let context =
@@ -447,8 +456,7 @@ rule VerifyCredentialForRequest:
   [ AuthorizationSnapshot(
       context, keys, credential, root_record, child_record, leaf_record,
       committed_object),
-    AuthenticatedCandidate(operation, context, credential_id, leaf, request),
-    In(<statement, issuer_signature>) ]
+    AuthenticatedCandidate(operation, context, credential_id, leaf, request) ]
   --[ CredentialVerified(
         operation, chain, epoch, height, actor, credential_id,
         credential_issuer, schema, registry, statement,
@@ -496,10 +504,7 @@ rule VerifyCapabilityChainForRequest:
   in
   [ AfterCredentialVerification(
       operation, context, keys, credential, root_record, child_record,
-      leaf_record, committed_object, request),
-    In(<root_grant, root_signature>),
-    In(<child_grant, child_signature>),
-    In(<leaf_grant, leaf_signature>) ]
+      leaf_record, committed_object, request) ]
   --[ CapabilityChainVerified(
         operation, chain, epoch, height, actor,
         root, child_one, leaf,
@@ -532,8 +537,7 @@ rule VerifyStateProofForRequest:
   in
   [ AfterCapabilityVerification(
       operation, context, credential, root_record, child_record, leaf_record,
-      committed_object, request),
-    In(proof) ]
+      committed_object, request) ]
   --[ StateProofVerified(
         operation, chain, epoch, height, state_root,
         object, version, policy, action, proof) ]->

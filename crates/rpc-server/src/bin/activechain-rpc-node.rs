@@ -88,7 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server = if let Some(wallet_path) = env::var_os("ACTIVECHAIN_WALLET_INGRESS_SNAPSHOT") {
         let wallet_path = PathBuf::from(wallet_path);
         let ingress = activechain_wallet_core::TransactionIngress::load(&wallet_path, chain_id)
-        .map_err(|error| format!("could not load wallet ingress snapshot: {error:?}"))?;
+            .map_err(|error| format!("could not load wallet ingress snapshot: {error:?}"))?;
         let height = env::var("ACTIVECHAIN_FINALIZED_HEIGHT")
             .map_err(|_| "ACTIVECHAIN_FINALIZED_HEIGHT is required with wallet ingress")?
             .parse::<u64>()

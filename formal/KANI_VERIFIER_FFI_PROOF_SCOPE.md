@@ -2,11 +2,10 @@
 
 Status: bounded verification slice implemented and passing on 2026-07-21.
 
-This slice runs Kani against the production source for `activechain-verifier-ffi` and its real
-`activechain-verifier-api`, `activechain-protocol-types`, and `activechain-canonical-codec`
-dependencies. The five proof harnesses call the exported `extern "C"` functions directly. They do
-not use a copied pointer adapter, parser model, fake commitment function, disabled safety check, or
-placeholder assertion.
+This slice runs Kani against the production source for `activechain-verifier-ffi` and its complete
+local production dependency closure. The five proof harnesses call the exported `extern "C"`
+functions directly. They do not use a copied pointer adapter, parser model, fake commitment
+function, disabled safety check, or placeholder assertion.
 
 ## Pinned verifier and source preflight
 
@@ -20,13 +19,11 @@ placeholder assertion.
 Kani 0.67.0 cannot load the main workspace's Rust 1.97.1 package metadata. The verification-only
 workspace under `crates/verifier-ffi/kani-workspace` therefore declares Rust 1.93 package metadata
 while each library target points to the production source file. Before every proof run, the runner
-uses Cargo metadata and real-path comparison to reject a target that does not resolve to one of
-these exact files:
-
-- `crates/canonical-codec/src/lib.rs`
-- `crates/protocol-types/src/lib.rs`
-- `crates/verifier-api/src/lib.rs`
-- `crates/verifier-ffi/src/lib.rs`
+uses Cargo metadata and real-path comparison to reject a package set, local dependency edge, or
+library target that differs from the production dependency closure. This includes application
+primitives, crypto-provider, RPC types, and every kernel/transitive library now reachable from the
+verifier API; adding a production dependency without a matching proof-workspace shim fails the
+preflight before Kani runs.
 
 The preflight also requires the proof workspace lock's external package versions, sources, and
 checksums to occur in the production `Cargo.lock`. The shim changes package metadata only; it is not

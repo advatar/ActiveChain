@@ -79,6 +79,7 @@ fn main() {
             0,
             digest(3),
             digest(4),
+            digest(5),
             vectors::QUORUM_TOTAL,
             vectors::QUORUM_ACCEPTED_SIGNERS,
         )
@@ -91,13 +92,23 @@ fn main() {
             0,
             digest(3),
             digest(4),
+            digest(5),
             vectors::QUORUM_TOTAL,
             vectors::QUORUM_REJECTED_SIGNERS,
         ),
         Err(QuorumCertificateError::InsufficientStake)
     );
     assert_eq!(
-        QuorumCertificate::new(context, 1, 0, digest(3), digest(4), u128::MAX, u128::MAX,),
+        QuorumCertificate::new(
+            context,
+            1,
+            0,
+            digest(3),
+            digest(4),
+            digest(5),
+            u128::MAX,
+            u128::MAX,
+        ),
         Err(QuorumCertificateError::StakeOverflow)
     );
 
