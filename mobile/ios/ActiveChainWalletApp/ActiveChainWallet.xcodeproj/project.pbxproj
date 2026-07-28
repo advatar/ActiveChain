@@ -22,7 +22,6 @@
 		70EB9560531E88DAF4876107 /* SharedKeychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA6F3F4E02BBBE0DE60990C5 /* SharedKeychain.swift */; };
 		8F340B6575254D29F91B96E8 /* ActiveChainWalletTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF53AD2EFD667B91B6C0E2A2 /* ActiveChainWalletTests.swift */; };
 		A070E61E9AC1FAECF5367D2D /* WalletBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0157C828F4D0C1CCC8EDEAD /* WalletBridge.swift */; };
-		A0F4FCFDFABE21521DF44A9A /* ActiveChainVerifier.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = F1D4B46BDBF6200291966D42 /* ActiveChainVerifier.xcframework */; };
 		A238900342B0AD7AF8819CE2 /* ActiveChainWalletApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00F60C541C50E0093CD8C615 /* ActiveChainWalletApp.swift */; };
 		A255F0544F1A5B6B4D343181 /* NetworkSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50EF838DF6F51C698FEE9C6F /* NetworkSelection.swift */; };
 		A955F5A4F6398043E6F147B7 /* OpenWalletAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9A7B68A6BF40EC2B257B49E /* OpenWalletAdapter.swift */; };
@@ -37,7 +36,6 @@
 		E1D024C4F4D90A2B11F8F524 /* WalletBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0157C828F4D0C1CCC8EDEAD /* WalletBridge.swift */; };
 		E8468724E720CCEBF55A5100 /* WalletLiveState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D0CAF5609EE5137D2B9241C /* WalletLiveState.swift */; };
 		F0B673E2E0E1DD9303685E76 /* AgentWallet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D41DFF27117CF804DD5B4301 /* AgentWallet.swift */; };
-		F7C5BA3263E00C597E51B082 /* ActiveChainVerifier.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = F1D4B46BDBF6200291966D42 /* ActiveChainVerifier.xcframework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -75,7 +73,6 @@
 		CA6F3F4E02BBBE0DE60990C5 /* SharedKeychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedKeychain.swift; sourceTree = "<group>"; };
 		D41DFF27117CF804DD5B4301 /* AgentWallet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentWallet.swift; sourceTree = "<group>"; };
 		D9A7B68A6BF40EC2B257B49E /* OpenWalletAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenWalletAdapter.swift; sourceTree = "<group>"; };
-		F1D4B46BDBF6200291966D42 /* ActiveChainVerifier.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = ActiveChainVerifier.xcframework; path = ../../../dist/apple/current/ActiveChainVerifier.xcframework; sourceTree = "<group>"; };
 		FE57D7E81DE8386DD91EE7F6 /* ActiveChainWallet.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = ActiveChainWallet.xcframework; path = ../../../dist/apple/current/ActiveChainWallet.xcframework; sourceTree = "<group>"; };
 		FF53AD2EFD667B91B6C0E2A2 /* ActiveChainWalletTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveChainWalletTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -86,7 +83,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				51FF834F5BBC5DD2BDDF7458 /* ActiveChainWallet.xcframework in Frameworks */,
-				F7C5BA3263E00C597E51B082 /* ActiveChainVerifier.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -95,7 +91,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				0181244E4606199619C7743C /* ActiveChainWallet.xcframework in Frameworks */,
-				A0F4FCFDFABE21521DF44A9A /* ActiveChainVerifier.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -159,7 +154,6 @@
 		E5B2E86B466AF0263F41456D /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				F1D4B46BDBF6200291966D42 /* ActiveChainVerifier.xcframework */,
 				FE57D7E81DE8386DD91EE7F6 /* ActiveChainWallet.xcframework */,
 			);
 			name = Frameworks;

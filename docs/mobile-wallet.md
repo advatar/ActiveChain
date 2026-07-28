@@ -28,8 +28,8 @@ canonical bounded `CoinCellSet`, owner, amount, and fee as two-word unsigned val
 returns distinct deterministic payment and fee-reserve identifiers. Null, oversized, malformed,
 wrong-owner, and insufficient-funds inputs fail without publishing output state.
 
-The companion verifier ABI exposes `activechain_verify_owner_coin_cell_record_code`. Native wallet
-clients must call it before publishing an owner-scoped RPC record. It binds the record key and owner
+The wallet ABI exposes `activechain_wallet_verify_owner_coin_cell_record`. Native wallet clients
+must call it before publishing an owner-scoped RPC record. It binds the record key and owner
 to canonical Coin Cell bytes, checks authenticated membership against the finalized cash root,
 verifies the finalized height and validator certificate, and requires the exact trusted chain
 genesis.

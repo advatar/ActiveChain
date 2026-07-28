@@ -1036,10 +1036,10 @@ mod tests {
     #[test]
     fn owner_coin_cell_verifier_binds_owner_key_height_root_and_genesis() {
         let owner = PrincipalId::new(digest(60));
+        let origin = CoinCellOrigin::new(TransactionId::new(digest(62)), 0);
         let record = CoinCellRecord::new(
-            activechain_protocol_types::CoinCellId::new(digest(61)),
-            CoinCell::new(CoinCellOrigin::new(TransactionId::new(digest(62)), 0), owner, 25, 1)
-                .unwrap(),
+            activechain_protocol_commitment::coin_cell_id(&origin).unwrap(),
+            CoinCell::new(origin, owner, 25, 1).unwrap(),
         );
         let cells = CoinCellSet::new(vec![record]).unwrap();
         let membership = prove_coin_cell_membership(&cells, record.id()).unwrap();

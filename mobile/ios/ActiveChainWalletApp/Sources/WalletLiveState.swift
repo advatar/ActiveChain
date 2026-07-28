@@ -1,4 +1,4 @@
-import ActiveChainVerifier
+import ActiveChainWallet
 import Foundation
 import Network
 import SwiftUI
@@ -230,7 +230,7 @@ struct RustWalletOwnerCoinProofVerifier: WalletOwnerCoinProofVerifier {
                     record.finality.withUnsafeBytes { finality in
                         owner.withUnsafeBytes { owner in
                             chainGenesis.withUnsafeBytes { genesis in
-                                activechain_verify_owner_coin_cell_record_code(
+                                activechain_wallet_verify_owner_coin_cell_record(
                                     key.bindMemory(to: UInt8.self).baseAddress!,
                                     record.finalizedHeight,
                                     value.bindMemory(to: UInt8.self).baseAddress!,

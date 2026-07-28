@@ -159,24 +159,6 @@ uint32_t activechain_verify_state_non_membership_code(const uint8_t *commitment,
 uint32_t activechain_verify_finality_bundle_code(const uint8_t *bytes, uint32_t bytes_len);
 
 /**
- * Verifies one proof-bearing owner-scoped Coin Cell against the exact trusted chain genesis.
- * Fixed identifiers (`key`, `owner`, and `trusted_genesis`) are each exactly 48 bytes.
- *
- * # Safety
- * All pointers must be readable for their declared lengths. No pointer is retained.
- */
-uint32_t activechain_verify_owner_coin_cell_record_code(const uint8_t *key,
-                                                        uint64_t finalized_height,
-                                                        const uint8_t *value,
-                                                        uint32_t value_len,
-                                                        const uint8_t *proof,
-                                                        uint32_t proof_len,
-                                                        const uint8_t *finality,
-                                                        uint32_t finality_len,
-                                                        const uint8_t *owner,
-                                                        const uint8_t *trusted_genesis);
-
-/**
  * # Safety
  * The caller must provide readable canonical finality and receipt buffers for the declared
  * lengths. Null pointers are permitted only for zero-length buffers. No pointer is retained.

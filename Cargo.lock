@@ -500,6 +500,7 @@ dependencies = [
  "activechain-canonical-codec",
  "activechain-cash-kernel",
  "activechain-protocol-types",
+ "activechain-verifier-api",
  "activechain-wallet-core",
  "jni",
  "ml-dsa",
