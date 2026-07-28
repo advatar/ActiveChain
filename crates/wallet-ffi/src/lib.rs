@@ -26,6 +26,7 @@ pub const ACTIVECHAIN_WALLET_BUFFER_TOO_SMALL: u32 = 5;
 pub const ACTIVECHAIN_WALLET_CALLBACK_FAILED: u32 = 6;
 pub const ACTIVECHAIN_WALLET_INVALID_SIGNATURE: u32 = 7;
 pub const ACTIVECHAIN_WALLET_AGENT_REJECTED: u32 = 8;
+pub const ACTIVECHAIN_WALLET_INVALID_PROOF: u32 = 9;
 pub const ACTIVECHAIN_WALLET_OPENWALLET_OFFER: u32 = 1;
 pub const ACTIVECHAIN_WALLET_OPENWALLET_PRESENTATION_REQUEST: u32 = 2;
 pub const ACTIVECHAIN_WALLET_OPENWALLET_CONSENT: u32 = 3;
@@ -38,6 +39,7 @@ const WALLET_BUFFER_TOO_SMALL: u32 = ACTIVECHAIN_WALLET_BUFFER_TOO_SMALL;
 const WALLET_CALLBACK_FAILED: u32 = ACTIVECHAIN_WALLET_CALLBACK_FAILED;
 const WALLET_INVALID_SIGNATURE: u32 = ACTIVECHAIN_WALLET_INVALID_SIGNATURE;
 const WALLET_AGENT_REJECTED: u32 = ACTIVECHAIN_WALLET_AGENT_REJECTED;
+const WALLET_INVALID_PROOF: u32 = ACTIVECHAIN_WALLET_INVALID_PROOF;
 const ML_DSA44_SIGNATURE_LENGTH: usize = 2_420;
 const ML_DSA44_PUBLIC_KEY_LENGTH: usize = 1_312;
 
@@ -624,6 +626,60 @@ pub unsafe extern "C" fn activechain_wallet_session_valid(
     1
 }
 
+/// Verifies a proof-bearing owner-scoped Coin Cell against a trusted chain genesis.
+///
+/// # Safety
+/// Fixed identifiers must point to readable 48-byte values. Canonical value, proof, and finality
+/// buffers must be readable for their declared lengths. No pointer is retained.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn activechain_wallet_verify_owner_coin_cell_record(
+    key: *const u8,
+    finalized_height: u64,
+    value: *const u8,
+    value_len: u32,
+    proof: *const u8,
+    proof_len: u32,
+    finality: *const u8,
+    finality_len: u32,
+    owner: *const u8,
+    trusted_genesis: *const u8,
+) -> u32 {
+    if key.is_null()
+        || owner.is_null()
+        || trusted_genesis.is_null()
+        || (value.is_null() && value_len != 0)
+        || (proof.is_null() && proof_len != 0)
+        || (finality.is_null() && finality_len != 0)
+    {
+        return WALLET_NULL_POINTER;
+    }
+    if value_len
+        .checked_add(proof_len)
+        .and_then(|length| length.checked_add(finality_len))
+        .is_none_or(|length| length > MAX_WALLET_INPUT)
+    {
+        return WALLET_TOO_LARGE;
+    }
+    let read_buffer = |pointer: *const u8, length: u32| {
+        if length == 0 {
+            &[]
+        } else {
+            unsafe { core::slice::from_raw_parts(pointer, length as usize) }
+        }
+    };
+    let code = activechain_verifier_api::verify_owner_coin_cell_record_code(
+        unsafe { read_digest(key) },
+        finalized_height,
+        read_buffer(value, value_len),
+        read_buffer(proof, proof_len),
+        read_buffer(finality, finality_len),
+        PrincipalId::new(unsafe { read_digest(owner) }),
+        unsafe { read_digest(trusted_genesis) },
+    );
+    if code == activechain_verifier_api::VERIFY_OK { WALLET_OK } else { WALLET_INVALID_PROOF }
+}
+
 /// Selects distinct payment and fee-reserve Coin Cells from a canonical bounded set.
 ///
 /// # Safety
@@ -1160,6 +1216,48 @@ mod tests {
     #[test]
     fn revision_is_stable() {
         assert_eq!(activechain_wallet_ffi_revision(), 2);
+    }
+
+    #[test]
+    fn owner_coin_cell_verifier_abi_rejects_null_and_malformed_evidence() {
+        let key = [1_u8; 48];
+        let owner = [2_u8; 48];
+        let genesis = [3_u8; 48];
+        let malformed = [4_u8];
+        assert_eq!(
+            unsafe {
+                activechain_wallet_verify_owner_coin_cell_record(
+                    key.as_ptr(),
+                    1,
+                    malformed.as_ptr(),
+                    malformed.len() as u32,
+                    malformed.as_ptr(),
+                    malformed.len() as u32,
+                    malformed.as_ptr(),
+                    malformed.len() as u32,
+                    owner.as_ptr(),
+                    genesis.as_ptr(),
+                )
+            },
+            WALLET_INVALID_PROOF
+        );
+        assert_eq!(
+            unsafe {
+                activechain_wallet_verify_owner_coin_cell_record(
+                    core::ptr::null(),
+                    1,
+                    malformed.as_ptr(),
+                    malformed.len() as u32,
+                    malformed.as_ptr(),
+                    malformed.len() as u32,
+                    malformed.as_ptr(),
+                    malformed.len() as u32,
+                    owner.as_ptr(),
+                    genesis.as_ptr(),
+                )
+            },
+            WALLET_NULL_POINTER
+        );
     }
 
     #[test]

@@ -8,25 +8,11 @@ class RustAgentRegistry(private val snapshotFile: File) {
 
     private var snapshot = if (snapshotFile.isFile) snapshotFile.readBytes() else ByteArray(0)
 
-    init {
-        if (snapshot.isEmpty()) {
-            snapshot = nativeRegister(snapshot, 0x31, 0x41, "Research agent", 1, 50, 240_000)
-            snapshot = nativeRegister(snapshot, 0x32, 0x42, "Travel planner", 2, 10, 210_000)
-            persist()
-        }
-        refresh()
-    }
+    init { refresh() }
 
     fun pause(id: String) = replace(nativeSetPaused(snapshot, principal(id), true))
 
     fun resume(id: String) = replace(nativeSetPaused(snapshot, principal(id), false))
-
-    fun revoke(id: String) = replace(nativeRevoke(snapshot, principal(id), 0))
-
-    fun finalizeRevocation(id: String, height: Long) {
-        require(height > 0) { "finalized height must be positive" }
-        replace(nativeRevoke(snapshot, principal(id), height))
-    }
 
     private fun replace(next: ByteArray) {
         snapshot = next
@@ -42,7 +28,11 @@ class RustAgentRegistry(private val snapshotFile: File) {
     }
 
     private fun refresh() {
-        agents = (0 until nativeCount(snapshot)).map { parseSummary(nativeSummary(snapshot, it)) }
+        agents = if (snapshot.isEmpty()) {
+            emptyList()
+        } else {
+            (0 until nativeCount(snapshot)).map { parseSummary(nativeSummary(snapshot, it)) }
+        }
     }
 
     companion object {
@@ -50,26 +40,10 @@ class RustAgentRegistry(private val snapshotFile: File) {
             System.loadLibrary("activechain_wallet_ffi")
         }
 
-        @JvmStatic private external fun nativeRegister(
-            snapshot: ByteArray,
-            principalByte: Int,
-            capabilityByte: Int,
-            label: String,
-            connection: Int,
-            budget: Long,
-            expiresAt: Long,
-        ): ByteArray
-
         @JvmStatic private external fun nativeSetPaused(
             snapshot: ByteArray,
             principal: ByteArray,
             paused: Boolean,
-        ): ByteArray
-
-        @JvmStatic private external fun nativeRevoke(
-            snapshot: ByteArray,
-            principal: ByteArray,
-            finalizedHeight: Long,
         ): ByteArray
 
         @JvmStatic private external fun nativeCount(snapshot: ByteArray): Int

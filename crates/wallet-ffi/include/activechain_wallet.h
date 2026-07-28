@@ -27,6 +27,8 @@
 
 #define ACTIVECHAIN_WALLET_AGENT_REJECTED 8
 
+#define ACTIVECHAIN_WALLET_INVALID_PROOF 9
+
 #define ACTIVECHAIN_WALLET_OPENWALLET_OFFER 1
 
 #define ACTIVECHAIN_WALLET_OPENWALLET_PRESENTATION_REQUEST 2
@@ -249,6 +251,24 @@ uint32_t activechain_wallet_session_valid(const uint8_t *session_id,
                                           const uint8_t *relying_party,
                                           uint64_t expires_at,
                                           uint64_t height);
+
+/**
+ * Verifies a proof-bearing owner-scoped Coin Cell against a trusted chain genesis.
+ *
+ * # Safety
+ * Fixed identifiers must point to readable 48-byte values. Canonical value, proof, and finality
+ * buffers must be readable for their declared lengths. No pointer is retained.
+ */
+uint32_t activechain_wallet_verify_owner_coin_cell_record(const uint8_t *key,
+                                                          uint64_t finalized_height,
+                                                          const uint8_t *value,
+                                                          uint32_t value_len,
+                                                          const uint8_t *proof,
+                                                          uint32_t proof_len,
+                                                          const uint8_t *finality,
+                                                          uint32_t finality_len,
+                                                          const uint8_t *owner,
+                                                          const uint8_t *trusted_genesis);
 
 /**
  * Selects distinct payment and fee-reserve Coin Cells from a canonical bounded set.

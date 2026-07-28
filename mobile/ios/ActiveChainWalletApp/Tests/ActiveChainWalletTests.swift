@@ -96,6 +96,26 @@ final class ActiveChainWalletTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: snapshot.path))
     }
 
+    func testAgentEnrollmentCannotCreateActiveLocalAuthorityWithoutSubmission() {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let snapshot = directory.appendingPathComponent("agents-v1.bin")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = RustAgentRegistryStore(snapshotURL: snapshot)
+        let draft = AgentEnrollmentDraft(
+            label: "Unsubmitted agent",
+            principal: String(repeating: "aa", count: 48),
+            capabilityIDs: String(repeating: "11", count: 48),
+            connection: .thirdParty,
+            budget: 100,
+            expiresAt: 500
+        )
+
+        XCTAssertThrowsError(try store.prepareEnrollment(draft))
+        XCTAssertTrue(store.agents.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: snapshot.path))
+    }
+
     func testAgentEnrollmentDraftRequiresCanonicalSortedCapabilityIDs() throws {
         let first = String(repeating: "11", count: 48)
         let second = String(repeating: "22", count: 48)
@@ -137,7 +157,7 @@ final class ActiveChainWalletTests: XCTestCase {
     func testRPCStatusDecoderUsesFinalizedHealthInsteadOfDisplayFixtures() throws {
         let response = makeStatusResponse(
             protocolRevision: 1,
-            schemaRevision: 1,
+            schemaRevision: 2,
             finalizedHeight: 23,
             finalizedAt: 10,
             servedAt: 100,
@@ -148,7 +168,22 @@ final class ActiveChainWalletTests: XCTestCase {
         XCTAssertEqual(status.networkState, .stale(finalizedHeight: 23))
         XCTAssertTrue(status.supports(0))
         XCTAssertFalse(status.supports(4))
+        XCTAssertEqual(status.chainID, WalletKanalen.chainID)
+        XCTAssertEqual(status.genesis, WalletKanalen.genesis)
         XCTAssertThrowsError(try WalletRPCCodec.decodeStatus(Data(response.dropLast())))
+    }
+
+    func testRPCStatusRejectsWrongKanalenIdentityAndSchema() throws {
+        let wrongChain = try WalletRPCCodec.decodeStatus(
+            makeStatusResponse(chainID: Data(repeating: 0x44, count: 48))
+        )
+        XCTAssertEqual(wrongChain.networkState, .incompatible)
+        let wrongGenesis = try WalletRPCCodec.decodeStatus(
+            makeStatusResponse(genesis: Data(repeating: 0x55, count: 48))
+        )
+        XCTAssertEqual(wrongGenesis.networkState, .incompatible)
+        let wrongSchema = try WalletRPCCodec.decodeStatus(makeStatusResponse(schemaRevision: 1))
+        XCTAssertEqual(wrongSchema.networkState, .incompatible)
     }
 
     func testOwnerCoinCellRequestUsesBoundedCanonicalEnvelope() throws {
@@ -170,6 +205,24 @@ final class ActiveChainWalletTests: XCTestCase {
         XCTAssertThrowsError(try WalletRPCCodec.decodeOwnerCoinPage(envelope))
     }
 
+    func testOwnerCoinPageDecoderAcceptsProofBearingBodiesLargerThanStatus() throws {
+        var body = Data([2, 1, 4])
+        body.append(Data(repeating: 1, count: 48))
+        body.append(contentsOf: UInt64(9).bigEndianBytes)
+        for marker: UInt8 in [2, 3, 4] {
+            body.append(60)
+            body.append(Data(repeating: marker, count: 60))
+        }
+        body.append(0)
+        var envelope = Data([0, 0xa1, 0, 1])
+        envelope.append(contentsOf: uleb128(body.count))
+        envelope.append(body)
+
+        let page = try WalletRPCCodec.decodeOwnerCoinPage(envelope)
+        XCTAssertEqual(page.records.count, 1)
+        XCTAssertEqual(page.records[0].finalizedHeight, 9)
+    }
+
     func testOwnerCoinPageValidationFailsClosedWithoutProofVerifierAcceptance() throws {
         let record = WalletOwnerCoinRecord(key: Data(repeating: 3, count: 48), finalizedHeight: 4, value: Data([1]), proof: Data([2]), finality: Data([3]))
         let page = WalletOwnerCoinPage(records: [record], next: nil)
@@ -177,8 +230,52 @@ final class ActiveChainWalletTests: XCTestCase {
         XCTAssertThrowsError(try page.validated(owner: Data(repeating: 1, count: 48), chainGenesis: Data(repeating: 2, count: 48), finalizedHeight: 4, verifier: verifier))
     }
 
+    func testOwnerCoinPageValidationRejectsUnauthenticatedAbsenceAndWrongGenesis() {
+        let verifier = RejectingOwnerProofVerifier()
+        XCTAssertThrowsError(
+            try WalletOwnerCoinPage(records: [], next: nil).validated(
+                owner: Data(repeating: 1, count: 48),
+                chainGenesis: WalletKanalen.genesis,
+                finalizedHeight: 4,
+                verifier: verifier
+            )
+        )
+        let record = WalletOwnerCoinRecord(
+            key: Data(repeating: 3, count: 48),
+            finalizedHeight: 4,
+            value: Data([1]),
+            proof: Data([2]),
+            finality: Data([3])
+        )
+        XCTAssertThrowsError(
+            try WalletOwnerCoinPage(records: [record], next: nil).validated(
+                owner: Data(repeating: 1, count: 48),
+                chainGenesis: Data(repeating: 2, count: 48),
+                finalizedHeight: 4,
+                verifier: verifier
+            )
+        )
+    }
+
     private struct RejectingOwnerProofVerifier: WalletOwnerCoinProofVerifier {
         func verify(record: WalletOwnerCoinRecord, owner: Data, chainGenesis: Data) -> Bool { false }
+    }
+
+    func testLinkedRustOwnerProofVerifierFailsClosedOnMalformedEvidence() {
+        let record = WalletOwnerCoinRecord(
+            key: Data(repeating: 3, count: 48),
+            finalizedHeight: 4,
+            value: Data([1]),
+            proof: Data([2]),
+            finality: Data([3])
+        )
+        XCTAssertFalse(
+            RustWalletOwnerCoinProofVerifier().verify(
+                record: record,
+                owner: Data(repeating: 1, count: 48),
+                chainGenesis: WalletKanalen.genesis
+            )
+        )
     }
 
     func testWalletUISourceContainsNoFormerFabricatedValues() throws {
@@ -213,17 +310,19 @@ final class ActiveChainWalletTests: XCTestCase {
     }
 
     private func makeStatusResponse(
-        protocolRevision: UInt64,
-        schemaRevision: UInt32,
-        finalizedHeight: UInt64,
-        finalizedAt: UInt64,
-        servedAt: UInt64,
-        maximumStaleness: UInt64,
-        health: UInt8
+        chainID: Data = WalletKanalen.chainID,
+        genesis: Data = WalletKanalen.genesis,
+        protocolRevision: UInt64 = 1,
+        schemaRevision: UInt32 = 2,
+        finalizedHeight: UInt64 = 23,
+        finalizedAt: UInt64 = 10,
+        servedAt: UInt64 = 100,
+        maximumStaleness: UInt64 = 30,
+        health: UInt8 = 1
     ) -> Data {
         var body = Data([0])
-        body.append(Data(repeating: 0x11, count: 48))
-        body.append(Data(repeating: 0x22, count: 48))
+        body.append(chainID)
+        body.append(genesis)
         body.append(contentsOf: protocolRevision.bigEndianBytes)
         body.append(contentsOf: schemaRevision.bigEndianBytes)
         body.append(contentsOf: finalizedHeight.bigEndianBytes)
@@ -235,6 +334,18 @@ final class ActiveChainWalletTests: XCTestCase {
         var envelope = Data([0, 0xa1, 0, 1, 0x91, 0x01])
         envelope.append(body)
         return envelope
+    }
+
+    private func uleb128(_ value: Int) -> [UInt8] {
+        var value = value
+        var result: [UInt8] = []
+        repeat {
+            var byte = UInt8(value & 0x7f)
+            value >>= 7
+            if value != 0 { byte |= 0x80 }
+            result.append(byte)
+        } while value != 0
+        return result
     }
 }
 

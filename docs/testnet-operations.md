@@ -162,7 +162,9 @@ Before announcing the record:
 
 1. verify the authoritative answer with `dig +short rpc.kanalen.example.org A` and `AAAA`;
 2. verify the certificate name and TLS 1.3 handshake from outside the home network;
-3. run an encoded RPC status request through the public endpoint and verify chain ID, genesis,
-   protocol revision, finality height, and staleness;
+3. run `python3 scripts/probe-kanalen-rpc.py rpc.kanalen.example.org 443` from outside the home
+   network; the bounded decoder must verify the exact chain ID, genesis commitment, protocol and
+   schema revisions, finality height, staleness-derived health, ordered proof kinds, and absence of
+   trailing bytes;
 4. confirm `49150`, `49152`, and `49153` are unreachable from the public Internet; and
 5. repeat the finality query after restarting the RPC process and one validator.

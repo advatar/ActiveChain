@@ -23,10 +23,16 @@ or performs network calls while holding decrypted key material longer than neces
 The current Rust bridge is `activechain_wallet_core::WalletBridge`; native shells bind to its
 policy-gated `approve_and_build` operation and pass only opaque `KeySlot` ciphertext handles.
 
-Wallet ABI revision 1 now exposes `activechain_wallet_select_cells`. Native callers pass a
+The wallet ABI exposes `activechain_wallet_select_cells`. Native callers pass a
 canonical bounded `CoinCellSet`, owner, amount, and fee as two-word unsigned values; the core
 returns distinct deterministic payment and fee-reserve identifiers. Null, oversized, malformed,
 wrong-owner, and insufficient-funds inputs fail without publishing output state.
+
+The wallet ABI exposes `activechain_wallet_verify_owner_coin_cell_record`. Native wallet clients
+must call it before publishing an owner-scoped RPC record. It binds the record key and owner
+to canonical Coin Cell bytes, checks authenticated membership against the finalized cash root,
+verifies the finalized height and validator certificate, and requires the exact trusted chain
+genesis.
 
 `activechain_wallet_policy_allows` exposes the same pure `SpendPolicy` decision used by the Rust
 core. Amounts, accumulated daily spend, and limits cross the C boundary as high/low 64-bit words;

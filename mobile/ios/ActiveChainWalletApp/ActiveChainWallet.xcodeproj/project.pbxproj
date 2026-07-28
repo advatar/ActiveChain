@@ -280,8 +280,8 @@
 			targets = (
 				5A9189AF9FFFB212F868608E /* ActiveChainWallet */,
 				3F7AA32FF009B3FF5F283FFC /* ActiveChainWalletMac */,
-				E54E4A3712AB0052855DBF44 /* ActiveChainWalletMacTests */,
 				22BEA71FD65EBC58B18D2D4E /* ActiveChainWalletTests */,
+				E54E4A3712AB0052855DBF44 /* ActiveChainWalletMacTests */,
 			);
 		};
 /* End PBXProject section */

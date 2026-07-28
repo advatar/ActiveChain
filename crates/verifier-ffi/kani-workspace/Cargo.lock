@@ -37,6 +37,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-cash-kernel"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-privacy-kernel",
+ "activechain-protocol-commitment",
+ "activechain-protocol-types",
+ "sha3 0.10.9",
+]
+
+[[package]]
 name = "activechain-consensus-verifier"
 version = "0.1.0"
 dependencies = [
@@ -94,6 +105,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-privacy-kernel"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-protocol-commitment",
+ "activechain-protocol-types",
+]
+
+[[package]]
 name = "activechain-protocol-commitment"
 version = "0.1.0"
 dependencies = [
@@ -147,6 +167,7 @@ dependencies = [
  "activechain-application-primitives",
  "activechain-canonical-codec",
  "activechain-capability",
+ "activechain-cash-kernel",
  "activechain-consensus-verifier",
  "activechain-devnet-kernel",
  "activechain-finality-types",

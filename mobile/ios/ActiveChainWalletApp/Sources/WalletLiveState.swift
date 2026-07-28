@@ -1,6 +1,30 @@
+import ActiveChainWallet
 import Foundation
 import Network
 import SwiftUI
+
+enum WalletKanalen {
+    static let host = NWEndpoint.Host("rpc.kanalen.activechain.dev")
+    static let port = NWEndpoint.Port(rawValue: 443)!
+    static let protocolRevision: UInt64 = 1
+    static let schemaRevision: UInt32 = 2
+    static let chainID = Data([
+        0xb1, 0x2c, 0x1c, 0x31, 0x67, 0x17, 0xe9, 0x66,
+        0x9c, 0xec, 0x36, 0xf7, 0x63, 0x2a, 0x90, 0x80,
+        0x70, 0x2c, 0x57, 0xa3, 0x12, 0x5d, 0x90, 0xc7,
+        0x21, 0x54, 0xf8, 0xa7, 0x29, 0x8e, 0x4f, 0x0b,
+        0x09, 0x5e, 0x6c, 0xfe, 0x94, 0x4b, 0xd2, 0xc9,
+        0xf6, 0x53, 0x5b, 0x4c, 0x92, 0x77, 0x82, 0xf1,
+    ])
+    static let genesis = Data([
+        0x5d, 0x3d, 0x25, 0x87, 0xb7, 0x7c, 0xd7, 0xf1,
+        0x49, 0xb0, 0x95, 0x5d, 0xba, 0x3e, 0xee, 0x22,
+        0xd5, 0x79, 0x5b, 0xf2, 0xf2, 0x37, 0x32, 0xbd,
+        0x4e, 0xcc, 0x5b, 0x5f, 0xb0, 0x15, 0x5f, 0xed,
+        0x6c, 0x20, 0x79, 0xb3, 0xf8, 0x3d, 0xa1, 0x61,
+        0x01, 0x32, 0xf6, 0x58, 0x8b, 0x51, 0x9f, 0x7c,
+    ])
+}
 
 enum WalletNetworkState: Equatable, Sendable {
     case checking
@@ -25,7 +49,7 @@ enum WalletNetworkState: Equatable, Sendable {
         case let .healthy(height): "Finalized block \(height)"
         case let .stale(height): "Finalized block \(height) has not advanced recently"
         case .unavailable: "RPC status request failed"
-        case .incompatible: "Unsupported protocol or RPC schema"
+        case .incompatible: "Unexpected chain, genesis, protocol, or RPC schema"
         }
     }
 
@@ -44,6 +68,7 @@ final class WalletLiveState: ObservableObject {
     @Published private(set) var deviceProfile: WalletDeviceProfile?
     @Published private(set) var verifiedOwnerPage: WalletOwnerCoinPage?
     private let rpc = WalletRPCClient()
+    private let verifier: any WalletOwnerCoinProofVerifier = RustWalletOwnerCoinProofVerifier()
 
     init() {
         deviceProfile = WalletDeviceProfileStore().load()
@@ -51,15 +76,34 @@ final class WalletLiveState: ObservableObject {
 
     func refresh() async {
         networkState = .checking
+        verifiedOwnerPage = nil
+        let status: WalletRPCStatus
         do {
-            networkState = try await rpc.status().networkState
+            status = try await rpc.status()
+            networkState = status.networkState
         } catch {
             networkState = .unavailable
+            return
+        }
+        guard case let .healthy(height) = networkState,
+              let profile = deviceProfile,
+              profile.chainGenesis == status.genesis,
+              status.supports(1)
+        else { return }
+        do {
+            verifiedOwnerPage = try await rpc.verifiedOwnerCoinCells(
+                profile: profile,
+                finalizedHeight: height,
+                verifier: verifier
+            )
+        } catch {
+            verifiedOwnerPage = nil
         }
     }
 
     func refreshVerifiedOwnerPage(verifier: any WalletOwnerCoinProofVerifier) async {
         guard let profile = deviceProfile,
+              profile.chainGenesis == WalletKanalen.genesis,
               case let .healthy(height) = networkState else {
             verifiedOwnerPage = nil
             return
@@ -110,6 +154,8 @@ struct WalletRPCStatus: Equatable, Sendable {
         case degraded = 2
     }
 
+    let chainID: Data
+    let genesis: Data
     let protocolRevision: UInt64
     let schemaRevision: UInt32
     let finalizedHeight: UInt64
@@ -118,7 +164,9 @@ struct WalletRPCStatus: Equatable, Sendable {
     func supports(_ proof: UInt8) -> Bool { supportedProofs.contains(proof) }
 
     var networkState: WalletNetworkState {
-        guard protocolRevision == WalletRPCCodec.supportedProtocolRevision,
+        guard chainID == WalletKanalen.chainID,
+              genesis == WalletKanalen.genesis,
+              protocolRevision == WalletRPCCodec.supportedProtocolRevision,
               schemaRevision == WalletRPCCodec.supportedSchemaRevision
         else {
             return .incompatible
@@ -148,7 +196,11 @@ struct WalletOwnerCoinPage: Equatable, Sendable {
         finalizedHeight: UInt64,
         verifier: any WalletOwnerCoinProofVerifier
     ) throws -> WalletOwnerCoinPage {
-        guard owner.count == 48, chainGenesis.count == 48 else { throw WalletRPCError.malformedResponse }
+        guard owner.count == 48,
+              owner.contains(where: { $0 != 0 }),
+              chainGenesis == WalletKanalen.genesis,
+              !records.isEmpty
+        else { throw WalletRPCError.malformedResponse }
         for record in records {
             guard record.finalizedHeight == finalizedHeight,
                   verifier.verify(record: record, owner: owner, chainGenesis: chainGenesis)
@@ -165,6 +217,45 @@ protocol WalletOwnerCoinProofVerifier: Sendable {
     func verify(record: WalletOwnerCoinRecord, owner: Data, chainGenesis: Data) -> Bool
 }
 
+struct RustWalletOwnerCoinProofVerifier: WalletOwnerCoinProofVerifier {
+    func verify(record: WalletOwnerCoinRecord, owner: Data, chainGenesis: Data) -> Bool {
+        guard record.key.count == 48,
+              owner.count == 48,
+              chainGenesis.count == 48,
+              !record.value.isEmpty,
+              !record.proof.isEmpty,
+              !record.finality.isEmpty,
+              record.value.count <= Int(UInt32.max),
+              record.proof.count <= Int(UInt32.max),
+              record.finality.count <= Int(UInt32.max)
+        else { return false }
+        return record.key.withUnsafeBytes { key in
+            record.value.withUnsafeBytes { value in
+                record.proof.withUnsafeBytes { proof in
+                    record.finality.withUnsafeBytes { finality in
+                        owner.withUnsafeBytes { owner in
+                            chainGenesis.withUnsafeBytes { genesis in
+                                activechain_wallet_verify_owner_coin_cell_record(
+                                    key.bindMemory(to: UInt8.self).baseAddress!,
+                                    record.finalizedHeight,
+                                    value.bindMemory(to: UInt8.self).baseAddress!,
+                                    UInt32(record.value.count),
+                                    proof.bindMemory(to: UInt8.self).baseAddress!,
+                                    UInt32(record.proof.count),
+                                    finality.bindMemory(to: UInt8.self).baseAddress!,
+                                    UInt32(record.finality.count),
+                                    owner.bindMemory(to: UInt8.self).baseAddress!,
+                                    genesis.bindMemory(to: UInt8.self).baseAddress!
+                                ) == 0
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 enum WalletRPCError: Error, Equatable {
     case transport
     case malformedResponse
@@ -173,9 +264,10 @@ enum WalletRPCError: Error, Equatable {
 }
 
 enum WalletRPCCodec {
-    static let supportedProtocolRevision: UInt64 = 1
-    static let supportedSchemaRevision: UInt32 = 1
+    static let supportedProtocolRevision = WalletKanalen.protocolRevision
+    static let supportedSchemaRevision = WalletKanalen.schemaRevision
     static let maximumFrameLength = 4 * 1_024 * 1_024
+    private static let maximumBlobLength = 256 * 1_024
     private static let maximumStatusBodyLength = 151
 
     static let framedStatusRequest = Data([
@@ -216,9 +308,10 @@ enum WalletRPCCodec {
         guard bodyLength == decoder.remaining, try decoder.readUInt8() == 0 else {
             throw WalletRPCError.unexpectedResponse
         }
-        _ = try decoder.read(count: 48)
+        let chainID = try decoder.read(count: 48)
         let genesis = try decoder.read(count: 48)
-        guard genesis.contains(where: { $0 != 0 }) else {
+        guard chainID.contains(where: { $0 != 0 }),
+              genesis.contains(where: { $0 != 0 }) else {
             throw WalletRPCError.malformedResponse
         }
         let protocolRevision = try decoder.readUInt64()
@@ -250,6 +343,8 @@ enum WalletRPCCodec {
         }
         return WalletRPCStatus(
             supportedProofs: Set(proofs),
+            chainID: chainID,
+            genesis: genesis,
             protocolRevision: protocolRevision,
             schemaRevision: schemaRevision,
             finalizedHeight: finalizedHeight,
@@ -261,7 +356,7 @@ enum WalletRPCCodec {
         var decoder = WalletBinaryDecoder(data: envelope)
         guard try decoder.readUInt16() == 0x00a1,
               try decoder.readUInt16() == 1 else { throw WalletRPCError.unexpectedResponse }
-        let bodyLength = try decoder.readULEB128(maximum: maximumStatusBodyLength)
+        let bodyLength = try decoder.readULEB128(maximum: maximumFrameLength)
         guard bodyLength == decoder.remaining else { throw WalletRPCError.unexpectedResponse }
         guard try decoder.readUInt8() == 2 else { throw WalletRPCError.unexpectedResponse }
         let count = try decoder.readULEB128(maximum: 4)
@@ -269,14 +364,14 @@ enum WalletRPCCodec {
         records.reserveCapacity(count)
         var previous = Data()
         for _ in 0..<count {
-            guard try decoder.readUInt8() == 0 else { throw WalletRPCError.unexpectedResponse }
+            guard try decoder.readUInt8() == 4 else { throw WalletRPCError.unexpectedResponse }
             let key = try decoder.read(count: 48)
             guard key.contains(where: { $0 != 0 }), previous.isEmpty || previous.lexicographicallyPrecedes(key)
             else { throw WalletRPCError.malformedResponse }
             let height = try decoder.readUInt64()
-            let value = try decoder.readBlob(maximum: maximumFrameLength)
-            let proof = try decoder.readBlob(maximum: maximumFrameLength)
-            let finality = try decoder.readBlob(maximum: maximumFrameLength)
+            let value = try decoder.readBlob(maximum: maximumBlobLength)
+            let proof = try decoder.readBlob(maximum: maximumBlobLength)
+            let finality = try decoder.readBlob(maximum: maximumBlobLength)
             guard !value.isEmpty, !proof.isEmpty, !finality.isEmpty else { throw WalletRPCError.malformedResponse }
             records.append(WalletOwnerCoinRecord(key: key, finalizedHeight: height, value: value, proof: proof, finality: finality))
             previous = key
@@ -285,7 +380,12 @@ enum WalletRPCCodec {
         let next: Data?
         switch hasNext {
         case 0: next = nil
-        case 1: next = try decoder.read(count: 48)
+        case 1:
+            let cursor = try decoder.read(count: 48)
+            guard cursor.contains(where: { $0 != 0 }),
+                  records.last.map({ cursor.lexicographicallyPrecedes($0.key) }) != true
+            else { throw WalletRPCError.malformedResponse }
+            next = cursor
         default: throw WalletRPCError.malformedResponse
         }
         guard decoder.remaining == 0 else { throw WalletRPCError.malformedResponse }
@@ -344,8 +444,8 @@ final class WalletRPCClient: @unchecked Sendable {
 
     func status() async throws -> WalletRPCStatus {
         let connection = NWConnection(
-            host: "rpc.kanalen.activechain.dev",
-            port: 443,
+            host: WalletKanalen.host,
+            port: WalletKanalen.port,
             using: .tls
         )
         let timeout = DispatchSource.makeTimerSource(queue: queue)
@@ -368,7 +468,7 @@ final class WalletRPCClient: @unchecked Sendable {
     }
 
     func ownerCoinCells(owner: Data, limit: UInt16 = 4) async throws -> WalletOwnerCoinPage {
-        let connection = NWConnection(host: "rpc.kanalen.activechain.dev", port: 443, using: .tls)
+        let connection = NWConnection(host: WalletKanalen.host, port: WalletKanalen.port, using: .tls)
         let timeout = DispatchSource.makeTimerSource(queue: queue)
         timeout.schedule(deadline: .now() + 8)
         timeout.setEventHandler { connection.cancel() }

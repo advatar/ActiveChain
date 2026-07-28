@@ -25,12 +25,14 @@ explicitly request iCloud Keychain synchronization for non-authorizing wallet me
 Enclave and transaction-authorization keys must remain device-specific.
 
 The dashboard obtains Kanalen health and finalized height from the canonical TLS-framed status RPC
-at `rpc.kanalen.activechain.dev`. It does not synthesize balances, assets, activity, approvals,
-credentials, identities, agents, fees, or finality. Persisted agent registrations are displayed
-only when they exist.
+at `rpc.kanalen.activechain.dev`. It pins the immutable chain ID, genesis commitment, protocol
+revision, and RPC schema before reporting health. It does not synthesize balances, assets,
+activity, approvals, credentials, identities, agents, fees, or finality. Persisted agent
+registrations are displayed only when they exist.
 
-Kanalen does not yet expose proof-bearing owner-scoped Coin Cell discovery, so the wallet reports
-balance and assets as unavailable and keeps transfers disabled. Multi-asset Coin Cells and native
-asset tokenization are tracked in issues #163 and #164. The app exercises policy-gated transfer
-preview/approval and OpenWallet credential/session replay rules, but no production signing or key
-material is present in this developer build.
+Kanalen exposes bounded proof-bearing owner-scoped Coin Cell discovery. When a real device profile
+is already present, the app queries its exact owner and publishes records only after the linked Rust
+verifier binds their canonical key, owner, authenticated cash root, finalized height, validator
+certificate, and trusted genesis. Balance aggregation and transfers remain disabled until the
+wallet has verified spendable inputs, a distinct fee reserve, and production signing material.
+Multi-asset Coin Cells and native asset tokenization are tracked in issues #163 and #164.
