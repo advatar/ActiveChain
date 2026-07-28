@@ -154,6 +154,8 @@ Tracked by [GitHub issue #318](https://github.com/advatar/ActiveChain/issues/318
   explicit unavailable states for balances, activity, approvals, identity, funding, and transfers.
 - [x] Make the live Kanalen probe verify the full canonical status, immutable identity, health
   consistency, proof ordering, frame bounds, and trailing-data rejection.
+- [x] Regenerate the managed wallet C header after integrating the restored `main` baseline, so
+  owner-proof documentation and constant layout remain pinned-cbindgen reproducible.
 - [x] Pass Apple, Android, Rust, and live Kanalen qualification.
 
 Qualification on 2026-07-28 passed 21 tests on each Apple target, the exact-revision iOS build and
