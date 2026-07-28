@@ -2,7 +2,10 @@ use crate::{Digest384, PrincipalId};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
-use sha3::{Shake256, digest::{ExtendableOutput, Update, XofReader}};
+use sha3::{
+    Shake256,
+    digest::{ExtendableOutput, Update, XofReader},
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DidRecordError {
@@ -85,14 +88,30 @@ impl DidControllerRecordV1 {
         })
     }
 
-    pub const fn principal(self) -> PrincipalId { self.principal }
-    pub const fn document_commitment(self) -> Digest384 { self.document_commitment }
-    pub const fn authentication_commitment(self) -> Digest384 { self.authentication_commitment }
-    pub const fn key_agreement_commitment(self) -> Digest384 { self.key_agreement_commitment }
-    pub const fn recovery_commitment(self) -> Option<Digest384> { self.recovery_commitment }
-    pub const fn services_commitment(self) -> Option<Digest384> { self.services_commitment }
-    pub const fn sequence(self) -> u64 { self.sequence }
-    pub const fn active(self) -> bool { self.active }
+    pub const fn principal(self) -> PrincipalId {
+        self.principal
+    }
+    pub const fn document_commitment(self) -> Digest384 {
+        self.document_commitment
+    }
+    pub const fn authentication_commitment(self) -> Digest384 {
+        self.authentication_commitment
+    }
+    pub const fn key_agreement_commitment(self) -> Digest384 {
+        self.key_agreement_commitment
+    }
+    pub const fn recovery_commitment(self) -> Option<Digest384> {
+        self.recovery_commitment
+    }
+    pub const fn services_commitment(self) -> Option<Digest384> {
+        self.services_commitment
+    }
+    pub const fn sequence(self) -> u64 {
+        self.sequence
+    }
+    pub const fn active(self) -> bool {
+        self.active
+    }
 
     pub fn commitment(&self) -> Result<Digest384, EncodeError> {
         let bytes = activechain_canonical_codec::encode_envelope(self)?;
@@ -180,9 +199,15 @@ impl DidResolutionV1 {
         }
         Ok(Self { did, finalized_height, record })
     }
-    pub const fn did(&self) -> Digest384 { self.did }
-    pub const fn finalized_height(&self) -> u64 { self.finalized_height }
-    pub const fn record(&self) -> Option<&DidControllerRecordV1> { self.record.as_ref() }
+    pub const fn did(&self) -> Digest384 {
+        self.did
+    }
+    pub const fn finalized_height(&self) -> u64 {
+        self.finalized_height
+    }
+    pub const fn record(&self) -> Option<&DidControllerRecordV1> {
+        self.record.as_ref()
+    }
 }
 
 impl CanonicalEncode for DidResolutionV1 {
@@ -194,8 +219,12 @@ impl CanonicalEncode for DidResolutionV1 {
 }
 impl CanonicalDecode for DidResolutionV1 {
     fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
-        Self::new(Digest384::decode(d)?, u64::decode(d)?, Option::<DidControllerRecordV1>::decode(d)?)
-            .map_err(|_| DecodeError::InvalidValue("invalid did resolution"))
+        Self::new(
+            Digest384::decode(d)?,
+            u64::decode(d)?,
+            Option::<DidControllerRecordV1>::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid did resolution"))
     }
 }
 impl CanonicalType for DidResolutionV1 {
@@ -225,7 +254,8 @@ pub struct DidControllerOperationV1 {
 impl DidControllerOperationV1 {
     pub const TYPE_TAG: u16 = 0x00da;
     pub const SCHEMA_VERSION: u16 = 1;
-    pub const MAX_ENCODED_LEN: usize = 1 + 48 + 1 + 48 + DidControllerRecordV1::MAX_ENCODED_LEN + 48;
+    pub const MAX_ENCODED_LEN: usize =
+        1 + 48 + 1 + 48 + DidControllerRecordV1::MAX_ENCODED_LEN + 48;
 
     pub fn new(
         kind: DidOperationKind,
@@ -257,11 +287,21 @@ impl DidControllerOperationV1 {
             _ => Ok(Self { kind, principal, previous_commitment, next, authorization_commitment }),
         }
     }
-    pub const fn kind(&self) -> DidOperationKind { self.kind }
-    pub const fn principal(&self) -> PrincipalId { self.principal }
-    pub const fn previous_commitment(&self) -> Option<Digest384> { self.previous_commitment }
-    pub const fn next(&self) -> &DidControllerRecordV1 { &self.next }
-    pub const fn authorization_commitment(&self) -> Digest384 { self.authorization_commitment }
+    pub const fn kind(&self) -> DidOperationKind {
+        self.kind
+    }
+    pub const fn principal(&self) -> PrincipalId {
+        self.principal
+    }
+    pub const fn previous_commitment(&self) -> Option<Digest384> {
+        self.previous_commitment
+    }
+    pub const fn next(&self) -> &DidControllerRecordV1 {
+        &self.next
+    }
+    pub const fn authorization_commitment(&self) -> Digest384 {
+        self.authorization_commitment
+    }
 
     pub fn commitment(&self) -> Result<Digest384, EncodeError> {
         let bytes = activechain_canonical_codec::encode_envelope(self)?;
@@ -275,7 +315,9 @@ impl DidControllerOperationV1 {
 }
 
 impl CanonicalEncode for DidOperationKind {
-    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> { (*self as u8).encode(e) }
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(e)
+    }
 }
 impl CanonicalDecode for DidOperationKind {
     fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
@@ -320,37 +362,75 @@ mod tests {
     use super::*;
     use activechain_canonical_codec::{decode_envelope, encode_envelope};
 
-    fn digest(value: u8) -> Digest384 { Digest384::new([value; 48]) }
-    fn principal(value: u8) -> PrincipalId { PrincipalId::new(digest(value)) }
+    fn digest(value: u8) -> Digest384 {
+        Digest384::new([value; 48])
+    }
+    fn principal(value: u8) -> PrincipalId {
+        PrincipalId::new(digest(value))
+    }
 
     #[test]
     fn controller_record_round_trips_and_updates_monotonically() {
         let first = DidControllerRecordV1::new(
-            principal(1), digest(2), digest(3), digest(4), Some(digest(5)), None, 1, true,
+            principal(1),
+            digest(2),
+            digest(3),
+            digest(4),
+            Some(digest(5)),
+            None,
+            1,
+            true,
         )
         .unwrap();
-        assert_eq!(decode_envelope::<DidControllerRecordV1>(&encode_envelope(&first).unwrap()), Ok(first));
+        assert_eq!(
+            decode_envelope::<DidControllerRecordV1>(&encode_envelope(&first).unwrap()),
+            Ok(first)
+        );
         let second = DidControllerRecordV1::new(
-            principal(1), digest(6), digest(7), digest(8), Some(digest(9)), Some(digest(10)), 2, true,
+            principal(1),
+            digest(6),
+            digest(7),
+            digest(8),
+            Some(digest(9)),
+            Some(digest(10)),
+            2,
+            true,
         )
         .unwrap();
         let previous = first.commitment().unwrap();
         assert_eq!(first.apply_update(previous, second), Ok(second));
         assert_eq!(first.apply_update(digest(99), second), Err(DidRecordError::PreviousMismatch));
-        assert_eq!(first.apply_update(previous, DidControllerRecordV1 { sequence: 4, ..second }), Err(DidRecordError::PreviousMismatch));
+        assert_eq!(
+            first.apply_update(previous, DidControllerRecordV1 { sequence: 4, ..second }),
+            Err(DidRecordError::PreviousMismatch)
+        );
     }
 
     #[test]
     fn controller_record_rejects_zero_identity_and_commitments() {
         assert_eq!(
             DidControllerRecordV1::new(
-                PrincipalId::new(Digest384::ZERO), digest(2), digest(3), digest(4), None, None, 1, true,
+                PrincipalId::new(Digest384::ZERO),
+                digest(2),
+                digest(3),
+                digest(4),
+                None,
+                None,
+                1,
+                true,
             ),
             Err(DidRecordError::InvalidIdentity)
         );
         assert_eq!(
             DidControllerRecordV1::new(
-                principal(1), Digest384::ZERO, digest(3), digest(4), None, None, 1, true,
+                principal(1),
+                Digest384::ZERO,
+                digest(3),
+                digest(4),
+                None,
+                None,
+                1,
+                true,
             ),
             Err(DidRecordError::InvalidCommitment)
         );
@@ -366,13 +446,26 @@ mod tests {
     #[test]
     fn resolution_round_trips_and_supports_deactivated_absence() {
         let resolution = DidResolutionV1::new(digest(20), 42, None).unwrap();
-        assert_eq!(decode_envelope::<DidResolutionV1>(&encode_envelope(&resolution).unwrap()), Ok(resolution));
+        assert_eq!(
+            decode_envelope::<DidResolutionV1>(&encode_envelope(&resolution).unwrap()),
+            Ok(resolution)
+        );
         assert!(DidResolutionV1::new(Digest384::ZERO, 42, None).is_err());
     }
 
     #[test]
     fn operations_bind_kind_sequence_and_authorization() {
-        let record = DidControllerRecordV1::new(principal(1), digest(2), digest(3), digest(4), None, None, 1, true).unwrap();
+        let record = DidControllerRecordV1::new(
+            principal(1),
+            digest(2),
+            digest(3),
+            digest(4),
+            None,
+            None,
+            1,
+            true,
+        )
+        .unwrap();
         let operation = DidControllerOperationV1::new(
             DidOperationKind::Create,
             principal(1),
@@ -381,9 +474,30 @@ mod tests {
             digest(5),
         )
         .unwrap();
-        assert_eq!(decode_envelope::<DidControllerOperationV1>(&encode_envelope(&operation).unwrap()), Ok(operation.clone()));
+        assert_eq!(
+            decode_envelope::<DidControllerOperationV1>(&encode_envelope(&operation).unwrap()),
+            Ok(operation.clone())
+        );
         assert_ne!(operation.commitment().unwrap(), Digest384::ZERO);
-        assert!(DidControllerOperationV1::new(DidOperationKind::Create, principal(1), Some(digest(6)), record, digest(5)).is_err());
-        assert!(DidControllerOperationV1::new(DidOperationKind::Create, principal(1), None, record, Digest384::ZERO).is_err());
+        assert!(
+            DidControllerOperationV1::new(
+                DidOperationKind::Create,
+                principal(1),
+                Some(digest(6)),
+                record,
+                digest(5)
+            )
+            .is_err()
+        );
+        assert!(
+            DidControllerOperationV1::new(
+                DidOperationKind::Create,
+                principal(1),
+                None,
+                record,
+                Digest384::ZERO
+            )
+            .is_err()
+        );
     }
 }

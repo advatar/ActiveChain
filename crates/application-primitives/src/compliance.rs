@@ -52,10 +52,14 @@ impl ComplianceKeyRegistry {
         let records = self
             .keys
             .iter()
-            .map(|(profile, key)| ComplianceProviderKeyRecord { profile: *profile, key: key.clone() })
+            .map(|(profile, key)| ComplianceProviderKeyRecord {
+                profile: *profile,
+                key: key.clone(),
+            })
             .collect();
         let snapshot = ComplianceProviderKeySet { records };
-        let bytes = encode_envelope(&snapshot).map_err(|_| CompliancePersistenceError::Persistence)?;
+        let bytes =
+            encode_envelope(&snapshot).map_err(|_| CompliancePersistenceError::Persistence)?;
         let path = path.as_ref();
         let parent = path.parent().ok_or(CompliancePersistenceError::Persistence)?;
         std::fs::create_dir_all(parent).map_err(|_| CompliancePersistenceError::Persistence)?;
@@ -102,7 +106,10 @@ impl CanonicalEncode for ComplianceProviderKeyRecord {
 }
 impl CanonicalDecode for ComplianceProviderKeyRecord {
     fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
-        Ok(Self { profile: Digest384::decode(d)?, key: d.read_bytes(ML_DSA44_PUBLIC_KEY_LENGTH)?.to_vec() })
+        Ok(Self {
+            profile: Digest384::decode(d)?,
+            key: d.read_bytes(ML_DSA44_PUBLIC_KEY_LENGTH)?.to_vec(),
+        })
     }
 }
 impl CanonicalType for ComplianceProviderKeyRecord {
@@ -140,7 +147,8 @@ impl CanonicalDecode for ComplianceProviderKeySet {
 impl CanonicalType for ComplianceProviderKeySet {
     const TYPE_TAG: u16 = 0x00d7;
     const SCHEMA_VERSION: u16 = 1;
-    const MAX_ENCODED_LEN: usize = 2 + MAX_PROVIDER_KEY_RECORDS * ComplianceProviderKeyRecord::MAX_ENCODED_LEN;
+    const MAX_ENCODED_LEN: usize =
+        2 + MAX_PROVIDER_KEY_RECORDS * ComplianceProviderKeyRecord::MAX_ENCODED_LEN;
 }
 
 #[derive(Debug)]

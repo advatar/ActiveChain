@@ -50,9 +50,7 @@ pub fn encode_authorized_request(
     Ok(frame)
 }
 
-pub fn decode_authorized_request(
-    frame: &[u8],
-) -> Result<AuthorizedSettlementRequest, DecodeError> {
+pub fn decode_authorized_request(frame: &[u8]) -> Result<AuthorizedSettlementRequest, DecodeError> {
     if frame.len() < 4 {
         return Err(DecodeError::UnexpectedEnd { needed: 4, remaining: frame.len() });
     }
@@ -368,10 +366,10 @@ mod tests {
         assert_eq!(decoded, request);
         let mut malformed = encoded;
         malformed.push(0);
-        assert!(activechain_canonical_codec::decode_envelope::<AuthorizedSettlementRequest>(
-            &malformed
-        )
-        .is_err());
+        assert!(
+            activechain_canonical_codec::decode_envelope::<AuthorizedSettlementRequest>(&malformed)
+                .is_err()
+        );
 
         let frame = encode_authorized_request(&request).unwrap();
         assert_eq!(decode_authorized_request(&frame).unwrap(), request);
@@ -469,10 +467,9 @@ impl<B: FaucetSettlementBackend> ValidatorRpcBridge<B> {
         if envelope.is_empty() || reference == Digest384::ZERO || amount == 0 {
             return Err(FaucetError::InvalidChallenge);
         }
-        let authorized = activechain_canonical_codec::decode_envelope::<AuthorizedCashTransferV1>(
-            envelope,
-        )
-        .map_err(|_| FaucetError::InvalidChallenge)?;
+        let authorized =
+            activechain_canonical_codec::decode_envelope::<AuthorizedCashTransferV1>(envelope)
+                .map_err(|_| FaucetError::InvalidChallenge)?;
         let request = authorized.request();
         let transfer = request.transfer();
         if request.intent_id().map_err(|_| FaucetError::InvalidChallenge)? != reference
@@ -481,9 +478,8 @@ impl<B: FaucetSettlementBackend> ValidatorRpcBridge<B> {
         {
             return Err(FaucetError::InvalidChallenge);
         }
-        let transaction = self
-            .backend
-            .submit_authorized_envelope(envelope, recipient, amount, reference)?;
+        let transaction =
+            self.backend.submit_authorized_envelope(envelope, recipient, amount, reference)?;
         Ok(SettlementResponse { reference, transaction })
     }
 

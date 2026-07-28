@@ -18,13 +18,13 @@ use activechain_cash_kernel::{
     CoinCellMembershipProof, CoinCellRecord, CoinCellSet, FungibleCoinCellMembershipProof,
     FungibleCoinCellRecord, prove_coin_cell_membership,
 };
-use activechain_wallet_core::AuthorizedCashTransferV1;
 use activechain_finality_types::commit_parts;
 use activechain_protocol_types::{AssetId, ChainId, Digest384, Object, PrincipalId, TransactionId};
 use activechain_rpc_types::{
     ActionSetProof, Health, MAX_SUPPORTED_PROOFS, ProofKind, QueryKind, QueryPage, QueryRecord,
     RpcAccessRequest, RpcAccessResponse, RpcError, RpcRequest, RpcResponse, RpcStatus,
 };
+use activechain_wallet_core::AuthorizedCashTransferV1;
 use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
@@ -729,7 +729,8 @@ impl AuthorizedFaucetSettlementAdapter for WalletIngressAuthorizedSettlementAdap
         }
         let height = self.finalized_height.load(Ordering::Acquire);
         let mut ingress = self.ingress.lock().map_err(|_| FaucetError::Persistence)?;
-        ingress.submit_authorized(&authorized, height)
+        ingress
+            .submit_authorized(&authorized, height)
             .map_err(|_| FaucetError::InvalidTransition)?;
         Ok(TransactionId::new(reference))
     }
@@ -737,9 +738,7 @@ impl AuthorizedFaucetSettlementAdapter for WalletIngressAuthorizedSettlementAdap
 
 impl<F> AuthorizedFaucetSettlementAdapter for F
 where
-    F: Fn(&[u8], PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError>
-        + Send
-        + Sync,
+    F: Fn(&[u8], PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError> + Send + Sync,
 {
     fn settle_authorized(
         &self,
@@ -816,10 +815,7 @@ impl RpcServer {
         self
     }
 
-    pub fn with_authorized_faucet_settlement_adapter<A>(
-        self,
-        adapter: A,
-    ) -> Self
+    pub fn with_authorized_faucet_settlement_adapter<A>(self, adapter: A) -> Self
     where
         A: AuthorizedFaucetSettlementAdapter + 'static,
     {
@@ -1157,9 +1153,10 @@ mod tests {
 
         let path = temporary("typed-faucet-adapter");
         let _ = std::fs::remove_file(&path);
-        let server = RpcServer::new(Arc::new(DurableRpcStore::create(path.clone(), index()).unwrap()))
-            .with_faucet_settlement_adapter(Adapter)
-            .with_authorized_faucet_settlement_adapter(AuthorizedAdapter);
+        let server =
+            RpcServer::new(Arc::new(DurableRpcStore::create(path.clone(), index()).unwrap()))
+                .with_faucet_settlement_adapter(Adapter)
+                .with_authorized_faucet_settlement_adapter(AuthorizedAdapter);
         assert!(server.faucet_settlement.is_some());
         assert!(server.authorized_faucet_settlement.is_some());
         let _ = std::fs::remove_file(path);

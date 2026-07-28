@@ -60,10 +60,9 @@ pub fn select_profiles_with_inheritance(
                 || edge.parent == Some(Digest384::ZERO)
                 || edge.parent == Some(edge.profile)
         })
-        || inheritance
-            .iter()
-            .enumerate()
-            .any(|(index, edge)| inheritance[index + 1..].iter().any(|other| other.profile == edge.profile))
+        || inheritance.iter().enumerate().any(|(index, edge)| {
+            inheritance[index + 1..].iter().any(|other| other.profile == edge.profile)
+        })
     {
         return ProfileSelection::Rejected;
     }

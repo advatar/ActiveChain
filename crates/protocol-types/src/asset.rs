@@ -725,7 +725,13 @@ impl FungibleAssetPolicyV1 {
         height: u64,
     ) -> Result<Self, AssetDefinitionError> {
         if !matches!(operation, FungibleIssuerOperation::Burn | FungibleIssuerOperation::Redemption)
-            || !approval.binds_context(self, operation, approval.amount(), self.supply_issued, height)
+            || !approval.binds_context(
+                self,
+                operation,
+                approval.amount(),
+                self.supply_issued,
+                height,
+            )
         {
             return Err(AssetDefinitionError::InvalidSupplyTransition);
         }
@@ -1708,8 +1714,10 @@ mod tests {
             30,
         )
         .unwrap();
-        assert!(policy
-            .apply_approved_burn(&wrong_burn_authority, FungibleIssuerOperation::Redemption, 20)
-            .is_err());
+        assert!(
+            policy
+                .apply_approved_burn(&wrong_burn_authority, FungibleIssuerOperation::Redemption, 20)
+                .is_err()
+        );
     }
 }
