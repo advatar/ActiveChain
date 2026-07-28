@@ -210,6 +210,33 @@ final class ActiveChainWalletTests: XCTestCase {
         XCTAssertThrowsError(try page.validated(owner: Data(repeating: 1, count: 48), chainGenesis: Data(repeating: 2, count: 48), finalizedHeight: 4, verifier: verifier))
     }
 
+    func testOwnerCoinPageValidationRejectsUnauthenticatedAbsenceAndWrongGenesis() {
+        let verifier = RejectingOwnerProofVerifier()
+        XCTAssertThrowsError(
+            try WalletOwnerCoinPage(records: [], next: nil).validated(
+                owner: Data(repeating: 1, count: 48),
+                chainGenesis: WalletKanalen.genesis,
+                finalizedHeight: 4,
+                verifier: verifier
+            )
+        )
+        let record = WalletOwnerCoinRecord(
+            key: Data(repeating: 3, count: 48),
+            finalizedHeight: 4,
+            value: Data([1]),
+            proof: Data([2]),
+            finality: Data([3])
+        )
+        XCTAssertThrowsError(
+            try WalletOwnerCoinPage(records: [record], next: nil).validated(
+                owner: Data(repeating: 1, count: 48),
+                chainGenesis: Data(repeating: 2, count: 48),
+                finalizedHeight: 4,
+                verifier: verifier
+            )
+        )
+    }
+
     private struct RejectingOwnerProofVerifier: WalletOwnerCoinProofVerifier {
         func verify(record: WalletOwnerCoinRecord, owner: Data, chainGenesis: Data) -> Bool { false }
     }

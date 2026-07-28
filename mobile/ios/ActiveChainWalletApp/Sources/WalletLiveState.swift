@@ -49,7 +49,7 @@ enum WalletNetworkState: Equatable, Sendable {
         case let .healthy(height): "Finalized block \(height)"
         case let .stale(height): "Finalized block \(height) has not advanced recently"
         case .unavailable: "RPC status request failed"
-        case .incompatible: "Unsupported protocol or RPC schema"
+        case .incompatible: "Unexpected chain, genesis, protocol, or RPC schema"
         }
     }
 
@@ -103,6 +103,7 @@ final class WalletLiveState: ObservableObject {
 
     func refreshVerifiedOwnerPage(verifier: any WalletOwnerCoinProofVerifier) async {
         guard let profile = deviceProfile,
+              profile.chainGenesis == WalletKanalen.genesis,
               case let .healthy(height) = networkState else {
             verifiedOwnerPage = nil
             return
@@ -195,7 +196,11 @@ struct WalletOwnerCoinPage: Equatable, Sendable {
         finalizedHeight: UInt64,
         verifier: any WalletOwnerCoinProofVerifier
     ) throws -> WalletOwnerCoinPage {
-        guard owner.count == 48, chainGenesis.count == 48 else { throw WalletRPCError.malformedResponse }
+        guard owner.count == 48,
+              owner.contains(where: { $0 != 0 }),
+              chainGenesis == WalletKanalen.genesis,
+              !records.isEmpty
+        else { throw WalletRPCError.malformedResponse }
         for record in records {
             guard record.finalizedHeight == finalizedHeight,
                   verifier.verify(record: record, owner: owner, chainGenesis: chainGenesis)
