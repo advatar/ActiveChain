@@ -8,6 +8,8 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
   ([GitHub issue #320](https://github.com/advatar/ActiveChain/issues/320)).
 - [x] Reconcile `Cargo.lock` with current workspace manifests and pass the exact locked,
   all-target, all-feature workspace Clippy gate used by CI.
+- [ ] Capture Tamarin stderr in the formal evidence file so derivation completion and warnings are
+  checked rather than bypassing the gate.
 - [ ] Verify the repaired baseline through the required deterministic-kernel CI job.
 
 ## Active milestone — P-060 execution proof system
