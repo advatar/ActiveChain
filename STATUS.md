@@ -37,7 +37,7 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
   and declaration order changed, restoring the Apple distribution reproducibility gate.
 - [x] Correct the standalone validator restart rehearsal to retain zero finality without a quorum,
   while proving durable progress separately from the three-process quorum rehearsal.
-- [ ] Verify the repaired baseline through the required deterministic-kernel CI job.
+- [x] Verify the repaired baseline through the required deterministic-kernel CI job.
 
 ## Active milestone — P-060 execution proof system
 
