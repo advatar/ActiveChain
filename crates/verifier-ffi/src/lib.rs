@@ -384,6 +384,65 @@ pub unsafe extern "C" fn activechain_verify_finality_bundle_code(
 }
 
 #[unsafe(no_mangle)]
+/// Verifies a proof-bearing owner-scoped Coin Cell against a trusted chain genesis.
+///
+/// # Safety
+/// Fixed identifiers must point to readable 48-byte values. Canonical value, proof, and finality
+/// buffers must be readable for their declared lengths. No pointer is retained.
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn activechain_verify_owner_coin_cell_record_code(
+    key: *const u8,
+    finalized_height: u64,
+    value: *const u8,
+    value_len: u32,
+    proof: *const u8,
+    proof_len: u32,
+    finality: *const u8,
+    finality_len: u32,
+    owner: *const u8,
+    trusted_genesis: *const u8,
+) -> u32 {
+    if key.is_null()
+        || owner.is_null()
+        || trusted_genesis.is_null()
+        || (value.is_null() && value_len != 0)
+        || (proof.is_null() && proof_len != 0)
+        || (finality.is_null() && finality_len != 0)
+    {
+        return NULL_POINTER;
+    }
+    if value_len
+        .checked_add(proof_len)
+        .and_then(|length| length.checked_add(finality_len))
+        .is_none_or(|length| length > MAX_ENVELOPE_LENGTH)
+    {
+        return TOO_LARGE;
+    }
+    let read_digest = |pointer: *const u8| {
+        let bytes = unsafe { core::slice::from_raw_parts(pointer, 48) };
+        let mut digest = [0_u8; 48];
+        digest.copy_from_slice(bytes);
+        Digest384::new(digest)
+    };
+    let read_buffer = |pointer: *const u8, length: u32| {
+        if length == 0 {
+            &[]
+        } else {
+            unsafe { core::slice::from_raw_parts(pointer, length as usize) }
+        }
+    };
+    activechain_verifier_api::verify_owner_coin_cell_record_code(
+        read_digest(key),
+        finalized_height,
+        read_buffer(value, value_len),
+        read_buffer(proof, proof_len),
+        read_buffer(finality, finality_len),
+        activechain_protocol_types::PrincipalId::new(read_digest(owner)),
+        read_digest(trusted_genesis),
+    )
+}
+
+#[unsafe(no_mangle)]
 /// # Safety
 /// The caller must provide readable canonical finality and receipt buffers for the declared
 /// lengths. Null pointers are permitted only for zero-length buffers. No pointer is retained.

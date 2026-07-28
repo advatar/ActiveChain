@@ -77,7 +77,10 @@ private struct HomeView: View {
                         Task { await liveState.refresh() }
                     }
                     AssetSection()
-                    SecurityFooter()
+                    SecurityFooter(
+                        hasProfile: liveState.deviceProfile != nil,
+                        hasVerifiedState: liveState.verifiedOwnerPage != nil
+                    )
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 32)
@@ -245,10 +248,23 @@ private struct AssetSection: View {
 }
 
 private struct SecurityFooter: View {
+    let hasProfile: Bool
+    let hasVerifiedState: Bool
+
+    private var message: String {
+        if hasVerifiedState {
+            return "Finalized owner proofs verified by the linked Rust verifier"
+        }
+        if hasProfile {
+            return "Wallet profile loaded; no verified Coin Cell state is available"
+        }
+        return "No wallet profile or signing key is loaded"
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "lock.shield.fill").foregroundStyle(WalletPalette.mint)
-            Text("No wallet profile or verified Coin Cell state is loaded")
+            Text(message)
                 .font(.caption)
                 .foregroundStyle(WalletPalette.muted)
         }

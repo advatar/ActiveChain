@@ -8,6 +8,7 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     decode_envelope, inspect_canonical_envelope,
 };
+use activechain_cash_kernel::{CoinCellMembershipProof, CoinCellRecord};
 use activechain_devnet_kernel::BlockReceipt;
 use activechain_finality_types::FinalityCertificateBundle;
 use activechain_policy_kernel::PolicyDecision;
@@ -364,6 +365,68 @@ pub fn verify_finality_bundle_with_chain_genesis(
     verify_decoded_finality_bundle(bundle, expected_chain_genesis)
 }
 
+/// Verifies one proof-bearing owner-scoped Coin Cell returned by an RPC page.
+///
+/// The record is accepted only when its canonical key, owner, authenticated
+/// cash root, finalized height, and validator certificate all bind to the
+/// caller's exact trusted chain genesis.
+#[allow(clippy::too_many_arguments)]
+pub fn verify_owner_coin_cell_record_code(
+    key: Digest384,
+    finalized_height: u64,
+    value: &[u8],
+    proof: &[u8],
+    finality: &[u8],
+    owner: PrincipalId,
+    trusted_genesis: Digest384,
+) -> u32 {
+    verify_owner_coin_cell_record(
+        key,
+        finalized_height,
+        value,
+        proof,
+        finality,
+        owner,
+        trusted_genesis,
+    )
+    .map_or_else(|error| error.code(), |()| VERIFY_OK)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn verify_owner_coin_cell_record(
+    key: Digest384,
+    finalized_height: u64,
+    value: &[u8],
+    proof: &[u8],
+    finality: &[u8],
+    owner: PrincipalId,
+    trusted_genesis: Digest384,
+) -> Result<(), VerifyError> {
+    if value
+        .len()
+        .checked_add(proof.len())
+        .and_then(|length| length.checked_add(finality.len()))
+        .is_none_or(|length| length > MAX_ENVELOPE_LENGTH)
+    {
+        return Err(VerifyError::TooLarge);
+    }
+    let finality = verify_finality_bundle_with_chain_genesis(finality, trusted_genesis)?;
+    if finality.header().inputs.height != finalized_height {
+        return Err(VerifyError::RelationMismatch);
+    }
+    let record = decode_envelope::<CoinCellRecord>(value).map_err(VerifyError::Decode)?;
+    let membership =
+        decode_envelope::<CoinCellMembershipProof>(proof).map_err(VerifyError::Decode)?;
+    if record.id().into_digest() != key
+        || record.cell().owner() != owner
+        || membership.record() != record
+        || membership.root().into_digest() != finality.header().inputs.cash_cell_root
+    {
+        return Err(VerifyError::RelationMismatch);
+    }
+    Ok(())
+}
+
 fn verify_decoded_finality_bundle(
     bundle: FinalityCertificateBundle,
     expected_chain_genesis: Digest384,
@@ -571,6 +634,9 @@ mod tests {
     use activechain_action_kernel::ResourceVector;
     use activechain_application_primitives::{AnchorFinalizedEvidenceV1, DigestAnchorStatementV1};
     use activechain_canonical_codec::encode_envelope;
+    use activechain_cash_kernel::{
+        CoinCell, CoinCellOrigin, CoinCellRecord, CoinCellSet, prove_coin_cell_membership,
+    };
     use activechain_devnet_kernel::{ActionOutcome, ActionReceipt};
     use activechain_policy_kernel::DecisionResult;
     use activechain_protocol_types::{
@@ -858,6 +924,7 @@ mod tests {
         receipt_root: Digest384,
         pre_state: StateCommitment,
         post_state: StateCommitment,
+        cash_cell_root: Digest384,
     ) -> FinalityCertificateBundle {
         let keys = [
             SigningKey::<MlDsa44>::from_seed(&Seed::from([1; 32])),
@@ -892,7 +959,7 @@ mod tests {
             issuance: 0,
             burn: 0,
             post_supply: 0,
-            cash_cell_root: digest(50),
+            cash_cell_root,
             post_state,
             receipt_root,
             data_availability_commitment: digest(48),
@@ -962,7 +1029,83 @@ mod tests {
             digest(47),
             StateCommitment::new(digest(42), 0),
             StateCommitment::new(digest(46), 0),
+            digest(50),
         )
+    }
+
+    #[test]
+    fn owner_coin_cell_verifier_binds_owner_key_height_root_and_genesis() {
+        let owner = PrincipalId::new(digest(60));
+        let record = CoinCellRecord::new(
+            activechain_protocol_types::CoinCellId::new(digest(61)),
+            CoinCell::new(CoinCellOrigin::new(TransactionId::new(digest(62)), 0), owner, 25, 1)
+                .unwrap(),
+        );
+        let cells = CoinCellSet::new(vec![record]).unwrap();
+        let membership = prove_coin_cell_membership(&cells, record.id()).unwrap();
+        let bundle = finality_bundle_with_inputs(
+            digest(47),
+            StateCommitment::new(digest(42), 0),
+            StateCommitment::new(digest(46), 0),
+            membership.root().into_digest(),
+        );
+        let trusted_genesis = bundle.validator_genesis().genesis_commitment();
+        let value = encode_envelope(&record).unwrap();
+        let proof = encode_envelope(&membership).unwrap();
+        let finality = encode_envelope(&bundle).unwrap();
+
+        assert_eq!(
+            verify_owner_coin_cell_record_code(
+                record.id().into_digest(),
+                9,
+                &value,
+                &proof,
+                &finality,
+                owner,
+                trusted_genesis,
+            ),
+            VERIFY_OK
+        );
+        for result in [
+            verify_owner_coin_cell_record_code(
+                digest(63),
+                9,
+                &value,
+                &proof,
+                &finality,
+                owner,
+                trusted_genesis,
+            ),
+            verify_owner_coin_cell_record_code(
+                record.id().into_digest(),
+                10,
+                &value,
+                &proof,
+                &finality,
+                owner,
+                trusted_genesis,
+            ),
+            verify_owner_coin_cell_record_code(
+                record.id().into_digest(),
+                9,
+                &value,
+                &proof,
+                &finality,
+                PrincipalId::new(digest(64)),
+                trusted_genesis,
+            ),
+            verify_owner_coin_cell_record_code(
+                record.id().into_digest(),
+                9,
+                &value,
+                &proof,
+                &finality,
+                owner,
+                digest(65),
+            ),
+        ] {
+            assert_ne!(result, VERIFY_OK);
+        }
     }
 
     #[test]
@@ -1009,9 +1152,13 @@ mod tests {
         let post_state = StateCommitment::new(digest(61), 3);
         let receipt = BlockReceipt::new(digest(62), 9, pre_state, post_state, vec![]).unwrap();
         let receipt_root = commit(DomainTag::CANONICAL_VALUE, &receipt).unwrap();
-        let finality =
-            encode_envelope(&finality_bundle_with_inputs(receipt_root, pre_state, post_state))
-                .unwrap();
+        let finality = encode_envelope(&finality_bundle_with_inputs(
+            receipt_root,
+            pre_state,
+            post_state,
+            digest(50),
+        ))
+        .unwrap();
         let encoded = encode_envelope(&receipt).unwrap();
         assert_eq!(verify_block_receipt_code(&finality, &encoded), VERIFY_OK);
         assert_eq!(verify_block_receipt(&finality, &encoded), Ok(receipt.clone()));
@@ -1067,7 +1214,8 @@ mod tests {
         )
         .unwrap();
         let receipt_root = commit(DomainTag::CANONICAL_VALUE, &receipt).unwrap();
-        let finality_bundle = finality_bundle_with_inputs(receipt_root, pre_state, post_state);
+        let finality_bundle =
+            finality_bundle_with_inputs(receipt_root, pre_state, post_state, digest(50));
         let trusted_genesis = finality_bundle.validator_genesis().genesis_commitment();
         let statement = DigestAnchorStatementV1::new(
             b"mademark.external-anchor.statement.v1".to_vec(),
