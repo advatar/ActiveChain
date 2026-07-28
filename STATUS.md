@@ -105,6 +105,20 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 - [x] Remove merged implementation branches while preserving intentional archive branches.
 - [x] Verify `origin/main` is the only active implementation branch after cleanup.
 
+## Active fix — Kanalen wallet app compatibility
+
+Tracked by [GitHub issue #318](https://github.com/advatar/ActiveChain/issues/318).
+
+- [ ] Pin the native wallet clients to Kanalen's immutable chain identity, genesis commitment,
+  protocol revision, and RPC schema revision 2.
+- [ ] Fix Apple wallet status and owner-page decoding, then refresh owner state only through a
+  cryptographic verifier bound to the trusted device profile.
+- [ ] Replace Android's fabricated wallet/network state with a bounded live TLS status client and
+  explicit unavailable states for balances, activity, approvals, identity, funding, and transfers.
+- [ ] Make the live Kanalen probe verify the full canonical status, immutable identity, health
+  consistency, proof ordering, frame bounds, and trailing-data rejection.
+- [ ] Pass Apple, Android, Rust, and live Kanalen qualification and merge the verified fix to main.
+
 ## Phase 0 — protocol foundation
 
 - [x] Establish a pinned stable-Rust workspace with consensus-kernel quality gates.
