@@ -109,15 +109,20 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Tracked by [GitHub issue #318](https://github.com/advatar/ActiveChain/issues/318).
 
-- [ ] Pin the native wallet clients to Kanalen's immutable chain identity, genesis commitment,
+- [x] Pin the native wallet clients to Kanalen's immutable chain identity, genesis commitment,
   protocol revision, and RPC schema revision 2.
-- [ ] Fix Apple wallet status and owner-page decoding, then refresh owner state only through a
+- [x] Fix Apple wallet status and owner-page decoding, then refresh owner state only through a
   cryptographic verifier bound to the trusted device profile.
-- [ ] Replace Android's fabricated wallet/network state with a bounded live TLS status client and
+- [x] Replace Android's fabricated wallet/network state with a bounded live TLS status client and
   explicit unavailable states for balances, activity, approvals, identity, funding, and transfers.
-- [ ] Make the live Kanalen probe verify the full canonical status, immutable identity, health
+- [x] Make the live Kanalen probe verify the full canonical status, immutable identity, health
   consistency, proof ordering, frame bounds, and trailing-data rejection.
-- [ ] Pass Apple, Android, Rust, and live Kanalen qualification and merge the verified fix to main.
+- [x] Pass Apple, Android, Rust, and live Kanalen qualification.
+
+Qualification on 2026-07-28 passed 21 tests on each Apple target, the exact-revision iOS build and
+universal macOS archive, the Android JVM tests and debug APK build, 102 targeted Rust tests, and the
+adversarial Python probe tests. The live TLS 1.3 probe verified the exact Kanalen identity at healthy
+finalized height 5,872. The final merge and reachability check are tracked in issue #318.
 
 ## Phase 0 — protocol foundation
 
