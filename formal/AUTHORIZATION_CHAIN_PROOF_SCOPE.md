@@ -122,5 +122,8 @@ bash scripts/check-formal-models.sh
 ```
 
 The default authorization preflight and proof process bounds are intentionally longer than the
-other small Tamarin models. They may be overridden for diagnostics, but a release record must retain
-the complete preflight and all eighteen verified summaries from a clean checkout.
+other small Tamarin models: 1,200 seconds for preflight and 2,400 seconds for the unchanged
+eighteen-lemma proof selection. The proof bound reflects an observed 1,200-second timeout while the
+pinned prover was still CPU-active on the ARM64 qualification runner. Both bounds may be overridden
+for diagnostics, but a release record must retain the complete preflight and all eighteen verified
+summaries from a clean checkout; a timeout remains a hard failure.

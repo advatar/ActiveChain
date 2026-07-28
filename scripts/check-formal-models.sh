@@ -2,12 +2,15 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
+# shellcheck source=scripts/lib/formal-output.sh
+source "$root/scripts/lib/formal-output.sh"
 derivcheck_timeout=${ACTIVECHAIN_TAMARIN_DERIVCHECK_TIMEOUT:-180}
 tamarin_process_timeout=${ACTIVECHAIN_TAMARIN_PROCESS_TIMEOUT:-300}
 authorization_derivcheck_timeout=${ACTIVECHAIN_AUTHORIZATION_DERIVCHECK_TIMEOUT:-900}
 authorization_preflight_timeout=${ACTIVECHAIN_AUTHORIZATION_PREFLIGHT_TIMEOUT:-1200}
-authorization_proof_timeout=${ACTIVECHAIN_AUTHORIZATION_PROOF_TIMEOUT:-1200}
+authorization_proof_timeout=${ACTIVECHAIN_AUTHORIZATION_PROOF_TIMEOUT:-2400}
 
+"$root/scripts/test-formal-output-capture.sh"
 python3 "$root/scripts/check-formal-coverage.py"
 
 if ! tamarin_version=$(tamarin-prover --version 2>&1); then
@@ -41,7 +44,7 @@ for model in "$root"/formal/tamarin/*.spthy; do
       exit 1
     }
     model_hash_before=$(shasum -a 256 "$model" | awk '{print $1}')
-    perl -e '$seconds=shift; alarm $seconds; exec @ARGV' \
+    capture_formal_output perl -e '$seconds=shift; alarm $seconds; exec @ARGV' \
       "$authorization_preflight_timeout" tamarin-prover "$model" \
       --precompute-only --quiet --open-chains=50 \
       --derivcheck-timeout="$authorization_derivcheck_timeout" \
@@ -69,7 +72,7 @@ for model in "$root"/formal/tamarin/*.spthy; do
       echo "authorization-chain lemma manifest is empty" >&2
       exit 1
     }
-    perl -e '$seconds=shift; alarm $seconds; exec @ARGV' \
+    capture_formal_output perl -e '$seconds=shift; alarm $seconds; exec @ARGV' \
       "$authorization_proof_timeout" tamarin-prover "$model" \
       "${authorization_prove_args[@]}" --quiet --open-chains=50 \
       --derivcheck-timeout=0 --quit-on-warning | tee -a "$output"
@@ -94,7 +97,8 @@ for model in "$root"/formal/tamarin/*.spthy; do
     while IFS= read -r lemma; do
       test -n "$lemma" || continue
       lemma_output=$(mktemp "${TMPDIR:-/tmp}/activechain-tamarin-lemma.XXXXXX")
-      perl -e '$seconds=shift; alarm $seconds; exec @ARGV' "$tamarin_process_timeout" \
+      capture_formal_output perl -e '$seconds=shift; alarm $seconds; exec @ARGV' \
+        "$tamarin_process_timeout" \
         tamarin-prover "$model" --prove="$lemma" "${tamarin_args[@]}" \
         | tee "$lemma_output" | tee -a "$output"
       if ! grep -Eq "^[[:space:]]*${lemma} .*: verified" "$lemma_output"; then
@@ -105,7 +109,8 @@ for model in "$root"/formal/tamarin/*.spthy; do
       rm -f "$lemma_output"
     done < "$lemma_file"
   else
-    perl -e '$seconds=shift; alarm $seconds; exec @ARGV' "$tamarin_process_timeout" \
+    capture_formal_output perl -e '$seconds=shift; alarm $seconds; exec @ARGV' \
+      "$tamarin_process_timeout" \
       tamarin-prover "$model" --prove "${tamarin_args[@]}" | tee "$output"
   fi
   if grep -Eq 'falsified|WARNING:|wellformedness check failed' "$output"; then
