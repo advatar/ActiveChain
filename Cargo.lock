@@ -82,6 +82,7 @@ version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
  "activechain-cash-kernel",
+ "activechain-protocol-commitment",
  "activechain-protocol-types",
  "activechain-wallet-core",
  "p3-air",
@@ -98,6 +99,8 @@ dependencies = [
  "p3-sha256",
  "p3-symmetric",
  "p3-uni-stark",
+ "serde",
+ "serde_json",
  "sha3 0.10.9",
  "winterfell",
 ]
@@ -129,6 +132,7 @@ dependencies = [
  "activechain-privacy-kernel",
  "activechain-protocol-types",
  "activechain-rpc-server",
+ "activechain-rpc-types",
  "activechain-state-tree",
  "activechain-transition",
  "activechain-verifier-api",
@@ -362,6 +366,7 @@ dependencies = [
  "activechain-state-tree",
  "activechain-transition",
  "activechain-verifier-api",
+ "activechain-wallet-core",
  "ml-dsa",
  "sha3 0.10.9",
 ]
@@ -414,6 +419,7 @@ dependencies = [
  "activechain-canonical-codec",
  "activechain-protocol-types",
  "activechain-rpc-server",
+ "activechain-wallet-core",
 ]
 
 [[package]]

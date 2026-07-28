@@ -166,6 +166,7 @@ impl EvidenceRetentionPolicyV1 {
     pub const TYPE_TAG: u16 = 0x00D8;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 * 6 + 8 + 1 + 2;
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         profile: Digest384,
         jurisdiction: Digest384,

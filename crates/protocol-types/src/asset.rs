@@ -874,6 +874,7 @@ impl FungibleAssetLifecycleActionV1 {
     pub const TYPE_TAG: u16 = 0x00B2;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 * 5 + 1 + 8 + 8;
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         asset_id: AssetId,
         expected_policy: Digest384,

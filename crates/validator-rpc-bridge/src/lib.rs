@@ -272,6 +272,73 @@ impl CanonicalType for SettlementStatusResponse {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
+impl<B: FaucetSettlementBackend> ValidatorRpcBridge<B> {
+    pub const fn new(backend: B) -> Self {
+        Self { backend }
+    }
+
+    pub fn settle(
+        &self,
+        recipient: PrincipalId,
+        amount: u128,
+        reference: Digest384,
+    ) -> Result<TransactionId, FaucetError> {
+        if reference == Digest384::ZERO || amount == 0 {
+            return Err(FaucetError::InvalidChallenge);
+        }
+        self.backend.submit_and_await_finality(recipient, amount, reference)
+    }
+
+    pub fn settle_request(
+        &self,
+        request: &SettlementRequest,
+    ) -> Result<SettlementResponse, FaucetError> {
+        let transaction = self.settle(request.recipient, request.amount, request.reference)?;
+        Ok(SettlementResponse { reference: request.reference, transaction })
+    }
+
+    /// Validate and settle an exact authorized cash envelope for a faucet
+    /// decision. The envelope's intent id, recipient, amount, and reference
+    /// must all agree before the backend sees any bytes.
+    pub fn settle_authorized_envelope(
+        &self,
+        envelope: &[u8],
+        recipient: PrincipalId,
+        amount: u128,
+        reference: Digest384,
+    ) -> Result<SettlementResponse, FaucetError> {
+        if envelope.is_empty() || reference == Digest384::ZERO || amount == 0 {
+            return Err(FaucetError::InvalidChallenge);
+        }
+        let authorized =
+            activechain_canonical_codec::decode_envelope::<AuthorizedCashTransferV1>(envelope)
+                .map_err(|_| FaucetError::InvalidChallenge)?;
+        let request = authorized.request();
+        let transfer = request.transfer();
+        if request.intent_id().map_err(|_| FaucetError::InvalidChallenge)? != reference
+            || transfer.recipient() != recipient
+            || transfer.amount() != amount
+        {
+            return Err(FaucetError::InvalidChallenge);
+        }
+        let transaction =
+            self.backend.submit_authorized_envelope(envelope, recipient, amount, reference)?;
+        Ok(SettlementResponse { reference, transaction })
+    }
+
+    pub fn settle_authorized_request(
+        &self,
+        request: &AuthorizedSettlementRequest,
+    ) -> Result<SettlementResponse, FaucetError> {
+        self.settle_authorized_envelope(
+            &request.envelope,
+            request.recipient,
+            request.amount,
+            request.reference,
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -426,72 +493,5 @@ mod tests {
             )
             .is_err()
         );
-    }
-}
-
-impl<B: FaucetSettlementBackend> ValidatorRpcBridge<B> {
-    pub const fn new(backend: B) -> Self {
-        Self { backend }
-    }
-
-    pub fn settle(
-        &self,
-        recipient: PrincipalId,
-        amount: u128,
-        reference: Digest384,
-    ) -> Result<TransactionId, FaucetError> {
-        if reference == Digest384::ZERO || amount == 0 {
-            return Err(FaucetError::InvalidChallenge);
-        }
-        self.backend.submit_and_await_finality(recipient, amount, reference)
-    }
-
-    pub fn settle_request(
-        &self,
-        request: &SettlementRequest,
-    ) -> Result<SettlementResponse, FaucetError> {
-        let transaction = self.settle(request.recipient, request.amount, request.reference)?;
-        Ok(SettlementResponse { reference: request.reference, transaction })
-    }
-
-    /// Validate and settle an exact authorized cash envelope for a faucet
-    /// decision. The envelope's intent id, recipient, amount, and reference
-    /// must all agree before the backend sees any bytes.
-    pub fn settle_authorized_envelope(
-        &self,
-        envelope: &[u8],
-        recipient: PrincipalId,
-        amount: u128,
-        reference: Digest384,
-    ) -> Result<SettlementResponse, FaucetError> {
-        if envelope.is_empty() || reference == Digest384::ZERO || amount == 0 {
-            return Err(FaucetError::InvalidChallenge);
-        }
-        let authorized =
-            activechain_canonical_codec::decode_envelope::<AuthorizedCashTransferV1>(envelope)
-                .map_err(|_| FaucetError::InvalidChallenge)?;
-        let request = authorized.request();
-        let transfer = request.transfer();
-        if request.intent_id().map_err(|_| FaucetError::InvalidChallenge)? != reference
-            || transfer.recipient() != recipient
-            || transfer.amount() != amount
-        {
-            return Err(FaucetError::InvalidChallenge);
-        }
-        let transaction =
-            self.backend.submit_authorized_envelope(envelope, recipient, amount, reference)?;
-        Ok(SettlementResponse { reference, transaction })
-    }
-
-    pub fn settle_authorized_request(
-        &self,
-        request: &AuthorizedSettlementRequest,
-    ) -> Result<SettlementResponse, FaucetError> {
-        self.settle_authorized_envelope(
-            &request.envelope,
-            request.recipient,
-            request.amount,
-            request.reference,
-        )
     }
 }

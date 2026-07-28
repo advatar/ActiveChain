@@ -156,6 +156,7 @@ pub struct FungibleCashAirPublicInputsV1 {
 }
 
 impl FungibleCashAirPublicInputsV1 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         asset_id: AssetId,
         registry_commitment: Digest384,

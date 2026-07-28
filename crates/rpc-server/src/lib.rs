@@ -641,25 +641,18 @@ impl DurableRpcStore {
     }
 }
 
+type FaucetSettlement =
+    dyn Fn(PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError> + Send + Sync;
+type AuthorizedFaucetSettlement =
+    dyn Fn(&[u8], PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError> + Send + Sync;
+
 pub struct RpcServer {
     store: Arc<DurableRpcStore>,
     access: Option<Arc<RpcAccessController>>,
     anchors: Option<Arc<RwLock<DurableAnchorRegistry>>>,
     faucet: Option<Arc<RwLock<DurableFaucet>>>,
-    faucet_settlement: Option<
-        Arc<
-            dyn Fn(PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError>
-                + Send
-                + Sync,
-        >,
-    >,
-    authorized_faucet_settlement: Option<
-        Arc<
-            dyn Fn(&[u8], PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError>
-                + Send
-                + Sync,
-        >,
-    >,
+    faucet_settlement: Option<Arc<FaucetSettlement>>,
+    authorized_faucet_settlement: Option<Arc<AuthorizedFaucetSettlement>>,
 }
 
 /// Production settlement boundary for faucet-authorized Coin Cell ingress.
