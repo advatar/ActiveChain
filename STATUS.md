@@ -8,10 +8,18 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
   ([GitHub issue #320](https://github.com/advatar/ActiveChain/issues/320)).
 - [x] Reconcile `Cargo.lock` with current workspace manifests and pass the exact locked,
   all-target, all-feature workspace Clippy gate used by CI.
-- [ ] Capture Tamarin stderr in the formal evidence file so derivation completion and warnings are
+- [x] Capture Tamarin stderr in the formal evidence file so derivation completion and warnings are
   checked rather than bypassing the gate.
-- [ ] Run each unchanged authorization lemma in an independently bounded prover process so the
+- [x] Run each unchanged authorization lemma in an independently bounded prover process so the
   complete eighteen-lemma manifest finishes while retaining timeout-as-failure behavior.
+- [x] Give the authorization executability witnesses a deterministic bounded proof strategy; the
+  default search reached the per-lemma limit on `exists_complete_authorized_transition` after the
+  first thirteen manifest lemmas completed.
+- [x] Remove redundant attacker-delivery premises for credential, capability, and state-proof
+  records that are already bound into the authoritative snapshot; retain adversarial delivery for
+  signed action requests and re-prove every authorization lemma.
+- [x] Model signed action submission as an explicit canonical envelope rather than a destructured
+  transport tuple, while retaining public request/signature visibility and replayability.
 - [ ] Verify the repaired baseline through the required deterministic-kernel CI job.
 
 ## Active milestone — P-060 execution proof system
