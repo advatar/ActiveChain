@@ -56,7 +56,7 @@ impl PqSessionContext {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct PqPeerSession {
     pub id: [u8; 32],
     pub peer: u16,
@@ -65,7 +65,21 @@ pub struct PqPeerSession {
     local_is_initiator: bool,
     key: [u8; 32],
 }
+impl std::fmt::Debug for PqPeerSession {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PqPeerSession")
+            .field("id", &self.id)
+            .field("peer", &self.peer)
+            .field("expires_at", &self.expires_at)
+            .field("context", &self.context)
+            .field("local_is_initiator", &self.local_is_initiator)
+            .field("key", &"<redacted>")
+            .finish()
+    }
+}
 impl PqPeerSession {
+    #[cfg(test)]
     pub fn key(&self) -> &[u8; 32] {
         &self.key
     }
@@ -885,6 +899,21 @@ mod tests {
 
         let expired = PqPeerSession { expires_at: now, ..receiver_session };
         assert!(receiver.receive_protected_message(&expired).is_err());
+    }
+
+    #[test]
+    fn session_debug_output_redacts_key_material() {
+        let session = PqPeerSession {
+            id: [24; 32],
+            peer: 2,
+            expires_at: now_secs().unwrap() + 60,
+            context: context(),
+            local_is_initiator: true,
+            key: [0xAB; 32],
+        };
+        let debug = format!("{session:?}");
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains("171, 171, 171"));
     }
 
     #[test]
