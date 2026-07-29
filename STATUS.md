@@ -58,6 +58,12 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
   recovery behavior in `spec/protocol/P-132-proof-liveness.md`.
 - [ ] Encode the proof deadline/grace profile and add liveness transition vectors.
 
+## Active protocol decision — P-133 compute admission
+
+- [x] Demote general compute jobs and AI-result claims out of v1 consensus semantics; define the
+  escrow/attestation boundary in `spec/protocol/P-133-compute-admission.md`.
+- [ ] Add canonical escrow/attestation vectors and reserve a future compute verifier interface.
+
 ## Active milestone — P-060 execution proof system
 
 - [x] Publish the P-060 selection/security specification and explicit re-execution transition gate.
