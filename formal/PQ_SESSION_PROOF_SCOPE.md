@@ -13,9 +13,10 @@ protocol.
 ## Model boundary
 
 The model uses Tamarin's perfect symbolic signing primitive for ML-DSA-44. ML-KEM-768 is
-abstracted by perfect public-key encryption: the initiator encapsulates a fresh KEM secret to the
-responder's fresh per-challenge decapsulation public key, and only the matching private key can
-recover it.
+abstracted by a suite-distinct perfect public-key encryption equation: the initiator encapsulates a
+fresh KEM secret to the responder's fresh per-challenge decapsulation public key, and only the
+matching private key can recover it. Separate `kempk`/`kemenc` constructors prevent symbolic
+ML-DSA/ML-KEM key substitution, matching the runtime's pinned suites and disjoint key lengths.
 The usable session key is the ideal hash of a dedicated KDF domain, that KEM secret, and the full
 signed transcript. Perfect symmetric encryption represents the protected envelope. These are
 Dolev-Yao abstractions; the model does not prove FIPS 203, FIPS 204, the RustCrypto
@@ -70,11 +71,11 @@ Tamarin 1.12.0 completed all eleven all-traces proofs with successful well-forme
 - `protected_envelope_is_accepted_once` (9 steps); and
 - `explicit_session_key_reveal_requires_an_established_session` (3 steps);
 - `responder_acceptance_authenticates_initiator` (9 steps);
-- `initiator_acceptance_authenticates_responder` (28 steps);
-- `honest_session_protected_acceptance_has_a_sender` (17 steps); and
-- `honest_established_secret_requires_compromise_to_leak` (14 steps).
+- `initiator_acceptance_authenticates_responder` (7 steps);
+- `honest_session_protected_acceptance_has_a_sender` (16 steps); and
+- `honest_established_secret_requires_compromise_to_leak` (13 steps).
 
-The final complete strengthened proof run took approximately 175 seconds on the local machine and
+The final complete strengthened V2 proof run took approximately 45 seconds on the local machine and
 fits a 300-second process bound:
 
 ```sh
@@ -94,9 +95,12 @@ established session.
 
 Responder acceptance has either a prior initiator finish with the exact session, context,
 transcript, and derived key, or a prior compromise of that initiator's signing key. Initiator
-acceptance has a prior exact responder acceptance unless both the responder signing key and its
-ML-KEM decapsulation key were compromised first. Because a modeled session-key reveal requires a
-prior responder acceptance, it is already covered by the first branch.
+acceptance has a prior exact responder acceptance unless the responder's signing key was
+compromised first. That exception is intentionally sufficient: an attacker holding the identity
+signing key can generate and sign its own ephemeral KEM challenge. The ephemeral KEM exchange
+provides session secrecy and key confirmation, not a second independent responder identity.
+Because a modeled session-key reveal requires a prior responder acceptance, it is already covered
+by the first branch.
 
 Protected-message origin and session secrecy are stated for a matching honest initiator finish and
 responder acceptance. This condition matters: a party that has stolen an initiator signing key can

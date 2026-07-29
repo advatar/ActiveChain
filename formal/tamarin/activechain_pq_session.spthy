@@ -5,17 +5,26 @@ begin
 builtins: signing, asymmetric-encryption, symmetric-encryption, hashing
 
 functions:
-  confirm/2
+  confirm/2,
+  kempk/1,
+  kemenc/2,
+  kemdec/2
+
+equations:
+  kemdec(kemenc(message, kempk(decapsulation_key)), decapsulation_key) = message
 
 /*
  * A bounded symbolic model of the intended ActiveChain peer-session boundary.
  *
  * ML-DSA-44 is represented by Tamarin's perfect signing primitive. ML-KEM-768
- * is represented by Tamarin's perfect public-key encryption: encapsulation is
- * `aenc(fresh_kem_secret, pk(decapsulation_key))`, and decapsulation is
- * `adec(ciphertext, decapsulation_key)`. A domain-separated hash of that KEM
- * secret and the complete signed transcript is the usable session key. The
- * constructors do not claim a reduction for FIPS 203 or FIPS 204.
+ * is represented by a perfect, suite-distinct public-key encryption equation:
+ * encapsulation is `kemenc(fresh_kem_secret, kempk(decapsulation_key))`, and
+ * decapsulation is `kemdec(ciphertext, decapsulation_key)`. Keeping `kempk`
+ * distinct from the signing primitive's `pk` prevents symbolic cross-suite key
+ * substitution, matching the runtime's pinned suites and disjoint key lengths.
+ * A domain-separated hash of that KEM secret and the complete signed transcript
+ * is the usable session key. The constructors do not claim a reduction for
+ * FIPS 203 or FIPS 204.
  *
  * Every signed transcript contains the session version, protocol revision,
  * chain identity, epoch, both peer identities, both fresh nonces, the
@@ -57,7 +66,7 @@ rule IssueAuthenticatedChallenge:
       client_hello = <'client-hello', context, initiator, responder, client_nonce>
       challenge = <'server-challenge', context, initiator, responder,
                    client_nonce, ~session_id, ~server_nonce,
-                   pk(~responder_kem_key)>
+                   kempk(~responder_kem_key)>
   in
   [ !PQContext(chain, epoch, initiator, responder),
     !SigningKey(chain, epoch, responder, responder_signing_key),
@@ -79,7 +88,7 @@ rule AuthenticateAndEncapsulate:
       challenge = <'server-challenge', context, initiator, responder,
                    client_nonce, session_id, server_nonce,
                    responder_kem_public>
-      ciphertext = aenc(~kem_secret, responder_kem_public)
+      ciphertext = kemenc(~kem_secret, responder_kem_public)
       transcript = <'client-finish', context, initiator, responder,
                     client_nonce, session_id, server_nonce, ciphertext>
       shared_secret = h(<'ACTIVECHAIN-PQ-SESSION-KDF-V2', ~kem_secret, transcript>)
@@ -102,7 +111,7 @@ rule AuthenticateAndEncapsulate:
 rule AcceptClientFinish:
   let context = <'ACTIVECHAIN-PQ-SESSION-V2', chain, epoch,
                  'ACTIVECHAIN-PROTOCOL-REVISION-1', 'ML-DSA-44', 'ML-KEM-768'>
-      ciphertext = aenc(kem_secret, pk(responder_kem_key))
+      ciphertext = kemenc(kem_secret, kempk(responder_kem_key))
       transcript = <'client-finish', context, initiator, responder,
                     client_nonce, session_id, server_nonce, ciphertext>
       shared_secret = h(<'ACTIVECHAIN-PQ-SESSION-KDF-V2', kem_secret, transcript>)
@@ -296,11 +305,8 @@ lemma initiator_acceptance_authenticates_responder:
               session_id,chain,epoch,initiator,responder,
               transcript,shared_secret)@j & #j < #i)
          |
-         ( (Ex #s.
-              SigningKeyCompromised(chain,epoch,responder)@s & #s < #i)
-           &
-           (Ex #k.
-              KemKeyCompromised(session_id,chain,epoch,responder)@k & #k < #i) ) )"
+         (Ex #s.
+            SigningKeyCompromised(chain,epoch,responder)@s & #s < #i) )"
 
 lemma honest_session_protected_acceptance_has_a_sender:
   "All session_id chain epoch initiator responder transcript shared_secret
