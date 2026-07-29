@@ -65,7 +65,7 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 - [x] Add strict parent CashAIR proof byte-envelope decoding with suite binding and trailing-byte rejection.
 - [x] Add strict authenticated composite proof byte-envelope decoding with suite, row-count, and
   per-proof bounds; full-depth happy-path qualification remains an explicit benchmark gate.
-- [ ] Resolve the remaining CashAIR review gates: wire amount range constraints into the AIR and
+- [ ] Resolve the remaining CashAIR review gates ([#323](https://github.com/advatar/ActiveChain/issues/323)): wire amount range constraints into the AIR and
   replace the ignored composite happy-path with a bounded CI fixture. The SHAKE FRI set is now
   explicit, pinned at log_blowup=3, 32 queries, and 16 grinding bits (112-bit conjectured floor).
   As of 2026-07-27, `cargo test -p activechain-cash-air --offline` passes 22 tests with one
