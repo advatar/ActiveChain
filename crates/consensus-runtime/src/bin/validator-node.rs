@@ -20,6 +20,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let validator_index: Option<usize> = args.next().map(|value| value.parse()).transpose()?;
     let extras: Vec<String> = args.collect();
     let run_once = extras.iter().any(|value| value == "--once");
+    let timeout_once = extras.iter().any(|value| value == "--timeout-once");
+    let timeout_delay_ms = extras
+        .iter()
+        .find_map(|value| value.strip_prefix("--timeout-delay-ms="))
+        .map(str::parse)
+        .transpose()?
+        .unwrap_or(0_u64);
     let key_file = extras.iter().find_map(|value| value.strip_prefix("--key-file="));
     let peer_specs: Vec<&str> =
         extras.iter().filter_map(|value| value.strip_prefix("--peer=")).collect();
@@ -85,7 +92,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let local_peer_id = index as u16 + 1;
         let signer = std::sync::Arc::clone(signer);
-        if run_once && !peer_specs.is_empty() {
+        if (run_once || timeout_once) && !peer_specs.is_empty() {
             let service = std::sync::Arc::new(
                 ValidatorService::from_active_manifest(
                     state,
@@ -134,6 +141,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             let connector = activechain_consensus_runtime::PeerConnector::new(endpoints)
                 .map_err(|_| "invalid peer configuration")?;
+            if timeout_delay_ms > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(timeout_delay_ms));
+            }
             let challenge = [23; 32];
             let (mut peers, failures) =
                 connector.connect_all_with_handshake(local_peer_id, &signer, challenge);
@@ -147,6 +157,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let sequence = service
                 .next_sequence(local_peer_id)
                 .map_err(|error| format!("cannot reserve next sequence: {error:?}"))?;
+            if timeout_once {
+                service
+                    .timeout_round_and_broadcast(
+                        &signer,
+                        next_height,
+                        next_round,
+                        sequence,
+                        &mut peers,
+                    )
+                    .map_err(|error| format!("timeout vote failed: {error:?}"))?;
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                loop {
+                    let (height, round) = service
+                        .next_proposal_position()
+                        .map_err(|error| format!("cannot read view-change position: {error:?}"))?;
+                    if height == next_height && round == next_round + 1 {
+                        println!(
+                            "completed timeout quorum: height={height} timed_out_round={next_round} next_round={round}"
+                        );
+                        return Ok(());
+                    }
+                    if std::time::Instant::now() >= deadline {
+                        return Err("timeout quorum did not form".into());
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(25));
+                }
+            }
             let block_digest = {
                 let mut digest = [0_u8; 48];
                 let mut hasher = Shake256::default();

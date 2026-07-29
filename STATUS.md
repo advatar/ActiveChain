@@ -32,7 +32,7 @@ Tracked by [GitHub issue #329](https://github.com/advatar/ActiveChain/issues/329
   envelope, persist replay high-water state before admission, and expose durable timeout/publish APIs.
 - [x] Exercise three-validator timeout quorum, deterministic leader rotation, snapshot restart,
   replay rejection, forged timeout signatures, and rotating-leader sustained finality in unit tests.
-- [ ] Add adversarial unit/model/process tests for `u64::MAX`, skipped rounds, replay, restart,
+- [x] Add adversarial unit/model/process tests for `u64::MAX`, skipped rounds, replay, restart,
   absent/malicious leaders, and continued finality after leader rotation.
 - [ ] Pass the complete deterministic-kernel gate, merge to `main`, and verify reachability before
   closing #329.

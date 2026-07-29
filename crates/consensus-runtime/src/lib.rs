@@ -3518,7 +3518,11 @@ impl ValidatorService {
     }
     pub fn next_proposal_position(&self) -> Result<(u64, u64), ValidatorServiceError> {
         let engine = self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
-        let parent = engine.preferred_justification().parent();
+        let justification = engine.preferred_justification();
+        if let ProposalJustification::ViewChange(certificate) = &justification {
+            return Ok((certificate.height(), certificate.next_round()));
+        }
+        let parent = justification.parent();
         let height = parent
             .height()
             .checked_add(1)
@@ -3694,6 +3698,17 @@ impl ValidatorService {
             .map_err(ValidatorServiceError::Engine)?;
         self.process_message(message.clone())?;
         Ok(message)
+    }
+    pub fn timeout_round_and_broadcast(
+        &self,
+        signer: &ValidatorSigner,
+        height: u64,
+        round: u64,
+        sequence: u64,
+        peers: &mut PeerDirectory,
+    ) -> Result<(), ValidatorServiceError> {
+        let message = self.timeout_round(signer, height, round, sequence)?;
+        peers.broadcast_message(&message).map_err(ValidatorServiceError::Io)
     }
     /// Publishes the exact durable timeout quorum for peers that missed individual timeout votes.
     pub fn publish_view_change(
