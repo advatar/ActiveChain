@@ -116,7 +116,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         peer,
                         local_peer_id,
                         &signer,
-                        [23; 32],
                     ) {
                         eprintln!("authenticated genesis peer {} rejected: {error}", local_peer_id);
                     }
@@ -144,13 +143,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if timeout_delay_ms > 0 {
                 std::thread::sleep(std::time::Duration::from_millis(timeout_delay_ms));
             }
-            let challenge = [23; 32];
             let (mut peers, failures) =
-                connector.connect_all_with_handshake(local_peer_id, &signer, challenge);
+                connector.connect_all_authenticated(local_peer_id, &signer, &service);
             if !failures.is_empty() {
                 return Err(format!("peer connection failures: {failures:?}").into());
             }
-            let peer_ids: Vec<u16> = peers.peers().map(|(id, _)| *id).collect();
+            let peer_ids: Vec<u16> = peers.peer_ids().collect();
             let (next_height, next_round) = service
                 .next_proposal_position()
                 .map_err(|error| format!("cannot derive next proposal position: {error:?}"))?;
@@ -283,16 +281,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     peer,
                     local_peer_id,
                     &signer,
-                    [23; 32],
                 ) {
                     eprintln!("authenticated genesis peer {} rejected: {error}", local_peer_id);
                 }
             })?;
         } else {
-            listener.spawn_accept_loop(move |peer| {
-                let service = std::sync::Arc::clone(&service);
-                let _ = service.serve_peer(peer);
-            })?;
+            return Err("validator genesis requires a configured validator index".into());
         }
     } else {
         listener.spawn_accept_loop(|mut peer| {
