@@ -1592,6 +1592,7 @@ impl ReplayGuard {
 const MAX_PERSISTED_REPLAY_SENDERS: usize = activechain_protocol_types::MAX_VALIDATORS_PER_EPOCH;
 const MAX_PERSISTED_VOTE_LOCKS: usize = 4096;
 const MAX_PERSISTED_CERTIFIED_BLOCKS: usize = 4096;
+const MAX_ACTIVE_COLLECTORS: usize = activechain_protocol_types::MAX_VALIDATORS_PER_EPOCH;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct LocalVoteSlot {
@@ -2060,7 +2061,8 @@ pub struct ValidatorEngine {
     genesis_commitment: Digest384,
     validator_set: ValidatorSet,
     public_keys: BTreeMap<activechain_protocol_types::PrincipalId, Vec<u8>>,
-    collector: Option<VoteCollector>,
+    collectors: BTreeMap<Digest384, VoteCollector>,
+    current_proposal: Option<Digest384>,
     local_vote_locks: BTreeMap<LocalVoteSlot, Digest384>,
     highest_voted_rounds: BTreeMap<LocalVoteDomain, HighestVotedRound>,
     locked_qc: Option<QuorumCertificate>,
@@ -2122,7 +2124,8 @@ impl ValidatorEngine {
             genesis_commitment,
             validator_set,
             public_keys,
-            collector: None,
+            collectors: BTreeMap::new(),
+            current_proposal: None,
             local_vote_locks: BTreeMap::new(),
             highest_voted_rounds: BTreeMap::new(),
             locked_qc: None,
@@ -2337,7 +2340,8 @@ impl ValidatorEngine {
         self.state = next_state;
         self.validator_set = validator_set;
         self.public_keys = public_keys;
-        self.collector = None;
+        self.collectors.clear();
+        self.current_proposal = None;
         self.local_vote_locks.clear();
         self.highest_voted_rounds.clear();
         self.locked_qc = None;
@@ -2358,7 +2362,8 @@ impl ValidatorEngine {
         self.state
             .apply_upgrade_after_certified_block(authorization, handoff_anchor)
             .map_err(|_| ValidatorEngineError::InvalidProtocolUpgrade)?;
-        self.collector = None;
+        self.collectors.clear();
+        self.current_proposal = None;
         self.local_vote_locks.clear();
         self.highest_voted_rounds.clear();
         self.locked_qc = None;
@@ -2451,8 +2456,8 @@ impl ValidatorEngine {
         validator: PrincipalId,
     ) -> Result<PreparedValidatorVote, ValidatorEngineError> {
         let proposal = self
-            .collector
-            .as_ref()
+            .current_proposal
+            .and_then(|commitment| self.collectors.get(&commitment))
             .ok_or(ValidatorEngineError::MissingProposal)?
             .proposal()
             .clone();
@@ -2550,12 +2555,22 @@ impl ValidatorEngine {
                 admit_proposal(&self.state, self.genesis_commitment, &proposal, key)
                     .map_err(ValidatorEngineError::Proposal)?;
                 self.verify_proposal_safety(&proposal)?;
-                self.collector = Some(VoteCollector::new(
-                    proposal,
-                    self.genesis_commitment,
-                    self.state.validator_set_root(),
-                    self.state.protocol_revision(),
-                ));
+                let commitment = proposal.commitment();
+                if !self.collectors.contains_key(&commitment) {
+                    if self.collectors.len() >= MAX_ACTIVE_COLLECTORS {
+                        return Err(ValidatorEngineError::CollectorLimit);
+                    }
+                    self.collectors.insert(
+                        commitment,
+                        VoteCollector::new(
+                            proposal,
+                            self.genesis_commitment,
+                            self.state.validator_set_root(),
+                            self.state.protocol_revision(),
+                        ),
+                    );
+                }
+                self.current_proposal = Some(commitment);
                 Ok(None)
             }
             ConsensusMessage::Vote(vote) => {
@@ -2563,29 +2578,50 @@ impl ValidatorEngine {
                     .public_keys
                     .get(&vote.validator())
                     .ok_or(ValidatorEngineError::UnknownValidator)?;
-                let collector =
-                    self.collector.as_mut().ok_or(ValidatorEngineError::MissingProposal)?;
-                collector
-                    .add_vote(&self.validator_set, key, vote)
-                    .map_err(ValidatorEngineError::Vote)?;
-                match collector.finalize(self.state.epoch(), &self.validator_set) {
-                    Ok(certificate) => {
-                        let votes: Vec<_> =
-                            collector.votes().iter().map(|(_, vote)| vote.clone()).collect();
-                        let proof =
-                            CertifiedBlock::new(collector.proposal().clone(), certificate, votes)
-                                .map_err(ValidatorEngineError::Transport)?;
-                        self.apply_certificate(&proof)?;
-                        self.collector = None;
-                        Ok(Some(proof))
+                let commitment = vote.proposal_commitment();
+                let proof = {
+                    let collector = self
+                        .collectors
+                        .get_mut(&commitment)
+                        .ok_or(ValidatorEngineError::MissingProposal)?;
+                    collector
+                        .add_vote(&self.validator_set, key, vote)
+                        .map_err(ValidatorEngineError::Vote)?;
+                    match collector.finalize(self.state.epoch(), &self.validator_set) {
+                        Ok(certificate) => {
+                            let votes: Vec<_> =
+                                collector.votes().iter().map(|(_, vote)| vote.clone()).collect();
+                            Some(
+                                CertifiedBlock::new(
+                                    collector.proposal().clone(),
+                                    certificate,
+                                    votes,
+                                )
+                                .map_err(ValidatorEngineError::Transport)?,
+                            )
+                        }
+                        Err(VoteCollectionError::InsufficientStake) => None,
+                        Err(error) => return Err(ValidatorEngineError::Vote(error)),
                     }
-                    Err(VoteCollectionError::InsufficientStake) => Ok(None),
-                    Err(error) => Err(ValidatorEngineError::Vote(error)),
+                };
+                if let Some(proof) = proof {
+                    self.apply_certificate(&proof)?;
+                    self.collectors.remove(&commitment);
+                    if self.current_proposal == Some(commitment) {
+                        self.current_proposal = None;
+                    }
+                    Ok(Some(proof))
+                } else {
+                    Ok(None)
                 }
             }
             ConsensusMessage::Certificate(proof) => {
+                let commitment = proof.certificate().proposal_commitment();
                 self.apply_certificate(&proof)?;
-                self.collector = None;
+                self.collectors.remove(&commitment);
+                if self.current_proposal == Some(commitment) {
+                    self.current_proposal = None;
+                }
                 Ok(None)
             }
             ConsensusMessage::CertifiedBlockRequest(commitment) => self
@@ -2762,6 +2798,7 @@ pub enum ValidatorEngineError {
     StaleLocalView,
     VoteDomainMismatch,
     VoteLockLimit,
+    CollectorLimit,
     CertifiedBlockLimit,
     InvalidFinalizedAnchor,
     InvalidCashSnapshot,
@@ -4200,6 +4237,98 @@ mod tests {
     }
 
     #[test]
+    fn competing_proposal_does_not_discard_accumulated_quorum_votes() {
+        use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
+        let signers = [
+            ValidatorSigner::from_seed(PrincipalId::new(Digest384::new([201; 48])), [202; 32]),
+            ValidatorSigner::from_seed(PrincipalId::new(Digest384::new([203; 48])), [204; 32]),
+            ValidatorSigner::from_seed(PrincipalId::new(Digest384::new([205; 48])), [206; 32]),
+        ];
+        let mut entries: Vec<_> = signers
+            .iter()
+            .map(|signer| {
+                ValidatorGenesisEntry::new(
+                    signer.validator(),
+                    1,
+                    signer.public_key().try_into().unwrap(),
+                )
+                .unwrap()
+            })
+            .collect();
+        entries.sort_by_key(ValidatorGenesisEntry::validator);
+        let genesis = ValidatorGenesis::new(1, 1, entries).unwrap();
+        let context = ConsensusVoteContext::new(
+            genesis.genesis_commitment(),
+            genesis.epoch(),
+            genesis.validator_set_root(),
+        )
+        .unwrap();
+        let proposal_a = signers[0]
+            .sign_proposal(context, 1, 0, Digest384::new([207; 48]), genesis_justification(context))
+            .unwrap();
+        let proposal_b = signers[1]
+            .sign_proposal(context, 1, 0, Digest384::new([208; 48]), genesis_justification(context))
+            .unwrap();
+        let commitment_a = proposal_a.commitment();
+        let commitment_b = proposal_b.commitment();
+        let mut engine = ValidatorEngine::from_genesis(
+            ConsensusState::new_with_validator_set_root(1, genesis.validator_set_root()),
+            &genesis,
+        )
+        .unwrap();
+        engine.process(ConsensusMessage::Proposal(proposal_a.clone())).unwrap();
+        assert!(
+            engine
+                .process(ConsensusMessage::Vote(
+                    signers[0]
+                        .sign_vote(
+                            &proposal_a,
+                            genesis.genesis_commitment(),
+                            genesis.validator_set_root(),
+                            genesis.protocol_revision(),
+                        )
+                        .unwrap(),
+                ))
+                .unwrap()
+                .is_none()
+        );
+        engine.process(ConsensusMessage::Proposal(proposal_b)).unwrap();
+        assert!(engine.collectors.contains_key(&commitment_a));
+        assert!(engine.collectors.contains_key(&commitment_b));
+        assert!(
+            engine
+                .process(ConsensusMessage::Vote(
+                    signers[1]
+                        .sign_vote(
+                            &proposal_a,
+                            genesis.genesis_commitment(),
+                            genesis.validator_set_root(),
+                            genesis.protocol_revision(),
+                        )
+                        .unwrap(),
+                ))
+                .unwrap()
+                .is_none()
+        );
+        let proof = engine
+            .process(ConsensusMessage::Vote(
+                signers[2]
+                    .sign_vote(
+                        &proposal_a,
+                        genesis.genesis_commitment(),
+                        genesis.validator_set_root(),
+                        genesis.protocol_revision(),
+                    )
+                    .unwrap(),
+            ))
+            .unwrap()
+            .unwrap();
+        assert_eq!(proof.certificate().proposal_commitment(), commitment_a);
+        assert!(!engine.collectors.contains_key(&commitment_a));
+        assert!(engine.collectors.contains_key(&commitment_b));
+    }
+
+    #[test]
     fn same_slot_same_payload_different_signed_proposal_is_rejected_after_restart() {
         use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
         let first =
@@ -4470,7 +4599,7 @@ mod tests {
         assert_eq!(after.locked_qc, before.locked_qc);
         assert_eq!(after.active_anchor, before.active_anchor);
         assert_eq!(after.certified_blocks, before.certified_blocks);
-        assert!(after.collector.is_some());
+        assert!(!after.collectors.is_empty());
     }
 
     #[test]
