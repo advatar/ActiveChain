@@ -64,6 +64,12 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
   escrow/attestation boundary in `spec/protocol/P-133-compute-admission.md`.
 - [ ] Add canonical escrow/attestation vectors and reserve a future compute verifier interface.
 
+## Active protocol decision — P-134 independent client
+
+- [x] Publish a bounded v1.0 conformance surface and Go verifier milestones in
+  `spec/protocol/P-134-independent-client.md`.
+- [ ] Freeze the language-neutral vectors and implement the independent verifier through M2.
+
 ## Active milestone — P-060 execution proof system
 
 - [x] Publish the P-060 selection/security specification and explicit re-execution transition gate.
