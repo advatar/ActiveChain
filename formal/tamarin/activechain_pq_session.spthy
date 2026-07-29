@@ -17,37 +17,31 @@ functions:
  * secret and the complete signed transcript is the usable session key. The
  * constructors do not claim a reduction for FIPS 203 or FIPS 204.
  *
- * Every signed transcript contains the protocol version, chain identity,
- * epoch, both peer identities, both fresh nonces, the responder-selected
- * session identifier, and the ML-KEM ciphertext. Only the literal PQ suite
- * pair has an accepting rule. Challenge, finish, and first-message rights are
+ * Every signed transcript contains the session version, protocol revision,
+ * chain identity, epoch, both peer identities, both fresh nonces, the
+ * responder-selected session identifier, the responder's fresh ephemeral
+ * ML-KEM public key, and the ML-KEM ciphertext. Only the literal PQ suite pair
+ * has an accepting rule. Challenge, finish, and first-message rights are
  * linear facts, making byte replay observable but non-accepting.
  */
 
 rule InstallPeerPair:
   [ Fr(~chain), Fr(~epoch), Fr(~initiator), Fr(~responder),
-    Fr(~initiator_signing_key), Fr(~responder_signing_key),
-    Fr(~responder_kem_key) ]
+    Fr(~initiator_signing_key), Fr(~responder_signing_key) ]
   --[ ContextInstalled(~chain, ~epoch, ~initiator, ~responder),
       SigningKeyRegistered(
         ~chain, ~epoch, ~initiator, pk(~initiator_signing_key)),
       SigningKeyRegistered(
-        ~chain, ~epoch, ~responder, pk(~responder_signing_key)),
-      KemKeyRegistered(
-        ~chain, ~epoch, ~responder, pk(~responder_kem_key)) ]->
+        ~chain, ~epoch, ~responder, pk(~responder_signing_key)) ]->
   [ !PQContext(~chain, ~epoch, ~initiator, ~responder),
     !SigningKey(~chain, ~epoch, ~initiator, ~initiator_signing_key),
     !SigningKey(~chain, ~epoch, ~responder, ~responder_signing_key),
-    !KemRecipient(~chain, ~epoch, ~responder, ~responder_kem_key),
-    !KemPublic(
-      ~chain, ~epoch, ~responder, pk(~responder_kem_key)),
     Out(<~chain, ~epoch, ~initiator, ~responder,
-         pk(~initiator_signing_key), pk(~responder_signing_key),
-         pk(~responder_kem_key)>) ]
+         pk(~initiator_signing_key), pk(~responder_signing_key)>) ]
 
 rule StartSession:
-  let context = <'ACTIVECHAIN-PQ-SESSION-V1', chain, epoch,
-                 'ML-DSA-44', 'ML-KEM-768'>
+  let context = <'ACTIVECHAIN-PQ-SESSION-V2', chain, epoch,
+                 'ACTIVECHAIN-PROTOCOL-REVISION-1', 'ML-DSA-44', 'ML-KEM-768'>
       client_hello = <'client-hello', context, initiator, responder, ~client_nonce>
   in
   [ !PQContext(chain, epoch, initiator, responder), Fr(~client_nonce) ]
@@ -58,37 +52,41 @@ rule StartSession:
     Out(client_hello) ]
 
 rule IssueAuthenticatedChallenge:
-  let context = <'ACTIVECHAIN-PQ-SESSION-V1', chain, epoch,
-                 'ML-DSA-44', 'ML-KEM-768'>
+  let context = <'ACTIVECHAIN-PQ-SESSION-V2', chain, epoch,
+                 'ACTIVECHAIN-PROTOCOL-REVISION-1', 'ML-DSA-44', 'ML-KEM-768'>
       client_hello = <'client-hello', context, initiator, responder, client_nonce>
       challenge = <'server-challenge', context, initiator, responder,
-                   client_nonce, ~session_id, ~server_nonce>
+                   client_nonce, ~session_id, ~server_nonce,
+                   pk(~responder_kem_key)>
   in
   [ !PQContext(chain, epoch, initiator, responder),
     !SigningKey(chain, epoch, responder, responder_signing_key),
-    In(client_hello), Fr(~session_id), Fr(~server_nonce) ]
+    In(client_hello), Fr(~session_id), Fr(~server_nonce),
+    Fr(~responder_kem_key) ]
   --[ ChallengeIssued(
         ~session_id, chain, epoch, initiator, responder,
         client_nonce, ~server_nonce) ]->
   [ ChallengeOutstanding(
       ~session_id, chain, epoch, initiator, responder,
-      client_nonce, ~server_nonce),
+      client_nonce, ~server_nonce, ~responder_kem_key),
+    !EphemeralKemRecipient(
+      ~session_id, chain, epoch, responder, ~responder_kem_key),
     Out(<challenge, sign(challenge, responder_signing_key)>) ]
 
 rule AuthenticateAndEncapsulate:
-  let context = <'ACTIVECHAIN-PQ-SESSION-V1', chain, epoch,
-                 'ML-DSA-44', 'ML-KEM-768'>
+  let context = <'ACTIVECHAIN-PQ-SESSION-V2', chain, epoch,
+                 'ACTIVECHAIN-PROTOCOL-REVISION-1', 'ML-DSA-44', 'ML-KEM-768'>
       challenge = <'server-challenge', context, initiator, responder,
-                   client_nonce, session_id, server_nonce>
+                   client_nonce, session_id, server_nonce,
+                   responder_kem_public>
       ciphertext = aenc(~kem_secret, responder_kem_public)
       transcript = <'client-finish', context, initiator, responder,
                     client_nonce, session_id, server_nonce, ciphertext>
-      shared_secret = h(<'ACTIVECHAIN-PQ-SESSION-KDF-V1', ~kem_secret, transcript>)
+      shared_secret = h(<'ACTIVECHAIN-PQ-SESSION-KDF-V2', ~kem_secret, transcript>)
   in
   [ InitiatorPending(chain, epoch, initiator, responder, client_nonce),
     !SigningKey(chain, epoch, initiator, initiator_signing_key),
     !SigningKey(chain, epoch, responder, responder_signing_key),
-    !KemPublic(chain, epoch, responder, responder_kem_public),
     In(<challenge, sign(challenge, responder_signing_key)>),
     Fr(~kem_secret) ]
   --[ AuthenticatedChallenge(
@@ -102,24 +100,25 @@ rule AuthenticateAndEncapsulate:
     Out(<transcript, sign(transcript, initiator_signing_key)>) ]
 
 rule AcceptClientFinish:
-  let context = <'ACTIVECHAIN-PQ-SESSION-V1', chain, epoch,
-                 'ML-DSA-44', 'ML-KEM-768'>
+  let context = <'ACTIVECHAIN-PQ-SESSION-V2', chain, epoch,
+                 'ACTIVECHAIN-PROTOCOL-REVISION-1', 'ML-DSA-44', 'ML-KEM-768'>
       ciphertext = aenc(kem_secret, pk(responder_kem_key))
       transcript = <'client-finish', context, initiator, responder,
                     client_nonce, session_id, server_nonce, ciphertext>
-      shared_secret = h(<'ACTIVECHAIN-PQ-SESSION-KDF-V1', kem_secret, transcript>)
+      shared_secret = h(<'ACTIVECHAIN-PQ-SESSION-KDF-V2', kem_secret, transcript>)
       confirmation = <'server-finish', transcript,
                       confirm(transcript, shared_secret)>
   in
   [ ChallengeOutstanding(
       session_id, chain, epoch, initiator, responder,
-      client_nonce, server_nonce),
+      client_nonce, server_nonce, responder_kem_key),
     !SigningKey(chain, epoch, initiator, initiator_signing_key),
     !SigningKey(chain, epoch, responder, responder_signing_key),
-    !KemRecipient(chain, epoch, responder, responder_kem_key),
+    !EphemeralKemRecipient(
+      session_id, chain, epoch, responder, responder_kem_key),
     In(<transcript, sign(transcript, initiator_signing_key)>) ]
   --[ PQSuiteAccepted(
-        session_id, 'ACTIVECHAIN-PQ-SESSION-V1',
+        session_id, 'ACTIVECHAIN-PQ-SESSION-V2',
         'ML-DSA-44', 'ML-KEM-768'),
       ClientMLDSAVerified(
         session_id, chain, epoch, initiator, transcript, 'ML-DSA-44'),
@@ -159,8 +158,8 @@ rule AcceptServerConfirmation:
  * receive-side replay consumption explicit without modeling an unbounded
  * transport sequence. */
 rule SendFirstProtectedMessage:
-  let associated_data = <'ACTIVECHAIN-PROTECTED-V1', chain, epoch,
-                         session_id, initiator, responder, 'sequence-0'>
+  let associated_data = <'ACTIVECHAIN-PROTECTED-V2', chain, epoch,
+                         session_id, initiator, responder, 'sequence-1'>
       envelope = <associated_data,
                   senc(<associated_data, payload>, shared_secret)>
   in
@@ -172,8 +171,8 @@ rule SendFirstProtectedMessage:
   [ Out(envelope) ]
 
 rule AcceptFirstProtectedMessage:
-  let associated_data = <'ACTIVECHAIN-PROTECTED-V1', chain, epoch,
-                         session_id, initiator, responder, 'sequence-0'>
+  let associated_data = <'ACTIVECHAIN-PROTECTED-V2', chain, epoch,
+                         session_id, initiator, responder, 'sequence-1'>
       envelope = <associated_data,
                   senc(<associated_data, payload>, shared_secret)>
   in
@@ -192,8 +191,8 @@ rule ObserveReplayableBytes:
   [ ]
 
 /* Long-term signing compromise permits peer impersonation from that point.
- * Static ML-KEM decapsulation-key compromise exposes recorded past sessions,
- * so the secrecy theorem below deliberately makes no forward-secrecy claim. */
+ * Ephemeral ML-KEM decapsulation-key compromise exposes its recorded session,
+ * so the secrecy theorem below deliberately makes no erasure claim. */
 rule RevealSigningKey:
   [ !SigningKey(chain, epoch, peer, signing_key),
     In(<'reveal-signing-key', chain, epoch, peer>) ]
@@ -201,9 +200,9 @@ rule RevealSigningKey:
   [ Out(signing_key) ]
 
 rule RevealKemKey:
-  [ !KemRecipient(chain, epoch, peer, kem_key),
-    In(<'reveal-kem-key', chain, epoch, peer>) ]
-  --[ KemKeyCompromised(chain, epoch, peer) ]->
+  [ !EphemeralKemRecipient(session_id, chain, epoch, peer, kem_key),
+    In(<'reveal-kem-key', session_id, chain, epoch, peer>) ]
+  --[ KemKeyCompromised(session_id, chain, epoch, peer) ]->
   [ Out(kem_key) ]
 
 rule RevealEstablishedSessionKey:
@@ -236,7 +235,7 @@ lemma no_suite_downgrade_is_accepted:
   "All session_id version signature_suite kem_suite #i.
      PQSuiteAccepted(session_id,version,signature_suite,kem_suite)@i
      ==>
-       version = 'ACTIVECHAIN-PQ-SESSION-V1'
+       version = 'ACTIVECHAIN-PQ-SESSION-V2'
        & signature_suite = 'ML-DSA-44'
        & kem_suite = 'ML-KEM-768'"
 
@@ -301,7 +300,7 @@ lemma initiator_acceptance_authenticates_responder:
               SigningKeyCompromised(chain,epoch,responder)@s & #s < #i)
            &
            (Ex #k.
-              KemKeyCompromised(chain,epoch,responder)@k & #k < #i) ) )"
+              KemKeyCompromised(session_id,chain,epoch,responder)@k & #k < #i) ) )"
 
 lemma honest_session_protected_acceptance_has_a_sender:
   "All session_id chain epoch initiator responder transcript shared_secret
@@ -321,7 +320,7 @@ lemma honest_session_protected_acceptance_has_a_sender:
             SessionKeyCompromised(session_id)@c & #c < #i)
          |
          (Ex #k.
-            KemKeyCompromised(chain,epoch,responder)@k & #k < #i) )"
+            KemKeyCompromised(session_id,chain,epoch,responder)@k & #k < #i) )"
 
 lemma honest_established_secret_requires_compromise_to_leak:
   "All session_id chain epoch initiator responder transcript shared_secret
@@ -333,7 +332,7 @@ lemma honest_established_secret_requires_compromise_to_leak:
      & K(shared_secret)@j
      ==>
        ( (Ex #k.
-            KemKeyCompromised(chain,epoch,responder)@k & #k < #j)
+            KemKeyCompromised(session_id,chain,epoch,responder)@k & #k < #j)
          |
          (Ex #s.
             SessionKeyCompromised(session_id)@s & #s < #j) )"

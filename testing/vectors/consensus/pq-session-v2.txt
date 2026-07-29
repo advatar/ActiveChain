@@ -1,0 +1,15 @@
+domain=ACTIVECHAIN-PQ-SESSION-V2
+kdf_domain=ACTIVECHAIN-PQ-SESSION-KDF-V2
+confirmation_domain=ACTIVECHAIN-PQ-SESSION-CONFIRM-V2
+session_id_domain=ACTIVECHAIN-PQ-SESSION-ID-V2
+protected_domain=ACTIVECHAIN-PQ-PROTECTED-V2
+store_domain=ACTIVECHAIN-PQ-SESSION-STORE-V2
+dsa_suite=0x0101
+kem_suite=0x0201
+kem_public_key_len=1184
+kem_ciphertext_len=1088
+signature_len=2420
+session_ttl_seconds=120
+max_clock_skew_seconds=5
+first_protected_sequence=1
+max_sessions=256

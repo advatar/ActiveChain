@@ -791,4 +791,23 @@ mod tests {
 
         std::fs::remove_file(path).unwrap();
     }
+
+    #[test]
+    fn pq_session_v2_constants_match_canonical_vector() {
+        let expected = format!(
+            "domain={}\nkdf_domain={}\nconfirmation_domain={}\nsession_id_domain={}\n\
+             protected_domain={}\nstore_domain={}\ndsa_suite=0x{DSA_SUITE:04x}\n\
+             kem_suite=0x{KEM_SUITE:04x}\nkem_public_key_len={KEM_PUBLIC_KEY_LEN}\n\
+             kem_ciphertext_len={KEM_CIPHERTEXT_LEN}\nsignature_len={SIGNATURE_LEN}\n\
+             session_ttl_seconds={SESSION_TTL_SECS}\nmax_clock_skew_seconds={MAX_CLOCK_SKEW_SECS}\n\
+             first_protected_sequence=1\nmax_sessions={MAX_SESSIONS}\n",
+            std::str::from_utf8(DOMAIN).unwrap(),
+            std::str::from_utf8(KDF_DOMAIN).unwrap(),
+            std::str::from_utf8(CONFIRM_DOMAIN).unwrap(),
+            std::str::from_utf8(SESSION_ID_DOMAIN).unwrap(),
+            std::str::from_utf8(PROTECTED_DOMAIN).unwrap(),
+            std::str::from_utf8(STORE_DOMAIN).unwrap(),
+        );
+        assert_eq!(include_str!("../../../testing/vectors/consensus/pq-session-v2.txt"), expected);
+    }
 }
