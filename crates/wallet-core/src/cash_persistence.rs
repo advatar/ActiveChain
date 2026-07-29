@@ -186,6 +186,32 @@ impl TransactionIngress {
         *self = next;
         Ok(())
     }
+
+    /// Applies one state-derived economics settlement and publishes the complete ledger and replay
+    /// state atomically. `None` is accepted only for a valid zero-issuance settlement.
+    pub fn settle_epoch_durable(
+        &mut self,
+        mint: Option<&activechain_cash_kernel::CoinMintTransition>,
+        settlement: &activechain_cash_kernel::EpochEconomicsTransition,
+        path: &Path,
+    ) -> Result<Option<CoinCellId>, WalletError> {
+        let mut next = self.clone();
+        let output = if let Some(mint) = mint {
+            Some(
+                next.ledger
+                    .apply_mint(mint, settlement)
+                    .map_err(|_| WalletError::InvalidEconomicsTransition)?,
+            )
+        } else {
+            next.ledger
+                .apply_zero_issuance_settlement(settlement)
+                .map_err(|_| WalletError::InvalidEconomicsTransition)?;
+            None
+        };
+        next.save_atomic(path)?;
+        *self = next;
+        Ok(output)
+    }
 }
 
 impl CanonicalEncode for TransactionIngress {

@@ -65,6 +65,11 @@ epochs without reopening current-window capacity. This lets migrated state reach
 without either minting or remaining frozen forever. Malformed, non-canonical, wrong-chain,
 over-cap, or arithmetically invalid state fails closed.
 
+`WalletTransactionGateway::settle_epoch_durable` is the validator-owned production entry point. It
+delegates to `TransactionIngress::settle_epoch_durable`, applies mint or zero-issuance settlement to
+a private next state, crash-atomically saves the complete ingress snapshot, and only then publishes
+the in-memory successor. There is no separate mutable mint path around this boundary.
+
 ## Supply accounting
 
 `NativeSupply` records genesis supply, cumulative security issuance, cumulative

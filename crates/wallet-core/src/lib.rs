@@ -175,6 +175,7 @@ pub enum WalletError {
     StaleIdentityProof,
     StateLimit,
     Persistence,
+    InvalidEconomicsTransition,
     AgentExists,
     UnknownAgent,
     AgentPaused,
@@ -891,9 +892,9 @@ mod tests {
     use super::*;
     use activechain_canonical_codec::encode_envelope;
     use activechain_cash_kernel::{
-        CoinCell, CoinCellOrigin, CoinCellRecord, CoinCellSet, FungibleCoinCell,
-        FungibleCoinCellRecord, FungibleCoinCellSet, GenesisAllocation, NativeAssetDefinition,
-        prove_coin_cell_membership,
+        CoinCell, CoinCellOrigin, CoinCellRecord, CoinCellSet, CoinMintTransition,
+        EpochEconomicsTransition, FungibleCoinCell, FungibleCoinCellRecord, FungibleCoinCellSet,
+        GenesisAllocation, NativeAssetDefinition, prove_coin_cell_membership,
     };
     use activechain_protocol_types::{
         AuthenticatorDescriptor, AuthenticatorId, AuthenticatorPurpose, CoinCellId, CryptoSuiteId,
@@ -1650,6 +1651,62 @@ mod tests {
         let rewritten = std::fs::read(&path).unwrap();
         assert_eq!(u16::from_be_bytes([rewritten[2], rewritten[3]]), 3);
         assert_eq!(TransactionIngress::load(&path, ChainId::new(digest(1))).unwrap(), migrated);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn durable_epoch_settlement_enforces_cap_and_survives_restart() {
+        let owner = principal(10);
+        let definition = NativeAssetDefinition::new(
+            ChainId::new(digest(1)),
+            b"ACT".to_vec(),
+            18,
+            1_000_000,
+            150,
+            digest(2),
+            digest(3),
+            digest(4),
+        )
+        .unwrap();
+        let economy = GenesisEconomy::new(
+            definition,
+            vec![GenesisAllocation::new(owner, 900_000, 0).unwrap()],
+            100_000,
+        )
+        .unwrap();
+        let mut ingress = TransactionIngress::from_genesis(&economy).unwrap();
+        let settlement = EpochEconomicsTransition::new(
+            1,
+            1_000_000,
+            0,
+            21,
+            0,
+            41,
+            20,
+            15_000,
+            0,
+            digest(20),
+            digest(21),
+            digest(22),
+            digest(23),
+            1_000_020,
+        )
+        .unwrap();
+        let mint = CoinMintTransition::new(digest(2), owner, 20, 1, 1).unwrap();
+        let path = std::env::temp_dir()
+            .join(format!("activechain-cash-economics-{}.bin", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        assert!(ingress.settle_epoch_durable(Some(&mint), &settlement, &path).unwrap().is_some());
+        let restored = TransactionIngress::load(&path, ChainId::new(digest(1))).unwrap();
+        assert_eq!(restored.ledger().supply().cumulative_security_issuance(), 20);
+        assert_eq!(restored.ledger().supply().issuance_in_window(), 20);
+
+        let before = ingress.clone();
+        assert_eq!(
+            ingress.settle_epoch_durable(Some(&mint), &settlement, &path),
+            Err(WalletError::InvalidEconomicsTransition)
+        );
+        assert_eq!(ingress, before);
         std::fs::remove_file(path).unwrap();
     }
 
