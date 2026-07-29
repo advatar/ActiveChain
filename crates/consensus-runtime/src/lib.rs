@@ -1359,7 +1359,11 @@ fn decode_validator_snapshot(bytes: &[u8]) -> Result<(PersistedValidatorState, b
 }
 
 fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-    let temporary = path.with_extension("tmp");
+    let file_name =
+        path.file_name().ok_or_else(|| invalid_data("atomic persistence path has no file name"))?;
+    let mut temporary_name = file_name.to_os_string();
+    temporary_name.push(".tmp");
+    let temporary = path.with_file_name(temporary_name);
     let mut file = std::fs::File::create(&temporary)?;
     file.write_all(bytes)?;
     file.sync_all()?;
@@ -6820,5 +6824,33 @@ fn validator_key_files_are_owner_only_manifest_bound_and_not_legacy_derived() {
         ValidatorSigner::from_key_file(&legacy_path, &legacy_genesis, &legacy_entry),
         Err(ValidatorKeyFileError::LegacyDeterministicKey)
     ));
+    std::fs::remove_dir_all(directory).unwrap();
+}
+#[test]
+fn atomic_persistence_files_with_one_stem_do_not_share_a_temporary_path() {
+    let directory =
+        std::env::temp_dir().join(format!("activechain-atomic-paths-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir(&directory).unwrap();
+    let snapshot = directory.join("validator.snapshot");
+    let sessions = directory.join("validator.sessions");
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    let first_barrier = Arc::clone(&barrier);
+    let first = std::thread::spawn(move || {
+        first_barrier.wait();
+        for _ in 0..32 {
+            write_atomic(&snapshot, b"snapshot").unwrap();
+        }
+    });
+    let second = std::thread::spawn(move || {
+        barrier.wait();
+        for _ in 0..32 {
+            write_atomic(&sessions, b"sessions").unwrap();
+        }
+    });
+    first.join().unwrap();
+    second.join().unwrap();
+    assert_eq!(std::fs::read(directory.join("validator.snapshot")).unwrap(), b"snapshot");
+    assert_eq!(std::fs::read(directory.join("validator.sessions")).unwrap(), b"sessions");
     std::fs::remove_dir_all(directory).unwrap();
 }
