@@ -1697,6 +1697,9 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 
 ## Planned milestone — external pre-launch security audit
 
+- [x] Publish the exact audit scope, evidence requests, exclusions, and release-blocking
+  acceptance criteria in `docs/SECURITY_AUDIT_SCOPE.md`.
+
 No audit has been completed; requirements and scope are frozen in `docs/SECURITY_AUDIT.md`. The
 wallet and all testnets remain explicitly developmental until this milestone completes.
 
