@@ -27,6 +27,30 @@ validator-node 4400 ./testnet/validator-0.snapshot ./testnet/genesis.bin 0 0 \
 Startup rejects missing keys, symlinks, hard links, group/other permissions, malformed files,
 manifest mismatches, and every legacy seed derivable from public genesis parameters.
 
+## Validator peer sessions
+
+Consensus sockets are not authorized by reachability or by a reusable challenge signature. Each
+connection completes the V2 server-challenge, signed client-finish, and signed server-confirmation
+exchange before any consensus frame is decoded. The signed transcript binds the immutable genesis
+commitment, validator-set epoch, numeric protocol revision, both validator IDs, ML-DSA-44 and
+ML-KEM-768 suite identifiers, fresh client/server nonces, timestamps, the session identifier, and
+the responder's fresh ephemeral KEM material.
+
+Sessions expire after 120 seconds. Operators should reconnect normally rather than extending a
+session or copying its state. The validator stores only bounded session identifiers, expiry, and
+send/receive high-water marks in the snapshot-adjacent `.sessions` file; it never persists the
+session key. High-water changes are written atomically before a protected frame is emitted or
+admitted. Preserve this file with the matching validator snapshot during an in-process restart.
+On an intentional genesis, epoch, or protocol-domain transition the runtime atomically replaces it
+with an empty store, so old-domain frames remain unusable.
+
+Do not copy `.sessions` between validators, restore it without its matching snapshot, or edit it.
+Corruption is fail-closed. Repeated authentication failures can indicate stale configuration,
+cross-genesis traffic, clock drift beyond five seconds, an incorrect peer key, or active replay.
+Alert on increases in `activechain_validator_peer_session_rejections`; compare them with
+`activechain_validator_peer_sessions_established` and the consensus rejection counter. A non-zero
+session-rejection rate during an isolated release rehearsal is a blocker.
+
 ## Compromise and rotation
 
 Treat a disclosed validator key and every certificate it signed as compromised. Do not overwrite
@@ -129,7 +153,8 @@ through three authenticated processes, and restarts each validator from durable 
 
 - Do not admit a validator whose genesis public key does not match its derived
   signer.
-- Do not accept consensus frames before the ML-DSA peer handshake succeeds.
+- Do not accept consensus frames before the mutually authenticated ML-DSA/ML-KEM V2 session
+  handshake and responder key confirmation succeed.
 - Stop rollout if any validator reports rejected messages, divergent genesis
   roots, or a snapshot that cannot be loaded after restart.
 - A testnet announcement requires a green self-hosted CI run and successful
@@ -137,8 +162,9 @@ through three authenticated processes, and restarts each validator from durable 
 - Public faucet and transaction-ingress endpoints may only be announced with the signed genesis
   manifest; placeholder endpoints are not launch infrastructure.
 
-Metrics exposed by `ValidatorService::metrics()` are intentionally monotonic:
-`proposals`, `votes`, `finalized_certificates`, and `rejected_messages`.
+Metrics exposed by `ValidatorService::metrics()` are intentionally monotonic: `proposals`, `votes`,
+`finalized_certificates`, `rejected_messages`, `peer_sessions_established`, and
+`peer_session_rejections`.
 
 ## Public DNS and TLS
 

@@ -221,6 +221,8 @@ pub struct ValidatorMetrics {
     votes: AtomicU64,
     finalized_certificates: AtomicU64,
     rejected_messages: AtomicU64,
+    peer_sessions_established: AtomicU64,
+    peer_session_rejections: AtomicU64,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MetricsSnapshot {
@@ -228,12 +230,19 @@ pub struct MetricsSnapshot {
     pub votes: u64,
     pub finalized_certificates: u64,
     pub rejected_messages: u64,
+    pub peer_sessions_established: u64,
+    pub peer_session_rejections: u64,
 }
 impl MetricsSnapshot {
     pub fn prometheus(self, validator_id: u16) -> String {
         format!(
-            "activechain_validator_proposals{{validator=\"{validator_id}\"}} {}\nactivechain_validator_votes{{validator=\"{validator_id}\"}} {}\nactivechain_validator_finalized_certificates{{validator=\"{validator_id}\"}} {}\nactivechain_validator_rejected_messages{{validator=\"{validator_id}\"}} {}\n",
-            self.proposals, self.votes, self.finalized_certificates, self.rejected_messages,
+            "activechain_validator_proposals{{validator=\"{validator_id}\"}} {}\nactivechain_validator_votes{{validator=\"{validator_id}\"}} {}\nactivechain_validator_finalized_certificates{{validator=\"{validator_id}\"}} {}\nactivechain_validator_rejected_messages{{validator=\"{validator_id}\"}} {}\nactivechain_validator_peer_sessions_established{{validator=\"{validator_id}\"}} {}\nactivechain_validator_peer_session_rejections{{validator=\"{validator_id}\"}} {}\n",
+            self.proposals,
+            self.votes,
+            self.finalized_certificates,
+            self.rejected_messages,
+            self.peer_sessions_established,
+            self.peer_session_rejections,
         )
     }
 }
@@ -244,6 +253,8 @@ impl ValidatorMetrics {
             votes: self.votes.load(Ordering::Relaxed),
             finalized_certificates: self.finalized_certificates.load(Ordering::Relaxed),
             rejected_messages: self.rejected_messages.load(Ordering::Relaxed),
+            peer_sessions_established: self.peer_sessions_established.load(Ordering::Relaxed),
+            peer_session_rejections: self.peer_session_rejections.load(Ordering::Relaxed),
         }
     }
 }
@@ -1160,18 +1171,32 @@ impl PeerConnector {
         signer: &ValidatorSigner,
         service: &ValidatorService,
     ) -> Result<(PeerSocket, PqPeerSession), std::io::Error> {
-        if service.sender_for(signer).map_err(|_| invalid_data("unknown local session signer"))?
-            != local_peer_id
-        {
-            return Err(invalid_data("local session signer identity mismatch"));
+        let result = (|| {
+            if service
+                .sender_for(signer)
+                .map_err(|_| invalid_data("unknown local session signer"))?
+                != local_peer_id
+            {
+                return Err(invalid_data("local session signer identity mismatch"));
+            }
+            let mut socket = self.reconnect(endpoint)?;
+            socket.set_timeouts(Some(Duration::from_secs(5)), Some(Duration::from_secs(5)))?;
+            let context = service.session_context(local_peer_id, endpoint.id)?;
+            let session = socket.initiate_pq_session(context, signer, &endpoint.public_key)?;
+            service.accept_session(&session)?;
+            socket.set_timeouts(None, None)?;
+            Ok((socket, session))
+        })();
+        match result {
+            Ok(connection) => {
+                service.record_peer_session_established();
+                Ok(connection)
+            }
+            Err(error) => {
+                service.record_peer_session_rejection();
+                Err(error)
+            }
         }
-        let mut socket = self.reconnect(endpoint)?;
-        socket.set_timeouts(Some(Duration::from_secs(5)), Some(Duration::from_secs(5)))?;
-        let context = service.session_context(local_peer_id, endpoint.id)?;
-        let session = socket.initiate_pq_session(context, signer, &endpoint.public_key)?;
-        service.accept_session(&session)?;
-        socket.set_timeouts(None, None)?;
-        Ok((socket, session))
     }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -3353,6 +3378,12 @@ impl ValidatorService {
             .map_err(|_| invalid_data("PQ session store lock poisoned"))?
             .accept_and_save(session, &self.session_store_path)
     }
+    fn record_peer_session_established(&self) {
+        self.metrics.peer_sessions_established.fetch_add(1, Ordering::Relaxed);
+    }
+    fn record_peer_session_rejection(&self) {
+        self.metrics.peer_session_rejections.fetch_add(1, Ordering::Relaxed);
+    }
     pub fn state(&self) -> Result<ConsensusState, ValidatorServiceError> {
         self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned).map(|engine| engine.state())
     }
@@ -3879,38 +3910,52 @@ impl ValidatorService {
         local_peer_id: u16,
         signer: &ValidatorSigner,
     ) -> std::io::Result<(PeerSocket, PqPeerSession)> {
-        if self.sender_for(signer).map_err(|_| invalid_data("unknown local session signer"))?
-            != local_peer_id
-        {
-            return Err(invalid_data("local session signer identity mismatch"));
+        let result = (|| {
+            if self.sender_for(signer).map_err(|_| invalid_data("unknown local session signer"))?
+                != local_peer_id
+            {
+                return Err(invalid_data("local session signer identity mismatch"));
+            }
+            peer.set_timeouts(Some(Duration::from_secs(5)), Some(Duration::from_secs(5)))?;
+            let (chain, epoch, protocol_revision, peer_keys) = {
+                let engine = self
+                    .engine
+                    .lock()
+                    .map_err(|_| invalid_data("validator engine lock poisoned"))?;
+                let keys = self
+                    .sender_keys
+                    .lock()
+                    .map_err(|_| invalid_data("validator sender-key lock poisoned"))?
+                    .clone();
+                (
+                    engine.genesis_commitment,
+                    engine.state.epoch(),
+                    engine.state.protocol_revision(),
+                    keys,
+                )
+            };
+            let session = peer.accept_pq_session(
+                chain,
+                epoch,
+                protocol_revision,
+                local_peer_id,
+                signer,
+                &peer_keys,
+            )?;
+            self.accept_session(&session)?;
+            peer.set_timeouts(None, None)?;
+            Ok((peer, session))
+        })();
+        match result {
+            Ok(connection) => {
+                self.record_peer_session_established();
+                Ok(connection)
+            }
+            Err(error) => {
+                self.record_peer_session_rejection();
+                Err(error)
+            }
         }
-        peer.set_timeouts(Some(Duration::from_secs(5)), Some(Duration::from_secs(5)))?;
-        let (chain, epoch, protocol_revision, peer_keys) = {
-            let engine =
-                self.engine.lock().map_err(|_| invalid_data("validator engine lock poisoned"))?;
-            let keys = self
-                .sender_keys
-                .lock()
-                .map_err(|_| invalid_data("validator sender-key lock poisoned"))?
-                .clone();
-            (
-                engine.genesis_commitment,
-                engine.state.epoch(),
-                engine.state.protocol_revision(),
-                keys,
-            )
-        };
-        let session = peer.accept_pq_session(
-            chain,
-            epoch,
-            protocol_revision,
-            local_peer_id,
-            signer,
-            &peer_keys,
-        )?;
-        self.accept_session(&session)?;
-        peer.set_timeouts(None, None)?;
-        Ok((peer, session))
     }
     fn receive_session_message(
         &self,
@@ -5884,6 +5929,9 @@ mod tests {
         .unwrap();
         let path =
             std::env::temp_dir().join(format!("activechain-live-{}.bin", std::process::id()));
+        let session_path = path.with_extension("sessions");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&session_path);
         let service = std::sync::Arc::new(
             ValidatorService::from_genesis(
                 ConsensusState::new_with_validator_set_root(1, genesis.validator_set_root()),
@@ -5935,7 +5983,10 @@ mod tests {
         drop(client);
         server.join().unwrap();
         assert_eq!(service.metrics().proposals, 1);
+        assert_eq!(service.metrics().peer_sessions_established, 1);
+        assert_eq!(service.metrics().peer_session_rejections, 0);
         let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(session_path);
     }
 
     #[test]
@@ -5968,7 +6019,9 @@ mod tests {
         .unwrap();
         let path = std::env::temp_dir()
             .join(format!("activechain-local-sequence-{}.bin", std::process::id()));
+        let session_path = path.with_extension("sessions");
         let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&session_path);
         let service = std::sync::Arc::new(
             ValidatorService::from_genesis(
                 ConsensusState::new_with_validator_set_root(1, genesis.validator_set_root()),
@@ -6029,6 +6082,7 @@ mod tests {
         ));
         drop(service);
         std::fs::remove_file(path).unwrap();
+        std::fs::remove_file(session_path).unwrap();
     }
 
     #[test]
@@ -6060,6 +6114,9 @@ mod tests {
         .unwrap();
         let path =
             std::env::temp_dir().join(format!("activechain-live-qc-{}.bin", std::process::id()));
+        let session_path = path.with_extension("sessions");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&session_path);
         let receiver = std::sync::Arc::new(
             ValidatorService::from_genesis(
                 ConsensusState::new_with_validator_set_root(1, genesis.validator_set_root()),
@@ -6140,6 +6197,7 @@ mod tests {
         }
         assert_eq!(receiver.state().unwrap().finalized_height(), 0);
         let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(session_path);
     }
 
     #[test]

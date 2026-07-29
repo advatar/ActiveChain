@@ -249,6 +249,23 @@ fn parse_server_challenge(bytes: &[u8]) -> std::io::Result<ParsedChallenge> {
     })
 }
 
+fn validate_server_challenge(
+    challenge: &ParsedChallenge,
+    expected_context: PqSessionContext,
+    expected_client_nonce: [u8; 32],
+    now: u64,
+) -> std::io::Result<()> {
+    if challenge.context != expected_context
+        || challenge.client_nonce != expected_client_nonce
+        || challenge.issued_at > now.saturating_add(MAX_CLOCK_SKEW_SECS)
+        || challenge.expires_at <= now
+        || challenge.expires_at.saturating_sub(challenge.issued_at) > SESSION_TTL_SECS
+    {
+        return Err(invalid_data("stale or mismatched PQ server challenge"));
+    }
+    Ok(())
+}
+
 fn derive(shared: &[u8; 32], transcript: &[u8]) -> [u8; 32] {
     expand(KDF_DOMAIN, &[shared, transcript])
 }
@@ -272,14 +289,7 @@ impl PeerSocket {
         let challenge_bytes = self.receive_frame()?;
         let challenge = parse_server_challenge(&challenge_bytes)?;
         let now = now_secs()?;
-        if challenge.context != context
-            || challenge.client_nonce != client_nonce
-            || challenge.issued_at > now.saturating_add(MAX_CLOCK_SKEW_SECS)
-            || challenge.expires_at <= now
-            || challenge.expires_at.saturating_sub(challenge.issued_at) > SESSION_TTL_SECS
-        {
-            return Err(invalid_data("stale or mismatched PQ server challenge"));
-        }
+        validate_server_challenge(&challenge, context, client_nonce, now)?;
         verify_ml_dsa44(
             responder_key,
             &challenge.unsigned,
@@ -726,6 +736,34 @@ mod tests {
     }
 
     #[test]
+    fn pq_session_rejects_wrong_responder_identity() {
+        let initiator =
+            ValidatorSigner::from_seed(PrincipalId::new(Digest384::new([21; 48])), [21; 32]);
+        let responder =
+            ValidatorSigner::from_seed(PrincipalId::new(Digest384::new([22; 48])), [22; 32]);
+        let impostor =
+            ValidatorSigner::from_seed(PrincipalId::new(Digest384::new([23; 48])), [23; 32]);
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let initiator_key = initiator.public_key();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            PeerSocket::connect(stream).accept_pq_session(
+                context().chain,
+                context().epoch,
+                context().protocol_revision,
+                2,
+                &responder,
+                &BTreeMap::from([(1, initiator_key)]),
+            )
+        });
+        let mut peer = PeerSocket::connect(TcpStream::connect(address).unwrap());
+        assert!(peer.initiate_pq_session(context(), &initiator, &impostor.public_key()).is_err());
+        drop(peer);
+        assert!(server.join().unwrap().is_err());
+    }
+
+    #[test]
     fn session_store_is_bounded_durable_and_rejects_replay() {
         let path =
             std::env::temp_dir().join(format!("activechain-pq-session-{}.bin", std::process::id()));
@@ -773,6 +811,80 @@ mod tests {
         let suite_offset = DOMAIN.len() + 1 + 68;
         wrong_suite[suite_offset] ^= 1;
         assert!(parse_client_hello(&wrong_suite).is_err());
+    }
+
+    #[test]
+    fn server_challenge_rejects_replay_cross_domain_and_expiry() {
+        let now = now_secs().unwrap();
+        let nonce = [10; 32];
+        let recipient = MlKem768Recipient::from_seed([11; 64]);
+        let mut bytes = server_challenge(
+            context(),
+            nonce,
+            [12; 32],
+            now,
+            now + SESSION_TTL_SECS,
+            [13; 32],
+            &recipient.public_key(),
+        );
+        bytes.extend_from_slice(&[0; SIGNATURE_LEN]);
+        let challenge = parse_server_challenge(&bytes).unwrap();
+        validate_server_challenge(&challenge, context(), nonce, now).unwrap();
+        assert!(validate_server_challenge(&challenge, context(), [14; 32], now).is_err());
+
+        let mut cross_domain = context();
+        cross_domain.chain = Digest384::new([15; 48]);
+        assert!(validate_server_challenge(&challenge, cross_domain, nonce, now).is_err());
+        assert!(
+            validate_server_challenge(&challenge, context(), nonce, now + SESSION_TTL_SECS)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn protected_frame_rejects_mutation_and_expired_session() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let now = now_secs().unwrap();
+        let sender_session = PqPeerSession {
+            id: [16; 32],
+            peer: 2,
+            expires_at: now + 60,
+            context: context(),
+            local_is_initiator: true,
+            key: [17; 32],
+        };
+        let receiver_session =
+            PqPeerSession { peer: 1, local_is_initiator: false, ..sender_session.clone() };
+        let writer = std::thread::spawn(move || {
+            let socket_stream = TcpStream::connect(address).unwrap();
+            let mut peer = PeerSocket::connect(socket_stream);
+            let plaintext = [18; 80];
+            let associated_data = sender_session.associated_data(1, 2, 1);
+            let keystream = stream(&sender_session.key, &associated_data, plaintext.len());
+            let ciphertext =
+                plaintext.iter().zip(keystream).map(|(byte, mask)| byte ^ mask).collect::<Vec<_>>();
+            let mut tag =
+                expand(PROTECTED_TAG_DOMAIN, &[&sender_session.key, &associated_data, &ciphertext]);
+            tag[0] ^= 1;
+            let mut frame = Vec::new();
+            frame.extend_from_slice(PROTECTED_MAGIC);
+            frame.extend_from_slice(&sender_session.id);
+            frame.extend_from_slice(&1_u16.to_be_bytes());
+            frame.extend_from_slice(&2_u16.to_be_bytes());
+            frame.extend_from_slice(&1_u64.to_be_bytes());
+            frame.extend_from_slice(&(ciphertext.len() as u32).to_be_bytes());
+            frame.extend_from_slice(&ciphertext);
+            frame.extend_from_slice(&tag);
+            peer.write_session_frame(&frame).unwrap();
+        });
+        let (stream, _) = listener.accept().unwrap();
+        let mut receiver = PeerSocket::connect(stream);
+        assert!(receiver.receive_protected_message(&receiver_session).is_err());
+        writer.join().unwrap();
+
+        let expired = PqPeerSession { expires_at: now, ..receiver_session };
+        assert!(receiver.receive_protected_message(&expired).is_err());
     }
 
     #[test]
