@@ -80,8 +80,8 @@ pub use crypto::{
     CryptoSuiteError, CryptoSuiteId, ProtocolSignature, SignatureError,
 };
 pub use did::{
-    derive_activechain_did, DidControllerOperationV1, DidControllerRecordV1, DidOperationKind,
-    DidRecordError, DidResolutionV1,
+    DidControllerOperationV1, DidControllerRecordV1, DidOperationKind, DidRecordError,
+    DidResolutionV1, derive_activechain_did,
 };
 pub use migration::{CryptoMigrationError, CryptoMigrationWindow};
 pub use object::{
