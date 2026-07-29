@@ -26,7 +26,7 @@ schema or genesis commitment must never be decoded heuristically or overwritten 
 Before installing a binary, operators run:
 
 ```sh
-ACTIVECHAIN_EXPECTED_SNAPSHOT_SCHEMA_VERSION=1 \
+ACTIVECHAIN_EXPECTED_SNAPSHOT_SCHEMA_VERSION=5 \
 ACTIVECHAIN_EXPECTED_GENESIS_COMMITMENT="$GENESIS_COMMITMENT" \
   scripts/check-validator-snapshot.sh "$STATE_ROOT/validator-0.snapshot" \
   "$RELEASE_ROOT/bin/indexer-tool"
