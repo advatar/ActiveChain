@@ -512,7 +512,7 @@ mod tests {
         assert!(crate::is_reserved_future_type_tag(crate::RESERVED_V12_TYPE_TAG_END));
         assert!(!crate::is_reserved_future_type_tag(crate::V1_TYPE_TAG_MIN));
         assert!(!crate::is_reserved_future_type_tag(crate::V1_TYPE_TAG_MAX));
-        assert!(crate::RESERVED_V11_TYPE_TAG_END < crate::RESERVED_V12_TYPE_TAG_START);
+        const { assert!(crate::RESERVED_V11_TYPE_TAG_END < crate::RESERVED_V12_TYPE_TAG_START) };
     }
 
     #[test]
