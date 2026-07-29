@@ -61,10 +61,20 @@ for _ in range(32):
     sock.sendall((16 * 1024 + 1).to_bytes(4, "big"))
     sock.close()
 PY
+
+# Round zero is led by validator 0. The deterministic schedule rotates the next round to validator
+# 1, so replace validator 1's listener with validator 0 and let validator 1 propose against the two
+# remaining voting peers.
+kill "${pids[0]}" 2>/dev/null || true
+wait "${pids[0]}" 2>/dev/null || true
 cargo run --quiet -p activechain-consensus-runtime --bin validator-node -- \
-  4510 "$workdir/v0.snapshot" "$genesis" 0 0 --once \
-  --key-file="$keys/validator-0.key" \
-  --peer=2@127.0.0.1:4511 --peer=3@127.0.0.1:4512 | tee "$workdir/proposer-child.out"
+  4510 "$workdir/v0.snapshot" "$genesis" 0 0 --key-file="$keys/validator-0.key" >"$workdir/v0-listener.out" 2>&1 &
+pids[0]="$!"
+wait_for_listener 4510 "$workdir/v0-listener.out"
+cargo run --quiet -p activechain-consensus-runtime --bin validator-node -- \
+  4511 "$workdir/v1.snapshot" "$genesis" 0 1 --once \
+  --key-file="$keys/validator-1.key" \
+  --peer=1@127.0.0.1:4510 --peer=3@127.0.0.1:4512 | tee "$workdir/proposer-child.out"
 rg --fixed-strings "completed network round: finalized_height=1" "$workdir/proposer-child.out"
 test -s "$workdir/v0.snapshot"
 kill "${pids[1]}" 2>/dev/null || true
