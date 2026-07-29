@@ -1307,7 +1307,7 @@ Tracked by [GitHub issue #12](https://github.com/advatar/ActiveChain/issues/12).
 Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
 
 - [x] Carry canonically encoded proposal, vote, and quorum-certificate bodies in authenticated peer frames.
-- [ ] Qualify the Kanalen current-main consensus recovery fix
+- [x] Qualify the Kanalen current-main consensus recovery fix
   ([GitHub issue #262](https://github.com/advatar/ActiveChain/issues/262)).
   - [x] Persist each retained certified block as its complete verified proposal, quorum
     certificate, and ordered signed vote proof; migrate the bounded schema-v4 snapshot format.
@@ -1315,7 +1315,7 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
     barriers before accepting or emitting a sequence.
   - [x] Cover restart, replay, malformed authenticated response, and missing certified-history
     behavior with focused regression tests.
-  - [ ] Pass local and remote-compatible three-validator qualification, merge the fix to `main`,
+  - [x] Pass local and remote-compatible three-validator qualification, merge the fix to `main`,
     and verify its commits are reachable from `origin/main` before closing #262.
 - [x] Define canonical validator genesis entries binding ordered stake and fixed ML-DSA-44 public keys.
 - [x] Bind the persistent validator service to genesis, authenticate sender-indexed peer messages, and save finalized snapshots.
