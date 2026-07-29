@@ -18,6 +18,21 @@ Tracked by [GitHub issue #326](https://github.com/advatar/ActiveChain/issues/326
 - [x] Remove deterministic CLI wallet identities and track native platform key custody separately
   ([GitHub issue #327](https://github.com/advatar/ActiveChain/issues/327)).
 
+## Critical consensus recovery — bounded views and leader rotation
+
+Tracked by [GitHub issue #329](https://github.com/advatar/ActiveChain/issues/329).
+
+- [ ] Define canonical, domain-separated timeout votes and quorum-backed view-change certificates.
+- [ ] Enforce deterministic proposer eligibility and reject unjustified, stale, or unbounded round
+  advances before collector or durable vote state changes.
+- [ ] Retain vote collectors by consensus slot so competing traffic cannot discard quorum progress.
+- [ ] Persist and validate the active view, timeout-vote locks, and accepted view-change proof across
+  restart with a bounded snapshot migration.
+- [ ] Add adversarial unit/model/process tests for `u64::MAX`, skipped rounds, replay, restart,
+  absent/malicious leaders, and continued finality after leader rotation.
+- [ ] Pass the complete deterministic-kernel gate, merge to `main`, and verify reachability before
+  closing #329.
+
 ## Deterministic-kernel CI baseline
 
 - [x] Restore the clean-checkout `cargo fmt --all --check` gate
