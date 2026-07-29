@@ -45,6 +45,13 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
   consensus-security alternative in `spec/protocol/P-130-economics.md`.
 - [ ] Reconcile all legacy economics/decentralisation text and recompute the scorecard.
 
+## Active protocol decision — P-131 version series
+
+- [x] Publish the ordered v1.0–v2 launch contract and reserve extension surfaces in
+  `spec/protocol/P-131-version-series.md`.
+- [ ] Add concrete reserved-tag/header-slot vectors and wire the activation gates into the
+  version dispatcher.
+
 ## Active milestone — P-060 execution proof system
 
 - [x] Publish the P-060 selection/security specification and explicit re-execution transition gate.
