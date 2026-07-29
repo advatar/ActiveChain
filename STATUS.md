@@ -39,6 +39,12 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
   while proving durable progress separately from the three-process quorum rehearsal.
 - [x] Verify the repaired baseline through the required deterministic-kernel CI job.
 
+## Active protocol decision — P-130 economics
+
+- [x] Record the v1 native-staked-asset decision and reject stablecoin-secured validators as a
+  consensus-security alternative in `spec/protocol/P-130-economics.md`.
+- [ ] Reconcile all legacy economics/decentralisation text and recompute the scorecard.
+
 ## Active milestone — P-060 execution proof system
 
 - [x] Publish the P-060 selection/security specification and explicit re-execution transition gate.
