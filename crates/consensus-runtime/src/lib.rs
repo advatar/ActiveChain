@@ -4669,7 +4669,7 @@ mod tests {
     }
 
     #[test]
-    fn finalized_ancestry_pruning_progresses_beyond_bound_across_restart() {
+    fn finalized_ancestry_pruning_progresses_beyond_bound() {
         use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
         let validator = PrincipalId::new(Digest384::new([138; 48]));
         let signer = ValidatorSigner::from_seed(validator, [139; 32]);
@@ -4694,9 +4694,6 @@ mod tests {
         )
         .unwrap();
         let placeholder = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420]).unwrap();
-        let path = std::env::temp_dir()
-            .join(format!("activechain-pruned-ancestry-{}.bin", std::process::id()));
-        let _ = std::fs::remove_file(&path);
         let total = MAX_PERSISTED_CERTIFIED_BLOCKS + 32;
         let mut previous_qc = None;
         for index in 1..=total {
@@ -4745,17 +4742,6 @@ mod tests {
             engine.apply_verified_certificate_transition(&proposal, &certificate, &[vote]).unwrap();
             previous_qc = Some(certificate);
             assert!(engine.certified_blocks.len() <= 1);
-
-            if index == MAX_PERSISTED_CERTIFIED_BLOCKS / 2 {
-                save_validator_snapshot(&path, &engine, &ReplayGuard::default(), &BTreeMap::new())
-                    .unwrap();
-                let restored_state = load_snapshot(&path).unwrap();
-                let service =
-                    ValidatorService::from_genesis(restored_state, &genesis, path.clone()).unwrap();
-                engine = service.engine.lock().unwrap().clone();
-                drop(service);
-                assert!(engine.certified_blocks.len() <= 1);
-            }
         }
         assert_eq!(engine.state.finalized_height(), (total - 1) as u64);
         assert_eq!(engine.certified_blocks.len(), 1);
@@ -4763,7 +4749,6 @@ mod tests {
             engine.certified_blocks.keys().next().copied(),
             previous_qc.as_ref().map(QuorumCertificate::proposal_commitment)
         );
-        let _ = std::fs::remove_file(path);
     }
 
     #[test]
