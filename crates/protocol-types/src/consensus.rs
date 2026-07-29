@@ -152,6 +152,247 @@ pub enum ValidatorVoteError {
     UnboundConsensusDomain,
 }
 
+/// A validator's authenticated declaration that one consensus view expired without a QC.
+///
+/// The highest known QC is committed by value so a timeout quorum cannot be replayed onto a
+/// different safety lock. Runtime verification additionally checks the ML-DSA signature and
+/// validator stake against finalized epoch membership.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TimeoutVote {
+    validator: PrincipalId,
+    context: ConsensusVoteContext,
+    height: u64,
+    timed_out_round: u64,
+    parent: ConsensusBlockRef,
+    highest_qc: Option<QuorumCertificate>,
+    signature: ProtocolSignature,
+}
+
+impl TimeoutVote {
+    pub const TYPE_TAG: u16 = 0x006e;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48
+        + 48
+        + 8
+        + 48
+        + 8
+        + 8
+        + 8
+        + 112
+        + 1
+        + QuorumCertificate::ENCODED_LENGTH
+        + ProtocolSignature::MAX_ENCODED_LEN;
+
+    pub fn new(
+        validator: PrincipalId,
+        context: ConsensusVoteContext,
+        height: u64,
+        timed_out_round: u64,
+        parent: ConsensusBlockRef,
+        highest_qc: Option<QuorumCertificate>,
+        signature: ProtocolSignature,
+    ) -> Result<Self, TimeoutVoteError> {
+        if height == 0 {
+            return Err(TimeoutVoteError::ZeroHeight);
+        }
+        if timed_out_round == u64::MAX {
+            return Err(TimeoutVoteError::RoundOverflow);
+        }
+        if parent.height.checked_add(1) != Some(height) || parent.round > timed_out_round {
+            return Err(TimeoutVoteError::InvalidParent);
+        }
+        if signature.suite() != CryptoSuiteId::ML_DSA_44 {
+            return Err(TimeoutVoteError::InvalidConsensusSuite);
+        }
+        if highest_qc.as_ref().is_some_and(|qc| {
+            qc.genesis_commitment() != context.genesis_commitment()
+                || qc.epoch() != context.epoch()
+                || qc.validator_set_root() != context.validator_set_root()
+                || qc.protocol_revision() != context.protocol_revision()
+                || qc.height() >= height
+                || qc.round() > timed_out_round
+                || qc.block_digest() != parent.block_digest
+                || qc.proposal_commitment() != parent.proposal_commitment
+                || qc.height() != parent.height
+                || qc.round() != parent.round
+        }) {
+            return Err(TimeoutVoteError::InvalidHighestQc);
+        }
+        Ok(Self { validator, context, height, timed_out_round, parent, highest_qc, signature })
+    }
+    pub const fn validator(&self) -> PrincipalId {
+        self.validator
+    }
+    pub const fn context(&self) -> ConsensusVoteContext {
+        self.context
+    }
+    pub const fn height(&self) -> u64 {
+        self.height
+    }
+    pub const fn timed_out_round(&self) -> u64 {
+        self.timed_out_round
+    }
+    pub const fn next_round(&self) -> u64 {
+        self.timed_out_round + 1
+    }
+    pub const fn parent(&self) -> ConsensusBlockRef {
+        self.parent
+    }
+    pub const fn highest_qc(&self) -> Option<&QuorumCertificate> {
+        self.highest_qc.as_ref()
+    }
+    pub const fn signature(&self) -> &ProtocolSignature {
+        &self.signature
+    }
+    pub fn signing_payload(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"ACTIVECHAIN-TIMEOUT-VOTE-V1");
+        bytes.extend_from_slice(&Self::SCHEMA_VERSION.to_be_bytes());
+        bytes.extend_from_slice(self.validator.digest().as_bytes());
+        bytes.extend_from_slice(self.context.genesis_commitment().as_bytes());
+        bytes.extend_from_slice(&self.context.epoch().to_be_bytes());
+        bytes.extend_from_slice(self.context.validator_set_root().as_bytes());
+        bytes.extend_from_slice(&self.context.protocol_revision().to_be_bytes());
+        bytes.extend_from_slice(&self.height.to_be_bytes());
+        bytes.extend_from_slice(&self.timed_out_round.to_be_bytes());
+        bytes.extend_from_slice(self.parent.block_digest.as_bytes());
+        bytes.extend_from_slice(self.parent.proposal_commitment.as_bytes());
+        bytes.extend_from_slice(&self.parent.height.to_be_bytes());
+        bytes.extend_from_slice(&self.parent.round.to_be_bytes());
+        match &self.highest_qc {
+            None => bytes.push(0),
+            Some(qc) => {
+                bytes.push(1);
+                append_quorum_certificate_transcript(&mut bytes, qc);
+            }
+        }
+        bytes
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TimeoutVoteError {
+    ZeroHeight,
+    RoundOverflow,
+    InvalidParent,
+    InvalidConsensusSuite,
+    InvalidHighestQc,
+}
+
+/// A complete, canonically ordered timeout quorum authorizing exactly the next view.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ViewChangeCertificate {
+    context: ConsensusVoteContext,
+    height: u64,
+    timed_out_round: u64,
+    parent: ConsensusBlockRef,
+    highest_qc: Option<QuorumCertificate>,
+    total_stake: u128,
+    signer_stake: u128,
+    votes: Vec<TimeoutVote>,
+}
+
+impl ViewChangeCertificate {
+    pub const TYPE_TAG: u16 = 0x006f;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48
+        + 8
+        + 48
+        + 8
+        + 8
+        + 8
+        + 112
+        + 1
+        + QuorumCertificate::ENCODED_LENGTH
+        + 16
+        + 16
+        + 2
+        + MAX_VALIDATORS_PER_EPOCH * TimeoutVote::MAX_ENCODED_LEN;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        context: ConsensusVoteContext,
+        height: u64,
+        timed_out_round: u64,
+        parent: ConsensusBlockRef,
+        highest_qc: Option<QuorumCertificate>,
+        total_stake: u128,
+        signer_stake: u128,
+        votes: Vec<TimeoutVote>,
+    ) -> Result<Self, ViewChangeCertificateError> {
+        if votes.is_empty() || votes.len() > MAX_VALIDATORS_PER_EPOCH {
+            return Err(ViewChangeCertificateError::Bounds);
+        }
+        if total_stake == 0
+            || signer_stake > total_stake
+            || signer_stake.checked_mul(3).ok_or(ViewChangeCertificateError::StakeOverflow)?
+                <= total_stake.checked_mul(2).ok_or(ViewChangeCertificateError::StakeOverflow)?
+        {
+            return Err(ViewChangeCertificateError::InsufficientStake);
+        }
+        if timed_out_round == u64::MAX {
+            return Err(ViewChangeCertificateError::RoundOverflow);
+        }
+        if votes.windows(2).any(|pair| pair[0].validator >= pair[1].validator)
+            || votes.iter().any(|vote| {
+                vote.context != context
+                    || vote.height != height
+                    || vote.timed_out_round != timed_out_round
+                    || vote.parent != parent
+                    || vote.highest_qc != highest_qc
+            })
+        {
+            return Err(ViewChangeCertificateError::MismatchedVote);
+        }
+        Ok(Self {
+            context,
+            height,
+            timed_out_round,
+            parent,
+            highest_qc,
+            total_stake,
+            signer_stake,
+            votes,
+        })
+    }
+    pub const fn context(&self) -> ConsensusVoteContext {
+        self.context
+    }
+    pub const fn height(&self) -> u64 {
+        self.height
+    }
+    pub const fn timed_out_round(&self) -> u64 {
+        self.timed_out_round
+    }
+    pub const fn next_round(&self) -> u64 {
+        self.timed_out_round + 1
+    }
+    pub const fn parent(&self) -> ConsensusBlockRef {
+        self.parent
+    }
+    pub const fn highest_qc(&self) -> Option<&QuorumCertificate> {
+        self.highest_qc.as_ref()
+    }
+    pub const fn total_stake(&self) -> u128 {
+        self.total_stake
+    }
+    pub const fn signer_stake(&self) -> u128 {
+        self.signer_stake
+    }
+    pub fn votes(&self) -> &[TimeoutVote] {
+        &self.votes
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ViewChangeCertificateError {
+    Bounds,
+    RoundOverflow,
+    StakeOverflow,
+    InsufficientStake,
+    MismatchedVote,
+}
+
 /// Authenticated position of a block in one consensus history.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct ConsensusBlockRef {
@@ -195,13 +436,15 @@ impl ConsensusBlockRef {
 /// A finalized anchor is accepted only when it equals the receiver's durable finalized head. A
 /// QC is accepted only when its complete value equals a locally verified and durable certificate.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum ProposalJustification {
     Finalized(ConsensusBlockRef),
     Quorum(QuorumCertificate),
+    ViewChange(ViewChangeCertificate),
 }
 
 impl ProposalJustification {
-    pub const MAX_ENCODED_LEN: usize = 1 + QuorumCertificate::ENCODED_LENGTH;
+    pub const MAX_ENCODED_LEN: usize = 1 + ViewChangeCertificate::MAX_ENCODED_LEN;
     pub const fn parent(&self) -> ConsensusBlockRef {
         match self {
             Self::Finalized(parent) => *parent,
@@ -211,12 +454,20 @@ impl ProposalJustification {
                 height: certificate.height,
                 round: certificate.round,
             },
+            Self::ViewChange(certificate) => certificate.parent(),
         }
     }
     pub const fn certificate(&self) -> Option<&QuorumCertificate> {
         match self {
             Self::Finalized(_) => None,
             Self::Quorum(certificate) => Some(certificate),
+            Self::ViewChange(certificate) => certificate.highest_qc(),
+        }
+    }
+    pub const fn view_change_certificate(&self) -> Option<&ViewChangeCertificate> {
+        match self {
+            Self::ViewChange(certificate) => Some(certificate),
+            _ => None,
         }
     }
 }
@@ -277,6 +528,12 @@ impl BlockProposal {
                     return Err(BlockProposalError::WrongConsensusContext);
                 }
                 parent.round.checked_add(1)
+            }
+            ProposalJustification::ViewChange(certificate) => {
+                if certificate.context() != context || certificate.height() != height {
+                    return Err(BlockProposalError::WrongConsensusContext);
+                }
+                Some(certificate.next_round())
             }
         };
         if expected_round != Some(round) {
@@ -364,19 +621,46 @@ fn append_justification_transcript(bytes: &mut Vec<u8>, justification: &Proposal
         }
         ProposalJustification::Quorum(certificate) => {
             bytes.push(1);
-            bytes.extend_from_slice(certificate.genesis_commitment().as_bytes());
-            bytes.extend_from_slice(&certificate.epoch().to_be_bytes());
-            bytes.extend_from_slice(certificate.validator_set_root().as_bytes());
-            bytes.extend_from_slice(&certificate.protocol_revision().to_be_bytes());
-            bytes.extend_from_slice(&certificate.height().to_be_bytes());
-            bytes.extend_from_slice(&certificate.round().to_be_bytes());
-            bytes.extend_from_slice(certificate.block_digest().as_bytes());
-            bytes.extend_from_slice(certificate.proposal_commitment().as_bytes());
-            bytes.extend_from_slice(certificate.vote_set_root().as_bytes());
-            bytes.extend_from_slice(&certificate.total_stake().to_be_bytes());
-            bytes.extend_from_slice(&certificate.signer_stake().to_be_bytes());
+            append_quorum_certificate_transcript(bytes, certificate);
+        }
+        ProposalJustification::ViewChange(certificate) => {
+            bytes.push(2);
+            bytes.extend_from_slice(certificate.context.genesis_commitment().as_bytes());
+            bytes.extend_from_slice(&certificate.context.epoch().to_be_bytes());
+            bytes.extend_from_slice(certificate.context.validator_set_root().as_bytes());
+            bytes.extend_from_slice(&certificate.context.protocol_revision().to_be_bytes());
+            bytes.extend_from_slice(&certificate.height.to_be_bytes());
+            bytes.extend_from_slice(&certificate.timed_out_round.to_be_bytes());
+            bytes.extend_from_slice(certificate.parent.block_digest.as_bytes());
+            bytes.extend_from_slice(certificate.parent.proposal_commitment.as_bytes());
+            bytes.extend_from_slice(&certificate.parent.height.to_be_bytes());
+            bytes.extend_from_slice(&certificate.parent.round.to_be_bytes());
+            bytes.extend_from_slice(&certificate.total_stake.to_be_bytes());
+            bytes.extend_from_slice(&certificate.signer_stake.to_be_bytes());
+            bytes.extend_from_slice(&(certificate.votes.len() as u16).to_be_bytes());
+            for vote in &certificate.votes {
+                let payload = vote.signing_payload();
+                bytes.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+                bytes.extend_from_slice(&payload);
+                bytes.extend_from_slice(&(vote.signature.as_bytes().len() as u16).to_be_bytes());
+                bytes.extend_from_slice(vote.signature.as_bytes());
+            }
         }
     }
+}
+
+fn append_quorum_certificate_transcript(bytes: &mut Vec<u8>, certificate: &QuorumCertificate) {
+    bytes.extend_from_slice(certificate.genesis_commitment().as_bytes());
+    bytes.extend_from_slice(&certificate.epoch().to_be_bytes());
+    bytes.extend_from_slice(certificate.validator_set_root().as_bytes());
+    bytes.extend_from_slice(&certificate.protocol_revision().to_be_bytes());
+    bytes.extend_from_slice(&certificate.height().to_be_bytes());
+    bytes.extend_from_slice(&certificate.round().to_be_bytes());
+    bytes.extend_from_slice(certificate.block_digest().as_bytes());
+    bytes.extend_from_slice(certificate.proposal_commitment().as_bytes());
+    bytes.extend_from_slice(certificate.vote_set_root().as_bytes());
+    bytes.extend_from_slice(&certificate.total_stake().to_be_bytes());
+    bytes.extend_from_slice(&certificate.signer_stake().to_be_bytes());
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -750,6 +1034,93 @@ impl CanonicalType for ValidatorVote {
     const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
+impl CanonicalEncode for TimeoutVote {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.validator.encode(e)?;
+        self.context.genesis_commitment.encode(e)?;
+        self.context.epoch.encode(e)?;
+        self.context.validator_set_root.encode(e)?;
+        self.context.protocol_revision.encode(e)?;
+        self.height.encode(e)?;
+        self.timed_out_round.encode(e)?;
+        self.parent.encode(e)?;
+        self.highest_qc.encode(e)?;
+        self.signature.encode(e)
+    }
+}
+impl CanonicalDecode for TimeoutVote {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            PrincipalId::decode(d)?,
+            ConsensusVoteContext::new_with_revision(
+                Digest384::decode(d)?,
+                u64::decode(d)?,
+                Digest384::decode(d)?,
+                u64::decode(d)?,
+            )
+            .map_err(|_| DecodeError::InvalidValue("timeout vote context is unbound"))?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            ConsensusBlockRef::decode(d)?,
+            Option::<QuorumCertificate>::decode(d)?,
+            ProtocolSignature::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid timeout vote"))
+    }
+}
+impl CanonicalType for TimeoutVote {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+impl CanonicalEncode for ViewChangeCertificate {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.context.genesis_commitment.encode(e)?;
+        self.context.epoch.encode(e)?;
+        self.context.validator_set_root.encode(e)?;
+        self.context.protocol_revision.encode(e)?;
+        self.height.encode(e)?;
+        self.timed_out_round.encode(e)?;
+        self.parent.encode(e)?;
+        self.highest_qc.encode(e)?;
+        self.total_stake.encode(e)?;
+        self.signer_stake.encode(e)?;
+        e.write_length(self.votes.len(), MAX_VALIDATORS_PER_EPOCH)?;
+        for vote in &self.votes {
+            vote.encode(e)?;
+        }
+        Ok(())
+    }
+}
+impl CanonicalDecode for ViewChangeCertificate {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let context = ConsensusVoteContext::new_with_revision(
+            Digest384::decode(d)?,
+            u64::decode(d)?,
+            Digest384::decode(d)?,
+            u64::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("view-change context is unbound"))?;
+        let height = u64::decode(d)?;
+        let round = u64::decode(d)?;
+        let parent = ConsensusBlockRef::decode(d)?;
+        let highest_qc = Option::<QuorumCertificate>::decode(d)?;
+        let total_stake = u128::decode(d)?;
+        let signer_stake = u128::decode(d)?;
+        let count = d.read_length(MAX_VALIDATORS_PER_EPOCH)?;
+        let mut votes = Vec::with_capacity(count);
+        for _ in 0..count {
+            votes.push(TimeoutVote::decode(d)?);
+        }
+        Self::new(context, height, round, parent, highest_qc, total_stake, signer_stake, votes)
+            .map_err(|_| DecodeError::InvalidValue("invalid view-change certificate"))
+    }
+}
+impl CanonicalType for ViewChangeCertificate {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
 impl CanonicalEncode for ConsensusBlockRef {
     fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
         self.block_digest.encode(encoder)?;
@@ -780,6 +1151,10 @@ impl CanonicalEncode for ProposalJustification {
                 1_u8.encode(encoder)?;
                 certificate.encode(encoder)
             }
+            Self::ViewChange(certificate) => {
+                2_u8.encode(encoder)?;
+                certificate.encode(encoder)
+            }
         }
     }
 }
@@ -788,6 +1163,7 @@ impl CanonicalDecode for ProposalJustification {
         match u8::decode(decoder)? {
             0 => Ok(Self::Finalized(ConsensusBlockRef::decode(decoder)?)),
             1 => Ok(Self::Quorum(QuorumCertificate::decode(decoder)?)),
+            2 => Ok(Self::ViewChange(ViewChangeCertificate::decode(decoder)?)),
             tag => Err(DecodeError::InvalidEnumTag { type_name: "ProposalJustification", tag }),
         }
     }
@@ -1302,6 +1678,88 @@ mod tests {
                 ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![4; 2420]).unwrap(),
             ),
             Err(BlockProposalError::NonConsecutiveRound)
+        );
+    }
+    #[test]
+    fn timeout_vote_and_view_change_certificate_are_canonical_and_round_bound() {
+        let context = ConsensusVoteContext::new(digest(10), 3, digest(11)).unwrap();
+        let timeout = |validator_byte| {
+            TimeoutVote::new(
+                PrincipalId::new(digest(validator_byte)),
+                context,
+                7,
+                4,
+                ConsensusBlockRef::new(digest(20), digest(21), 6, 3).unwrap(),
+                None,
+                ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![validator_byte; 2420])
+                    .unwrap(),
+            )
+            .unwrap()
+        };
+        let first = timeout(1);
+        let second = timeout(2);
+        assert_ne!(first.signing_payload(), {
+            let mut changed = first.clone();
+            changed.timed_out_round = 5;
+            changed.signing_payload()
+        });
+        let certificate = ViewChangeCertificate::new(
+            context,
+            7,
+            4,
+            ConsensusBlockRef::new(digest(20), digest(21), 6, 3).unwrap(),
+            None,
+            3,
+            3,
+            vec![first, second],
+        )
+        .unwrap();
+        let encoded = encode_envelope(&certificate).unwrap();
+        assert_eq!(decode_envelope::<ViewChangeCertificate>(&encoded), Ok(certificate.clone()));
+        assert_eq!(certificate.next_round(), 5);
+        assert_eq!(
+            ViewChangeCertificate::new(
+                context,
+                7,
+                4,
+                certificate.parent,
+                None,
+                3,
+                3,
+                certificate.votes.into_iter().rev().collect(),
+            ),
+            Err(ViewChangeCertificateError::MismatchedVote)
+        );
+    }
+    #[test]
+    fn timeout_vote_rejects_overflow_and_cross_height_qc() {
+        let context = ConsensusVoteContext::new(digest(10), 3, digest(11)).unwrap();
+        let signature = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![1; 2420]).unwrap();
+        assert_eq!(
+            TimeoutVote::new(
+                PrincipalId::new(digest(1)),
+                context,
+                7,
+                u64::MAX,
+                ConsensusBlockRef::new(digest(20), digest(21), 6, 3).unwrap(),
+                None,
+                signature.clone(),
+            ),
+            Err(TimeoutVoteError::RoundOverflow)
+        );
+        let future_qc =
+            QuorumCertificate::new(context, 7, 3, digest(3), digest(4), digest(5), 3, 3).unwrap();
+        assert_eq!(
+            TimeoutVote::new(
+                PrincipalId::new(digest(1)),
+                context,
+                7,
+                4,
+                ConsensusBlockRef::new(digest(3), digest(4), 6, 3).unwrap(),
+                Some(future_qc),
+                signature,
+            ),
+            Err(TimeoutVoteError::InvalidHighestQc)
         );
     }
     #[test]

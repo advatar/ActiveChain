@@ -22,12 +22,16 @@ Tracked by [GitHub issue #326](https://github.com/advatar/ActiveChain/issues/326
 
 Tracked by [GitHub issue #329](https://github.com/advatar/ActiveChain/issues/329).
 
-- [ ] Define canonical, domain-separated timeout votes and quorum-backed view-change certificates.
-- [ ] Enforce deterministic proposer eligibility and reject unjustified, stale, or unbounded round
+- [x] Define canonical, domain-separated timeout votes and quorum-backed view-change certificates.
+- [x] Enforce deterministic proposer eligibility and reject unjustified, stale, or unbounded round
   advances before collector or durable vote state changes.
 - [x] Retain vote collectors by consensus slot so competing traffic cannot discard quorum progress.
-- [ ] Persist and validate the active view, timeout-vote locks, and accepted view-change proof across
+- [x] Persist and validate the active view, timeout-vote locks, and accepted view-change proof across
   restart with a bounded snapshot migration.
+- [x] Authenticate timeout votes and view-change certificates inside the existing sender-bound peer
+  envelope, persist replay high-water state before admission, and expose durable timeout/publish APIs.
+- [x] Exercise three-validator timeout quorum, deterministic leader rotation, snapshot restart,
+  replay rejection, forged timeout signatures, and rotating-leader sustained finality in unit tests.
 - [ ] Add adversarial unit/model/process tests for `u64::MAX`, skipped rounds, replay, restart,
   absent/malicious leaders, and continued finality after leader rotation.
 - [ ] Pass the complete deterministic-kernel gate, merge to `main`, and verify reachability before
