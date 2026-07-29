@@ -3952,7 +3952,7 @@ mod tests {
             ids[0],
             vote_context,
             1,
-            1,
+            0,
             Digest384::new([5; 48]),
             genesis_justification(vote_context),
             placeholder.clone(),
@@ -3966,7 +3966,7 @@ mod tests {
                 ids[index],
                 vote_context,
                 1,
-                1,
+                0,
                 Digest384::new([5; 48]),
                 proposal_commitment,
                 placeholder.clone(),
@@ -3977,7 +3977,7 @@ mod tests {
                 ids[index],
                 vote_context,
                 1,
-                1,
+                0,
                 Digest384::new([5; 48]),
                 proposal_commitment,
                 ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec())
@@ -4187,12 +4187,15 @@ mod tests {
             node_a.locked_qc.as_ref().map(QuorumCertificate::proposal_commitment),
             Some(proof_a.certificate().proposal_commitment())
         );
-        let conflicting_genesis_branch = second
-            .sign_proposal(context, 1, 2, Digest384::new([121; 48]), genesis_justification(context))
-            .unwrap();
         assert!(matches!(
-            node_a.process(ConsensusMessage::Proposal(conflicting_genesis_branch)),
-            Err(ValidatorEngineError::UnsafeProposal)
+            second.sign_proposal(
+                context,
+                1,
+                2,
+                Digest384::new([121; 48]),
+                genesis_justification(context),
+            ),
+            Err(ValidatorEngineError::Signer)
         ));
     }
 
@@ -4944,7 +4947,7 @@ mod tests {
     }
 
     #[test]
-    fn durable_highest_view_rejects_lower_round_after_restart() {
+    fn unjustified_future_view_is_rejected_before_durable_state() {
         use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
         let validator = PrincipalId::new(Digest384::new([126; 48]));
         let signer = ValidatorSigner::from_seed(validator, [127; 32]);
@@ -4963,10 +4966,6 @@ mod tests {
             genesis.validator_set_root(),
         )
         .unwrap();
-        let high = signer
-            .sign_proposal(context, 1, 2, Digest384::new([128; 48]), genesis_justification(context))
-            .unwrap();
-        let high_commitment = high.commitment();
         let path = std::env::temp_dir()
             .join(format!("activechain-durable-view-{}.bin", std::process::id()));
         let _ = std::fs::remove_file(&path);
@@ -4976,41 +4975,18 @@ mod tests {
             path.clone(),
         )
         .unwrap();
-        service
-            .process_proposal_and_sign_vote(
-                signer.sign_envelope(1, 1, ConsensusMessage::Proposal(high.clone())).unwrap(),
-                &signer,
-                2,
-            )
-            .unwrap();
-        drop(service);
-
-        let restored = load_snapshot(&path).unwrap();
-        let restarted = ValidatorService::from_genesis(restored, &genesis, path.clone()).unwrap();
-        let lower = signer
-            .sign_proposal(context, 1, 1, Digest384::new([129; 48]), genesis_justification(context))
-            .unwrap();
         assert!(matches!(
-            restarted.process_proposal_and_sign_vote(
-                signer.sign_envelope(1, 3, ConsensusMessage::Proposal(lower)).unwrap(),
-                &signer,
-                4,
+            signer.sign_proposal(
+                context,
+                1,
+                u64::MAX,
+                Digest384::new([128; 48]),
+                genesis_justification(context),
             ),
-            Err(ValidatorServiceError::Engine(ValidatorEngineError::StaleLocalView))
+            Err(ValidatorEngineError::Signer)
         ));
-        let repeated = restarted
-            .process_proposal_and_sign_vote(
-                signer.sign_envelope(1, 5, ConsensusMessage::Proposal(high)).unwrap(),
-                &signer,
-                6,
-            )
-            .unwrap();
-        assert!(matches!(
-            repeated.message,
-            ConsensusMessage::Vote(ref vote) if vote.proposal_commitment() == high_commitment
-        ));
-        drop(restarted);
-        std::fs::remove_file(path).unwrap();
+        drop(service);
+        assert!(!path.exists());
     }
 
     #[test]

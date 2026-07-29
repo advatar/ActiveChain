@@ -264,20 +264,23 @@ impl BlockProposal {
         if parent.height.checked_add(1) != Some(height) {
             return Err(BlockProposalError::NonConsecutiveHeight);
         }
-        match &justification {
+        let expected_round = match &justification {
             ProposalJustification::Finalized(_) => {
-                if parent.height > 0 && round <= parent.round {
-                    return Err(BlockProposalError::NonIncreasingRound);
+                if parent.height == 0 {
+                    Some(parent.round)
+                } else {
+                    parent.round.checked_add(1)
                 }
             }
             ProposalJustification::Quorum(certificate) => {
                 if certificate.context != context {
                     return Err(BlockProposalError::WrongConsensusContext);
                 }
-                if round <= parent.round {
-                    return Err(BlockProposalError::NonIncreasingRound);
-                }
+                parent.round.checked_add(1)
             }
+        };
+        if expected_round != Some(round) {
+            return Err(BlockProposalError::NonConsecutiveRound);
         }
         Ok(Self { proposer, context, height, round, block_digest, justification, signature })
     }
@@ -382,7 +385,7 @@ pub enum BlockProposalError {
     ZeroBlockDigest,
     ZeroProposalCommitment,
     NonConsecutiveHeight,
-    NonIncreasingRound,
+    NonConsecutiveRound,
     WrongConsensusContext,
 }
 
@@ -1263,7 +1266,42 @@ mod tests {
                 ),
                 signature,
             ),
-            Err(BlockProposalError::NonIncreasingRound)
+            Err(BlockProposalError::NonConsecutiveRound)
+        );
+    }
+    #[test]
+    fn proposal_rejects_unjustified_round_jumps_and_overflow() {
+        let context = ConsensusVoteContext::new(digest(10), 3, digest(11)).unwrap();
+        let signature = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![4; 2420]).unwrap();
+        let anchor = ProposalJustification::Finalized(
+            ConsensusBlockRef::new(digest(10), digest(10), 0, 0).unwrap(),
+        );
+        assert_eq!(
+            BlockProposal::new(
+                PrincipalId::new(digest(1)),
+                context,
+                1,
+                u64::MAX,
+                digest(3),
+                anchor,
+                signature,
+            ),
+            Err(BlockProposalError::NonConsecutiveRound)
+        );
+        let qc =
+            QuorumCertificate::new(context, 1, u64::MAX, digest(3), digest(4), digest(5), 3, 3)
+                .unwrap();
+        assert_eq!(
+            BlockProposal::new(
+                PrincipalId::new(digest(1)),
+                context,
+                2,
+                u64::MAX,
+                digest(6),
+                ProposalJustification::Quorum(qc),
+                ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![4; 2420]).unwrap(),
+            ),
+            Err(BlockProposalError::NonConsecutiveRound)
         );
     }
     #[test]
