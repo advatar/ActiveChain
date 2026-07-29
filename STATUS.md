@@ -13,7 +13,7 @@ Tracked by [GitHub issue #326](https://github.com/advatar/ActiveChain/issues/326
   explicit test fixtures.
 - [x] Add secure provisioning, mismatch, permissions, legacy-key, restart, and rotation tests.
 - [x] Publish and rehearse a recoverable three-validator identity rotation before changing Kanalen.
-- [ ] Archive the compromised Kanalen state, rotate every validator identity, restore quorum/RPC
+- [x] Archive the compromised Kanalen state, rotate every validator identity, restore quorum/RPC
   health, and record the new immutable chain identity without trusting prior certificates.
 - [x] Remove deterministic CLI wallet identities and track native platform key custody separately
   ([GitHub issue #327](https://github.com/advatar/ActiveChain/issues/327)).
