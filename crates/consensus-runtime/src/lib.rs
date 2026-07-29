@@ -1456,29 +1456,40 @@ struct HighestVotedRound {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct CertifiedBlockRecord {
+    proposal: BlockProposal,
     certificate: QuorumCertificate,
+    votes: Vec<ValidatorVote>,
     parent: ConsensusBlockRef,
+}
+
+impl CertifiedBlockRecord {
+    fn from_verified(proof: &CertifiedBlock) -> Self {
+        Self {
+            proposal: proof.proposal().clone(),
+            certificate: proof.certificate().clone(),
+            votes: proof.votes().to_vec(),
+            parent: proof.proposal().parent(),
+        }
+    }
+
+    fn proof(&self) -> Result<CertifiedBlock, TransportError> {
+        CertifiedBlock::new(self.proposal.clone(), self.certificate.clone(), self.votes.clone())
+    }
 }
 
 impl CanonicalEncode for CertifiedBlockRecord {
     fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
-        self.certificate.encode(encoder)?;
-        self.parent.encode(encoder)
+        let proof = self.proof().map_err(|_| EncodeError::LengthOverflow)?;
+        let bytes = proof.encode().map_err(|_| EncodeError::LengthOverflow)?;
+        encoder.write_bytes(&bytes, MAX_PEER_FRAME_LEN)
     }
 }
 
 impl CanonicalDecode for CertifiedBlockRecord {
     fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
-        let certificate = QuorumCertificate::decode(decoder)?;
-        let parent = ConsensusBlockRef::decode(decoder)?;
-        if parent.height().checked_add(1) != Some(certificate.height())
-            || (parent.height() > 0 && certificate.round() <= parent.round())
-            || (parent.height() == 0 && certificate.round() < parent.round())
-            || parent.proposal_commitment() == certificate.proposal_commitment()
-        {
-            return Err(DecodeError::InvalidValue("invalid certified-block ancestry record"));
-        }
-        Ok(Self { certificate, parent })
+        let proof = CertifiedBlock::decode(decoder.read_bytes(MAX_PEER_FRAME_LEN)?)
+            .map_err(|_| DecodeError::InvalidValue("invalid certified-block proof"))?;
+        Ok(Self::from_verified(&proof))
     }
 }
 
@@ -1678,7 +1689,7 @@ impl CanonicalDecode for PersistedValidatorState {
 
 impl CanonicalType for PersistedValidatorState {
     const TYPE_TAG: u16 = 0x006c;
-    const SCHEMA_VERSION: u16 = 4;
+    const SCHEMA_VERSION: u16 = 5;
     const MAX_ENCODED_LEN: usize = ConsensusSnapshot::MAX_ENCODED_LEN
         + 48
         + 2
@@ -1692,8 +1703,7 @@ impl CanonicalType for PersistedValidatorState {
         + 1
         + QuorumCertificate::ENCODED_LENGTH
         + 2
-        + MAX_PERSISTED_CERTIFIED_BLOCKS
-            * (48 + QuorumCertificate::ENCODED_LENGTH + 48 + 48 + 8 + 8)
+        + MAX_PERSISTED_CERTIFIED_BLOCKS * (48 + 5 + MAX_PEER_FRAME_LEN)
         + 48
         + 48
         + 8
@@ -2098,6 +2108,23 @@ impl ValidatorEngine {
             {
                 return Err(ValidatorEngineError::InvalidSafetySnapshot);
             }
+            let proof = record.proof().map_err(|_| ValidatorEngineError::InvalidSafetySnapshot)?;
+            let proposer_key = self
+                .public_keys
+                .get(&proof.proposal().proposer())
+                .ok_or(ValidatorEngineError::InvalidSafetySnapshot)?;
+            verify_block_proposal(proposer_key, proof.proposal())
+                .map_err(|_| ValidatorEngineError::InvalidSafetySnapshot)?;
+            let mut votes = Vec::with_capacity(proof.votes().len());
+            for vote in proof.votes() {
+                let key = self
+                    .public_keys
+                    .get(&vote.validator())
+                    .ok_or(ValidatorEngineError::InvalidSafetySnapshot)?;
+                votes.push((key.as_slice(), vote.clone()));
+            }
+            verify_quorum_certificate(certificate, &self.validator_set, &votes)
+                .map_err(|_| ValidatorEngineError::InvalidSafetySnapshot)?;
         }
         if self.locked_qc.as_ref().is_some_and(|locked| {
             let is_finalized_anchor = locked.block_digest() == self.active_anchor.block_digest()
@@ -2432,7 +2459,7 @@ impl ValidatorEngine {
             ValidatorEngineError::Runtime(RuntimeError::VoteVerification(error))
         })?;
 
-        self.apply_verified_certificate_transition(proposal, certificate)
+        self.apply_verified_certificate_transition(proposal, certificate, proof.votes())
     }
 
     /// Applies a proposal/QC pair after proposal and vote signatures have been verified.
@@ -2444,6 +2471,7 @@ impl ValidatorEngine {
         &mut self,
         proposal: &BlockProposal,
         certificate: &QuorumCertificate,
+        votes: &[ValidatorVote],
     ) -> Result<(), ValidatorEngineError> {
         if certificate.genesis_commitment() != self.genesis_commitment
             || certificate.epoch() != self.state.epoch()
@@ -2500,7 +2528,12 @@ impl ValidatorEngine {
         }
         self.certified_blocks.insert(
             certificate.proposal_commitment(),
-            CertifiedBlockRecord { certificate: certificate.clone(), parent: proposal.parent() },
+            CertifiedBlockRecord {
+                proposal: proposal.clone(),
+                certificate: certificate.clone(),
+                votes: votes.to_vec(),
+                parent: proposal.parent(),
+            },
         );
         self.state = next_state;
         self.active_anchor = next_anchor;
@@ -4082,7 +4115,7 @@ mod tests {
             keys,
         )
         .unwrap();
-        engine.process(ConsensusMessage::Proposal(proposal)).unwrap();
+        engine.process(ConsensusMessage::Proposal(proposal.clone())).unwrap();
         let vote = engine.sign_current_vote(&signer).unwrap();
         activechain_crypto_provider::verify_validator_vote(&signer.public_key(), &vote).unwrap();
         assert!(engine.process(ConsensusMessage::Vote(vote)).unwrap().is_some());
@@ -4353,7 +4386,13 @@ mod tests {
         let restored = load_snapshot(&path).unwrap();
         let service = ValidatorService::from_genesis(restored, &genesis, path.clone()).unwrap();
         assert_eq!(service.state().unwrap().finalized_height(), 0);
-        assert_eq!(service.engine.lock().unwrap().certified_blocks.len(), 1);
+        let engine = service.engine.lock().unwrap();
+        assert_eq!(engine.certified_blocks.len(), 1);
+        let record = engine.certified_blocks.values().next().unwrap();
+        assert_eq!(record.proposal.commitment(), record.certificate.proposal_commitment());
+        assert_eq!(record.votes.len(), 1);
+        assert_eq!(record.votes[0].proposal_commitment(), record.proposal.commitment());
+        drop(engine);
         assert_eq!(service.next_proposal_position().unwrap(), (2, 1));
         drop(service);
         std::fs::remove_file(path).unwrap();
@@ -4388,7 +4427,7 @@ mod tests {
         let real_digest = Digest384::new([106; 48]);
         let proposal = sign_genesis_proposal(&signer, &genesis, 1, 0, real_digest);
         let real_proposal_commitment = proposal.commitment();
-        engine.process(ConsensusMessage::Proposal(proposal)).unwrap();
+        engine.process(ConsensusMessage::Proposal(proposal.clone())).unwrap();
         let vote = engine.sign_current_vote(&signer).unwrap();
         let parent = ConsensusBlockRef::new(
             genesis.genesis_commitment(),
@@ -4420,7 +4459,15 @@ mod tests {
             assert!(
                 engine
                     .certified_blocks
-                    .insert(proposal_commitment, CertifiedBlockRecord { certificate, parent },)
+                    .insert(
+                        proposal_commitment,
+                        CertifiedBlockRecord {
+                            proposal: proposal.clone(),
+                            certificate,
+                            votes: Vec::new(),
+                            parent,
+                        },
+                    )
                     .is_none()
             );
         }
@@ -4504,7 +4551,17 @@ mod tests {
                 1,
             )
             .unwrap();
-            engine.apply_verified_certificate_transition(&proposal, &certificate).unwrap();
+            let vote = ValidatorVote::new(
+                validator,
+                context,
+                height,
+                round,
+                proposal.block_digest(),
+                proposal.commitment(),
+                placeholder.clone(),
+            )
+            .unwrap();
+            engine.apply_verified_certificate_transition(&proposal, &certificate, &[vote]).unwrap();
             previous_qc = Some(certificate);
             assert!(engine.certified_blocks.len() <= 1);
 

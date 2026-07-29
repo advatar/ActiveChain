@@ -1,5 +1,10 @@
 # Validator snapshot migration and rebuild v1
 
+The current persisted validator safety-state schema is version 5. Unlike schema 4, every retained
+certified-history entry contains the complete signed proposal, quorum certificate, and ordered
+signed vote proof. Validators reverify those proofs against the active genesis manifest during
+restart before using them as proposal ancestry.
+
 Validator snapshots are consensus safety state, not ordinary application data. An incompatible
 schema or genesis commitment must never be decoded heuristically or overwritten in place.
 
@@ -37,4 +42,3 @@ incompatible with the current safety format and is not upgraded in place.
 No migration may carry forward votes, locks, replay high-water marks, or certified ancestry from
 an incompatible snapshot. Those values are safety-critical and must be regenerated from the
 new genesis and finalized history.
-

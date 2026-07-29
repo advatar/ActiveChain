@@ -117,7 +117,7 @@ The activation boundary uses these schema revisions:
 | `BlockProposal` | `0x0068` | `3` |
 | `ConsensusSnapshot` | `0x0069` | `4` |
 | `ValidatorGenesis` | `0x006b` | `2` |
-| persisted validator safety state | `0x006c` | `4` |
+| persisted validator safety state | `0x006c` | `5` |
 | `ConsensusUpgradeAuthorization` | `0x006d` | `1` |
 
 Older votes, QCs, proposals, snapshots, and validator-safety snapshots omit required proposal
