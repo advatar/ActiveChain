@@ -338,11 +338,19 @@ impl ViewChangeCertificate {
                 vote.context != context
                     || vote.height != height
                     || vote.timed_out_round != timed_out_round
-                    || vote.parent != parent
-                    || vote.highest_qc != highest_qc
             })
         {
             return Err(ViewChangeCertificateError::MismatchedVote);
+        }
+        let selected = votes
+            .iter()
+            .filter_map(|vote| vote.highest_qc.as_ref().map(|qc| (qc, vote.parent)))
+            .max_by_key(|(qc, _)| (qc.round(), qc.height(), qc.proposal_commitment()));
+        match (highest_qc.as_ref(), selected) {
+            (Some(expected), Some((observed, observed_parent)))
+                if expected == observed && parent == observed_parent => {}
+            (None, None) if votes.iter().all(|vote| vote.parent == parent) => {}
+            _ => return Err(ViewChangeCertificateError::MismatchedVote),
         }
         Ok(Self {
             context,
@@ -1761,6 +1769,43 @@ mod tests {
             ),
             Err(TimeoutVoteError::InvalidHighestQc)
         );
+    }
+    #[test]
+    fn view_change_selects_highest_qc_across_mixed_timeout_histories() {
+        let context = ConsensusVoteContext::new(digest(10), 3, digest(11)).unwrap();
+        let parent = ConsensusBlockRef::new(digest(20), digest(21), 6, 3).unwrap();
+        let high_qc =
+            QuorumCertificate::new(context, 6, 3, digest(20), digest(21), digest(22), 3, 3)
+                .unwrap();
+        let signature =
+            |byte| ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![byte; 2420]).unwrap();
+        let votes = vec![
+            TimeoutVote::new(
+                PrincipalId::new(digest(1)),
+                context,
+                7,
+                4,
+                parent,
+                None,
+                signature(1),
+            )
+            .unwrap(),
+            TimeoutVote::new(
+                PrincipalId::new(digest(2)),
+                context,
+                7,
+                4,
+                parent,
+                Some(high_qc.clone()),
+                signature(2),
+            )
+            .unwrap(),
+        ];
+        let certificate =
+            ViewChangeCertificate::new(context, 7, 4, parent, Some(high_qc.clone()), 3, 3, votes)
+                .unwrap();
+        assert_eq!(certificate.highest_qc(), Some(&high_qc));
+        assert_eq!(certificate.votes()[0].highest_qc(), None);
     }
     #[test]
     fn quorum_certificate_requires_strict_two_thirds_stake() {

@@ -1658,6 +1658,12 @@ struct TimeoutSlot {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct TimeoutCollectorKey {
+    height: u64,
+    round: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct LocalTimeoutDomain {
     validator: PrincipalId,
     genesis_commitment: Digest384,
@@ -1671,8 +1677,7 @@ struct LocalTimeoutDomain {
 #[derive(Clone)]
 struct TimeoutCollector {
     context: ConsensusVoteContext,
-    slot: TimeoutSlot,
-    highest_qc: Option<QuorumCertificate>,
+    key: TimeoutCollectorKey,
     votes: BTreeMap<PrincipalId, TimeoutVote>,
     signer_stake: u128,
 }
@@ -1681,15 +1686,7 @@ impl TimeoutCollector {
     fn from_vote(vote: &TimeoutVote) -> Self {
         Self {
             context: vote.context(),
-            slot: TimeoutSlot {
-                height: vote.height(),
-                round: vote.timed_out_round(),
-                parent: vote.parent(),
-                highest_qc: vote
-                    .highest_qc()
-                    .map_or(Digest384::ZERO, QuorumCertificate::proposal_commitment),
-            },
-            highest_qc: vote.highest_qc().cloned(),
+            key: TimeoutCollectorKey { height: vote.height(), round: vote.timed_out_round() },
             votes: BTreeMap::new(),
             signer_stake: 0,
         }
@@ -1701,10 +1698,8 @@ impl TimeoutCollector {
         public_key: &[u8],
     ) -> Result<(), ValidatorEngineError> {
         if vote.context() != self.context
-            || vote.height() != self.slot.height
-            || vote.timed_out_round() != self.slot.round
-            || vote.parent() != self.slot.parent
-            || vote.highest_qc() != self.highest_qc.as_ref()
+            || vote.height() != self.key.height
+            || vote.timed_out_round() != self.key.round
         {
             return Err(ValidatorEngineError::InvalidViewChange);
         }
@@ -1733,12 +1728,21 @@ impl TimeoutCollector {
         if !has_quorum {
             return Ok(None);
         }
+        let selected = self
+            .votes
+            .values()
+            .filter_map(|vote| vote.highest_qc().map(|qc| (qc, vote.parent())))
+            .max_by_key(|(qc, _)| (qc.round(), qc.height(), qc.proposal_commitment()));
+        let (highest_qc, parent) = selected.map_or_else(
+            || (None, self.votes.values().next().unwrap().parent()),
+            |(qc, parent)| (Some(qc.clone()), parent),
+        );
         ViewChangeCertificate::new(
             self.context,
-            self.slot.height,
-            self.slot.round,
-            self.slot.parent,
-            self.highest_qc.clone(),
+            self.key.height,
+            self.key.round,
+            parent,
+            highest_qc,
             validator_set.total_stake(),
             self.signer_stake,
             self.votes.values().cloned().collect(),
@@ -2271,7 +2275,7 @@ pub struct ValidatorEngine {
     validator_set: ValidatorSet,
     public_keys: BTreeMap<activechain_protocol_types::PrincipalId, Vec<u8>>,
     collectors: BTreeMap<Digest384, VoteCollector>,
-    timeout_collectors: BTreeMap<TimeoutSlot, TimeoutCollector>,
+    timeout_collectors: BTreeMap<TimeoutCollectorKey, TimeoutCollector>,
     current_proposal: Option<Digest384>,
     local_vote_locks: BTreeMap<LocalVoteSlot, Digest384>,
     highest_voted_rounds: BTreeMap<LocalVoteDomain, HighestVotedRound>,
@@ -2441,26 +2445,27 @@ impl ValidatorEngine {
             }
             None => {}
         }
-        let key = self
+        let public_key = self
             .public_keys
             .get(&vote.validator())
             .ok_or(ValidatorEngineError::UnknownValidator)?
             .clone();
-        let slot = TimeoutCollector::from_vote(&vote).slot;
-        if !self.timeout_collectors.contains_key(&slot) {
+        let collector_key = TimeoutCollector::from_vote(&vote).key;
+        if !self.timeout_collectors.contains_key(&collector_key) {
             if self.timeout_collectors.len() >= MAX_ACTIVE_COLLECTORS {
                 return Err(ValidatorEngineError::CollectorLimit);
             }
-            self.timeout_collectors.insert(slot, TimeoutCollector::from_vote(&vote));
+            self.timeout_collectors.insert(collector_key, TimeoutCollector::from_vote(&vote));
         }
-        let collector = self.timeout_collectors.get_mut(&slot).unwrap();
-        collector.add(vote, &self.validator_set, &key)?;
+        let collector = self.timeout_collectors.get_mut(&collector_key).unwrap();
+        collector.add(vote, &self.validator_set, &public_key)?;
         if let Some(certificate) = collector.certificate(&self.validator_set)? {
             self.verify_view_change(&certificate)?;
             self.accepted_view_change = Some(certificate);
             self.timeout_collectors.retain(|candidate, _| {
-                candidate.height > slot.height
-                    || (candidate.height == slot.height && candidate.round > slot.round)
+                candidate.height > collector_key.height
+                    || (candidate.height == collector_key.height
+                        && candidate.round > collector_key.round)
             });
         }
         Ok(())
@@ -2555,6 +2560,32 @@ impl ValidatorEngine {
                 return Err(ValidatorEngineError::InvalidViewChange);
             }
             None => {}
+        }
+        for vote in certificate.votes() {
+            match vote.highest_qc() {
+                Some(qc) => {
+                    let record = self
+                        .certified_blocks
+                        .get(&qc.proposal_commitment())
+                        .ok_or(ValidatorEngineError::UnknownParentCertificate)?;
+                    if record.certificate != *qc
+                        || vote.parent().block_digest() != qc.block_digest()
+                        || vote.parent().proposal_commitment() != qc.proposal_commitment()
+                        || vote.parent().height() != qc.height()
+                        || vote.parent().round() != qc.round()
+                        || !self.is_ancestor_or_equal(
+                            self.active_anchor.proposal_commitment(),
+                            vote.parent().proposal_commitment(),
+                        )
+                    {
+                        return Err(ValidatorEngineError::InvalidViewChange);
+                    }
+                }
+                None if vote.parent() != self.active_anchor => {
+                    return Err(ValidatorEngineError::InvalidViewChange);
+                }
+                None => {}
+            }
         }
         let keys: Vec<_> =
             self.public_keys.iter().map(|(validator, key)| (*validator, key.as_slice())).collect();
