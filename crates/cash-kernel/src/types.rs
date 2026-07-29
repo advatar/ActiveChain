@@ -24,6 +24,98 @@ pub const MAX_TRANSFER_BATCH: usize = 64;
 pub const MAX_SYMBOL_LENGTH: usize = 12;
 /// Maximum genesis allocation entries in the bounded genesis manifest.
 pub const MAX_GENESIS_ALLOCATIONS: usize = 4_096;
+/// Number of sequential economics-settlement epochs in one constitutional issuance year.
+pub const ISSUANCE_EPOCHS_PER_YEAR: Epoch = 365;
+const BASIS_POINTS_DENOMINATOR: Amount = 10_000;
+
+/// Returns the zero-based constitutional issuance window containing a non-zero epoch.
+pub fn issuance_window_index(epoch: Epoch) -> Result<Epoch, NativeMoneyError> {
+    epoch
+        .checked_sub(1)
+        .map(|value| value / ISSUANCE_EPOCHS_PER_YEAR)
+        .ok_or(NativeMoneyError::InvalidEconomicsTransition)
+}
+
+/// Computes `floor(amount * bps / 10_000)` without overflowing the intermediate product.
+pub fn basis_points_amount(amount: Amount, bps: u16) -> Result<Amount, NativeMoneyError> {
+    let whole = amount / BASIS_POINTS_DENOMINATOR;
+    let remainder = amount % BASIS_POINTS_DENOMINATOR;
+    whole
+        .checked_mul(Amount::from(bps))
+        .and_then(|value| {
+            remainder
+                .checked_mul(Amount::from(bps))
+                .and_then(|tail| value.checked_add(tail / BASIS_POINTS_DENOMINATOR))
+        })
+        .ok_or(NativeMoneyError::AmountOverflow)
+}
+
+fn ceiling_basis_points_amount(amount: Amount, bps: u16) -> Result<Amount, NativeMoneyError> {
+    let floor = basis_points_amount(amount, bps)?;
+    let fractional = (amount % BASIS_POINTS_DENOMINATOR)
+        .checked_mul(Amount::from(bps))
+        .ok_or(NativeMoneyError::AmountOverflow)?
+        % BASIS_POINTS_DENOMINATOR;
+    if fractional == 0 {
+        Ok(floor)
+    } else {
+        floor.checked_add(1).ok_or(NativeMoneyError::AmountOverflow)
+    }
+}
+
+/// Derives `floor(staked_supply * 10_000 / total_supply)` without wide intermediates.
+pub fn effective_stake_basis_points(
+    staked_supply: Amount,
+    total_supply: Amount,
+) -> Result<u16, NativeMoneyError> {
+    if total_supply == 0 || staked_supply > total_supply {
+        return Err(NativeMoneyError::SupplyPartitionMismatch);
+    }
+    let mut low = 0_u16;
+    let mut high = 10_000_u16;
+    while low < high {
+        let midpoint = low + (high - low).div_ceil(2);
+        if ceiling_basis_points_amount(total_supply, midpoint)? <= staked_supply {
+            low = midpoint;
+        } else {
+            high = midpoint - 1;
+        }
+    }
+    Ok(low)
+}
+
+/// Piecewise-linear annual security-budget rate from the constitutional research curve.
+#[must_use]
+pub fn annual_security_budget_bps(effective_stake_bps: u16) -> u16 {
+    fn interpolate(stake: u16, low: u16, high: u16, low_rate: u16, high_rate: u16) -> u16 {
+        let span = u32::from(high - low);
+        let progress = u32::from(stake - low);
+        let decline = u32::from(low_rate - high_rate);
+        u16::try_from(u32::from(low_rate) - (decline * progress) / span)
+            .expect("interpolated basis points fit u16")
+    }
+
+    match effective_stake_bps {
+        0..=3_000 => 150,
+        3_001..=4_000 => interpolate(effective_stake_bps, 3_000, 4_000, 150, 100),
+        4_001..=5_000 => interpolate(effective_stake_bps, 4_000, 5_000, 100, 75),
+        5_001..=6_000 => interpolate(effective_stake_bps, 5_000, 6_000, 75, 50),
+        6_001..=7_000 => interpolate(effective_stake_bps, 6_000, 7_000, 50, 40),
+        _ => 40,
+    }
+}
+
+/// Derives the epoch security budget with deterministic floor rounding across 365 epochs.
+pub fn epoch_security_budget(
+    pre_supply: Amount,
+    effective_stake_bps: u16,
+) -> Result<Amount, NativeMoneyError> {
+    if effective_stake_bps > 10_000 {
+        return Err(NativeMoneyError::InvalidEconomicsTransition);
+    }
+    let annual = basis_points_amount(pre_supply, annual_security_budget_bps(effective_stake_bps))?;
+    Ok(annual / Amount::from(ISSUANCE_EPOCHS_PER_YEAR))
+}
 
 /// Immutable native-asset monetary constitution.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -65,6 +157,9 @@ impl NativeAssetDefinition {
         }
         if decimals > 38 {
             return Err(NativeMoneyError::InvalidDecimals);
+        }
+        if maximum_ordinary_annual_issuance_bps > 10_000 {
+            return Err(NativeMoneyError::InvalidEconomicsTransition);
         }
         if genesis_supply == 0 {
             return Err(NativeMoneyError::ZeroGenesisSupply);
@@ -1489,11 +1584,14 @@ pub struct NativeSupply {
     staked_supply: Amount,
     security_reserve_balance: Amount,
     last_settled_epoch: Epoch,
+    issuance_window: Epoch,
+    issuance_window_opening_supply: Amount,
+    issuance_in_window: Amount,
 }
 impl NativeSupply {
     pub const TYPE_TAG: u16 = 0x0084;
-    pub const SCHEMA_VERSION: u16 = 1;
-    pub const MAX_ENCODED_LEN: usize = 16 * 8 + 8;
+    pub const SCHEMA_VERSION: u16 = 2;
+    pub const MAX_ENCODED_LEN: usize = 16 * 10 + 8 * 2;
     pub fn genesis(
         genesis_supply: Amount,
         security_reserve: Amount,
@@ -1516,6 +1614,9 @@ impl NativeSupply {
             staked_supply: 0,
             security_reserve_balance: security_reserve,
             last_settled_epoch: 0,
+            issuance_window: 0,
+            issuance_window_opening_supply: genesis_supply,
+            issuance_in_window: 0,
         })
     }
     #[allow(clippy::too_many_arguments)]
@@ -1529,6 +1630,9 @@ impl NativeSupply {
         staked_supply: Amount,
         security_reserve_balance: Amount,
         last_settled_epoch: Epoch,
+        issuance_window: Epoch,
+        issuance_window_opening_supply: Amount,
+        issuance_in_window: Amount,
     ) -> Result<Self, NativeMoneyError> {
         let expected =
             compute_post_supply(genesis_supply, cumulative_security_issuance, cumulative_burn)
@@ -1548,6 +1652,13 @@ impl NativeSupply {
         if locked > current_total_supply
             || partition != Some(current_total_supply)
             || security_reserve_balance > current_total_supply
+            || issuance_window_opening_supply == 0
+            || (last_settled_epoch == 0
+                && (issuance_window != 0
+                    || issuance_window_opening_supply != genesis_supply
+                    || issuance_in_window != 0))
+            || (last_settled_epoch != 0
+                && issuance_window_index(last_settled_epoch)? != issuance_window)
         {
             return Err(NativeMoneyError::SupplyPartitionMismatch);
         }
@@ -1561,6 +1672,9 @@ impl NativeSupply {
             staked_supply,
             security_reserve_balance,
             last_settled_epoch,
+            issuance_window,
+            issuance_window_opening_supply,
+            issuance_in_window,
         })
     }
     #[must_use]
@@ -1599,6 +1713,18 @@ impl NativeSupply {
     pub const fn last_settled_epoch(self) -> Epoch {
         self.last_settled_epoch
     }
+    #[must_use]
+    pub const fn issuance_window(self) -> Epoch {
+        self.issuance_window
+    }
+    #[must_use]
+    pub const fn issuance_window_opening_supply(self) -> Amount {
+        self.issuance_window_opening_supply
+    }
+    #[must_use]
+    pub const fn issuance_in_window(self) -> Amount {
+        self.issuance_in_window
+    }
 }
 impl CanonicalEncode for NativeSupply {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
@@ -1610,7 +1736,10 @@ impl CanonicalEncode for NativeSupply {
         self.locked_vesting_supply.encode(e)?;
         self.staked_supply.encode(e)?;
         self.security_reserve_balance.encode(e)?;
-        self.last_settled_epoch.encode(e)
+        self.last_settled_epoch.encode(e)?;
+        self.issuance_window.encode(e)?;
+        self.issuance_window_opening_supply.encode(e)?;
+        self.issuance_in_window.encode(e)
     }
 }
 impl CanonicalDecode for NativeSupply {
@@ -1625,8 +1754,55 @@ impl CanonicalDecode for NativeSupply {
             u128::decode(d)?,
             u128::decode(d)?,
             u64::decode(d)?,
+            u64::decode(d)?,
+            u128::decode(d)?,
+            u128::decode(d)?,
         )
         .map_err(|_| DecodeError::InvalidValue("invalid native supply state"))
+    }
+}
+
+impl NativeSupply {
+    /// Decodes schema v1 and conservatively consumes the current window's entire allowance.
+    pub fn decode_legacy_v1(
+        d: &mut Decoder<'_>,
+        maximum_ordinary_annual_issuance_bps: u16,
+    ) -> Result<Self, DecodeError> {
+        let genesis_supply = u128::decode(d)?;
+        let cumulative_security_issuance = u128::decode(d)?;
+        let cumulative_burn = u128::decode(d)?;
+        let current_total_supply = u128::decode(d)?;
+        let circulating_supply = u128::decode(d)?;
+        let locked_vesting_supply = u128::decode(d)?;
+        let staked_supply = u128::decode(d)?;
+        let security_reserve_balance = u128::decode(d)?;
+        let last_settled_epoch = u64::decode(d)?;
+        let (window, opening_supply, charged_issuance) = if last_settled_epoch == 0 {
+            (0, genesis_supply, 0)
+        } else {
+            (
+                issuance_window_index(last_settled_epoch)
+                    .map_err(|_| DecodeError::InvalidValue("invalid legacy issuance epoch"))?,
+                current_total_supply,
+                basis_points_amount(current_total_supply, maximum_ordinary_annual_issuance_bps)
+                    .map_err(|_| DecodeError::InvalidValue("invalid legacy issuance cap"))?,
+            )
+        };
+        Self::new(
+            genesis_supply,
+            cumulative_security_issuance,
+            cumulative_burn,
+            current_total_supply,
+            circulating_supply,
+            locked_vesting_supply,
+            staked_supply,
+            security_reserve_balance,
+            last_settled_epoch,
+            window,
+            opening_supply,
+            charged_issuance,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid legacy native supply state"))
     }
 }
 impl CanonicalType for NativeSupply {

@@ -1634,6 +1634,26 @@ mod tests {
     }
 
     #[test]
+    fn legacy_cash_snapshot_migrates_once_and_rewrites_as_v3() {
+        let (ingress, _key, _owner, _input, _reserve) = setup_authorized_ingress(49);
+        let legacy = ingress.encode_legacy_v2_for_test().unwrap();
+        let path = std::env::temp_dir()
+            .join(format!("activechain-cash-ingress-legacy-{}.bin", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        std::fs::write(&path, legacy).unwrap();
+
+        let migrated = TransactionIngress::load(&path, ChainId::new(digest(1))).unwrap();
+        assert_eq!(migrated.ledger(), ingress.ledger());
+        assert_eq!(migrated.ledger().supply().issuance_window(), 0);
+        assert_eq!(migrated.ledger().supply().issuance_in_window(), 0);
+        migrated.save_atomic(&path).unwrap();
+        let rewritten = std::fs::read(&path).unwrap();
+        assert_eq!(u16::from_be_bytes([rewritten[2], rewritten[3]]), 3);
+        assert_eq!(TransactionIngress::load(&path, ChainId::new(digest(1))).unwrap(), migrated);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn failed_cash_snapshot_publish_exposes_no_ledger_or_replay_mutation() {
         let (mut ingress, key, owner, input, reserve) = setup_authorized_ingress(45);
         let session = digest(46);

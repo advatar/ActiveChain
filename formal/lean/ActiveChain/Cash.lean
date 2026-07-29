@@ -95,92 +95,152 @@ theorem transferValueConservation
 
 /-! ## Bounded protocol issuance -/
 
+/-- Committed accounting for one deterministic constitutional issuance year. -/
+structure IssuanceWindowState where
+  openingSupply : Nat
+  issued : Nat
+  deriving BEq, DecidableEq, Repr
+
+def constitutionalCap (window : IssuanceWindowState) (annualCapBps : Nat) : Nat :=
+  window.openingSupply * annualCapBps / 10000
+
+def remainingIssuance (window : IssuanceWindowState) (annualCapBps : Nat) : Nat :=
+  constitutionalCap window annualCapBps - window.issued
+
 /-- Abstract observations made by `EpochEconomicsTransition` validation. -/
 structure IssuanceTransition where
   amount : Nat
-  issuanceCap : Nat
+  declaredRemainingCap : Nat
   policyMatches : Bool
   sequenceMatches : Bool
   formulaMatches : Bool
+  declaredTarget : Nat
+  derivedTarget : Nat
   deriving BEq, DecidableEq, Repr
 
 /-- Executable conjunction of all issuance authorization observations. -/
-def IssuanceTransition.authorized (transition : IssuanceTransition) : Bool :=
+def IssuanceTransition.authorized (transition : IssuanceTransition)
+    (window : IssuanceWindowState) (annualCapBps : Nat) : Bool :=
   transition.policyMatches && transition.sequenceMatches &&
-    transition.formulaMatches && decide (transition.amount ≤ transition.issuanceCap)
+    transition.formulaMatches && decide (transition.declaredTarget = transition.derivedTarget) &&
+    decide (transition.declaredRemainingCap = remainingIssuance window annualCapBps) &&
+    decide (transition.amount ≤ remainingIssuance window annualCapBps)
 
 /-- There is no discretionary authority: all three protocol checks and the cap
 must hold before issuance can be accepted. -/
-def IssuanceTransition.Authorized (transition : IssuanceTransition) : Prop :=
-  transition.authorized = true
+def IssuanceTransition.Authorized (transition : IssuanceTransition)
+    (window : IssuanceWindowState) (annualCapBps : Nat) : Prop :=
+  transition.authorized window annualCapBps = true
 
 /-- Apply one authorized epoch issuance. -/
 def applyIssuance
-    (state : SupplyState) (transition : IssuanceTransition) : Option SupplyState :=
-  if transition.authorized then
-    some {
+    (state : SupplyState) (window : IssuanceWindowState) (annualCapBps : Nat)
+    (transition : IssuanceTransition) : Option (SupplyState × IssuanceWindowState) :=
+  if transition.authorized window annualCapBps then
+    some ({
       genesisSupply := state.genesisSupply
       cumulativeIssuance := state.cumulativeIssuance + transition.amount
       cumulativeBurn := state.cumulativeBurn
       totalSupply := state.totalSupply + transition.amount
-    }
+    }, {
+      openingSupply := window.openingSupply
+      issued := window.issued + transition.amount
+    })
   else
     none
 
 /-- Successful issuance is possible only through the complete authorization
 predicate. -/
 theorem issuanceSuccessImpliesAuthorization
-    (pre post : SupplyState) (transition : IssuanceTransition)
-    (accepted : applyIssuance pre transition = some post) :
-    transition.Authorized := by
-  cases authorization : transition.authorized with
+    (pre post : SupplyState) (window postWindow : IssuanceWindowState)
+    (annualCapBps : Nat) (transition : IssuanceTransition)
+    (accepted : applyIssuance pre window annualCapBps transition = some (post, postWindow)) :
+    transition.Authorized window annualCapBps := by
+  cases authorization : transition.authorized window annualCapBps with
   | false => simp [applyIssuance, authorization] at accepted
   | true => simpa [IssuanceTransition.Authorized] using authorization
 
-/-- In particular, every successful issuance is bounded by its declared cap. -/
+/-- Every successful issuance is bounded by the cap derived from committed state. -/
 theorem authorizedIssuanceIsCapped
-    (pre post : SupplyState) (transition : IssuanceTransition)
-    (accepted : applyIssuance pre transition = some post) :
-    transition.amount ≤ transition.issuanceCap := by
-  have authorized := issuanceSuccessImpliesAuthorization pre post transition accepted
+    (pre post : SupplyState) (window postWindow : IssuanceWindowState)
+    (annualCapBps : Nat) (transition : IssuanceTransition)
+    (accepted : applyIssuance pre window annualCapBps transition = some (post, postWindow)) :
+    transition.amount ≤ remainingIssuance window annualCapBps := by
+  have authorized := issuanceSuccessImpliesAuthorization
+    pre post window postWindow annualCapBps transition accepted
   simp [IssuanceTransition.Authorized, IssuanceTransition.authorized] at authorized
   exact authorized.2
 
+theorem acceptedDeclaredCapIsDerived
+    (pre post : SupplyState) (window postWindow : IssuanceWindowState)
+    (annualCapBps : Nat) (transition : IssuanceTransition)
+    (accepted : applyIssuance pre window annualCapBps transition = some (post, postWindow)) :
+    transition.declaredRemainingCap = remainingIssuance window annualCapBps := by
+  have authorized := issuanceSuccessImpliesAuthorization
+    pre post window postWindow annualCapBps transition accepted
+  simp [IssuanceTransition.Authorized, IssuanceTransition.authorized] at authorized
+  exact authorized.1.2
+
+theorem acceptedTargetIsDerived
+    (pre post : SupplyState) (window postWindow : IssuanceWindowState)
+    (annualCapBps : Nat) (transition : IssuanceTransition)
+    (accepted : applyIssuance pre window annualCapBps transition = some (post, postWindow)) :
+    transition.declaredTarget = transition.derivedTarget := by
+  have authorized := issuanceSuccessImpliesAuthorization
+    pre post window postWindow annualCapBps transition accepted
+  simp [IssuanceTransition.Authorized, IssuanceTransition.authorized] at authorized
+  exact authorized.1.1.2
+
 @[simp] theorem unauthorizedIssuanceIsRejected
-    (state : SupplyState) (transition : IssuanceTransition)
-    (unauthorized : ¬ transition.Authorized) :
-    applyIssuance state transition = none := by
+    (state : SupplyState) (window : IssuanceWindowState) (annualCapBps : Nat)
+    (transition : IssuanceTransition)
+    (unauthorized : ¬ transition.Authorized window annualCapBps) :
+    applyIssuance state window annualCapBps transition = none := by
   unfold IssuanceTransition.Authorized at unauthorized
-  cases authorization : transition.authorized with
+  cases authorization : transition.authorized window annualCapBps with
   | false => simp [applyIssuance, authorization]
   | true => exact False.elim (unauthorized authorization)
 
 /-- An accepted issuance increases both the cumulative-issued counter and total
 supply by exactly the authorized amount. -/
 theorem issuanceChangesSupplyExactly
-    (pre post : SupplyState) (transition : IssuanceTransition)
-    (accepted : applyIssuance pre transition = some post) :
+    (pre post : SupplyState) (window postWindow : IssuanceWindowState)
+    (annualCapBps : Nat) (transition : IssuanceTransition)
+    (accepted : applyIssuance pre window annualCapBps transition = some (post, postWindow)) :
     post.totalSupply = pre.totalSupply + transition.amount ∧
       post.cumulativeIssuance =
         pre.cumulativeIssuance + transition.amount := by
-  cases authorization : transition.authorized with
+  cases authorization : transition.authorized window annualCapBps with
   | false => simp [applyIssuance, authorization] at accepted
   | true =>
     simp [applyIssuance, authorization] at accepted
-    subst post
+    obtain ⟨rfl, rfl⟩ := accepted
     exact ⟨rfl, rfl⟩
+
+theorem issuanceChargesWindowExactly
+    (pre post : SupplyState) (window postWindow : IssuanceWindowState)
+    (annualCapBps : Nat) (transition : IssuanceTransition)
+    (accepted : applyIssuance pre window annualCapBps transition = some (post, postWindow)) :
+    postWindow.issued = window.issued + transition.amount := by
+  cases authorization : transition.authorized window annualCapBps with
+  | false => simp [applyIssuance, authorization] at accepted
+  | true =>
+    simp [applyIssuance, authorization] at accepted
+    obtain ⟨rfl, rfl⟩ := accepted
+    rfl
 
 /-- Authorized issuance preserves the native supply equation. -/
 theorem issuancePreservesSupplyInvariant
-    (pre post : SupplyState) (transition : IssuanceTransition)
+    (pre post : SupplyState) (window postWindow : IssuanceWindowState)
+    (annualCapBps : Nat) (transition : IssuanceTransition)
     (invariant : SupplyInvariant pre)
-    (accepted : applyIssuance pre transition = some post) :
+    (accepted : applyIssuance pre window annualCapBps transition = some (post, postWindow)) :
     SupplyInvariant post := by
-  cases authorization : transition.authorized with
+  cases authorization : transition.authorized window annualCapBps with
   | false => simp [applyIssuance, authorization] at accepted
   | true =>
     simp [applyIssuance, authorization] at accepted
-    subst post
+    obtain ⟨rfl, rfl⟩ := accepted
     unfold SupplyInvariant at invariant ⊢
     change
       (pre.totalSupply + transition.amount) + pre.cumulativeBurn =

@@ -31,11 +31,46 @@ post_supply = pre_supply + authorized_issuance - burned_amount
 
 No caller-provided authority signature can substitute for these checks.
 
+### Constitutional issuance derivation
+
+Version 2 divides the monotonically increasing economics-settlement sequence into fixed windows of
+365 epochs. Epochs 1–365 are window 0, epochs 366–730 are window 1, and boundaries use checked
+integer arithmetic. Each window commits its opening total supply and cumulative charged issuance in
+`NativeSupply`; those fields are therefore included in the canonical supply root.
+
+The annual constitutional cap is
+`floor(window_opening_supply * maximum_ordinary_annual_issuance_bps / 10_000)`. Multiplication is
+evaluated by quotient/remainder decomposition so a valid `u128` result cannot fail because of an
+overflowing intermediate. The remaining allowance is that cap minus issuance already charged in
+the window. Underflow is an invalid state.
+
+Effective stake is itself derived as
+`floor(staked_supply * 10_000 / current_total_supply)` from committed `NativeSupply`; a transition's
+caller-supplied observation must equal it. The annual target security-budget rate is then derived
+from effective stake by piecewise-linear
+interpolation of the constitutional research curve: 150 bps at or below 30% stake, 100 bps at 40%,
+75 bps at 50%, 50 bps at 60%, and 40 bps at or above 70%. The per-epoch target is
+`floor(pre_supply * annual_rate_bps / 10_000 / 365)`. Floor rounding ensures the 365 epoch targets
+cannot exceed the corresponding annual rate through rounding alone. The executed mint boundary
+requires the transition's target and remaining-cap fields to equal these derived values before any
+cell or supply mutation. It then charges the exact minted amount to both cumulative lifetime
+issuance and the current window.
+
+`NativeSupply` schema version 2 and `CashLedger` schema version 2 persist this accounting.
+`TransactionIngress` snapshot version 3 accepts bounded legacy version-2 snapshots once. Migration
+conservatively exhausts the current window because legacy state cannot identify when issuance
+occurred; the next atomic save rewrites version 3. A zero-issuance economics transition, whose
+derived budget is fully covered by fees/reserve and which creates no Coin Cell, advances consecutive
+epochs without reopening current-window capacity. This lets migrated state reach the next window
+without either minting or remaining frozen forever. Malformed, non-canonical, wrong-chain,
+over-cap, or arithmetically invalid state fails closed.
+
 ## Supply accounting
 
 `NativeSupply` records genesis supply, cumulative security issuance, cumulative
 burn, current total supply, circulating supply, locked vesting supply, staked
-supply, security-reserve balance, and the last settled epoch. The following
+supply, security-reserve balance, the last settled epoch, and the committed
+issuance-window opening supply and cumulative charge. The following
 partition is checked with checked arithmetic:
 
 ```text

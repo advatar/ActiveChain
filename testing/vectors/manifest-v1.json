@@ -14,9 +14,9 @@
     {
       "id": "native-money-v1",
       "type_tag": "0x0080-0x0089",
-      "schema_version": 1,
+      "schema_version": 2,
       "source": "cash/native-money-v1.txt",
-      "sha256": "4610eae5a8d0f7a382461a4bc2bc380c23a94c0873dee671c52d9aef90d56066",
+      "sha256": "285f90ab1b2e8cd814a53c34f63ee317e427e2eed9937566a19ce1d3ecd94437",
       "status": "valid"
     },
     {

@@ -1048,15 +1048,19 @@ mod tests {
     }
 
     fn settlement(pre_supply: u128, issuance: u128, epoch: u64) -> EpochEconomicsTransition {
+        let target = activechain_cash_kernel::epoch_security_budget(pre_supply, 0).unwrap();
+        let issued_before = issuance * u128::from(epoch - 1);
+        let cap =
+            activechain_cash_kernel::basis_points_amount(1_000_000, 150).unwrap() - issued_before;
         EpochEconomicsTransition::new(
             epoch,
             pre_supply,
-            5_000,
             0,
+            target - issuance,
             0,
+            target,
             issuance,
-            issuance,
-            issuance * 2,
+            cap,
             0,
             digest(20),
             digest(21),
@@ -1072,7 +1076,7 @@ mod tests {
             ChainId::new(digest(1)),
             b"ACT".to_vec(),
             18,
-            1_000,
+            1_000_000,
             150,
             digest(2),
             digest(3),
@@ -1082,23 +1086,23 @@ mod tests {
         let economy = GenesisEconomy::new(
             definition,
             vec![
-                GenesisAllocation::new(principal(10), 700, 100).unwrap(),
-                GenesisAllocation::new(principal(12), 100, 0).unwrap(),
+                GenesisAllocation::new(principal(10), 700_000, 100_000).unwrap(),
+                GenesisAllocation::new(principal(12), 100_000, 0).unwrap(),
             ],
-            100,
+            100_000,
         )
         .unwrap();
         let mut ledger = CashLedger::from_genesis(&economy).unwrap();
         ledger
             .apply_mint(
-                &CoinMintTransition::new(digest(2), principal(10), 50, 1, 1).unwrap(),
-                &settlement(1_000, 50, 1),
+                &CoinMintTransition::new(digest(2), principal(10), 20, 1, 1).unwrap(),
+                &settlement(1_000_000, 20, 1),
             )
             .unwrap();
         ledger
             .apply_mint(
-                &CoinMintTransition::new(digest(2), principal(12), 50, 2, 2).unwrap(),
-                &settlement(1_050, 50, 2),
+                &CoinMintTransition::new(digest(2), principal(12), 20, 2, 2).unwrap(),
+                &settlement(1_000_020, 20, 2),
             )
             .unwrap();
         let mut transfers = [principal(10), principal(12)]

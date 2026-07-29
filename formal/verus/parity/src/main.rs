@@ -122,16 +122,35 @@ fn main() {
         vectors::PARTITION_STAKED,
         vectors::PARTITION_RESERVE,
         1,
+        0,
+        vectors::SUPPLY_PRE,
+        vectors::SUPPLY_ISSUANCE,
     )
     .expect("frozen supply equations hold");
     assert_eq!(supply.current_total_supply(), vectors::SUPPLY_POST);
     assert_eq!(
-        NativeSupply::new(u128::MAX, 1, 0, 0, 0, 0, 0, 0, 1),
+        NativeSupply::new(u128::MAX, 1, 0, 0, 0, 0, 0, 0, 1, 0, u128::MAX, 1),
         Err(NativeMoneyError::AmountOverflow)
     );
-    assert_eq!(NativeSupply::new(0, 0, 1, 0, 0, 0, 0, 0, 1), Err(NativeMoneyError::AmountOverflow));
     assert_eq!(
-        NativeSupply::new(u128::MAX, 0, 0, u128::MAX, u128::MAX, 1, 0, 0, 1),
+        NativeSupply::new(0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0),
+        Err(NativeMoneyError::AmountOverflow)
+    );
+    assert_eq!(
+        NativeSupply::new(
+            u128::MAX,
+            0,
+            0,
+            u128::MAX,
+            u128::MAX,
+            1,
+            0,
+            0,
+            1,
+            0,
+            u128::MAX,
+            0,
+        ),
         Err(NativeMoneyError::SupplyPartitionMismatch)
     );
 
