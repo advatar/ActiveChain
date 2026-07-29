@@ -56,9 +56,10 @@ rg --quiet --fixed-strings "requires --key-file" "$workdir/missing.out"
 test ! -e "$workdir/missing.snapshot"
 
 deployment="$workdir/deployment"
+cargo_target_dir=${CARGO_TARGET_DIR:-target}
 mkdir -p "$deployment/current/bin" "$deployment/current/scripts" "$deployment/chain" \
   "$deployment/rpc"
-cp target/debug/genesis-tool "$deployment/current/bin/"
+cp "$cargo_target_dir/debug/genesis-tool" "$deployment/current/bin/"
 cp deploy/kanalen/network.env "$deployment/current/"
 cp deploy/kanalen/scripts/reset-kanalen-state.sh "$deployment/current/scripts/"
 ACTIVECHAIN_KANALEN_ROOT="$deployment" \
