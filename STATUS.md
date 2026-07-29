@@ -39,6 +39,17 @@ Tracked by [GitHub issue #329](https://github.com/advatar/ActiveChain/issues/329
 
 ## Deterministic-kernel CI baseline
 
+### Tiered verification cadence
+
+Tracked by [GitHub issue #345](https://github.com/advatar/ActiveChain/issues/345).
+
+- [x] Document targeted implementation checks, touched-crate checkpoints, consolidated pushes,
+  and one full deterministic-kernel run for the exact final merge candidate in `AGENTS.md`.
+- [x] Preserve mandatory exhaustive qualification for substantive executable, formal, vector,
+  build, workflow, dependency, packaging, and release-input changes.
+- [x] Avoid redundant full-system reruns for documentation-only completion bookkeeping after the
+  underlying exact implementation revision has already qualified.
+
 - [x] Restore the clean-checkout `cargo fmt --all --check` gate
   ([GitHub issue #320](https://github.com/advatar/ActiveChain/issues/320)).
 - [x] Reconcile `Cargo.lock` with current workspace manifests and pass the exact locked,

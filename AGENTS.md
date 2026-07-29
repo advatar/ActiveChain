@@ -28,3 +28,24 @@
   continue directly with the next actionable step. Pause only when a genuinely blocking decision
   or missing authority requires user input.
 - When adding new functionality add unit tests
+
+## Verification Cadence
+
+- Use tiered verification so development feedback stays proportional to the change while final
+  qualification remains exhaustive.
+- During implementation, run formatting plus the affected crate checks/tests, selected proof
+  lemmas, and only the process rehearsals relevant to the changed boundary.
+- At a coherent checkpoint, run all-feature Clippy and the complete test suites for every touched
+  crate. Batch related fixes locally and push one consolidated revision instead of repeatedly
+  triggering full-system CI for each small edit.
+- Run the complete deterministic-kernel gate once on the exact final merge candidate. This full
+  gate remains mandatory before merge for any executable, formal model, canonical vector, build,
+  workflow, dependency, packaging, or release-input change.
+- If the full gate fails, diagnose the exact stage, apply the complete related fix set, verify it
+  with targeted local checks, and submit one consolidated candidate rerun.
+- Do not rerun the complete gate solely for post-merge completion bookkeeping or documentation-only
+  status changes when the exact implementation revision already passed and no executable, formal,
+  vector, build, workflow, dependency, packaging, or release input changed.
+- Never use targeted checks to claim final integration. Completion still requires a green full gate
+  for the substantive merge candidate and proof that its effective changes are reachable from
+  `origin/main`.
