@@ -1311,9 +1311,9 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
   ([GitHub issue #262](https://github.com/advatar/ActiveChain/issues/262)).
   - [x] Persist each retained certified block as its complete verified proposal, quorum
     certificate, and ordered signed vote proof; migrate the bounded schema-v4 snapshot format.
-  - [ ] Authenticate request and response consensus traffic and persist inbound/outbound replay
+  - [x] Authenticate request and response consensus traffic and persist inbound/outbound replay
     barriers before accepting or emitting a sequence.
-  - [ ] Cover restart, replay, malformed authenticated response, and missing certified-history
+  - [x] Cover restart, replay, malformed authenticated response, and missing certified-history
     behavior with focused regression tests.
   - [ ] Pass local and remote-compatible three-validator qualification, merge the fix to `main`,
     and verify its commits are reachable from `origin/main` before closing #262.

@@ -531,6 +531,7 @@ pub enum ConsensusMessage {
     Proposal(BlockProposal),
     Vote(ValidatorVote),
     Certificate(CertifiedBlock),
+    CertifiedBlockRequest(Digest384),
 }
 impl ConsensusMessage {
     fn kind(&self) -> u8 {
@@ -538,6 +539,7 @@ impl ConsensusMessage {
             Self::Proposal(_) => 1,
             Self::Vote(_) => 2,
             Self::Certificate(_) => 3,
+            Self::CertifiedBlockRequest(_) => 4,
         }
     }
     fn encode_body(&self) -> Result<Vec<u8>, TransportError> {
@@ -545,6 +547,7 @@ impl ConsensusMessage {
             Self::Proposal(value) => encode_envelope(value),
             Self::Vote(value) => encode_envelope(value),
             Self::Certificate(value) => return value.encode(),
+            Self::CertifiedBlockRequest(commitment) => return Ok(commitment.as_bytes().to_vec()),
         }
         .map_err(|_| TransportError::InvalidBody)
     }
@@ -553,6 +556,11 @@ impl ConsensusMessage {
             1 => decode_envelope(body).map(Self::Proposal),
             2 => decode_envelope(body).map(Self::Vote),
             3 => return CertifiedBlock::decode(body).map(Self::Certificate),
+            4 if body.len() == 48 => {
+                return Ok(Self::CertifiedBlockRequest(Digest384::new(
+                    body.try_into().map_err(|_| TransportError::InvalidBody)?,
+                )));
+            }
             _ => return Err(TransportError::InvalidMessageKind),
         }
         .map_err(|_| TransportError::InvalidBody)
@@ -2443,6 +2451,13 @@ impl ValidatorEngine {
                 self.collector = None;
                 Ok(None)
             }
+            ConsensusMessage::CertifiedBlockRequest(commitment) => self
+                .certified_blocks
+                .get(&commitment)
+                .ok_or(ValidatorEngineError::MissingCertifiedHistory)?
+                .proof()
+                .map(Some)
+                .map_err(|_| ValidatorEngineError::InvalidSafetySnapshot),
         }
     }
     fn apply_certificate(&mut self, proof: &CertifiedBlock) -> Result<(), ValidatorEngineError> {
@@ -2614,6 +2629,7 @@ pub enum ValidatorEngineError {
     InvalidFinalizedAnchor,
     InvalidCashSnapshot,
     UnknownParentCertificate,
+    MissingCertifiedHistory,
     ConflictingCertificate,
     ConflictingFinalizedPrefix,
     UnsafeProposal,
@@ -2944,6 +2960,7 @@ impl ValidatorService {
                 self.metrics.votes.fetch_add(1, Ordering::Relaxed);
             }
             ConsensusMessage::Certificate(_) => {}
+            ConsensusMessage::CertifiedBlockRequest(_) => {}
         }
         let key = self
             .sender_keys
@@ -3022,6 +3039,38 @@ impl ValidatorService {
         let vote = self.sign_current_vote_durably(signer)?;
         signer
             .sign_envelope(sender, sequence, ConsensusMessage::Vote(vote))
+            .map_err(ValidatorServiceError::Engine)
+    }
+    pub fn request_certified_block(
+        &self,
+        signer: &ValidatorSigner,
+        commitment: Digest384,
+        sequence: u64,
+    ) -> Result<AuthenticatedConsensusMessage, ValidatorServiceError> {
+        let sender = self.sender_for(signer)?;
+        self.reserve_sequence_range(sender, sequence, 1)?;
+        signer
+            .sign_envelope(sender, sequence, ConsensusMessage::CertifiedBlockRequest(commitment))
+            .map_err(ValidatorServiceError::Engine)
+    }
+    pub fn process_certified_block_request_and_sign_response(
+        &self,
+        request: AuthenticatedConsensusMessage,
+        signer: &ValidatorSigner,
+        sequence: u64,
+    ) -> Result<AuthenticatedConsensusMessage, ValidatorServiceError> {
+        if !matches!(&request.message, ConsensusMessage::CertifiedBlockRequest(_)) {
+            return Err(ValidatorServiceError::Engine(
+                ValidatorEngineError::MissingCertifiedHistory,
+            ));
+        }
+        let proof = self
+            .process_message(request)?
+            .ok_or(ValidatorServiceError::Engine(ValidatorEngineError::MissingCertifiedHistory))?;
+        let sender = self.sender_for(signer)?;
+        self.reserve_sequence_range(sender, sequence, 1)?;
+        signer
+            .sign_envelope(sender, sequence, ConsensusMessage::Certificate(proof))
             .map_err(ValidatorServiceError::Engine)
     }
     pub fn propose_round(
@@ -4462,6 +4511,72 @@ mod tests {
             Err(ValidatorEngineError::Snapshot(error)) if error.kind() == std::io::ErrorKind::InvalidData
         ));
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn authenticated_history_response_survives_restart_and_rejects_replay_and_gaps() {
+        use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
+        let validator = PrincipalId::new(Digest384::new([152; 48]));
+        let signer = ValidatorSigner::from_seed(validator, [153; 32]);
+        let genesis = ValidatorGenesis::new(
+            1,
+            1,
+            vec![
+                ValidatorGenesisEntry::new(validator, 1, signer.public_key().try_into().unwrap())
+                    .unwrap(),
+            ],
+        )
+        .unwrap();
+        let state = ConsensusState::new_with_validator_set_root(1, genesis.validator_set_root());
+        let producer_path = std::env::temp_dir()
+            .join(format!("activechain-history-producer-{}.bin", std::process::id()));
+        let requester_path = std::env::temp_dir()
+            .join(format!("activechain-history-requester-{}.bin", std::process::id()));
+        let _ = std::fs::remove_file(&producer_path);
+        let _ = std::fs::remove_file(&requester_path);
+        let producer =
+            ValidatorService::from_genesis(state, &genesis, producer_path.clone()).unwrap();
+        let requester =
+            ValidatorService::from_genesis(state, &genesis, requester_path.clone()).unwrap();
+        let (_, vote) =
+            producer.propose_round(&signer, 1, 0, Digest384::new([154; 48]), 1).unwrap();
+        let commitment = match vote.message {
+            ConsensusMessage::Vote(vote) => vote.proposal_commitment(),
+            _ => panic!("expected vote"),
+        };
+
+        let request = requester.request_certified_block(&signer, commitment, 3).unwrap();
+        let response = producer
+            .process_certified_block_request_and_sign_response(request, &signer, 4)
+            .unwrap();
+        requester.process_message(response.clone()).unwrap();
+        assert!(requester.engine.lock().unwrap().certified_blocks.contains_key(&commitment));
+
+        let malformed = AuthenticatedConsensusMessage::new(
+            response.envelope.clone(),
+            ConsensusMessage::CertifiedBlockRequest(commitment),
+        );
+        assert_eq!(malformed, Err(TransportError::BodyDigestMismatch));
+        drop(requester);
+        let restored = load_snapshot(&requester_path).unwrap();
+        let restarted =
+            ValidatorService::from_genesis(restored, &genesis, requester_path.clone()).unwrap();
+        assert!(restarted.engine.lock().unwrap().certified_blocks.contains_key(&commitment));
+        assert!(matches!(
+            restarted.process_message(response),
+            Err(ValidatorServiceError::Transport(TransportError::Replay))
+        ));
+
+        let missing =
+            restarted.request_certified_block(&signer, Digest384::new([155; 48]), 5).unwrap();
+        assert!(matches!(
+            producer.process_certified_block_request_and_sign_response(missing, &signer, 6),
+            Err(ValidatorServiceError::Engine(ValidatorEngineError::MissingCertifiedHistory))
+        ));
+        drop(restarted);
+        drop(producer);
+        std::fs::remove_file(producer_path).unwrap();
+        std::fs::remove_file(requester_path).unwrap();
     }
 
     #[test]

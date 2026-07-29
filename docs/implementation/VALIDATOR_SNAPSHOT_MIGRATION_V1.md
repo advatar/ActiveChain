@@ -11,6 +11,13 @@ snapshot whose old reduced records cannot decode as complete proofs is rejected 
 recoverable archive-and-genesis rebuild procedure below; the validator never synthesizes missing
 proposal signatures or vote evidence.
 
+When a live peer is missing retained ancestry, it requests the exact proposal commitment through
+an ML-DSA-authenticated `CertifiedBlockRequest`. The serving validator admits the request sequence
+durably before lookup, returns the complete `Certificate` proof in a separately authenticated
+response, and reserves the response sequence durably before signing. Unknown or pruned history is
+an explicit error; replayed requests/responses and digest-mismatched bodies fail closed, including
+after either validator restarts.
+
 Validator snapshots are consensus safety state, not ordinary application data. An incompatible
 schema or genesis commitment must never be decoded heuristically or overwritten in place.
 
