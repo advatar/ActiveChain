@@ -5958,7 +5958,7 @@ mod tests {
         assert_eq!(remaining_peer_ids.len(), 2);
     }
 }
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 #[test]
 fn validator_key_files_are_owner_only_manifest_bound_and_not_legacy_derived() {
     use activechain_protocol_types::{
