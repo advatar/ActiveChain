@@ -323,18 +323,26 @@ impl ValidatorSigner {
         genesis: &ValidatorGenesis,
         entry: &activechain_protocol_types::ValidatorGenesisEntry,
     ) -> Result<Self, ValidatorKeyFileError> {
+        use std::io::Read as _;
         use std::os::unix::fs::MetadataExt as _;
 
-        let metadata = std::fs::symlink_metadata(path)?;
+        let descriptor = rustix::fs::open(
+            path,
+            rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::CLOEXEC | rustix::fs::OFlags::NOFOLLOW,
+            rustix::fs::Mode::empty(),
+        )
+        .map_err(std::io::Error::from)?;
+        let mut file = std::fs::File::from(descriptor);
+        let metadata = file.metadata()?;
         if !metadata.file_type().is_file()
-            || metadata.file_type().is_symlink()
             || metadata.mode() & 0o077 != 0
             || metadata.uid() != rustix::process::getuid().as_raw()
             || metadata.nlink() != 1
         {
             return Err(ValidatorKeyFileError::InvalidPermissions);
         }
-        let mut bytes = std::fs::read(path)?;
+        let mut bytes = Vec::with_capacity(VALIDATOR_KEY_FILE_LEN);
+        file.read_to_end(&mut bytes)?;
         if bytes.len() != VALIDATOR_KEY_FILE_LEN
             || &bytes[..VALIDATOR_KEY_FILE_MAGIC.len()] != VALIDATOR_KEY_FILE_MAGIC
         {
@@ -5973,6 +5981,20 @@ fn validator_key_files_are_owner_only_manifest_bound_and_not_legacy_derived() {
         ValidatorSigner::from_key_file(&key_path, &genesis, &entry).unwrap().public_key(),
         public_key
     );
+
+    let symlink_path = directory.join("validator-link.key");
+    std::os::unix::fs::symlink(&key_path, &symlink_path).unwrap();
+    assert!(matches!(
+        ValidatorSigner::from_key_file(&symlink_path, &genesis, &entry),
+        Err(ValidatorKeyFileError::Io(_))
+    ));
+    let hardlink_path = directory.join("validator-hardlink.key");
+    std::fs::hard_link(&key_path, &hardlink_path).unwrap();
+    assert!(matches!(
+        ValidatorSigner::from_key_file(&key_path, &genesis, &entry),
+        Err(ValidatorKeyFileError::InvalidPermissions)
+    ));
+    std::fs::remove_file(hardlink_path).unwrap();
 
     std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o644)).unwrap();
     assert!(matches!(
