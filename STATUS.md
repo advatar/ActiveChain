@@ -52,6 +52,12 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 - [ ] Add concrete reserved-tag/header-slot vectors and wire the activation gates into the
   version dispatcher.
 
+## Active protocol decision — P-132 proof liveness
+
+- [x] Define validator re-execution fallback, bounded proof grace depth, proof-pending state, and
+  recovery behavior in `spec/protocol/P-132-proof-liveness.md`.
+- [ ] Encode the proof deadline/grace profile and add liveness transition vectors.
+
 ## Active milestone — P-060 execution proof system
 
 - [x] Publish the P-060 selection/security specification and explicit re-execution transition gate.
