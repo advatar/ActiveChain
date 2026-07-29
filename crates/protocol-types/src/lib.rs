@@ -512,11 +512,22 @@ mod tests {
         assert!(crate::is_reserved_future_type_tag(crate::RESERVED_V12_TYPE_TAG_END));
         assert!(!crate::is_reserved_future_type_tag(crate::V1_TYPE_TAG_MIN));
         assert!(!crate::is_reserved_future_type_tag(crate::V1_TYPE_TAG_MAX));
-        const {
-            assert!(crate::RESERVED_V11_TYPE_TAG_END < crate::RESERVED_V12_TYPE_TAG_START);
-        }
+        assert!(crate::RESERVED_V11_TYPE_TAG_END < crate::RESERVED_V12_TYPE_TAG_START);
     }
 
+    #[test]
+    fn v1_decoder_rejects_reserved_future_type_tags() {
+        let value = principal(42, 43).expect("valid principal");
+        let encoded = encode_envelope(&value).expect("principal encodes");
+        for tag in [crate::RESERVED_V11_TYPE_TAG_START, crate::RESERVED_V12_TYPE_TAG_END] {
+            let mut future = encoded.clone();
+            future[..2].copy_from_slice(&tag.to_be_bytes());
+            assert!(matches!(
+                decode_envelope::<Principal>(&future),
+                Err(DecodeError::InvalidTypeTag { .. })
+            ));
+        }
+    }
     proptest! {
         #[test]
         fn all_valid_height_pairs_round_trip(created_at: u64, delta: u16) {
