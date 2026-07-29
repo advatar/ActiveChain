@@ -546,6 +546,10 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 
 ## Active independent-client qualification
 
+- [x] Build the standard-library-only Go M2 vector verifier and publish the
+  v1.0 launch-gate complexity decision in P-134; full consensus reimplementation
+  remains the explicitly scoped M3 phase.
+
 - [ ] Publish a bounded conformance surface and second-client milestone for the selected launch
   contract, with canonical vectors and no dependency on Rust implementation internals.
 - [x] Add a language-independent TSV conformance smoke client that verifies the published
