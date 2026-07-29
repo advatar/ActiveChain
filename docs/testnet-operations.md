@@ -70,10 +70,12 @@ accepted by a network handler.
 ## Bootstrap the RPC index
 
 The chain identifier is selected explicitly by the application/operator and is distinct from the
-immutable genesis commitment. Kanalen freezes its 48-byte identifier in
+immutable genesis commitment. Kanalen freezes its 48-byte identifier in the release template
 `deploy/kanalen/network.env`, derived as
 `SHAKE256-384("ACTIVECHAIN-CHAIN-ID-V1" || "kanalen.activechain.dev")`. Include that file in the
-signed deployment manifest, then create the initial empty durable index exactly once:
+signed deployment manifest. The reset script copies it to the deployment root and appends the
+machine-readable commitment emitted by `genesis-tool`, so the runtime `network.env` is always bound
+to the freshly generated validator keys. Then create the initial empty durable index exactly once:
 
 ```sh
 activechain-rpc-bootstrap \

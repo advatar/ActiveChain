@@ -6,8 +6,13 @@ state_root="$deployment_root/chain"
 binary_root="$deployment_root/current/bin"
 rpc_root="$deployment_root/rpc"
 rpc_snapshot="$rpc_root/rpc-index.snapshot"
-network_env="$deployment_root/current/network.env"
+network_env="$deployment_root/network.env"
 lock="$state_root/round.lock"
+
+test -f "$network_env" || {
+  echo "runtime network manifest is missing: $network_env" >&2
+  exit 1
+}
 
 mkdir "$lock" 2>/dev/null || exit 0
 trap 'rmdir "$lock"' EXIT

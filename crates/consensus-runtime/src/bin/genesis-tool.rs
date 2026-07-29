@@ -52,6 +52,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         fs::OpenOptions::new().write(true).create_new(true).open(Path::new(&output))?;
     output_file.write_all(&bytes)?;
     output_file.sync_all()?;
+    let genesis_commitment = genesis.genesis_commitment();
+    let commitment_hex =
+        genesis_commitment.as_bytes().iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    println!("genesis_commitment={commitment_hex}");
     println!(
         "wrote {} validators at epoch {} activation {} root {:02x?}",
         count,
