@@ -28,6 +28,7 @@ attempt=1
 max_attempts=3
 while ! "$binary_root/validator-node" \
   49150 "$state_root/validator-0.snapshot" "$state_root/genesis.bin" 0 0 --once \
+  --key-file="$state_root/keys/validator-0.key" \
   --peer=2@127.0.0.1:49154 --peer=3@127.0.0.1:49155; do
   if test "$attempt" -ge "$max_attempts"; then
     echo "validator round failed after $max_attempts attempts" >&2

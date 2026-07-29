@@ -14,6 +14,8 @@ activechain-protocol-types.workspace = true
 activechain-protocol-commitment.workspace = true
 ml-dsa = "0.1.1"
 sha3.workspace = true
+getrandom = "0.3"
+zeroize = "1.8"
 
 [lints]
 workspace = true

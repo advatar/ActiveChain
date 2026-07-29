@@ -8,6 +8,7 @@
     <string>/Users/johansellstrom/activechain-deploy/kanalen/chain/validator-1.snapshot</string>
     <string>/Users/johansellstrom/activechain-deploy/kanalen/chain/genesis.bin</string>
     <string>0</string><string>1</string>
+    <string>--key-file=/Users/johansellstrom/activechain-deploy/kanalen/chain/keys/validator-1.key</string>
   </array>
   <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
   <key>StandardOutPath</key><string>/Users/johansellstrom/activechain-deploy/kanalen/logs/validator-1.log</string>

@@ -139,7 +139,9 @@ dependencies = [
  "activechain-wallet-core",
  "getrandom 0.3.4",
  "ml-dsa",
+ "rustix",
  "sha3 0.10.9",
+ "zeroize",
 ]
 
 [[package]]
@@ -489,8 +491,10 @@ dependencies = [
  "activechain-cash-kernel",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
+ "getrandom 0.3.4",
  "ml-dsa",
  "sha3 0.10.9",
+ "zeroize",
 ]
 
 [[package]]

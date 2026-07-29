@@ -22,6 +22,7 @@ mkdir -p "$rollback/chain" "$rollback/rpc"
 
 for path in \
   chain/genesis.bin \
+  chain/keys \
   chain/validator-0.snapshot \
   chain/validator-1.snapshot \
   chain/validator-2.snapshot \
@@ -35,7 +36,7 @@ for path in \
 done
 
 "$deployment_root/current/bin/genesis-tool" \
-  "$deployment_root/chain/genesis.bin" 1 1 3
+  "$deployment_root/chain/genesis.bin" 1 1 3 "$deployment_root/chain/keys"
 
 printf 'archived previous state at %s\n' "$rollback"
 printf 'generated fresh genesis at %s\n' "$deployment_root/chain/genesis.bin"
