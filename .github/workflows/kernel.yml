@@ -130,6 +130,8 @@ jobs:
         run: bash scripts/rehearse-validator-processes.sh
       - name: Rehearse live process quorum
         run: bash scripts/rehearse-live-process-quorum.sh
+      - name: Rehearse consensus view change
+        run: bash scripts/rehearse-consensus-view-change.sh
       - name: Rehearse validator key rotation
         run: bash scripts/rehearse-validator-key-rotation.sh
       - name: Reproduce canonical vectors

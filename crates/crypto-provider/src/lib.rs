@@ -5,7 +5,7 @@ extern crate alloc;
 
 use activechain_protocol_types::{
     BlockProposal, MAX_VALIDATORS_PER_EPOCH, ML_DSA44_PUBLIC_KEY_LENGTH, PrincipalId,
-    QuorumCertificate, ValidatorGenesis, ValidatorSet, ValidatorVote,
+    QuorumCertificate, ValidatorGenesis, ValidatorSet, ValidatorVote, ViewChangeCertificate,
 };
 use ml_dsa::{EncodedSignature, EncodedVerifyingKey, MlDsa44, Signature, Verifier, VerifyingKey};
 use ml_kem::{
@@ -179,6 +179,7 @@ pub enum VerificationError {
     VoteContextMismatch,
     VoteSetRootMismatch,
     StakeMismatch,
+    StakeOverflow,
 }
 
 /// Finalized validator public keys used by the production verifier boundary.
@@ -239,6 +240,33 @@ pub fn verify_validator_vote(
     vote: &ValidatorVote,
 ) -> Result<(), VerificationError> {
     verify_ml_dsa44(public_key, &vote.signing_payload(), vote.signature().as_bytes())
+}
+
+/// Verifies every timeout signature and recomputes the exact stake quorum.
+pub fn verify_view_change_certificate(
+    certificate: &ViewChangeCertificate,
+    validator_set: &ValidatorSet,
+    public_keys: &[(PrincipalId, &[u8])],
+) -> Result<(), VerificationError> {
+    if certificate.total_stake() != validator_set.total_stake() {
+        return Err(VerificationError::StakeMismatch);
+    }
+    let mut signer_stake = 0_u128;
+    for vote in certificate.votes() {
+        let stake =
+            validator_set.stake_of(&vote.validator()).ok_or(VerificationError::UnknownValidator)?;
+        let public_key = public_keys
+            .binary_search_by_key(&vote.validator(), |(validator, _)| *validator)
+            .ok()
+            .map(|index| public_keys[index].1)
+            .ok_or(VerificationError::UnknownValidator)?;
+        verify_ml_dsa44(public_key, &vote.signing_payload(), vote.signature().as_bytes())?;
+        signer_stake = signer_stake.checked_add(stake).ok_or(VerificationError::StakeOverflow)?;
+    }
+    if signer_stake != certificate.signer_stake() {
+        return Err(VerificationError::StakeMismatch);
+    }
+    Ok(())
 }
 
 pub fn verify_block_proposal(

@@ -214,4 +214,45 @@ theorem conflictingStrictWeightedQuorumCertificatesImpossible
       partition byzantineStake locks honest left right leftQuorum rightQuorum
         byzantineBound signerRefinement leftLocked rightLocked)
 
+/-! ## Bounded view-change arithmetic -/
+
+/-- The durable identity of one timed-out view and its exact parent safety anchor. -/
+structure TimeoutView where
+  height : Nat
+  timedOutRound : Nat
+  parentHeight : Nat
+  parentRound : Nat
+  deriving BEq, DecidableEq, Repr
+
+/-- The only view authorized by a timeout quorum is the immediate successor. -/
+def TimeoutView.nextRound (view : TimeoutView) : Nat := view.timedOutRound + 1
+
+/-- A view-change certificate cannot authorize a stale or skipped round. -/
+theorem timeoutCertificateAuthorizesExactSuccessor (view : TimeoutView) :
+    view.nextRound = view.timedOutRound + 1 := by
+  rfl
+
+/-- The authorized successor is strictly newer than the timed-out view. -/
+theorem timeoutCertificateAdvancesMonotonically (view : TimeoutView) :
+    view.timedOutRound < view.nextRound := by
+  unfold TimeoutView.nextRound
+  omega
+
+/-- The runtime's ordered-validator leader selection is always in range. -/
+def proposerIndex (round validatorCount : Nat) : Nat := round % validatorCount
+
+theorem proposerIndexIsBounded
+    (round validatorCount : Nat) (nonempty : 0 < validatorCount) :
+    proposerIndex round validatorCount < validatorCount := by
+  unfold proposerIndex
+  exact Nat.mod_lt round nonempty
+
+/-- Every validator becomes proposer once in each complete rotation. -/
+theorem proposerRotationRepeats
+    (round validatorCount : Nat) :
+    proposerIndex (round + validatorCount) validatorCount =
+      proposerIndex round validatorCount := by
+  unfold proposerIndex
+  exact Nat.add_mod_right round validatorCount
+
 end ActiveChain.WeightedConsensus

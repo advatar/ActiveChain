@@ -7,13 +7,15 @@ use activechain_canonical_codec::{
     decode_envelope, encode_envelope,
 };
 use activechain_crypto_provider::{
-    VerificationError, verify_block_proposal, verify_quorum_certificate,
+    VerificationError, verify_block_proposal, verify_ml_dsa44, verify_quorum_certificate,
+    verify_view_change_certificate,
 };
 use activechain_protocol_types::{
     BlockProposal, ChainId, ConsensusBlockRef, ConsensusSnapshot, ConsensusState,
     ConsensusStateError, ConsensusUpgradeAuthorization, ConsensusVoteContext, CryptoSuiteId,
     Digest384, PrincipalId, ProposalJustification, ProtocolSignature, QuorumCertificate,
-    TransactionId, ValidatorGenesis, ValidatorSet, ValidatorVote,
+    TimeoutVote, TransactionId, ValidatorGenesis, ValidatorSet, ValidatorVote,
+    ViewChangeCertificate,
 };
 use activechain_rpc_server::{
     AuthorizedFaucetSettlementAdapter, FaucetError, finalized_coin_cell_records_with_chain_genesis,
@@ -486,6 +488,39 @@ impl ValidatorSigner {
         )
         .map_err(|_| ValidatorEngineError::Signer)
     }
+    fn sign_timeout_vote(
+        &self,
+        context: ConsensusVoteContext,
+        height: u64,
+        round: u64,
+        parent: ConsensusBlockRef,
+        highest_qc: Option<QuorumCertificate>,
+    ) -> Result<TimeoutVote, ValidatorEngineError> {
+        let placeholder = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420])
+            .map_err(|_| ValidatorEngineError::Signer)?;
+        let unsigned = TimeoutVote::new(
+            self.validator,
+            context,
+            height,
+            round,
+            parent,
+            highest_qc.clone(),
+            placeholder,
+        )
+        .map_err(|_| ValidatorEngineError::InvalidViewChange)?;
+        let signature = self.key.sign(&unsigned.signing_payload());
+        TimeoutVote::new(
+            self.validator,
+            context,
+            height,
+            round,
+            parent,
+            highest_qc,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec())
+                .map_err(|_| ValidatorEngineError::Signer)?,
+        )
+        .map_err(|_| ValidatorEngineError::InvalidViewChange)
+    }
     fn sign_envelope(
         &self,
         sender: u16,
@@ -517,6 +552,15 @@ struct PreparedValidatorVote {
     genesis_commitment: Digest384,
     validator_set_root: Digest384,
     protocol_revision: u64,
+}
+
+#[derive(Clone)]
+struct PreparedTimeoutVote {
+    context: ConsensusVoteContext,
+    height: u64,
+    round: u64,
+    parent: ConsensusBlockRef,
+    highest_qc: Option<QuorumCertificate>,
 }
 
 /// Internal signing boundary used to prove that durable safety state precedes key use.
@@ -669,6 +713,8 @@ pub enum ConsensusMessage {
     Vote(ValidatorVote),
     Certificate(CertifiedBlock),
     CertifiedBlockRequest(Digest384),
+    TimeoutVote(TimeoutVote),
+    ViewChange(ViewChangeCertificate),
 }
 impl ConsensusMessage {
     fn kind(&self) -> u8 {
@@ -677,6 +723,8 @@ impl ConsensusMessage {
             Self::Vote(_) => 2,
             Self::Certificate(_) => 3,
             Self::CertifiedBlockRequest(_) => 4,
+            Self::TimeoutVote(_) => 5,
+            Self::ViewChange(_) => 6,
         }
     }
     fn encode_body(&self) -> Result<Vec<u8>, TransportError> {
@@ -685,6 +733,8 @@ impl ConsensusMessage {
             Self::Vote(value) => encode_envelope(value),
             Self::Certificate(value) => return value.encode(),
             Self::CertifiedBlockRequest(commitment) => return Ok(commitment.as_bytes().to_vec()),
+            Self::TimeoutVote(value) => encode_envelope(value),
+            Self::ViewChange(value) => encode_envelope(value),
         }
         .map_err(|_| TransportError::InvalidBody)
     }
@@ -698,6 +748,8 @@ impl ConsensusMessage {
                     body.try_into().map_err(|_| TransportError::InvalidBody)?,
                 )));
             }
+            5 => decode_envelope(body).map(Self::TimeoutVote),
+            6 => decode_envelope(body).map(Self::ViewChange),
             _ => return Err(TransportError::InvalidMessageKind),
         }
         .map_err(|_| TransportError::InvalidBody)
@@ -1270,25 +1322,26 @@ pub fn load_snapshot_chain_genesis_commitment(
     }
 }
 
-/// Decodes schema 5 directly and performs the one safe schema-4 migration: snapshots whose
-/// retained certified-history set is empty have an otherwise identical body. A schema-4 snapshot
-/// with reduced QC-only history cannot be upgraded into missing signed proposal/vote proofs and
-/// therefore fails closed.
+/// Decodes schema 6 directly and performs bounded schema-5/schema-4 migrations by appending the
+/// absent optional view-change proof. Schema 4 remains migratable only when its old reduced
+/// certified-history representation was empty; non-empty QC-only history still fails closed.
 fn decode_validator_snapshot(bytes: &[u8]) -> Result<(PersistedValidatorState, bool), DecodeError> {
     if let Ok(snapshot) = decode_envelope::<PersistedValidatorState>(bytes) {
         return Ok((snapshot, false));
     }
-    if bytes.len() < 4
-        || bytes[..2] != PersistedValidatorState::TYPE_TAG.to_be_bytes()
-        || bytes[2..4] != 4_u16.to_be_bytes()
-    {
+    if bytes.len() < 4 || bytes[..2] != PersistedValidatorState::TYPE_TAG.to_be_bytes() {
+        return Err(DecodeError::InvalidValue("unsupported validator safety snapshot"));
+    }
+    let old_schema = u16::from_be_bytes(bytes[2..4].try_into().unwrap());
+    if old_schema != 4 && old_schema != 5 {
         return Err(DecodeError::InvalidValue("unsupported validator safety snapshot"));
     }
     let mut migrated = bytes.to_vec();
     migrated[2..4].copy_from_slice(&PersistedValidatorState::SCHEMA_VERSION.to_be_bytes());
+    migrated.extend_from_slice(&[0, 0]); // Option::None plus an empty timeout-lock set
     decode_envelope::<PersistedValidatorState>(&migrated)
         .map(|snapshot| (snapshot, true))
-        .map_err(|_| DecodeError::InvalidValue("schema-4 snapshot is missing certified proofs"))
+        .map_err(|_| DecodeError::InvalidValue("legacy snapshot cannot be migrated safely"))
 }
 
 fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -1321,6 +1374,8 @@ fn save_validator_snapshot(
         locked_qc: engine.locked_qc.clone(),
         certified_blocks: engine.certified_blocks.clone(),
         active_anchor: engine.active_anchor,
+        accepted_view_change: engine.accepted_view_change.clone(),
+        timeout_locks: engine.timeout_locks.clone(),
     };
     let bytes = encode_envelope(&snapshot)
         .map_err(|_| invalid_data("validator safety snapshot encoding failed"))?;
@@ -1592,6 +1647,110 @@ impl ReplayGuard {
 const MAX_PERSISTED_REPLAY_SENDERS: usize = activechain_protocol_types::MAX_VALIDATORS_PER_EPOCH;
 const MAX_PERSISTED_VOTE_LOCKS: usize = 4096;
 const MAX_PERSISTED_CERTIFIED_BLOCKS: usize = 4096;
+const MAX_ACTIVE_COLLECTORS: usize = activechain_protocol_types::MAX_VALIDATORS_PER_EPOCH;
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct TimeoutSlot {
+    height: u64,
+    round: u64,
+    parent: ConsensusBlockRef,
+    highest_qc: Digest384,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct TimeoutCollectorKey {
+    height: u64,
+    round: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct LocalTimeoutDomain {
+    validator: PrincipalId,
+    genesis_commitment: Digest384,
+    epoch: u64,
+    validator_set_root: Digest384,
+    protocol_revision: u64,
+    height: u64,
+    round: u64,
+}
+
+#[derive(Clone)]
+struct TimeoutCollector {
+    context: ConsensusVoteContext,
+    key: TimeoutCollectorKey,
+    votes: BTreeMap<PrincipalId, TimeoutVote>,
+    signer_stake: u128,
+}
+
+impl TimeoutCollector {
+    fn from_vote(vote: &TimeoutVote) -> Self {
+        Self {
+            context: vote.context(),
+            key: TimeoutCollectorKey { height: vote.height(), round: vote.timed_out_round() },
+            votes: BTreeMap::new(),
+            signer_stake: 0,
+        }
+    }
+    fn add(
+        &mut self,
+        vote: TimeoutVote,
+        validator_set: &ValidatorSet,
+        public_key: &[u8],
+    ) -> Result<(), ValidatorEngineError> {
+        if vote.context() != self.context
+            || vote.height() != self.key.height
+            || vote.timed_out_round() != self.key.round
+        {
+            return Err(ValidatorEngineError::InvalidViewChange);
+        }
+        if self.votes.contains_key(&vote.validator()) {
+            return Err(ValidatorEngineError::DuplicateTimeoutVote);
+        }
+        verify_ml_dsa44(public_key, &vote.signing_payload(), vote.signature().as_bytes())
+            .map_err(|_| ValidatorEngineError::InvalidViewChange)?;
+        let stake = validator_set
+            .stake_of(&vote.validator())
+            .ok_or(ValidatorEngineError::UnknownValidator)?;
+        self.signer_stake =
+            self.signer_stake.checked_add(stake).ok_or(ValidatorEngineError::InvalidViewChange)?;
+        self.votes.insert(vote.validator(), vote);
+        Ok(())
+    }
+    fn certificate(
+        &self,
+        validator_set: &ValidatorSet,
+    ) -> Result<Option<ViewChangeCertificate>, ValidatorEngineError> {
+        let has_quorum = self
+            .signer_stake
+            .checked_mul(3)
+            .zip(validator_set.total_stake().checked_mul(2))
+            .is_some_and(|(signed, total)| signed > total);
+        if !has_quorum {
+            return Ok(None);
+        }
+        let selected = self
+            .votes
+            .values()
+            .filter_map(|vote| vote.highest_qc().map(|qc| (qc, vote.parent())))
+            .max_by_key(|(qc, _)| (qc.round(), qc.height(), qc.proposal_commitment()));
+        let (highest_qc, parent) = selected.map_or_else(
+            || (None, self.votes.values().next().unwrap().parent()),
+            |(qc, parent)| (Some(qc.clone()), parent),
+        );
+        ViewChangeCertificate::new(
+            self.context,
+            self.key.height,
+            self.key.round,
+            parent,
+            highest_qc,
+            validator_set.total_stake(),
+            self.signer_stake,
+            self.votes.values().cloned().collect(),
+        )
+        .map(Some)
+        .map_err(|_| ValidatorEngineError::InvalidViewChange)
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct LocalVoteSlot {
@@ -1670,6 +1829,8 @@ struct PersistedValidatorState {
     locked_qc: Option<QuorumCertificate>,
     certified_blocks: BTreeMap<Digest384, CertifiedBlockRecord>,
     active_anchor: ConsensusBlockRef,
+    accepted_view_change: Option<ViewChangeCertificate>,
+    timeout_locks: BTreeMap<LocalTimeoutDomain, TimeoutSlot>,
 }
 
 /// Stable marker used by deployment preflight before a validator binary is promoted.
@@ -1719,6 +1880,21 @@ impl CanonicalEncode for PersistedValidatorState {
             record.encode(encoder)?;
         }
         self.active_anchor.encode(encoder)?;
+        self.accepted_view_change.encode(encoder)?;
+        encoder.write_length(self.timeout_locks.len(), MAX_PERSISTED_VOTE_LOCKS)?;
+        for (domain, slot) in &self.timeout_locks {
+            domain.validator.encode(encoder)?;
+            domain.genesis_commitment.encode(encoder)?;
+            domain.epoch.encode(encoder)?;
+            domain.validator_set_root.encode(encoder)?;
+            domain.protocol_revision.encode(encoder)?;
+            domain.height.encode(encoder)?;
+            domain.round.encode(encoder)?;
+            slot.height.encode(encoder)?;
+            slot.round.encode(encoder)?;
+            slot.parent.encode(encoder)?;
+            slot.highest_qc.encode(encoder)?;
+        }
         Ok(())
     }
 }
@@ -1827,6 +2003,38 @@ impl CanonicalDecode for PersistedValidatorState {
             previous_digest = Some(digest);
         }
         let active_anchor = ConsensusBlockRef::decode(decoder)?;
+        let accepted_view_change = Option::<ViewChangeCertificate>::decode(decoder)?;
+        let timeout_lock_count = decoder.read_length(MAX_PERSISTED_VOTE_LOCKS)?;
+        let mut timeout_locks = BTreeMap::new();
+        let mut previous_timeout_domain = None;
+        for _ in 0..timeout_lock_count {
+            let domain = LocalTimeoutDomain {
+                validator: PrincipalId::decode(decoder)?,
+                genesis_commitment: Digest384::decode(decoder)?,
+                epoch: u64::decode(decoder)?,
+                validator_set_root: Digest384::decode(decoder)?,
+                protocol_revision: u64::decode(decoder)?,
+                height: u64::decode(decoder)?,
+                round: u64::decode(decoder)?,
+            };
+            let slot = TimeoutSlot {
+                height: u64::decode(decoder)?,
+                round: u64::decode(decoder)?,
+                parent: ConsensusBlockRef::decode(decoder)?,
+                highest_qc: Digest384::decode(decoder)?,
+            };
+            if domain.genesis_commitment == Digest384::ZERO
+                || domain.validator_set_root == Digest384::ZERO
+                || domain.protocol_revision == 0
+                || domain.height != slot.height
+                || domain.round != slot.round
+                || previous_timeout_domain.is_some_and(|previous| domain <= previous)
+                || timeout_locks.insert(domain, slot).is_some()
+            {
+                return Err(DecodeError::InvalidValue("invalid timeout-vote lock"));
+            }
+            previous_timeout_domain = Some(domain);
+        }
         if locked_qc.as_ref().is_some_and(|locked| {
             let is_finalized_anchor = locked.block_digest() == active_anchor.block_digest()
                 && locked.proposal_commitment() == active_anchor.proposal_commitment()
@@ -1849,13 +2057,15 @@ impl CanonicalDecode for PersistedValidatorState {
             locked_qc,
             certified_blocks,
             active_anchor,
+            accepted_view_change,
+            timeout_locks,
         })
     }
 }
 
 impl CanonicalType for PersistedValidatorState {
     const TYPE_TAG: u16 = 0x006c;
-    const SCHEMA_VERSION: u16 = 5;
+    const SCHEMA_VERSION: u16 = 6;
     const MAX_ENCODED_LEN: usize = ConsensusSnapshot::MAX_ENCODED_LEN
         + 48
         + 2
@@ -1873,7 +2083,11 @@ impl CanonicalType for PersistedValidatorState {
         + 48
         + 48
         + 8
-        + 8;
+        + 8
+        + 1
+        + ViewChangeCertificate::MAX_ENCODED_LEN
+        + 2
+        + MAX_PERSISTED_VOTE_LOCKS * (48 + 48 + 8 + 48 + 8 + 8 + 8 + 8 + 8 + 112 + 48);
 }
 
 /// Verifies the weighted PQ signatures and active context of a bare QC without changing state.
@@ -2060,12 +2274,16 @@ pub struct ValidatorEngine {
     genesis_commitment: Digest384,
     validator_set: ValidatorSet,
     public_keys: BTreeMap<activechain_protocol_types::PrincipalId, Vec<u8>>,
-    collector: Option<VoteCollector>,
+    collectors: BTreeMap<Digest384, VoteCollector>,
+    timeout_collectors: BTreeMap<TimeoutCollectorKey, TimeoutCollector>,
+    current_proposal: Option<Digest384>,
     local_vote_locks: BTreeMap<LocalVoteSlot, Digest384>,
     highest_voted_rounds: BTreeMap<LocalVoteDomain, HighestVotedRound>,
     locked_qc: Option<QuorumCertificate>,
     certified_blocks: BTreeMap<Digest384, CertifiedBlockRecord>,
     active_anchor: ConsensusBlockRef,
+    accepted_view_change: Option<ViewChangeCertificate>,
+    timeout_locks: BTreeMap<LocalTimeoutDomain, TimeoutSlot>,
 }
 impl ValidatorEngine {
     pub fn from_genesis(
@@ -2122,12 +2340,16 @@ impl ValidatorEngine {
             genesis_commitment,
             validator_set,
             public_keys,
-            collector: None,
+            collectors: BTreeMap::new(),
+            timeout_collectors: BTreeMap::new(),
+            current_proposal: None,
             local_vote_locks: BTreeMap::new(),
             highest_voted_rounds: BTreeMap::new(),
             locked_qc: None,
             certified_blocks: BTreeMap::new(),
             active_anchor,
+            accepted_view_change: None,
+            timeout_locks: BTreeMap::new(),
         })
     }
     pub const fn state(&self) -> ConsensusState {
@@ -2146,6 +2368,9 @@ impl ValidatorEngine {
         self.active_anchor
     }
     fn preferred_justification(&self) -> ProposalJustification {
+        if let Some(view_change) = &self.accepted_view_change {
+            return ProposalJustification::ViewChange(view_change.clone());
+        }
         let anchor = self.finalized_anchor();
         self.certified_blocks
             .values()
@@ -2169,6 +2394,82 @@ impl ValidatorEngine {
             .map(|record| ProposalJustification::Quorum(record.certificate.clone()))
             .unwrap_or(ProposalJustification::Finalized(anchor))
     }
+    fn active_round_for_height(&self, height: u64) -> Result<u64, ValidatorEngineError> {
+        if let Some(view) = &self.accepted_view_change
+            && view.height() == height
+        {
+            return Ok(view.next_round());
+        }
+        if let Some(round) = self
+            .collectors
+            .values()
+            .filter(|collector| collector.proposal().height() == height)
+            .map(|collector| collector.proposal().round())
+            .max()
+        {
+            return Ok(round);
+        }
+        let parent = self.preferred_justification().parent();
+        if parent.height().checked_add(1) != Some(height) {
+            return Err(ValidatorEngineError::InvalidViewChange);
+        }
+        if parent.height() == 0 {
+            Ok(parent.round())
+        } else {
+            parent.round().checked_add(1).ok_or(ValidatorEngineError::RoundOverflow)
+        }
+    }
+    fn admit_timeout_vote(&mut self, vote: TimeoutVote) -> Result<(), ValidatorEngineError> {
+        if vote.context() != self.consensus_context()?
+            || vote.timed_out_round() != self.active_round_for_height(vote.height())?
+        {
+            return Err(ValidatorEngineError::InvalidViewChange);
+        }
+        match vote.highest_qc() {
+            Some(qc) => {
+                let record = self
+                    .certified_blocks
+                    .get(&qc.proposal_commitment())
+                    .ok_or(ValidatorEngineError::UnknownParentCertificate)?;
+                if record.certificate != *qc
+                    || vote.parent().block_digest() != qc.block_digest()
+                    || vote.parent().proposal_commitment() != qc.proposal_commitment()
+                    || vote.parent().height() != qc.height()
+                    || vote.parent().round() != qc.round()
+                {
+                    return Err(ValidatorEngineError::InvalidViewChange);
+                }
+            }
+            None if vote.parent() != self.active_anchor => {
+                return Err(ValidatorEngineError::InvalidViewChange);
+            }
+            None => {}
+        }
+        let public_key = self
+            .public_keys
+            .get(&vote.validator())
+            .ok_or(ValidatorEngineError::UnknownValidator)?
+            .clone();
+        let collector_key = TimeoutCollector::from_vote(&vote).key;
+        if !self.timeout_collectors.contains_key(&collector_key) {
+            if self.timeout_collectors.len() >= MAX_ACTIVE_COLLECTORS {
+                return Err(ValidatorEngineError::CollectorLimit);
+            }
+            self.timeout_collectors.insert(collector_key, TimeoutCollector::from_vote(&vote));
+        }
+        let collector = self.timeout_collectors.get_mut(&collector_key).unwrap();
+        collector.add(vote, &self.validator_set, &public_key)?;
+        if let Some(certificate) = collector.certificate(&self.validator_set)? {
+            self.verify_view_change(&certificate)?;
+            self.accepted_view_change = Some(certificate);
+            self.timeout_collectors.retain(|candidate, _| {
+                candidate.height > collector_key.height
+                    || (candidate.height == collector_key.height
+                        && candidate.round > collector_key.round)
+            });
+        }
+        Ok(())
+    }
     fn is_ancestor_or_equal(&self, ancestor: Digest384, descendant: Digest384) -> bool {
         let mut cursor = descendant;
         for _ in 0..=self.certified_blocks.len() {
@@ -2183,6 +2484,12 @@ impl ValidatorEngine {
         false
     }
     fn verify_proposal_safety(&self, proposal: &BlockProposal) -> Result<(), ValidatorEngineError> {
+        let proposer_index = usize::try_from(proposal.round())
+            .map_err(|_| ValidatorEngineError::IneligibleProposer)?
+            % self.validator_set.as_slice().len();
+        if self.validator_set.as_slice()[proposer_index].validator != proposal.proposer() {
+            return Err(ValidatorEngineError::IneligibleProposer);
+        }
         let parent = proposal.parent();
         match proposal.justification() {
             ProposalJustification::Finalized(candidate) => {
@@ -2198,6 +2505,9 @@ impl ValidatorEngine {
                 if record.certificate != *certificate {
                     return Err(ValidatorEngineError::ConflictingCertificate);
                 }
+            }
+            ProposalJustification::ViewChange(certificate) => {
+                self.verify_view_change(certificate)?;
             }
         }
         let finalized = self.finalized_anchor();
@@ -2217,6 +2527,70 @@ impl ValidatorEngine {
             }
         }
         Ok(())
+    }
+    fn verify_view_change(
+        &self,
+        certificate: &ViewChangeCertificate,
+    ) -> Result<(), ValidatorEngineError> {
+        if certificate.context() != self.consensus_context()?
+            || certificate.parent().height().checked_add(1) != Some(certificate.height())
+            || !self.is_ancestor_or_equal(
+                self.active_anchor.proposal_commitment(),
+                certificate.parent().proposal_commitment(),
+            )
+        {
+            return Err(ValidatorEngineError::InvalidViewChange);
+        }
+        match certificate.highest_qc() {
+            Some(qc) => {
+                let record = self
+                    .certified_blocks
+                    .get(&qc.proposal_commitment())
+                    .ok_or(ValidatorEngineError::UnknownParentCertificate)?;
+                if record.certificate != *qc
+                    || certificate.parent().block_digest() != qc.block_digest()
+                    || certificate.parent().proposal_commitment() != qc.proposal_commitment()
+                    || certificate.parent().height() != qc.height()
+                    || certificate.parent().round() != qc.round()
+                {
+                    return Err(ValidatorEngineError::InvalidViewChange);
+                }
+            }
+            None if certificate.parent() != self.active_anchor => {
+                return Err(ValidatorEngineError::InvalidViewChange);
+            }
+            None => {}
+        }
+        for vote in certificate.votes() {
+            match vote.highest_qc() {
+                Some(qc) => {
+                    let record = self
+                        .certified_blocks
+                        .get(&qc.proposal_commitment())
+                        .ok_or(ValidatorEngineError::UnknownParentCertificate)?;
+                    if record.certificate != *qc
+                        || vote.parent().block_digest() != qc.block_digest()
+                        || vote.parent().proposal_commitment() != qc.proposal_commitment()
+                        || vote.parent().height() != qc.height()
+                        || vote.parent().round() != qc.round()
+                        || !self.is_ancestor_or_equal(
+                            self.active_anchor.proposal_commitment(),
+                            vote.parent().proposal_commitment(),
+                        )
+                    {
+                        return Err(ValidatorEngineError::InvalidViewChange);
+                    }
+                }
+                None if vote.parent() != self.active_anchor => {
+                    return Err(ValidatorEngineError::InvalidViewChange);
+                }
+                None => {}
+            }
+        }
+        let keys: Vec<_> =
+            self.public_keys.iter().map(|(validator, key)| (*validator, key.as_slice())).collect();
+        verify_view_change_certificate(certificate, &self.validator_set, &keys)
+            .map_err(|_| ValidatorEngineError::InvalidViewChange)
     }
     fn validate_restored_safety_state(&self) -> Result<(), ValidatorEngineError> {
         let expected_anchor = self
@@ -2263,6 +2637,21 @@ impl ValidatorEngine {
         {
             return Err(ValidatorEngineError::InvalidSafetySnapshot);
         }
+        if self.timeout_locks.len() > MAX_PERSISTED_VOTE_LOCKS
+            || self.timeout_locks.iter().any(|(domain, slot)| {
+                domain.genesis_commitment != self.genesis_commitment
+                    || domain.epoch != self.state.epoch()
+                    || domain.validator_set_root != self.state.validator_set_root()
+                    || domain.protocol_revision != self.state.protocol_revision()
+                    || self.validator_set.stake_of(&domain.validator).is_none()
+                    || domain.height != slot.height
+                    || domain.round != slot.round
+                    || slot.parent.height().checked_add(1) != Some(slot.height)
+                    || slot.round == u64::MAX
+            })
+        {
+            return Err(ValidatorEngineError::InvalidSafetySnapshot);
+        }
         for (digest, record) in &self.certified_blocks {
             let certificate = &record.certificate;
             if *digest != certificate.proposal_commitment()
@@ -2305,6 +2694,12 @@ impl ValidatorEngine {
         }) {
             return Err(ValidatorEngineError::InvalidSafetySnapshot);
         }
+        if let Some(view_change) = &self.accepted_view_change
+            && (view_change.height() <= self.state.finalized_height()
+                || self.verify_view_change(view_change).is_err())
+        {
+            return Err(ValidatorEngineError::InvalidSafetySnapshot);
+        }
         Ok(())
     }
     pub fn activate_finalized_validator_set(
@@ -2337,12 +2732,16 @@ impl ValidatorEngine {
         self.state = next_state;
         self.validator_set = validator_set;
         self.public_keys = public_keys;
-        self.collector = None;
+        self.collectors.clear();
+        self.timeout_collectors.clear();
+        self.current_proposal = None;
         self.local_vote_locks.clear();
         self.highest_voted_rounds.clear();
         self.locked_qc = None;
         self.certified_blocks.clear();
         self.active_anchor = handoff_anchor;
+        self.accepted_view_change = None;
+        self.timeout_locks.clear();
         Ok(())
     }
     pub fn activate_finalized_protocol_upgrade(
@@ -2358,12 +2757,16 @@ impl ValidatorEngine {
         self.state
             .apply_upgrade_after_certified_block(authorization, handoff_anchor)
             .map_err(|_| ValidatorEngineError::InvalidProtocolUpgrade)?;
-        self.collector = None;
+        self.collectors.clear();
+        self.timeout_collectors.clear();
+        self.current_proposal = None;
         self.local_vote_locks.clear();
         self.highest_voted_rounds.clear();
         self.locked_qc = None;
         self.certified_blocks.clear();
         self.active_anchor = handoff_anchor;
+        self.accepted_view_change = None;
+        self.timeout_locks.clear();
         Ok(())
     }
     fn verify_finalized_upgrade_authorization(
@@ -2451,8 +2854,8 @@ impl ValidatorEngine {
         validator: PrincipalId,
     ) -> Result<PreparedValidatorVote, ValidatorEngineError> {
         let proposal = self
-            .collector
-            .as_ref()
+            .current_proposal
+            .and_then(|commitment| self.collectors.get(&commitment))
             .ok_or(ValidatorEngineError::MissingProposal)?
             .proposal()
             .clone();
@@ -2528,6 +2931,55 @@ impl ValidatorEngine {
             protocol_revision: self.state.protocol_revision(),
         })
     }
+    fn prepare_timeout_vote(
+        &mut self,
+        validator: PrincipalId,
+        height: u64,
+        round: u64,
+    ) -> Result<PreparedTimeoutVote, ValidatorEngineError> {
+        if self.validator_set.stake_of(&validator).is_none()
+            || round != self.active_round_for_height(height)?
+        {
+            return Err(ValidatorEngineError::InvalidViewChange);
+        }
+        let justification = self.preferred_justification();
+        let parent = justification.parent();
+        if parent.height().checked_add(1) != Some(height) {
+            return Err(ValidatorEngineError::InvalidViewChange);
+        }
+        let highest_qc = justification.certificate().cloned();
+        let slot = TimeoutSlot {
+            height,
+            round,
+            parent,
+            highest_qc: highest_qc
+                .as_ref()
+                .map_or(Digest384::ZERO, QuorumCertificate::proposal_commitment),
+        };
+        let context = self.consensus_context()?;
+        let domain = LocalTimeoutDomain {
+            validator,
+            genesis_commitment: context.genesis_commitment(),
+            epoch: context.epoch(),
+            validator_set_root: context.validator_set_root(),
+            protocol_revision: context.protocol_revision(),
+            height,
+            round,
+        };
+        match self.timeout_locks.get(&domain) {
+            Some(existing) if *existing != slot => {
+                return Err(ValidatorEngineError::ConflictingTimeoutVote);
+            }
+            Some(_) => {}
+            None if self.timeout_locks.len() >= MAX_PERSISTED_VOTE_LOCKS => {
+                return Err(ValidatorEngineError::VoteLockLimit);
+            }
+            None => {
+                self.timeout_locks.insert(domain, slot);
+            }
+        }
+        Ok(PreparedTimeoutVote { context, height, round, parent, highest_qc })
+    }
     /// In-memory helper for unit tests. Authoritative services use durable-before-sign instead.
     #[cfg(test)]
     fn sign_current_vote(
@@ -2550,12 +3002,25 @@ impl ValidatorEngine {
                 admit_proposal(&self.state, self.genesis_commitment, &proposal, key)
                     .map_err(ValidatorEngineError::Proposal)?;
                 self.verify_proposal_safety(&proposal)?;
-                self.collector = Some(VoteCollector::new(
-                    proposal,
-                    self.genesis_commitment,
-                    self.state.validator_set_root(),
-                    self.state.protocol_revision(),
-                ));
+                if let ProposalJustification::ViewChange(certificate) = proposal.justification() {
+                    self.accepted_view_change = Some(certificate.clone());
+                }
+                let commitment = proposal.commitment();
+                if !self.collectors.contains_key(&commitment) {
+                    if self.collectors.len() >= MAX_ACTIVE_COLLECTORS {
+                        return Err(ValidatorEngineError::CollectorLimit);
+                    }
+                    self.collectors.insert(
+                        commitment,
+                        VoteCollector::new(
+                            proposal,
+                            self.genesis_commitment,
+                            self.state.validator_set_root(),
+                            self.state.protocol_revision(),
+                        ),
+                    );
+                }
+                self.current_proposal = Some(commitment);
                 Ok(None)
             }
             ConsensusMessage::Vote(vote) => {
@@ -2563,29 +3028,50 @@ impl ValidatorEngine {
                     .public_keys
                     .get(&vote.validator())
                     .ok_or(ValidatorEngineError::UnknownValidator)?;
-                let collector =
-                    self.collector.as_mut().ok_or(ValidatorEngineError::MissingProposal)?;
-                collector
-                    .add_vote(&self.validator_set, key, vote)
-                    .map_err(ValidatorEngineError::Vote)?;
-                match collector.finalize(self.state.epoch(), &self.validator_set) {
-                    Ok(certificate) => {
-                        let votes: Vec<_> =
-                            collector.votes().iter().map(|(_, vote)| vote.clone()).collect();
-                        let proof =
-                            CertifiedBlock::new(collector.proposal().clone(), certificate, votes)
-                                .map_err(ValidatorEngineError::Transport)?;
-                        self.apply_certificate(&proof)?;
-                        self.collector = None;
-                        Ok(Some(proof))
+                let commitment = vote.proposal_commitment();
+                let proof = {
+                    let collector = self
+                        .collectors
+                        .get_mut(&commitment)
+                        .ok_or(ValidatorEngineError::MissingProposal)?;
+                    collector
+                        .add_vote(&self.validator_set, key, vote)
+                        .map_err(ValidatorEngineError::Vote)?;
+                    match collector.finalize(self.state.epoch(), &self.validator_set) {
+                        Ok(certificate) => {
+                            let votes: Vec<_> =
+                                collector.votes().iter().map(|(_, vote)| vote.clone()).collect();
+                            Some(
+                                CertifiedBlock::new(
+                                    collector.proposal().clone(),
+                                    certificate,
+                                    votes,
+                                )
+                                .map_err(ValidatorEngineError::Transport)?,
+                            )
+                        }
+                        Err(VoteCollectionError::InsufficientStake) => None,
+                        Err(error) => return Err(ValidatorEngineError::Vote(error)),
                     }
-                    Err(VoteCollectionError::InsufficientStake) => Ok(None),
-                    Err(error) => Err(ValidatorEngineError::Vote(error)),
+                };
+                if let Some(proof) = proof {
+                    self.apply_certificate(&proof)?;
+                    self.collectors.remove(&commitment);
+                    if self.current_proposal == Some(commitment) {
+                        self.current_proposal = None;
+                    }
+                    Ok(Some(proof))
+                } else {
+                    Ok(None)
                 }
             }
             ConsensusMessage::Certificate(proof) => {
+                let commitment = proof.certificate().proposal_commitment();
                 self.apply_certificate(&proof)?;
-                self.collector = None;
+                self.collectors.remove(&commitment);
+                if self.current_proposal == Some(commitment) {
+                    self.current_proposal = None;
+                }
                 Ok(None)
             }
             ConsensusMessage::CertifiedBlockRequest(commitment) => self
@@ -2595,6 +3081,19 @@ impl ValidatorEngine {
                 .proof()
                 .map(Some)
                 .map_err(|_| ValidatorEngineError::InvalidSafetySnapshot),
+            ConsensusMessage::TimeoutVote(vote) => {
+                self.admit_timeout_vote(vote)?;
+                Ok(None)
+            }
+            ConsensusMessage::ViewChange(certificate) => {
+                self.verify_view_change(&certificate)?;
+                let current = self.active_round_for_height(certificate.height())?;
+                if certificate.next_round() <= current {
+                    return Err(ValidatorEngineError::StaleViewChange);
+                }
+                self.accepted_view_change = Some(certificate);
+                Ok(None)
+            }
         }
     }
     fn apply_certificate(&mut self, proof: &CertifiedBlock) -> Result<(), ValidatorEngineError> {
@@ -2672,8 +3171,9 @@ impl ValidatorEngine {
         let finalized_before = self.state.finalized_height();
         let mut next_state = self.state;
         let mut next_anchor = self.active_anchor;
-        if let ProposalJustification::Quorum(parent_qc) = proposal.justification()
-            && parent_qc.round().checked_add(1) == Some(certificate.round())
+        if let Some(parent_qc) = proposal.justification().certificate()
+            && parent_qc.height().checked_add(1) == Some(certificate.height())
+            && parent_qc.round() < certificate.round()
         {
             if parent_qc.height() > next_state.finalized_height() {
                 next_state
@@ -2710,12 +3210,24 @@ impl ValidatorEngine {
         );
         self.state = next_state;
         self.active_anchor = next_anchor;
+        if self.accepted_view_change.as_ref().is_some_and(|view| {
+            view.height() <= self.state.finalized_height()
+                || (view.height() == certificate.height()
+                    && view.next_round() <= certificate.round())
+        }) {
+            self.accepted_view_change = None;
+        }
         if self.state.finalized_height() > finalized_before {
             self.prune_finalized_history();
         }
         self.local_vote_locks.retain(|slot, _| {
             slot.epoch > self.state.epoch()
                 || (slot.epoch == self.state.epoch() && slot.height > self.state.finalized_height())
+        });
+        self.timeout_locks.retain(|domain, _| {
+            domain.epoch > self.state.epoch()
+                || (domain.epoch == self.state.epoch()
+                    && domain.height > self.state.finalized_height())
         });
         Ok(())
     }
@@ -2759,9 +3271,11 @@ pub enum ValidatorEngineError {
     UnknownValidator,
     MissingProposal,
     ConflictingLocalVote,
+    ConflictingTimeoutVote,
     StaleLocalView,
     VoteDomainMismatch,
     VoteLockLimit,
+    CollectorLimit,
     CertifiedBlockLimit,
     InvalidFinalizedAnchor,
     InvalidCashSnapshot,
@@ -2771,6 +3285,10 @@ pub enum ValidatorEngineError {
     ConflictingFinalizedPrefix,
     UnsafeProposal,
     InvalidSafetySnapshot,
+    InvalidViewChange,
+    IneligibleProposer,
+    DuplicateTimeoutVote,
+    StaleViewChange,
     SequenceOverflow,
     HeightOverflow,
     RoundOverflow,
@@ -2840,6 +3358,8 @@ impl ValidatorService {
                     engine.locked_qc = persisted.locked_qc;
                     engine.certified_blocks = persisted.certified_blocks;
                     engine.active_anchor = persisted.active_anchor;
+                    engine.accepted_view_change = persisted.accepted_view_change;
+                    engine.timeout_locks = persisted.timeout_locks;
                     engine.validate_restored_safety_state()?;
                     replay.highest = persisted.replay_high_water;
                     outbound_high_water = persisted.outbound_high_water;
@@ -3029,7 +3549,11 @@ impl ValidatorService {
     }
     pub fn next_proposal_position(&self) -> Result<(u64, u64), ValidatorServiceError> {
         let engine = self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
-        let parent = engine.preferred_justification().parent();
+        let justification = engine.preferred_justification();
+        if let ProposalJustification::ViewChange(certificate) = &justification {
+            return Ok((certificate.height(), certificate.next_round()));
+        }
+        let parent = justification.parent();
         let height = parent
             .height()
             .checked_add(1)
@@ -3098,6 +3622,8 @@ impl ValidatorService {
             }
             ConsensusMessage::Certificate(_) => {}
             ConsensusMessage::CertifiedBlockRequest(_) => {}
+            ConsensusMessage::TimeoutVote(_) => {}
+            ConsensusMessage::ViewChange(_) => {}
         }
         let key = self
             .sender_keys
@@ -3163,6 +3689,76 @@ impl ValidatorService {
         let vote = signer.sign_prepared_vote(&prepared).map_err(ValidatorServiceError::Engine)?;
         drop(engine);
         Ok(vote)
+    }
+    /// Durably locks one exact timeout vote before invoking the validator signing key.
+    pub fn timeout_round(
+        &self,
+        signer: &ValidatorSigner,
+        height: u64,
+        round: u64,
+        sequence: u64,
+    ) -> Result<AuthenticatedConsensusMessage, ValidatorServiceError> {
+        let sender = self.sender_for(signer)?;
+        self.reserve_sequence_range(sender, sequence, 1)?;
+        let mut engine = self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
+        let replay = self.replay.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
+        let outbound =
+            self.outbound_high_water.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
+        let mut candidate = engine.clone();
+        let prepared = candidate
+            .prepare_timeout_vote(signer.validator(), height, round)
+            .map_err(ValidatorServiceError::Engine)?;
+        save_validator_snapshot(&self.snapshot_path, &candidate, &replay, &outbound)
+            .map_err(ValidatorEngineError::Snapshot)
+            .map_err(ValidatorServiceError::Engine)?;
+        *engine = candidate;
+        drop(outbound);
+        drop(replay);
+        let vote = signer
+            .sign_timeout_vote(
+                prepared.context,
+                prepared.height,
+                prepared.round,
+                prepared.parent,
+                prepared.highest_qc,
+            )
+            .map_err(ValidatorServiceError::Engine)?;
+        drop(engine);
+        let message = signer
+            .sign_envelope(sender, sequence, ConsensusMessage::TimeoutVote(vote))
+            .map_err(ValidatorServiceError::Engine)?;
+        self.process_message(message.clone())?;
+        Ok(message)
+    }
+    pub fn timeout_round_and_broadcast(
+        &self,
+        signer: &ValidatorSigner,
+        height: u64,
+        round: u64,
+        sequence: u64,
+        peers: &mut PeerDirectory,
+    ) -> Result<(), ValidatorServiceError> {
+        let message = self.timeout_round(signer, height, round, sequence)?;
+        peers.broadcast_message(&message).map_err(ValidatorServiceError::Io)
+    }
+    /// Publishes the exact durable timeout quorum for peers that missed individual timeout votes.
+    pub fn publish_view_change(
+        &self,
+        signer: &ValidatorSigner,
+        sequence: u64,
+    ) -> Result<AuthenticatedConsensusMessage, ValidatorServiceError> {
+        let sender = self.sender_for(signer)?;
+        self.reserve_sequence_range(sender, sequence, 1)?;
+        let certificate = self
+            .engine
+            .lock()
+            .map_err(|_| ValidatorServiceError::Poisoned)?
+            .accepted_view_change
+            .clone()
+            .ok_or(ValidatorServiceError::Engine(ValidatorEngineError::InvalidViewChange))?;
+        signer
+            .sign_envelope(sender, sequence, ConsensusMessage::ViewChange(certificate))
+            .map_err(ValidatorServiceError::Engine)
     }
     pub fn process_proposal_and_sign_vote(
         &self,
@@ -3952,7 +4548,7 @@ mod tests {
             ids[0],
             vote_context,
             1,
-            1,
+            0,
             Digest384::new([5; 48]),
             genesis_justification(vote_context),
             placeholder.clone(),
@@ -3966,7 +4562,7 @@ mod tests {
                 ids[index],
                 vote_context,
                 1,
-                1,
+                0,
                 Digest384::new([5; 48]),
                 proposal_commitment,
                 placeholder.clone(),
@@ -3977,7 +4573,7 @@ mod tests {
                 ids[index],
                 vote_context,
                 1,
-                1,
+                0,
                 Digest384::new([5; 48]),
                 proposal_commitment,
                 ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec())
@@ -4087,7 +4683,7 @@ mod tests {
     }
 
     #[test]
-    fn same_payload_digest_cannot_alias_distinct_proposal_histories() {
+    fn distinct_proposal_histories_cannot_alias_certificates() {
         use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
         let first =
             ValidatorSigner::from_seed(PrincipalId::new(Digest384::new([115; 48])), [116; 32]);
@@ -4123,11 +4719,11 @@ mod tests {
         let proposal_a = first
             .sign_proposal(context, 1, 0, payload_digest, genesis_justification(context))
             .unwrap();
-        let proposal_b = second
-            .sign_proposal(context, 1, 0, payload_digest, genesis_justification(context))
+        let proposal_b = first
+            .sign_proposal(context, 1, 0, Digest384::new([120; 48]), genesis_justification(context))
             .unwrap();
         let proposal_b_for_substitution = proposal_b.clone();
-        assert_eq!(proposal_a.block_digest(), proposal_b.block_digest());
+        assert_ne!(proposal_a.block_digest(), proposal_b.block_digest());
         assert_ne!(proposal_a.commitment(), proposal_b.commitment());
 
         let state = ConsensusState::new_with_validator_set_root(1, genesis.validator_set_root());
@@ -4148,7 +4744,7 @@ mod tests {
         node_b.process(ConsensusMessage::Proposal(proposal_b)).unwrap();
         let vote_b = node_b.sign_current_vote(&first).unwrap();
         let proof_b = node_b.process(ConsensusMessage::Vote(vote_b)).unwrap().unwrap();
-        assert_eq!(proof_a.certificate().block_digest(), proof_b.certificate().block_digest());
+        assert_ne!(proof_a.certificate().block_digest(), proof_b.certificate().block_digest());
         assert_ne!(
             proof_a.certificate().proposal_commitment(),
             proof_b.certificate().proposal_commitment()
@@ -4172,7 +4768,7 @@ mod tests {
             !node_a.certified_blocks.contains_key(&proof_b.certificate().proposal_commitment())
         );
 
-        let child_of_a = first
+        let child_of_a = second
             .sign_proposal(
                 context,
                 2,
@@ -4187,17 +4783,112 @@ mod tests {
             node_a.locked_qc.as_ref().map(QuorumCertificate::proposal_commitment),
             Some(proof_a.certificate().proposal_commitment())
         );
-        let conflicting_genesis_branch = second
-            .sign_proposal(context, 1, 2, Digest384::new([121; 48]), genesis_justification(context))
-            .unwrap();
         assert!(matches!(
-            node_a.process(ConsensusMessage::Proposal(conflicting_genesis_branch)),
-            Err(ValidatorEngineError::UnsafeProposal)
+            second.sign_proposal(
+                context,
+                1,
+                2,
+                Digest384::new([121; 48]),
+                genesis_justification(context),
+            ),
+            Err(ValidatorEngineError::Signer)
         ));
     }
 
     #[test]
-    fn same_slot_same_payload_different_signed_proposal_is_rejected_after_restart() {
+    fn competing_proposal_does_not_discard_accumulated_quorum_votes() {
+        use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
+        let signers = [
+            ValidatorSigner::from_seed(PrincipalId::new(Digest384::new([201; 48])), [202; 32]),
+            ValidatorSigner::from_seed(PrincipalId::new(Digest384::new([203; 48])), [204; 32]),
+            ValidatorSigner::from_seed(PrincipalId::new(Digest384::new([205; 48])), [206; 32]),
+        ];
+        let mut entries: Vec<_> = signers
+            .iter()
+            .map(|signer| {
+                ValidatorGenesisEntry::new(
+                    signer.validator(),
+                    1,
+                    signer.public_key().try_into().unwrap(),
+                )
+                .unwrap()
+            })
+            .collect();
+        entries.sort_by_key(ValidatorGenesisEntry::validator);
+        let genesis = ValidatorGenesis::new(1, 1, entries).unwrap();
+        let context = ConsensusVoteContext::new(
+            genesis.genesis_commitment(),
+            genesis.epoch(),
+            genesis.validator_set_root(),
+        )
+        .unwrap();
+        let proposal_a = signers[0]
+            .sign_proposal(context, 1, 0, Digest384::new([207; 48]), genesis_justification(context))
+            .unwrap();
+        let proposal_b = signers[0]
+            .sign_proposal(context, 1, 0, Digest384::new([208; 48]), genesis_justification(context))
+            .unwrap();
+        let commitment_a = proposal_a.commitment();
+        let commitment_b = proposal_b.commitment();
+        let mut engine = ValidatorEngine::from_genesis(
+            ConsensusState::new_with_validator_set_root(1, genesis.validator_set_root()),
+            &genesis,
+        )
+        .unwrap();
+        engine.process(ConsensusMessage::Proposal(proposal_a.clone())).unwrap();
+        assert!(
+            engine
+                .process(ConsensusMessage::Vote(
+                    signers[0]
+                        .sign_vote(
+                            &proposal_a,
+                            genesis.genesis_commitment(),
+                            genesis.validator_set_root(),
+                            genesis.protocol_revision(),
+                        )
+                        .unwrap(),
+                ))
+                .unwrap()
+                .is_none()
+        );
+        engine.process(ConsensusMessage::Proposal(proposal_b)).unwrap();
+        assert!(engine.collectors.contains_key(&commitment_a));
+        assert!(engine.collectors.contains_key(&commitment_b));
+        assert!(
+            engine
+                .process(ConsensusMessage::Vote(
+                    signers[1]
+                        .sign_vote(
+                            &proposal_a,
+                            genesis.genesis_commitment(),
+                            genesis.validator_set_root(),
+                            genesis.protocol_revision(),
+                        )
+                        .unwrap(),
+                ))
+                .unwrap()
+                .is_none()
+        );
+        let proof = engine
+            .process(ConsensusMessage::Vote(
+                signers[2]
+                    .sign_vote(
+                        &proposal_a,
+                        genesis.genesis_commitment(),
+                        genesis.validator_set_root(),
+                        genesis.protocol_revision(),
+                    )
+                    .unwrap(),
+            ))
+            .unwrap()
+            .unwrap();
+        assert_eq!(proof.certificate().proposal_commitment(), commitment_a);
+        assert!(!engine.collectors.contains_key(&commitment_a));
+        assert!(engine.collectors.contains_key(&commitment_b));
+    }
+
+    #[test]
+    fn same_slot_different_proposal_is_rejected_after_restart() {
         use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
         let first =
             ValidatorSigner::from_seed(PrincipalId::new(Digest384::new([121; 48])), [122; 32]);
@@ -4232,8 +4923,9 @@ mod tests {
         let proposal_a =
             first.sign_proposal(context, 1, 0, payload, genesis_justification(context)).unwrap();
         let proposal_a_commitment = proposal_a.commitment();
-        let proposal_b =
-            second.sign_proposal(context, 1, 0, payload, genesis_justification(context)).unwrap();
+        let proposal_b = first
+            .sign_proposal(context, 1, 0, Digest384::new([126; 48]), genesis_justification(context))
+            .unwrap();
         assert_ne!(proposal_a_commitment, proposal_b.commitment());
         let path = std::env::temp_dir()
             .join(format!("activechain-proposal-identity-restart-{}.bin", std::process::id()));
@@ -4257,17 +4949,17 @@ mod tests {
         let restarted = ValidatorService::from_genesis(restored, &genesis, path.clone()).unwrap();
         assert!(matches!(
             restarted.process_proposal_and_sign_vote(
-                second.sign_envelope(2, 1, ConsensusMessage::Proposal(proposal_b)).unwrap(),
+                first.sign_envelope(1, 4, ConsensusMessage::Proposal(proposal_b)).unwrap(),
                 &first,
-                3,
+                5,
             ),
             Err(ValidatorServiceError::Engine(ValidatorEngineError::ConflictingLocalVote))
         ));
         let repeated = restarted
             .process_proposal_and_sign_vote(
-                first.sign_envelope(1, 4, ConsensusMessage::Proposal(proposal_a)).unwrap(),
+                first.sign_envelope(1, 6, ConsensusMessage::Proposal(proposal_a)).unwrap(),
                 &first,
-                5,
+                7,
             )
             .unwrap();
         assert!(matches!(
@@ -4467,7 +5159,7 @@ mod tests {
         assert_eq!(after.locked_qc, before.locked_qc);
         assert_eq!(after.active_anchor, before.active_anchor);
         assert_eq!(after.certified_blocks, before.certified_blocks);
-        assert!(after.collector.is_some());
+        assert!(!after.collectors.is_empty());
     }
 
     #[test]
@@ -4634,11 +5326,12 @@ mod tests {
         service.reserve_sequence_range(1, 1, 1).unwrap();
         drop(service);
         let mut empty_history_v4 = std::fs::read(&path).unwrap();
+        empty_history_v4.truncate(empty_history_v4.len() - 2);
         empty_history_v4[2..4].copy_from_slice(&4_u16.to_be_bytes());
         write_atomic(&path, &empty_history_v4).unwrap();
         let migrated = ValidatorService::from_genesis(state, &genesis, path.clone()).unwrap();
         drop(migrated);
-        assert_eq!(&std::fs::read(&path).unwrap()[2..4], &5_u16.to_be_bytes());
+        assert_eq!(&std::fs::read(&path).unwrap()[2..4], &6_u16.to_be_bytes());
 
         let mut missing_history_v4 = empty_history_v4;
         missing_history_v4.truncate(missing_history_v4.len() - 1);
@@ -4944,7 +5637,7 @@ mod tests {
     }
 
     #[test]
-    fn durable_highest_view_rejects_lower_round_after_restart() {
+    fn unjustified_future_view_is_rejected_before_durable_state() {
         use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
         let validator = PrincipalId::new(Digest384::new([126; 48]));
         let signer = ValidatorSigner::from_seed(validator, [127; 32]);
@@ -4963,10 +5656,6 @@ mod tests {
             genesis.validator_set_root(),
         )
         .unwrap();
-        let high = signer
-            .sign_proposal(context, 1, 2, Digest384::new([128; 48]), genesis_justification(context))
-            .unwrap();
-        let high_commitment = high.commitment();
         let path = std::env::temp_dir()
             .join(format!("activechain-durable-view-{}.bin", std::process::id()));
         let _ = std::fs::remove_file(&path);
@@ -4976,41 +5665,18 @@ mod tests {
             path.clone(),
         )
         .unwrap();
-        service
-            .process_proposal_and_sign_vote(
-                signer.sign_envelope(1, 1, ConsensusMessage::Proposal(high.clone())).unwrap(),
-                &signer,
-                2,
-            )
-            .unwrap();
-        drop(service);
-
-        let restored = load_snapshot(&path).unwrap();
-        let restarted = ValidatorService::from_genesis(restored, &genesis, path.clone()).unwrap();
-        let lower = signer
-            .sign_proposal(context, 1, 1, Digest384::new([129; 48]), genesis_justification(context))
-            .unwrap();
         assert!(matches!(
-            restarted.process_proposal_and_sign_vote(
-                signer.sign_envelope(1, 3, ConsensusMessage::Proposal(lower)).unwrap(),
-                &signer,
-                4,
+            signer.sign_proposal(
+                context,
+                1,
+                u64::MAX,
+                Digest384::new([128; 48]),
+                genesis_justification(context),
             ),
-            Err(ValidatorServiceError::Engine(ValidatorEngineError::StaleLocalView))
+            Err(ValidatorEngineError::Signer)
         ));
-        let repeated = restarted
-            .process_proposal_and_sign_vote(
-                signer.sign_envelope(1, 5, ConsensusMessage::Proposal(high)).unwrap(),
-                &signer,
-                6,
-            )
-            .unwrap();
-        assert!(matches!(
-            repeated.message,
-            ConsensusMessage::Vote(ref vote) if vote.proposal_commitment() == high_commitment
-        ));
-        drop(restarted);
-        std::fs::remove_file(path).unwrap();
+        drop(service);
+        assert!(!path.exists());
     }
 
     #[test]
@@ -5354,7 +6020,7 @@ mod tests {
         let mut client = PeerSocket::connect(TcpStream::connect(address).unwrap());
         client.send_handshake(&remote.sign_handshake(2, [73; 32]).unwrap()).unwrap();
         client.receive_handshake().unwrap().verify(&local.public_key()).unwrap();
-        let proposal = sign_genesis_proposal(&remote, &genesis, 1, 0, Digest384::new([75; 48]));
+        let proposal = sign_genesis_proposal(&local, &genesis, 1, 0, Digest384::new([75; 48]));
         client
             .send_message(
                 &remote.sign_envelope(2, 1, ConsensusMessage::Proposal(proposal)).unwrap(),
@@ -5427,7 +6093,7 @@ mod tests {
         let mut client = PeerSocket::connect(TcpStream::connect(address).unwrap());
         client.send_handshake(&remote.sign_handshake(2, [113; 32]).unwrap()).unwrap();
         client.receive_handshake().unwrap().verify(&local.public_key()).unwrap();
-        let proposal = sign_genesis_proposal(&remote, &genesis, 1, 0, Digest384::new([114; 48]));
+        let proposal = sign_genesis_proposal(&local, &genesis, 1, 0, Digest384::new([114; 48]));
         client
             .send_message(
                 &remote.sign_envelope(2, u64::MAX, ConsensusMessage::Proposal(proposal)).unwrap(),
@@ -5550,6 +6216,130 @@ mod tests {
     }
 
     #[test]
+    fn timeout_quorum_rotates_leader_and_survives_restart() {
+        use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
+        let signers: Vec<_> = (0..3)
+            .map(|index| {
+                ValidatorSigner::from_seed(
+                    PrincipalId::new(Digest384::new([140 + index; 48])),
+                    [150 + index; 32],
+                )
+            })
+            .collect();
+        let genesis = ValidatorGenesis::new(
+            1,
+            1,
+            signers
+                .iter()
+                .map(|signer| {
+                    ValidatorGenesisEntry::new(
+                        signer.validator(),
+                        1,
+                        signer.public_key().try_into().unwrap(),
+                    )
+                    .unwrap()
+                })
+                .collect(),
+        )
+        .unwrap();
+        let path = std::env::temp_dir()
+            .join(format!("activechain-view-change-restart-{}.bin", std::process::id()));
+        let state = ConsensusState::new_with_validator_set_root(1, genesis.validator_set_root());
+        let service = ValidatorService::from_genesis(state, &genesis, path.clone()).unwrap();
+        for (index, signer) in signers.iter().enumerate() {
+            service
+                .timeout_round(signer, 1, 0, 1)
+                .unwrap_or_else(|error| panic!("validator {index} timeout vote failed: {error:?}"));
+        }
+        {
+            let engine = service.engine.lock().unwrap();
+            let certificate = engine.accepted_view_change.as_ref().unwrap();
+            assert_eq!(certificate.timed_out_round(), 0);
+            assert_eq!(certificate.next_round(), 1);
+            assert_eq!(certificate.votes().len(), 3);
+        }
+        drop(service);
+
+        let restarted = ValidatorService::from_genesis(state, &genesis, path.clone()).unwrap();
+        assert_eq!(
+            restarted.engine.lock().unwrap().accepted_view_change.as_ref().unwrap().next_round(),
+            1
+        );
+        let published = restarted.publish_view_change(&signers[1], 8).unwrap();
+        let receiver_path = std::env::temp_dir()
+            .join(format!("activechain-view-change-receiver-{}.bin", std::process::id()));
+        let _ = std::fs::remove_file(&receiver_path);
+        let receiver =
+            ValidatorService::from_genesis(state, &genesis, receiver_path.clone()).unwrap();
+        receiver.process_message(published.clone()).unwrap();
+        assert!(matches!(
+            receiver.process_message(published),
+            Err(ValidatorServiceError::Transport(TransportError::Replay))
+        ));
+
+        let context = ConsensusVoteContext::new(
+            genesis.genesis_commitment(),
+            genesis.epoch(),
+            genesis.validator_set_root(),
+        )
+        .unwrap();
+        let parent = ConsensusBlockRef::new(
+            genesis.genesis_commitment(),
+            genesis.genesis_commitment(),
+            0,
+            0,
+        )
+        .unwrap();
+        let mut forged_votes: Vec<_> = signers
+            .iter()
+            .map(|signer| signer.sign_timeout_vote(context, 1, 0, parent, None).unwrap())
+            .collect();
+        let unsigned = TimeoutVote::new(
+            signers[2].validator(),
+            context,
+            1,
+            0,
+            parent,
+            None,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420]).unwrap(),
+        )
+        .unwrap();
+        forged_votes[2] = TimeoutVote::new(
+            signers[2].validator(),
+            context,
+            1,
+            0,
+            parent,
+            None,
+            ProtocolSignature::new(
+                CryptoSuiteId::ML_DSA_44,
+                signers[0].key.sign(&unsigned.signing_payload()).encode().to_vec(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let forged =
+            ViewChangeCertificate::new(context, 1, 0, parent, None, 3, 3, forged_votes).unwrap();
+        assert!(matches!(
+            receiver.process_message(
+                signers[0].sign_envelope(1, 9, ConsensusMessage::ViewChange(forged)).unwrap()
+            ),
+            Err(ValidatorServiceError::Engine(ValidatorEngineError::InvalidViewChange))
+        ));
+        assert!(matches!(
+            restarted.propose_round(&signers[0], 1, 1, Digest384::new([160; 48]), 2),
+            Err(ValidatorServiceError::Engine(ValidatorEngineError::IneligibleProposer))
+        ));
+        let (proposal, _) =
+            restarted.propose_round(&signers[1], 1, 1, Digest384::new([161; 48]), 10).unwrap();
+        assert!(matches!(proposal.message, ConsensusMessage::Proposal(_)));
+        drop(restarted);
+        std::fs::remove_file(path).unwrap();
+        drop(receiver);
+        std::fs::remove_file(receiver_path).unwrap();
+    }
+
+    #[test]
     fn sustained_multi_round_quorum_rehearsal_preserves_monotonic_finality() {
         use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
         let signers: Vec<_> = (0..3)
@@ -5594,22 +6384,27 @@ mod tests {
             })
             .collect();
         for height in 1..=16 {
-            let (proposal, leader_vote) = services[0]
+            let leader_index = ((height - 1) % 3) as usize;
+            let sequence_base = height * 10;
+            let (proposal, leader_vote) = services[leader_index]
                 .propose_round(
-                    &signers[0],
+                    &signers[leader_index],
                     height,
                     height - 1,
                     Digest384::new([height as u8; 48]),
-                    height * 2,
+                    sequence_base,
                 )
                 .unwrap();
             let mut votes = vec![leader_vote];
-            for index in 1..3 {
+            for index in 0..3 {
+                if index == leader_index {
+                    continue;
+                }
                 let vote = services[index]
                     .process_proposal_and_sign_vote(
                         proposal.clone(),
                         &signers[index],
-                        height * 2 + index as u64,
+                        sequence_base + 2 + index as u64,
                     )
                     .unwrap();
                 services[index].process_message(vote.clone()).unwrap();
