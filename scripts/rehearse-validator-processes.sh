@@ -11,9 +11,18 @@ cargo run --quiet -p activechain-consensus-runtime --bin genesis-tool -- "$genes
 for index in 0 1 2; do
   snapshot="$workdir/validator-${index}.snapshot"
   output="$workdir/validator-${index}.out"
-  cargo run --quiet -p activechain-consensus-runtime --bin validator-node -- \
-    $((4400 + index)) "$snapshot" "$genesis" 0 "$index" --once \
-    "--key-file=$keys/validator-$index.key" >"$output"
+  command=(cargo run --quiet -p activechain-consensus-runtime --bin validator-node --
+    "$((4400 + index))" "$snapshot" "$genesis" 0 "$index" --once
+    "--key-file=$keys/validator-$index.key")
+  if test "$index" -ne 0; then
+    if "${command[@]}" >"$output" 2>&1; then
+      echo "non-proposer validator $index unexpectedly proposed round zero" >&2
+      exit 1
+    fi
+    rg --fixed-strings "Engine(IneligibleProposer)" "$output"
+    continue
+  fi
+  "${command[@]}" >"$output"
   rg --fixed-strings "finalized_height=0" "$output"
   rg --fixed-strings "proposals=1 votes=1 rejected=0" "$output"
   test -s "$snapshot"
@@ -30,4 +39,4 @@ for index in 0 1 2; do
   test "$snapshot_before_restart" != "$snapshot_after_restart"
 done
 
-echo "validator process rehearsal passed for three genesis-bound PQ nodes"
+echo "validator process rehearsal passed for one eligible proposer and two rejected non-proposers"
