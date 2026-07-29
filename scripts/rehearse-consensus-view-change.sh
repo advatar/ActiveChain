@@ -45,7 +45,6 @@ done
 for pid in "${pids[@]}"; do
   wait "$pid"
 done
-pids=()
 
 for index in 0 1 2; do
   rg --fixed-strings \
