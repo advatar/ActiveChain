@@ -2,6 +2,22 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Critical incident — deterministic validator key compromise
+
+Tracked by [GitHub issue #326](https://github.com/advatar/ActiveChain/issues/326).
+
+- [x] Replace public-parameter-derived validator seeds with CSPRNG-generated, operator-provisioned
+  key files whose ownership, permissions, encoding, manifest identity, and legacy-key status are
+  checked fail-closed before startup.
+- [x] Remove production validator seed reconstruction and keep deterministic identities confined to
+  explicit test fixtures.
+- [x] Add secure provisioning, mismatch, permissions, legacy-key, restart, and rotation tests.
+- [x] Publish and rehearse a recoverable three-validator identity rotation before changing Kanalen.
+- [ ] Archive the compromised Kanalen state, rotate every validator identity, restore quorum/RPC
+  health, and record the new immutable chain identity without trusting prior certificates.
+- [x] Remove deterministic CLI wallet identities and track native platform key custody separately
+  ([GitHub issue #327](https://github.com/advatar/ActiveChain/issues/327)).
+
 ## Deterministic-kernel CI baseline
 
 - [x] Restore the clean-checkout `cargo fmt --all --check` gate

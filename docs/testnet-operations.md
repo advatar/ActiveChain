@@ -1,28 +1,61 @@
 # ActiveChain PQ testnet operations
 
-This runbook describes the deterministic local rehearsal used before opening a
-public testnet slot. Every validator must use the same genesis manifest and a
-distinct validator index.
+This runbook describes the local rehearsal used before opening a public testnet slot. Every
+validator must use the same genesis manifest, a distinct validator index, and its own
+operator-provisioned key file.
 
 ## Generate a manifest
 
 ```sh
 cargo run --release -p activechain-consensus-runtime --bin genesis-tool -- \
-  ./testnet/genesis.bin 1 1 3
+  ./testnet/genesis.bin 1 1 3 ./testnet/validator-keys
 ```
 
 The manifest binds epoch, activation height, stake, validator IDs, and ML-DSA-44
-public keys. Keep it immutable after distribution.
+public keys. `genesis-tool` creates the key directory exclusively, draws every seed from the
+operating-system CSPRNG, and writes `validator-N.key` at mode 0600 in manifest order. Keep the
+manifest immutable after distribution and move each key to the intended validator through an
+access-controlled channel; never publish, copy into a release bundle, or commit that directory.
 
-## Derive an operator wallet
+Each validator invocation must name its exact key:
+
+```sh
+validator-node 4400 ./testnet/validator-0.snapshot ./testnet/genesis.bin 0 0 \
+  --key-file=./testnet/validator-keys/validator-0.key
+```
+
+Startup rejects missing keys, symlinks, hard links, group/other permissions, malformed files,
+manifest mismatches, and every legacy seed derivable from public genesis parameters.
+
+## Compromise and rotation
+
+Treat a disclosed validator key and every certificate it signed as compromised. Do not overwrite
+the active state in place.
+
+1. Stop validator, round producer, RPC, and indexer services and acquire the deployment lock.
+2. Archive the complete old chain and key directories under a timestamped, access-controlled
+   rollback path. Record the old genesis commitment, finalized height, release digest, and UTC time.
+3. Generate a new manifest and key directory in fresh paths; generation refuses to overwrite either.
+4. Verify all key files are 0600 and run `scripts/rehearse-validator-key-rotation.sh` plus the live
+   quorum rehearsal against an isolated state root.
+5. Install each new key only on its designated validator, update launch configuration, and confirm
+   an old-generation key is rejected against the new manifest before promotion.
+6. Start the validators with peer/RPC exposure disabled, establish quorum, then rebuild and verify
+   the RPC index from the new immutable genesis.
+7. Publish the new chain identity explicitly. Never present certificates under the retired genesis
+   as evidence for the replacement chain.
+
+## Provision an operator wallet
 
 ```sh
 cargo run --release -p activechain-wallet-core --bin activechain-wallet -- \
-  derive 0 1 0
+  derive ./testnet/operator-wallet.key
 ```
 
-Register the printed principal in the testnet faucet manifest. Never reuse a seed or principal
-between testnet genesis files.
+The command uses the operating-system CSPRNG and creates the key file exclusively at mode 0600.
+Register the printed principal in the testnet faucet manifest. Never reuse a key or principal
+between testnet genesis files; native wallet releases require platform keystore custody rather than
+this operator-file POC.
 
 ## Fund and submit a transfer
 
@@ -37,10 +70,12 @@ accepted by a network handler.
 ## Bootstrap the RPC index
 
 The chain identifier is selected explicitly by the application/operator and is distinct from the
-immutable genesis commitment. Kanalen freezes its 48-byte identifier in
+immutable genesis commitment. Kanalen freezes its 48-byte identifier in the release template
 `deploy/kanalen/network.env`, derived as
 `SHAKE256-384("ACTIVECHAIN-CHAIN-ID-V1" || "kanalen.activechain.dev")`. Include that file in the
-signed deployment manifest, then create the initial empty durable index exactly once:
+signed deployment manifest. The reset script copies it to the deployment root and appends the
+machine-readable commitment emitted by `genesis-tool`, so the runtime `network.env` is always bound
+to the freshly generated validator keys. Then create the initial empty durable index exactly once:
 
 ```sh
 activechain-rpc-bootstrap \

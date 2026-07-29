@@ -6,8 +6,13 @@ state_root="$deployment_root/chain"
 binary_root="$deployment_root/current/bin"
 rpc_root="$deployment_root/rpc"
 rpc_snapshot="$rpc_root/rpc-index.snapshot"
-network_env="$deployment_root/current/network.env"
+network_env="$deployment_root/network.env"
 lock="$state_root/round.lock"
+
+test -f "$network_env" || {
+  echo "runtime network manifest is missing: $network_env" >&2
+  exit 1
+}
 
 mkdir "$lock" 2>/dev/null || exit 0
 trap 'rmdir "$lock"' EXIT
@@ -28,6 +33,7 @@ attempt=1
 max_attempts=3
 while ! "$binary_root/validator-node" \
   49150 "$state_root/validator-0.snapshot" "$state_root/genesis.bin" 0 0 --once \
+  --key-file="$state_root/keys/validator-0.key" \
   --peer=2@127.0.0.1:49154 --peer=3@127.0.0.1:49155; do
   if test "$attempt" -ge "$max_attempts"; then
     echo "validator round failed after $max_attempts attempts" >&2

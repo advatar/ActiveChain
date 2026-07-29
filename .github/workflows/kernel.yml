@@ -130,6 +130,8 @@ jobs:
         run: bash scripts/rehearse-validator-processes.sh
       - name: Rehearse live process quorum
         run: bash scripts/rehearse-live-process-quorum.sh
+      - name: Rehearse validator key rotation
+        run: bash scripts/rehearse-validator-key-rotation.sh
       - name: Reproduce canonical vectors
         run: |
           cargo run --locked --quiet -p activechain-vector-generator -- principal-v1 | diff -u testing/vectors/canonical/principal-v1.txt -

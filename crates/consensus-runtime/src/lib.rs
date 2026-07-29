@@ -31,6 +31,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use zeroize::Zeroize;
 
 mod cash_state;
 pub use cash_state::FinalizedCashSnapshot;
@@ -246,6 +247,142 @@ impl ValidatorMetrics {
 pub struct ValidatorSigner {
     validator: activechain_protocol_types::PrincipalId,
     key: SigningKey<MlDsa44>,
+}
+
+const VALIDATOR_KEY_FILE_MAGIC: &[u8; 8] = b"ACVKEY01";
+const VALIDATOR_KEY_FILE_LEN: usize = VALIDATOR_KEY_FILE_MAGIC.len() + 32;
+
+#[derive(Debug)]
+pub enum ValidatorKeyFileError {
+    Io(std::io::Error),
+    InvalidPermissions,
+    InvalidEncoding,
+    LegacyDeterministicKey,
+    ManifestMismatch,
+    Randomness,
+}
+
+impl std::fmt::Display for ValidatorKeyFileError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+impl std::error::Error for ValidatorKeyFileError {}
+
+impl From<std::io::Error> for ValidatorKeyFileError {
+    fn from(error: std::io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
+fn validator_principal(public_key: &[u8]) -> PrincipalId {
+    let mut hasher = Shake256::default();
+    hasher.update(b"ACTIVECHAIN-VALIDATOR-PUBLIC-KEY-ID-V1");
+    hasher.update(public_key);
+    let mut digest = [0_u8; 48];
+    sha3::digest::XofReader::read(&mut hasher.finalize_xof(), &mut digest);
+    PrincipalId::new(Digest384::new(digest))
+}
+
+/// Creates one exclusive, owner-only validator seed file from operating-system randomness.
+#[cfg(unix)]
+pub fn provision_validator_key(
+    path: &std::path::Path,
+) -> Result<(PrincipalId, Vec<u8>), ValidatorKeyFileError> {
+    use std::io::Write as _;
+    use std::os::unix::fs::OpenOptionsExt as _;
+
+    let mut seed = [0_u8; 32];
+    getrandom::fill(&mut seed).map_err(|_| ValidatorKeyFileError::Randomness)?;
+    let signer = ValidatorSigner::from_seed(PrincipalId::new(Digest384::ZERO), seed);
+    let public_key = signer.public_key();
+    let principal = validator_principal(&public_key);
+    let mut file =
+        std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?;
+    file.write_all(VALIDATOR_KEY_FILE_MAGIC)?;
+    file.write_all(&seed)?;
+    file.sync_all()?;
+    seed.zeroize();
+    Ok((principal, public_key))
+}
+
+#[cfg(not(unix))]
+pub fn provision_validator_key(
+    _path: &std::path::Path,
+) -> Result<(PrincipalId, Vec<u8>), ValidatorKeyFileError> {
+    Err(ValidatorKeyFileError::InvalidPermissions)
+}
+
+impl ValidatorSigner {
+    /// Loads an owner-only validator key and proves it is neither a legacy deterministic key nor
+    /// a key belonging to a different manifest entry.
+    #[cfg(unix)]
+    pub fn from_key_file(
+        path: &std::path::Path,
+        genesis: &ValidatorGenesis,
+        entry: &activechain_protocol_types::ValidatorGenesisEntry,
+    ) -> Result<Self, ValidatorKeyFileError> {
+        use std::io::Read as _;
+        use std::os::unix::fs::MetadataExt as _;
+
+        let descriptor = rustix::fs::open(
+            path,
+            rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::CLOEXEC | rustix::fs::OFlags::NOFOLLOW,
+            rustix::fs::Mode::empty(),
+        )
+        .map_err(std::io::Error::from)?;
+        let mut file = std::fs::File::from(descriptor);
+        let metadata = file.metadata()?;
+        if !metadata.file_type().is_file()
+            || metadata.mode() & 0o077 != 0
+            || metadata.uid() != rustix::process::getuid().as_raw()
+            || metadata.nlink() != 1
+        {
+            return Err(ValidatorKeyFileError::InvalidPermissions);
+        }
+        let mut bytes = Vec::with_capacity(VALIDATOR_KEY_FILE_LEN);
+        file.read_to_end(&mut bytes)?;
+        if bytes.len() != VALIDATOR_KEY_FILE_LEN
+            || &bytes[..VALIDATOR_KEY_FILE_MAGIC.len()] != VALIDATOR_KEY_FILE_MAGIC
+        {
+            bytes.zeroize();
+            return Err(ValidatorKeyFileError::InvalidEncoding);
+        }
+        let mut seed: [u8; 32] = bytes[VALIDATOR_KEY_FILE_MAGIC.len()..]
+            .try_into()
+            .map_err(|_| ValidatorKeyFileError::InvalidEncoding)?;
+        bytes.zeroize();
+        for candidate in 0..activechain_protocol_types::MAX_VALIDATORS_PER_EPOCH {
+            let mut legacy = [0_u8; 32];
+            legacy[..8].copy_from_slice(&(candidate as u64).to_be_bytes());
+            legacy[8..16].copy_from_slice(&genesis.epoch().to_be_bytes());
+            legacy[16..24].copy_from_slice(&genesis.activation_height().to_be_bytes());
+            if seed == legacy {
+                seed.zeroize();
+                legacy.zeroize();
+                return Err(ValidatorKeyFileError::LegacyDeterministicKey);
+            }
+            legacy.zeroize();
+        }
+        let signer = Self::from_seed(entry.validator(), seed);
+        seed.zeroize();
+        if signer.public_key().as_slice() != entry.public_key()
+            || validator_principal(entry.public_key()) != entry.validator()
+        {
+            return Err(ValidatorKeyFileError::ManifestMismatch);
+        }
+        Ok(signer)
+    }
+
+    #[cfg(not(unix))]
+    pub fn from_key_file(
+        _path: &std::path::Path,
+        _genesis: &ValidatorGenesis,
+        _entry: &activechain_protocol_types::ValidatorGenesisEntry,
+    ) -> Result<Self, ValidatorKeyFileError> {
+        Err(ValidatorKeyFileError::InvalidPermissions)
+    }
 }
 impl ValidatorSigner {
     pub fn from_seed(validator: activechain_protocol_types::PrincipalId, seed: [u8; 32]) -> Self {
@@ -5820,4 +5957,90 @@ mod tests {
         let remaining_peer_ids = [1_u16, 2_u16];
         assert_eq!(remaining_peer_ids.len(), 2);
     }
+}
+#[cfg(all(test, unix))]
+#[test]
+fn validator_key_files_are_owner_only_manifest_bound_and_not_legacy_derived() {
+    use activechain_protocol_types::{
+        ML_DSA44_PUBLIC_KEY_LENGTH, ValidatorGenesis, ValidatorGenesisEntry,
+    };
+    use std::io::Write as _;
+    use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _, PermissionsExt as _};
+
+    let directory =
+        std::env::temp_dir().join(format!("activechain-validator-keys-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir(&directory).unwrap();
+    let key_path = directory.join("validator.key");
+    let (validator, public_key) = provision_validator_key(&key_path).unwrap();
+    assert_eq!(std::fs::metadata(&key_path).unwrap().mode() & 0o777, 0o600);
+    let entry = ValidatorGenesisEntry::new(validator, 1, public_key.as_slice().try_into().unwrap())
+        .unwrap();
+    let genesis = ValidatorGenesis::new(1, 1, vec![entry.clone()]).unwrap();
+    assert_eq!(
+        ValidatorSigner::from_key_file(&key_path, &genesis, &entry).unwrap().public_key(),
+        public_key
+    );
+
+    let symlink_path = directory.join("validator-link.key");
+    std::os::unix::fs::symlink(&key_path, &symlink_path).unwrap();
+    assert!(matches!(
+        ValidatorSigner::from_key_file(&symlink_path, &genesis, &entry),
+        Err(ValidatorKeyFileError::Io(_))
+    ));
+    let hardlink_path = directory.join("validator-hardlink.key");
+    std::fs::hard_link(&key_path, &hardlink_path).unwrap();
+    assert!(matches!(
+        ValidatorSigner::from_key_file(&key_path, &genesis, &entry),
+        Err(ValidatorKeyFileError::InvalidPermissions)
+    ));
+    std::fs::remove_file(hardlink_path).unwrap();
+
+    std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(matches!(
+        ValidatorSigner::from_key_file(&key_path, &genesis, &entry),
+        Err(ValidatorKeyFileError::InvalidPermissions)
+    ));
+    std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let other_path = directory.join("other.key");
+    let (other_validator, other_public_key) = provision_validator_key(&other_path).unwrap();
+    let other_entry = ValidatorGenesisEntry::new(
+        other_validator,
+        1,
+        other_public_key.as_slice().try_into().unwrap(),
+    )
+    .unwrap();
+    assert!(matches!(
+        ValidatorSigner::from_key_file(&key_path, &genesis, &other_entry),
+        Err(ValidatorKeyFileError::ManifestMismatch)
+    ));
+
+    let legacy_path = directory.join("legacy.key");
+    let mut legacy_seed = [0_u8; 32];
+    legacy_seed[..8].copy_from_slice(&0_u64.to_be_bytes());
+    legacy_seed[8..16].copy_from_slice(&1_u64.to_be_bytes());
+    legacy_seed[16..24].copy_from_slice(&1_u64.to_be_bytes());
+    let legacy_signer = ValidatorSigner::from_seed(PrincipalId::new(Digest384::ZERO), legacy_seed);
+    let legacy_public_key = legacy_signer.public_key();
+    let legacy_entry = ValidatorGenesisEntry::new(
+        validator_principal(&legacy_public_key),
+        1,
+        <[u8; ML_DSA44_PUBLIC_KEY_LENGTH]>::try_from(legacy_public_key.as_slice()).unwrap(),
+    )
+    .unwrap();
+    let legacy_genesis = ValidatorGenesis::new(1, 1, vec![legacy_entry.clone()]).unwrap();
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&legacy_path)
+        .unwrap();
+    file.write_all(VALIDATOR_KEY_FILE_MAGIC).unwrap();
+    file.write_all(&legacy_seed).unwrap();
+    file.sync_all().unwrap();
+    assert!(matches!(
+        ValidatorSigner::from_key_file(&legacy_path, &legacy_genesis, &legacy_entry),
+        Err(ValidatorKeyFileError::LegacyDeterministicKey)
+    ));
+    std::fs::remove_dir_all(directory).unwrap();
 }

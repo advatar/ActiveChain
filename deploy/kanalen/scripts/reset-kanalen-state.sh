@@ -22,11 +22,13 @@ mkdir -p "$rollback/chain" "$rollback/rpc"
 
 for path in \
   chain/genesis.bin \
+  chain/keys \
   chain/validator-0.snapshot \
   chain/validator-1.snapshot \
   chain/validator-2.snapshot \
   chain/validator-1.pq-sessions \
   chain/validator-2.pq-sessions \
+  network.env \
   rpc/rpc-index.snapshot; do
   if test -e "$deployment_root/$path"; then
     mkdir -p "$rollback/$(dirname "$path")"
@@ -34,8 +36,31 @@ for path in \
   fi
 done
 
-"$deployment_root/current/bin/genesis-tool" \
-  "$deployment_root/chain/genesis.bin" 1 1 3
+genesis_output=$("$deployment_root/current/bin/genesis-tool" \
+  "$deployment_root/chain/genesis.bin" 1 1 3 "$deployment_root/chain/keys")
+genesis_commitment=$(printf '%s\n' "$genesis_output" |
+  sed -n 's/^genesis_commitment=//p')
+case "$genesis_commitment" in
+  *[!0-9a-f]*|'')
+    echo "genesis-tool did not return a hexadecimal genesis commitment" >&2
+    exit 1
+    ;;
+esac
+test "${#genesis_commitment}" -eq 96 || {
+  echo "genesis-tool returned a genesis commitment with the wrong length" >&2
+  exit 1
+}
+
+runtime_network_env="$deployment_root/network.env"
+network_env_temp="$runtime_network_env.tmp.$$"
+trap 'rm -f "$network_env_temp"' EXIT
+sed '/^ACTIVECHAIN_GENESIS_COMMITMENT_HEX=/d' \
+  "$deployment_root/current/network.env" >"$network_env_temp"
+printf 'ACTIVECHAIN_GENESIS_COMMITMENT_HEX=%s\n' "$genesis_commitment" >>"$network_env_temp"
+chmod 644 "$network_env_temp"
+mv "$network_env_temp" "$runtime_network_env"
+trap - EXIT
 
 printf 'archived previous state at %s\n' "$rollback"
 printf 'generated fresh genesis at %s\n' "$deployment_root/chain/genesis.bin"
+printf 'bound runtime network manifest to genesis %s\n' "$genesis_commitment"

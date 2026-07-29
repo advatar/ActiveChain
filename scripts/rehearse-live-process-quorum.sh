@@ -3,6 +3,7 @@ set -euo pipefail
 
 workdir="$(mktemp -d "${TMPDIR:-/tmp}/activechain-live-quorum.XXXXXX")"
 genesis="$workdir/genesis.bin"
+keys="$workdir/keys"
 pids=()
 cleanup() {
   for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null || true; done
@@ -35,19 +36,20 @@ wait_for_listener() {
   return 1
 }
 
-cargo run --quiet -p activechain-consensus-runtime --bin genesis-tool -- "$genesis" 1 1 3 >/dev/null
+cargo run --quiet -p activechain-consensus-runtime --bin genesis-tool -- "$genesis" 1 1 3 "$keys" >/dev/null
 
 cargo run --quiet -p activechain-consensus-runtime --bin validator-node -- \
-  4511 "$workdir/v1.snapshot" "$genesis" 0 1 >"$workdir/v1.out" 2>&1 &
+  4511 "$workdir/v1.snapshot" "$genesis" 0 1 --key-file="$keys/validator-1.key" >"$workdir/v1.out" 2>&1 &
 pids+=("$!")
 cargo run --quiet -p activechain-consensus-runtime --bin validator-node -- \
-  4512 "$workdir/v2.snapshot" "$genesis" 0 2 >"$workdir/v2.out" 2>&1 &
+  4512 "$workdir/v2.snapshot" "$genesis" 0 2 --key-file="$keys/validator-2.key" >"$workdir/v2.out" 2>&1 &
 pids+=("$!")
 wait_for_listener 4511 "$workdir/v1.out"
 wait_for_listener 4512 "$workdir/v2.out"
 
 cargo run --quiet -p activechain-consensus-runtime --bin validator-node -- \
   4510 "$workdir/v0.snapshot" "$genesis" 0 0 --once \
+  --key-file="$keys/validator-0.key" \
   --peer=2@127.0.0.1:4511 --peer=3@127.0.0.1:4512 | tee "$workdir/proposer.out"
 
 rg --fixed-strings "completed network round: finalized_height=0" "$workdir/proposer.out"
@@ -61,6 +63,7 @@ for _ in range(32):
 PY
 cargo run --quiet -p activechain-consensus-runtime --bin validator-node -- \
   4510 "$workdir/v0.snapshot" "$genesis" 0 0 --once \
+  --key-file="$keys/validator-0.key" \
   --peer=2@127.0.0.1:4511 --peer=3@127.0.0.1:4512 | tee "$workdir/proposer-child.out"
 rg --fixed-strings "completed network round: finalized_height=1" "$workdir/proposer-child.out"
 test -s "$workdir/v0.snapshot"
@@ -75,12 +78,12 @@ else:
     raise SystemExit("partition probe unexpectedly connected")
 PY
 cargo run --quiet -p activechain-consensus-runtime --bin validator-node -- \
-  4512 "$workdir/v2.snapshot" "$genesis" 0 2 >"$workdir/v2-restart.out" 2>&1 &
+  4512 "$workdir/v2.snapshot" "$genesis" 0 2 --key-file="$keys/validator-2.key" >"$workdir/v2-restart.out" 2>&1 &
 pids[1]="$!"
 wait_for_listener 4512 "$workdir/v2-restart.out"
 kill "${pids[0]}" 2>/dev/null || true
 cargo run --quiet -p activechain-consensus-runtime --bin validator-node -- \
-  4511 "$workdir/v1.snapshot" "$genesis" 0 1 >"$workdir/v1-restart.out" 2>&1 &
+  4511 "$workdir/v1.snapshot" "$genesis" 0 1 --key-file="$keys/validator-1.key" >"$workdir/v1-restart.out" 2>&1 &
 pids[0]="$!"
 wait_for_listener 4511 "$workdir/v1-restart.out"
 rg --fixed-strings "activechain validator listening on 0.0.0.0:4511" "$workdir/v1-restart.out"
