@@ -1080,8 +1080,8 @@ impl PeerSupervisor {
 
 pub fn save_snapshot(path: &std::path::Path, state: &ConsensusState) -> std::io::Result<()> {
     let bytes = match std::fs::read(path) {
-        Ok(existing) => match decode_envelope::<PersistedValidatorState>(&existing) {
-            Ok(mut persisted) => {
+        Ok(existing) => match decode_validator_snapshot(&existing) {
+            Ok((mut persisted, _)) => {
                 persisted.consensus = state.snapshot();
                 encode_envelope(&persisted).map_err(|_| invalid_data("snapshot encoding failed"))?
             }
@@ -1101,7 +1101,7 @@ pub fn save_snapshot(path: &std::path::Path, state: &ConsensusState) -> std::io:
 }
 pub fn load_snapshot(path: &std::path::Path) -> std::io::Result<ConsensusState> {
     let bytes = std::fs::read(path)?;
-    if let Ok(snapshot) = decode_envelope::<PersistedValidatorState>(&bytes) {
+    if let Ok((snapshot, _)) = decode_validator_snapshot(&bytes) {
         return Ok(ConsensusState::from_snapshot(snapshot.consensus));
     }
     let snapshot: ConsensusSnapshot = decode_envelope(&bytes).map_err(|_| {
@@ -1116,13 +1116,34 @@ pub fn load_snapshot_chain_genesis_commitment(
     path: &std::path::Path,
 ) -> std::io::Result<Option<Digest384>> {
     let bytes = std::fs::read(path)?;
-    match decode_envelope::<PersistedValidatorState>(&bytes) {
-        Ok(snapshot) => Ok(Some(snapshot.genesis_commitment)),
+    match decode_validator_snapshot(&bytes) {
+        Ok((snapshot, _)) => Ok(Some(snapshot.genesis_commitment)),
         Err(_) if bytes.starts_with(&PersistedValidatorState::TYPE_TAG.to_be_bytes()) => {
             Err(invalid_data("validator safety snapshot is invalid"))
         }
         Err(_) => Ok(None),
     }
+}
+
+/// Decodes schema 5 directly and performs the one safe schema-4 migration: snapshots whose
+/// retained certified-history set is empty have an otherwise identical body. A schema-4 snapshot
+/// with reduced QC-only history cannot be upgraded into missing signed proposal/vote proofs and
+/// therefore fails closed.
+fn decode_validator_snapshot(bytes: &[u8]) -> Result<(PersistedValidatorState, bool), DecodeError> {
+    if let Ok(snapshot) = decode_envelope::<PersistedValidatorState>(bytes) {
+        return Ok((snapshot, false));
+    }
+    if bytes.len() < 4
+        || bytes[..2] != PersistedValidatorState::TYPE_TAG.to_be_bytes()
+        || bytes[2..4] != 4_u16.to_be_bytes()
+    {
+        return Err(DecodeError::InvalidValue("unsupported validator safety snapshot"));
+    }
+    let mut migrated = bytes.to_vec();
+    migrated[2..4].copy_from_slice(&PersistedValidatorState::SCHEMA_VERSION.to_be_bytes());
+    decode_envelope::<PersistedValidatorState>(&migrated)
+        .map(|snapshot| (snapshot, true))
+        .map_err(|_| DecodeError::InvalidValue("schema-4 snapshot is missing certified proofs"))
 }
 
 fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -2643,9 +2664,10 @@ impl ValidatorService {
         )?;
         let mut replay = ReplayGuard::default();
         let mut outbound_high_water = BTreeMap::new();
+        let mut migrated_snapshot = false;
         match std::fs::read(&snapshot_path) {
-            Ok(bytes) => match decode_envelope::<PersistedValidatorState>(&bytes) {
-                Ok(persisted) => {
+            Ok(bytes) => match decode_validator_snapshot(&bytes) {
+                Ok((persisted, migrated)) => {
                     if persisted.genesis_commitment != engine.genesis_commitment {
                         return Err(ValidatorEngineError::SnapshotDomainMismatch);
                     }
@@ -2668,6 +2690,7 @@ impl ValidatorService {
                     engine.validate_restored_safety_state()?;
                     replay.highest = persisted.replay_high_water;
                     outbound_high_water = persisted.outbound_high_water;
+                    migrated_snapshot = migrated;
                 }
                 Err(_) if bytes.starts_with(&PersistedValidatorState::TYPE_TAG.to_be_bytes()) => {
                     return Err(ValidatorEngineError::Snapshot(invalid_data(
@@ -2678,6 +2701,10 @@ impl ValidatorService {
             },
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(ValidatorEngineError::Snapshot(error)),
+        }
+        if migrated_snapshot {
+            save_validator_snapshot(&snapshot_path, &engine, &replay, &outbound_high_water)
+                .map_err(ValidatorEngineError::Snapshot)?;
         }
         Ok(Self {
             engine: std::sync::Mutex::new(engine),
@@ -4395,6 +4422,45 @@ mod tests {
         drop(engine);
         assert_eq!(service.next_proposal_position().unwrap(), (2, 1));
         drop(service);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn schema_four_migration_is_bounded_by_available_certified_history() {
+        use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
+        let validator = PrincipalId::new(Digest384::new([149; 48]));
+        let signer = ValidatorSigner::from_seed(validator, [150; 32]);
+        let genesis = ValidatorGenesis::new(
+            1,
+            1,
+            vec![
+                ValidatorGenesisEntry::new(validator, 1, signer.public_key().try_into().unwrap())
+                    .unwrap(),
+            ],
+        )
+        .unwrap();
+        let state = ConsensusState::new_with_validator_set_root(1, genesis.validator_set_root());
+        let path = std::env::temp_dir()
+            .join(format!("activechain-schema-four-migration-{}.bin", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+
+        let service = ValidatorService::from_genesis(state, &genesis, path.clone()).unwrap();
+        service.reserve_sequence_range(1, 1, 1).unwrap();
+        drop(service);
+        let mut empty_history_v4 = std::fs::read(&path).unwrap();
+        empty_history_v4[2..4].copy_from_slice(&4_u16.to_be_bytes());
+        write_atomic(&path, &empty_history_v4).unwrap();
+        let migrated = ValidatorService::from_genesis(state, &genesis, path.clone()).unwrap();
+        drop(migrated);
+        assert_eq!(&std::fs::read(&path).unwrap()[2..4], &5_u16.to_be_bytes());
+
+        let mut missing_history_v4 = empty_history_v4;
+        missing_history_v4.truncate(missing_history_v4.len() - 1);
+        write_atomic(&path, &missing_history_v4).unwrap();
+        assert!(matches!(
+            ValidatorService::from_genesis(state, &genesis, path.clone()),
+            Err(ValidatorEngineError::Snapshot(error)) if error.kind() == std::io::ErrorKind::InvalidData
+        ));
         std::fs::remove_file(path).unwrap();
     }
 

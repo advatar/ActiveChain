@@ -5,6 +5,12 @@ certified-history entry contains the complete signed proposal, quorum certificat
 signed vote proof. Validators reverify those proofs against the active genesis manifest during
 restart before using them as proposal ancestry.
 
+Schema-4 migration is deliberately bounded. A structurally valid schema-4 snapshot with no
+retained certified history is rewritten atomically as schema 5 during service startup. A schema-4
+snapshot whose old reduced records cannot decode as complete proofs is rejected and requires the
+recoverable archive-and-genesis rebuild procedure below; the validator never synthesizes missing
+proposal signatures or vote evidence.
+
 Validator snapshots are consensus safety state, not ordinary application data. An incompatible
 schema or genesis commitment must never be decoded heuristically or overwritten in place.
 

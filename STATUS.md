@@ -1309,7 +1309,7 @@ Tracked by [GitHub issue #13](https://github.com/advatar/ActiveChain/issues/13).
 - [x] Carry canonically encoded proposal, vote, and quorum-certificate bodies in authenticated peer frames.
 - [ ] Qualify the Kanalen current-main consensus recovery fix
   ([GitHub issue #262](https://github.com/advatar/ActiveChain/issues/262)).
-  - [ ] Persist each retained certified block as its complete verified proposal, quorum
+  - [x] Persist each retained certified block as its complete verified proposal, quorum
     certificate, and ordered signed vote proof; migrate the bounded schema-v4 snapshot format.
   - [ ] Authenticate request and response consensus traffic and persist inbound/outbound replay
     barriers before accepting or emitting a sequence.
