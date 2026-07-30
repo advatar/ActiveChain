@@ -14,7 +14,8 @@ normative and measurement slice in [#398](https://github.com/advatar/ActiveChain
 - [ ] Implement persistent partition state, immutable ledger segments, and certified snapshots
   ([GitHub issue #403](https://github.com/advatar/ActiveChain/issues/403)).
   - [x] Add sealed, chain-linked ledger segments and crash-safe two-generation partition manifests.
-  - [ ] Bind snapshot certification to finalized state and implement the production state database.
+  - [x] Persist content-addressed partition payloads and atomically activate only complete snapshots.
+  - [ ] Bind snapshot certification to finalized state through the checkpoint verifier boundary.
 - [ ] Implement paid archive assignment, challenges, reconstruction, and crash-safe pruning.
 - [ ] Implement prepaid leases, hibernation/restoration, and accumulator-backed replay history.
 - [ ] Qualify checkpoint snapshot sync, light clients, operator metrics, and sustained 1 TiB bounds.

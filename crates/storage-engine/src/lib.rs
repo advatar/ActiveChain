@@ -21,6 +21,7 @@ const SEGMENT_MAGIC: &[u8; 8] = b"ACLSEG01";
 const SEGMENT_FOOTER: &[u8; 8] = b"ACLEND01";
 const SNAPSHOT_MAGIC: &[u8; 8] = b"ACSNAP01";
 const INDEX_MAGIC: &[u8; 8] = b"ACSIDX01";
+const ACTIVE_MAGIC: &[u8; 8] = b"ACSACT01";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StorageError {
@@ -347,6 +348,143 @@ pub struct SnapshotStore {
     chain_genesis: Root,
 }
 
+/// Content-addressed partition payloads with atomic complete-snapshot activation.
+pub struct PartitionStateStore {
+    directory: PathBuf,
+    chunks_directory: PathBuf,
+    snapshots: SnapshotStore,
+    chain_genesis: Root,
+}
+
+impl PartitionStateStore {
+    pub fn open(directory: impl Into<PathBuf>, chain_genesis: Root) -> Result<Self, StorageError> {
+        if chain_genesis == [0; 48] {
+            return Err(StorageError::Identity);
+        }
+        let directory = directory.into();
+        let chunks_directory = directory.join("chunks");
+        fs::create_dir_all(&chunks_directory)?;
+        let snapshots = SnapshotStore::open(directory.join("snapshots"), chain_genesis)?;
+        Ok(Self { directory, chunks_directory, snapshots, chain_genesis })
+    }
+
+    pub fn stage_partition(
+        &self,
+        expected: PartitionSnapshot,
+        bytes: &[u8],
+    ) -> Result<(), StorageError> {
+        if bytes.len() as u64 != expected.chunk_bytes
+            || expected.chunk_bytes > MAX_PARTITION_CHUNK_BYTES
+            || partition_payload_root(expected.partition_id, bytes) != expected.chunk_root
+        {
+            return Err(StorageError::Corrupt);
+        }
+        let path = self.chunk_path(expected.chunk_root);
+        if path.exists() {
+            let mut existing = Vec::new();
+            File::open(path)?.read_to_end(&mut existing)?;
+            return if existing == bytes { Ok(()) } else { Err(StorageError::Exists) };
+        }
+        atomic_write_inner(&path, bytes, false, false)
+    }
+
+    pub fn activate(&self, manifest: &SnapshotManifest) -> Result<(), StorageError> {
+        if manifest.chain_genesis != self.chain_genesis {
+            return Err(StorageError::Identity);
+        }
+        let rebuilt = SnapshotManifest::new(
+            manifest.chain_genesis,
+            manifest.height,
+            manifest.protocol_revision,
+            manifest.state_root,
+            manifest.partitions.clone(),
+        )?;
+        if rebuilt != *manifest {
+            return Err(StorageError::Corrupt);
+        }
+        for partition in &manifest.partitions {
+            self.verify_chunk(*partition)?;
+        }
+        let generations = self.snapshots.generations()?;
+        let active_path = self.directory.join("active.snapshot");
+        if active_path.exists() {
+            let active = self.load_active()?;
+            if generations.last() != Some(&active.height) {
+                return Err(StorageError::Sequence);
+            }
+        } else if !generations.is_empty() {
+            return Err(StorageError::Corrupt);
+        }
+        sync_directory(&self.chunks_directory)?;
+        self.snapshots.publish(manifest)?;
+        self.collect_unreferenced_chunks()?;
+        atomic_write(&active_path, &encode_active(manifest.height, manifest.manifest_root), true)?;
+        Ok(())
+    }
+
+    pub fn load_active(&self) -> Result<SnapshotManifest, StorageError> {
+        let mut bytes = Vec::new();
+        File::open(self.directory.join("active.snapshot"))?.read_to_end(&mut bytes)?;
+        let (height, manifest_root) = decode_active(&bytes)?;
+        let manifest = self.snapshots.load(height)?;
+        if manifest.manifest_root != manifest_root {
+            return Err(StorageError::Corrupt);
+        }
+        for partition in &manifest.partitions {
+            self.verify_chunk(*partition)?;
+        }
+        Ok(manifest)
+    }
+
+    pub fn load_partition(&self, partition_id: u16) -> Result<Vec<u8>, StorageError> {
+        let manifest = self.load_active()?;
+        let partition =
+            *manifest.partitions.get(usize::from(partition_id)).ok_or(StorageError::Bounds)?;
+        let mut bytes = Vec::new();
+        File::open(self.chunk_path(partition.chunk_root))?.read_to_end(&mut bytes)?;
+        if bytes.len() as u64 != partition.chunk_bytes
+            || partition_payload_root(partition_id, &bytes) != partition.chunk_root
+        {
+            return Err(StorageError::Corrupt);
+        }
+        Ok(bytes)
+    }
+
+    fn verify_chunk(&self, partition: PartitionSnapshot) -> Result<(), StorageError> {
+        let mut bytes = Vec::new();
+        File::open(self.chunk_path(partition.chunk_root))?.read_to_end(&mut bytes)?;
+        if bytes.len() as u64 != partition.chunk_bytes
+            || partition_payload_root(partition.partition_id, &bytes) != partition.chunk_root
+        {
+            return Err(StorageError::Corrupt);
+        }
+        Ok(())
+    }
+
+    fn collect_unreferenced_chunks(&self) -> Result<(), StorageError> {
+        let mut retained = std::collections::BTreeSet::new();
+        for height in self.snapshots.generations()? {
+            for partition in self.snapshots.load(height)?.partitions {
+                retained.insert(partition.chunk_root);
+            }
+        }
+        for entry in fs::read_dir(&self.chunks_directory)? {
+            let path = entry?.path();
+            if let Some(root) = chunk_root_from_path(&path)
+                && !retained.contains(&root)
+            {
+                fs::remove_file(path)?;
+            }
+        }
+        sync_directory(&self.chunks_directory)?;
+        Ok(())
+    }
+
+    fn chunk_path(&self, root: Root) -> PathBuf {
+        self.chunks_directory.join(format!("{}.chunk", hex(&root)))
+    }
+}
+
 #[must_use]
 pub fn render_segment_fixture() -> String {
     let segment = SealedSegment::seal(
@@ -500,6 +638,16 @@ fn snapshot_root(
     finish(hasher)
 }
 
+#[must_use]
+pub fn partition_payload_root(partition_id: u16, bytes: &[u8]) -> Root {
+    digest(&[
+        b"ACTIVECHAIN-SNAPSHOT-PARTITION-V1",
+        &partition_id.to_be_bytes(),
+        &(bytes.len() as u64).to_be_bytes(),
+        bytes,
+    ])
+}
+
 fn digest(parts: &[&[u8]]) -> Root {
     let mut hasher = Shake256::default();
     for part in parts {
@@ -537,6 +685,29 @@ fn encode_generations(generations: &[u64]) -> Vec<u8> {
     bytes
 }
 
+fn encode_active(height: u64, manifest_root: Root) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(8 + 8 + 48 + 48);
+    bytes.extend_from_slice(ACTIVE_MAGIC);
+    bytes.extend_from_slice(&height.to_be_bytes());
+    bytes.extend_from_slice(&manifest_root);
+    let checksum = digest(&[b"ACTIVECHAIN-ACTIVE-SNAPSHOT-V1", &bytes]);
+    bytes.extend_from_slice(&checksum);
+    bytes
+}
+
+fn decode_active(bytes: &[u8]) -> Result<(u64, Root), StorageError> {
+    if bytes.len() != 112 || &bytes[..8] != ACTIVE_MAGIC {
+        return Err(StorageError::Corrupt);
+    }
+    let checksum: Root = bytes[64..].try_into().map_err(|_| StorageError::Corrupt)?;
+    if checksum != digest(&[b"ACTIVECHAIN-ACTIVE-SNAPSHOT-V1", &bytes[..64]]) {
+        return Err(StorageError::Corrupt);
+    }
+    let height = u64::from_be_bytes(bytes[8..16].try_into().map_err(|_| StorageError::Corrupt)?);
+    let manifest_root = bytes[16..64].try_into().map_err(|_| StorageError::Corrupt)?;
+    Ok((height, manifest_root))
+}
+
 fn decode_generations(bytes: &[u8]) -> Result<Vec<u64>, StorageError> {
     if bytes.len() < 57 || &bytes[..8] != INDEX_MAGIC {
         return Err(StorageError::Corrupt);
@@ -568,7 +739,30 @@ fn manifest_height(path: &Path) -> Option<u64> {
     u64::from_str_radix(value, 16).ok()
 }
 
+fn chunk_root_from_path(path: &Path) -> Option<Root> {
+    let name = path.file_name()?.to_str()?;
+    let value = name.strip_suffix(".chunk")?;
+    if value.len() != 96 {
+        return None;
+    }
+    let mut root = [0_u8; 48];
+    for (index, byte) in root.iter_mut().enumerate() {
+        let start = index * 2;
+        *byte = u8::from_str_radix(&value[start..start + 2], 16).ok()?;
+    }
+    Some(root)
+}
+
 fn atomic_write(path: &Path, bytes: &[u8], replace: bool) -> Result<(), StorageError> {
+    atomic_write_inner(path, bytes, replace, true)
+}
+
+fn atomic_write_inner(
+    path: &Path,
+    bytes: &[u8],
+    replace: bool,
+    sync_parent: bool,
+) -> Result<(), StorageError> {
     let parent = path.parent().ok_or(StorageError::Io)?;
     fs::create_dir_all(parent)?;
     let mut temporary = None;
@@ -599,7 +793,9 @@ fn atomic_write(path: &Path, bytes: &[u8], replace: bool) -> Result<(), StorageE
             })?;
             fs::remove_file(&temporary_path)?;
         }
-        sync_directory(parent)?;
+        if sync_parent {
+            sync_directory(parent)?;
+        }
         Ok(())
     })();
     if result.is_err() {
@@ -676,6 +872,34 @@ mod tests {
         SnapshotManifest::new(root(1), height, 1, root(2), partitions).unwrap()
     }
 
+    fn payload_manifest(height: u64, variant: u8) -> (SnapshotManifest, Vec<Vec<u8>>) {
+        let payloads = (0..PARTITION_COUNT)
+            .map(|index| if index == 0 { vec![variant] } else { vec![(index % 251) as u8] })
+            .collect::<Vec<_>>();
+        let partitions = payloads
+            .iter()
+            .enumerate()
+            .map(|(index, bytes)| PartitionSnapshot {
+                partition_id: index as u16,
+                root: digest(&[b"TEST-PARTITION-STATE", &(index as u16).to_be_bytes(), bytes]),
+                charged_bytes: bytes.len() as u64,
+                chunk_root: partition_payload_root(index as u16, bytes),
+                chunk_bytes: bytes.len() as u64,
+            })
+            .collect();
+        (SnapshotManifest::new(root(1), height, 1, root(2), partitions).unwrap(), payloads)
+    }
+
+    fn stage_manifest(
+        store: &PartitionStateStore,
+        manifest: &SnapshotManifest,
+        payloads: &[Vec<u8>],
+    ) {
+        for (partition, bytes) in manifest.partitions.iter().zip(payloads) {
+            store.stage_partition(*partition, bytes).unwrap();
+        }
+    }
+
     #[test]
     fn sealed_segments_are_deterministic_linked_and_strict() {
         let first = SealedSegment::seal(
@@ -750,5 +974,45 @@ mod tests {
         index[9] ^= 1;
         fs::write(directory.path().join("generations.idx"), index).unwrap();
         assert_eq!(reopened.generations(), Err(StorageError::Corrupt));
+    }
+
+    #[test]
+    fn partition_state_activates_only_complete_verified_snapshots_and_survives_restart() {
+        let directory = tempdir().unwrap();
+        let store = PartitionStateStore::open(directory.path(), root(1)).unwrap();
+        let (first, first_payloads) = payload_manifest(10, 10);
+        store.stage_partition(first.partitions[0], &first_payloads[0]).unwrap();
+        assert_eq!(store.activate(&first), Err(StorageError::Io));
+        assert!(!directory.path().join("active.snapshot").exists());
+
+        stage_manifest(&store, &first, &first_payloads);
+        store.activate(&first).unwrap();
+        assert_eq!(store.load_active().unwrap(), first);
+        assert_eq!(store.load_partition(2_048).unwrap(), first_payloads[2_048]);
+
+        let restarted = PartitionStateStore::open(directory.path(), root(1)).unwrap();
+        assert_eq!(restarted.load_active().unwrap(), first);
+        let chunk = restarted.chunk_path(first.partitions[7].chunk_root);
+        fs::write(&chunk, b"corrupt").unwrap();
+        assert_eq!(restarted.load_partition(7), Err(StorageError::Corrupt));
+    }
+
+    #[test]
+    fn partition_state_reuses_content_and_collects_only_unreferenced_generations() {
+        let directory = tempdir().unwrap();
+        let store = PartitionStateStore::open(directory.path(), root(1)).unwrap();
+        let (first, first_payloads) = payload_manifest(10, 10);
+        stage_manifest(&store, &first, &first_payloads);
+        store.activate(&first).unwrap();
+        let retired_chunk = store.chunk_path(first.partitions[0].chunk_root);
+
+        for (height, variant) in [(20, 20), (30, 30)] {
+            let (manifest, payloads) = payload_manifest(height, variant);
+            stage_manifest(&store, &manifest, &payloads);
+            store.activate(&manifest).unwrap();
+        }
+        assert!(!retired_chunk.exists());
+        assert_eq!(store.snapshots.generations().unwrap(), vec![20, 30]);
+        assert_eq!(store.load_active().unwrap().height, 30);
     }
 }
