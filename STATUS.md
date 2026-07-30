@@ -51,7 +51,7 @@ Tracked by [GitHub issue #331](https://github.com/advatar/ActiveChain/issues/331
   reopen issuance capacity.
 - [x] Add boundary, overflow, multi-mint, rollover, restart, legacy-migration, and adversarial
   property tests; align formal arithmetic and frozen vectors.
-- [ ] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
+- [x] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
   #331.
 
 ## Critical cash recovery — durable replay protection
