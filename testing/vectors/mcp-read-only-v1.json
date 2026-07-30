@@ -1,0 +1,39 @@
+{
+  "profile": "activechain-mcp-read-only-v1",
+  "protocol_version": "2025-11-25",
+  "transport": "stdio-newline-json-rpc-2.0",
+  "limits": {
+    "maximum_frame_bytes": 262144,
+    "maximum_requests_per_session": 4096,
+    "maximum_page_size": 4
+  },
+  "tools": [
+    "activechain_get_pending_approvals",
+    "activechain_get_status",
+    "activechain_list_assets",
+    "activechain_resolve_receipt",
+    "activechain_verify_record"
+  ],
+  "transcript": [
+    {
+      "direction": "client",
+      "message": {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"fixture","version":"1"}}}
+    },
+    {
+      "direction": "server",
+      "assert": {"jsonrpc":"2.0","id":1,"result.protocolVersion":"2025-11-25"}
+    },
+    {
+      "direction": "client",
+      "message": {"jsonrpc":"2.0","method":"notifications/initialized"}
+    },
+    {
+      "direction": "client",
+      "message": {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+    },
+    {
+      "direction": "server",
+      "assert": {"jsonrpc":"2.0","id":2,"result.tools.length":5,"result.tools.*.annotations.readOnlyHint":true}
+    }
+  ]
+}
