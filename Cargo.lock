@@ -244,6 +244,7 @@ version = "0.1.0"
 dependencies = [
  "activechain-agent-interfaces",
  "activechain-canonical-codec",
+ "activechain-proposal-gateway",
  "activechain-protocol-types",
  "activechain-rpc-server",
  "activechain-rpc-types",
@@ -357,6 +358,18 @@ dependencies = [
  "activechain-protocol-commitment",
  "activechain-protocol-types",
  "proptest",
+ "sha3 0.10.9",
+]
+
+[[package]]
+name = "activechain-proposal-gateway"
+version = "0.1.0"
+dependencies = [
+ "activechain-agent-interfaces",
+ "activechain-canonical-codec",
+ "activechain-protocol-types",
+ "serde",
+ "serde_json",
  "sha3 0.10.9",
 ]
 
