@@ -1874,6 +1874,20 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
     a single active implementation branch per issue
     ([GitHub issue #125](https://github.com/advatar/ActiveChain/issues/125)).
 
+## Planned initiative — Kenya VASP and stablecoin regulatory profile
+
+- [ ] Implement fail-closed Kenya VASP and stablecoin regulatory support aligned to the 2025 Act
+  and 2026 Regulations without representing protocol capability as legal approval
+  ([GitHub issue #369](https://github.com/advatar/ActiveChain/issues/369)).
+  - [ ] Publish a regulation-by-regulation Kenya control register and source/version metadata.
+  - [ ] Replace the Kenya design placeholder with versioned VASP and stablecoin-issuer manifests.
+  - [ ] Add canonical activation validation for mandatory controls, approvals, validity, and policy
+    commitments.
+  - [ ] Add deterministic positive, negative, expiry, ambiguity, inheritance, and cross-border
+    conformance vectors and unit tests.
+  - [ ] Document deployment gates for licensing, regulator approval, counsel, reserves, custody,
+    audits, reporting, and operating-period evidence.
+
 ## Planned milestone — external pre-launch security audit
 
 - [x] Publish the exact audit scope, evidence requests, exclusions, and release-blocking
