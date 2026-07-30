@@ -2067,6 +2067,15 @@ wallet and all testnets remain explicitly developmental until this milestone com
       `origin/main`.
   - [ ] Route MCP proposals through canonical native wallet approval
     ([GitHub issue #358](https://github.com/advatar/ActiveChain/issues/358)).
+    - [ ] Decode the canonical proposal intent at the shared wallet boundary and derive every
+      review field and the exact approval commitment without trusting MCP display labels.
+    - [ ] Require the existing authenticated native signing callback to sign only the reviewed
+      proposal commitment, with expiry and substitution checks.
+    - [ ] Expose equivalent Apple and Android proposal review paths and persist bounded lifecycle
+      transitions across restart, rejection, approval, submission, finality, expiry, and failure.
+    - [ ] Add Rust and platform tests for equivalence, spoofing, substitution, stale/concurrent
+      review, replay, restart, background/resume, and finality resolution; run normal affected
+      test suites, merge, and verify reachability in `origin/main`.
   - [ ] Render approvals and results through a constrained, fail-closed A2UI layer
     ([GitHub issue #360](https://github.com/advatar/ActiveChain/issues/360)).
   - [ ] Rehearse an end-to-end MCP transfer proposal, approval, finality, and verified receipt
