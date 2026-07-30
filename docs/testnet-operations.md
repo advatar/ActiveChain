@@ -98,6 +98,18 @@ is acknowledged only after the updated wallet snapshot has completed file and di
 persistence error is operationally fatal for that process: stop it and restart from the snapshot
 before accepting another value-bearing request.
 
+The faucet journal writes a canonical V2 reservation before invoking settlement. Its immutable
+request, server-derived peer identity, settlement-envelope commitment, amount, recipient, and
+reference are therefore recoverable even if the process loses the settlement acknowledgement.
+After restart, inspect `pending_reconciliation` and reconcile only with the exact original request
+and signed envelope; the wallet and validator adapters return the already admitted transaction for
+that exact intent instead of applying it twice. Never delete an uncertain reservation. Legacy V1
+records remain resolvable and count toward limits, but their missing transcript is never accepted
+as authority to resubmit value.
+
+Use `reject_pending` only after independently proving that no settlement occurred. Rejection keeps
+the reservation as durable audit and abuse-limit evidence; it does not erase or recycle the grant.
+
 ## Bootstrap the RPC index
 
 The chain identifier is selected explicitly by the application/operator and is distinct from the

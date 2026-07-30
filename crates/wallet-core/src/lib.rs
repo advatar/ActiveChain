@@ -485,6 +485,9 @@ impl TransactionIngress {
     ) -> Result<(), WalletError> {
         let request = authorized.request();
         let transfer = request.transfer();
+        let transaction = TransactionId::new(
+            request.intent_id().map_err(|_| WalletError::MalformedAuthorization)?,
+        );
         if request.chain_id() != self.chain_id {
             return Err(WalletError::WrongChain);
         }
@@ -531,6 +534,8 @@ impl TransactionIngress {
         if lane.consumed_sessions.len() == cash_persistence::MAX_CONSUMED_SESSIONS_PER_LANE
             || self.consumed_inputs.len().saturating_add(transfer.inputs().len() + 1)
                 > cash_persistence::MAX_CONSUMED_INPUTS
+            || self.non_authoritative_accepted.len()
+                == cash_persistence::MAX_NON_AUTHORITATIVE_ACCEPTED
         {
             return Err(WalletError::StateLimit);
         }
@@ -557,6 +562,8 @@ impl TransactionIngress {
         next.consumed_inputs.extend_from_slice(transfer.inputs());
         next.consumed_inputs.push(transfer.fee_reserve());
         next.consumed_inputs.sort_unstable();
+        next.non_authoritative_accepted.push(transaction);
+        next.non_authoritative_accepted.sort_unstable();
         *self = next;
         Ok(())
     }
@@ -592,6 +599,13 @@ impl TransactionIngress {
 
     pub fn ledger(&self) -> &CashLedger {
         &self.ledger
+    }
+
+    /// Returns whether the exact canonical transaction was durably admitted. This supports
+    /// idempotent recovery at settlement boundaries after publication acknowledgements are lost.
+    #[must_use]
+    pub fn transaction_admitted(&self, transaction: TransactionId) -> bool {
+        self.non_authoritative_accepted.binary_search(&transaction).is_ok()
     }
 
     #[must_use]
