@@ -2,6 +2,19 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Landing-page information architecture
+
+GitHub issue creation pending restoration of the repository's `gh` authentication.
+
+- [x] Replace the single long-form landing route with a focused home page and dedicated content
+  pages grouped under clear top-level categories and subcategories.
+- [x] Add shared desktop and mobile navigation with active-page context, category menus, and
+  direct links to every page.
+- [x] Preserve the existing visual language and substantive content while improving page-level
+  hierarchy, orientation, and cross-page discovery.
+- [ ] Complete visual browser qualification and the final deterministic-kernel gate; merge the
+  parent-repository pointer to `main` and confirm reachability from `origin/main`.
+
 ## Critical incident — deterministic validator key compromise
 
 Tracked by [GitHub issue #326](https://github.com/advatar/ActiveChain/issues/326).
@@ -1896,3 +1909,26 @@ wallet and all testnets remain explicitly developmental until this milestone com
 - [ ] Remediate all findings or document explicitly accepted risks.
 - [ ] Complete the firm's re-review of every fix.
 - [ ] Publish the final report and remediation log in this repository.
+
+## Planned initiative — MCP interoperability and constrained A2UI approvals
+
+- [ ] Deliver MCP agent interoperability and constrained A2UI approval surfaces without making
+  either transport or presentation an authority boundary
+  ([GitHub issue #355](https://github.com/advatar/ActiveChain/issues/355)).
+  - [ ] Freeze versioned schemas, trust boundaries, and the threat model
+    ([GitHub issue #356](https://github.com/advatar/ActiveChain/issues/356)).
+  - [ ] Implement proof-bearing read-only MCP tools and resources
+    ([GitHub issue #361](https://github.com/advatar/ActiveChain/issues/361)).
+  - [ ] Implement a proposal-only MCP intent and capability gateway
+    ([GitHub issue #357](https://github.com/advatar/ActiveChain/issues/357)).
+  - [ ] Route MCP proposals through canonical native wallet approval
+    ([GitHub issue #358](https://github.com/advatar/ActiveChain/issues/358)).
+  - [ ] Render approvals and results through a constrained, fail-closed A2UI layer
+    ([GitHub issue #360](https://github.com/advatar/ActiveChain/issues/360)).
+  - [ ] Rehearse an end-to-end MCP transfer proposal, approval, finality, and verified receipt
+    ([GitHub issue #362](https://github.com/advatar/ActiveChain/issues/362)).
+  - [ ] Complete adversarial security, compatibility, and operational qualification
+    ([GitHub issue #359](https://github.com/advatar/ActiveChain/issues/359)).
+  - [ ] Announce the planned MCP and constrained A2UI interfaces on the public landing page
+    without presenting them as shipped or audited
+    ([GitHub issue #364](https://github.com/advatar/ActiveChain/issues/364)).
