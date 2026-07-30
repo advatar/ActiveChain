@@ -37,6 +37,8 @@ use zeroize::Zeroize;
 
 mod cash_state;
 pub use cash_state::FinalizedCashSnapshot;
+mod compliance;
+pub use compliance::RegulatedTransferAdmission;
 pub mod finalized_block;
 pub use finalized_block::{
     ExecutionProofVerifier, FinalizedBlock, FinalizedBlockAdmissionError, FinalizedBlockCandidate,

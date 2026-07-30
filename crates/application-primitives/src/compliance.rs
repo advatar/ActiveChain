@@ -232,6 +232,14 @@ pub fn require_selected_profile(
     }
 }
 
+/// Computes the only evidence commitment accepted by the V2 provider transcript.
+pub fn compliance_evidence_commitment(
+    evidence: &ComplianceEvidenceBindingV1,
+) -> Result<Digest384, ComplianceAdmissionError> {
+    commit(DomainTag::CANONICAL_VALUE, evidence)
+        .map_err(|_| ComplianceAdmissionError::InvalidEvidence)
+}
+
 /// Admit one regulated transfer only after all public commitments match and the
 /// nonce is durably consumed. Confidential payloads are never inspected here.
 #[allow(clippy::too_many_arguments)]
@@ -252,8 +260,7 @@ pub fn admit_regulated_transfer(
     if !registry.verify(signature) {
         return Err(ComplianceAdmissionError::InvalidSignature);
     }
-    let evidence_commitment = commit(DomainTag::CANONICAL_VALUE, &evidence)
-        .map_err(|_| ComplianceAdmissionError::InvalidEvidence)?;
+    let evidence_commitment = compliance_evidence_commitment(&evidence)?;
     if evidence.chain_id() != chain_id
         || evidence.genesis() != genesis
         || evidence.action() != action
@@ -483,6 +490,17 @@ mod tests {
             restored.keys.get(&(profile, provider())),
             Some(&vec![7; ML_DSA44_PUBLIC_KEY_LENGTH])
         );
+
+        // Schema V1 did not bind keys to provider identities. It must be reissued,
+        // never interpreted under the stronger V2 semantics.
+        let mut legacy = std::fs::read(&path).unwrap();
+        legacy[2..4].copy_from_slice(&1_u16.to_be_bytes());
+        let legacy_path = dir.path().join("legacy-provider-keys.bin");
+        std::fs::write(&legacy_path, legacy).unwrap();
+        assert!(matches!(
+            ComplianceKeyRegistry::load(&legacy_path),
+            Err(CompliancePersistenceError::Persistence)
+        ));
     }
 
     #[test]
@@ -515,7 +533,8 @@ mod tests {
                 evidence.action(),
                 None,
                 None,
-                height, &registry,
+                height,
+                &registry,
             )
         };
         let mut journal =

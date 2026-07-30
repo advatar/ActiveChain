@@ -818,6 +818,13 @@ impl ComplianceSignatureEnvelopeV2 {
         payload.extend_from_slice(&bytes);
         payload
     }
+    pub fn transcript_commitment(&self) -> Digest384 {
+        let mut hasher = Shake256::default();
+        hasher.update(&self.signing_payload());
+        let mut output = [0_u8; 48];
+        XofReader::read(&mut hasher.finalize_xof(), &mut output);
+        Digest384::new(output)
+    }
 }
 impl CanonicalEncode for ComplianceSignatureEnvelopeV2 {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
@@ -1425,6 +1432,43 @@ mod tests {
         )
         .unwrap();
         assert!(signed_policy.accepts_with_signature(&clear, Some(&signature), 50));
+    }
+
+    #[test]
+    fn compliance_v2_transcript_is_frozen_and_canonical() {
+        let attestation = ComplianceSignatureEnvelopeV2::new(
+            PrincipalId::new(d(1)),
+            d(2),
+            ChainId::new(d(3)),
+            d(4),
+            7,
+            d(5),
+            TransactionId::new(d(6)),
+            d(7),
+            10,
+            20,
+            d(8),
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2_420]).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            decode_envelope::<ComplianceSignatureEnvelopeV2>(
+                &encode_envelope(&attestation).unwrap()
+            ),
+            Ok(attestation.clone())
+        );
+        assert_eq!(
+            attestation.transcript_commitment(),
+            Digest384::new([
+                148, 230, 19, 108, 251, 162, 145, 142, 94, 155, 101, 2, 217, 167, 212, 197, 107,
+                100, 163, 204, 245, 86, 130, 17, 80, 149, 47, 197, 97, 61, 18, 208, 7, 221, 210,
+                23, 234, 45, 224, 183, 187, 125, 167, 157, 245, 221, 213, 254,
+            ])
+        );
+        assert_eq!(
+            include_str!("../../../testing/vectors/compliance-attestation-v2.txt"),
+            "type_tag=0x0144\nschema_version=2\ntranscript_commitment=94e6136cfba2918e5e9b6502d9a7d4c56b64a3ccf556821150952fc5613d12d007ddd217ea2de0b7bb7da79df5ddd5fe\n"
+        );
     }
 
     #[test]

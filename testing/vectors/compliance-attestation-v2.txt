@@ -1,0 +1,3 @@
+type_tag=0x0144
+schema_version=2
+transcript_commitment=94e6136cfba2918e5e9b6502d9a7d4c56b64a3ccf556821150952fc5613d12d007ddd217ea2de0b7bb7da79df5ddd5fe

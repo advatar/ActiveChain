@@ -22,7 +22,8 @@ pub use anchor::{
 pub use compliance::{
     ComplianceAdmissionError, ComplianceKeyRegistry, CompliancePersistenceError,
     CredentialPredicateAdmissionError, DurableComplianceReplayJournal, admit_credential_predicate,
-    admit_regulated_transfer, require_selected_profile, verify_compliance_signature,
+    admit_regulated_transfer, compliance_evidence_commitment, require_selected_profile,
+    verify_compliance_signature,
 };
 
 use activechain_canonical_codec::{

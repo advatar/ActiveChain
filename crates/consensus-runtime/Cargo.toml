@@ -11,6 +11,7 @@ activechain-crypto-provider.workspace = true
 activechain-protocol-types.workspace = true
 activechain-canonical-codec.workspace = true
 activechain-action-kernel.workspace = true
+activechain-application-primitives.workspace = true
 activechain-authorization-kernel.workspace = true
 activechain-data-availability.workspace = true
 activechain-devnet-kernel.workspace = true
@@ -33,6 +34,7 @@ rustix = { version = "1.1", features = ["fs", "process"] }
 activechain-transition.workspace = true
 activechain-capability.workspace = true
 activechain-credential.workspace = true
+tempfile = "3"
 
 [lints]
 workspace = true

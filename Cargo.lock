@@ -124,6 +124,7 @@ name = "activechain-consensus-runtime"
 version = "0.1.0"
 dependencies = [
  "activechain-action-kernel",
+ "activechain-application-primitives",
  "activechain-authorization-kernel",
  "activechain-canonical-codec",
  "activechain-capability",
@@ -146,6 +147,7 @@ dependencies = [
  "ml-dsa",
  "rustix",
  "sha3 0.10.9",
+ "tempfile",
  "zeroize",
 ]
 

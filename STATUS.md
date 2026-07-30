@@ -106,12 +106,12 @@ Tracked by [GitHub issue #334](https://github.com/advatar/ActiveChain/issues/334
 
 Tracked by [GitHub issue #335](https://github.com/advatar/ActiveChain/issues/335).
 
-- [ ] Define a versioned, domain-separated canonical transcript covering the complete evidence,
+- [x] Define a versioned, domain-separated canonical transcript covering the complete evidence,
   subject, provider, policy/profile, validity, chain genesis, and protocol revision.
-- [ ] Verify provider signatures and exact finalized context on every production compliance
+- [x] Verify provider signatures and exact finalized context on every production compliance
   admission; reject unknown, ambiguous, stale, and cross-network material.
-- [ ] Define and enforce a fail-closed migration/reissuance policy for legacy attestations.
-- [ ] Add field-substitution, omission, replay, expiry, cross-network, canonical-vector, and
+- [x] Define and enforce a fail-closed migration/reissuance policy for legacy attestations.
+- [x] Add field-substitution, omission, replay, expiry, cross-network, canonical-vector, and
   production caller-graph regressions.
 - [ ] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
   #335.

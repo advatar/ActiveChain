@@ -12,6 +12,17 @@ age, matching algorithm version, normalization rules, and escalation contact. A 
 when any input is missing, expired, or from an unapproved provider. Providers publish a digest of
 the source snapshot; the source records and case files remain off-chain.
 
+Provider attestations admitted by validators use `ComplianceSignatureEnvelopeV2`. Its
+domain-separated signing transcript binds the exact canonical evidence commitment, provider,
+subject, selected profile, chain and genesis, protocol revision, action, validity interval, and
+one-shot nonce. Validators recompute the evidence commitment and consume the nonce durably before
+admission returns.
+
+`ComplianceSignatureEnvelopeV1` is archival-only because its transcript did not bind the evidence
+body or complete finalized context. It has no production admission path and is never upgraded in
+place. A provider must reissue legacy evidence as a freshly signed V2 attestation under a
+provider-and-profile key registered for the active network and revision.
+
 ## Matching and privacy
 
 Providers normalize names and identifiers according to the profile, apply the declared threshold,
