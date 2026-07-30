@@ -841,8 +841,11 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 - [x] Publish positive and substitution vectors and qualify the ActiveChain boundary with 108
   normal affected tests, strict Clippy, and the canonical registry check; merge commit `9f42789`
   is reachable from `origin/main`.
-- [ ] Complete cross-repository tlsn/EUWallet wallet, device, portable-evidence, and offline-proof
-  conformance without touching uncommitted work in either repository.
+- [x] Add the cross-repository TLSNotary producer envelope and EUWallet authenticated-ingestion
+  boundary: `advatar/tlsn` PR #1 and `advatar/EUWallet` PR #76 are merged, preserve explicit
+  assurance, reject unauthorized promotion, and keep TLS-derived evidence outside PID namespaces.
+- [ ] Complete shared language-independent vectors, wallet consent/assurance UX, lifecycle and
+  recovery coverage, physical-device key tests, offline-proof conformance, and independent review.
 
 ## Active independent-client qualification
 
