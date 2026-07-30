@@ -169,8 +169,7 @@ impl FinalizedBlockCandidate {
             return Err(FinalizedBlockAdmissionError::Authorization);
         }
         let mut verified_authorizations = Vec::with_capacity(block.actions().len());
-        for (action, candidate) in
-            block.actions().iter().zip(self.authorization_candidates.iter())
+        for (action, candidate) in block.actions().iter().zip(self.authorization_candidates.iter())
         {
             let verified = verify_authorization_candidate(
                 candidate,
@@ -291,7 +290,7 @@ mod tests {
         }
         fn verify_credential_signature(
             &self,
-            _credential: &activechain_credential::Credential,
+            _credential: &activechain_protocol_types::Credential,
         ) -> bool {
             true
         }
@@ -303,13 +302,13 @@ mod tests {
         }
         fn verify_capability_signature(
             &self,
-            _capability: &activechain_capability::CapabilityGrant,
+            _capability: &activechain_protocol_types::CapabilityGrant,
         ) -> bool {
             true
         }
         fn verify_capability_active(
             &self,
-            _capability: &activechain_capability::CapabilityGrant,
+            _capability: &activechain_protocol_types::CapabilityGrant,
             _height: u64,
             _state_root: Digest384,
         ) -> bool {
@@ -385,8 +384,17 @@ mod tests {
             "header_type_tag=0x0079\nheader_schema_version=2\nproof_inputs_type_tag=0x0078\nproof_inputs_schema_version=2\nheader_digest=8b6c8cf31826bf8395760a8931ceb57b21bd7185ef2a62bd7dd9cf34f1d412022d9386c7de3194833aa3a6fd505347ce\n"
         );
         let context = ConsensusVoteContext::new_with_revision(genesis, 7, root, 4).unwrap();
-        let certificate =
-            QuorumCertificate::new(context, 1, 0, digest, Digest384::new([5; 48]), 1, 1).unwrap();
+        let certificate = QuorumCertificate::new(
+            context,
+            1,
+            0,
+            digest,
+            Digest384::new([5; 48]),
+            Digest384::new([6; 48]),
+            1,
+            1,
+        )
+        .unwrap();
         let candidate = FinalizedBlockCandidate {
             encoded_block: encode_envelope(&block).unwrap(),
             authorization_candidates: vec![],
@@ -493,10 +501,8 @@ mod tests {
     #[test]
     fn proof_pipeline_is_ordered_durable_and_reward_replay_safe() {
         let (state, block, inputs, proof, header, genesis, root) = fixture();
-        let authorization_path = std::env::temp_dir().join(format!(
-            "activechain-proof-authorization-{}.snapshot",
-            std::process::id()
-        ));
+        let authorization_path = std::env::temp_dir()
+            .join(format!("activechain-proof-authorization-{}.snapshot", std::process::id()));
         let authorization_store =
             AuthorizationReplayStore::new(authorization_path.clone(), genesis, 7).unwrap();
         let certificate = QuorumCertificate::new(
@@ -505,6 +511,7 @@ mod tests {
             0,
             header.digest().unwrap(),
             Digest384::new([5; 48]),
+            Digest384::new([6; 48]),
             1,
             1,
         )

@@ -37,8 +37,15 @@ use zeroize::Zeroize;
 
 mod cash_state;
 pub use cash_state::FinalizedCashSnapshot;
+pub mod finalized_block;
+pub use finalized_block::{
+    ExecutionProofVerifier, FinalizedBlock, FinalizedBlockAdmissionError, FinalizedBlockCandidate,
+    FinalizedBlockHeader, FinalizedBlockVerifier, ProofPublicInputs, VerifiedExecutionProof,
+};
 mod pq_session;
 pub use pq_session::{PqPeerSession, PqSessionContext, PqSessionStore, SESSION_TTL_SECS};
+mod proof_pipeline;
+pub use proof_pipeline::{DurableFinalizedState, DurableProofPipeline, ProofPipelineError};
 
 /// Canonical wallet transaction admission owned by the validator runtime.
 /// Authenticated network handlers can delegate here after peer/session checks.

@@ -93,11 +93,11 @@ Tracked by [GitHub issue #334](https://github.com/advatar/ActiveChain/issues/334
   concrete cryptographic and finalized-state verification.
 - [x] Bind authorization to the exact canonical transaction, chain genesis, epoch, finalized state
   root, actor, policy, credential, capability, and replay context.
-- [ ] Route the production finalized-transfer admission graph through `authorization-kernel`; remove
+- [x] Route the production finalized-transfer admission graph through `authorization-kernel`; remove
   the commitment-only/test-only authorization bypass.
 - [x] Persist authorization replay/budget state before acknowledgement and fail closed on
   publication uncertainty.
-- [ ] Add forgery, substitution, stale-state, cross-transaction, serialization, restart, and
+- [x] Add forgery, substitution, stale-state, cross-transaction, serialization, restart, and
   production caller-graph regression tests.
 - [ ] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
   #334.
