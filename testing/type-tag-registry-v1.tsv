@@ -199,3 +199,4 @@
 0x0142	1	ConnectorJournalV1	crates/payment-connector-host/src/lib.rs
 0x0143	1	AuthorizationReplaySnapshot	crates/authorization-kernel/src/lib.rs
 0x0144	2	ComplianceSignatureEnvelopeV2	crates/protocol-types/src/compliance.rs
+0x0145	1	KenyaRegulatedProfileV1	crates/protocol-types/src/compliance.rs

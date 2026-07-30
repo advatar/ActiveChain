@@ -62,7 +62,8 @@ pub use checked_arithmetic::{
 pub use compliance::{
     ComplianceError, ComplianceEvidenceBindingV1, ComplianceReplayKey, ComplianceReplaySet,
     ComplianceSignatureEnvelopeV1, ComplianceSignatureEnvelopeV2, EvidenceDeletionMode,
-    EvidenceRetentionPolicyV1, JurisdictionProfileCandidate, ProfileSelection, ScreeningDecisionV1,
+    EvidenceRetentionPolicyV1, JurisdictionProfileCandidate, KenyaControlSet,
+    KenyaRegulatedActivity, KenyaRegulatedProfileV1, ProfileSelection, ScreeningDecisionV1,
     ScreeningOutcome, ScreeningOverrideV1, ScreeningPolicyV1, TravelRuleBindingV1,
     select_jurisdiction_profiles,
 };
