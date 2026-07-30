@@ -1,3 +1,8 @@
+> **Normative relationship:** [P-130](spec/protocol/P-130-economics.md) fixes the v1 validator
+> security asset as native stake. Stablecoins remain first-class payment assets and may reimburse
+> paymasters, but neither stablecoin issuance nor stablecoin collateral controls validator
+> admission, quorum weight, or native security issuance.
+
 # Yes—but cash must be a first-class execution path
 
 The developer’s answer is correct: there is no defensible TPS figure yet. A three-validator convergence rehearsal proves consensus behavior, not throughput.

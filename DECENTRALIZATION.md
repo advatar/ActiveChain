@@ -34,9 +34,13 @@ Recent measurement work treats decentralization as a combination of Nakamoto coe
 
 For this system, I would measure ten distinct dimensions.
 
-## Proposed design scorecard
+## P-130 native-stake design scorecard
 
-These scores are an architectural assessment, not observed network data.
+These scores are an architectural assessment, not observed network data. They were recomputed
+after [P-130](spec/protocol/P-130-economics.md) selected native stake as the sole v1 consensus
+security asset. In particular, the consensus-control and distribution rows assume permissionless
+native-stake admission, equalized stake-backed seats, the stated genesis allocation constraints,
+and no stablecoin issuer with validator-set or quorum authority.
 
 | Dimension | Weight | Genesis target | Mature target | Principal risk |
 |---|---:|---:|---:|---|
@@ -51,6 +55,41 @@ These scores are an architectural assessment, not observed network data.
 | Token distribution and reward fairness | 10% | 5.5 | 8.0 | Wealth compounding and custodial staking |
 | Identity and trust pluralism | 5% | 7.0 | 8.5 | Credential-issuer oligopolies |
 | **Weighted result** | **100%** | **7.2** | **8.6** | |
+
+The weighted arithmetic is the sum of each score multiplied by its row weight:
+
+\[
+G = 0.20(6.5)+0.15(9.0)+0.10(8.0)+0.08(8.0)+0.08(5.5)
+  +0.08(7.5)+0.08(6.5)+0.08(8.0)+0.10(5.5)+0.05(7.0)=7.19
+\]
+
+\[
+M = 0.20(8.0)+0.15(9.5)+0.10(9.0)+0.08(9.0)+0.08(8.0)
+  +0.08(9.0)+0.08(8.0)+0.08(8.5)+0.10(8.0)+0.05(8.5)=8.585
+\]
+
+The displayed 7.2 and 8.6 values are those results rounded to one decimal place. They are targets,
+not measurements; the network remains unranked until the observation windows and launch metrics
+below exist.
+
+### Why stablecoin-secured validators were rejected
+
+The rejected branch would make finality liveness and slashing collateral depend on an off-chain
+issuer's solvency, custody, redemption, and freeze authority. It would also turn validator
+admission into an allowlist of acceptable issuers and collateral contracts. A counterfactual
+application of the same scorecard lowers consensus economic control from 6.5 to 4.0, governance
+from 8.0 to 7.0, and security-asset distribution/reward fairness from 5.5 to 4.5. Holding the other
+architectural rows constant gives:
+
+\[
+G_{\mathrm{stablecoin\ security}} = 6.51
+\]
+
+That comparison is deliberately generous because it does not additionally penalize correlated
+custodians, banking access, or jurisdictional concentration. Stablecoin-secured validation is
+therefore not a v1 configuration option. A future protocol proposing it would require a new
+genesis commitment and a fresh scorecard based on named issuers, custodians, jurisdictions, and
+freeze paths.
 
 The genesis score is deliberately lower. A new network begins with weak social decentralization, immature clients, concentrated expertise and a small prover market regardless of how good its protocol is.
 
