@@ -249,7 +249,7 @@ fn digest(domain: &[u8], bytes: &[u8]) -> Root {
     hasher.update(bytes);
     let mut reader = hasher.finalize_xof();
     let mut output = [0; 48];
-    reader.read(&mut output);
+    XofReader::read(&mut reader, &mut output);
     output
 }
 
