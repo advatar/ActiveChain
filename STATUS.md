@@ -102,6 +102,20 @@ Tracked by [GitHub issue #334](https://github.com/advatar/ActiveChain/issues/334
 - [x] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
   #334.
 
+## Critical compliance recovery — canonical provider attestations
+
+Tracked by [GitHub issue #335](https://github.com/advatar/ActiveChain/issues/335).
+
+- [ ] Define a versioned, domain-separated canonical transcript covering the complete evidence,
+  subject, provider, policy/profile, validity, chain genesis, and protocol revision.
+- [ ] Verify provider signatures and exact finalized context on every production compliance
+  admission; reject unknown, ambiguous, stale, and cross-network material.
+- [ ] Define and enforce a fail-closed migration/reissuance policy for legacy attestations.
+- [ ] Add field-substitution, omission, replay, expiry, cross-network, canonical-vector, and
+  production caller-graph regressions.
+- [ ] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
+  #335.
+
 ## Critical transport recovery — mutually authenticated peer sessions
 
 Tracked by [GitHub issue #330](https://github.com/advatar/ActiveChain/issues/330).
