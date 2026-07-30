@@ -35,6 +35,9 @@ normative and measurement slice in [#398](https://github.com/advatar/ActiveChain
 - [ ] Qualify checkpoint snapshot sync, light clients, operator metrics, and sustained 1 TiB bounds.
   - [x] Add bounded checkpoint sync and light-client checkpoint verification
     ([GitHub issue #414](https://github.com/advatar/ActiveChain/issues/414)).
+  - [x] Add bounded operator telemetry and deterministic multi-year capacity qualification
+    ([GitHub issue #416](https://github.com/advatar/ActiveChain/issues/416)).
+  - [ ] Run a production-like physical disk soak with crash/restart and archive-loss injection.
 
 ## Active landing-page rebrand — Actum
 

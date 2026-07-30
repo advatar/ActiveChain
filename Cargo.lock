@@ -515,6 +515,13 @@ name = "activechain-storage-profile"
 version = "0.1.0"
 
 [[package]]
+name = "activechain-storage-qualification"
+version = "0.1.0"
+dependencies = [
+ "activechain-storage-profile",
+]
+
+[[package]]
 name = "activechain-storage-rent"
 version = "0.1.0"
 dependencies = [

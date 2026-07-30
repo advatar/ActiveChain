@@ -1,0 +1,8 @@
+fixture_version=1
+days=730
+final_active_bytes=417039646720
+maximum_hot_history_bytes=193273528320
+snapshot_bytes=107374182400
+final_consensus_index_bytes=45969571840
+maximum_physical_bytes=785131765760
+minimum_headroom_bytes=314379862016
