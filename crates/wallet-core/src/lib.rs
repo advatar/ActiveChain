@@ -1445,7 +1445,7 @@ mod tests {
         let signed = sign_cash_request(request, &key);
         let envelope = encode_envelope(&signed).unwrap();
         let mut wrong_version = envelope.clone();
-        wrong_version[3] = 2;
+        wrong_version[3] = 3;
         assert_eq!(
             ingress.submit_envelope(&wrong_version, 5),
             Err(WalletError::MalformedAuthorization)
@@ -1513,6 +1513,39 @@ mod tests {
         let tampered =
             AuthorizedCashTransferV1::new(tampered_request, original.signature().clone()).unwrap();
         assert_eq!(ingress.submit_authorized(&tampered, 5), Err(WalletError::InvalidSignature));
+
+        let referenced_request = CashAuthorizationRequestV1::new_with_settlement_reference(
+            original.request().chain_id(),
+            original.request().signer(),
+            original.request().nonce(),
+            original.request().session_id(),
+            original.request().session_expires_at(),
+            Some(digest(90)),
+            original.request().transfer().clone(),
+        )
+        .unwrap();
+        let referenced = sign_cash_request(referenced_request, &key);
+        let substituted_reference = CashAuthorizationRequestV1::new_with_settlement_reference(
+            referenced.request().chain_id(),
+            referenced.request().signer(),
+            referenced.request().nonce(),
+            referenced.request().session_id(),
+            referenced.request().session_expires_at(),
+            Some(digest(91)),
+            referenced.request().transfer().clone(),
+        )
+        .unwrap();
+        assert_ne!(
+            referenced.request().intent_id().unwrap(),
+            substituted_reference.intent_id().unwrap()
+        );
+        let substituted_reference =
+            AuthorizedCashTransferV1::new(substituted_reference, referenced.signature().clone())
+                .unwrap();
+        assert_eq!(
+            ingress.submit_authorized(&substituted_reference, 5),
+            Err(WalletError::InvalidSignature)
+        );
 
         let mut recipient_tampered = encode_envelope(&original).unwrap();
         let commitment = original.request().recipient_commitment().into_bytes();

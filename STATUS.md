@@ -598,7 +598,7 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
 - [x] Qualify the current RPC/faucet boundary with 27 server tests covering finalized ingestion,
   owner scoping, cross-chain rejection, durable restart, faucet limits, malformed evidence, and
   typed adapter installation.
-- [ ] Upgrade the canonical cash authorization to schema v2 with a signed optional settlement
+- [x] Upgrade the canonical cash authorization to schema v2 with a signed optional settlement
   reference, and require the exact faucet reference, recipient, amount, and admission height before
   validator transaction ingress.
 - [x] Add a strict validator-RPC bridge entry point that decodes the signed envelope and checks its
@@ -616,7 +616,7 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
 - [x] Add optional `ACTIVECHAIN_WALLET_INGRESS_SNAPSHOT` and
   `ACTIVECHAIN_FINALIZED_HEIGHT` startup wiring to `activechain-rpc-node`; unset variables keep
   the node fail-closed and metadata-only.
-- [ ] Publish the end-to-end funding admission contract and adversarial reference-substitution
+- [x] Publish the end-to-end funding admission contract and adversarial reference-substitution
   vectors before public faucet deployment.
 - [x] Freeze the validator-bridge authorized-settlement request envelope with strict canonical
   round-trip, trailing-byte, empty, malformed, and intent/recipient/amount-binding vectors.

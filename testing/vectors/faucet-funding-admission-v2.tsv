@@ -1,0 +1,10 @@
+case	mutation	expected	reason
+exact_signed_reference	none	accept	signed faucet reference recipient amount and height match
+reference_substitution	settlement reference differs	reject	reference is inside ML-DSA signing payload
+recipient_substitution	recipient differs	reject	validator checks exact configured recipient
+amount_substitution	amount differs	reject	validator checks exact configured grant
+chain_substitution	chain differs	reject	cash ingress is genesis-bound
+expired_authorization	admission height exceeds validity	reject	stale intent cannot enter cash state
+malformed_envelope	canonical decode fails	reject	no shape-only authorization path exists
+exact_retry	same transaction already admitted	idempotent	acknowledgement retry does not spend twice
+optimistic_balance	pending receipt without finality	reject	wallet may display pending but cannot credit funds
