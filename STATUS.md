@@ -273,7 +273,9 @@ Tracked by [GitHub issue #345](https://github.com/advatar/ActiveChain/issues/345
 
 - [x] Demote general compute jobs and AI-result claims out of v1 consensus semantics; define the
   escrow/attestation boundary in `spec/protocol/P-133-compute-admission.md`.
-- [ ] Add canonical escrow/attestation vectors and reserve a future compute verifier interface.
+- [x] Add canonical application-layer compute escrow and assurance-attestation types and vectors.
+- [x] Reserve a future bounded compute verifier interface without activating compute semantics in
+  v1 consensus.
 
 ## Active protocol decision — P-134 independent client
 
