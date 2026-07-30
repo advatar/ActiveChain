@@ -47,6 +47,121 @@ enum RustCanonicalApproval {
     private static func data<T>(_ tuple: T) -> Data {
         withUnsafeBytes(of: tuple) { Data($0) }
     }
+
+    static func reviewProposal(_ intent: Data, finalizedHeight: UInt64) throws
+        -> CanonicalMcpProposalApproval
+    {
+        guard !intent.isEmpty, intent.count <= UInt32.max else {
+            throw CanonicalApprovalError.malformed
+        }
+        var raw = ActivechainWalletProposalApproval()
+        let code = intent.withUnsafeBytes {
+            activechain_wallet_proposal_approval(
+                $0.bindMemory(to: UInt8.self).baseAddress, UInt32(intent.count),
+                finalizedHeight, &raw
+            )
+        }
+        guard code == ACTIVECHAIN_WALLET_OK else { throw CanonicalApprovalError.ffi(code) }
+        guard let action = McpAction(rawValue: raw.action) else {
+            throw CanonicalApprovalError.malformed
+        }
+        return CanonicalMcpProposalApproval(
+            intent: intent,
+            requestID: try identifier(raw.request_id, length: raw.request_id_len),
+            chainID: try identifier(raw.chain_id, length: raw.chain_id_len),
+            walletID: try identifier(raw.wallet_id, length: raw.wallet_id_len),
+            requestNonce: try identifier(raw.request_nonce, length: raw.request_nonce_len),
+            agentPrincipal: data(raw.agent_principal), capabilityID: data(raw.capability_id),
+            resource: data(raw.resource), recipient: data(raw.recipient),
+            replayDomain: data(raw.replay_domain),
+            intentCommitment: data(raw.intent_commitment), proposalID: data(raw.proposal_id),
+            action: action,
+            amount: Unsigned128Words(high: raw.amount_high, low: raw.amount_low),
+            maximumFee: Unsigned128Words(
+                high: raw.maximum_fee_high, low: raw.maximum_fee_low
+            ),
+            expiresAtHeight: raw.expires_at_height
+        )
+    }
+
+    private static func identifier<T>(_ tuple: T, length: UInt32) throws -> String {
+        let bytes = withUnsafeBytes(of: tuple) { Data($0.prefix(Int(length))) }
+        guard let value = String(data: bytes, encoding: .utf8), !value.isEmpty else {
+            throw CanonicalApprovalError.malformed
+        }
+        return value
+    }
+}
+
+final class CanonicalMcpProposalApprovalSession {
+    private let approval: CanonicalMcpProposalApproval
+    private let lock = NSLock()
+    private var consumed = false
+
+    init(approval: CanonicalMcpProposalApproval) { self.approval = approval }
+
+    func sign(
+        with custody: AppleNativeCustodyProvider, slotID: String, minimumVersion: UInt32,
+        finalizedHeight: UInt64
+    ) throws -> Data {
+        guard try RustCanonicalApproval.reviewProposal(
+            approval.intent, finalizedHeight: finalizedHeight
+        ) == approval else { throw CanonicalApprovalError.substitutedReview }
+        lock.lock()
+        guard !consumed else { lock.unlock(); throw CanonicalApprovalError.alreadyConsumed }
+        consumed = true
+        lock.unlock()
+
+        let publicKey = try custody.publicKey(slotID: slotID)
+        let context = AppleCanonicalSigningContext(
+            custody: custody, slotID: slotID, minimumVersion: minimumVersion,
+            minimumFinalizedHeight: finalizedHeight,
+            reason: "Approve reviewed MCP \(approval.action) from \(approval.agentPrincipal.hex)"
+        )
+        var required: UInt32 = 0
+        let query = invokeSign(
+            context: context, publicKey: publicKey, height: finalizedHeight,
+            output: nil, capacity: 0, required: &required
+        )
+        guard query == ACTIVECHAIN_WALLET_BUFFER_TOO_SMALL, required > 0 else {
+            throw CanonicalApprovalError.ffi(query)
+        }
+        var output = Data(repeating: 0, count: Int(required))
+        let code = output.withUnsafeMutableBytes {
+            invokeSign(
+                context: context, publicKey: publicKey, height: finalizedHeight,
+                output: $0.bindMemory(to: UInt8.self).baseAddress,
+                capacity: required, required: &required
+            )
+        }
+        if let error = context.error { throw error }
+        guard code == ACTIVECHAIN_WALLET_OK else { throw CanonicalApprovalError.ffi(code) }
+        return output
+    }
+
+    private func invokeSign(
+        context: AppleCanonicalSigningContext, publicKey: Data, height: UInt64,
+        output: UnsafeMutablePointer<UInt8>?, capacity: UInt32, required: inout UInt32
+    ) -> UInt32 {
+        approval.intent.withUnsafeBytes { intent in
+            approval.intentCommitment.withUnsafeBytes { commitment in
+                publicKey.withUnsafeBytes { key in
+                    activechain_wallet_sign_proposal_intent(
+                        intent.bindMemory(to: UInt8.self).baseAddress,
+                        UInt32(approval.intent.count), height,
+                        commitment.bindMemory(to: UInt8.self).baseAddress,
+                        key.bindMemory(to: UInt8.self).baseAddress,
+                        appleCanonicalSignCallback, Unmanaged.passUnretained(context).toOpaque(),
+                        output, capacity, &required
+                    )
+                }
+            }
+        }
+    }
+}
+
+private extension Data {
+    var hex: String { map { String(format: "%02x", $0) }.joined() }
 }
 
 final class CanonicalCashApprovalSession {

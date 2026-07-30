@@ -548,6 +548,7 @@ version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
  "activechain-cash-kernel",
+ "activechain-proposal-gateway",
  "activechain-protocol-types",
  "activechain-verifier-api",
  "activechain-wallet-core",

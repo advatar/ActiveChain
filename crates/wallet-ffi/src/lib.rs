@@ -2,6 +2,7 @@
 
 use activechain_canonical_codec::{decode_envelope, encode_envelope};
 use activechain_cash_kernel::{CoinCellSet, CoinTransfer, FungibleCoinCellSet};
+use activechain_proposal_gateway::{ActionIntentV1, ActionKindV1, AuthorizedActionIntentV1};
 use activechain_protocol_types::{
     CapabilityId, ChainId, CoinCellId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature,
     TransactionId,
@@ -15,7 +16,10 @@ use activechain_wallet_core::{
 #[cfg(target_os = "android")]
 mod android;
 use core::ffi::c_void;
-use ml_dsa::{Keypair, MlDsa44, Signer, SigningKey, Verifier};
+use ml_dsa::{
+    EncodedSignature, EncodedVerifyingKey, Keypair, MlDsa44, Signature, Signer, SigningKey,
+    Verifier, VerifyingKey,
+};
 
 const MAX_WALLET_INPUT: u32 = 256 * 1024;
 pub const ACTIVECHAIN_WALLET_OK: u32 = 0;
@@ -89,6 +93,61 @@ pub struct ActivechainWalletCashApproval {
     pub fee_low: u64,
     pub valid_until: u64,
     pub input_count: u32,
+}
+
+/// Fixed-layout review fields decoded from one canonical MCP action intent.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ActivechainWalletProposalApproval {
+    pub request_id: [u8; 128],
+    pub request_id_len: u32,
+    pub chain_id: [u8; 128],
+    pub chain_id_len: u32,
+    pub wallet_id: [u8; 128],
+    pub wallet_id_len: u32,
+    pub request_nonce: [u8; 128],
+    pub request_nonce_len: u32,
+    pub agent_principal: [u8; 48],
+    pub capability_id: [u8; 48],
+    pub resource: [u8; 48],
+    pub recipient: [u8; 48],
+    pub replay_domain: [u8; 48],
+    pub intent_commitment: [u8; 48],
+    pub proposal_id: [u8; 48],
+    pub action: u32,
+    pub amount_high: u64,
+    pub amount_low: u64,
+    pub maximum_fee_high: u64,
+    pub maximum_fee_low: u64,
+    pub expires_at_height: u64,
+}
+
+impl Default for ActivechainWalletProposalApproval {
+    fn default() -> Self {
+        Self {
+            request_id: [0; 128],
+            request_id_len: 0,
+            chain_id: [0; 128],
+            chain_id_len: 0,
+            wallet_id: [0; 128],
+            wallet_id_len: 0,
+            request_nonce: [0; 128],
+            request_nonce_len: 0,
+            agent_principal: [0; 48],
+            capability_id: [0; 48],
+            resource: [0; 48],
+            recipient: [0; 48],
+            replay_domain: [0; 48],
+            intent_commitment: [0; 48],
+            proposal_id: [0; 48],
+            action: 0,
+            amount_high: 0,
+            amount_low: 0,
+            maximum_fee_high: 0,
+            maximum_fee_low: 0,
+            expires_at_height: 0,
+        }
+    }
 }
 
 impl Default for ActivechainWalletCashApproval {
@@ -1095,6 +1154,269 @@ pub unsafe extern "C" fn activechain_wallet_cash_approval(
     };
     unsafe {
         *approval_out = approval;
+    }
+    WALLET_OK
+}
+
+fn copy_identifier<const N: usize>(source: &[u8]) -> Result<([u8; N], u32), u32> {
+    let length = u32::try_from(source.len()).map_err(|_| WALLET_TOO_LARGE)?;
+    let mut output = [0; N];
+    let Some(target) = output.get_mut(..source.len()) else { return Err(WALLET_TOO_LARGE) };
+    target.copy_from_slice(source);
+    Ok((output, length))
+}
+
+/// Strictly decodes one canonical MCP action intent into fields suitable for native review.
+///
+/// The current finalized height is checked here so a stale intent can never reach a platform
+/// authentication prompt. Display fields are reconstructed exclusively from canonical bytes.
+///
+/// # Safety
+/// `intent` must be readable for `intent_len`; `approval_out` must be writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn activechain_wallet_proposal_approval(
+    intent: *const u8,
+    intent_len: u32,
+    current_finalized_height: u64,
+    approval_out: *mut ActivechainWalletProposalApproval,
+) -> u32 {
+    if (intent.is_null() && intent_len != 0) || approval_out.is_null() {
+        return WALLET_NULL_POINTER;
+    }
+    if intent_len > MAX_WALLET_INPUT {
+        return WALLET_TOO_LARGE;
+    }
+    let bytes = if intent_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(intent, intent_len as usize) }
+    };
+    let intent = match decode_envelope::<ActionIntentV1>(bytes) {
+        Ok(value) => value,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    if current_finalized_height >= intent.expires_at_height {
+        return WALLET_AGENT_REJECTED;
+    }
+    let commitment = match intent.commitment() {
+        Ok(value) => value,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    let proposal_id = match intent.proposal_id() {
+        Ok(value) => value,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    let (request_id, request_id_len) = match copy_identifier(&intent.request_id) {
+        Ok(value) => value,
+        Err(code) => return code,
+    };
+    let (chain_id, chain_id_len) = match copy_identifier(&intent.chain_id) {
+        Ok(value) => value,
+        Err(code) => return code,
+    };
+    let (wallet_id, wallet_id_len) = match copy_identifier(&intent.wallet_id) {
+        Ok(value) => value,
+        Err(code) => return code,
+    };
+    let (request_nonce, request_nonce_len) = match copy_identifier(&intent.request_nonce) {
+        Ok(value) => value,
+        Err(code) => return code,
+    };
+    let (amount_high, amount_low) = split_u128(intent.amount);
+    let (maximum_fee_high, maximum_fee_low) = split_u128(intent.maximum_fee);
+    let approval = ActivechainWalletProposalApproval {
+        request_id,
+        request_id_len,
+        chain_id,
+        chain_id_len,
+        wallet_id,
+        wallet_id_len,
+        request_nonce,
+        request_nonce_len,
+        agent_principal: intent.agent_principal.into_bytes(),
+        capability_id: intent.capability_id.into_bytes(),
+        resource: intent.resource.into_bytes(),
+        recipient: intent.recipient.into_bytes(),
+        replay_domain: intent.replay_domain.into_bytes(),
+        intent_commitment: commitment.into_bytes(),
+        proposal_id: proposal_id.into_bytes(),
+        action: match intent.action {
+            ActionKindV1::Transfer => 0,
+            ActionKindV1::SubmitAnchor => 1,
+        },
+        amount_high,
+        amount_low,
+        maximum_fee_high,
+        maximum_fee_low,
+        expires_at_height: intent.expires_at_height,
+    };
+    unsafe {
+        *approval_out = approval;
+    }
+    WALLET_OK
+}
+
+fn verify_proposal_signature(public_key: &[u8], signature: &[u8], payload: &[u8]) -> bool {
+    let Ok(key): Result<EncodedVerifyingKey<MlDsa44>, _> = public_key.try_into() else {
+        return false;
+    };
+    let Ok(signature): Result<EncodedSignature<MlDsa44>, _> = signature.try_into() else {
+        return false;
+    };
+    let key = VerifyingKey::<MlDsa44>::decode(&key);
+    let Some(signature) = Signature::<MlDsa44>::decode(&signature) else { return false };
+    key.verify(payload, &signature).is_ok()
+}
+
+/// Signs exactly one reviewed canonical MCP action intent through caller-owned native custody.
+///
+/// # Safety
+/// Input pointers must be readable for their declared/fixed lengths; outputs must be writable.
+/// The callback is invoked only after strict decoding, expiry validation, and commitment matching.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn activechain_wallet_sign_proposal_intent(
+    intent: *const u8,
+    intent_len: u32,
+    current_finalized_height: u64,
+    approved_commitment: *const u8,
+    public_key: *const u8,
+    callback: Option<ActivechainWalletSignCallback>,
+    callback_context: *mut c_void,
+    output: *mut u8,
+    output_capacity: u32,
+    required_len: *mut u32,
+) -> u32 {
+    if (intent.is_null() && intent_len != 0)
+        || approved_commitment.is_null()
+        || public_key.is_null()
+        || callback.is_none()
+        || required_len.is_null()
+        || (output.is_null() && output_capacity != 0)
+    {
+        return WALLET_NULL_POINTER;
+    }
+    if intent_len > MAX_WALLET_INPUT {
+        return WALLET_TOO_LARGE;
+    }
+    let bytes = if intent_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(intent, intent_len as usize) }
+    };
+    let intent = match decode_envelope::<ActionIntentV1>(bytes) {
+        Ok(value) => value,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    if current_finalized_height >= intent.expires_at_height {
+        return WALLET_AGENT_REJECTED;
+    }
+    let commitment = match intent.commitment() {
+        Ok(value) => value,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    if commitment.as_bytes() != unsafe { core::slice::from_raw_parts(approved_commitment, 48) } {
+        return WALLET_APPROVAL_MISMATCH;
+    }
+    let placeholder_signature =
+        ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; ML_DSA44_SIGNATURE_LENGTH])
+            .expect("fixed signature length");
+    let placeholder = AuthorizedActionIntentV1::new(
+        intent.clone(),
+        vec![0; ML_DSA44_PUBLIC_KEY_LENGTH],
+        placeholder_signature,
+    )
+    .expect("fixed key and suite");
+    let required = match encode_envelope(&placeholder) {
+        Ok(value) => value.len(),
+        Err(_) => return WALLET_MALFORMED,
+    };
+    let Ok(required_u32) = u32::try_from(required) else { return WALLET_TOO_LARGE };
+    unsafe {
+        *required_len = required_u32;
+    }
+    if output_capacity < required_u32 {
+        return WALLET_BUFFER_TOO_SMALL;
+    }
+    let payload = match intent.signing_payload() {
+        Ok(value) => value,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    let mut signature = [0; ML_DSA44_SIGNATURE_LENGTH];
+    let code = unsafe {
+        callback.expect("checked")(
+            callback_context,
+            payload.as_ptr(),
+            payload.len() as u32,
+            signature.as_mut_ptr(),
+            ML_DSA44_SIGNATURE_LENGTH as u32,
+        )
+    };
+    if code != 0 {
+        return WALLET_CALLBACK_FAILED;
+    }
+    let public_key = unsafe { core::slice::from_raw_parts(public_key, ML_DSA44_PUBLIC_KEY_LENGTH) };
+    if !verify_proposal_signature(public_key, &signature, &payload) {
+        return WALLET_INVALID_SIGNATURE;
+    }
+    let signature = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.to_vec())
+        .expect("fixed signature length");
+    let authorized = match AuthorizedActionIntentV1::new(intent, public_key.to_vec(), signature) {
+        Ok(value) => value,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    let encoded = match encode_envelope(&authorized) {
+        Ok(value) => value,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    debug_assert_eq!(encoded.len(), required);
+    unsafe {
+        core::ptr::copy_nonoverlapping(encoded.as_ptr(), output, encoded.len());
+    }
+    WALLET_OK
+}
+
+/// Verifies and forwards one unexpired, exactly authorized MCP action envelope.
+///
+/// # Safety
+/// `envelope` must be readable for `envelope_len`; the callback must obey its contract.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn activechain_wallet_submit_authorized_proposal(
+    envelope: *const u8,
+    envelope_len: u32,
+    current_finalized_height: u64,
+    callback: Option<ActivechainWalletSubmitCallback>,
+    callback_context: *mut c_void,
+) -> u32 {
+    if (envelope.is_null() && envelope_len != 0) || callback.is_none() {
+        return WALLET_NULL_POINTER;
+    }
+    if envelope_len > MAX_WALLET_INPUT {
+        return WALLET_TOO_LARGE;
+    }
+    let bytes = if envelope_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(envelope, envelope_len as usize) }
+    };
+    let authorized = match decode_envelope::<AuthorizedActionIntentV1>(bytes) {
+        Ok(value) => value,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    if current_finalized_height >= authorized.intent.expires_at_height {
+        return WALLET_AGENT_REJECTED;
+    }
+    let payload = match authorized.intent.signing_payload() {
+        Ok(value) => value,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    if !verify_proposal_signature(&authorized.public_key, authorized.signature.as_bytes(), &payload)
+    {
+        return WALLET_INVALID_SIGNATURE;
+    }
+    let code = unsafe { callback.expect("checked")(callback_context, envelope, envelope_len) };
+    if code != 0 {
+        return WALLET_CALLBACK_FAILED;
     }
     WALLET_OK
 }
@@ -2117,14 +2439,17 @@ mod tests {
         ] {
             assert_eq!(actual.as_slice(), decode_hex(vector[name]));
         }
-        assert_eq!(approval.nonce, vector["nonce"].parse().unwrap());
-        assert_eq!(approval.session_expires_at, vector["session_expires_at"].parse().unwrap());
-        assert_eq!(approval.amount_high, vector["amount_high"].parse().unwrap());
-        assert_eq!(approval.amount_low, vector["amount_low"].parse().unwrap());
-        assert_eq!(approval.fee_high, vector["fee_high"].parse().unwrap());
-        assert_eq!(approval.fee_low, vector["fee_low"].parse().unwrap());
-        assert_eq!(approval.valid_until, vector["valid_until"].parse().unwrap());
-        assert_eq!(approval.input_count, vector["input_count"].parse().unwrap());
+        assert_eq!(approval.nonce, vector["nonce"].parse::<u64>().unwrap());
+        assert_eq!(
+            approval.session_expires_at,
+            vector["session_expires_at"].parse::<u64>().unwrap()
+        );
+        assert_eq!(approval.amount_high, vector["amount_high"].parse::<u64>().unwrap());
+        assert_eq!(approval.amount_low, vector["amount_low"].parse::<u64>().unwrap());
+        assert_eq!(approval.fee_high, vector["fee_high"].parse::<u64>().unwrap());
+        assert_eq!(approval.fee_low, vector["fee_low"].parse::<u64>().unwrap());
+        assert_eq!(approval.valid_until, vector["valid_until"].parse::<u64>().unwrap());
+        assert_eq!(approval.input_count, vector["input_count"].parse::<u32>().unwrap());
 
         let mut alternate = request;
         alternate.push(0);
@@ -2468,5 +2793,154 @@ mod tests {
             WALLET_INVALID_SIGNATURE
         );
         assert_eq!(submissions, 1);
+    }
+
+    fn proposal_intent() -> ActionIntentV1 {
+        ActionIntentV1 {
+            request_id: b"mcp-request-7".to_vec(),
+            chain_id: b"activechain-devnet".to_vec(),
+            wallet_id: b"wallet-primary".to_vec(),
+            agent_principal: digest(21),
+            capability_id: digest(22),
+            request_nonce: b"nonce-unique-7".to_vec(),
+            action: ActionKindV1::Transfer,
+            resource: digest(23),
+            recipient: digest(24),
+            amount: (3_u128 << 64) | 17,
+            maximum_fee: 9,
+            expires_at_height: 500,
+            replay_domain: digest(25),
+        }
+    }
+
+    #[test]
+    fn canonical_mcp_proposal_review_signing_and_submission_fail_closed() {
+        let intent = proposal_intent();
+        let encoded = encode_envelope(&intent).unwrap();
+        let commitment = intent.commitment().unwrap();
+        let mut approval = ActivechainWalletProposalApproval::default();
+        assert_eq!(
+            unsafe {
+                activechain_wallet_proposal_approval(
+                    encoded.as_ptr(),
+                    encoded.len() as u32,
+                    499,
+                    &mut approval,
+                )
+            },
+            WALLET_OK
+        );
+        assert_eq!(&approval.request_id[..approval.request_id_len as usize], b"mcp-request-7");
+        assert_eq!(&approval.chain_id[..approval.chain_id_len as usize], b"activechain-devnet");
+        assert_eq!(approval.agent_principal, [21; 48]);
+        assert_eq!(approval.capability_id, [22; 48]);
+        assert_eq!(approval.recipient, [24; 48]);
+        assert_eq!(approval.intent_commitment, commitment.into_bytes());
+        assert_eq!((approval.amount_high, approval.amount_low), (3, 17));
+
+        assert_eq!(
+            unsafe {
+                activechain_wallet_proposal_approval(
+                    encoded.as_ptr(),
+                    encoded.len() as u32,
+                    500,
+                    &mut approval,
+                )
+            },
+            WALLET_AGENT_REJECTED
+        );
+
+        let key = SigningKey::<MlDsa44>::from_seed(&ml_dsa::Seed::from([31; 32]));
+        let public_key = key.verifying_key().encode();
+        let mut required = 0;
+        assert_eq!(
+            unsafe {
+                activechain_wallet_sign_proposal_intent(
+                    encoded.as_ptr(),
+                    encoded.len() as u32,
+                    100,
+                    approval.intent_commitment.as_ptr(),
+                    public_key.as_slice().as_ptr(),
+                    Some(sign_callback),
+                    (&key as *const SigningKey<MlDsa44>).cast_mut().cast(),
+                    core::ptr::null_mut(),
+                    0,
+                    &mut required,
+                )
+            },
+            WALLET_BUFFER_TOO_SMALL
+        );
+        let mut authorized = vec![0; required as usize];
+        assert_eq!(
+            unsafe {
+                activechain_wallet_sign_proposal_intent(
+                    encoded.as_ptr(),
+                    encoded.len() as u32,
+                    100,
+                    approval.intent_commitment.as_ptr(),
+                    public_key.as_slice().as_ptr(),
+                    Some(sign_callback),
+                    (&key as *const SigningKey<MlDsa44>).cast_mut().cast(),
+                    authorized.as_mut_ptr(),
+                    authorized.len() as u32,
+                    &mut required,
+                )
+            },
+            WALLET_OK
+        );
+        let decoded = decode_envelope::<AuthorizedActionIntentV1>(&authorized).unwrap();
+        assert_eq!(decoded.intent, intent);
+        assert!(verify_proposal_signature(
+            &decoded.public_key,
+            decoded.signature.as_bytes(),
+            &decoded.intent.signing_payload().unwrap(),
+        ));
+
+        let mut submissions = 0_usize;
+        assert_eq!(
+            unsafe {
+                activechain_wallet_submit_authorized_proposal(
+                    authorized.as_ptr(),
+                    authorized.len() as u32,
+                    499,
+                    Some(submit_callback),
+                    (&mut submissions as *mut usize).cast(),
+                )
+            },
+            WALLET_OK
+        );
+        assert_eq!(submissions, 1);
+        assert_eq!(
+            unsafe {
+                activechain_wallet_submit_authorized_proposal(
+                    authorized.as_ptr(),
+                    authorized.len() as u32,
+                    500,
+                    Some(submit_callback),
+                    (&mut submissions as *mut usize).cast(),
+                )
+            },
+            WALLET_AGENT_REJECTED
+        );
+
+        let mut wrong_commitment = approval.intent_commitment;
+        wrong_commitment[0] ^= 1;
+        assert_eq!(
+            unsafe {
+                activechain_wallet_sign_proposal_intent(
+                    encoded.as_ptr(),
+                    encoded.len() as u32,
+                    100,
+                    wrong_commitment.as_ptr(),
+                    public_key.as_slice().as_ptr(),
+                    Some(sign_callback),
+                    (&key as *const SigningKey<MlDsa44>).cast_mut().cast(),
+                    authorized.as_mut_ptr(),
+                    authorized.len() as u32,
+                    &mut required,
+                )
+            },
+            WALLET_APPROVAL_MISMATCH
+        );
     }
 }

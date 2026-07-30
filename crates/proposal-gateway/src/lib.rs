@@ -10,7 +10,7 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     decode_envelope, encode_envelope,
 };
-use activechain_protocol_types::Digest384;
+use activechain_protocol_types::{CryptoSuiteId, Digest384, ProtocolSignature};
 use serde::{Deserialize, Serialize};
 use sha3::{
     Shake256,
@@ -20,9 +20,11 @@ use sha3::{
 const INTENT_DOMAIN: &[u8] = b"ACTIVECHAIN-MCP-ACTION-INTENT-V1";
 const PROPOSAL_DOMAIN: &[u8] = b"ACTIVECHAIN-MCP-PROPOSAL-ID-V1";
 const SNAPSHOT_DOMAIN: &[u8] = b"ACTIVECHAIN-MCP-PROPOSAL-JOURNAL-V1";
+const WALLET_SNAPSHOT_DOMAIN: &[u8] = b"ACTIVECHAIN-MCP-WALLET-PROPOSAL-STORE-V1";
 const SNAPSHOT_TAG_BYTES: usize = 48;
 const MAX_IDENTIFIER: usize = 128;
 const MAX_PROPOSALS: usize = 4_096;
+const MAX_PUBLIC_KEY: usize = 1_312;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GatewayError {
@@ -34,6 +36,8 @@ pub enum GatewayError {
     ReplayConflict,
     Capacity,
     Persistence,
+    InvalidTransition,
+    ConcurrentReview,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -152,6 +156,272 @@ impl CanonicalType for ActionIntentV1 {
     const TYPE_TAG: u16 = 0x0149;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 3 + 4 * (3 + MAX_IDENTIFIER) + 48 * 5 + 1 + 16 * 2 + 8;
+}
+
+/// Wallet-produced authorization for exactly one reviewed MCP action intent.
+///
+/// The signature is over [`ActionIntentV1::signing_payload`], which is derived from the canonical
+/// intent commitment. Transport metadata and agent-provided display labels are never signed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthorizedActionIntentV1 {
+    pub intent: ActionIntentV1,
+    pub public_key: Vec<u8>,
+    pub signature: ProtocolSignature,
+}
+
+impl ActionIntentV1 {
+    pub fn signing_payload(&self) -> Result<Vec<u8>, GatewayError> {
+        let commitment = self.commitment()?;
+        let mut payload = Vec::with_capacity(INTENT_DOMAIN.len() + commitment.as_bytes().len());
+        payload.extend_from_slice(INTENT_DOMAIN);
+        payload.extend_from_slice(commitment.as_bytes());
+        Ok(payload)
+    }
+}
+
+impl AuthorizedActionIntentV1 {
+    pub fn new(
+        intent: ActionIntentV1,
+        public_key: Vec<u8>,
+        signature: ProtocolSignature,
+    ) -> Result<Self, GatewayError> {
+        if public_key.len() != MAX_PUBLIC_KEY || signature.suite() != CryptoSuiteId::ML_DSA_44 {
+            return Err(GatewayError::InvalidArguments);
+        }
+        Ok(Self { intent, public_key, signature })
+    }
+}
+
+impl CanonicalEncode for AuthorizedActionIntentV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.intent.encode(e)?;
+        e.write_bytes(&self.public_key, MAX_PUBLIC_KEY)?;
+        self.signature.encode(e)
+    }
+}
+
+impl CanonicalDecode for AuthorizedActionIntentV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let intent = ActionIntentV1::decode(d)?;
+        let public_key = d.read_bytes(MAX_PUBLIC_KEY)?.to_vec();
+        let signature = ProtocolSignature::decode(d)?;
+        Self::new(intent, public_key, signature)
+            .map_err(|_| DecodeError::InvalidValue("invalid authorized action intent"))
+    }
+}
+
+impl CanonicalType for AuthorizedActionIntentV1 {
+    const TYPE_TAG: u16 = 0x014B;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 3
+        + ActionIntentV1::MAX_ENCODED_LEN
+        + 3
+        + MAX_PUBLIC_KEY
+        + ProtocolSignature::MAX_ENCODED_LEN;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WalletProposalStateV1 {
+    Pending,
+    Approved,
+    Rejected,
+    Expired,
+    Submitted,
+    Finalized,
+    Failed,
+}
+
+impl CanonicalEncode for WalletProposalStateV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(e)
+    }
+}
+
+impl CanonicalDecode for WalletProposalStateV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(d)? {
+            0 => Ok(Self::Pending),
+            1 => Ok(Self::Approved),
+            2 => Ok(Self::Rejected),
+            3 => Ok(Self::Expired),
+            4 => Ok(Self::Submitted),
+            5 => Ok(Self::Finalized),
+            6 => Ok(Self::Failed),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "WalletProposalStateV1", tag }),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WalletProposalRecordV1 {
+    pub intent: ActionIntentV1,
+    pub state: WalletProposalStateV1,
+    pub revision: u64,
+    /// Authorization commitment, transaction ID, finalized block, or bounded failure code digest.
+    pub evidence: Digest384,
+}
+
+impl CanonicalEncode for WalletProposalRecordV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.intent.encode(e)?;
+        self.state.encode(e)?;
+        self.revision.encode(e)?;
+        self.evidence.encode(e)
+    }
+}
+
+impl CanonicalDecode for WalletProposalRecordV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let value = Self {
+            intent: ActionIntentV1::decode(d)?,
+            state: WalletProposalStateV1::decode(d)?,
+            revision: u64::decode(d)?,
+            evidence: Digest384::decode(d)?,
+        };
+        if value.revision == 0
+            || (value.state == WalletProposalStateV1::Pending && value.evidence != Digest384::ZERO)
+            || (value.state != WalletProposalStateV1::Pending && value.evidence == Digest384::ZERO)
+        {
+            return Err(DecodeError::InvalidValue("invalid wallet proposal record"));
+        }
+        Ok(value)
+    }
+}
+
+/// Bounded, restart-safe native-wallet lifecycle state for MCP proposals.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct WalletProposalStoreV1 {
+    records: BTreeMap<Digest384, WalletProposalRecordV1>,
+}
+
+impl WalletProposalStoreV1 {
+    pub fn admit(
+        &mut self,
+        intent: ActionIntentV1,
+        current_height: u64,
+    ) -> Result<Digest384, GatewayError> {
+        if current_height >= intent.expires_at_height {
+            return Err(GatewayError::Expired);
+        }
+        let id = intent.proposal_id()?;
+        if let Some(existing) = self.records.get(&id) {
+            return if existing.intent == intent {
+                Ok(id)
+            } else {
+                Err(GatewayError::ReplayConflict)
+            };
+        }
+        if self.records.len() >= MAX_PROPOSALS {
+            return Err(GatewayError::Capacity);
+        }
+        self.records.insert(
+            id,
+            WalletProposalRecordV1 {
+                intent,
+                state: WalletProposalStateV1::Pending,
+                revision: 1,
+                evidence: Digest384::ZERO,
+            },
+        );
+        Ok(id)
+    }
+
+    pub fn record(&self, proposal_id: Digest384) -> Option<&WalletProposalRecordV1> {
+        self.records.get(&proposal_id)
+    }
+
+    pub fn transition(
+        &mut self,
+        proposal_id: Digest384,
+        expected_revision: u64,
+        next: WalletProposalStateV1,
+        evidence: Digest384,
+        current_height: u64,
+    ) -> Result<&WalletProposalRecordV1, GatewayError> {
+        let record = self.records.get_mut(&proposal_id).ok_or(GatewayError::InvalidArguments)?;
+        if record.revision != expected_revision {
+            return Err(GatewayError::ConcurrentReview);
+        }
+        if next != WalletProposalStateV1::Expired
+            && current_height >= record.intent.expires_at_height
+        {
+            return Err(GatewayError::Expired);
+        }
+        let allowed = matches!(
+            (record.state, next),
+            (
+                WalletProposalStateV1::Pending,
+                WalletProposalStateV1::Approved
+                    | WalletProposalStateV1::Rejected
+                    | WalletProposalStateV1::Expired
+            ) | (
+                WalletProposalStateV1::Approved,
+                WalletProposalStateV1::Submitted
+                    | WalletProposalStateV1::Failed
+                    | WalletProposalStateV1::Expired
+            ) | (
+                WalletProposalStateV1::Submitted,
+                WalletProposalStateV1::Finalized | WalletProposalStateV1::Failed
+            )
+        );
+        if !allowed || evidence == Digest384::ZERO {
+            return Err(GatewayError::InvalidTransition);
+        }
+        record.state = next;
+        record.revision = record.revision.checked_add(1).ok_or(GatewayError::Capacity)?;
+        record.evidence = evidence;
+        Ok(record)
+    }
+
+    pub fn save_atomic(&self, path: &Path) -> Result<(), GatewayError> {
+        save_tagged_snapshot(self, WALLET_SNAPSHOT_DOMAIN, path)
+    }
+
+    pub fn load(path: &Path) -> Result<Self, GatewayError> {
+        load_tagged_snapshot(WALLET_SNAPSHOT_DOMAIN, path)
+    }
+}
+
+impl CanonicalEncode for WalletProposalStoreV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        e.write_length(self.records.len(), MAX_PROPOSALS)?;
+        for (id, record) in &self.records {
+            id.encode(e)?;
+            record.encode(e)?;
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for WalletProposalStoreV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let count = d.read_length(MAX_PROPOSALS)?;
+        let mut records = BTreeMap::new();
+        let mut previous = None;
+        for _ in 0..count {
+            let id = Digest384::decode(d)?;
+            let record = WalletProposalRecordV1::decode(d)?;
+            if id
+                != record
+                    .intent
+                    .proposal_id()
+                    .map_err(|_| DecodeError::InvalidValue("proposal id"))?
+                || previous.is_some_and(|prior| prior >= id)
+                || records.insert(id, record).is_some()
+            {
+                return Err(DecodeError::InvalidValue("wallet proposal order or binding"));
+            }
+            previous = Some(id);
+        }
+        Ok(Self { records })
+    }
+}
+
+impl CanonicalType for WalletProposalStoreV1 {
+    const TYPE_TAG: u16 = 0x014C;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize =
+        3 + MAX_PROPOSALS * (48 + ActionIntentV1::MAX_ENCODED_LEN + 1 + 8 + 48);
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -570,6 +840,49 @@ fn domain_digest(domain: &[u8], bytes: &[u8]) -> Digest384 {
     Digest384::new(output)
 }
 
+fn save_tagged_snapshot<T: CanonicalType + CanonicalEncode>(
+    value: &T,
+    domain: &[u8],
+    path: &Path,
+) -> Result<(), GatewayError> {
+    let body = encode_envelope(value).map_err(|_| GatewayError::Persistence)?;
+    let tag = domain_digest(domain, &body);
+    let parent = path.parent().ok_or(GatewayError::Persistence)?;
+    std::fs::create_dir_all(parent).map_err(|_| GatewayError::Persistence)?;
+    let name = path.file_name().ok_or(GatewayError::Persistence)?.to_string_lossy();
+    let temporary = parent.join(format!(".{name}.{}.tmp", std::process::id()));
+    let result = (|| {
+        let mut file = File::create(&temporary).map_err(|_| GatewayError::Persistence)?;
+        file.write_all(&body)
+            .and_then(|_| file.write_all(tag.as_bytes()))
+            .and_then(|_| file.sync_all())
+            .map_err(|_| GatewayError::Persistence)?;
+        std::fs::rename(&temporary, path).map_err(|_| GatewayError::Persistence)?;
+        File::open(parent)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|_| GatewayError::Persistence)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(temporary);
+    }
+    result
+}
+
+fn load_tagged_snapshot<T: CanonicalType + CanonicalDecode>(
+    domain: &[u8],
+    path: &Path,
+) -> Result<T, GatewayError> {
+    let bytes = std::fs::read(path).map_err(|_| GatewayError::Persistence)?;
+    if bytes.len() < SNAPSHOT_TAG_BYTES {
+        return Err(GatewayError::Persistence);
+    }
+    let body_length = bytes.len() - SNAPSHOT_TAG_BYTES;
+    if domain_digest(domain, &bytes[..body_length]).as_bytes() != &bytes[body_length..] {
+        return Err(GatewayError::Persistence);
+    }
+    decode_envelope(&bytes[..body_length]).map_err(|_| GatewayError::Persistence)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -922,6 +1235,43 @@ mod tests {
                 &path
             ),
             Err(GatewayError::BudgetExceeded)
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn wallet_lifecycle_is_restart_safe_and_rejects_stale_or_concurrent_review() {
+        let args = arguments();
+        let authority = authority(&args);
+        let intent = build_transfer_intent("request.1", &authority, &args, &context(), 10).unwrap();
+        let id = intent.proposal_id().unwrap();
+        let path = path("wallet-lifecycle");
+        let mut store = WalletProposalStoreV1::default();
+        assert_eq!(store.admit(intent.clone(), 10), Ok(id));
+        assert_eq!(store.admit(intent, 10), Ok(id));
+        store.save_atomic(&path).unwrap();
+
+        let mut restarted = WalletProposalStoreV1::load(&path).unwrap();
+        assert_eq!(restarted.record(id).unwrap().state, WalletProposalStateV1::Pending);
+        assert_eq!(
+            restarted.transition(id, 2, WalletProposalStateV1::Approved, digest(30), 11),
+            Err(GatewayError::ConcurrentReview),
+        );
+        restarted.transition(id, 1, WalletProposalStateV1::Approved, digest(30), 11).unwrap();
+        assert_eq!(
+            restarted.transition(id, 1, WalletProposalStateV1::Rejected, digest(31), 11),
+            Err(GatewayError::ConcurrentReview),
+        );
+        assert_eq!(
+            restarted.transition(id, 2, WalletProposalStateV1::Finalized, digest(32), 11),
+            Err(GatewayError::InvalidTransition),
+        );
+        restarted.transition(id, 2, WalletProposalStateV1::Submitted, digest(33), 11).unwrap();
+        restarted.transition(id, 3, WalletProposalStateV1::Finalized, digest(34), 12).unwrap();
+        restarted.save_atomic(&path).unwrap();
+        assert_eq!(
+            WalletProposalStoreV1::load(&path).unwrap().record(id).unwrap().state,
+            WalletProposalStateV1::Finalized,
         );
         std::fs::remove_file(path).unwrap();
     }

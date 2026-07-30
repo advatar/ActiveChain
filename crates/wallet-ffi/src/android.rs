@@ -1,11 +1,15 @@
 use super::{
-    ActivechainWalletAgentSummary, ActivechainWalletCashApproval, WALLET_BUFFER_TOO_SMALL,
-    WALLET_OK, activechain_wallet_agent_count, activechain_wallet_agent_register,
+    ActivechainWalletAgentSummary, ActivechainWalletCashApproval,
+    ActivechainWalletProposalApproval, WALLET_BUFFER_TOO_SMALL, WALLET_OK,
+    activechain_wallet_agent_count, activechain_wallet_agent_register,
     activechain_wallet_agent_revoke, activechain_wallet_agent_set_paused,
     activechain_wallet_agent_summary, activechain_wallet_cash_approval,
-    activechain_wallet_sign_cash_intent, activechain_wallet_submit_authorized,
+    activechain_wallet_proposal_approval, activechain_wallet_sign_cash_intent,
+    activechain_wallet_sign_proposal_intent, activechain_wallet_submit_authorized,
+    activechain_wallet_submit_authorized_proposal,
 };
 use activechain_canonical_codec::decode_envelope;
+use activechain_proposal_gateway::ActionIntentV1;
 use activechain_wallet_core::CashAuthorizationRequestV1;
 use core::ffi::c_void;
 use jni::JNIEnv;
@@ -18,6 +22,175 @@ const SIGNATURE_LENGTH: usize = 2_420;
 
 fn snapshot(env: &JNIEnv<'_>, value: &JByteArray<'_>) -> Result<Vec<u8>, String> {
     env.convert_byte_array(value).map_err(|error| error.to_string())
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_activechain_wallet_NativeProposalApproval_nativeReviewProposal(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    intent: JByteArray<'_>,
+    height: jlong,
+) -> jstring {
+    let result = (|| {
+        let intent = snapshot(&env, &intent)?;
+        let height = u64::try_from(height).map_err(|_| "negative finalized height")?;
+        let mut approval = ActivechainWalletProposalApproval::default();
+        let code = unsafe {
+            activechain_wallet_proposal_approval(
+                intent.as_ptr(),
+                intent.len() as u32,
+                height,
+                &mut approval,
+            )
+        };
+        if code != WALLET_OK {
+            return Err(format!("canonical proposal review failed with {code}"));
+        }
+        let text = |bytes: &[u8], length: u32| -> Result<String, String> {
+            core::str::from_utf8(&bytes[..length as usize])
+                .map(str::to_owned)
+                .map_err(|_| "non-UTF-8 canonical identifier".into())
+        };
+        Ok(format!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            text(&approval.request_id, approval.request_id_len)?,
+            text(&approval.chain_id, approval.chain_id_len)?,
+            text(&approval.wallet_id, approval.wallet_id_len)?,
+            text(&approval.request_nonce, approval.request_nonce_len)?,
+            hex(&approval.agent_principal),
+            hex(&approval.capability_id),
+            hex(&approval.resource),
+            hex(&approval.recipient),
+            hex(&approval.replay_domain),
+            hex(&approval.intent_commitment),
+            hex(&approval.proposal_id),
+            approval.action,
+            approval.amount_high,
+            approval.amount_low,
+            approval.maximum_fee_high,
+            approval.maximum_fee_low,
+            approval.expires_at_height
+        ))
+    })();
+    match result.and_then(|value| {
+        env.new_string(value).map(|value| value.into_raw()).map_err(|error| error.to_string())
+    }) {
+        Ok(value) => value,
+        Err(error) => {
+            let _ = env.throw_new("java/lang/IllegalArgumentException", error);
+            core::ptr::null_mut()
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_activechain_wallet_NativeProposalApproval_nativeProposalSigningPayload(
+    env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    intent: JByteArray<'_>,
+    commitment: JByteArray<'_>,
+    height: jlong,
+) -> jbyteArray {
+    let result = (|| {
+        let intent = snapshot(&env, &intent)?;
+        let approved = snapshot(&env, &commitment)?;
+        let height = u64::try_from(height).map_err(|_| "negative finalized height")?;
+        if approved.len() != INTENT_LENGTH {
+            return Err("approved commitment must be 48 bytes".into());
+        }
+        let decoded = decode_envelope::<ActionIntentV1>(&intent)
+            .map_err(|_| "malformed canonical proposal intent".to_owned())?;
+        if height >= decoded.expires_at_height {
+            return Err("canonical proposal expired".into());
+        }
+        if decoded.commitment().map_err(|_| "invalid proposal commitment")?.as_bytes()
+            != approved.as_slice()
+        {
+            return Err("canonical proposal approval does not match intent".into());
+        }
+        decoded.signing_payload().map_err(|_| "invalid proposal signing payload".into())
+    })();
+    byte_array_or_throw(env, result)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_activechain_wallet_NativeProposalApproval_nativeAuthorizeProposal(
+    env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    intent: JByteArray<'_>,
+    commitment: JByteArray<'_>,
+    height: jlong,
+    public_key: JByteArray<'_>,
+    signature: JByteArray<'_>,
+) -> jbyteArray {
+    let result = (|| {
+        let intent = snapshot(&env, &intent)?;
+        let commitment = snapshot(&env, &commitment)?;
+        let height = u64::try_from(height).map_err(|_| "negative finalized height")?;
+        let public_key = snapshot(&env, &public_key)?;
+        let signature = FixedSignature(snapshot(&env, &signature)?);
+        if commitment.len() != INTENT_LENGTH
+            || public_key.len() != PUBLIC_KEY_LENGTH
+            || signature.0.len() != SIGNATURE_LENGTH
+        {
+            return Err("invalid canonical proposal signing material length".into());
+        }
+        let context = (&signature as *const FixedSignature).cast_mut().cast::<c_void>();
+        let mut required = 0;
+        let invoke = |output, capacity, required: &mut u32| unsafe {
+            activechain_wallet_sign_proposal_intent(
+                intent.as_ptr(),
+                intent.len() as u32,
+                height,
+                commitment.as_ptr(),
+                public_key.as_ptr(),
+                Some(fixed_signature_callback),
+                context,
+                output,
+                capacity,
+                required,
+            )
+        };
+        let query = invoke(core::ptr::null_mut(), 0, &mut required);
+        if query != WALLET_BUFFER_TOO_SMALL || required == 0 {
+            return Err(format!("proposal authorization size query failed with {query}"));
+        }
+        let mut output = vec![0; required as usize];
+        let code = invoke(output.as_mut_ptr(), required, &mut required);
+        if code != WALLET_OK {
+            return Err(format!("proposal authorization failed with {code}"));
+        }
+        Ok(output)
+    })();
+    byte_array_or_throw(env, result)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_activechain_wallet_NativeProposalApproval_nativeVerifyProposalForSubmission(
+    env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    envelope: JByteArray<'_>,
+    height: jlong,
+) -> jbyteArray {
+    let result = (|| {
+        let envelope = snapshot(&env, &envelope)?;
+        let height = u64::try_from(height).map_err(|_| "negative finalized height")?;
+        let mut captured = Vec::new();
+        let code = unsafe {
+            activechain_wallet_submit_authorized_proposal(
+                envelope.as_ptr(),
+                envelope.len() as u32,
+                height,
+                Some(capture_submission_callback),
+                (&mut captured as *mut Vec<u8>).cast(),
+            )
+        };
+        if code != WALLET_OK {
+            return Err(format!("proposal submission verification failed with {code}"));
+        }
+        Ok(captured)
+    })();
+    byte_array_or_throw(env, result)
 }
 
 fn hex(bytes: &[u8]) -> String {

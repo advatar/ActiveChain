@@ -2075,8 +2075,19 @@ wallet and all testnets remain explicitly developmental until this milestone com
       exact domain/reference binding. Normal touched-crate qualification replaces the queued full
       deterministic-kernel run during issue reconciliation; integrate the candidate into
       `origin/main`.
-  - [ ] Route MCP proposals through canonical native wallet approval
+  - [x] Route MCP proposals through canonical native wallet approval
     ([GitHub issue #358](https://github.com/advatar/ActiveChain/issues/358)).
+    - [x] Decode the canonical proposal intent at the shared wallet boundary and derive every
+      review field and the exact approval commitment without trusting MCP display labels.
+    - [x] Require the existing authenticated native signing callback to sign only the reviewed
+      proposal commitment, with expiry and substitution checks.
+    - [x] Expose equivalent Apple and Android proposal review paths and persist bounded lifecycle
+      transitions across restart, rejection, approval, submission, finality, expiry, and failure.
+    - [x] Add Rust and platform tests for equivalence, spoofing, substitution, stale/concurrent
+      review, replay, restart/background-resume recovery, and finality resolution. Normal affected
+      Rust, Android, Swift-package, and exact-head Apple distribution/macOS suites replace the
+      explicitly skipped exhaustive CI gate during issue reconciliation; integrate and verify the
+      candidate in `origin/main`.
   - [ ] Render approvals and results through a constrained, fail-closed A2UI layer
     ([GitHub issue #360](https://github.com/advatar/ActiveChain/issues/360)).
   - [ ] Rehearse an end-to-end MCP transfer proposal, approval, finality, and verified receipt
