@@ -484,6 +484,12 @@ pub struct ProposalJournalV1 {
 }
 
 impl ProposalJournalV1 {
+    /// Returns the exact admitted intent for native-wallet ingestion.
+    #[must_use]
+    pub fn intent(&self, request_id: &[u8]) -> Option<&ActionIntentV1> {
+        self.proposals.get(request_id)
+    }
+
     pub fn propose_transfer_durable(
         &mut self,
         request_id: &str,

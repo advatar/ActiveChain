@@ -251,6 +251,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-mcp-rehearsal"
+version = "0.1.0"
+dependencies = [
+ "activechain-agent-interfaces",
+ "activechain-application-primitives",
+ "activechain-canonical-codec",
+ "activechain-finality-types",
+ "activechain-mcp-server",
+ "activechain-proposal-gateway",
+ "activechain-protocol-types",
+ "activechain-rpc-server",
+ "activechain-rpc-types",
+ "activechain-state-tree",
+ "activechain-wallet-ffi",
+ "ml-dsa",
+ "serde_json",
+ "sha3 0.10.9",
+]
+
+[[package]]
 name = "activechain-mcp-server"
 version = "0.1.0"
 dependencies = [

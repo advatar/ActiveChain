@@ -10,7 +10,7 @@ use std::{
 
 use activechain_canonical_codec::{CanonicalDecode, CanonicalEncode, Decoder, Encoder};
 use activechain_proposal_gateway::{
-    AnchorProposalArgumentsV1, AuthenticatedProposalContext, ProposalJournalV1,
+    ActionIntentV1, AnchorProposalArgumentsV1, AuthenticatedProposalContext, ProposalJournalV1,
     TransferProposalArgumentsV1,
 };
 use activechain_protocol_types::Digest384;
@@ -77,6 +77,40 @@ impl<B> ProposalBackend<B> {
         height: fn() -> u64,
     ) -> Self {
         Self { observations, journal: Mutex::new(journal), context, journal_path, height }
+    }
+
+    pub fn admitted_intent(
+        &self,
+        request_id: &[u8],
+    ) -> Result<Option<ActionIntentV1>, BackendError> {
+        self.journal
+            .lock()
+            .map_err(|_| BackendError::Unavailable)
+            .map(|journal| journal.intent(request_id).cloned())
+    }
+}
+
+impl<B: ReadOnlyBackend> ReadOnlyBackend for Arc<ProposalBackend<B>> {
+    fn get_status(&self) -> Result<Value, BackendError> {
+        (**self).get_status()
+    }
+    fn list_assets(&self, after: Option<&str>, limit: u16) -> Result<Value, BackendError> {
+        (**self).list_assets(after, limit)
+    }
+    fn verify_record(&self, record: &str) -> Result<Value, BackendError> {
+        (**self).verify_record(record)
+    }
+    fn get_pending_approvals(&self, limit: u16) -> Result<Value, BackendError> {
+        (**self).get_pending_approvals(limit)
+    }
+    fn resolve_receipt(&self, key: &str) -> Result<Value, BackendError> {
+        (**self).resolve_receipt(key)
+    }
+    fn propose_transfer(&self, arguments: &Value) -> Result<Value, BackendError> {
+        (**self).propose_transfer(arguments)
+    }
+    fn propose_anchor(&self, arguments: &Value) -> Result<Value, BackendError> {
+        (**self).propose_anchor(arguments)
     }
 }
 

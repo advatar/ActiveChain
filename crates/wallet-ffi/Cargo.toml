@@ -7,7 +7,7 @@ repository.workspace = true
 publish = false
 
 [lib]
-crate-type = ["cdylib", "staticlib"]
+crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 activechain-canonical-codec.workspace = true
