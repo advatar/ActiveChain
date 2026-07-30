@@ -246,7 +246,10 @@ Tracked by [GitHub issue #345](https://github.com/advatar/ActiveChain/issues/345
 
 - [x] Record the v1 native-staked-asset decision and reject stablecoin-secured validators as a
   consensus-security alternative in `spec/protocol/P-130-economics.md`.
-- [ ] Reconcile all legacy economics/decentralisation text and recompute the scorecard.
+- [ ] Make `MINT.md`, `REWARDS.md`, and `CASH.md` explicitly subordinate to P-130 and remove any
+  implication that stablecoin collateral is a selectable v1 validator-security profile.
+- [ ] Recompute the decentralisation scorecard for native-stake security, show the weighted
+  arithmetic and assumptions, and record the rejected branch's issuer capture penalty.
 
 ## Active protocol decision — P-131 version series
 
