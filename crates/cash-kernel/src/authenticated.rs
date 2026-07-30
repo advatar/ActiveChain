@@ -100,7 +100,7 @@ impl CanonicalDecode for CoinCellMembershipProof {
 }
 
 impl CanonicalType for CoinCellMembershipProof {
-    const TYPE_TAG: u16 = 0x00d7;
+    const TYPE_TAG: u16 = 0x012f;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = DIGEST_LENGTH
         + 4
@@ -307,7 +307,7 @@ impl CanonicalDecode for CoinCellPartitionTransitionWitness {
 }
 
 impl CanonicalType for CoinCellPartitionTransitionWitness {
-    const TYPE_TAG: u16 = 0x00a0;
+    const TYPE_TAG: u16 = 0x0105;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 2
         + DIGEST_LENGTH * 2

@@ -377,7 +377,7 @@ impl CanonicalDecode for AgentAuthenticatorRegistryV1 {
     }
 }
 impl CanonicalType for AgentAuthenticatorRegistryV1 {
-    const TYPE_TAG: u16 = 0x00d5;
+    const TYPE_TAG: u16 = 0x012C;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 3 + MAX_AGENT_AUTHENTICATORS
         * (48

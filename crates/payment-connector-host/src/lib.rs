@@ -153,7 +153,7 @@ impl CanonicalDecode for ConnectorJournalV1 {
 }
 
 impl CanonicalType for ConnectorJournalV1 {
-    const TYPE_TAG: u16 = 0x00f5;
+    const TYPE_TAG: u16 = 0x0142;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 3 + MAX_OBSERVATIONS * ProviderObservationV1::MAX_ENCODED_LEN;
 }

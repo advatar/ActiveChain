@@ -164,7 +164,7 @@ impl CanonicalDecode for PersistedFinalizedCash {
     }
 }
 impl CanonicalType for PersistedFinalizedCash {
-    const TYPE_TAG: u16 = 0x0092;
+    const TYPE_TAG: u16 = 0x0103;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = FinalizedCashSnapshot::MAX_ENCODED_LEN + 16 * 1024;
 }

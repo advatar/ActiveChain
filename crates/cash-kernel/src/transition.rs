@@ -837,7 +837,7 @@ impl CashLedger {
 }
 
 impl CanonicalType for CashLedger {
-    const TYPE_TAG: u16 = 0x008a;
+    const TYPE_TAG: u16 = 0x0102;
     const SCHEMA_VERSION: u16 = 2;
     const MAX_ENCODED_LEN: usize = NativeAssetDefinition::MAX_ENCODED_LEN
         + NativeSupply::MAX_ENCODED_LEN

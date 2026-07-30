@@ -249,7 +249,7 @@ impl CanonicalDecode for OpenWalletCredentialOfferV1 {
     }
 }
 impl CanonicalType for OpenWalletCredentialOfferV1 {
-    const TYPE_TAG: u16 = 0x00d0;
+    const TYPE_TAG: u16 = 0x0122;
     const SCHEMA_VERSION: u16 = OPENWALLET_PROFILE_REVISION;
     const MAX_ENCODED_LEN: usize =
         48 + 48 + 8 + 3 + MAX_OPENWALLET_URI + 1 + MAX_CONFIGURATION_IDS * 48 + 48 * 3 + 1;
@@ -370,7 +370,7 @@ impl CanonicalDecode for OpenWalletPresentationRequestV1 {
     }
 }
 impl CanonicalType for OpenWalletPresentationRequestV1 {
-    const TYPE_TAG: u16 = 0x00d1;
+    const TYPE_TAG: u16 = 0x0124;
     const SCHEMA_VERSION: u16 = OPENWALLET_PROFILE_REVISION;
     const MAX_ENCODED_LEN: usize = 48
         + 48
@@ -477,7 +477,7 @@ impl CanonicalDecode for OpenWalletConsentV1 {
     }
 }
 impl CanonicalType for OpenWalletConsentV1 {
-    const TYPE_TAG: u16 = 0x00d2;
+    const TYPE_TAG: u16 = 0x0127;
     const SCHEMA_VERSION: u16 = OPENWALLET_PROFILE_REVISION;
     const MAX_ENCODED_LEN: usize =
         48 + 48 + 1 + MAX_REQUESTED_CREDENTIALS * 48 + 1 + MAX_DISCLOSED_CLAIMS * 48 + 16;

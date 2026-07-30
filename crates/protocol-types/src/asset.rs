@@ -53,7 +53,7 @@ pub struct FungibleIssuerRegistrationV1 {
     expires_height: u64,
 }
 impl FungibleIssuerRegistrationV1 {
-    pub const TYPE_TAG: u16 = 0x00B5;
+    pub const TYPE_TAG: u16 = 0x0135;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 * 4 + 8 * 2;
     pub fn new(
@@ -132,7 +132,7 @@ impl CanonicalType for FungibleIssuerRegistrationV1 {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 impl FungibleSupplyAttestationV1 {
-    pub const TYPE_TAG: u16 = 0x00B4;
+    pub const TYPE_TAG: u16 = 0x0134;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 * 4 + 16 + 8;
     pub fn new(
@@ -232,7 +232,7 @@ pub struct NonFungibleTokenV1 {
     metadata_commitment: Digest384,
 }
 impl NonFungibleTokenV1 {
-    pub const TYPE_TAG: u16 = 0x00B0;
+    pub const TYPE_TAG: u16 = 0x011D;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 * 5;
     pub fn new(
@@ -316,7 +316,7 @@ pub struct NonFungibleSeriesV1 {
     metadata_schema: Digest384,
 }
 impl NonFungibleSeriesV1 {
-    pub const TYPE_TAG: u16 = 0x00B1;
+    pub const TYPE_TAG: u16 = 0x011F;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 * 3 + 8 + 8;
     pub fn new(
@@ -393,7 +393,7 @@ pub struct FungibleAssetDefinition {
 }
 
 impl FungibleAssetDefinition {
-    pub const TYPE_TAG: u16 = 0x00A0;
+    pub const TYPE_TAG: u16 = 0x0106;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 + 48 + 2 + MAX_ASSET_SYMBOL_LENGTH + 1 + 16 + 48;
     pub fn new(
@@ -475,7 +475,7 @@ impl CanonicalType for FungibleAssetDefinition {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FungibleAssetRegistry(Vec<FungibleAssetDefinition>);
 impl FungibleAssetRegistry {
-    pub const TYPE_TAG: u16 = 0x00A1;
+    pub const TYPE_TAG: u16 = 0x0109;
     pub const SCHEMA_VERSION: u16 = 1;
     pub fn new(entries: Vec<FungibleAssetDefinition>) -> Result<Self, AssetDefinitionError> {
         if entries.len() > MAX_FUNGIBLE_ASSETS {
@@ -561,7 +561,7 @@ pub struct FungibleAssetPolicyV1 {
     lifecycle: FungibleAssetLifecycle,
 }
 impl FungibleAssetPolicyV1 {
-    pub const TYPE_TAG: u16 = 0x00B0;
+    pub const TYPE_TAG: u16 = 0x011B;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 * 6 + 16 * 2 + 1;
 
@@ -784,7 +784,7 @@ impl CanonicalType for FungibleAssetPolicyV1 {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FungibleAssetPolicyRegistry(Vec<FungibleAssetPolicyV1>);
 impl FungibleAssetPolicyRegistry {
-    pub const TYPE_TAG: u16 = 0x00B1;
+    pub const TYPE_TAG: u16 = 0x011E;
     pub const SCHEMA_VERSION: u16 = 1;
     pub fn new(entries: Vec<FungibleAssetPolicyV1>) -> Result<Self, AssetDefinitionError> {
         if entries.len() > MAX_FUNGIBLE_ASSETS {
@@ -878,7 +878,7 @@ pub struct FungibleAssetLifecycleActionV1 {
     expires_height: u64,
 }
 impl FungibleAssetLifecycleActionV1 {
-    pub const TYPE_TAG: u16 = 0x00B2;
+    pub const TYPE_TAG: u16 = 0x0120;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 * 5 + 1 + 8 + 8;
     #[allow(clippy::too_many_arguments)]
@@ -1016,7 +1016,7 @@ pub struct FungibleIssuerApprovalV1 {
     expires_height: u64,
 }
 impl FungibleIssuerApprovalV1 {
-    pub const TYPE_TAG: u16 = 0x00B3;
+    pub const TYPE_TAG: u16 = 0x0121;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 * 4 + 1 + 16 * 2 + 8 * 2;
 

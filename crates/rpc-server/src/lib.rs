@@ -488,7 +488,7 @@ impl CanonicalDecode for RpcIndex {
     }
 }
 impl CanonicalType for RpcIndex {
-    const TYPE_TAG: u16 = 0x00a2;
+    const TYPE_TAG: u16 = 0x010c;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = MAX_RPC_FRAME - 32;
 }

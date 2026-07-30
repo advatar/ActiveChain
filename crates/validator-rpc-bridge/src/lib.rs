@@ -148,7 +148,7 @@ impl CanonicalDecode for AuthorizedSettlementRequest {
     }
 }
 impl CanonicalType for AuthorizedSettlementRequest {
-    const TYPE_TAG: u16 = 0x00D2;
+    const TYPE_TAG: u16 = 0x0126;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 64 * 1024 + 48 + 16 + 48;
 }
@@ -169,7 +169,7 @@ impl CanonicalDecode for SettlementRequest {
     }
 }
 impl CanonicalType for SettlementRequest {
-    const TYPE_TAG: u16 = 0x00D0;
+    const TYPE_TAG: u16 = 0x0123;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 48 + 16 + 48;
 }
@@ -191,7 +191,7 @@ impl CanonicalDecode for SettlementResponse {
     }
 }
 impl CanonicalType for SettlementResponse {
-    const TYPE_TAG: u16 = 0x00D1;
+    const TYPE_TAG: u16 = 0x0125;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 96;
 }
@@ -228,7 +228,7 @@ pub struct SettlementStatusResponse {
     pub reason: Option<Digest384>,
 }
 impl SettlementStatusResponse {
-    pub const TYPE_TAG: u16 = 0x00D2;
+    pub const TYPE_TAG: u16 = 0x0128;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 + 1 + 1 + 48 + 1 + 48;
     pub fn new(
