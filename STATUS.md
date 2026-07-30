@@ -41,7 +41,7 @@ Tracked by [GitHub issue #339](https://github.com/advatar/ActiveChain/issues/339
   the C/JNI boundaries, bound to the exact intent commitment.
 - [x] Require immediate platform authentication before native custody signs that exact transcript;
   reject mutation, substitution, replay, and alternate encodings.
-- [ ] Add shared cross-language vectors plus Rust, FFI, Apple, Android, and end-to-end submission
+- [x] Add shared cross-language vectors plus Rust, FFI, Apple, Android, and end-to-end submission
   tests.
 - [ ] Pass targeted builds and the deterministic-kernel gate, merge to `main`, and verify
   reachability before closing #339.

@@ -1,6 +1,6 @@
 package dev.activechain.wallet
 
-import androidx.test.core.app.ApplicationProvider
+import androidx.test.platform.app.InstrumentationRegistry
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -10,8 +10,8 @@ import kotlin.test.assertFailsWith
 class CanonicalApprovalIntegrationTest {
     @Test
     fun reviewedRequestAuthenticatesSignsAndCannotBeReplayed() {
-        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val vector = context.assets.open("wallet-canonical-approval-v1.txt").bufferedReader()
+        val testContext = InstrumentationRegistry.getInstrumentation().context
+        val vector = testContext.assets.open("wallet-canonical-approval-v1.txt").bufferedReader()
             .readLines().filter { it.isNotBlank() && !it.startsWith('#') }
             .associate { it.substringBefore('=') to it.substringAfter('=') }
         val request = vector.getValue("request_hex").decodeHexVector()
