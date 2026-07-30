@@ -31,6 +31,22 @@ Tracked by [GitHub issue #326](https://github.com/advatar/ActiveChain/issues/326
 - [x] Remove deterministic CLI wallet identities and track native platform key custody separately
   ([GitHub issue #327](https://github.com/advatar/ActiveChain/issues/327)).
 
+## Critical wallet approvals — one canonical signed request
+
+Tracked by [GitHub issue #339](https://github.com/advatar/ActiveChain/issues/339).
+
+- [x] Inventory and remove platform-local unsigned/defaulted approval encodings and developer
+  transaction bridges.
+- [x] Expose one bounded canonical approval transcript and human-readable fields from Rust through
+  the C/JNI boundaries, bound to the exact intent commitment.
+- [x] Require immediate platform authentication before native custody signs that exact transcript;
+  reject mutation, substitution, replay, and alternate encodings.
+- [x] Add shared cross-language vectors plus Rust, FFI, Apple, Android, and end-to-end submission
+  tests.
+- [x] Pass targeted Rust, Android, and Apple builds/tests, merge to `main`, and verify
+  reachability before closing #339. The exhaustive deterministic-kernel CI gate was explicitly
+  skipped during issue reconciliation in favor of the normal affected-platform test suites.
+
 ## Critical wallet recovery — hardware-wrapped post-quantum custody
 
 Tracked by [GitHub issue #327](https://github.com/advatar/ActiveChain/issues/327).

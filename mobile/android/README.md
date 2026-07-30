@@ -22,15 +22,16 @@ ANDROID_HOME="$ANDROID_SDK_ROOT" ./gradlew testDebugUnitTest assembleDebug
 ANDROID_HOME="$ANDROID_SDK_ROOT" ./gradlew connectedDebugAndroidTest
 ```
 
-The first command validates the canonical RPC codec and builds the APK. The second verifies that an
-empty device registry does not create or persist sample agent authority on an arm64 emulator or
-device.
+The first command validates the canonical RPC and approval codecs and builds the APK. The second
+also exercises the shared approval vector through JNI, native ML-DSA-44 custody, one-shot signing,
+and Rust submission verification on an arm64 emulator or device.
 
 The custody implementation writes its versioned ML-DSA-44 slot record under `noBackupFilesDir` and
 wraps the seed with a per-use authenticated Android Keystore AES-GCM key. StrongBox is preferred;
 hardware-isolated TEE is the explicit fallback. The AES key never signs an ActiveChain transaction.
 Rotation, revocation, finalized-height rollback protection, recovery metadata binding, wrong-key
-failure, and plaintext-buffer clearing have host unit coverage. `LocalWalletBridge` transaction
-paths remain deterministic developer integrations until the wire-compatible native ML-DSA-44
-engine and real BiometricPrompt signing callback are connected and physical-device
-StrongBox/TEE/backup qualification passes; this app must not handle production keys or funds yet.
+failure, and plaintext-buffer clearing have host unit coverage. The canonical approval session
+rechecks the Rust-owned human review, consumes authorization before signing, and sends only the
+Rust-derived payload into custody. Production transfers remain disabled until the real
+BiometricPrompt authorizer is connected and physical-device StrongBox/TEE/backup qualification
+passes; this app must not handle production keys or funds yet.

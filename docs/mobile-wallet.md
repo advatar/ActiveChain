@@ -47,9 +47,12 @@ size query before allocation and publishes the complete request plus its intent 
 when the caller's output buffer is large enough.
 
 `activechain_wallet_sign_cash_intent` keeps key custody in the native secure-key provider. Rust
-decodes the approved request, derives its domain-separated signing payload, invokes the opaque
-callback only after output capacity has been established, and verifies the returned ML-DSA-44
-signature before publishing a canonical `AuthorizedCashTransferV1`.
+decodes the approved request, recomputes and compares the 48-byte intent shown by the approval UI,
+derives its domain-separated signing payload, invokes the opaque callback only after output
+capacity has been established, and verifies the returned ML-DSA-44 signature before publishing a
+canonical `AuthorizedCashTransferV1`. Platform approval sessions re-decode the human review before
+signing, consume the session before requesting user presence, and cannot reuse an authentication
+attempt after success or failure.
 
 `activechain_wallet_submit_authorized` strictly decodes and reverifies that authorized envelope
 before invoking a caller-owned transport callback with the exact bytes. This separates networking
@@ -77,10 +80,11 @@ and uses platform hardware only to wrap its seed under explicit user presence.
 - UI displays the exact recipient, amount, fee reserve, validity height, and policy decision before
   approval.
 
-The Apple and Android custody state machines and negative tests are implemented on issue #327.
-They are not production-complete until a reviewed, wire-compatible native ML-DSA-44 engine is
-connected on both platforms, the real approval callbacks replace developer bridges, physical-device
-user-presence/backup/rollback rehearsals pass, and the external mobile/PQ review is complete.
+The Apple and Android custody state machines and canonical approval callbacks are implemented on
+issues #327 and #339. They are not production-complete until a reviewed, wire-compatible native
+ML-DSA-44 engine is connected on Apple, real BiometricPrompt integration is connected on Android,
+physical-device user-presence/backup/rollback rehearsals pass, and the external mobile/PQ review is
+complete.
 
 ## Interoperability adapters
 

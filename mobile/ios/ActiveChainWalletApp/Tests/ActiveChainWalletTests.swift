@@ -1,8 +1,85 @@
 import XCTest
 import Security
+import ActiveChainWallet
 @testable import ActiveChainWalletApp
 
 final class ActiveChainWalletTests: XCTestCase {
+    func testSharedCanonicalApprovalVectorCrossesTheRustCAndSwiftBoundaries() throws {
+        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        var vectorURL: URL?
+        while directory.path != "/" {
+            let candidate = directory.appendingPathComponent(
+                "testing/vectors/wallet-canonical-approval-v1.txt"
+            )
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                vectorURL = candidate
+                break
+            }
+            directory.deleteLastPathComponent()
+        }
+        let contents = try String(contentsOf: try XCTUnwrap(vectorURL), encoding: .utf8)
+        let vector = Dictionary(uniqueKeysWithValues: contents.split(separator: "\n")
+            .filter { !$0.hasPrefix("#") && $0.contains("=") }
+            .map { line -> (String, String) in
+                let fields = line.split(separator: "=", maxSplits: 1)
+                return (String(fields[0]), String(fields[1]))
+            })
+        let request = try XCTUnwrap(Data(strictHex: vector["request_hex"]!))
+        let approval = try RustCanonicalApproval.review(request)
+
+        XCTAssertEqual(approval.intentID, Data(strictHex: vector["intent_id"]!))
+        XCTAssertEqual(approval.recipient, Data(strictHex: vector["recipient"]!))
+        XCTAssertEqual(approval.nonce, 7)
+        XCTAssertEqual(approval.amount, Unsigned128Words(high: 0, low: 50))
+
+        var alternate = request
+        alternate.append(0)
+        XCTAssertThrowsError(try RustCanonicalApproval.review(alternate))
+    }
+
+    func testCanonicalApprovalSessionFailsClosedAfterOneAuthenticatedSigningAttempt() throws {
+        let approval = try sharedCanonicalApproval()
+        let fixture = AppleCustodyFixture()
+        var recoveryKey = Data(repeating: 0x91, count: 32)
+        _ = try fixture.provider.provision(
+            slotID: "wallet-primary", keyVersion: 1, finalizedHeight: 20,
+            recoveryKey: &recoveryKey
+        )
+        let session = CanonicalCashApprovalSession(approval: approval)
+
+        XCTAssertThrowsError(try session.sign(
+            with: fixture.provider, slotID: "wallet-primary",
+            minimumVersion: 1, minimumFinalizedHeight: 20
+        ))
+        XCTAssertEqual(fixture.hardware.unwrapCount, 1)
+        XCTAssertThrowsError(try session.sign(
+            with: fixture.provider, slotID: "wallet-primary",
+            minimumVersion: 1, minimumFinalizedHeight: 20
+        )) { error in
+            XCTAssertEqual(error as? CanonicalApprovalError, .alreadyConsumed)
+        }
+        XCTAssertEqual(fixture.hardware.unwrapCount, 1)
+    }
+
+    func testCanonicalApprovalSessionRejectsSubstitutedHumanReviewBeforeCustody() throws {
+        let approval = try sharedCanonicalApproval()
+        let substituted = CanonicalCashApproval(
+            request: approval.request, chainID: approval.chainID, signer: approval.signer,
+            recipient: Data(repeating: 0xff, count: 48), feeReserve: approval.feeReserve,
+            sessionID: approval.sessionID, intentID: approval.intentID, nonce: approval.nonce,
+            sessionExpiresAt: approval.sessionExpiresAt, amount: approval.amount, fee: approval.fee,
+            validUntil: approval.validUntil, inputCount: approval.inputCount
+        )
+        let fixture = AppleCustodyFixture()
+        XCTAssertThrowsError(try CanonicalCashApprovalSession(approval: substituted).sign(
+            with: fixture.provider, slotID: "missing", minimumVersion: 1,
+            minimumFinalizedHeight: 0
+        )) { error in
+            XCTAssertEqual(error as? CanonicalApprovalError, .substitutedReview)
+        }
+        XCTAssertEqual(fixture.hardware.unwrapCount, 0)
+    }
+
     func testRustNativeMLDSAEngineProducesWireCompatibleLengths() throws {
         let engine = RustAppleMLDSA44Engine()
         var seed = Data(repeating: 73, count: AppleNativeCustodyProvider.seedLength)
@@ -68,10 +145,47 @@ final class ActiveChainWalletTests: XCTestCase {
         XCTAssertThrowsError(try SharedKeychainConfiguration(accessGroup: "dev.activechain.wallet"))
     }
 
-    func testLocalApproval() throws {
-        let bridge = LocalWalletBridge()
-        let preview = bridge.previewTransfer(recipient: "did:activechain:test", amount: 1, feeReserve: 1, validUntil: 10, currentHeight: 1)
-        XCTAssertNoThrow(try bridge.approveTransfer(preview))
+    func testCanonicalApprovalComesFromExactRustRequest() throws {
+        func digest(_ byte: UInt8) -> UnsafeMutablePointer<UInt8> {
+            let pointer = UnsafeMutablePointer<UInt8>.allocate(capacity: 48)
+            pointer.initialize(repeating: byte, count: 48)
+            return pointer
+        }
+        let chain = digest(1), signer = digest(2), recipient = digest(3)
+        let input = digest(4), reserve = digest(5), session = digest(6)
+        defer { [chain, signer, recipient, input, reserve, session].forEach { $0.deallocate() } }
+        var required: UInt32 = 0
+        var intent = Data(repeating: 0, count: 48)
+        let query = intent.withUnsafeMutableBytes {
+            activechain_wallet_build_cash_intent(
+                chain, signer, recipient, input, reserve, 7, session, 9,
+                0, 50, 0, 2, 10, nil, 0, &required,
+                $0.bindMemory(to: UInt8.self).baseAddress
+            )
+        }
+        XCTAssertEqual(query, UInt32(ACTIVECHAIN_WALLET_BUFFER_TOO_SMALL))
+        var request = Data(repeating: 0, count: Int(required))
+        let code = request.withUnsafeMutableBytes { requestBytes in
+            intent.withUnsafeMutableBytes { intentBytes in
+                activechain_wallet_build_cash_intent(
+                    chain, signer, recipient, input, reserve, 7, session, 9,
+                    0, 50, 0, 2, 10,
+                    requestBytes.bindMemory(to: UInt8.self).baseAddress, required, &required,
+                    intentBytes.bindMemory(to: UInt8.self).baseAddress
+                )
+            }
+        }
+        XCTAssertEqual(code, UInt32(ACTIVECHAIN_WALLET_OK))
+        let approval = try RustCanonicalApproval.review(request)
+        XCTAssertEqual(approval.intentID, intent)
+        XCTAssertEqual(approval.recipient, Data(repeating: 3, count: 48))
+        XCTAssertEqual(approval.amount, Unsigned128Words(high: 0, low: 50))
+        XCTAssertEqual(approval.fee, Unsigned128Words(high: 0, low: 2))
+        XCTAssertEqual(approval.validUntil, 10)
+        XCTAssertEqual(approval.inputCount, 1)
+
+        request[request.index(before: request.endIndex)] ^= 1
+        XCTAssertNotEqual(try RustCanonicalApproval.review(request).intentID, approval.intentID)
     }
 
     func testOpenWalletCredentialAndSessionReplayRules() {
@@ -527,6 +641,40 @@ final class ActiveChainWalletTests: XCTestCase {
         } while value != 0
         return result
     }
+
+    private func sharedCanonicalApproval() throws -> CanonicalCashApproval {
+        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        while directory.path != "/" {
+            let candidate = directory.appendingPathComponent(
+                "testing/vectors/wallet-canonical-approval-v1.txt"
+            )
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                let contents = try String(contentsOf: candidate, encoding: .utf8)
+                let requestLine = try XCTUnwrap(contents.split(separator: "\n")
+                    .first { $0.hasPrefix("request_hex=") })
+                let request = try XCTUnwrap(Data(strictHex: String(requestLine.dropFirst(12))))
+                return try RustCanonicalApproval.review(request)
+            }
+            directory.deleteLastPathComponent()
+        }
+        throw CanonicalApprovalError.malformed
+    }
+}
+
+private extension Data {
+    init?(strictHex: String) {
+        guard strictHex.count.isMultiple(of: 2),
+              strictHex.allSatisfy({ $0.isNumber || $0 >= "a" && $0 <= "f" }) else { return nil }
+        self.init()
+        reserveCapacity(strictHex.count / 2)
+        var index = strictHex.startIndex
+        while index < strictHex.endIndex {
+            let next = strictHex.index(index, offsetBy: 2)
+            guard let byte = UInt8(strictHex[index..<next], radix: 16) else { return nil }
+            append(byte)
+            index = next
+        }
+    }
 }
 
 private final class AppleCustodyFixture {
@@ -561,6 +709,7 @@ private final class AppleFakeHardwareWrapping: AppleHardwareWrapping {
     private(set) var tags: Set<Data> = []
     var substitutePlaintext: Data?
     var failure: AppleCustodyError?
+    private(set) var unwrapCount = 0
 
     func createAndWrap(secret: Data, tag: Data) throws -> Data {
         tags.insert(tag)
@@ -568,6 +717,7 @@ private final class AppleFakeHardwareWrapping: AppleHardwareWrapping {
     }
 
     func unwrap(ciphertext: Data, tag: Data, reason: String) throws -> Data {
+        unwrapCount += 1
         if let failure { throw failure }
         guard tags.contains(tag) else { throw AppleCustodyError.missingSlot }
         return substitutePlaintext ?? Data(ciphertext.map { $0 ^ 0x5a })

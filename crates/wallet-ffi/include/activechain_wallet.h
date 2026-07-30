@@ -29,6 +29,8 @@
 
 #define ACTIVECHAIN_WALLET_INVALID_PROOF 9
 
+#define ACTIVECHAIN_WALLET_APPROVAL_MISMATCH 10
+
 #define ACTIVECHAIN_WALLET_OPENWALLET_OFFER 1
 
 #define ACTIVECHAIN_WALLET_OPENWALLET_PRESENTATION_REQUEST 2
@@ -60,6 +62,26 @@ typedef struct ActivechainWalletAgentSummary {
   uint64_t expires_at;
   uint64_t revocation_finalized_height;
 } ActivechainWalletAgentSummary;
+
+/**
+ * Fixed-layout human-review fields decoded from one canonical cash authorization request.
+ */
+typedef struct ActivechainWalletCashApproval {
+  uint8_t chain_id[48];
+  uint8_t signer[48];
+  uint8_t recipient[48];
+  uint8_t fee_reserve[48];
+  uint8_t session_id[48];
+  uint8_t intent_id[48];
+  uint64_t nonce;
+  uint64_t session_expires_at;
+  uint64_t amount_high;
+  uint64_t amount_low;
+  uint64_t fee_high;
+  uint64_t fee_low;
+  uint64_t valid_until;
+  uint32_t input_count;
+} ActivechainWalletCashApproval;
 
 #ifdef __cplusplus
 extern "C" {
@@ -383,6 +405,17 @@ uint32_t activechain_wallet_build_cash_intent(const uint8_t *chain_id,
                                               uint8_t *intent_out);
 
 /**
+ * Decodes the exact canonical cash request into fixed human-review fields.
+ *
+ * # Safety
+ * `request` must be readable for `request_len` bytes and `approval_out` must be writable. No
+ * pointer is retained and the output is published only after strict canonical decoding succeeds.
+ */
+uint32_t activechain_wallet_cash_approval(const uint8_t *request,
+                                          uint32_t request_len,
+                                          struct ActivechainWalletCashApproval *approval_out);
+
+/**
  * Builds a canonical asset-bound transfer envelope with size-query support.
  *
  * # Safety
@@ -407,12 +440,15 @@ uint32_t activechain_wallet_build_fungible_transfer(const uint8_t *cells,
  *
  * # Safety
  *
- * `request` and `public_key` must be readable for their fixed lengths. `callback` must obey its
- * declared contract for the duration of the call. `output` may be null only for a zero-capacity
- * size query; `required_len` must be writable. The callback is never retained.
+ * `request`, the 48-byte `approved_intent`, and `public_key` must be readable for their declared
+ * or fixed lengths. The approved intent must be the commitment returned with the human-reviewed
+ * summary. `callback` must obey its declared contract for the duration of the call. `output` may
+ * be null only for a zero-capacity size query; `required_len` must be writable. The callback is
+ * never retained.
  */
 uint32_t activechain_wallet_sign_cash_intent(const uint8_t *request,
                                              uint32_t request_len,
+                                             const uint8_t *approved_intent,
                                              const uint8_t *public_key,
                                              activechain_wallet_sign_callback callback,
                                              void *callback_context,

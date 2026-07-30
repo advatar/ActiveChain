@@ -7,6 +7,7 @@ android { namespace = "dev.activechain.wallet"; compileSdk = 35
         targetCompatibility = JavaVersion.VERSION_17
     }
     sourceSets["main"].jniLibs.srcDir(layout.buildDirectory.dir("generated/jniLibs"))
+    sourceSets["androidTest"].assets.srcDir(rootProject.projectDir.resolve("../../testing/vectors"))
 }
 
 kotlin { jvmToolchain(17) }

@@ -28,6 +28,7 @@ pub const ACTIVECHAIN_WALLET_CALLBACK_FAILED: u32 = 6;
 pub const ACTIVECHAIN_WALLET_INVALID_SIGNATURE: u32 = 7;
 pub const ACTIVECHAIN_WALLET_AGENT_REJECTED: u32 = 8;
 pub const ACTIVECHAIN_WALLET_INVALID_PROOF: u32 = 9;
+pub const ACTIVECHAIN_WALLET_APPROVAL_MISMATCH: u32 = 10;
 pub const ACTIVECHAIN_WALLET_OPENWALLET_OFFER: u32 = 1;
 pub const ACTIVECHAIN_WALLET_OPENWALLET_PRESENTATION_REQUEST: u32 = 2;
 pub const ACTIVECHAIN_WALLET_OPENWALLET_CONSENT: u32 = 3;
@@ -41,6 +42,7 @@ const WALLET_CALLBACK_FAILED: u32 = ACTIVECHAIN_WALLET_CALLBACK_FAILED;
 const WALLET_INVALID_SIGNATURE: u32 = ACTIVECHAIN_WALLET_INVALID_SIGNATURE;
 const WALLET_AGENT_REJECTED: u32 = ACTIVECHAIN_WALLET_AGENT_REJECTED;
 const WALLET_INVALID_PROOF: u32 = ACTIVECHAIN_WALLET_INVALID_PROOF;
+const WALLET_APPROVAL_MISMATCH: u32 = ACTIVECHAIN_WALLET_APPROVAL_MISMATCH;
 const ML_DSA44_SIGNATURE_LENGTH: usize = 2_420;
 const ML_DSA44_PUBLIC_KEY_LENGTH: usize = 1_312;
 
@@ -69,6 +71,47 @@ pub struct ActivechainWalletAgentSummary {
     pub revocation_finalized_height: u64,
 }
 
+/// Fixed-layout human-review fields decoded from one canonical cash authorization request.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ActivechainWalletCashApproval {
+    pub chain_id: [u8; 48],
+    pub signer: [u8; 48],
+    pub recipient: [u8; 48],
+    pub fee_reserve: [u8; 48],
+    pub session_id: [u8; 48],
+    pub intent_id: [u8; 48],
+    pub nonce: u64,
+    pub session_expires_at: u64,
+    pub amount_high: u64,
+    pub amount_low: u64,
+    pub fee_high: u64,
+    pub fee_low: u64,
+    pub valid_until: u64,
+    pub input_count: u32,
+}
+
+impl Default for ActivechainWalletCashApproval {
+    fn default() -> Self {
+        Self {
+            chain_id: [0; 48],
+            signer: [0; 48],
+            recipient: [0; 48],
+            fee_reserve: [0; 48],
+            session_id: [0; 48],
+            intent_id: [0; 48],
+            nonce: 0,
+            session_expires_at: 0,
+            amount_high: 0,
+            amount_low: 0,
+            fee_high: 0,
+            fee_low: 0,
+            valid_until: 0,
+            input_count: 0,
+        }
+    }
+}
+
 impl Default for ActivechainWalletAgentSummary {
     fn default() -> Self {
         Self {
@@ -89,7 +132,7 @@ impl Default for ActivechainWalletAgentSummary {
 /// Returns the ABI revision consumed by native wallet shells.
 #[unsafe(no_mangle)]
 pub extern "C" fn activechain_wallet_ffi_revision() -> u32 {
-    2
+    3
 }
 
 /// Derives the canonical ML-DSA-44 public key for one transient 32-byte seed.
@@ -998,6 +1041,64 @@ pub unsafe extern "C" fn activechain_wallet_build_cash_intent(
     WALLET_OK
 }
 
+/// Decodes the exact canonical cash request into fixed human-review fields.
+///
+/// # Safety
+/// `request` must be readable for `request_len` bytes and `approval_out` must be writable. No
+/// pointer is retained and the output is published only after strict canonical decoding succeeds.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn activechain_wallet_cash_approval(
+    request: *const u8,
+    request_len: u32,
+    approval_out: *mut ActivechainWalletCashApproval,
+) -> u32 {
+    if (request.is_null() && request_len != 0) || approval_out.is_null() {
+        return WALLET_NULL_POINTER;
+    }
+    if request_len > MAX_WALLET_INPUT {
+        return WALLET_TOO_LARGE;
+    }
+    let bytes = if request_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(request, request_len as usize) }
+    };
+    let request = match decode_envelope::<CashAuthorizationRequestV1>(bytes) {
+        Ok(request) => request,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    let intent_id = match request.intent_id() {
+        Ok(intent) => intent.into_bytes(),
+        Err(_) => return WALLET_MALFORMED,
+    };
+    let transfer = request.transfer();
+    let (amount_high, amount_low) = split_u128(transfer.amount());
+    let (fee_high, fee_low) = split_u128(transfer.fee());
+    let Ok(input_count) = u32::try_from(transfer.inputs().len()) else {
+        return WALLET_TOO_LARGE;
+    };
+    let approval = ActivechainWalletCashApproval {
+        chain_id: request.chain_id().into_digest().into_bytes(),
+        signer: request.signer().into_digest().into_bytes(),
+        recipient: transfer.recipient().into_digest().into_bytes(),
+        fee_reserve: transfer.fee_reserve().into_digest().into_bytes(),
+        session_id: request.session_id().into_bytes(),
+        intent_id,
+        nonce: request.nonce(),
+        session_expires_at: request.session_expires_at(),
+        amount_high,
+        amount_low,
+        fee_high,
+        fee_low,
+        valid_until: transfer.valid_until(),
+        input_count,
+    };
+    unsafe {
+        *approval_out = approval;
+    }
+    WALLET_OK
+}
+
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
 /// Builds a canonical asset-bound transfer envelope with size-query support.
@@ -1079,14 +1180,17 @@ pub unsafe extern "C" fn activechain_wallet_build_fungible_transfer(
 ///
 /// # Safety
 ///
-/// `request` and `public_key` must be readable for their fixed lengths. `callback` must obey its
-/// declared contract for the duration of the call. `output` may be null only for a zero-capacity
-/// size query; `required_len` must be writable. The callback is never retained.
+/// `request`, the 48-byte `approved_intent`, and `public_key` must be readable for their declared
+/// or fixed lengths. The approved intent must be the commitment returned with the human-reviewed
+/// summary. `callback` must obey its declared contract for the duration of the call. `output` may
+/// be null only for a zero-capacity size query; `required_len` must be writable. The callback is
+/// never retained.
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn activechain_wallet_sign_cash_intent(
     request: *const u8,
     request_len: u32,
+    approved_intent: *const u8,
     public_key: *const u8,
     callback: Option<ActivechainWalletSignCallback>,
     callback_context: *mut c_void,
@@ -1095,6 +1199,7 @@ pub unsafe extern "C" fn activechain_wallet_sign_cash_intent(
     required_len: *mut u32,
 ) -> u32 {
     if (request.is_null() && request_len != 0)
+        || approved_intent.is_null()
         || public_key.is_null()
         || callback.is_none()
         || required_len.is_null()
@@ -1114,6 +1219,14 @@ pub unsafe extern "C" fn activechain_wallet_sign_cash_intent(
         Ok(request) => request,
         Err(_) => return WALLET_MALFORMED,
     };
+    let intent = match request.intent_id() {
+        Ok(intent) => intent,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    let approved_intent = unsafe { core::slice::from_raw_parts(approved_intent, 48) };
+    if intent.as_bytes() != approved_intent {
+        return WALLET_APPROVAL_MISMATCH;
+    }
     let placeholder =
         ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; ML_DSA44_SIGNATURE_LENGTH])
             .expect("the protocol publishes the ML-DSA-44 signature length");
@@ -1290,13 +1403,33 @@ mod tests {
     use activechain_protocol_types::TransactionId;
     use ml_dsa::{EncodedSignature, Keypair, MlDsa44, Signature, Signer, SigningKey, Verifier};
 
+    fn approval_vector() -> std::collections::BTreeMap<&'static str, &'static str> {
+        include_str!("../../../testing/vectors/wallet-canonical-approval-v1.txt")
+            .lines()
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .map(|line| line.split_once('=').expect("key=value approval vector"))
+            .collect()
+    }
+
+    fn decode_hex(value: &str) -> Vec<u8> {
+        assert_eq!(value.len() % 2, 0);
+        value
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|pair| {
+                let pair = core::str::from_utf8(pair).unwrap();
+                u8::from_str_radix(pair, 16).unwrap()
+            })
+            .collect()
+    }
+
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
     }
 
     #[test]
     fn revision_is_stable() {
-        assert_eq!(activechain_wallet_ffi_revision(), 2);
+        assert_eq!(activechain_wallet_ffi_revision(), 3);
     }
 
     #[test]
@@ -1960,6 +2093,54 @@ mod tests {
     }
 
     #[test]
+    fn shared_approval_vector_is_strictly_decoded_by_the_production_abi() {
+        let vector = approval_vector();
+        let request = decode_hex(vector["request_hex"]);
+        let mut approval = ActivechainWalletCashApproval::default();
+        assert_eq!(
+            unsafe {
+                activechain_wallet_cash_approval(
+                    request.as_ptr(),
+                    request.len() as u32,
+                    &mut approval,
+                )
+            },
+            WALLET_OK
+        );
+        for (actual, name) in [
+            (&approval.chain_id, "chain_id"),
+            (&approval.signer, "signer"),
+            (&approval.recipient, "recipient"),
+            (&approval.fee_reserve, "fee_reserve"),
+            (&approval.session_id, "session_id"),
+            (&approval.intent_id, "intent_id"),
+        ] {
+            assert_eq!(actual.as_slice(), decode_hex(vector[name]));
+        }
+        assert_eq!(approval.nonce, vector["nonce"].parse().unwrap());
+        assert_eq!(approval.session_expires_at, vector["session_expires_at"].parse().unwrap());
+        assert_eq!(approval.amount_high, vector["amount_high"].parse().unwrap());
+        assert_eq!(approval.amount_low, vector["amount_low"].parse().unwrap());
+        assert_eq!(approval.fee_high, vector["fee_high"].parse().unwrap());
+        assert_eq!(approval.fee_low, vector["fee_low"].parse().unwrap());
+        assert_eq!(approval.valid_until, vector["valid_until"].parse().unwrap());
+        assert_eq!(approval.input_count, vector["input_count"].parse().unwrap());
+
+        let mut alternate = request;
+        alternate.push(0);
+        assert_eq!(
+            unsafe {
+                activechain_wallet_cash_approval(
+                    alternate.as_ptr(),
+                    alternate.len() as u32,
+                    &mut approval,
+                )
+            },
+            WALLET_MALFORMED
+        );
+    }
+
+    #[test]
     fn intent_builder_supports_size_query_and_publishes_exact_canonical_request() {
         let chain = digest(1);
         let signer = digest(2);
@@ -2023,6 +2204,44 @@ mod tests {
         let decoded = decode_envelope::<CashAuthorizationRequestV1>(&output).unwrap();
         assert_eq!(decoded.nonce(), 7);
         assert_eq!(decoded.intent_id().unwrap().as_bytes(), &intent);
+        let mut approval = ActivechainWalletCashApproval::default();
+        assert_eq!(
+            unsafe {
+                activechain_wallet_cash_approval(
+                    output.as_ptr(),
+                    output.len() as u32,
+                    &mut approval,
+                )
+            },
+            WALLET_OK
+        );
+        assert_eq!(approval.chain_id, [1; 48]);
+        assert_eq!(approval.signer, [2; 48]);
+        assert_eq!(approval.recipient, [3; 48]);
+        assert_eq!(approval.fee_reserve, [5; 48]);
+        assert_eq!(approval.session_id, [6; 48]);
+        assert_eq!(approval.intent_id, intent);
+        assert_eq!(approval.nonce, 7);
+        assert_eq!(approval.session_expires_at, 9);
+        assert_eq!((approval.amount_high, approval.amount_low), (0, 50));
+        assert_eq!((approval.fee_high, approval.fee_low), (0, 2));
+        assert_eq!(approval.valid_until, 10);
+        assert_eq!(approval.input_count, 1);
+
+        let mut mutated = output.clone();
+        *mutated.last_mut().unwrap() ^= 1;
+        let original_intent = approval.intent_id;
+        assert_eq!(
+            unsafe {
+                activechain_wallet_cash_approval(
+                    mutated.as_ptr(),
+                    mutated.len() as u32,
+                    &mut approval,
+                )
+            },
+            WALLET_OK
+        );
+        assert_ne!(approval.intent_id, original_intent);
         assert_eq!(
             unsafe {
                 activechain_wallet_build_cash_intent(
@@ -2097,6 +2316,7 @@ mod tests {
             transfer,
         )
         .unwrap();
+        let approved_intent = request.intent_id().unwrap().into_bytes();
         let request = encode_envelope(&request).unwrap();
         let key = SigningKey::<MlDsa44>::from_seed(&ml_dsa::Seed::from([7; 32]));
         let public_key = key.verifying_key().encode();
@@ -2106,6 +2326,7 @@ mod tests {
                 activechain_wallet_sign_cash_intent(
                     request.as_ptr(),
                     request.len() as u32,
+                    approved_intent.as_ptr(),
                     public_key.as_slice().as_ptr(),
                     Some(sign_callback),
                     (&key as *const SigningKey<MlDsa44>).cast_mut().cast(),
@@ -2122,6 +2343,7 @@ mod tests {
                 activechain_wallet_sign_cash_intent(
                     request.as_ptr(),
                     request.len() as u32,
+                    approved_intent.as_ptr(),
                     public_key.as_slice().as_ptr(),
                     Some(sign_callback),
                     (&key as *const SigningKey<MlDsa44>).cast_mut().cast(),
@@ -2135,12 +2357,31 @@ mod tests {
         let authorized = decode_envelope::<AuthorizedCashTransferV1>(&output).unwrap();
         assert_eq!(authorized.verify(public_key.as_slice()), Ok(()));
 
+        let substituted_intent = [0_u8; 48];
+        assert_eq!(
+            unsafe {
+                activechain_wallet_sign_cash_intent(
+                    request.as_ptr(),
+                    request.len() as u32,
+                    substituted_intent.as_ptr(),
+                    public_key.as_slice().as_ptr(),
+                    Some(sign_callback),
+                    (&key as *const SigningKey<MlDsa44>).cast_mut().cast(),
+                    output.as_mut_ptr(),
+                    required,
+                    &mut required,
+                )
+            },
+            WALLET_APPROVAL_MISMATCH
+        );
+
         let wrong_key = SigningKey::<MlDsa44>::from_seed(&ml_dsa::Seed::from([8; 32]));
         assert_eq!(
             unsafe {
                 activechain_wallet_sign_cash_intent(
                     request.as_ptr(),
                     request.len() as u32,
+                    approved_intent.as_ptr(),
                     wrong_key.verifying_key().encode().as_slice().as_ptr(),
                     Some(sign_callback),
                     (&key as *const SigningKey<MlDsa44>).cast_mut().cast(),
