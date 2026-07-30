@@ -571,7 +571,9 @@ fn map_gateway_error(error: activechain_proposal_gateway::GatewayError) -> Backe
         | activechain_proposal_gateway::GatewayError::InvalidAuthority
         | activechain_proposal_gateway::GatewayError::PolicyDenied
         | activechain_proposal_gateway::GatewayError::BudgetExceeded
-        | activechain_proposal_gateway::GatewayError::ReplayConflict => {
+        | activechain_proposal_gateway::GatewayError::ReplayConflict
+        | activechain_proposal_gateway::GatewayError::InvalidTransition
+        | activechain_proposal_gateway::GatewayError::ConcurrentReview => {
             BackendError::VerificationFailed
         }
         activechain_proposal_gateway::GatewayError::Capacity
