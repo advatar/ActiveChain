@@ -23,8 +23,15 @@ fn empty_block_demo() {
         ChainState::genesis(chain_id, objects, vec![], ResourcePrices::new(1, 2, 3, 4, 5, 1))
             .expect("empty genesis is canonical");
     let pre_state = commit_objects(state.objects().objects()).expect("empty state commits");
-    let block = DevnetBlock::new(chain_id, 1, Digest384::ZERO, pre_state, vec![])
-        .expect("empty block is bounded");
+    let block = DevnetBlock::new(
+        chain_id,
+        1,
+        Digest384::ZERO,
+        pre_state,
+        state.commitment().expect("complete state commits"),
+        vec![],
+    )
+    .expect("empty block is bounded");
     let output = apply_block(&state, &block).expect("empty deterministic block applies");
     println!("height={}", output.state().height());
     println!("actions={}", output.receipt().action_receipts().len());

@@ -134,12 +134,12 @@ Tracked by [GitHub issue #336](https://github.com/advatar/ActiveChain/issues/336
 
 Tracked by [GitHub issue #337](https://github.com/advatar/ActiveChain/issues/337).
 
-- [ ] Define canonical ticket backing, issuer authority, uniqueness, validity, and replay-window
+- [x] Define canonical ticket backing, issuer authority, uniqueness, validity, and replay-window
   semantics with an explicit consensus state-growth bound.
-- [ ] Verify and atomically consume backing with each charged action before state execution.
-- [ ] Replace permanent ticket history with consensus-safe expiry pruning and bounded snapshot
+- [x] Verify and atomically consume backing with each charged action before state execution.
+- [x] Replace permanent ticket history with consensus-safe expiry pruning and bounded snapshot
   migration while preserving replay rejection.
-- [ ] Add forged, duplicate, expired, future, restart, pruning-boundary, saturation, property, and
+- [x] Add forged, duplicate, expired, future, restart, pruning-boundary, saturation, property, and
   sustained-hostile-traffic tests.
 - [ ] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
   #337.
