@@ -933,6 +933,7 @@ impl SignedPeerEnvelope {
 pub struct PeerSocket {
     stream: TcpStream,
     absolute_deadline: Option<Instant>,
+    session_messages: usize,
 }
 
 struct PeerConnection {
@@ -1717,7 +1718,7 @@ pub fn load_distributed_snapshot(path: &std::path::Path) -> std::io::Result<Cons
 }
 impl PeerSocket {
     pub fn connect(stream: TcpStream) -> Self {
-        Self { stream, absolute_deadline: None }
+        Self { stream, absolute_deadline: None, session_messages: 0 }
     }
     pub fn set_timeouts(
         &self,
@@ -1729,6 +1730,15 @@ impl PeerSocket {
     }
     pub fn set_absolute_deadline(&mut self, deadline: Option<Instant>) {
         self.absolute_deadline = deadline;
+    }
+    pub(crate) fn ensure_session_message_capacity(&self) -> std::io::Result<()> {
+        if self.session_messages >= MAX_PEER_SESSION_MESSAGES {
+            return Err(invalid_data("authenticated peer session message limit reached"));
+        }
+        Ok(())
+    }
+    pub(crate) fn record_session_message(&mut self) {
+        self.session_messages += 1;
     }
     fn operation_deadline(&self) -> Instant {
         let frame_deadline = Instant::now() + PEER_FRAME_DEADLINE;
@@ -4981,6 +4991,19 @@ mod tests {
             ValidatorService::enforce_session_bounds(Instant::now() - PEER_SESSION_LIFETIME, 0)
                 .unwrap_err();
         assert_eq!(lifetime_error.kind(), std::io::ErrorKind::TimedOut);
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (stream, _) = listener.accept().unwrap();
+        let mut socket = PeerSocket::connect(stream);
+        for _ in 0..MAX_PEER_SESSION_MESSAGES {
+            socket.record_session_message();
+        }
+        assert_eq!(
+            socket.ensure_session_message_capacity().unwrap_err().kind(),
+            std::io::ErrorKind::InvalidData
+        );
+        drop(client);
     }
 
     #[test]
