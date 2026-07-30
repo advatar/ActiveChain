@@ -1,5 +1,6 @@
 import XCTest
 import Security
+import ActiveChainWallet
 @testable import ActiveChainWalletApp
 
 final class ActiveChainWalletTests: XCTestCase {
@@ -55,10 +56,47 @@ final class ActiveChainWalletTests: XCTestCase {
         XCTAssertThrowsError(try SharedKeychainConfiguration(accessGroup: "dev.activechain.wallet"))
     }
 
-    func testLocalApproval() throws {
-        let bridge = LocalWalletBridge()
-        let preview = bridge.previewTransfer(recipient: "did:activechain:test", amount: 1, feeReserve: 1, validUntil: 10, currentHeight: 1)
-        XCTAssertNoThrow(try bridge.approveTransfer(preview))
+    func testCanonicalApprovalComesFromExactRustRequest() throws {
+        func digest(_ byte: UInt8) -> UnsafeMutablePointer<UInt8> {
+            let pointer = UnsafeMutablePointer<UInt8>.allocate(capacity: 48)
+            pointer.initialize(repeating: byte, count: 48)
+            return pointer
+        }
+        let chain = digest(1), signer = digest(2), recipient = digest(3)
+        let input = digest(4), reserve = digest(5), session = digest(6)
+        defer { [chain, signer, recipient, input, reserve, session].forEach { $0.deallocate() } }
+        var required: UInt32 = 0
+        var intent = Data(repeating: 0, count: 48)
+        let query = intent.withUnsafeMutableBytes {
+            activechain_wallet_build_cash_intent(
+                chain, signer, recipient, input, reserve, 7, session, 9,
+                0, 50, 0, 2, 10, nil, 0, &required,
+                $0.bindMemory(to: UInt8.self).baseAddress
+            )
+        }
+        XCTAssertEqual(query, UInt32(ACTIVECHAIN_WALLET_BUFFER_TOO_SMALL))
+        var request = Data(repeating: 0, count: Int(required))
+        let code = request.withUnsafeMutableBytes { requestBytes in
+            intent.withUnsafeMutableBytes { intentBytes in
+                activechain_wallet_build_cash_intent(
+                    chain, signer, recipient, input, reserve, 7, session, 9,
+                    0, 50, 0, 2, 10,
+                    requestBytes.bindMemory(to: UInt8.self).baseAddress, required, &required,
+                    intentBytes.bindMemory(to: UInt8.self).baseAddress
+                )
+            }
+        }
+        XCTAssertEqual(code, UInt32(ACTIVECHAIN_WALLET_OK))
+        let approval = try RustCanonicalApproval.review(request)
+        XCTAssertEqual(approval.intentID, intent)
+        XCTAssertEqual(approval.recipient, Data(repeating: 3, count: 48))
+        XCTAssertEqual(approval.amount, Unsigned128Words(high: 0, low: 50))
+        XCTAssertEqual(approval.fee, Unsigned128Words(high: 0, low: 2))
+        XCTAssertEqual(approval.validUntil, 10)
+        XCTAssertEqual(approval.inputCount, 1)
+
+        request[request.index(before: request.endIndex)] ^= 1
+        XCTAssertNotEqual(try RustCanonicalApproval.review(request).intentID, approval.intentID)
     }
 
     func testOpenWalletCredentialAndSessionReplayRules() {

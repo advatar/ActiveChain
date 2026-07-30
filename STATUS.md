@@ -35,9 +35,9 @@ Tracked by [GitHub issue #326](https://github.com/advatar/ActiveChain/issues/326
 
 Tracked by [GitHub issue #339](https://github.com/advatar/ActiveChain/issues/339).
 
-- [ ] Inventory and remove platform-local unsigned/defaulted approval encodings and developer
+- [x] Inventory and remove platform-local unsigned/defaulted approval encodings and developer
   transaction bridges.
-- [ ] Expose one bounded canonical approval transcript and human-readable fields from Rust through
+- [x] Expose one bounded canonical approval transcript and human-readable fields from Rust through
   the C/JNI boundaries, bound to the exact intent commitment.
 - [ ] Require immediate platform authentication before native custody signs that exact transcript;
   reject mutation, substitution, replay, and alternate encodings.
