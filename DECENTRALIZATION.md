@@ -38,6 +38,11 @@ For this system, I would measure ten distinct dimensions.
 
 These scores are an architectural assessment, not observed network data.
 
+The 9.0 independent-verification genesis value is a conditional target, not a current score. Until
+an implementation-independent Go verifier passes P-134 M2 differential replay, the project has one
+semantic implementation and receives no client-diversity or independent-verification credit for a
+second client. Parsing the published TSV inventory is M0 evidence only.
+
 | Dimension | Weight | Genesis target | Mature target | Principal risk |
 |---|---:|---:|---:|---|
 | Consensus economic control | 20% | 6.5 | 8.0 | Stake and delegation concentration |
