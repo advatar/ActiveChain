@@ -838,9 +838,11 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
   holder, freshness/status, disclosure, and assurance provenance without source transcripts.
 - [x] Bind predicate admission to the exact evidence commitment and minimum assurance class so a
   holder/self-issued credential can never be promoted to issuer-upgraded or regulated assurance.
-- [ ] Positive and substitution vectors, 108 normal affected tests, strict Clippy, and the
-  canonical registry check are green; merge/reachability and cross-repository wallet/device
-  conformance remain.
+- [x] Publish positive and substitution vectors and qualify the ActiveChain boundary with 108
+  normal affected tests, strict Clippy, and the canonical registry check; merge commit `9f42789`
+  is reachable from `origin/main`.
+- [ ] Complete cross-repository tlsn/EUWallet wallet, device, portable-evidence, and offline-proof
+  conformance without touching uncommitted work in either repository.
 
 ## Active independent-client qualification
 
