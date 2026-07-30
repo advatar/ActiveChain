@@ -1,0 +1,15 @@
+[package]
+name = "activechain-archive"
+description = "Permissionless erasure-coded archival custody for ActiveChain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+reed-solomon-erasure = "6.0.0"
+sha3.workspace = true
+
+[lints]
+workspace = true

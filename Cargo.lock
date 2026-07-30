@@ -58,6 +58,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-archive"
+version = "0.1.0"
+dependencies = [
+ "reed-solomon-erasure",
+ "sha3 0.10.9",
+]
+
+[[package]]
 name = "activechain-authorization-kernel"
 version = "0.1.0"
 dependencies = [

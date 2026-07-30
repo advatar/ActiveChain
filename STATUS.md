@@ -16,7 +16,11 @@ normative and measurement slice in [#398](https://github.com/advatar/ActiveChain
   - [x] Add sealed, chain-linked ledger segments and crash-safe two-generation partition manifests.
   - [x] Persist content-addressed partition payloads and atomically activate only complete snapshots.
   - [ ] Bind snapshot certification to finalized state through the checkpoint verifier boundary.
-- [ ] Implement paid archive assignment, challenges, reconstruction, and crash-safe pruning.
+- [ ] Implement paid archive assignment, challenges, reconstruction, and crash-safe pruning
+  ([GitHub issue #405](https://github.com/advatar/ActiveChain/issues/405)).
+  - [x] Add permissionless 8-of-12 archive assignments, custody receipts, retrieval proofs, and
+    exact reconstruction with failure-domain bounds.
+  - [ ] Integrate objective payment/slashing settlement and finalized pruning certificates.
 - [ ] Implement prepaid leases, hibernation/restoration, and accumulator-backed replay history.
 - [ ] Qualify checkpoint snapshot sync, light clients, operator metrics, and sustained 1 TiB bounds.
 
