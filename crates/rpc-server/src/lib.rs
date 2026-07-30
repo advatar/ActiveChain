@@ -12,7 +12,8 @@ pub use faucet::{
     faucet_abuse_identity, faucet_settlement_commitment,
 };
 pub use operator_faucet::{
-    DurableOperatorFaucetSettlement, FaucetEnvelopeAuthorizer, OperatorFaucetIngressAdapter,
+    DurableOperatorFaucetSettlement, FaucetEnvelopeAuthorizer, MlDsa44FaucetAuthorizer,
+    OperatorFaucetIngressAdapter,
 };
 
 use activechain_action_kernel::{ActionEnvelope, action_id};
@@ -1488,6 +1489,54 @@ mod tests {
         assert!(restored.session_consumed(owner, reference));
         std::fs::remove_file(index_path).unwrap();
         std::fs::remove_file(wallet_path).unwrap();
+    }
+
+    #[test]
+    fn treasury_signer_journal_and_ingress_complete_public_settlement_path() {
+        let (ingress, key, owner, transfer) = authorized_cash_fixture();
+        let recipient = transfer.recipient();
+        let index_path = temporary("treasury-signer-index");
+        let wallet_path = temporary("treasury-signer-wallet");
+        let journal_path = temporary("treasury-signer-journal");
+        for path in [&index_path, &wallet_path, &journal_path] {
+            let _ = std::fs::remove_file(path);
+        }
+        ingress.save_atomic(&wallet_path).unwrap();
+        let finalized = Arc::new(DurableRpcStore::create(index_path.clone(), index()).unwrap());
+        let shared = Arc::new(std::sync::Mutex::new(ingress));
+        let authorizer = MlDsa44FaucetAuthorizer::new(
+            Arc::clone(&shared),
+            ChainId::new(digest(1)),
+            owner,
+            key,
+            1,
+            20,
+            Arc::clone(&finalized),
+        )
+        .unwrap();
+        let ingress_adapter = WalletIngressOperatorSettlementAdapter::new(
+            Arc::clone(&shared),
+            wallet_path.clone(),
+            finalized,
+        );
+        let settlement = DurableOperatorFaucetSettlement::create(
+            journal_path.clone(),
+            authorizer,
+            ingress_adapter,
+        )
+        .unwrap();
+        let reference = digest(81);
+
+        let transaction = settlement.settle(recipient, 10, reference).unwrap();
+        assert_eq!(settlement.settle(recipient, 10, reference).unwrap(), transaction);
+        let restored = TransactionIngress::load(&wallet_path, ChainId::new(digest(1))).unwrap();
+        assert_eq!(restored.next_nonce(owner), Some(1));
+        assert!(restored.session_consumed(owner, reference));
+        assert!(restored.transaction_admitted(transaction));
+
+        std::fs::remove_file(index_path).unwrap();
+        std::fs::remove_file(wallet_path).unwrap();
+        std::fs::remove_file(journal_path).unwrap();
     }
 
     #[test]

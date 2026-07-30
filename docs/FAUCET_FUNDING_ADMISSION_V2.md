@@ -38,3 +38,20 @@ The current implementation provides the fail-closed native funding lifecycle pre
 does not enable its action until the platform cash-key adapter and public operator signer are
 installed. The complete journal/filesystem refinement proof also remains a launch task in
 `STATUS.md`.
+
+## Operator configuration
+
+An enabled `activechain-rpc-node` faucet additionally requires:
+
+- `ACTIVECHAIN_WALLET_INGRESS_SNAPSHOT`: initialized cash ingress containing the treasury's
+  finalized authorization lane and at least two treasury-owned Coin Cells;
+- `ACTIVECHAIN_FAUCET_OPERATOR_SEED`: a regular file containing exactly 32 binary seed bytes,
+  with no group or world permission bits;
+- `ACTIVECHAIN_FAUCET_SOURCE`: the treasury principal as 96 lowercase hexadecimal characters;
+- `ACTIVECHAIN_FAUCET_SETTLEMENT_JOURNAL`: the separately durable prepared-envelope journal;
+- `ACTIVECHAIN_FAUCET_FEE` and `ACTIVECHAIN_FAUCET_VALIDITY_BLOCKS`: bounded transfer policy.
+
+The seed is read into a fixed-size value, the input buffer is zeroized, symlinks and permissive
+files are rejected, and no arbitrary network payload reaches the signer. Production custody should
+replace the seed-file loader with an HSM/secure-service implementation of
+`FaucetEnvelopeAuthorizer`; the file loader is acceptable only for the developmental testnet.

@@ -3,8 +3,14 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, DecodeError, Decoder, EncodeError, Encoder, decode_envelope,
     encode_envelope,
 };
+use activechain_cash_kernel::{CoinTransfer, MAX_TRANSFER_INPUTS};
+use activechain_protocol_types::{ChainId, CryptoSuiteId, ProtocolSignature};
 use activechain_protocol_types::{Digest384, PrincipalId, TransactionId};
-use activechain_wallet_core::OperatorFaucetAuthorizationV1;
+use activechain_wallet_core::{
+    AuthorizedCashSessionGrantV1, AuthorizedCashTransferV1, CashAuthorizationRequestV1,
+    CashSessionGrantV1, OperatorFaucetAuthorizationV1, TransactionIngress,
+};
+use ml_dsa::{MlDsa44, Signer, SigningKey};
 use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
@@ -56,6 +62,146 @@ pub trait OperatorFaucetIngressAdapter: Send + Sync {
         amount: u128,
         reference: Digest384,
     ) -> Result<TransactionId, FaucetError>;
+}
+
+/// Concrete operator authorizer backed by an ML-DSA-44 treasury key and the current durable cash
+/// state. Secret-key loading and protection remain deployment concerns; this value never exposes
+/// the key or accepts signing payloads from the network.
+pub struct MlDsa44FaucetAuthorizer {
+    ingress: std::sync::Arc<Mutex<TransactionIngress>>,
+    chain_id: ChainId,
+    source: PrincipalId,
+    signing_key: SigningKey<MlDsa44>,
+    fee: u128,
+    valid_for_blocks: u64,
+    finalized_height: std::sync::Arc<crate::DurableRpcStore>,
+}
+
+impl MlDsa44FaucetAuthorizer {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        ingress: std::sync::Arc<Mutex<TransactionIngress>>,
+        chain_id: ChainId,
+        source: PrincipalId,
+        signing_key: SigningKey<MlDsa44>,
+        fee: u128,
+        valid_for_blocks: u64,
+        finalized_height: std::sync::Arc<crate::DurableRpcStore>,
+    ) -> Result<Self, FaucetError> {
+        if valid_for_blocks == 0 {
+            return Err(FaucetError::InvalidPolicy);
+        }
+        Ok(Self { ingress, chain_id, source, signing_key, fee, valid_for_blocks, finalized_height })
+    }
+}
+
+impl FaucetEnvelopeAuthorizer for MlDsa44FaucetAuthorizer {
+    fn authorize(
+        &mut self,
+        recipient: PrincipalId,
+        amount: u128,
+        reference: Digest384,
+    ) -> Result<OperatorFaucetAuthorizationV1, FaucetError> {
+        self.finalized_height.reload().map_err(|_| FaucetError::Persistence)?;
+        let height =
+            self.finalized_height.finalized_height().map_err(|_| FaucetError::Persistence)?;
+        let valid_until =
+            height.checked_add(self.valid_for_blocks).ok_or(FaucetError::InvalidTransition)?;
+        let required = amount.checked_add(self.fee).ok_or(FaucetError::InvalidTransition)?;
+        let ingress = self.ingress.lock().map_err(|_| FaucetError::Persistence)?;
+        let nonce = ingress.next_nonce(self.source).ok_or(FaucetError::InvalidTransition)?;
+        let mut cells = ingress
+            .ledger()
+            .cells()
+            .as_slice()
+            .iter()
+            .filter(|record| record.cell().owner() == self.source)
+            .copied()
+            .collect::<Vec<_>>();
+        cells.sort_by(|left, right| {
+            right
+                .cell()
+                .amount()
+                .cmp(&left.cell().amount())
+                .then_with(|| left.id().cmp(&right.id()))
+        });
+        if cells.len() < 2 {
+            return Err(FaucetError::InvalidTransition);
+        }
+        let fee_reserve = cells[0];
+        let mut inputs = Vec::new();
+        let mut selected = fee_reserve.cell().amount();
+        for record in cells.iter().skip(1).take(MAX_TRANSFER_INPUTS) {
+            inputs.push(record.id());
+            selected = selected
+                .checked_add(record.cell().amount())
+                .ok_or(FaucetError::InvalidTransition)?;
+            if selected >= required {
+                break;
+            }
+        }
+        if selected < required || inputs.is_empty() {
+            return Err(FaucetError::InvalidTransition);
+        }
+        inputs.sort_unstable();
+        drop(ingress);
+
+        let transfer = CoinTransfer::new(
+            self.source,
+            recipient,
+            inputs,
+            fee_reserve.id(),
+            amount,
+            self.fee,
+            valid_until,
+        )
+        .map_err(|_| FaucetError::InvalidTransition)?;
+        let grant = CashSessionGrantV1::new(
+            self.chain_id,
+            self.source,
+            reference,
+            height,
+            valid_until,
+            required,
+        )
+        .map_err(|_| FaucetError::InvalidTransition)?;
+        let grant_signature = self
+            .signing_key
+            .sign(&grant.signing_payload().map_err(|_| FaucetError::InvalidTransition)?);
+        let grant = AuthorizedCashSessionGrantV1::new(
+            grant,
+            ProtocolSignature::new(
+                CryptoSuiteId::ML_DSA_44,
+                grant_signature.encode().as_slice().to_vec(),
+            )
+            .map_err(|_| FaucetError::InvalidTransition)?,
+        )
+        .map_err(|_| FaucetError::InvalidTransition)?;
+        let request = CashAuthorizationRequestV1::new_with_settlement_reference(
+            self.chain_id,
+            self.source,
+            nonce,
+            reference,
+            valid_until,
+            Some(reference),
+            transfer,
+        )
+        .map_err(|_| FaucetError::InvalidTransition)?;
+        let transfer_signature = self
+            .signing_key
+            .sign(&request.signing_payload().map_err(|_| FaucetError::InvalidTransition)?);
+        let transfer = AuthorizedCashTransferV1::new(
+            request,
+            ProtocolSignature::new(
+                CryptoSuiteId::ML_DSA_44,
+                transfer_signature.encode().as_slice().to_vec(),
+            )
+            .map_err(|_| FaucetError::InvalidTransition)?,
+        )
+        .map_err(|_| FaucetError::InvalidTransition)?;
+        OperatorFaucetAuthorizationV1::new(grant, transfer)
+            .map_err(|_| FaucetError::InvalidTransition)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

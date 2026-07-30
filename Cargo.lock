@@ -387,6 +387,7 @@ dependencies = [
  "activechain-wallet-core",
  "ml-dsa",
  "sha3 0.10.9",
+ "zeroize",
 ]
 
 [[package]]
