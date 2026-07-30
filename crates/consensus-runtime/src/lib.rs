@@ -37,6 +37,8 @@ use zeroize::Zeroize;
 
 mod cash_state;
 pub use cash_state::FinalizedCashSnapshot;
+mod pq_session;
+pub use pq_session::{PqPeerSession, PqSessionContext, PqSessionStore, SESSION_TTL_SECS};
 
 /// Canonical wallet transaction admission owned by the validator runtime.
 /// Authenticated network handlers can delegate here after peer/session checks.
@@ -231,6 +233,8 @@ pub struct ValidatorMetrics {
     votes: AtomicU64,
     finalized_certificates: AtomicU64,
     rejected_messages: AtomicU64,
+    peer_sessions_established: AtomicU64,
+    peer_session_rejections: AtomicU64,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MetricsSnapshot {
@@ -238,12 +242,19 @@ pub struct MetricsSnapshot {
     pub votes: u64,
     pub finalized_certificates: u64,
     pub rejected_messages: u64,
+    pub peer_sessions_established: u64,
+    pub peer_session_rejections: u64,
 }
 impl MetricsSnapshot {
     pub fn prometheus(self, validator_id: u16) -> String {
         format!(
-            "activechain_validator_proposals{{validator=\"{validator_id}\"}} {}\nactivechain_validator_votes{{validator=\"{validator_id}\"}} {}\nactivechain_validator_finalized_certificates{{validator=\"{validator_id}\"}} {}\nactivechain_validator_rejected_messages{{validator=\"{validator_id}\"}} {}\n",
-            self.proposals, self.votes, self.finalized_certificates, self.rejected_messages,
+            "activechain_validator_proposals{{validator=\"{validator_id}\"}} {}\nactivechain_validator_votes{{validator=\"{validator_id}\"}} {}\nactivechain_validator_finalized_certificates{{validator=\"{validator_id}\"}} {}\nactivechain_validator_rejected_messages{{validator=\"{validator_id}\"}} {}\nactivechain_validator_peer_sessions_established{{validator=\"{validator_id}\"}} {}\nactivechain_validator_peer_session_rejections{{validator=\"{validator_id}\"}} {}\n",
+            self.proposals,
+            self.votes,
+            self.finalized_certificates,
+            self.rejected_messages,
+            self.peer_sessions_established,
+            self.peer_session_rejections,
         )
     }
 }
@@ -254,6 +265,8 @@ impl ValidatorMetrics {
             votes: self.votes.load(Ordering::Relaxed),
             finalized_certificates: self.finalized_certificates.load(Ordering::Relaxed),
             rejected_messages: self.rejected_messages.load(Ordering::Relaxed),
+            peer_sessions_established: self.peer_sessions_established.load(Ordering::Relaxed),
+            peer_session_rejections: self.peer_session_rejections.load(Ordering::Relaxed),
         }
     }
 }
@@ -408,26 +421,8 @@ impl ValidatorSigner {
     pub fn public_key(&self) -> Vec<u8> {
         self.key.verifying_key().encode().to_vec()
     }
-    pub fn sign_handshake(
-        &self,
-        sender: u16,
-        challenge: [u8; 32],
-    ) -> Result<PeerHandshake, ValidatorEngineError> {
-        let placeholder = PeerHandshake::new(
-            sender,
-            challenge,
-            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420])
-                .map_err(|_| ValidatorEngineError::Signer)?,
-        )
-        .map_err(|_| ValidatorEngineError::Signer)?;
-        let signature = self.key.sign(&placeholder.signing_payload());
-        PeerHandshake::new(
-            sender,
-            challenge,
-            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec())
-                .map_err(|_| ValidatorEngineError::Signer)?,
-        )
-        .map_err(|_| ValidatorEngineError::Signer)
+    fn sign_session_payload(&self, payload: &[u8]) -> Vec<u8> {
+        self.key.sign(payload).encode().to_vec()
     }
     fn sign_vote(
         &self,
@@ -794,6 +789,53 @@ impl AuthenticatedConsensusMessage {
         }
         Ok(Self { envelope, message })
     }
+    fn wire_bytes(&self) -> std::io::Result<Vec<u8>> {
+        let body = self.message.encode_body().map_err(transport_io_error)?;
+        let envelope = &self.envelope;
+        let frame_len = 2 + 8 + 48 + 2 + envelope.signature_bytes().len() + 1 + 4 + body.len();
+        if frame_len > MAX_PEER_FRAME_LEN {
+            return Err(invalid_data("peer frame exceeds limit"));
+        }
+        let mut frame = Vec::with_capacity(frame_len);
+        frame.extend_from_slice(&envelope.sender().to_be_bytes());
+        frame.extend_from_slice(&envelope.sequence().to_be_bytes());
+        frame.extend_from_slice(envelope.body_digest().as_bytes());
+        frame.extend_from_slice(&(envelope.signature_bytes().len() as u16).to_be_bytes());
+        frame.extend_from_slice(envelope.signature_bytes());
+        frame.push(self.message.kind());
+        frame.extend_from_slice(&(body.len() as u32).to_be_bytes());
+        frame.extend_from_slice(&body);
+        Ok(frame)
+    }
+    fn from_wire_bytes(frame: &[u8]) -> std::io::Result<Self> {
+        if frame.len() < 65 {
+            return Err(invalid_data("consensus frame too short"));
+        }
+        let sender = u16::from_be_bytes([frame[0], frame[1]]);
+        let sequence = u64::from_be_bytes(frame[2..10].try_into().unwrap());
+        let digest = Digest384::new(frame[10..58].try_into().unwrap());
+        let signature_len = u16::from_be_bytes([frame[58], frame[59]]) as usize;
+        let kind_offset = 60_usize
+            .checked_add(signature_len)
+            .ok_or_else(|| invalid_data("invalid signature length"))?;
+        let body_offset = kind_offset + 5;
+        if body_offset > frame.len() {
+            return Err(invalid_data("truncated consensus frame"));
+        }
+        let body_len =
+            u32::from_be_bytes(frame[kind_offset + 1..body_offset].try_into().unwrap()) as usize;
+        if frame.len() != body_offset + body_len {
+            return Err(invalid_data("consensus body length mismatch"));
+        }
+        let signature =
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, frame[60..kind_offset].to_vec())
+                .map_err(|_| invalid_data("invalid ML-DSA signature"))?;
+        let envelope = SignedPeerEnvelope::new(sender, sequence, digest, signature)
+            .map_err(transport_io_error)?;
+        let message = ConsensusMessage::decode(frame[kind_offset], &frame[body_offset..])
+            .map_err(transport_io_error)?;
+        Self::new(envelope, message).map_err(transport_io_error)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -804,48 +846,6 @@ pub struct SignedPeerEnvelope {
     signature: ProtocolSignature,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PeerHandshake {
-    sender: u16,
-    challenge: [u8; 32],
-    signature: ProtocolSignature,
-}
-impl PeerHandshake {
-    pub fn new(
-        sender: u16,
-        challenge: [u8; 32],
-        signature: ProtocolSignature,
-    ) -> Result<Self, TransportError> {
-        if signature.suite() != CryptoSuiteId::ML_DSA_44 {
-            return Err(TransportError::InvalidSuite);
-        }
-        Ok(Self { sender, challenge, signature })
-    }
-    pub const fn sender(&self) -> u16 {
-        self.sender
-    }
-    pub const fn challenge(&self) -> &[u8; 32] {
-        &self.challenge
-    }
-    pub fn signature_bytes(&self) -> &[u8] {
-        self.signature.as_bytes()
-    }
-    pub fn signing_payload(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(35);
-        bytes.extend_from_slice(b"ACTIVECHAIN-PEER-HANDSHAKE-V1");
-        bytes.extend_from_slice(&self.sender.to_be_bytes());
-        bytes.extend_from_slice(&self.challenge);
-        bytes
-    }
-    pub fn verify(&self, public_key: &[u8]) -> Result<(), TransportError> {
-        activechain_crypto_provider::verify_ml_dsa44(
-            public_key,
-            &self.signing_payload(),
-            self.signature.as_bytes(),
-        )
-        .map_err(TransportError::Verification)
-    }
-}
 impl SignedPeerEnvelope {
     pub fn new(
         sender: u16,
@@ -892,15 +892,18 @@ pub struct PeerSocket {
     stream: TcpStream,
 }
 
+struct PeerConnection {
+    socket: PeerSocket,
+    public_key: Vec<u8>,
+    session: PqPeerSession,
+}
+
 pub struct PeerDirectory {
-    peers: BTreeMap<u16, (PeerSocket, Vec<u8>)>,
+    peers: BTreeMap<u16, PeerConnection>,
     replay: ReplayGuard,
     rate_limits: BTreeMap<u16, (Instant, usize)>,
-}
-impl Default for PeerDirectory {
-    fn default() -> Self {
-        Self::new()
-    }
+    session_store: Arc<Mutex<PqSessionStore>>,
+    session_store_path: std::path::PathBuf,
 }
 
 pub struct PeerListener {
@@ -931,20 +934,26 @@ impl PeerListener {
 }
 impl PeerDirectory {
     pub const MAX_PEERS: usize = 128;
-    pub fn new() -> Self {
+    fn new(
+        session_store: Arc<Mutex<PqSessionStore>>,
+        session_store_path: std::path::PathBuf,
+    ) -> Self {
         Self {
             peers: BTreeMap::new(),
             replay: ReplayGuard::default(),
             rate_limits: BTreeMap::new(),
+            session_store,
+            session_store_path,
         }
     }
-    pub fn insert(
+    fn insert(
         &mut self,
         peer_id: u16,
         socket: PeerSocket,
         public_key: Vec<u8>,
+        session: PqPeerSession,
     ) -> Result<(), PeerDirectoryError> {
-        if public_key.len() != 1312 {
+        if public_key.len() != 1312 || session.peer != peer_id {
             return Err(PeerDirectoryError::InvalidPublicKey);
         }
         if self.peers.contains_key(&peer_id) {
@@ -953,7 +962,7 @@ impl PeerDirectory {
         if self.peers.len() >= Self::MAX_PEERS {
             return Err(PeerDirectoryError::Capacity);
         }
-        self.peers.insert(peer_id, (socket, public_key));
+        self.peers.insert(peer_id, PeerConnection { socket, public_key, session });
         Ok(())
     }
     pub fn replace(
@@ -961,11 +970,12 @@ impl PeerDirectory {
         peer_id: u16,
         socket: PeerSocket,
         public_key: Vec<u8>,
+        session: PqPeerSession,
     ) -> Result<(), PeerDirectoryError> {
         if self.peers.contains_key(&peer_id) {
             self.peers.remove(&peer_id);
         }
-        self.insert(peer_id, socket, public_key)
+        self.insert(peer_id, socket, public_key, session)
     }
     pub fn len(&self) -> usize {
         self.peers.len()
@@ -973,8 +983,8 @@ impl PeerDirectory {
     pub fn is_empty(&self) -> bool {
         self.peers.is_empty()
     }
-    pub fn peers(&self) -> impl Iterator<Item = (&u16, &(PeerSocket, Vec<u8>))> {
-        self.peers.iter()
+    pub fn peer_ids(&self) -> impl Iterator<Item = u16> + '_ {
+        self.peers.keys().copied()
     }
     pub fn remove(&mut self, peer_id: u16) -> bool {
         self.peers.remove(&peer_id).is_some()
@@ -986,9 +996,26 @@ impl PeerDirectory {
         if !self.allow_receive(peer_id, Instant::now()) {
             return Err(PeerReceiveError::Transport(TransportError::RateLimited));
         }
-        let (socket, key) = self.peers.get_mut(&peer_id).ok_or(PeerReceiveError::UnknownPeer)?;
-        let message = socket.receive_message().map_err(PeerReceiveError::Io)?;
-        self.replay.accept(&message.envelope, key).map_err(PeerReceiveError::Transport)?;
+        let connection = self.peers.get_mut(&peer_id).ok_or(PeerReceiveError::UnknownPeer)?;
+        let (session_sequence, message) = connection
+            .socket
+            .receive_protected_message(&connection.session)
+            .map_err(PeerReceiveError::Io)?;
+        if message.envelope.sender() != peer_id {
+            return Err(PeerReceiveError::Transport(TransportError::SenderMismatch));
+        }
+        self.session_store
+            .lock()
+            .map_err(|_| PeerReceiveError::Io(invalid_data("PQ session store lock poisoned")))?
+            .accept_receive_and_save(
+                connection.session.id,
+                session_sequence,
+                &self.session_store_path,
+            )
+            .map_err(PeerReceiveError::Io)?;
+        self.replay
+            .accept(&message.envelope, &connection.public_key)
+            .map_err(PeerReceiveError::Transport)?;
         Ok(message)
     }
     fn allow_receive(&mut self, peer_id: u16, now: Instant) -> bool {
@@ -1002,18 +1029,17 @@ impl PeerDirectory {
         entry.1 += 1;
         true
     }
-    pub fn broadcast(&mut self, envelope: &SignedPeerEnvelope) -> std::io::Result<()> {
-        for (socket, _) in self.peers.values_mut() {
-            socket.send(envelope)?;
-        }
-        Ok(())
-    }
     pub fn broadcast_message(
         &mut self,
         message: &AuthenticatedConsensusMessage,
     ) -> std::io::Result<()> {
-        for (socket, _) in self.peers.values_mut() {
-            socket.send_message(message)?;
+        for connection in self.peers.values_mut() {
+            let sequence = self
+                .session_store
+                .lock()
+                .map_err(|_| invalid_data("PQ session store lock poisoned"))?
+                .reserve_send_and_save(connection.session.id, &self.session_store_path)?;
+            connection.socket.send_protected_message(&connection.session, sequence, message)?;
         }
         Ok(())
     }
@@ -1022,8 +1048,18 @@ impl PeerDirectory {
         message: &AuthenticatedConsensusMessage,
     ) -> Vec<u16> {
         let mut failed = Vec::new();
-        for (peer_id, (socket, _)) in &mut self.peers {
-            if socket.send_message(message).is_err() {
+        for (peer_id, connection) in &mut self.peers {
+            let result = self
+                .session_store
+                .lock()
+                .map_err(|_| invalid_data("PQ session store lock poisoned"))
+                .and_then(|mut store| {
+                    store.reserve_send_and_save(connection.session.id, &self.session_store_path)
+                })
+                .and_then(|sequence| {
+                    connection.socket.send_protected_message(&connection.session, sequence, message)
+                });
+            if result.is_err() {
                 failed.push(*peer_id);
             }
         }
@@ -1094,63 +1130,22 @@ impl PeerConnector {
         self.backoff = backoff;
         Ok(self)
     }
-    pub fn connect_all(&self) -> (PeerDirectory, Vec<(u16, std::io::Error)>) {
-        let mut directory = PeerDirectory::new();
-        let mut failures = Vec::new();
-        for endpoint in &self.endpoints {
-            let mut last_error = None;
-            for attempt in 0..self.attempts {
-                match TcpStream::connect_timeout(&endpoint.address, self.connect_timeout) {
-                    Ok(stream) => {
-                        let socket = PeerSocket::connect(stream);
-                        if directory
-                            .insert(endpoint.id, socket, endpoint.public_key.clone())
-                            .is_ok()
-                        {
-                            last_error = None;
-                            break;
-                        }
-                    }
-                    Err(error) => last_error = Some(error),
-                }
-                if attempt + 1 < self.attempts {
-                    std::thread::sleep(self.backoff.saturating_mul((attempt + 1) as u32));
-                }
-            }
-            if let Some(error) = last_error {
-                failures.push((endpoint.id, error));
-            }
-        }
-        (directory, failures)
-    }
-    pub fn connect_all_with_handshake(
+    pub fn connect_all_authenticated(
         &self,
         local_peer_id: u16,
         signer: &ValidatorSigner,
-        challenge: [u8; 32],
+        service: &ValidatorService,
     ) -> (PeerDirectory, Vec<(u16, std::io::Error)>) {
-        let mut directory = PeerDirectory::new();
+        let mut directory = PeerDirectory::new(
+            Arc::clone(&service.session_store),
+            service.session_store_path.clone(),
+        );
         let mut failures = Vec::new();
-        let outbound = match signer.sign_handshake(local_peer_id, challenge) {
-            Ok(handshake) => handshake,
-            Err(_) => {
-                for endpoint in &self.endpoints {
-                    failures.push((
-                        endpoint.id,
-                        std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            "handshake signing failed",
-                        ),
-                    ));
-                }
-                return (directory, failures);
-            }
-        };
         for endpoint in &self.endpoints {
-            match self.connect_with_handshake(endpoint, &outbound, challenge) {
-                Ok(socket) => {
+            match self.connect_authenticated(endpoint, local_peer_id, signer, service) {
+                Ok((socket, session)) => {
                     if let Err(error) =
-                        directory.insert(endpoint.id, socket, endpoint.public_key.clone())
+                        directory.insert(endpoint.id, socket, endpoint.public_key.clone(), session)
                     {
                         failures.push((
                             endpoint.id,
@@ -1181,20 +1176,39 @@ impl PeerConnector {
             std::io::Error::new(std::io::ErrorKind::NotConnected, "reconnect failed")
         }))
     }
-    pub fn connect_with_handshake(
+    pub fn connect_authenticated(
         &self,
         endpoint: &PeerEndpoint,
-        outbound: &PeerHandshake,
-        expected_challenge: [u8; 32],
-    ) -> Result<PeerSocket, std::io::Error> {
-        let mut socket = self.reconnect(endpoint)?;
-        socket.send_handshake(outbound)?;
-        let inbound = socket.receive_handshake()?;
-        inbound.verify(&endpoint.public_key).map_err(transport_io_error)?;
-        if inbound.challenge() != &expected_challenge || inbound.sender() != endpoint.id {
-            return Err(invalid_data("peer handshake identity mismatch"));
+        local_peer_id: u16,
+        signer: &ValidatorSigner,
+        service: &ValidatorService,
+    ) -> Result<(PeerSocket, PqPeerSession), std::io::Error> {
+        let result = (|| {
+            if service
+                .sender_for(signer)
+                .map_err(|_| invalid_data("unknown local session signer"))?
+                != local_peer_id
+            {
+                return Err(invalid_data("local session signer identity mismatch"));
+            }
+            let mut socket = self.reconnect(endpoint)?;
+            socket.set_timeouts(Some(Duration::from_secs(5)), Some(Duration::from_secs(5)))?;
+            let context = service.session_context(local_peer_id, endpoint.id)?;
+            let session = socket.initiate_pq_session(context, signer, &endpoint.public_key)?;
+            service.accept_session(&session)?;
+            socket.set_timeouts(None, None)?;
+            Ok((socket, session))
+        })();
+        match result {
+            Ok(connection) => {
+                service.record_peer_session_established();
+                Ok(connection)
+            }
+            Err(error) => {
+                service.record_peer_session_rejection();
+                Err(error)
+            }
         }
-        Ok(socket)
     }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1357,7 +1371,11 @@ fn decode_validator_snapshot(bytes: &[u8]) -> Result<(PersistedValidatorState, b
 }
 
 fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-    let temporary = path.with_extension("tmp");
+    let file_name =
+        path.file_name().ok_or_else(|| invalid_data("atomic persistence path has no file name"))?;
+    let mut temporary_name = file_name.to_os_string();
+    temporary_name.push(".tmp");
+    let temporary = path.with_file_name(temporary_name);
     let mut file = std::fs::File::create(&temporary)?;
     file.write_all(bytes)?;
     file.sync_all()?;
@@ -1482,6 +1500,7 @@ impl PeerSocket {
         self.stream.set_read_timeout(read)?;
         self.stream.set_write_timeout(write)
     }
+    #[cfg(test)]
     pub fn send(&mut self, envelope: &SignedPeerEnvelope) -> std::io::Result<()> {
         let mut frame = Vec::with_capacity(2 + 8 + 48 + 2 + envelope.signature_bytes().len());
         frame.extend_from_slice(&envelope.sender().to_be_bytes());
@@ -1506,6 +1525,7 @@ impl PeerSocket {
         self.stream.read_exact(&mut frame)?;
         Ok(frame)
     }
+    #[cfg(test)]
     pub fn receive_envelope(&mut self) -> std::io::Result<SignedPeerEnvelope> {
         let frame = self.receive_frame()?;
         if frame.len() < 2 + 8 + 48 + 2 {
@@ -1532,88 +1552,19 @@ impl PeerSocket {
             std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid peer envelope")
         })
     }
+    #[cfg(test)]
     pub fn send_message(
         &mut self,
         authenticated: &AuthenticatedConsensusMessage,
     ) -> std::io::Result<()> {
-        let body = authenticated.message.encode_body().map_err(transport_io_error)?;
-        let envelope = &authenticated.envelope;
-        let frame_len = 2 + 8 + 48 + 2 + envelope.signature_bytes().len() + 1 + 4 + body.len();
-        if frame_len > MAX_PEER_FRAME_LEN {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "peer frame exceeds limit",
-            ));
-        }
-        let mut frame = Vec::with_capacity(frame_len);
-        frame.extend_from_slice(&envelope.sender().to_be_bytes());
-        frame.extend_from_slice(&envelope.sequence().to_be_bytes());
-        frame.extend_from_slice(envelope.body_digest().as_bytes());
-        frame.extend_from_slice(&(envelope.signature_bytes().len() as u16).to_be_bytes());
-        frame.extend_from_slice(envelope.signature_bytes());
-        frame.push(authenticated.message.kind());
-        frame.extend_from_slice(&(body.len() as u32).to_be_bytes());
-        frame.extend_from_slice(&body);
+        let frame = authenticated.wire_bytes()?;
         self.stream.write_all(&(frame.len() as u32).to_be_bytes())?;
         self.stream.write_all(&frame)
     }
+    #[cfg(test)]
     pub fn receive_message(&mut self) -> std::io::Result<AuthenticatedConsensusMessage> {
         let frame = self.receive_frame()?;
-        if frame.len() < 65 {
-            return Err(invalid_data("consensus frame too short"));
-        }
-        let sender = u16::from_be_bytes([frame[0], frame[1]]);
-        let sequence = u64::from_be_bytes(frame[2..10].try_into().unwrap());
-        let digest = Digest384::new(frame[10..58].try_into().unwrap());
-        let signature_len = u16::from_be_bytes([frame[58], frame[59]]) as usize;
-        let kind_offset = 60_usize
-            .checked_add(signature_len)
-            .ok_or_else(|| invalid_data("invalid signature length"))?;
-        let body_offset = kind_offset + 5;
-        if body_offset > frame.len() {
-            return Err(invalid_data("truncated consensus frame"));
-        }
-        let body_len =
-            u32::from_be_bytes(frame[kind_offset + 1..body_offset].try_into().unwrap()) as usize;
-        if frame.len() != body_offset + body_len {
-            return Err(invalid_data("consensus body length mismatch"));
-        }
-        let signature =
-            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, frame[60..kind_offset].to_vec())
-                .map_err(|_| invalid_data("invalid ML-DSA signature"))?;
-        let envelope = SignedPeerEnvelope::new(sender, sequence, digest, signature)
-            .map_err(transport_io_error)?;
-        let message = ConsensusMessage::decode(frame[kind_offset], &frame[body_offset..])
-            .map_err(transport_io_error)?;
-        AuthenticatedConsensusMessage::new(envelope, message).map_err(transport_io_error)
-    }
-    pub fn send_handshake(&mut self, handshake: &PeerHandshake) -> std::io::Result<()> {
-        let frame_len = 2 + 32 + 2 + handshake.signature_bytes().len();
-        if frame_len > MAX_PEER_FRAME_LEN {
-            return Err(invalid_data("handshake exceeds limit"));
-        }
-        let mut frame = Vec::with_capacity(frame_len);
-        frame.extend_from_slice(&handshake.sender().to_be_bytes());
-        frame.extend_from_slice(handshake.challenge());
-        frame.extend_from_slice(&(handshake.signature_bytes().len() as u16).to_be_bytes());
-        frame.extend_from_slice(handshake.signature_bytes());
-        self.stream.write_all(&(frame.len() as u32).to_be_bytes())?;
-        self.stream.write_all(&frame)
-    }
-    pub fn receive_handshake(&mut self) -> std::io::Result<PeerHandshake> {
-        let frame = self.receive_frame()?;
-        if frame.len() < 36 {
-            return Err(invalid_data("handshake frame too short"));
-        }
-        let sender = u16::from_be_bytes([frame[0], frame[1]]);
-        let challenge: [u8; 32] = frame[2..34].try_into().unwrap();
-        let signature_len = u16::from_be_bytes([frame[34], frame[35]]) as usize;
-        if frame.len() != 36 + signature_len {
-            return Err(invalid_data("handshake signature length mismatch"));
-        }
-        let signature = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, frame[36..].to_vec())
-            .map_err(|_| invalid_data("invalid handshake signature"))?;
-        PeerHandshake::new(sender, challenge, signature).map_err(transport_io_error)
+        AuthenticatedConsensusMessage::from_wire_bytes(&frame)
     }
 }
 fn invalid_data(message: &'static str) -> std::io::Error {
@@ -1630,6 +1581,7 @@ pub enum TransportError {
     BodyDigestMismatch,
     Verification(VerificationError),
     Replay,
+    SenderMismatch,
     RateLimited,
 }
 
@@ -3318,6 +3270,8 @@ pub struct ValidatorService {
     outbound_high_water: std::sync::Mutex<BTreeMap<u16, u64>>,
     sender_keys: std::sync::Mutex<BTreeMap<u16, Vec<u8>>>,
     snapshot_path: std::path::PathBuf,
+    session_store: Arc<Mutex<PqSessionStore>>,
+    session_store_path: std::path::PathBuf,
     metrics: std::sync::Arc<ValidatorMetrics>,
 }
 impl ValidatorService {
@@ -3391,14 +3345,60 @@ impl ValidatorService {
             save_validator_snapshot(&snapshot_path, &engine, &replay, &outbound_high_water)
                 .map_err(ValidatorEngineError::Snapshot)?;
         }
+        let session_store_path = snapshot_path.with_extension("sessions");
+        let session_store = PqSessionStore::load_or_new(
+            &session_store_path,
+            engine.genesis_commitment,
+            engine.state.epoch(),
+            engine.state.protocol_revision(),
+        )
+        .map_err(ValidatorEngineError::Snapshot)?;
         Ok(Self {
             engine: std::sync::Mutex::new(engine),
             replay: std::sync::Mutex::new(replay),
             outbound_high_water: std::sync::Mutex::new(outbound_high_water),
             sender_keys: std::sync::Mutex::new(sender_keys),
             snapshot_path,
+            session_store: Arc::new(Mutex::new(session_store)),
+            session_store_path,
             metrics: std::sync::Arc::new(ValidatorMetrics::default()),
         })
+    }
+    fn session_context(&self, initiator: u16, responder: u16) -> std::io::Result<PqSessionContext> {
+        let engine =
+            self.engine.lock().map_err(|_| invalid_data("validator engine lock poisoned"))?;
+        if !self
+            .sender_keys
+            .lock()
+            .map_err(|_| invalid_data("validator sender-key lock poisoned"))?
+            .contains_key(&initiator)
+            || !self
+                .sender_keys
+                .lock()
+                .map_err(|_| invalid_data("validator sender-key lock poisoned"))?
+                .contains_key(&responder)
+        {
+            return Err(invalid_data("unknown PQ session peer"));
+        }
+        Ok(PqSessionContext {
+            chain: engine.genesis_commitment,
+            epoch: engine.state.epoch(),
+            protocol_revision: engine.state.protocol_revision(),
+            initiator,
+            responder,
+        })
+    }
+    fn accept_session(&self, session: &PqPeerSession) -> std::io::Result<()> {
+        self.session_store
+            .lock()
+            .map_err(|_| invalid_data("PQ session store lock poisoned"))?
+            .accept_and_save(session, &self.session_store_path)
+    }
+    fn record_peer_session_established(&self) {
+        self.metrics.peer_sessions_established.fetch_add(1, Ordering::Relaxed);
+    }
+    fn record_peer_session_rejection(&self) {
+        self.metrics.peer_session_rejections.fetch_add(1, Ordering::Relaxed);
     }
     pub fn state(&self) -> Result<ConsensusState, ValidatorServiceError> {
         self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned).map(|engine| engine.state())
@@ -3920,9 +3920,83 @@ impl ValidatorService {
             .find_map(|(sender, key)| (key == &public_key).then_some(*sender))
             .ok_or(ValidatorServiceError::UnknownSender)
     }
-    pub fn serve_peer(&self, mut peer: PeerSocket) -> std::io::Result<()> {
+    fn authenticate_inbound_peer(
+        &self,
+        mut peer: PeerSocket,
+        local_peer_id: u16,
+        signer: &ValidatorSigner,
+    ) -> std::io::Result<(PeerSocket, PqPeerSession)> {
+        let result = (|| {
+            if self.sender_for(signer).map_err(|_| invalid_data("unknown local session signer"))?
+                != local_peer_id
+            {
+                return Err(invalid_data("local session signer identity mismatch"));
+            }
+            peer.set_timeouts(Some(Duration::from_secs(5)), Some(Duration::from_secs(5)))?;
+            let (chain, epoch, protocol_revision, peer_keys) = {
+                let engine = self
+                    .engine
+                    .lock()
+                    .map_err(|_| invalid_data("validator engine lock poisoned"))?;
+                let keys = self
+                    .sender_keys
+                    .lock()
+                    .map_err(|_| invalid_data("validator sender-key lock poisoned"))?
+                    .clone();
+                (
+                    engine.genesis_commitment,
+                    engine.state.epoch(),
+                    engine.state.protocol_revision(),
+                    keys,
+                )
+            };
+            let session = peer.accept_pq_session(
+                chain,
+                epoch,
+                protocol_revision,
+                local_peer_id,
+                signer,
+                &peer_keys,
+            )?;
+            self.accept_session(&session)?;
+            peer.set_timeouts(None, None)?;
+            Ok((peer, session))
+        })();
+        match result {
+            Ok(connection) => {
+                self.record_peer_session_established();
+                Ok(connection)
+            }
+            Err(error) => {
+                self.record_peer_session_rejection();
+                Err(error)
+            }
+        }
+    }
+    fn receive_session_message(
+        &self,
+        peer: &mut PeerSocket,
+        session: &PqPeerSession,
+    ) -> std::io::Result<AuthenticatedConsensusMessage> {
+        let (session_sequence, message) = peer.receive_protected_message(session)?;
+        if message.envelope.sender() != session.peer {
+            return Err(invalid_data("protected frame sender does not match session peer"));
+        }
+        self.session_store
+            .lock()
+            .map_err(|_| invalid_data("PQ session store lock poisoned"))?
+            .accept_receive_and_save(session.id, session_sequence, &self.session_store_path)?;
+        Ok(message)
+    }
+    pub fn serve_authenticated_genesis_peer(
+        &self,
+        peer: PeerSocket,
+        local_peer_id: u16,
+        signer: &ValidatorSigner,
+    ) -> std::io::Result<()> {
+        let (mut peer, session) = self.authenticate_inbound_peer(peer, local_peer_id, signer)?;
         loop {
-            let message = match peer.receive_message() {
+            let message = match self.receive_session_message(&mut peer, &session) {
                 Ok(message) => message,
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
                 Err(error) => return Err(error),
@@ -3932,71 +4006,15 @@ impl ValidatorService {
             })?;
         }
     }
-    pub fn serve_authenticated_peer(
-        &self,
-        mut peer: PeerSocket,
-        local_peer_id: u16,
-        signer: &ValidatorSigner,
-        expected_peer_id: u16,
-        expected_public_key: &[u8],
-        challenge: [u8; 32],
-    ) -> std::io::Result<()> {
-        let inbound = peer.receive_handshake()?;
-        if inbound.sender() != expected_peer_id {
-            return Err(invalid_data("peer handshake sender mismatch"));
-        }
-        inbound.verify(expected_public_key).map_err(transport_io_error)?;
-        let response = signer
-            .sign_handshake(local_peer_id, challenge)
-            .map_err(|_| invalid_data("handshake signing failed"))?;
-        peer.send_handshake(&response)?;
-        self.serve_peer(peer)
-    }
-    pub fn serve_authenticated_genesis_peer(
-        &self,
-        mut peer: PeerSocket,
-        local_peer_id: u16,
-        signer: &ValidatorSigner,
-        challenge: [u8; 32],
-    ) -> std::io::Result<()> {
-        let inbound = peer.receive_handshake()?;
-        let expected_key = self
-            .sender_keys
-            .lock()
-            .map_err(|_| invalid_data("validator sender-key lock poisoned"))?
-            .get(&inbound.sender())
-            .cloned()
-            .ok_or_else(|| invalid_data("unknown peer handshake sender"))?;
-        inbound.verify(&expected_key).map_err(transport_io_error)?;
-        let response = signer
-            .sign_handshake(local_peer_id, challenge)
-            .map_err(|_| invalid_data("handshake signing failed"))?;
-        peer.send_handshake(&response)?;
-        self.serve_peer(peer)
-    }
     pub fn serve_authenticated_genesis_peer_with_voting(
         &self,
-        mut peer: PeerSocket,
+        peer: PeerSocket,
         local_peer_id: u16,
         signer: &ValidatorSigner,
-        challenge: [u8; 32],
     ) -> std::io::Result<()> {
-        let inbound = peer.receive_handshake()?;
-        let expected_key = self
-            .sender_keys
-            .lock()
-            .map_err(|_| invalid_data("validator sender-key lock poisoned"))?
-            .get(&inbound.sender())
-            .cloned()
-            .ok_or_else(|| invalid_data("unknown peer handshake sender"))?;
-        inbound.verify(&expected_key).map_err(transport_io_error)?;
-        peer.send_handshake(
-            &signer
-                .sign_handshake(local_peer_id, challenge)
-                .map_err(|_| invalid_data("handshake signing failed"))?,
-        )?;
+        let (mut peer, session) = self.authenticate_inbound_peer(peer, local_peer_id, signer)?;
         loop {
-            let message = match peer.receive_message() {
+            let message = match self.receive_session_message(&mut peer, &session) {
                 Ok(message) => message,
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
                 Err(error) => return Err(error),
@@ -4013,7 +4031,12 @@ impl ValidatorService {
                         format!("proposal admission failed: {error:?}"),
                     )
                 })?;
-                peer.send_message(&vote)?;
+                let session_sequence = self
+                    .session_store
+                    .lock()
+                    .map_err(|_| invalid_data("PQ session store lock poisoned"))?
+                    .reserve_send_and_save(session.id, &self.session_store_path)?;
+                peer.send_protected_message(&session, session_sequence, &vote)?;
             } else {
                 self.process_message(message)
                     .map_err(|_| invalid_data("consensus admission failed"))?;
@@ -4361,90 +4384,6 @@ mod tests {
             Err(TransportError::Replay)
         );
         sender.join().unwrap();
-    }
-
-    #[test]
-    fn loopback_handshake_proves_ml_dsa_peer_identity() {
-        let key = SigningKey::<MlDsa44>::from_seed(&Seed::from([13; 32]));
-        let placeholder = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420]).unwrap();
-        let unsigned = PeerHandshake::new(5, [4; 32], placeholder).unwrap();
-        let handshake = PeerHandshake::new(
-            5,
-            [4; 32],
-            ProtocolSignature::new(
-                CryptoSuiteId::ML_DSA_44,
-                key.sign(&unsigned.signing_payload()).encode().to_vec(),
-            )
-            .unwrap(),
-        )
-        .unwrap();
-        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let address = listener.local_addr().unwrap();
-        let sender = std::thread::spawn(move || {
-            let mut socket = PeerSocket::connect(TcpStream::connect(address).unwrap());
-            socket.send_handshake(&handshake).unwrap();
-        });
-        let (stream, _) = listener.accept().unwrap();
-        let mut socket = PeerSocket::connect(stream);
-        let received = socket.receive_handshake().unwrap();
-        received.verify(key.verifying_key().encode().as_slice()).unwrap();
-        assert_eq!(received.sender(), 5);
-        sender.join().unwrap();
-    }
-
-    #[test]
-    fn reconnect_requires_matching_authenticated_peer_handshake() {
-        let client_key = SigningKey::<MlDsa44>::from_seed(&Seed::from([16; 32]));
-        let server_key = SigningKey::<MlDsa44>::from_seed(&Seed::from([17; 32]));
-        let server_public_key = server_key.verifying_key().encode().to_vec();
-        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let address = listener.local_addr().unwrap();
-        let server_challenge = [19; 32];
-        let server = std::thread::spawn(move || {
-            let (stream, _) = listener.accept().unwrap();
-            let mut socket = PeerSocket::connect(stream);
-            let _client = socket.receive_handshake().unwrap();
-            let placeholder = PeerHandshake::new(
-                8,
-                server_challenge,
-                ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420]).unwrap(),
-            )
-            .unwrap();
-            let response = PeerHandshake::new(
-                8,
-                server_challenge,
-                ProtocolSignature::new(
-                    CryptoSuiteId::ML_DSA_44,
-                    server_key.sign(&placeholder.signing_payload()).encode().to_vec(),
-                )
-                .unwrap(),
-            )
-            .unwrap();
-            socket.send_handshake(&response).unwrap();
-        });
-        let endpoint = PeerEndpoint { id: 8, address, public_key: server_public_key };
-        let connector = PeerConnector::new(vec![endpoint.clone()])
-            .unwrap()
-            .with_retry_policy(1, Duration::from_millis(100), Duration::ZERO)
-            .unwrap();
-        let placeholder = PeerHandshake::new(
-            7,
-            [18; 32],
-            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420]).unwrap(),
-        )
-        .unwrap();
-        let outbound = PeerHandshake::new(
-            7,
-            [18; 32],
-            ProtocolSignature::new(
-                CryptoSuiteId::ML_DSA_44,
-                client_key.sign(&placeholder.signing_payload()).encode().to_vec(),
-            )
-            .unwrap(),
-        )
-        .unwrap();
-        connector.connect_with_handshake(&endpoint, &outbound, server_challenge).unwrap();
-        server.join().unwrap();
     }
 
     #[test]
@@ -6006,6 +5945,9 @@ mod tests {
         .unwrap();
         let path =
             std::env::temp_dir().join(format!("activechain-live-{}.bin", std::process::id()));
+        let session_path = path.with_extension("sessions");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&session_path);
         let service = std::sync::Arc::new(
             ValidatorService::from_genesis(
                 ConsensusState::new_with_validator_set_root(1, genesis.validator_set_root()),
@@ -6025,24 +5967,42 @@ mod tests {
                     PeerSocket::connect(stream),
                     1,
                     &server_signer,
-                    [73; 32],
                 )
                 .unwrap();
         });
         let mut client = PeerSocket::connect(TcpStream::connect(address).unwrap());
-        client.send_handshake(&remote.sign_handshake(2, [73; 32]).unwrap()).unwrap();
-        client.receive_handshake().unwrap().verify(&local.public_key()).unwrap();
+        let session = client
+            .initiate_pq_session(
+                PqSessionContext {
+                    chain: genesis.genesis_commitment(),
+                    epoch: genesis.epoch(),
+                    protocol_revision: genesis.protocol_revision(),
+                    initiator: 2,
+                    responder: 1,
+                },
+                &remote,
+                &local.public_key(),
+            )
+            .unwrap();
         let proposal = sign_genesis_proposal(&local, &genesis, 1, 0, Digest384::new([75; 48]));
         client
-            .send_message(
+            .send_protected_message(
+                &session,
+                1,
                 &remote.sign_envelope(2, 1, ConsensusMessage::Proposal(proposal)).unwrap(),
             )
             .unwrap();
-        assert!(matches!(client.receive_message().unwrap().message, ConsensusMessage::Vote(_)));
+        assert!(matches!(
+            client.receive_protected_message(&session).unwrap().1.message,
+            ConsensusMessage::Vote(_)
+        ));
         drop(client);
         server.join().unwrap();
         assert_eq!(service.metrics().proposals, 1);
+        assert_eq!(service.metrics().peer_sessions_established, 1);
+        assert_eq!(service.metrics().peer_session_rejections, 0);
         let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(session_path);
     }
 
     #[test]
@@ -6075,7 +6035,9 @@ mod tests {
         .unwrap();
         let path = std::env::temp_dir()
             .join(format!("activechain-local-sequence-{}.bin", std::process::id()));
+        let session_path = path.with_extension("sessions");
         let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&session_path);
         let service = std::sync::Arc::new(
             ValidatorService::from_genesis(
                 ConsensusState::new_with_validator_set_root(1, genesis.validator_set_root()),
@@ -6098,20 +6060,32 @@ mod tests {
                     PeerSocket::connect(stream),
                     1,
                     &server_signer,
-                    [113; 32],
                 )
                 .unwrap();
         });
         let mut client = PeerSocket::connect(TcpStream::connect(address).unwrap());
-        client.send_handshake(&remote.sign_handshake(2, [113; 32]).unwrap()).unwrap();
-        client.receive_handshake().unwrap().verify(&local.public_key()).unwrap();
+        let session = client
+            .initiate_pq_session(
+                PqSessionContext {
+                    chain: genesis.genesis_commitment(),
+                    epoch: genesis.epoch(),
+                    protocol_revision: genesis.protocol_revision(),
+                    initiator: 2,
+                    responder: 1,
+                },
+                &remote,
+                &local.public_key(),
+            )
+            .unwrap();
         let proposal = sign_genesis_proposal(&local, &genesis, 1, 0, Digest384::new([114; 48]));
         client
-            .send_message(
+            .send_protected_message(
+                &session,
+                1,
                 &remote.sign_envelope(2, u64::MAX, ConsensusMessage::Proposal(proposal)).unwrap(),
             )
             .unwrap();
-        let response = client.receive_message().unwrap();
+        let response = client.receive_protected_message(&session).unwrap().1;
         assert_eq!(response.envelope.sender(), 1);
         assert_eq!(response.envelope.sequence(), 41);
         assert!(matches!(response.message, ConsensusMessage::Vote(_)));
@@ -6124,6 +6098,7 @@ mod tests {
         ));
         drop(service);
         std::fs::remove_file(path).unwrap();
+        std::fs::remove_file(session_path).unwrap();
     }
 
     #[test]
@@ -6155,6 +6130,9 @@ mod tests {
         .unwrap();
         let path =
             std::env::temp_dir().join(format!("activechain-live-qc-{}.bin", std::process::id()));
+        let session_path = path.with_extension("sessions");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&session_path);
         let receiver = std::sync::Arc::new(
             ValidatorService::from_genesis(
                 ConsensusState::new_with_validator_set_root(1, genesis.validator_set_root()),
@@ -6176,25 +6154,31 @@ mod tests {
                     [82; 32],
                 );
                 service
-                    .serve_authenticated_genesis_peer(
-                        PeerSocket::connect(stream),
-                        1,
-                        &local_signer,
-                        [91; 32],
-                    )
+                    .serve_authenticated_genesis_peer(PeerSocket::connect(stream), 1, &local_signer)
                     .unwrap();
             });
             let mut client = PeerSocket::connect(TcpStream::connect(address).unwrap());
-            client.send_handshake(&sender.sign_handshake(sender_id, [91; 32]).unwrap()).unwrap();
-            client.receive_handshake().unwrap().verify(&signers[0].public_key()).unwrap();
-            client.send_message(&message).unwrap();
+            let session = client
+                .initiate_pq_session(
+                    PqSessionContext {
+                        chain: genesis.genesis_commitment(),
+                        epoch: genesis.epoch(),
+                        protocol_revision: genesis.protocol_revision(),
+                        initiator: sender_id,
+                        responder: 1,
+                    },
+                    sender,
+                    &signers[0].public_key(),
+                )
+                .unwrap();
+            client.send_protected_message(&session, 1, &message).unwrap();
             drop(client);
             server.join().unwrap();
         };
         let proposal = sign_genesis_proposal(&signers[0], &genesis, 1, 0, Digest384::new([92; 48]));
         let proposal_message =
             signers[0].sign_envelope(1, 1, ConsensusMessage::Proposal(proposal.clone())).unwrap();
-        send(&signers[0], 1, proposal_message);
+        receiver.process_message(proposal_message).unwrap();
         let mut votes = Vec::new();
         for (index, signer) in signers.iter().enumerate() {
             receiver
@@ -6221,10 +6205,15 @@ mod tests {
         }
         for vote in votes {
             let sender_id = vote.envelope.sender();
-            send(&signers[sender_id as usize - 1], sender_id, vote);
+            if sender_id == 1 {
+                receiver.process_message(vote).unwrap();
+            } else {
+                send(&signers[sender_id as usize - 1], sender_id, vote);
+            }
         }
         assert_eq!(receiver.state().unwrap().finalized_height(), 0);
         let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(session_path);
     }
 
     #[test]
@@ -6520,13 +6509,11 @@ mod tests {
             address: "127.0.0.1:9".parse().unwrap(),
             public_key: vec![0; 1312],
         };
-        let connector = PeerConnector::new(vec![endpoint])
+        let connector = PeerConnector::new(vec![endpoint.clone()])
             .unwrap()
             .with_retry_policy(1, Duration::from_millis(5), Duration::ZERO)
             .unwrap();
-        let (directory, failures) = connector.connect_all();
-        assert!(directory.is_empty());
-        assert_eq!(failures.len(), 1);
+        assert!(connector.reconnect(&endpoint).is_err());
         assert!(matches!(
             PeerConnector::new(vec![PeerEndpoint {
                 id: 1,
@@ -6849,5 +6836,33 @@ fn validator_key_files_are_owner_only_manifest_bound_and_not_legacy_derived() {
         ValidatorSigner::from_key_file(&legacy_path, &legacy_genesis, &legacy_entry),
         Err(ValidatorKeyFileError::LegacyDeterministicKey)
     ));
+    std::fs::remove_dir_all(directory).unwrap();
+}
+#[test]
+fn atomic_persistence_files_with_one_stem_do_not_share_a_temporary_path() {
+    let directory =
+        std::env::temp_dir().join(format!("activechain-atomic-paths-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir(&directory).unwrap();
+    let snapshot = directory.join("validator.snapshot");
+    let sessions = directory.join("validator.sessions");
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    let first_barrier = Arc::clone(&barrier);
+    let first = std::thread::spawn(move || {
+        first_barrier.wait();
+        for _ in 0..32 {
+            write_atomic(&snapshot, b"snapshot").unwrap();
+        }
+    });
+    let second = std::thread::spawn(move || {
+        barrier.wait();
+        for _ in 0..32 {
+            write_atomic(&sessions, b"sessions").unwrap();
+        }
+    });
+    first.join().unwrap();
+    second.join().unwrap();
+    assert_eq!(std::fs::read(directory.join("validator.snapshot")).unwrap(), b"snapshot");
+    assert_eq!(std::fs::read(directory.join("validator.sessions")).unwrap(), b"sessions");
     std::fs::remove_dir_all(directory).unwrap();
 }

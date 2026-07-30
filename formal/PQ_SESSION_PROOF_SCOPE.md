@@ -1,7 +1,7 @@
 # ActiveChain PQ peer-session proof scope
 
-Status: development protocol model; not cryptographic certification and not yet a proof of the
-deployed Rust transport.
+Status: development protocol model and trace-aligned Rust implementation; not cryptographic
+certification or whole-transport verification.
 
 The executable Tamarin theory is
 `formal/tamarin/activechain_pq_session.spthy`. It models the intended combined boundary between
@@ -13,8 +13,10 @@ protocol.
 ## Model boundary
 
 The model uses Tamarin's perfect symbolic signing primitive for ML-DSA-44. ML-KEM-768 is
-abstracted by perfect public-key encryption: the initiator encapsulates a fresh KEM secret to the
-responder's registered decapsulation public key, and only the matching private key can recover it.
+abstracted by a suite-distinct perfect public-key encryption equation: the initiator encapsulates a
+fresh KEM secret to the responder's fresh per-challenge decapsulation public key, and only the
+matching private key can recover it. Separate `kempk`/`kemenc` constructors prevent symbolic
+ML-DSA/ML-KEM key substitution, matching the runtime's pinned suites and disjoint key lengths.
 The usable session key is the ideal hash of a dedicated KDF domain, that KEM secret, and the full
 signed transcript. Perfect symmetric encryption represents the protected envelope. These are
 Dolev-Yao abstractions; the model does not prove FIPS 203, FIPS 204, the RustCrypto
@@ -23,12 +25,13 @@ construction.
 
 An accepted session transcript binds all of:
 
-- protocol version `ACTIVECHAIN-PQ-SESSION-V1`;
+- session version `ACTIVECHAIN-PQ-SESSION-V2` and protocol revision;
 - chain identity and validator-set epoch;
 - fixed suites `ML-DSA-44` and `ML-KEM-768`;
 - initiator and responder identities;
 - fresh client and server nonces;
-- a fresh responder-selected session identifier; and
+- a responder challenge identifier derived from the complete context and fresh material; and
+- the responder's ephemeral ML-KEM public key; and
 - the encapsulated shared-secret ciphertext.
 
 The responder authenticates the complete client-finish transcript. The initiator accepts only a
@@ -37,7 +40,7 @@ The model has no accepting rule for a classical or alternate suite. Linear chall
 confirmation, and receive-right facts permit replayable network bytes while preventing a concrete
 session or its first protected message from being accepted twice.
 
-The protected-message slice is deliberately bounded to `sequence-0`. Its associated data contains
+The protected-message slice is deliberately bounded to `sequence-1`. Its associated data contains
 the chain, epoch, session identifier, both peers, protocol domain, and sequence. General unbounded
 sequence advancement and crash recovery remain implementation and proof obligations.
 
@@ -46,8 +49,8 @@ sequence advancement and crash recovery remain implementation and proof obligati
 Three adversarial reveal rules are present:
 
 - revealing a peer's long-term signing key permits impersonation from that point;
-- revealing the responder's static ML-KEM decapsulation key exposes recorded past ciphertexts;
-  consequently this model makes no forward-secrecy claim; and
+- revealing a session's ephemeral ML-KEM decapsulation key exposes that session's recorded
+  ciphertext; the model does not prove key erasure or forward secrecy; and
 - revealing an established session key defeats that session's confidentiality and message
   authenticity.
 
@@ -68,11 +71,11 @@ Tamarin 1.12.0 completed all eleven all-traces proofs with successful well-forme
 - `protected_envelope_is_accepted_once` (9 steps); and
 - `explicit_session_key_reveal_requires_an_established_session` (3 steps);
 - `responder_acceptance_authenticates_initiator` (9 steps);
-- `initiator_acceptance_authenticates_responder` (28 steps);
-- `honest_session_protected_acceptance_has_a_sender` (17 steps); and
-- `honest_established_secret_requires_compromise_to_leak` (14 steps).
+- `initiator_acceptance_authenticates_responder` (7 steps);
+- `honest_session_protected_acceptance_has_a_sender` (16 steps); and
+- `honest_established_secret_requires_compromise_to_leak` (13 steps).
 
-The final complete strengthened proof run took approximately 175 seconds on the local machine and
+The final complete strengthened V2 proof run took approximately 45 seconds on the local machine and
 fits a 300-second process bound:
 
 ```sh
@@ -92,9 +95,12 @@ established session.
 
 Responder acceptance has either a prior initiator finish with the exact session, context,
 transcript, and derived key, or a prior compromise of that initiator's signing key. Initiator
-acceptance has a prior exact responder acceptance unless both the responder signing key and its
-ML-KEM decapsulation key were compromised first. Because a modeled session-key reveal requires a
-prior responder acceptance, it is already covered by the first branch.
+acceptance has a prior exact responder acceptance unless the responder's signing key was
+compromised first. That exception is intentionally sufficient: an attacker holding the identity
+signing key can generate and sign its own ephemeral KEM challenge. The ephemeral KEM exchange
+provides session secrecy and key confirmation, not a second independent responder identity.
+Because a modeled session-key reveal requires a prior responder acceptance, it is already covered
+by the first branch.
 
 Protected-message origin and session secrecy are stated for a matching honest initiator finish and
 responder acceptance. This condition matters: a party that has stolen an initiator signing key can
@@ -116,30 +122,24 @@ identifier. Tamarin found a 21-step counterexample in which a compromised initia
 caused the responder to accept a different transcript for that identifier. The corrected theorem
 requires the honest finish and responder acceptance to agree on the exact transcript and derived
 key. It then verifies in 17 steps. Both counterexamples remain part of the proof record; they are
-not represented as properties of the deployed Rust code, which does not yet implement this target
-session protocol.
+retained as design evidence rather than claims beyond the modeled boundary.
 
-## Rust conformance gaps
+## Rust trace alignment and remaining gaps
 
-The model is a target contract and is currently stronger than the implementation:
+`crates/consensus-runtime/src/pq_session.rs` implements the modeled V2 sequence: a fresh client
+hello, responder-signed challenge with a fresh ephemeral ML-KEM-768 recipient, signed client
+finish, transcript-bound KDF, signed responder key confirmation, and session-bound protected
+frames. Its transcript additionally binds explicit timestamps and the exact numeric protocol
+revision. Durable bounded session identifiers and protected send/receive high-water marks reject
+restart replay; session keys are not persisted.
 
-1. `PeerHandshake::signing_payload` binds its domain, sender, and 32-byte challenge, but does not
-   bind the chain identity, epoch, responder identity, KEM public key, selected suites, or a full
-   bidirectional transcript.
-2. `ProtectedEnvelope` implements ML-KEM-768 encapsulation plus a SHAKE256 stream and tag, but its
-   encoded `ACPE1` envelope does not carry a canonical chain/epoch/session/suite context. Associated
-   data is an untyped byte slice supplied by each caller, so the required context is not enforced
-   structurally.
-3. The runtime does not yet implement the combined challenge, KEM ciphertext, signed client
-   finish, transcript-bound session KDF, responder key confirmation, and established-session state
-   represented here.
-4. Replay high-water state applies to signed consensus envelopes, not to a durable, chain-bound
-   KEM session identifier and protected-message sequence across restart.
-5. The static ML-KEM recipient design has no forward secrecy. Achieving forward secrecy requires
-   an ephemeral or ratcheted PQ construction, key erasure semantics, new vectors, and a new proof.
-
-Until these gaps are implemented and checked against deterministic transcript vectors, the proof
-must not be described as verification of the live peer transport.
+This is trace alignment, not proof that the Rust parser or cryptography refines the symbolic
+model. Tamarin abstracts the numeric revision as one literal, treats the challenge identifier as
+fresh instead of SHAKE-derived, omits timestamps and bounded clock skew, and models one protected
+message rather than the implementation's durable sequence machine. Deterministic vectors and
+negative Rust tests cover the byte-level constants and parser boundary separately. The proof must
+therefore be described as verification of the symbolic session design, with implementation
+conformance supported by tests—not as verification of the entire live transport.
 
 ## Unverified boundaries
 
