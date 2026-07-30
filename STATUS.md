@@ -2112,13 +2112,13 @@ wallet and all testnets remain explicitly developmental until this milestone com
       `origin/main`.
   - [ ] Complete adversarial security, compatibility, and operational qualification
     ([GitHub issue #359](https://github.com/advatar/ActiveChain/issues/359)).
-    - [ ] Consolidate prompt-injection, substitution, replay, lifecycle, malformed payload, and
+    - [x] Consolidate prompt-injection, substitution, replay, lifecycle, malformed payload, and
       deceptive A2UI cases into an automated qualification suite.
-    - [ ] Publish the supported MCP/A2UI compatibility matrix and fail-closed version policy.
-    - [ ] Add incident-disable, privacy/telemetry, audit-log, and resource-exhaustion operator
+    - [x] Publish the supported MCP/A2UI compatibility matrix and fail-closed version policy.
+    - [x] Add incident-disable, privacy/telemetry, audit-log, and resource-exhaustion operator
       guidance plus an external security-audit scope update.
-    - [ ] Run normal affected tests and strict Clippy, merge, and verify reachability in
-      `origin/main`; the exhaustive deterministic-kernel gate is explicitly skipped.
+    - [ ] Normal affected tests and strict Clippy are green; merge and `origin/main` reachability
+      verification remain, and the exhaustive deterministic-kernel gate is explicitly skipped.
   - [ ] Announce the planned MCP and constrained A2UI interfaces on the public landing page
     without presenting them as shipped or audited
     ([GitHub issue #364](https://github.com/advatar/ActiveChain/issues/364)).
