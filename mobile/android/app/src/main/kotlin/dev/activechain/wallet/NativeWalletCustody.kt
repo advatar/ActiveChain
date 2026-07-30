@@ -19,6 +19,9 @@ import javax.crypto.SecretKey
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
+import org.bouncycastle.pqc.crypto.mldsa.MLDSAParameters
+import org.bouncycastle.pqc.crypto.mldsa.MLDSAPrivateKeyParameters
+import org.bouncycastle.pqc.crypto.mldsa.MLDSASigner
 
 enum class AndroidCustodyCapability {
     STRONGBOX_WRAPPED_ML_DSA_44,
@@ -50,6 +53,33 @@ interface AndroidMLDSA44Engine {
     fun generateSeed(): ByteArray
     fun publicKey(seed: ByteArray): ByteArray
     fun sign(payload: ByteArray, seed: ByteArray): ByteArray
+}
+
+/** Wire-compatible FIPS 204 ML-DSA-44 implementation that remains inside the Kotlin provider. */
+class BouncyCastleMLDSA44Engine(
+    private val random: SecureRandom = SecureRandom(),
+) : AndroidMLDSA44Engine {
+    override fun generateSeed(): ByteArray = ByteArray(32).also(random::nextBytes)
+
+    override fun publicKey(seed: ByteArray): ByteArray = privateKey(seed).publicKey
+
+    override fun sign(payload: ByteArray, seed: ByteArray): ByteArray {
+        val signer = MLDSASigner()
+        signer.init(true, privateKey(seed))
+        signer.update(payload, 0, payload.size)
+        return signer.generateSignature()
+    }
+
+    private fun privateKey(seed: ByteArray): MLDSAPrivateKeyParameters {
+        if (seed.size != 32) {
+            throw AndroidCustodyException(AndroidCustodyFailure.INVALID_KEY_MATERIAL)
+        }
+        return try {
+            MLDSAPrivateKeyParameters(MLDSAParameters.ml_dsa_44, seed)
+        } catch (_: Exception) {
+            throw AndroidCustodyException(AndroidCustodyFailure.INVALID_KEY_MATERIAL)
+        }
+    }
 }
 
 interface AndroidCustodyRecordStore {

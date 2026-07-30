@@ -3,10 +3,36 @@ package dev.activechain.wallet
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import org.bouncycastle.pqc.crypto.mldsa.MLDSAParameters
+import org.bouncycastle.pqc.crypto.mldsa.MLDSAPublicKeyParameters
+import org.bouncycastle.pqc.crypto.mldsa.MLDSASigner
 
 class NativeWalletCustodyTest {
+    @Test
+    fun bouncyCastleEngineProducesWireLengthAndVerifiableMLDSA44() {
+        val engine = BouncyCastleMLDSA44Engine()
+        val seed = engine.generateSeed()
+        val payload = "ACTIVECHAIN-ANDROID-CUSTODY-INTEROP-V1".encodeToByteArray()
+        val publicKey = engine.publicKey(seed)
+        val signature = engine.sign(payload, seed)
+
+        assertEquals(32, seed.size)
+        assertEquals(1_312, publicKey.size)
+        assertEquals(2_420, signature.size)
+        val verifier = MLDSASigner()
+        verifier.init(false, MLDSAPublicKeyParameters(MLDSAParameters.ml_dsa_44, publicKey))
+        verifier.update(payload, 0, payload.size)
+        assertTrue(verifier.verifySignature(signature))
+        payload[0] = (payload[0].toInt() xor 1).toByte()
+        val tamperedVerifier = MLDSASigner()
+        tamperedVerifier.init(false, MLDSAPublicKeyParameters(MLDSAParameters.ml_dsa_44, publicKey))
+        tamperedVerifier.update(payload, 0, payload.size)
+        assertFalse(tamperedVerifier.verifySignature(signature))
+    }
+
     @Test
     fun provisionAndSignRequireCurrentAnchorsAndZeroizePlaintext() {
         val fixture = Fixture()
