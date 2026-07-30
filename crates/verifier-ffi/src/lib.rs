@@ -999,7 +999,9 @@ mod tests {
         .unwrap();
         let pre_state = activechain_state_tree::StateCommitment::new(digest(42), 0);
         let post_state = activechain_state_tree::StateCommitment::new(digest(46), 0);
-        let receipt = BlockReceipt::new(digest(50), 9, pre_state, post_state, vec![]).unwrap();
+        let receipt =
+            BlockReceipt::new(digest(50), 9, pre_state, post_state, digest(47), digest(48), vec![])
+                .unwrap();
         let receipt_root = commit(DomainTag::CANONICAL_VALUE, &receipt).unwrap();
         let header = FinalizedBlockHeader {
             inputs: ProofPublicInputs {

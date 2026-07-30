@@ -143,6 +143,23 @@ Tracked by [GitHub issue #336](https://github.com/advatar/ActiveChain/issues/336
 - [x] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
   #336.
 
+## Critical fee recovery — bounded economically backed tickets
+
+Tracked by [GitHub issue #337](https://github.com/advatar/ActiveChain/issues/337).
+
+- [x] Define canonical ticket backing, issuer authority, uniqueness, validity, and replay-window
+  semantics with an explicit consensus state-growth bound.
+- [x] Verify and atomically consume backing with each charged action before state execution.
+- [x] Replace permanent ticket history with consensus-safe expiry pruning and bounded snapshot
+  migration while preserving replay rejection.
+- [x] Add forged, duplicate, expired, future, restart, pruning-boundary, saturation, property, and
+  sustained-hostile-traffic tests.
+- [x] Raise the deterministic-kernel job timeout so the exact candidate can complete the full
+  formal, model-checking, test, release, rehearsal, and vector gate without a deterministic
+  120-minute cancellation.
+- [ ] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
+  #337.
+
 ## Critical transport recovery — mutually authenticated peer sessions
 
 Tracked by [GitHub issue #330](https://github.com/advatar/ActiveChain/issues/330).

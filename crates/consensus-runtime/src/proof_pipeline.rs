@@ -9,6 +9,7 @@ use activechain_canonical_codec::{
     decode_envelope, encode_envelope,
 };
 use activechain_devnet_kernel::{BlockReceipt, ChainState};
+use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{Digest384, PrincipalId};
 use sha3::{
     Shake256,
@@ -316,6 +317,12 @@ impl CanonicalDecode for DurableFinalizedState {
             proof_statement: Digest384::decode(d)?,
             post_supply: u128::decode(d)?,
         };
+        let chain_state_commitment = value
+            .chain_state
+            .commitment()
+            .map_err(|_| DecodeError::InvalidValue("invalid committed chain state"))?;
+        let receipt_root = commit(DomainTag::CANONICAL_VALUE, &value.receipt)
+            .map_err(|_| DecodeError::InvalidValue("invalid committed block receipt"))?;
         if value
             .header
             .digest()
@@ -324,6 +331,8 @@ impl CanonicalDecode for DurableFinalizedState {
             || value.header.proof_statement_commitment != value.proof_statement
             || value.chain_state.height() != value.receipt.height()
             || value.receipt.post_state() != value.header.inputs.post_state()
+            || value.receipt.post_chain_state() != chain_state_commitment
+            || value.header.inputs.receipt_root != receipt_root
         {
             return Err(DecodeError::InvalidValue("inconsistent finalized state snapshot"));
         }
@@ -332,7 +341,7 @@ impl CanonicalDecode for DurableFinalizedState {
 }
 impl CanonicalType for DurableFinalizedState {
     const TYPE_TAG: u16 = 0x007c;
-    const SCHEMA_VERSION: u16 = 1;
+    const SCHEMA_VERSION: u16 = 2;
     const MAX_ENCODED_LEN: usize = DurableProofPipeline::MAX_ENCODED_LEN
         + ChainState::MAX_ENCODED_LEN
         + FinalizedBlockHeader::MAX_ENCODED_LEN

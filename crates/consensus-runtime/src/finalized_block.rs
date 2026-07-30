@@ -331,7 +331,15 @@ mod tests {
             ChainState::genesis(chain, objects, vec![], ResourcePrices::new(1, 1, 1, 1, 1, 1))
                 .unwrap();
         let pre_state = commit_objects(state.objects().objects()).unwrap();
-        let block = DevnetBlock::new(chain, 1, Digest384::ZERO, pre_state, vec![]).unwrap();
+        let block = DevnetBlock::new(
+            chain,
+            1,
+            Digest384::ZERO,
+            pre_state,
+            state.commitment().unwrap(),
+            vec![],
+        )
+        .unwrap();
         let root = Digest384::new([2; 48]);
         let genesis = Digest384::new([3; 48]);
         let (inputs, _, _, _) = derive_proof_public_inputs(
@@ -374,14 +382,14 @@ mod tests {
         assert_eq!(
             digest,
             Digest384::new([
-                139, 108, 140, 243, 24, 38, 191, 131, 149, 118, 10, 137, 49, 206, 181, 123, 33,
-                189, 113, 133, 239, 42, 98, 189, 125, 217, 207, 52, 241, 212, 18, 2, 45, 147, 134,
-                199, 222, 49, 148, 131, 58, 163, 166, 253, 80, 83, 71, 206,
+                75, 31, 241, 62, 249, 164, 191, 150, 83, 3, 113, 136, 73, 188, 88, 185, 176, 91,
+                10, 217, 255, 1, 156, 36, 230, 28, 62, 186, 224, 152, 90, 130, 172, 171, 237, 20,
+                187, 77, 86, 162, 105, 25, 46, 235, 11, 56, 153, 143,
             ])
         );
         assert_eq!(
             include_str!("../../../testing/vectors/consensus/finalized-block-v1.txt"),
-            "header_type_tag=0x0079\nheader_schema_version=2\nproof_inputs_type_tag=0x0078\nproof_inputs_schema_version=2\nheader_digest=8b6c8cf31826bf8395760a8931ceb57b21bd7185ef2a62bd7dd9cf34f1d412022d9386c7de3194833aa3a6fd505347ce\n"
+            "header_type_tag=0x0079\nheader_schema_version=2\nproof_inputs_type_tag=0x0078\nproof_inputs_schema_version=2\nheader_digest=4b1ff13ef9a4bf965303718849bc58b9b05b0ad9ff019c24e61c3ebae0985a82acabed14bb4d56a269192eeb0b38998f\n"
         );
         let context = ConsensusVoteContext::new_with_revision(genesis, 7, root, 4).unwrap();
         let certificate = QuorumCertificate::new(

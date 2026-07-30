@@ -144,6 +144,7 @@ dependencies = [
  "activechain-finality-types",
  "activechain-object-vm",
  "activechain-privacy-kernel",
+ "activechain-protocol-commitment",
  "activechain-protocol-types",
  "activechain-rpc-server",
  "activechain-rpc-types",
