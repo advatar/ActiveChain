@@ -673,6 +673,29 @@ mod tests {
     }
 
     #[test]
+    fn incompatible_or_downgraded_protocol_versions_fail_before_tool_advertisement() {
+        for version in ["2024-11-05", "2025-03-26", "activechain.agent-interfaces.v0", ""] {
+            let mut session = McpSession::new(FixtureBackend);
+            let response: Value = serde_json::from_slice(
+                &session
+                    .handle_line(&request(
+                        1,
+                        "initialize",
+                        json!({"protocolVersion":version,"capabilities":{}}),
+                    ))
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(response["error"]["code"], -32602);
+            let tools: Value = serde_json::from_slice(
+                &session.handle_line(&request(2, "tools/list", json!({}))).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(tools["error"]["code"], -32002);
+        }
+    }
+
+    #[test]
     fn tools_are_deterministic_read_only_and_structured() {
         let mut session = ready_session();
         let listed: Value = serde_json::from_slice(
