@@ -2,6 +2,7 @@
 
 mod access;
 mod faucet;
+mod operator_faucet;
 
 pub use access::{
     AccessCharge, RpcAccessController, load_access_terms, verify_access_terms, write_access_terms,
@@ -10,6 +11,7 @@ pub use faucet::{
     DurableFaucet, FaucetError, FaucetPolicy, FaucetReconciliation, SybilPolicy,
     faucet_abuse_identity, faucet_settlement_commitment,
 };
+pub use operator_faucet::{DurableOperatorFaucetSettlement, FaucetEnvelopeAuthorizer};
 
 use activechain_action_kernel::{ActionEnvelope, action_id};
 use activechain_application_primitives::{DigestAnchorStatementV1, DurableAnchorRegistry};
