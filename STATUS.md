@@ -271,7 +271,12 @@ Tracked by [GitHub issue #345](https://github.com/advatar/ActiveChain/issues/345
 
 - [x] Publish a bounded v1.0 conformance surface and Go verifier milestones in
   `spec/protocol/P-134-independent-client.md`.
-- [ ] Freeze the language-neutral vectors and implement the independent verifier through M2.
+- [ ] Publish a machine-counted per-version conformance budget, named funding allocation, and
+  delivery estimate for the independent Go verifier.
+- [ ] Correct the current TSV smoke reader to M0 status and qualify independent-verification
+  claims until semantic M2 differential replay passes.
+- [ ] Freeze the language-neutral semantic vectors and implement the independent verifier through
+  M2 without importing Rust implementation code.
 
 ## Active milestone — P-060 execution proof system
 
