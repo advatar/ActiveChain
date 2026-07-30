@@ -1842,7 +1842,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
       size-query C ABI without exposing secret material.
   - [ ] Complete validator-backed owner-scoped Coin Cell/state extraction before serving wallet
     balances on Kanalen; consensus snapshots currently contain metadata only (issue #180).
-    - [ ] Make the Kanalen round publisher fail closed unless the exact finalized cash snapshot and
+    - [x] Make the Kanalen round publisher fail closed unless the exact finalized cash snapshot and
       certificate bundle are both present, so a metadata-only height cannot be advertised as a
       wallet-ready finalized state.
     - [x] Invoke opaque secure-key callbacks only over the canonical approval-bound signing
