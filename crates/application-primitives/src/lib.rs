@@ -23,8 +23,8 @@ pub use anchor::{
 pub use compliance::{
     ComplianceAdmissionError, ComplianceKeyRegistry, CompliancePersistenceError,
     CredentialPredicateAdmissionError, DurableComplianceReplayJournal, admit_credential_predicate,
-    admit_regulated_transfer, compliance_evidence_commitment, require_selected_profile,
-    verify_compliance_signature,
+    admit_regulated_transfer, admit_tls_credential_predicate, compliance_evidence_commitment,
+    require_selected_profile, verify_compliance_signature,
 };
 pub use compute::{
     ComputeAssuranceAttestationV1, ComputeAssuranceClassV1, ComputeAssuranceStatementV1,

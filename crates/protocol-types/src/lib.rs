@@ -82,9 +82,10 @@ pub use consensus_state::{
     MAX_RETIRED_VALIDATOR_SET_ROOTS,
 };
 pub use credential::{
-    CREDENTIAL_FORMAT_VERSION, Credential, CredentialAcceptancePolicy, CredentialPredicateKind,
-    CredentialPredicateV1, CredentialStatement, CredentialStatusRegistry,
+    CREDENTIAL_FORMAT_VERSION, Credential, CredentialAcceptancePolicy, CredentialAssuranceClassV1,
+    CredentialPredicateKind, CredentialPredicateV1, CredentialStatement, CredentialStatusRegistry,
     CredentialValidationError, MAX_ACCEPTED_CREDENTIAL_ISSUERS, MAX_ACCEPTED_CREDENTIAL_SCHEMAS,
+    TlsCredentialEvidenceV1,
 };
 pub use crypto::{
     AuthenticatorDescriptor, AuthenticatorPurpose, AuthenticatorValidationError, CryptoFamily,

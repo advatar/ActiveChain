@@ -834,12 +834,13 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
   satisfy registry freshness admission.
 - [x] Reject malformed credential-status snapshots during canonical decoding, not only at
   downstream policy admission.
-- [ ] Add a canonical TLS-derived credential evidence envelope that preserves notary/server,
+- [x] Add a canonical TLS-derived credential evidence envelope that preserves notary/server,
   holder, freshness/status, disclosure, and assurance provenance without source transcripts.
-- [ ] Bind predicate admission to the exact evidence commitment and minimum assurance class so a
+- [x] Bind predicate admission to the exact evidence commitment and minimum assurance class so a
   holder/self-issued credential can never be promoted to issuer-upgraded or regulated assurance.
-- [ ] Publish positive and substitution vectors and qualify the ActiveChain boundary with normal
-  affected tests and strict Clippy; cross-repository wallet/device conformance remains separate.
+- [ ] Positive and substitution vectors, 108 normal affected tests, strict Clippy, and the
+  canonical registry check are green; merge/reachability and cross-repository wallet/device
+  conformance remain.
 
 ## Active independent-client qualification
 

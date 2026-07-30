@@ -207,3 +207,4 @@
 0x014A	1	ProposalJournalV1	crates/proposal-gateway/src/lib.rs
 0x014B	1	AuthorizedActionIntentV1	crates/proposal-gateway/src/lib.rs
 0x014C	1	WalletProposalStoreV1	crates/proposal-gateway/src/lib.rs
+0x014D	1	TlsCredentialEvidenceV1	crates/protocol-types/src/credential.rs
