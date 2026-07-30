@@ -85,6 +85,23 @@ Tracked by [GitHub issue #333](https://github.com/advatar/ActiveChain/issues/333
 - [x] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
   #333.
 
+## Critical authorization recovery — authenticated transfer facts
+
+Tracked by [GitHub issue #334](https://github.com/advatar/ActiveChain/issues/334).
+
+- [ ] Replace publicly mintable asserted-verification values with opaque results produced only by
+  concrete cryptographic and finalized-state verification.
+- [ ] Bind authorization to the exact canonical transaction, chain genesis, epoch, finalized state
+  root, actor, policy, credential, capability, and replay context.
+- [ ] Route the production finalized-transfer admission graph through `authorization-kernel`; remove
+  the commitment-only/test-only authorization bypass.
+- [ ] Persist authorization replay/budget state before acknowledgement and fail closed on
+  publication uncertainty.
+- [ ] Add forgery, substitution, stale-state, cross-transaction, serialization, restart, and
+  production caller-graph regression tests.
+- [ ] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
+  #334.
+
 ## Critical transport recovery — mutually authenticated peer sessions
 
 Tracked by [GitHub issue #330](https://github.com/advatar/ActiveChain/issues/330).
