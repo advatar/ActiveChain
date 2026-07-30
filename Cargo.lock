@@ -478,6 +478,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-storage-profile"
+version = "0.1.0"
+
+[[package]]
 name = "activechain-transition"
 version = "0.1.0"
 dependencies = [

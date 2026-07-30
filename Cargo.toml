@@ -42,6 +42,7 @@ members = [
     "crates/protocol-commitment",
     "crates/protocol-types",
     "crates/state-tree",
+    "crates/storage-profile",
     "crates/transition",
     "node/semantic-devnet",
     "tools/vector-generator",
@@ -94,6 +95,7 @@ activechain-rpc-server = { path = "crates/rpc-server", version = "0.1.0" }
 activechain-pq-zk = { path = "crates/pq-zk", version = "0.1.0" }
 activechain-protocol-types = { path = "crates/protocol-types", version = "0.1.0" }
 activechain-state-tree = { path = "crates/state-tree", version = "0.1.0" }
+activechain-storage-profile = { path = "crates/storage-profile", version = "0.1.0" }
 activechain-transition = { path = "crates/transition", version = "0.1.0" }
 proptest = { version = "1.7.0", default-features = false, features = ["std"] }
 p3-air = "=0.6.2"

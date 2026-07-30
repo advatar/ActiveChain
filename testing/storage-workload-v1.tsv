@@ -1,0 +1,15 @@
+workload_version	1
+active_objects	10000000
+average_canonical_object_bytes	1024
+hot_source_bytes_per_day	51539607552
+assigned_history_numerator	1
+assigned_history_denominator	12
+full_snapshot_bytes	42949672960
+charged_active_state_bytes	30720000000
+assigned_hot_history_bytes	128849018880
+hot_snapshot_bytes	85899345920
+total_planned_bytes	382907318272
+active_state_fits	true
+hot_history_fits	true
+snapshots_fit	true
+physical_ceiling_fits	true

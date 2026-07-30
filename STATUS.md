@@ -2,6 +2,20 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Bounded validator storage and decentralized archives
+
+Tracked by [GitHub issue #397](https://github.com/advatar/ActiveChain/issues/397), with the first
+normative and measurement slice in [#398](https://github.com/advatar/ActiveChain/issues/398).
+
+- [x] Fix the development storage contract at a qualified 1 TiB physical validator ceiling, a
+  deterministic charged-byte schedule, automatic pressure bands, 30-day assigned hot retention,
+  two certified snapshots, 8-of-12 archives, and renewable hibernation.
+- [x] Add overflow-safe executable storage accounting and a drift-checked machine-readable profile.
+- [ ] Implement persistent partition state, immutable ledger segments, and certified snapshots.
+- [ ] Implement paid archive assignment, challenges, reconstruction, and crash-safe pruning.
+- [ ] Implement prepaid leases, hibernation/restoration, and accumulator-backed replay history.
+- [ ] Qualify checkpoint snapshot sync, light clients, operator metrics, and sustained 1 TiB bounds.
+
 ## Active landing-page rebrand — Actum
 
 Tracked by [GitHub issue #391](https://github.com/advatar/ActiveChain/issues/391).
