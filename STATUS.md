@@ -24,6 +24,9 @@ normative and measurement slice in [#398](https://github.com/advatar/ActiveChain
     snapshot, grace-period, checkpoint, and archive evidence before idempotent deletion
     ([GitHub issue #407](https://github.com/advatar/ActiveChain/issues/407)).
   - [ ] Integrate objective payment/slashing settlement and finalized certificate ingestion.
+    - [x] Add manifest-bound archive escrow, rewards, and objective missed-challenge slashing
+      ([GitHub issue #418](https://github.com/advatar/ActiveChain/issues/418)).
+    - [ ] Wire finalized settlement outputs into the native token ledger after #167/#180 land.
 - [ ] Implement prepaid leases, hibernation/restoration, and accumulator-backed replay history
   ([GitHub issue #409](https://github.com/advatar/ActiveChain/issues/409)).
   - [x] Add checked byte-epoch quotes, pressure admission, bounded endowments, archive-certified

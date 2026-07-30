@@ -73,6 +73,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-archive-settlement"
+version = "0.1.0"
+dependencies = [
+ "activechain-archive",
+ "sha3 0.10.9",
+]
+
+[[package]]
 name = "activechain-authorization-kernel"
 version = "0.1.0"
 dependencies = [
