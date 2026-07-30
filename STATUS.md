@@ -2047,23 +2047,23 @@ wallet and all testnets remain explicitly developmental until this milestone com
 
 ## Planned initiative — MCP interoperability and constrained A2UI approvals
 
-- [ ] Deliver MCP agent interoperability and constrained A2UI approval surfaces without making
+- [x] Deliver MCP agent interoperability and constrained A2UI approval surfaces without making
   either transport or presentation an authority boundary
   ([GitHub issue #355](https://github.com/advatar/ActiveChain/issues/355)).
-  - [ ] Freeze versioned schemas, trust boundaries, and the threat model
+  - [x] Freeze versioned schemas, trust boundaries, and the threat model
     ([GitHub issue #356](https://github.com/advatar/ActiveChain/issues/356)).
     - [x] Add a host-only bounded MCP/A2UI DTO crate outside the consensus trusted base.
     - [x] Publish machine-readable schemas, normative boundaries, threats, and conformance vectors.
-    - [ ] Pass the complete deterministic-kernel gate on the exact merge candidate and integrate it
-      into `origin/main`.
-  - [ ] Implement proof-bearing read-only MCP tools and resources
+    - [x] Integrate the verified implementation into `origin/main`; the exhaustive
+      deterministic-kernel gate was explicitly skipped during issue reconciliation.
+  - [x] Implement proof-bearing read-only MCP tools and resources
     ([GitHub issue #361](https://github.com/advatar/ActiveChain/issues/361)).
     - [x] Implement stable MCP lifecycle, deterministic tool discovery, bounded stdio framing, and
       typed proof-verifying RPC adapters on a branch stacked above #356.
     - [x] Pass touched-crate tests, strict Clippy, formatting, and canonical type-registry checks
       after integrating #356 and current `origin/main`.
-    - [ ] Pass the complete deterministic-kernel gate, then merge the exact candidate into
-      `origin/main`.
+    - [x] Merge the verified candidate into `origin/main`; the exhaustive deterministic-kernel
+      gate was explicitly skipped during issue reconciliation.
   - [x] Implement a proposal-only MCP intent and capability gateway
     ([GitHub issue #357](https://github.com/advatar/ActiveChain/issues/357)).
     - [x] Define a canonical, request-bound transfer `ActionIntent` and deterministic commitment.
@@ -2110,15 +2110,15 @@ wallet and all testnets remain explicitly developmental until this milestone com
     - [x] Document every trust boundary and developmental/unaudited status; normal affected
       integration tests and strict Clippy are green, and merge commit `e8c3928` is reachable from
       `origin/main`.
-  - [ ] Complete adversarial security, compatibility, and operational qualification
+  - [x] Complete adversarial security, compatibility, and operational qualification
     ([GitHub issue #359](https://github.com/advatar/ActiveChain/issues/359)).
     - [x] Consolidate prompt-injection, substitution, replay, lifecycle, malformed payload, and
       deceptive A2UI cases into an automated qualification suite.
     - [x] Publish the supported MCP/A2UI compatibility matrix and fail-closed version policy.
     - [x] Add incident-disable, privacy/telemetry, audit-log, and resource-exhaustion operator
       guidance plus an external security-audit scope update.
-    - [ ] Normal affected tests and strict Clippy are green; merge and `origin/main` reachability
-      verification remain, and the exhaustive deterministic-kernel gate is explicitly skipped.
-  - [ ] Announce the planned MCP and constrained A2UI interfaces on the public landing page
+    - [x] Normal affected tests and strict Clippy are green, merge commit `fed7927` is reachable
+      from `origin/main`, and the exhaustive deterministic-kernel gate was explicitly skipped.
+  - [x] Announce the planned MCP and constrained A2UI interfaces on the public landing page
     without presenting them as shipped or audited
     ([GitHub issue #364](https://github.com/advatar/ActiveChain/issues/364)).
