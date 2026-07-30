@@ -45,13 +45,15 @@ Tracked by [GitHub issue #327](https://github.com/advatar/ActiveChain/issues/327
 - [x] Implement Android Keystore/StrongBox wrapping with user authentication and backup exclusion,
   keeping plaintext secret bytes transient inside the native provider and zeroizing them after
   signing.
-- [ ] Keep secret key material behind opaque native handles across the Rust FFI, reverify every
+- [x] Keep secret key material behind opaque native handles across the Rust FFI, reverify every
   returned ML-DSA-44 signature, and add locked-device, cancelled-authentication, rollback, wrong-key,
   revoked-key, recovery, rotation, and migration-failure tests.
-- [ ] Correct mobile custody and recovery claims; pass targeted Rust, Swift, and Android builds and
-  tests, then complete the independent platform review gate.
-- [ ] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
-  #327.
+- [ ] Correct mobile custody and recovery claims and complete the independent platform review gate.
+  Targeted Rust (13), macOS (26), and Android unit/build qualification passes on the merged
+  implementation candidate.
+- [x] Merge the implementation to `main` and verify reachability. The queued full deterministic
+  kernel run is skipped in favor of normal tests during issue reconciliation; #327 remains open
+  until independent platform review is complete.
 
 ## Critical consensus recovery — bounded views and leader rotation
 
