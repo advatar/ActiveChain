@@ -127,7 +127,7 @@ Tracked by [GitHub issue #336](https://github.com/advatar/ActiveChain/issues/336
 - [x] Derive abuse-control identities at the authenticated server boundary rather than trusting a
   client-selected source commitment.
 - [x] Add fault-injection, restart, duplicate, concurrent-request, and uncertain-settlement tests.
-- [ ] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
+- [x] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
   #336.
 
 ## Critical transport recovery — mutually authenticated peer sessions
