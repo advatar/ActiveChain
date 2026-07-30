@@ -51,7 +51,7 @@ Tracked by [GitHub issue #330](https://github.com/advatar/ActiveChain/issues/330
   configured peer identity and session before consensus parsing.
 - [x] Cover capture/replay, reflection, wrong identity, cross-genesis/protocol use, expiry, restart,
   corruption, and protected-frame mutation in unit and live process tests.
-- [ ] Align the Rust implementation, Tamarin model, canonical vectors, operations guidance, and
+- [x] Align the Rust implementation, Tamarin model, canonical vectors, operations guidance, and
   observability; pass the deterministic-kernel gate and merge #330 to `main`.
 
 ## Deterministic-kernel CI baseline
