@@ -26,6 +26,7 @@ members = [
     "crates/object-vm",
     "crates/payment-types",
     "crates/payment-connector-host",
+    "crates/proposal-gateway",
     "connectors/ntzs",
     "crates/policy-kernel",
     "crates/principal",
@@ -80,6 +81,7 @@ activechain-object-vm = { path = "crates/object-vm", version = "0.1.0" }
 postcard = { version = "1.1.3", features = ["use-std"] }
 activechain-payment-types = { path = "crates/payment-types", version = "0.1.0" }
 activechain-payment-connector-host = { path = "crates/payment-connector-host", version = "0.1.0" }
+activechain-proposal-gateway = { path = "crates/proposal-gateway", version = "0.1.0" }
 activechain-policy-kernel = { path = "crates/policy-kernel", version = "0.1.0" }
 activechain-principal = { path = "crates/principal", version = "0.1.0" }
 activechain-privacy-kernel = { path = "crates/privacy-kernel", version = "0.1.0" }

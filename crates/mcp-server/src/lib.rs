@@ -2,9 +2,17 @@
 
 //! Stable MCP 2025-11-25 lifecycle and read-only ActiveChain tools.
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{
+    collections::BTreeSet,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use activechain_canonical_codec::{CanonicalDecode, CanonicalEncode, Decoder, Encoder};
+use activechain_proposal_gateway::{
+    AnchorProposalArgumentsV1, AuthenticatedProposalContext, ProposalJournalV1,
+    TransferProposalArgumentsV1,
+};
 use activechain_protocol_types::Digest384;
 use activechain_rpc_server::{DurableRpcStore, verify_query_record};
 use activechain_rpc_types::{Health, QueryKind, QueryRecord, RpcRequest, RpcResponse};
@@ -18,11 +26,13 @@ pub const MAX_REQUESTS_PER_SESSION: usize = 4_096;
 const MAX_QUERY_RECORD_BYTES: usize =
     1 + 48 + 8 + 3 * (4 + activechain_rpc_types::MAX_RPC_BLOB_LENGTH);
 
-const TOOLS: [&str; 5] = [
+const TOOLS: [&str; 7] = [
     "activechain_get_pending_approvals",
     "activechain_get_status",
     "activechain_list_assets",
+    "activechain_propose_transfer",
     "activechain_resolve_receipt",
+    "activechain_submit_anchor_proposal",
     "activechain_verify_record",
 ];
 
@@ -41,6 +51,115 @@ pub trait ReadOnlyBackend {
     fn verify_record(&self, record: &str) -> Result<Value, BackendError>;
     fn get_pending_approvals(&self, limit: u16) -> Result<Value, BackendError>;
     fn resolve_receipt(&self, key: &str) -> Result<Value, BackendError>;
+    fn propose_transfer(&self, _arguments: &Value) -> Result<Value, BackendError> {
+        Err(BackendError::Unavailable)
+    }
+    fn propose_anchor(&self, _arguments: &Value) -> Result<Value, BackendError> {
+        Err(BackendError::Unavailable)
+    }
+}
+
+pub struct ProposalBackend<B> {
+    observations: B,
+    journal: Mutex<ProposalJournalV1>,
+    context: AuthenticatedProposalContext,
+    journal_path: PathBuf,
+    height: fn() -> u64,
+}
+
+impl<B> ProposalBackend<B> {
+    #[must_use]
+    pub fn new(
+        observations: B,
+        journal: ProposalJournalV1,
+        context: AuthenticatedProposalContext,
+        journal_path: PathBuf,
+        height: fn() -> u64,
+    ) -> Self {
+        Self { observations, journal: Mutex::new(journal), context, journal_path, height }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProposalToolArguments {
+    request_id: String,
+    authority: activechain_agent_interfaces::AuthorityBindingV1,
+    transfer: TransferProposalArgumentsV1,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AnchorProposalToolArguments {
+    request_id: String,
+    authority: activechain_agent_interfaces::AuthorityBindingV1,
+    anchor: AnchorProposalArgumentsV1,
+}
+
+impl<B: ReadOnlyBackend> ReadOnlyBackend for ProposalBackend<B> {
+    fn get_status(&self) -> Result<Value, BackendError> {
+        self.observations.get_status()
+    }
+    fn list_assets(&self, after: Option<&str>, limit: u16) -> Result<Value, BackendError> {
+        self.observations.list_assets(after, limit)
+    }
+    fn verify_record(&self, record: &str) -> Result<Value, BackendError> {
+        self.observations.verify_record(record)
+    }
+    fn get_pending_approvals(&self, limit: u16) -> Result<Value, BackendError> {
+        self.observations.get_pending_approvals(limit)
+    }
+    fn resolve_receipt(&self, key: &str) -> Result<Value, BackendError> {
+        self.observations.resolve_receipt(key)
+    }
+    fn propose_transfer(&self, arguments: &Value) -> Result<Value, BackendError> {
+        let request: ProposalToolArguments = serde_json::from_value(arguments.clone())
+            .map_err(|_| BackendError::InvalidArguments)?;
+        let mut journal = self.journal.lock().map_err(|_| BackendError::Unavailable)?;
+        let (receipt, audit) = journal
+            .propose_transfer_durable(
+                &request.request_id,
+                &request.authority,
+                &request.transfer,
+                &self.context,
+                (self.height)(),
+                &self.journal_path,
+            )
+            .map_err(map_gateway_error)?;
+        Ok(json!({
+            "proposal_id": hex(receipt.proposal_id.as_bytes()),
+            "intent_commitment": hex(receipt.intent_commitment.as_bytes()),
+            "approval_state": match receipt.approval {
+                activechain_proposal_gateway::ApprovalRequirement::NativeWalletReview => "native_wallet_review",
+                activechain_proposal_gateway::ApprovalRequirement::NativeWalletReviewWithWarning => "native_wallet_review_with_warning",
+            },
+            "duplicate": receipt.duplicate,
+            "audit": { "proposal_id": hex(audit.proposal_id.as_bytes()), "action": "transfer", "duplicate": audit.duplicate }
+        }))
+    }
+
+    fn propose_anchor(&self, arguments: &Value) -> Result<Value, BackendError> {
+        let request: AnchorProposalToolArguments = serde_json::from_value(arguments.clone())
+            .map_err(|_| BackendError::InvalidArguments)?;
+        let mut journal = self.journal.lock().map_err(|_| BackendError::Unavailable)?;
+        let (receipt, audit) = journal
+            .propose_anchor_durable(
+                &request.request_id,
+                &request.authority,
+                &request.anchor,
+                &self.context,
+                (self.height)(),
+                &self.journal_path,
+            )
+            .map_err(map_gateway_error)?;
+        Ok(json!({
+            "proposal_id": hex(receipt.proposal_id.as_bytes()),
+            "intent_commitment": hex(receipt.intent_commitment.as_bytes()),
+            "approval_state": "native_wallet_review",
+            "duplicate": receipt.duplicate,
+            "audit": { "proposal_id": hex(audit.proposal_id.as_bytes()), "action": "submit_anchor", "duplicate": audit.duplicate }
+        }))
+    }
 }
 
 pub struct StoreBackend {
@@ -243,6 +362,8 @@ impl<B: ReadOnlyBackend> McpSession<B> {
         let allowed = match name {
             "activechain_get_status" => &[][..],
             "activechain_list_assets" => &["after", "limit"][..],
+            "activechain_propose_transfer" => &["request_id", "authority", "transfer"][..],
+            "activechain_submit_anchor_proposal" => &["request_id", "authority", "anchor"][..],
             "activechain_verify_record" => &["record"][..],
             "activechain_get_pending_approvals" => &["limit"][..],
             "activechain_resolve_receipt" => &["key"][..],
@@ -257,6 +378,8 @@ impl<B: ReadOnlyBackend> McpSession<B> {
                 arguments.get("after").and_then(Value::as_str),
                 bounded_limit(&arguments)?,
             ),
+            "activechain_propose_transfer" => self.backend.propose_transfer(&arguments),
+            "activechain_submit_anchor_proposal" => self.backend.propose_anchor(&arguments),
             "activechain_verify_record" => {
                 self.backend.verify_record(required_string(&arguments, "record")?)
             }
@@ -280,6 +403,8 @@ fn tool_list() -> Value {
         tool("activechain_get_pending_approvals", "List bounded wallet-local pending approvals when a wallet backend is installed", json!({"type":"object","additionalProperties":false,"properties":{"limit":{"type":"integer","minimum":1,"maximum":4}}})),
         tool("activechain_get_status", "Return ActiveChain network identity, finalized height, and health", empty_schema()),
         tool("activechain_list_assets", "List a bounded page of verified finalized fungible asset records", json!({"type":"object","additionalProperties":false,"properties":{"after":{"type":"string","pattern":"^[A-Fa-f0-9]{96}$"},"limit":{"type":"integer","minimum":1,"maximum":4}}})),
+        proposal_tool(),
+        anchor_proposal_tool(),
         tool("activechain_resolve_receipt", "Resolve and verify a finalized application receipt", json!({"type":"object","additionalProperties":false,"required":["key"],"properties":{"key":{"type":"string","pattern":"^[A-Fa-f0-9]{96}$"}}})),
         tool("activechain_verify_record", "Verify a canonical proof-bearing query record locally", json!({"type":"object","additionalProperties":false,"required":["record"],"properties":{"record":{"type":"string","maxLength":524304,"pattern":"^[A-Fa-f0-9]+$"}}})),
     ] })
@@ -291,6 +416,40 @@ fn tool(name: &str, description: &str, input_schema: Value) -> Value {
         "description": description,
         "inputSchema": input_schema,
         "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+    })
+}
+
+fn proposal_tool() -> Value {
+    json!({
+        "name": "activechain_propose_transfer",
+        "description": "Persist an exact transfer proposal for later native-wallet review; never signs or submits",
+        "inputSchema": {
+            "type": "object", "additionalProperties": false,
+            "required": ["request_id", "authority", "transfer"],
+            "properties": {
+                "request_id": {"type":"string","minLength":1,"maxLength":128},
+                "authority": {"type":"object"},
+                "transfer": {"type":"object"}
+            }
+        },
+        "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+    })
+}
+
+fn anchor_proposal_tool() -> Value {
+    json!({
+        "name": "activechain_submit_anchor_proposal",
+        "description": "Persist an exact digest-anchor proposal for later native-wallet review; never submits it",
+        "inputSchema": {
+            "type": "object", "additionalProperties": false,
+            "required": ["request_id", "authority", "anchor"],
+            "properties": {
+                "request_id": {"type":"string","minLength":1,"maxLength":128},
+                "authority": {"type":"object"},
+                "anchor": {"type":"object"}
+            }
+        },
+        "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
     })
 }
 
@@ -403,6 +562,23 @@ fn backend_error_name(error: BackendError) -> &'static str {
     }
 }
 
+fn map_gateway_error(error: activechain_proposal_gateway::GatewayError) -> BackendError {
+    match error {
+        activechain_proposal_gateway::GatewayError::InvalidArguments => {
+            BackendError::InvalidArguments
+        }
+        activechain_proposal_gateway::GatewayError::Expired
+        | activechain_proposal_gateway::GatewayError::InvalidAuthority
+        | activechain_proposal_gateway::GatewayError::PolicyDenied
+        | activechain_proposal_gateway::GatewayError::BudgetExceeded
+        | activechain_proposal_gateway::GatewayError::ReplayConflict => {
+            BackendError::VerificationFailed
+        }
+        activechain_proposal_gateway::GatewayError::Capacity
+        | activechain_proposal_gateway::GatewayError::Persistence => BackendError::Unavailable,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -469,7 +645,13 @@ mod tests {
         .unwrap();
         let tools = listed["result"]["tools"].as_array().unwrap();
         assert_eq!(tools.len(), TOOLS.len());
-        assert!(tools.iter().all(|tool| tool["annotations"]["readOnlyHint"] == true));
+        assert!(tools.iter().all(|tool| {
+            tool["annotations"]["readOnlyHint"]
+                == !matches!(
+                    tool["name"].as_str(),
+                    Some("activechain_propose_transfer" | "activechain_submit_anchor_proposal")
+                )
+        }));
 
         let called: Value = serde_json::from_slice(
             &session
@@ -550,6 +732,15 @@ mod tests {
         assert_eq!(fixture["protocol_version"], MCP_PROTOCOL_VERSION);
         assert_eq!(fixture["limits"]["maximum_frame_bytes"], MAX_MCP_LINE_BYTES);
         assert_eq!(fixture["limits"]["maximum_requests_per_session"], MAX_REQUESTS_PER_SESSION);
-        assert_eq!(fixture["tools"], serde_json::to_value(TOOLS).expect("tool names serialize"));
+        let read_only = TOOLS
+            .into_iter()
+            .filter(|name| {
+                !matches!(
+                    *name,
+                    "activechain_propose_transfer" | "activechain_submit_anchor_proposal"
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(fixture["tools"], serde_json::to_value(read_only).unwrap());
     }
 }
