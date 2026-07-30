@@ -44,6 +44,7 @@ pub use pq_session::{PqPeerSession, PqSessionContext, PqSessionStore, SESSION_TT
 /// Authenticated network handlers can delegate here after peer/session checks.
 pub struct WalletTransactionGateway {
     ingress: activechain_wallet_core::TransactionIngress,
+    snapshot_path: std::path::PathBuf,
 }
 
 impl WalletTransactionGateway {
@@ -54,6 +55,7 @@ impl WalletTransactionGateway {
     ) -> Result<Self, activechain_wallet_core::WalletError> {
         Ok(Self {
             ingress: activechain_wallet_core::TransactionIngress::load(path, expected_chain)?,
+            snapshot_path: path.to_path_buf(),
         })
     }
 
@@ -66,8 +68,12 @@ impl WalletTransactionGateway {
 
     pub fn from_genesis(
         economy: &activechain_cash_kernel::GenesisEconomy,
+        snapshot_path: std::path::PathBuf,
     ) -> Result<Self, activechain_cash_kernel::CashTransitionError> {
-        Ok(Self { ingress: activechain_wallet_core::TransactionIngress::from_genesis(economy)? })
+        Ok(Self {
+            ingress: activechain_wallet_core::TransactionIngress::from_genesis(economy)?,
+            snapshot_path,
+        })
     }
 
     pub fn submit_envelope(
@@ -75,22 +81,20 @@ impl WalletTransactionGateway {
         envelope: &[u8],
         height: u64,
     ) -> Result<(), activechain_wallet_core::WalletError> {
-        self.ingress.submit_envelope(envelope, height)
+        self.ingress.submit_envelope_durable(envelope, height, &self.snapshot_path)
     }
 
     /// Admits a faucet settlement only when the caller presents the exact
     /// pre-signed cash intent that the faucet approved.
     ///
-    /// The faucet reference is deliberately required to equal the canonical
-    /// intent id. This prevents an operator or RPC client from replaying a
-    /// valid transfer under a different grant, recipient, or amount. The
-    /// underlying ingress still performs signature, nonce, session, input,
-    /// height, and Coin Cell conservation checks; this method is only the
-    /// validator-owned binding boundary.
+    /// The durable faucet keeps its request reference mapped to the returned canonical cash
+    /// transaction identifier. This boundary independently requires the exact recipient and
+    /// amount before the underlying ingress performs signature, nonce, session, input, height,
+    /// and Coin Cell conservation checks.
     pub fn submit_faucet_authorized_envelope(
         &mut self,
         envelope: &[u8],
-        faucet_reference: Digest384,
+        _faucet_reference: Digest384,
         recipient: PrincipalId,
         amount: u128,
         height: u64,
@@ -99,21 +103,17 @@ impl WalletTransactionGateway {
             decode_envelope::<activechain_wallet_core::AuthorizedCashTransferV1>(envelope)
                 .map_err(|_| activechain_wallet_core::WalletError::MalformedAuthorization)?;
         let request = authorized.request();
-        if request
+        let transaction = request
             .intent_id()
-            .map_err(|_| activechain_wallet_core::WalletError::MalformedAuthorization)?
-            != faucet_reference
-        {
-            return Err(activechain_wallet_core::WalletError::PolicyDenied);
-        }
+            .map_err(|_| activechain_wallet_core::WalletError::MalformedAuthorization)?;
         if request.transfer().recipient() != recipient
             || request.transfer().amount() != amount
             || height > request.transfer().valid_until()
         {
             return Err(activechain_wallet_core::WalletError::PolicyDenied);
         }
-        self.ingress.submit_envelope(envelope, height)?;
-        Ok(TransactionId::new(faucet_reference))
+        self.ingress.submit_envelope_durable(envelope, height, &self.snapshot_path)?;
+        Ok(TransactionId::new(transaction))
     }
 
     /// Registers one sender's finalized ML-DSA-44 cash-session key and initial nonce.
@@ -128,14 +128,20 @@ impl WalletTransactionGateway {
         initial_nonce: u64,
         verifier: &V,
     ) -> Result<(), activechain_wallet_core::WalletError> {
-        self.ingress.install_finalized_authorization_key(proof, initial_nonce, verifier)
+        self.ingress.install_finalized_authorization_key_durable(
+            proof,
+            initial_nonce,
+            verifier,
+            &self.snapshot_path,
+        )
     }
 
     pub fn register_session(
         &mut self,
         grant: &activechain_wallet_core::AuthorizedCashSessionGrantV1,
+        finalized_height: u64,
     ) -> Result<(), activechain_wallet_core::WalletError> {
-        self.ingress.register_session(grant)
+        self.ingress.register_session_durable(grant, finalized_height, &self.snapshot_path)
     }
 
     /// Commits a deterministic native-economics settlement through the same crash-atomic state
@@ -144,10 +150,9 @@ impl WalletTransactionGateway {
         &mut self,
         mint: Option<&activechain_cash_kernel::CoinMintTransition>,
         settlement: &activechain_cash_kernel::EpochEconomicsTransition,
-        snapshot_path: &std::path::Path,
     ) -> Result<Option<activechain_protocol_types::CoinCellId>, activechain_wallet_core::WalletError>
     {
-        self.ingress.settle_epoch_durable(mint, settlement, snapshot_path)
+        self.ingress.settle_epoch_durable(mint, settlement, &self.snapshot_path)
     }
 
     pub fn ledger(&self) -> &activechain_cash_kernel::CashLedger {
@@ -4273,9 +4278,18 @@ mod tests {
             100,
         )
         .unwrap();
-        let mut gateway = WalletTransactionGateway::from_genesis(&economy).unwrap();
-        let shared_gateway =
-            Arc::new(Mutex::new(WalletTransactionGateway::from_genesis(&economy).unwrap()));
+        let snapshot_path = std::env::temp_dir()
+            .join(format!("activechain-wallet-gateway-{}.snapshot", std::process::id()));
+        let adapter_snapshot_path = std::env::temp_dir()
+            .join(format!("activechain-wallet-adapter-{}.snapshot", std::process::id()));
+        let _ = std::fs::remove_file(&snapshot_path);
+        let _ = std::fs::remove_file(&adapter_snapshot_path);
+        let mut gateway =
+            WalletTransactionGateway::from_genesis(&economy, snapshot_path.clone()).unwrap();
+        let shared_gateway = Arc::new(Mutex::new(
+            WalletTransactionGateway::from_genesis(&economy, adapter_snapshot_path.clone())
+                .unwrap(),
+        ));
         let finalized_height = Arc::new(AtomicU64::new(1));
         let adapter = ValidatorFaucetSettlementAdapter::new(shared_gateway, finalized_height);
         assert_eq!(
@@ -4332,7 +4346,7 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
-        gateway.register_session(&authorized_grant).unwrap();
+        gateway.register_session(&authorized_grant, 1).unwrap();
         let signature = cash_key.sign(&request.signing_payload().unwrap());
         let authorized = activechain_wallet_core::AuthorizedCashTransferV1::new(
             request,
@@ -4346,6 +4360,12 @@ mod tests {
         let envelope = encode_envelope(&authorized).unwrap();
         gateway.submit_envelope(&envelope, 1).unwrap();
         assert!(gateway.submit_envelope(&envelope, 1).is_err());
+        let restored =
+            WalletTransactionGateway::load_snapshot(&snapshot_path, ChainId::new(digest(1)))
+                .unwrap();
+        assert_eq!(restored.ledger(), gateway.ledger());
+        std::fs::remove_file(snapshot_path).unwrap();
+        let _ = std::fs::remove_file(adapter_snapshot_path);
     }
     #[test]
     fn runtime_rejects_without_verified_votes() {

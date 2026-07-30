@@ -184,9 +184,13 @@ Admission checks the exact next nonce and rejects reused session IDs or any
 already-consumed payment/fee input. The ledger transition, nonce increment,
 session consumption, and input replay barriers are constructed on a private
 next-state value and become visible together only after every ledger check
-succeeds. The current implementation provides this atomicity in memory. Before
-public value-bearing operation, finalized identity/key provenance and the joint
-ledger/authorization state MUST be persisted by one crash-atomic commit. The
+succeeds. Production admission writes and fsyncs that complete next state, atomically renames it,
+and fsyncs its directory before acknowledging success or exposing it in memory. A failure before
+rename leaves the old state authoritative; a failure after rename makes the live ingress unusable
+until restart resolves the complete old-or-new snapshot. The finalized height used for expiry is
+reloaded from the monotonic durable RPC index for each faucet settlement, never held at a startup
+constant. Expired session records and spent-input markers may be pruned only after the committed
+nonce and current Coin Cell set independently reject every old request. The
 legacy unkeyed `PaymentSession` helper is local wallet compatibility code and is
 not a network authorization mechanism.
 

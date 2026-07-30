@@ -91,6 +91,13 @@ sender key from finalized state and atomically applies the cash transition while
 nonce, session, payment inputs, and fee input. Bare transfers are test helpers only and MUST NOT be
 accepted by a network handler.
 
+When authorized faucet settlement is enabled, `ACTIVECHAIN_WALLET_INGRESS_SNAPSHOT` must name the
+joint ledger/authorization snapshot. The RPC node reloads finalized height from its durable RPC
+index for each settlement; `ACTIVECHAIN_FINALIZED_HEIGHT` is not an admission input. A settlement
+is acknowledged only after the updated wallet snapshot has completed file and directory sync. Any
+persistence error is operationally fatal for that process: stop it and restart from the snapshot
+before accepting another value-bearing request.
+
 ## Bootstrap the RPC index
 
 The chain identifier is selected explicitly by the application/operator and is distinct from the

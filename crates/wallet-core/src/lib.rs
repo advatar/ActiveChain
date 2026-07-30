@@ -252,6 +252,9 @@ pub struct TransactionIngress {
     authorization_lanes: Vec<CashAuthorizationLane>,
     consumed_inputs: Vec<CoinCellId>,
     non_authoritative_accepted: Vec<TransactionId>,
+    /// A rename completed but directory durability could not be established. This is deliberately
+    /// process-local: restart resolves the state by loading whichever complete snapshot survived.
+    persistence_faulted: bool,
 }
 
 pub const MAX_INGRESS_FRAME: usize = 256 * 1024;
@@ -313,6 +316,7 @@ impl TransactionIngress {
             authorization_lanes: Vec::new(),
             consumed_inputs: Vec::new(),
             non_authoritative_accepted: Vec::new(),
+            persistence_faulted: false,
         })
     }
 
@@ -1623,6 +1627,15 @@ mod tests {
             Err(WalletError::WrongChain)
         );
 
+        restored.prune_replay_state(16);
+        assert!(!restored.session_consumed(owner, session));
+        assert_eq!(restored.session_budget(owner, session), None);
+        assert_eq!(restored.submit_envelope(&envelope, 16), Err(WalletError::Expired));
+        restored.save_atomic(&path).unwrap();
+        let pruned = TransactionIngress::load(&path, ChainId::new(digest(1))).unwrap();
+        assert_eq!(pruned.ledger(), ingress.ledger());
+        assert_eq!(pruned.next_nonce(owner), Some(1));
+
         let mut corrupted = std::fs::read(&path).unwrap();
         let last = corrupted.len() - 1;
         corrupted[last] ^= 1;
@@ -1731,5 +1744,60 @@ mod tests {
         assert_eq!(ingress.next_nonce(owner), Some(0));
         assert!(!ingress.session_consumed(owner, session));
         std::fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn cash_admission_crash_points_restore_exactly_old_or_new_state() {
+        use crate::cash_persistence::AtomicSaveStage;
+
+        let (mut base, key, owner, input, reserve) = setup_authorized_ingress(47);
+        let session = digest(48);
+        let signed = sign_cash_request(
+            cash_request(ChainId::new(digest(1)), owner, 0, session, 15, input, reserve, 10),
+            &key,
+        );
+        register_request_session(&mut base, signed.request(), &key, 11);
+        let envelope = encode_envelope(&signed).unwrap();
+        let path = std::env::temp_dir()
+            .join(format!("activechain-cash-crash-points-{}.bin", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+
+        for (stage, published) in [
+            (AtomicSaveStage::TemporaryCreated, false),
+            (AtomicSaveStage::BodyWritten, false),
+            (AtomicSaveStage::TemporarySynced, false),
+            (AtomicSaveStage::Renamed, true),
+            (AtomicSaveStage::DirectorySynced, true),
+        ] {
+            base.save_atomic(&path).unwrap();
+            let mut interrupted = base.clone();
+            assert_eq!(
+                interrupted.submit_envelope_durable_interrupted(&envelope, 5, &path, stage),
+                Err(WalletError::Persistence)
+            );
+            assert_eq!(interrupted.next_nonce(owner), Some(0));
+
+            let mut restored = TransactionIngress::load(&path, ChainId::new(digest(1))).unwrap();
+            assert_eq!(restored.next_nonce(owner), Some(u64::from(published)));
+            if published {
+                assert_eq!(
+                    restored.submit_envelope_durable(&envelope, 5, &path),
+                    Err(WalletError::InvalidNonce)
+                );
+                assert_eq!(
+                    interrupted.submit_envelope_durable(&envelope, 5, &path),
+                    Err(WalletError::Persistence)
+                );
+            } else {
+                restored.submit_envelope_durable(&envelope, 5, &path).unwrap();
+                assert_eq!(
+                    TransactionIngress::load(&path, ChainId::new(digest(1)))
+                        .unwrap()
+                        .next_nonce(owner),
+                    Some(1)
+                );
+            }
+        }
+        std::fs::remove_file(path).unwrap();
     }
 }
