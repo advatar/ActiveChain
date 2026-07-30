@@ -1540,6 +1540,98 @@ mod tests {
     }
 
     #[test]
+    fn public_faucet_rpc_reaches_operator_signer_and_durable_cash_ingress() {
+        let (ingress, key, owner, transfer) = authorized_cash_fixture();
+        let recipient = transfer.recipient();
+        let index_path = temporary("public-faucet-index");
+        let wallet_path = temporary("public-faucet-wallet");
+        let journal_path = temporary("public-faucet-journal");
+        let faucet_path = temporary("public-faucet-policy");
+        for path in [&index_path, &wallet_path, &journal_path, &faucet_path] {
+            let _ = std::fs::remove_file(path);
+        }
+        ingress.save_atomic(&wallet_path).unwrap();
+        let store = Arc::new(DurableRpcStore::create(index_path.clone(), index()).unwrap());
+        let shared = Arc::new(std::sync::Mutex::new(ingress));
+        let authorizer = MlDsa44FaucetAuthorizer::new(
+            Arc::clone(&shared),
+            ChainId::new(digest(1)),
+            owner,
+            key,
+            1,
+            20,
+            Arc::clone(&store),
+        )
+        .unwrap();
+        let ingress_adapter = WalletIngressOperatorSettlementAdapter::new(
+            Arc::clone(&shared),
+            wallet_path.clone(),
+            Arc::clone(&store),
+        );
+        let settlement = DurableOperatorFaucetSettlement::create(
+            journal_path.clone(),
+            authorizer,
+            ingress_adapter,
+        )
+        .unwrap();
+        let faucet = DurableFaucet::create(
+            FaucetPolicy {
+                chain_id: ChainId::new(digest(1)),
+                genesis_commitment: digest(2),
+                testnet_only: true,
+                enabled: true,
+                policy_revision: 1,
+                valid_until: 1_000,
+                grant_amount: 10,
+                recipient_cooldown_seconds: 60,
+                recipient_lifetime_limit: 1,
+                source_window_seconds: 60,
+                source_window_limit: 1,
+                global_window_seconds: 60,
+                global_window_limit: 1,
+                sybil_policy: SybilPolicy::CooldownOnly,
+            },
+            faucet_path.clone(),
+        )
+        .unwrap();
+        let server = Arc::new(
+            RpcServer::new(store).with_faucet(faucet).with_faucet_settlement_adapter(settlement),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let serving = Arc::clone(&server);
+        let handle = thread::spawn(move || serving.serve_once(&listener, 105).unwrap());
+        let request = FaucetRequestV1::new(
+            ChainId::new(digest(1)),
+            digest(2),
+            recipient,
+            digest(90),
+            digest(91),
+            0,
+            Vec::new(),
+        )
+        .unwrap();
+        let reference = request.settlement_reference().unwrap();
+        let response =
+            query(address, &RpcRequest::RequestFaucet { request: Box::new(request) }).unwrap();
+        handle.join().unwrap();
+        let RpcResponse::FaucetReceipt(receipt) = response else {
+            panic!("pending faucet receipt expected")
+        };
+        let transaction = receipt.transaction_id().expect("operator settlement transaction");
+        assert_eq!(receipt.reference(), reference);
+        assert_eq!(receipt.state(), activechain_rpc_types::FaucetState::Pending);
+        let restored = TransactionIngress::load(&wallet_path, ChainId::new(digest(1))).unwrap();
+        assert!(restored.transaction_admitted(transaction));
+        assert!(restored.session_consumed(owner, reference));
+
+        std::fs::remove_file(index_path).unwrap();
+        std::fs::remove_file(wallet_path).unwrap();
+        std::fs::remove_file(journal_path).unwrap();
+        std::fs::remove_file(faucet_path).unwrap();
+    }
+
+    #[test]
     fn production_faucet_adapter_persists_before_ack_and_reloads_finalized_height() {
         let (ingress, key, owner, transfer) = authorized_cash_fixture();
         let recipient = transfer.recipient();
