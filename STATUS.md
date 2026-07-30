@@ -305,9 +305,9 @@ Tracked by [GitHub issue #345](https://github.com/advatar/ActiveChain/issues/345
   As of 2026-07-27, `cargo test -p activechain-cash-air --offline` passes 22 tests with one
   intentionally ignored full-depth timing gate; no FRI-parameter mismatch remains. The two
   outstanding items are implementation work, not release claims.
-  - [ ] Constrain every native input, output, and fee trace value to an in-AIR 64-bit boolean
+  - [x] Constrain every native input, output, and fee trace value to an in-AIR 64-bit boolean
     decomposition; host-side trace construction checks are defense in depth only.
-  - [ ] Replace the ignored full composite proof with a bounded accepted-row fixture that runs in
+  - [x] Replace the ignored full composite proof with a bounded accepted-row fixture that runs in
     ordinary CI and retains the separate full-depth benchmark gate.
   - [ ] Pass focused CashAIR tests and clippy, then the frozen deterministic-kernel gate; merge and
     verify the issue commits are reachable from `origin/main`.

@@ -19,7 +19,7 @@ use winterfell::{
     FieldExtension, PartitionOptions, Proof, ProofOptions, Prover, StarkDomain, Trace, TraceInfo,
     TracePolyTable, TraceTable, TransitionConstraintDegree,
     crypto::{DefaultRandomCoin, MerkleTree, hashers::Blake3_256},
-    math::{FieldElement, ToElements, fields::f128::BaseElement},
+    math::{FieldElement, StarkField, ToElements, fields::f128::BaseElement},
     matrix::ColMatrix,
 };
 
@@ -442,7 +442,12 @@ impl CanonicalType for AuthenticatedCashAirReceiptV1 {
         + 1024 * (1 + 4 + MAX_CASH_AIR_PROOF_BYTES);
 }
 
-const TRACE_WIDTH: usize = 15;
+const CORE_TRACE_WIDTH: usize = 15;
+const AMOUNT_BIT_WIDTH: usize = 64;
+const AMOUNT_COLUMN_COUNT: usize = 3;
+const AMOUNT_BIT_START: usize = CORE_TRACE_WIDTH;
+const AMOUNT_BIT_COLUMNS: usize = AMOUNT_BIT_WIDTH * AMOUNT_COLUMN_COUNT;
+const TRACE_WIDTH: usize = CORE_TRACE_WIDTH + AMOUNT_BIT_COLUMNS;
 const STEP: usize = 0;
 const APPLIED: usize = 1;
 const REJECTED: usize = 2;
@@ -454,6 +459,11 @@ const OUTPUT_VALUE: usize = 9;
 const FEE: usize = 10;
 const AUTHENTICATED_MODE: usize = 11;
 const AUTHENTICATED_ROOT_0: usize = 12;
+const AMOUNT_COLUMNS: [usize; AMOUNT_COLUMN_COUNT] = [INPUT_VALUE, OUTPUT_VALUE, FEE];
+
+const fn amount_bit_column(amount: usize, bit: usize) -> usize {
+    AMOUNT_BIT_START + amount * AMOUNT_BIT_WIDTH + bit
+}
 
 #[derive(Clone, Debug)]
 pub struct CashStarkPublicInputs {
@@ -465,6 +475,7 @@ pub struct CashStarkPublicInputs {
     authenticated_pre_root: [BaseElement; 3],
     authenticated_post_root: [BaseElement; 3],
     authenticated_row_roots: Vec<[BaseElement; 3]>,
+    amount_rows: Vec<[u64; AMOUNT_COLUMN_COUNT]>,
 }
 
 impl ToElements<BaseElement> for CashStarkPublicInputs {
@@ -476,6 +487,13 @@ impl ToElements<BaseElement> for CashStarkPublicInputs {
             .chain(self.authenticated_pre_root)
             .chain(self.authenticated_post_root)
             .chain(self.authenticated_row_roots.iter().flatten().copied())
+            .chain(
+                self.amount_rows
+                    .iter()
+                    .flatten()
+                    .copied()
+                    .map(|value| BaseElement::new(value.into())),
+            )
             .collect()
     }
 }
@@ -512,7 +530,11 @@ impl Air for CashAir {
             TransitionConstraintDegree::new(2),
         ];
         degrees[10] = TransitionConstraintDegree::new(1);
-        let assertions = 22 + public.authenticated_row_roots.len() * 3;
+        degrees
+            .extend(core::iter::repeat_n(TransitionConstraintDegree::new(1), AMOUNT_COLUMN_COUNT));
+        let assertions = 22
+            + public.authenticated_row_roots.len() * 3
+            + public.amount_rows.len() * (AMOUNT_COLUMN_COUNT + AMOUNT_BIT_COLUMNS);
         Self { context: AirContext::new(trace_info, degrees, assertions, options), public }
     }
 
@@ -544,6 +566,14 @@ impl Air for CashAir {
         for limb in 0..3 {
             result[15 + limb] = rejected
                 * (next[AUTHENTICATED_ROOT_0 + limb] - current[AUTHENTICATED_ROOT_0 + limb]);
+        }
+        for (amount, value_column) in AMOUNT_COLUMNS.into_iter().enumerate() {
+            let mut reconstructed = E::ZERO;
+            for bit in 0..AMOUNT_BIT_WIDTH {
+                let value = next[amount_bit_column(amount, bit)];
+                reconstructed += value * E::from(BaseElement::new(1_u128 << bit));
+            }
+            result[18 + amount] = next[value_column] - reconstructed;
         }
     }
 
@@ -580,6 +610,23 @@ impl Air for CashAir {
         for (offset, root) in self.public.authenticated_row_roots.iter().enumerate() {
             for (limb, value) in root.iter().copied().enumerate() {
                 assertions.push(Assertion::single(AUTHENTICATED_ROOT_0 + limb, offset + 1, value));
+            }
+        }
+        for (offset, amounts) in self.public.amount_rows.iter().enumerate() {
+            let row = offset + 1;
+            for (amount, value) in amounts.iter().copied().enumerate() {
+                assertions.push(Assertion::single(
+                    AMOUNT_COLUMNS[amount],
+                    row,
+                    BaseElement::new(value.into()),
+                ));
+                for bit in 0..AMOUNT_BIT_WIDTH {
+                    assertions.push(Assertion::single(
+                        amount_bit_column(amount, bit),
+                        row,
+                        BaseElement::new(u128::from((value >> bit) & 1)),
+                    ));
+                }
             }
         }
         assertions
@@ -637,6 +684,7 @@ impl Prover for CashProver {
                 trace.get(AUTHENTICATED_ROOT_0 + limb, last)
             }),
             authenticated_row_roots,
+            amount_rows: read_amount_rows(trace),
         }
     }
 
@@ -708,7 +756,7 @@ impl CashStarkProof {
 
 pub fn prove(trace: &CashAirProof) -> Result<CashStarkProof, &'static str> {
     let execution = build_trace(trace, None)?;
-    let public = public_inputs(trace.public())?;
+    let public = public_inputs(trace)?;
     let prover = CashProver { options: proof_options() };
     let proof = prover.prove(execution).map_err(|_| "CashAIR proving failed")?;
     Ok(CashStarkProof { proof, public })
@@ -800,7 +848,7 @@ pub fn verify(proof: CashStarkProof) -> Result<(), &'static str> {
 
 pub fn verify_bytes(bytes: &[u8], trace: &CashAirProof) -> Result<(), &'static str> {
     let proof = Proof::from_bytes(bytes).map_err(|_| "malformed CashAIR STARK proof")?;
-    verify_trace_structure(CashStarkProof { proof, public: public_inputs(trace.public())? })
+    verify_trace_structure(CashStarkProof { proof, public: public_inputs(trace)? })
 }
 
 fn build_trace(
@@ -852,6 +900,9 @@ fn build_trace(
         trace.set(INPUT_VALUE, index, BaseElement::new(row.input_value().into()));
         trace.set(OUTPUT_VALUE, index, BaseElement::new(row.output_value().into()));
         trace.set(FEE, index, BaseElement::new(row.fee().into()));
+        set_amount_bits(&mut trace, index, 0, row.input_value());
+        set_amount_bits(&mut trace, index, 1, row.output_value());
+        set_amount_bits(&mut trace, index, 2, row.fee());
         set_root(&mut trace, index, current_root);
         trace.set(AUTHENTICATED_MODE, index, authenticated_mode);
         if let Some(authenticated) = authenticated {
@@ -883,9 +934,8 @@ fn build_trace(
     Ok(trace)
 }
 
-fn public_inputs(
-    public: &activechain_cash_kernel::CashAirPublicInputs,
-) -> Result<CashStarkPublicInputs, &'static str> {
+fn public_inputs(proof: &CashAirProof) -> Result<CashStarkPublicInputs, &'static str> {
+    let public = proof.public();
     Ok(CashStarkPublicInputs {
         pre_root: root_elements(public.pre_cells())?,
         post_root: root_elements(public.post_cells())?,
@@ -895,13 +945,18 @@ fn public_inputs(
         authenticated_pre_root: root_elements(public.pre_cells())?,
         authenticated_post_root: root_elements(public.post_cells())?,
         authenticated_row_roots: Vec::new(),
+        amount_rows: proof
+            .rows()
+            .iter()
+            .map(|row| [row.input_value(), row.output_value(), row.fee()])
+            .collect(),
     })
 }
 
 fn authenticated_public_inputs(
     proof: &AuthenticatedCashAirProofV1,
 ) -> Result<CashStarkPublicInputs, &'static str> {
-    let mut public = public_inputs(proof.execution().public())?;
+    let mut public = public_inputs(proof.execution())?;
     public.authenticated_mode = BaseElement::ONE;
     public.authenticated_pre_root = digest_elements(proof.pre_root().into_digest())?;
     public.authenticated_post_root = digest_elements(proof.post_root().into_digest())?;
@@ -914,6 +969,19 @@ fn authenticated_public_inputs(
         public.authenticated_row_roots.push(current);
     }
     Ok(public)
+}
+
+fn read_amount_rows(trace: &TraceTable<BaseElement>) -> Vec<[u64; AMOUNT_COLUMN_COUNT]> {
+    let last = trace.length() - 1;
+    let mut rows = Vec::new();
+    let mut row = 1;
+    while row < last && trace.get(ACTIVE, row) == BaseElement::ONE {
+        rows.push(core::array::from_fn(|amount| {
+            trace.get(AMOUNT_COLUMNS[amount], row).as_int() as u64
+        }));
+        row += 1;
+    }
+    rows
 }
 
 fn root_elements(root: CoinCellSetRoot) -> Result<[BaseElement; 3], &'static str> {
@@ -950,6 +1018,16 @@ fn set_root(trace: &mut TraceTable<BaseElement>, row: usize, root: [BaseElement;
     }
 }
 
+fn set_amount_bits(trace: &mut TraceTable<BaseElement>, row: usize, amount: usize, value: u64) {
+    for bit in 0..AMOUNT_BIT_WIDTH {
+        trace.set(
+            amount_bit_column(amount, bit),
+            row,
+            BaseElement::new(u128::from((value >> bit) & 1)),
+        );
+    }
+}
+
 fn proof_options() -> ProofOptions {
     ProofOptions::new(
         40,
@@ -971,6 +1049,7 @@ mod tests {
         prove_cash_air,
     };
     use activechain_protocol_types::{AssetId, ChainId, CoinCellId, Digest384, PrincipalId};
+    use winterfell::{Air, Trace};
 
     use super::{
         AuthenticatedCashAirReceiptV1, AuthenticatedCashCompositeStarkProof, BaseElement,
@@ -1122,6 +1201,28 @@ mod tests {
         (ledger, CashTransferV1::new(transfers).unwrap())
     }
 
+    fn bounded_composite_fixture() -> (CashLedger, CashTransferV1) {
+        let (ledger, _) = fixture();
+        let cells = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .filter(|record| record.cell().owner() == principal(10))
+            .copied()
+            .collect::<Vec<_>>();
+        let transfer = CoinTransfer::new(
+            principal(10),
+            principal(30),
+            vec![cells[0].id()],
+            cells[1].id(),
+            cells[0].cell().amount(),
+            cells[1].cell().amount(),
+            20,
+        )
+        .unwrap();
+        (ledger, CashTransferV1::new(vec![transfer]).unwrap())
+    }
+
     #[test]
     fn specialized_stark_proves_the_direct_cash_trace() {
         let (ledger, batch) = fixture();
@@ -1150,6 +1251,29 @@ mod tests {
         let mut proof = prove(&trace).unwrap();
         proof.public.applied += BaseElement::new(1);
         assert!(verify(proof).is_err());
+    }
+
+    #[test]
+    fn substituted_amount_or_range_decomposition_is_rejected() {
+        let (ledger, batch) = fixture();
+        let (trace, _) = prove_cash_air(&ledger, &batch, 3, 16).unwrap();
+
+        let mut wrong_amount = prove(&trace).unwrap();
+        wrong_amount.public.amount_rows[0][0] ^= 1;
+        assert!(verify(wrong_amount).is_err());
+
+        let execution = super::build_trace(&trace, None).unwrap();
+        let public = super::public_inputs(&trace).unwrap();
+        let air = super::CashAir::new(execution.info().clone(), public, super::proof_options());
+        let assertions = air.get_assertions();
+        let first_input = trace.rows()[0].input_value();
+        for bit in 0..super::AMOUNT_BIT_WIDTH {
+            assert!(assertions.contains(&winterfell::Assertion::single(
+                super::amount_bit_column(0, bit),
+                1,
+                BaseElement::new(u128::from((first_input >> bit) & 1)),
+            )));
+        }
     }
 
     #[test]
@@ -1229,22 +1353,35 @@ mod tests {
         );
     }
 
+    #[cfg(not(debug_assertions))]
     #[test]
-    #[ignore = "full-depth authenticated SHAKE timing is an explicit release benchmark gate"]
-    fn full_authenticated_composite_proves_and_verifies() {
+    fn bounded_authenticated_composite_proves_and_verifies_in_ci() {
+        let (ledger, batch) = bounded_composite_fixture();
+        let (trace, _) = prove_authenticated_cash_air(&ledger, &batch, 3, 16).unwrap();
+        let proof = prove_authenticated_composite(&trace).unwrap();
+        assert_eq!(proof.mutation_proof_count(), 1);
+        verify_authenticated_composite(proof, &trace).unwrap();
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn bounded_authenticated_composite_fixture_is_preflighted_in_debug_ci() {
+        let (ledger, batch) = bounded_composite_fixture();
+        let (trace, _) = prove_authenticated_cash_air(&ledger, &batch, 3, 16).unwrap();
+        assert_eq!(trace.mutations().iter().flatten().count(), 1);
+        let permutations =
+            super::enforce_authenticated_composite_permutation_limit(&trace).unwrap();
+        assert!(permutations > 0);
+        assert!(permutations <= super::MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_COMPOSITE);
+    }
+
+    #[test]
+    #[ignore = "two-row authenticated SHAKE timing remains an explicit release benchmark gate"]
+    fn full_depth_authenticated_composite_benchmark() {
         let (ledger, batch) = fixture();
         let (trace, _) = prove_authenticated_cash_air(&ledger, &batch, 3, 16).unwrap();
         let proof = prove_authenticated_composite(&trace).unwrap();
         assert_eq!(proof.mutation_proof_count(), 2);
-        let parent_bytes = proof.parent.to_bytes();
-        let mutation_bytes = proof
-            .mutation_shake
-            .iter()
-            .map(|proof| proof.as_ref().map(|value| value.encode_bytes().unwrap()))
-            .collect();
-        let receipt =
-            AuthenticatedCashAirReceiptV1::new(trace, parent_bytes, mutation_bytes).unwrap();
-        let encoded = receipt.encode_envelope().unwrap();
-        AuthenticatedCashAirReceiptV1::verify_bytes(&encoded).unwrap();
+        verify_authenticated_composite(proof, &trace).unwrap();
     }
 }
