@@ -844,8 +844,11 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 - [x] Add the cross-repository TLSNotary producer envelope and EUWallet authenticated-ingestion
   boundary: `advatar/tlsn` PR #1 and `advatar/EUWallet` PR #76 are merged, preserve explicit
   assurance, reject unauthorized promotion, and keep TLS-derived evidence outside PID namespaces.
-- [ ] Complete shared language-independent vectors, wallet consent/assurance UX, lifecycle and
-  recovery coverage, physical-device key tests, offline-proof conformance, and independent review.
+- [x] Publish and consume the byte-identical 17-case portable-evidence TSV across ActiveChain,
+  TLSNotary, and EUWallet, covering version, commitment, freshness, assurance, and issuer-upgrade
+  failures with a closed decision table.
+- [ ] Complete wallet consent/assurance UX, lifecycle and recovery coverage, physical-device key
+  tests, offline-proof conformance, and independent review.
 
 ## Active independent-client qualification
 
