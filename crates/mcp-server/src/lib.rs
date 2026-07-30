@@ -516,7 +516,10 @@ mod tests {
     #[test]
     fn oversized_malformed_and_embedded_newline_frames_fail_closed() {
         let mut session = McpSession::new(FixtureBackend);
-        for frame in [vec![b'x'; MAX_MCP_LINE_BYTES + 1], b"{".to_vec(), b"{}\n{}".to_vec()] {
+        // Decimal 123 is an isolated opening brace. Spelling it numerically also
+        // keeps the repository's intentionally simple Rust block scanner from
+        // interpreting a byte literal inside this test as source structure.
+        for frame in [vec![b'x'; MAX_MCP_LINE_BYTES + 1], vec![123], b"{}\n{}".to_vec()] {
             let response: Value =
                 serde_json::from_slice(&session.handle_line(&frame).unwrap()).unwrap();
             assert_eq!(response["error"]["code"], -32700);
