@@ -50,8 +50,10 @@ pub use types::{
     CoinMintTransition, CoinTransfer, EpochEconomicsTransition, FungibleBurnV1, FungibleCoinCell,
     FungibleCoinCellMembershipProof, FungibleCoinCellRecord, FungibleCoinCellSet, FungibleMintV1,
     FungibleRedemptionV1, FungibleSettlementReceiptV1, FungibleTransferV1, GenesisAllocation,
-    GenesisEconomy, MAX_COIN_CELLS, MAX_TRANSFER_INPUTS, NativeAssetDefinition, NativeMoneyError,
-    NativeSupply, NonFungibleCoinCell, NonFungibleCoinCellRecord,
+    GenesisEconomy, ISSUANCE_EPOCHS_PER_YEAR, MAX_COIN_CELLS, MAX_TRANSFER_INPUTS,
+    NativeAssetDefinition, NativeMoneyError, NativeSupply, NonFungibleCoinCell,
+    NonFungibleCoinCellRecord, annual_security_budget_bps, basis_points_amount,
+    effective_stake_basis_points, epoch_security_budget, issuance_window_index,
 };
 
 #[cfg(kani)]
@@ -84,7 +86,9 @@ mod nft_kani_proofs {
 mod tests {
     extern crate alloc;
 
-    use activechain_canonical_codec::{decode_envelope, encode_envelope};
+    use activechain_canonical_codec::{
+        CanonicalType, Decoder, Encoder, decode_envelope, encode_envelope,
+    };
     use activechain_privacy_kernel::{ShieldIntent, UnshieldIntent, VerifiedPrivacyProof};
     use activechain_protocol_commitment::{DomainTag, commit};
     use activechain_protocol_types::{
@@ -157,7 +161,7 @@ mod tests {
             ChainId::new(digest(1)),
             b"ACT".to_vec(),
             18,
-            1_000,
+            1_000_000,
             150,
             digest(2),
             digest(3),
@@ -167,24 +171,44 @@ mod tests {
         GenesisEconomy::new(
             definition,
             vec![
-                GenesisAllocation::new(principal(10), 700, 100).unwrap(),
-                GenesisAllocation::new(principal(12), 100, 0).unwrap(),
+                GenesisAllocation::new(principal(10), 700_000, 100_000).unwrap(),
+                GenesisAllocation::new(principal(12), 100_000, 0).unwrap(),
             ],
-            100,
+            100_000,
         )
         .unwrap()
     }
 
     fn settlement(pre_supply: u128, issuance: u128, epoch: u64) -> EpochEconomicsTransition {
+        settlement_with_window(
+            pre_supply,
+            issuance,
+            epoch,
+            0,
+            1_000_000,
+            issuance * u128::from(epoch - 1),
+        )
+    }
+
+    fn settlement_with_window(
+        pre_supply: u128,
+        issuance: u128,
+        epoch: u64,
+        effective_stake_bps: u16,
+        opening_supply: u128,
+        issued_before: u128,
+    ) -> EpochEconomicsTransition {
+        let target = crate::types::epoch_security_budget(pre_supply, effective_stake_bps).unwrap();
+        let cap = crate::types::basis_points_amount(opening_supply, 150).unwrap() - issued_before;
         EpochEconomicsTransition::new(
             epoch,
             pre_supply,
-            5_000,
+            effective_stake_bps,
+            target - issuance,
             0,
-            0,
+            target,
             issuance,
-            issuance,
-            issuance * 2,
+            cap,
             0,
             digest(20),
             digest(21),
@@ -226,14 +250,14 @@ mod tests {
         let mut ledger = CashLedger::from_genesis(&economy()).unwrap();
         ledger
             .apply_mint(
-                &CoinMintTransition::new(digest(2), principal(10), 50, 1, 1).unwrap(),
-                &settlement(1_000, 50, 1),
+                &CoinMintTransition::new(digest(2), principal(10), 20, 1, 1).unwrap(),
+                &settlement(1_000_000, 20, 1),
             )
             .unwrap();
         ledger
             .apply_mint(
-                &CoinMintTransition::new(digest(2), principal(12), 50, 2, 2).unwrap(),
-                &settlement(1_050, 50, 2),
+                &CoinMintTransition::new(digest(2), principal(12), 20, 2, 2).unwrap(),
+                &settlement(1_000_020, 20, 2),
             )
             .unwrap();
         let mut transfers = [principal(10), principal(12)]
@@ -352,13 +376,13 @@ mod tests {
         assert_eq!(
             proof.commitment().unwrap().as_bytes(),
             &[
-                14, 105, 213, 198, 196, 18, 68, 61, 208, 82, 78, 154, 147, 13, 131, 187, 223, 248,
-                125, 87, 82, 105, 104, 139, 213, 39, 210, 60, 183, 75, 142, 131, 226, 171, 154, 12,
-                18, 144, 5, 83, 185, 114, 129, 4, 150, 25, 62, 42,
+                13, 98, 57, 112, 125, 63, 106, 232, 159, 99, 66, 92, 213, 185, 211, 69, 198, 136,
+                60, 62, 15, 245, 139, 6, 77, 78, 184, 72, 19, 131, 161, 202, 27, 156, 218, 126,
+                239, 13, 177, 104, 55, 120, 155, 144, 239, 37, 107, 26,
             ]
         );
         assert!(include_str!("../../../testing/vectors/cash/cash-air-v1.txt")
-            .contains("proof_commitment_hex=0e69d5c6c412443dd0524e9a930d83bbdff87d575269688bd527d23cb74b8e83e2ab9a0c12900553b972810496193e2a"));
+            .contains("proof_commitment_hex=0d6239707d3f6ae89f63425cd5b9d345c6883c3e0ff58b064d4eb8481383a1ca1b9cda7eef0db16837789b90ef256b1a"));
     }
 
     #[test]
@@ -438,7 +462,7 @@ mod tests {
         let minted = ledger
             .apply_mint(
                 &CoinMintTransition::new(digest(2), principal(10), 1, 1, 1).unwrap(),
-                &settlement(large + 1, 1, 1),
+                &settlement_with_window(large + 1, 1, 1, 0, large + 1, 0),
             )
             .unwrap();
         let genesis = ledger
@@ -493,9 +517,9 @@ mod tests {
     fn genesis_supply_is_reproducible_and_partitioned() {
         let economy = economy();
         let ledger = CashLedger::from_genesis(&economy).unwrap();
-        assert_eq!(ledger.supply().current_total_supply(), 1_000);
-        assert_eq!(ledger.supply().locked_vesting_supply(), 100);
-        assert_eq!(ledger.supply().security_reserve_balance(), 100);
+        assert_eq!(ledger.supply().current_total_supply(), 1_000_000);
+        assert_eq!(ledger.supply().locked_vesting_supply(), 100_000);
+        assert_eq!(ledger.supply().security_reserve_balance(), 100_000);
         assert_eq!(ledger.cells().as_slice().len(), 2);
         assert_eq!(ledger.cell_set_root().unwrap(), ledger.cell_set_root().unwrap());
         assert_eq!(
@@ -509,18 +533,194 @@ mod tests {
         let economy = economy();
         let mut ledger = CashLedger::from_genesis(&economy).unwrap();
         let recipient = principal(20);
-        let mint = CoinMintTransition::new(digest(2), recipient, 50, 1, 9).unwrap();
-        assert!(ledger.apply_mint(&mint, &settlement(1_000, 50, 1)).is_ok());
-        assert_eq!(ledger.supply().cumulative_security_issuance(), 50);
+        let mint = CoinMintTransition::new(digest(2), recipient, 20, 1, 9).unwrap();
+        assert!(ledger.apply_mint(&mint, &settlement(1_000_000, 20, 1)).is_ok());
+        assert_eq!(ledger.supply().cumulative_security_issuance(), 20);
         assert_eq!(
-            ledger.apply_mint(&mint, &settlement(1_050, 50, 1)),
+            ledger.apply_mint(&mint, &settlement(1_000_020, 20, 1)),
             Err(CashTransitionError::Invalid(NativeMoneyError::MintSequenceMismatch))
         );
         let wrong = CoinMintTransition::new(digest(99), recipient, 1, 2, 10).unwrap();
         assert_eq!(
-            ledger.apply_mint(&wrong, &settlement(1_050, 1, 2)),
+            ledger.apply_mint(&wrong, &settlement(1_000_020, 1, 2)),
             Err(CashTransitionError::Invalid(NativeMoneyError::MintAuthorityMismatch))
         );
+    }
+
+    #[test]
+    fn mint_derives_target_and_annual_cap_from_committed_state_atomically() {
+        let mut ledger = CashLedger::from_genesis(&economy()).unwrap();
+        let mint = CoinMintTransition::new(digest(2), principal(20), 20, 1, 9).unwrap();
+        let valid = settlement(1_000_000, 20, 1);
+
+        let wrong_target = EpochEconomicsTransition::new(
+            1,
+            1_000_000,
+            0,
+            1,
+            0,
+            21,
+            20,
+            15_000,
+            0,
+            digest(20),
+            digest(21),
+            digest(22),
+            digest(23),
+            1_000_020,
+        )
+        .unwrap();
+        let before = ledger.clone();
+        assert_eq!(
+            ledger.apply_mint(&mint, &wrong_target),
+            Err(CashTransitionError::Invalid(NativeMoneyError::IssuanceFormulaMismatch))
+        );
+        assert_eq!(ledger, before);
+
+        let caller_claimed_stake = EpochEconomicsTransition::new(
+            1,
+            1_000_000,
+            5_000,
+            0,
+            0,
+            20,
+            20,
+            15_000,
+            0,
+            digest(20),
+            digest(21),
+            digest(22),
+            digest(23),
+            1_000_020,
+        )
+        .unwrap();
+        assert_eq!(
+            ledger.apply_mint(&mint, &caller_claimed_stake),
+            Err(CashTransitionError::Invalid(NativeMoneyError::IssuanceFormulaMismatch))
+        );
+        assert_eq!(ledger, before);
+
+        let wrong_cap = EpochEconomicsTransition::new(
+            valid.epoch(),
+            valid.pre_supply(),
+            valid.effective_stake_bps(),
+            valid.security_fee_revenue(),
+            valid.reserve_draw(),
+            valid.target_security_budget(),
+            valid.authorized_issuance(),
+            valid.issuance_cap() + 1,
+            valid.burned_amount(),
+            digest(20),
+            digest(21),
+            digest(22),
+            digest(23),
+            valid.post_supply(),
+        )
+        .unwrap();
+        assert_eq!(
+            ledger.apply_mint(&mint, &wrong_cap),
+            Err(CashTransitionError::Invalid(NativeMoneyError::IssuanceCapExceeded))
+        );
+        assert_eq!(ledger, before);
+    }
+
+    #[test]
+    fn annual_issuance_accounting_survives_restart_and_rolls_over_once() {
+        let mut ledger = CashLedger::from_genesis(&economy()).unwrap();
+        let opening_supply = ledger.supply().current_total_supply();
+        let mut issued = 0_u128;
+        for epoch in 1..=365 {
+            let pre_supply = ledger.supply().current_total_supply();
+            let amount = crate::types::epoch_security_budget(pre_supply, 0).unwrap();
+            ledger
+                .apply_mint(
+                    &CoinMintTransition::new(digest(2), principal(20), amount, epoch, epoch)
+                        .unwrap(),
+                    &settlement_with_window(pre_supply, amount, epoch, 0, opening_supply, issued),
+                )
+                .unwrap();
+            issued += amount;
+            if epoch == 180 {
+                ledger = decode_envelope(&encode_envelope(&ledger).unwrap()).unwrap();
+            }
+        }
+        let cap = crate::types::basis_points_amount(opening_supply, 150).unwrap();
+        assert!(ledger.supply().issuance_in_window() <= cap);
+        assert_eq!(ledger.supply().issuance_window(), 0);
+
+        let next_opening = ledger.supply().current_total_supply();
+        let amount = crate::types::epoch_security_budget(next_opening, 0).unwrap();
+        ledger
+            .apply_mint(
+                &CoinMintTransition::new(digest(2), principal(20), amount, 366, 366).unwrap(),
+                &settlement_with_window(next_opening, amount, 366, 0, next_opening, 0),
+            )
+            .unwrap();
+        assert_eq!(ledger.supply().issuance_window(), 1);
+        assert_eq!(ledger.supply().issuance_window_opening_supply(), next_opening);
+        assert_eq!(ledger.supply().issuance_in_window(), amount);
+    }
+
+    #[test]
+    fn legacy_ledger_migration_exhausts_current_window_but_can_advance_without_minting() {
+        let mut ledger = CashLedger::from_genesis(&economy()).unwrap();
+        ledger
+            .apply_mint(
+                &CoinMintTransition::new(digest(2), principal(20), 20, 1, 1).unwrap(),
+                &settlement(1_000_000, 20, 1),
+            )
+            .unwrap();
+        let mut encoder = Encoder::new(CashLedger::MAX_ENCODED_LEN);
+        ledger.encode_legacy_v1(&mut encoder).unwrap();
+        let body = encoder.finish();
+        let mut decoder = Decoder::new(&body);
+        let mut migrated = CashLedger::decode_legacy_v1(&mut decoder).unwrap();
+        decoder.finish().unwrap();
+        assert_eq!(migrated.supply().issuance_window(), 0);
+        assert_eq!(
+            migrated.supply().issuance_window_opening_supply(),
+            migrated.supply().current_total_supply()
+        );
+        let migrated_cap = crate::types::basis_points_amount(
+            migrated.supply().issuance_window_opening_supply(),
+            150,
+        )
+        .unwrap();
+        assert_eq!(migrated.supply().issuance_in_window(), migrated_cap);
+        migrated.verify_invariants().unwrap();
+
+        for epoch in 2..=365 {
+            let supply = migrated.supply().current_total_supply();
+            let target = crate::types::epoch_security_budget(supply, 0).unwrap();
+            let zero = EpochEconomicsTransition::new(
+                epoch,
+                supply,
+                0,
+                target,
+                0,
+                target,
+                0,
+                0,
+                0,
+                digest(20),
+                digest(21),
+                digest(22),
+                digest(23),
+                supply,
+            )
+            .unwrap();
+            migrated.apply_zero_issuance_settlement(&zero).unwrap();
+        }
+        let next_opening = migrated.supply().current_total_supply();
+        let amount = crate::types::epoch_security_budget(next_opening, 0).unwrap();
+        migrated
+            .apply_mint(
+                &CoinMintTransition::new(digest(2), principal(20), amount, 366, 366).unwrap(),
+                &settlement_with_window(next_opening, amount, 366, 0, next_opening, 0),
+            )
+            .unwrap();
+        assert_eq!(migrated.supply().issuance_window(), 1);
+        assert_eq!(migrated.supply().issuance_in_window(), amount);
     }
 
     #[test]
@@ -529,8 +729,8 @@ mod tests {
         let mut ledger = CashLedger::from_genesis(&economy).unwrap();
         let minted = ledger
             .apply_mint(
-                &CoinMintTransition::new(digest(2), principal(10), 50, 1, 1).unwrap(),
-                &settlement(1_000, 50, 1),
+                &CoinMintTransition::new(digest(2), principal(10), 20, 1, 1).unwrap(),
+                &settlement(1_000_000, 20, 1),
             )
             .unwrap();
         let first = ledger
@@ -545,7 +745,7 @@ mod tests {
             CoinTransfer::new(principal(10), principal(20), vec![first], second, 500, 7, 10)
                 .unwrap();
         ledger.apply_transfer(&transfer, 1).unwrap();
-        assert_eq!(ledger.supply().security_reserve_balance(), 107);
+        assert_eq!(ledger.supply().security_reserve_balance(), 100_007);
         assert_eq!(
             ledger.apply_transfer(&transfer, 1),
             Err(CashTransitionError::Invalid(NativeMoneyError::MissingCell))
@@ -565,7 +765,7 @@ mod tests {
             .id();
         let burn = CoinBurnTransition::new(principal(10), vec![input], 100, 10).unwrap();
         ledger.apply_burn(&burn, 1).unwrap();
-        assert_eq!(ledger.supply().current_total_supply(), 900);
+        assert_eq!(ledger.supply().current_total_supply(), 999_900);
         assert_eq!(ledger.supply().cumulative_burn(), 100);
         ledger.verify_invariants().unwrap();
     }
@@ -576,8 +776,8 @@ mod tests {
         let mut ledger = CashLedger::from_genesis(&economy).unwrap();
         let minted = ledger
             .apply_mint(
-                &CoinMintTransition::new(digest(2), principal(10), 50, 1, 1).unwrap(),
-                &settlement(1_000, 50, 1),
+                &CoinMintTransition::new(digest(2), principal(10), 20, 1, 1).unwrap(),
+                &settlement(1_000_000, 20, 1),
             )
             .unwrap();
         let input = ledger
@@ -605,8 +805,8 @@ mod tests {
         };
         ledger.apply_shield(&shield, shield_proof, 2).unwrap();
         assert_eq!(ledger.shielded_state().pool_balance(), 400);
-        assert_eq!(ledger.supply().current_total_supply(), 1_050);
-        assert_eq!(ledger.supply().security_reserve_balance(), 107);
+        assert_eq!(ledger.supply().current_total_supply(), 1_000_020);
+        assert_eq!(ledger.supply().security_reserve_balance(), 100_007);
 
         let unshield = UnshieldIntent::new(
             economy.definition().chain_id(),
@@ -626,8 +826,8 @@ mod tests {
         };
         let output = ledger.apply_unshield(&unshield, unshield_proof, 3).unwrap();
         assert_eq!(ledger.shielded_state().pool_balance(), 297);
-        assert_eq!(ledger.supply().security_reserve_balance(), 110);
-        assert_eq!(ledger.supply().current_total_supply(), 1_050);
+        assert_eq!(ledger.supply().security_reserve_balance(), 100_010);
+        assert_eq!(ledger.supply().current_total_supply(), 1_000_020);
         assert_eq!(
             ledger
                 .cells()
@@ -681,8 +881,8 @@ mod tests {
         let mut ledger = CashLedger::from_genesis(&economy).unwrap();
         let fee_reserve = ledger
             .apply_mint(
-                &CoinMintTransition::new(digest(2), principal(10), 50, 1, 1).unwrap(),
-                &settlement(1_000, 50, 1),
+                &CoinMintTransition::new(digest(2), principal(10), 20, 1, 1).unwrap(),
+                &settlement(1_000_000, 20, 1),
             )
             .unwrap();
         let pool_cell = ledger
@@ -753,8 +953,8 @@ mod tests {
         let mut shield_first = CashLedger::from_genesis(&economy).unwrap();
         let shield_fee = shield_first
             .apply_mint(
-                &CoinMintTransition::new(digest(2), principal(10), 50, 1, 1).unwrap(),
-                &settlement(1_000, 50, 1),
+                &CoinMintTransition::new(digest(2), principal(10), 20, 1, 1).unwrap(),
+                &settlement(1_000_000, 20, 1),
             )
             .unwrap();
         let shield_input = shield_first
@@ -867,6 +1067,17 @@ mod tests {
             value("authorized_issuance"),
             value("target_security_budget") - value("security_fee_revenue") - value("reserve_draw")
         );
+        assert_eq!(value("issuance_epochs_per_year"), 365);
+        assert_eq!(
+            value("issuance_cap"),
+            value("issuance_window_opening_supply") * value("maximum_ordinary_annual_issuance_bps")
+                / 10_000
+                - value("issuance_in_window_before")
+        );
+        assert_eq!(
+            value("issuance_in_window_after"),
+            value("issuance_in_window_before") + value("authorized_issuance")
+        );
         assert_eq!(
             value("post_supply_after_epoch"),
             value("genesis_supply") + value("authorized_issuance")
@@ -874,6 +1085,17 @@ mod tests {
         assert_eq!(
             value("post_supply_after_burn"),
             value("post_supply_after_epoch") - value("burned_amount")
+        );
+    }
+
+    #[test]
+    fn checked_stake_ratio_handles_zero_fractional_and_u128_max_boundaries() {
+        assert_eq!(crate::types::effective_stake_basis_points(0, u128::MAX), Ok(0));
+        assert_eq!(crate::types::effective_stake_basis_points(u128::MAX, u128::MAX), Ok(10_000));
+        assert_eq!(crate::types::effective_stake_basis_points(1, 3), Ok(3_333));
+        assert_eq!(
+            crate::types::effective_stake_basis_points(4, 3),
+            Err(NativeMoneyError::SupplyPartitionMismatch)
         );
     }
 
@@ -886,9 +1108,28 @@ mod tests {
         ) {
             let total = genesis.checked_add(issuance).and_then(|value| value.checked_sub(burned));
             if let Some(total) = total {
-                let supply = NativeSupply::new(total + burned - issuance, issuance, burned, total, total, 0, 0, 0, 0);
+                let genesis = total + burned - issuance;
+                let supply = NativeSupply::new(
+                    genesis, issuance, burned, total, total, 0, 0, 0, 0, 0, genesis, 0,
+                );
                 prop_assert!(supply.is_ok());
             }
+        }
+
+        #[test]
+        fn derived_stake_ratio_matches_wide_bounded_arithmetic(
+            total in 1_u64..=u64::MAX,
+            raw_staked in 0_u64..=u64::MAX,
+        ) {
+            let staked = raw_staked % total;
+            let expected = ((u128::from(staked) * 10_000) / u128::from(total)) as u16;
+            prop_assert_eq!(
+                crate::types::effective_stake_basis_points(
+                    u128::from(staked),
+                    u128::from(total),
+                ),
+                Ok(expected),
+            );
         }
 
         #[test]
@@ -899,8 +1140,8 @@ mod tests {
             let mut ledger = CashLedger::from_genesis(&economy).unwrap();
             let fee_reserve = ledger
                 .apply_mint(
-                    &CoinMintTransition::new(digest(2), principal(10), 50, 1, 1).unwrap(),
-                    &settlement(1_000, 50, 1),
+                    &CoinMintTransition::new(digest(2), principal(10), 20, 1, 1).unwrap(),
+                    &settlement(1_000_000, 20, 1),
                 )
                 .unwrap();
             let pool_cell = ledger

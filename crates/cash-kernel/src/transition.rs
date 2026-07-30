@@ -17,7 +17,8 @@ use activechain_protocol_types::{
 use crate::types::{
     CoinBurnTransition, CoinCell, CoinCellOrigin, CoinCellRecord, CoinCellSet, CoinMintTransition,
     CoinTransfer, EpochEconomicsTransition, GenesisEconomy, NativeAssetDefinition,
-    NativeMoneyError, NativeSupply,
+    NativeMoneyError, NativeSupply, basis_points_amount, effective_stake_basis_points,
+    epoch_security_budget, issuance_window_index,
 };
 use crate::{RewardRedemption, RewardSettlement};
 
@@ -307,6 +308,9 @@ impl CashLedger {
                 .checked_add(fee)
                 .ok_or(CashTransitionError::Invalid(NativeMoneyError::AmountOverflow))?,
             self.supply.last_settled_epoch(),
+            self.supply.issuance_window(),
+            self.supply.issuance_window_opening_supply(),
+            self.supply.issuance_in_window(),
         )
         .map_err(CashTransitionError::Invalid)?;
         Ok(())
@@ -314,6 +318,17 @@ impl CashLedger {
 
     /// Applies a deterministic epoch-security mint from the declared issuance authority.
     pub fn apply_mint(
+        &mut self,
+        mint: &CoinMintTransition,
+        settlement: &EpochEconomicsTransition,
+    ) -> Result<CoinCellId, CashTransitionError> {
+        let mut next = self.clone();
+        let output = next.apply_mint_inner(mint, settlement)?;
+        *self = next;
+        Ok(output)
+    }
+
+    fn apply_mint_inner(
         &mut self,
         mint: &CoinMintTransition,
         settlement: &EpochEconomicsTransition,
@@ -331,11 +346,40 @@ impl CashLedger {
         {
             return Err(CashTransitionError::Invalid(NativeMoneyError::MintSequenceMismatch));
         }
+        let effective_stake_bps = effective_stake_basis_points(
+            self.supply.staked_supply(),
+            self.supply.current_total_supply(),
+        )
+        .map_err(CashTransitionError::Invalid)?;
         if settlement.pre_supply() != self.supply.current_total_supply()
             || settlement.burned_amount() != 0
             || settlement.authorized_issuance() != mint.amount()
+            || settlement.effective_stake_bps() != effective_stake_bps
+            || settlement.target_security_budget()
+                != epoch_security_budget(self.supply.current_total_supply(), effective_stake_bps)
+                    .map_err(CashTransitionError::Invalid)?
         {
             return Err(CashTransitionError::Invalid(NativeMoneyError::IssuanceFormulaMismatch));
+        }
+        let next_window =
+            issuance_window_index(mint.sequence()).map_err(CashTransitionError::Invalid)?;
+        let (window_opening_supply, issued_before) = if self.supply.last_settled_epoch() == 0
+            || next_window == self.supply.issuance_window()
+        {
+            (self.supply.issuance_window_opening_supply(), self.supply.issuance_in_window())
+        } else {
+            (self.supply.current_total_supply(), 0)
+        };
+        let annual_cap = basis_points_amount(
+            window_opening_supply,
+            self.definition.maximum_ordinary_annual_issuance_bps(),
+        )
+        .map_err(CashTransitionError::Invalid)?;
+        let remaining_cap = annual_cap
+            .checked_sub(issued_before)
+            .ok_or(CashTransitionError::Invariant(NativeMoneyError::IssuanceCapExceeded))?;
+        if settlement.issuance_cap() != remaining_cap || mint.amount() > remaining_cap {
+            return Err(CashTransitionError::Invalid(NativeMoneyError::IssuanceCapExceeded));
         }
         let next_total = settlement.post_supply();
         if next_total < self.supply.current_total_supply() {
@@ -352,6 +396,9 @@ impl CashLedger {
             .cumulative_security_issuance()
             .checked_add(mint.amount())
             .ok_or(CashTransitionError::Invalid(NativeMoneyError::AmountOverflow))?;
+        let issued_in_window = issued_before
+            .checked_add(mint.amount())
+            .ok_or(CashTransitionError::Invalid(NativeMoneyError::AmountOverflow))?;
         self.supply = NativeSupply::new(
             self.supply.genesis_supply(),
             issuance,
@@ -365,10 +412,92 @@ impl CashLedger {
             self.supply.staked_supply(),
             self.supply.security_reserve_balance(),
             mint.sequence(),
+            next_window,
+            window_opening_supply,
+            issued_in_window,
         )
         .map_err(CashTransitionError::Invalid)?;
         self.verify_invariants()?;
         Ok(CoinCellId::new(id.into_digest()))
+    }
+
+    /// Advances one economics epoch without creating a Coin Cell when fees and reserve cover the
+    /// complete derived security budget. This also permits fail-closed legacy state to reach the
+    /// next issuance window without reopening capacity in the current one.
+    pub fn apply_zero_issuance_settlement(
+        &mut self,
+        settlement: &EpochEconomicsTransition,
+    ) -> Result<(), CashTransitionError> {
+        let mut next = self.clone();
+        next.apply_zero_issuance_settlement_inner(settlement)?;
+        *self = next;
+        Ok(())
+    }
+
+    fn apply_zero_issuance_settlement_inner(
+        &mut self,
+        settlement: &EpochEconomicsTransition,
+    ) -> Result<(), CashTransitionError> {
+        let next_epoch = self
+            .supply
+            .last_settled_epoch()
+            .checked_add(1)
+            .ok_or(CashTransitionError::Invalid(NativeMoneyError::AmountOverflow))?;
+        if settlement.epoch() != next_epoch {
+            return Err(CashTransitionError::Invalid(NativeMoneyError::MintSequenceMismatch));
+        }
+        let effective_stake_bps = effective_stake_basis_points(
+            self.supply.staked_supply(),
+            self.supply.current_total_supply(),
+        )
+        .map_err(CashTransitionError::Invalid)?;
+        let target = epoch_security_budget(self.supply.current_total_supply(), effective_stake_bps)
+            .map_err(CashTransitionError::Invalid)?;
+        if settlement.pre_supply() != self.supply.current_total_supply()
+            || settlement.post_supply() != self.supply.current_total_supply()
+            || settlement.burned_amount() != 0
+            || settlement.authorized_issuance() != 0
+            || settlement.effective_stake_bps() != effective_stake_bps
+            || settlement.target_security_budget() != target
+        {
+            return Err(CashTransitionError::Invalid(NativeMoneyError::IssuanceFormulaMismatch));
+        }
+        let next_window =
+            issuance_window_index(settlement.epoch()).map_err(CashTransitionError::Invalid)?;
+        let (window_opening_supply, issued_in_window) = if self.supply.last_settled_epoch() == 0
+            || next_window == self.supply.issuance_window()
+        {
+            (self.supply.issuance_window_opening_supply(), self.supply.issuance_in_window())
+        } else {
+            (self.supply.current_total_supply(), 0)
+        };
+        let annual_cap = basis_points_amount(
+            window_opening_supply,
+            self.definition.maximum_ordinary_annual_issuance_bps(),
+        )
+        .map_err(CashTransitionError::Invalid)?;
+        let remaining_cap = annual_cap
+            .checked_sub(issued_in_window)
+            .ok_or(CashTransitionError::Invariant(NativeMoneyError::IssuanceCapExceeded))?;
+        if settlement.issuance_cap() != remaining_cap {
+            return Err(CashTransitionError::Invalid(NativeMoneyError::IssuanceCapExceeded));
+        }
+        self.supply = NativeSupply::new(
+            self.supply.genesis_supply(),
+            self.supply.cumulative_security_issuance(),
+            self.supply.cumulative_burn(),
+            self.supply.current_total_supply(),
+            self.supply.circulating_supply(),
+            self.supply.locked_vesting_supply(),
+            self.supply.staked_supply(),
+            self.supply.security_reserve_balance(),
+            settlement.epoch(),
+            next_window,
+            window_opening_supply,
+            issued_in_window,
+        )
+        .map_err(CashTransitionError::Invalid)?;
+        self.verify_invariants()
     }
 
     /// Applies a fixed public transfer, charging its explicit fee reserve.
@@ -475,6 +604,9 @@ impl CashLedger {
             self.supply.staked_supply(),
             fee_pool,
             self.supply.last_settled_epoch(),
+            self.supply.issuance_window(),
+            self.supply.issuance_window_opening_supply(),
+            self.supply.issuance_in_window(),
         )
         .map_err(CashTransitionError::Invalid)?;
         self.verify_invariants()
@@ -549,6 +681,9 @@ impl CashLedger {
             self.supply.staked_supply(),
             self.supply.security_reserve_balance(),
             self.supply.last_settled_epoch(),
+            self.supply.issuance_window(),
+            self.supply.issuance_window_opening_supply(),
+            self.supply.issuance_in_window(),
         )
         .map_err(CashTransitionError::Invalid)?;
         self.verify_invariants()
@@ -582,6 +717,14 @@ impl CashLedger {
         let expected = self.supply.current_total_supply();
         if accounted != expected {
             return Err(CashTransitionError::Invariant(NativeMoneyError::SupplyPartitionMismatch));
+        }
+        let annual_cap = basis_points_amount(
+            self.supply.issuance_window_opening_supply(),
+            self.definition.maximum_ordinary_annual_issuance_bps(),
+        )
+        .map_err(CashTransitionError::Invalid)?;
+        if self.supply.issuance_in_window() > annual_cap {
+            return Err(CashTransitionError::Invariant(NativeMoneyError::IssuanceCapExceeded));
         }
         Ok(())
     }
@@ -650,9 +793,52 @@ impl CanonicalDecode for CashLedger {
     }
 }
 
+impl CashLedger {
+    /// Encodes the schema-v1 body for explicit bounded snapshot migration tooling.
+    #[doc(hidden)]
+    pub fn encode_legacy_v1(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.definition.encode(e)?;
+        self.supply.genesis_supply().encode(e)?;
+        self.supply.cumulative_security_issuance().encode(e)?;
+        self.supply.cumulative_burn().encode(e)?;
+        self.supply.current_total_supply().encode(e)?;
+        self.supply.circulating_supply().encode(e)?;
+        self.supply.locked_vesting_supply().encode(e)?;
+        self.supply.staked_supply().encode(e)?;
+        self.supply.security_reserve_balance().encode(e)?;
+        self.supply.last_settled_epoch().encode(e)?;
+        self.cells.encode(e)?;
+        self.shielded.encode(e)?;
+        e.write_length(self.redeemed_rewards.len(), MAX_REDEEMED_REWARDS)?;
+        for settlement in &self.redeemed_rewards {
+            settlement.encode(e)?;
+        }
+        Ok(())
+    }
+
+    /// Decodes the bounded schema-v1 ledger used by transaction-ingress snapshot v2.
+    pub fn decode_legacy_v1(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let definition = NativeAssetDefinition::decode(d)?;
+        let supply =
+            NativeSupply::decode_legacy_v1(d, definition.maximum_ordinary_annual_issuance_bps())?;
+        let cells = CoinCellSet::decode(d)?;
+        let shielded = ShieldedCashState::decode(d)?;
+        let count = d.read_length(MAX_REDEEMED_REWARDS)?;
+        let mut redeemed_rewards = Vec::with_capacity(count);
+        for _ in 0..count {
+            redeemed_rewards.push(activechain_protocol_types::Digest384::decode(d)?);
+        }
+        let ledger = Self { definition, supply, cells, shielded, redeemed_rewards };
+        ledger
+            .verify_invariants()
+            .map_err(|_| DecodeError::InvalidValue("invalid legacy cash ledger"))?;
+        Ok(ledger)
+    }
+}
+
 impl CanonicalType for CashLedger {
     const TYPE_TAG: u16 = 0x008a;
-    const SCHEMA_VERSION: u16 = 1;
+    const SCHEMA_VERSION: u16 = 2;
     const MAX_ENCODED_LEN: usize = NativeAssetDefinition::MAX_ENCODED_LEN
         + NativeSupply::MAX_ENCODED_LEN
         + CoinCellSet::MAX_ENCODED_LEN

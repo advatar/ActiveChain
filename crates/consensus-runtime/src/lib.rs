@@ -138,6 +138,18 @@ impl WalletTransactionGateway {
         self.ingress.register_session(grant)
     }
 
+    /// Commits a deterministic native-economics settlement through the same crash-atomic state
+    /// boundary as cash admission. Consensus callers cannot mutate the ledger around this gate.
+    pub fn settle_epoch_durable(
+        &mut self,
+        mint: Option<&activechain_cash_kernel::CoinMintTransition>,
+        settlement: &activechain_cash_kernel::EpochEconomicsTransition,
+        snapshot_path: &std::path::Path,
+    ) -> Result<Option<activechain_protocol_types::CoinCellId>, activechain_wallet_core::WalletError>
+    {
+        self.ingress.settle_epoch_durable(mint, settlement, snapshot_path)
+    }
+
     pub fn ledger(&self) -> &activechain_cash_kernel::CashLedger {
         self.ingress.ledger()
     }

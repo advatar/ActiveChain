@@ -37,6 +37,23 @@ Tracked by [GitHub issue #329](https://github.com/advatar/ActiveChain/issues/329
 - [x] Pass the complete deterministic-kernel gate, merge to `main`, and verify reachability before
   closing #329.
 
+## Critical monetary recovery — constitutional issuance ceiling
+
+Tracked by [GitHub issue #331](https://github.com/advatar/ActiveChain/issues/331).
+
+- [x] Define a deterministic issuance-year window, stake-sensitive target-budget curve, rounding,
+  boundary, and checked-overflow semantics in the native-money specification.
+- [x] Derive the target security budget and remaining annual issuance allowance from committed
+  ledger state at the executed mint boundary; reject caller-controlled substitutes before mutation.
+- [x] Persist bounded window opening supply and cumulative issuance in canonical consensus state,
+  with an explicit fail-closed migration for legacy snapshots.
+- [x] Enforce the cumulative ceiling in ledger invariants so split transactions and restarts cannot
+  reopen issuance capacity.
+- [x] Add boundary, overflow, multi-mint, rollover, restart, legacy-migration, and adversarial
+  property tests; align formal arithmetic and frozen vectors.
+- [ ] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
+  #331.
+
 ## Critical transport recovery — mutually authenticated peer sessions
 
 Tracked by [GitHub issue #330](https://github.com/advatar/ActiveChain/issues/330).

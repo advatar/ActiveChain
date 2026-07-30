@@ -1,6 +1,6 @@
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
-    decode_envelope, encode_envelope,
+    decode_envelope, encode_envelope, inspect_canonical_envelope,
 };
 use activechain_protocol_types::{
     AuthenticatorDescriptor, AuthenticatorPurpose, ChainId, CoinCellId, CryptoSuiteId, Digest384,
@@ -142,10 +142,21 @@ impl TransactionIngress {
     /// Loads a strict canonical snapshot and checks it belongs to the expected chain.
     pub fn load(path: &Path, expected_chain: ChainId) -> Result<Self, WalletError> {
         let bytes = std::fs::read(path).map_err(|_| WalletError::Persistence)?;
-        let ingress = decode_envelope::<Self>(&bytes).map_err(|_| WalletError::Persistence)?;
+        let ingress = decode_envelope::<Self>(&bytes)
+            .or_else(|_| Self::decode_legacy_v2_envelope(&bytes))
+            .map_err(|_| WalletError::Persistence)?;
         if ingress.chain_id != expected_chain {
             return Err(WalletError::WrongChain);
         }
+        Ok(ingress)
+    }
+
+    fn decode_legacy_v2_envelope(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let envelope = inspect_canonical_envelope(bytes, Self::TYPE_TAG, 2, Self::MAX_ENCODED_LEN)?;
+        let mut decoder = Decoder::new(envelope.body());
+        let ledger = activechain_cash_kernel::CashLedger::decode_legacy_v1(&mut decoder)?;
+        let ingress = Self::decode_after_ledger(&mut decoder, ledger)?;
+        decoder.finish()?;
         Ok(ingress)
     }
 
@@ -175,11 +186,43 @@ impl TransactionIngress {
         *self = next;
         Ok(())
     }
+
+    /// Applies one state-derived economics settlement and publishes the complete ledger and replay
+    /// state atomically. `None` is accepted only for a valid zero-issuance settlement.
+    pub fn settle_epoch_durable(
+        &mut self,
+        mint: Option<&activechain_cash_kernel::CoinMintTransition>,
+        settlement: &activechain_cash_kernel::EpochEconomicsTransition,
+        path: &Path,
+    ) -> Result<Option<CoinCellId>, WalletError> {
+        let mut next = self.clone();
+        let output = if let Some(mint) = mint {
+            Some(
+                next.ledger
+                    .apply_mint(mint, settlement)
+                    .map_err(|_| WalletError::InvalidEconomicsTransition)?,
+            )
+        } else {
+            next.ledger
+                .apply_zero_issuance_settlement(settlement)
+                .map_err(|_| WalletError::InvalidEconomicsTransition)?;
+            None
+        };
+        next.save_atomic(path)?;
+        *self = next;
+        Ok(output)
+    }
 }
 
 impl CanonicalEncode for TransactionIngress {
     fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
         self.ledger.encode(encoder)?;
+        self.encode_after_ledger(encoder)
+    }
+}
+
+impl TransactionIngress {
+    fn encode_after_ledger(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
         self.chain_id.encode(encoder)?;
         encoder.write_length(self.authorization_lanes.len(), MAX_AUTHORIZATION_LANES)?;
         for lane in &self.authorization_lanes {
@@ -215,11 +258,34 @@ impl CanonicalEncode for TransactionIngress {
         }
         Ok(())
     }
+
+    #[cfg(test)]
+    pub(crate) fn encode_legacy_v2_for_test(&self) -> Result<Vec<u8>, EncodeError> {
+        let mut body = Encoder::new(Self::MAX_ENCODED_LEN);
+        self.ledger.encode_legacy_v1(&mut body)?;
+        self.encode_after_ledger(&mut body)?;
+        let body = body.finish();
+        let mut envelope = Encoder::new(Self::MAX_ENCODED_LEN + 8);
+        envelope.write_u16(Self::TYPE_TAG)?;
+        envelope.write_u16(2)?;
+        envelope.write_length(body.len(), Self::MAX_ENCODED_LEN)?;
+        envelope.write_raw(&body)?;
+        Ok(envelope.finish())
+    }
 }
 
 impl CanonicalDecode for TransactionIngress {
     fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
         let ledger = activechain_cash_kernel::CashLedger::decode(decoder)?;
+        Self::decode_after_ledger(decoder, ledger)
+    }
+}
+
+impl TransactionIngress {
+    fn decode_after_ledger(
+        decoder: &mut Decoder<'_>,
+        ledger: activechain_cash_kernel::CashLedger,
+    ) -> Result<Self, DecodeError> {
         let chain_id = ChainId::decode(decoder)?;
         if ledger.definition().chain_id() != chain_id {
             return Err(DecodeError::InvalidValue("cash snapshot chain mismatch"));
@@ -330,7 +396,7 @@ where
 
 impl CanonicalType for TransactionIngress {
     const TYPE_TAG: u16 = 0x0090;
-    const SCHEMA_VERSION: u16 = 2;
+    const SCHEMA_VERSION: u16 = 3;
     const MAX_ENCODED_LEN: usize = activechain_cash_kernel::CashLedger::MAX_ENCODED_LEN
         + 48
         + 2
