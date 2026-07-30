@@ -3,6 +3,32 @@ import Security
 @testable import ActiveChainWalletApp
 
 final class ActiveChainWalletTests: XCTestCase {
+    func testFundingPresentationNeverCreditsPendingOrRejectedRequests() {
+        let states: [WalletFundingState] = [
+            .unavailable(reason: "missing key"),
+            .ready,
+            .requesting,
+            .pending(reference: "abc"),
+            .rejected(reference: "abc", reason: "limit")
+        ]
+        XCTAssertTrue(states.allSatisfy { !$0.creditsBalance })
+        XCTAssertTrue(WalletFundingState.finalized(reference: "abc", height: 7).creditsBalance)
+    }
+
+    func testFundingPresentationUsesHonestLifecycleLabels() {
+        XCTAssertEqual(WalletFundingState.ready.title, "Request testnet ACT")
+        XCTAssertEqual(WalletFundingState.requesting.title, "Submitting signed request")
+        XCTAssertEqual(WalletFundingState.pending(reference: "abc").title, "Funding pending")
+        XCTAssertEqual(
+            WalletFundingState.finalized(reference: "abc", height: 7).title,
+            "Funding finalized"
+        )
+        XCTAssertEqual(
+            WalletFundingState.rejected(reference: nil, reason: "disabled").title,
+            "Funding rejected"
+        )
+    }
+
     func testReceiveRequestBindsAddressToNetworkAndGenesis() throws {
         let request = ReceiveRequest(
             networkID: "roslagen",

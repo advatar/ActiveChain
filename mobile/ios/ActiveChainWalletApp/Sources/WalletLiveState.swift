@@ -62,11 +62,39 @@ enum WalletNetworkState: Equatable, Sendable {
     }
 }
 
+enum WalletFundingState: Equatable, Sendable {
+    case unavailable(reason: String)
+    case ready
+    case requesting
+    case pending(reference: String)
+    case finalized(reference: String, height: UInt64)
+    case rejected(reference: String?, reason: String)
+
+    var title: String {
+        switch self {
+        case .unavailable: "Funding unavailable"
+        case .ready: "Request testnet ACT"
+        case .requesting: "Submitting signed request"
+        case .pending: "Funding pending"
+        case .finalized: "Funding finalized"
+        case .rejected: "Funding rejected"
+        }
+    }
+
+    var creditsBalance: Bool {
+        if case .finalized = self { return true }
+        return false
+    }
+}
+
 @MainActor
 final class WalletLiveState: ObservableObject {
     @Published private(set) var networkState: WalletNetworkState = .checking
     @Published private(set) var deviceProfile: WalletDeviceProfile?
     @Published private(set) var verifiedOwnerPage: WalletOwnerCoinPage?
+    @Published private(set) var fundingState: WalletFundingState = .unavailable(
+        reason: "Load a finalized wallet profile and secure cash key first."
+    )
     private let rpc = WalletRPCClient()
     private let verifier: any WalletOwnerCoinProofVerifier = RustWalletOwnerCoinProofVerifier()
 
@@ -99,6 +127,39 @@ final class WalletLiveState: ObservableObject {
         } catch {
             verifiedOwnerPage = nil
         }
+        updateFundingAvailability()
+    }
+
+    func requestTestnetFunding() {
+        guard case .healthy = networkState else {
+            fundingState = .unavailable(reason: "A healthy finalized Kanalen checkpoint is required.")
+            return
+        }
+        guard deviceProfile != nil else {
+            fundingState = .unavailable(reason: "Create or restore the wallet profile first.")
+            return
+        }
+        // A request must be constructed and signed by the platform-custody cash key, then sent as
+        // RequestAuthorizedFaucet. Until that custody adapter is installed, remain fail-closed.
+        fundingState = .unavailable(
+            reason: "Secure cash-key authorization is not installed in this build."
+        )
+    }
+
+    private func updateFundingAvailability() {
+        guard case .healthy = networkState else {
+            fundingState = .unavailable(reason: "A healthy finalized Kanalen checkpoint is required.")
+            return
+        }
+        guard deviceProfile != nil else {
+            fundingState = .unavailable(reason: "Create or restore the wallet profile first.")
+            return
+        }
+        if case .pending = fundingState { return }
+        if case .finalized = fundingState { return }
+        fundingState = .unavailable(
+            reason: "Secure cash-key authorization is not installed in this build."
+        )
     }
 
     func refreshVerifiedOwnerPage(verifier: any WalletOwnerCoinProofVerifier) async {
