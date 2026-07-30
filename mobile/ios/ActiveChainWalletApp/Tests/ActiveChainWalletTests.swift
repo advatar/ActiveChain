@@ -37,6 +37,49 @@ final class ActiveChainWalletTests: XCTestCase {
         XCTAssertThrowsError(try RustCanonicalApproval.review(alternate))
     }
 
+    func testCanonicalApprovalSessionFailsClosedAfterOneAuthenticatedSigningAttempt() throws {
+        let approval = try sharedCanonicalApproval()
+        let fixture = AppleCustodyFixture()
+        var recoveryKey = Data(repeating: 0x91, count: 32)
+        _ = try fixture.provider.provision(
+            slotID: "wallet-primary", keyVersion: 1, finalizedHeight: 20,
+            recoveryKey: &recoveryKey
+        )
+        let session = CanonicalCashApprovalSession(approval: approval)
+
+        XCTAssertThrowsError(try session.sign(
+            with: fixture.provider, slotID: "wallet-primary",
+            minimumVersion: 1, minimumFinalizedHeight: 20
+        ))
+        XCTAssertEqual(fixture.hardware.unwrapCount, 1)
+        XCTAssertThrowsError(try session.sign(
+            with: fixture.provider, slotID: "wallet-primary",
+            minimumVersion: 1, minimumFinalizedHeight: 20
+        )) { error in
+            XCTAssertEqual(error as? CanonicalApprovalError, .alreadyConsumed)
+        }
+        XCTAssertEqual(fixture.hardware.unwrapCount, 1)
+    }
+
+    func testCanonicalApprovalSessionRejectsSubstitutedHumanReviewBeforeCustody() throws {
+        let approval = try sharedCanonicalApproval()
+        let substituted = CanonicalCashApproval(
+            request: approval.request, chainID: approval.chainID, signer: approval.signer,
+            recipient: Data(repeating: 0xff, count: 48), feeReserve: approval.feeReserve,
+            sessionID: approval.sessionID, intentID: approval.intentID, nonce: approval.nonce,
+            sessionExpiresAt: approval.sessionExpiresAt, amount: approval.amount, fee: approval.fee,
+            validUntil: approval.validUntil, inputCount: approval.inputCount
+        )
+        let fixture = AppleCustodyFixture()
+        XCTAssertThrowsError(try CanonicalCashApprovalSession(approval: substituted).sign(
+            with: fixture.provider, slotID: "missing", minimumVersion: 1,
+            minimumFinalizedHeight: 0
+        )) { error in
+            XCTAssertEqual(error as? CanonicalApprovalError, .substitutedReview)
+        }
+        XCTAssertEqual(fixture.hardware.unwrapCount, 0)
+    }
+
     func testReceiveRequestBindsAddressToNetworkAndGenesis() throws {
         let request = ReceiveRequest(
             networkID: "roslagen",
@@ -585,6 +628,24 @@ final class ActiveChainWalletTests: XCTestCase {
         } while value != 0
         return result
     }
+
+    private func sharedCanonicalApproval() throws -> CanonicalCashApproval {
+        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        while directory.path != "/" {
+            let candidate = directory.appendingPathComponent(
+                "testing/vectors/wallet-canonical-approval-v1.txt"
+            )
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                let contents = try String(contentsOf: candidate, encoding: .utf8)
+                let requestLine = try XCTUnwrap(contents.split(separator: "\n")
+                    .first { $0.hasPrefix("request_hex=") })
+                let request = try XCTUnwrap(Data(strictHex: String(requestLine.dropFirst(12))))
+                return try RustCanonicalApproval.review(request)
+            }
+            directory.deleteLastPathComponent()
+        }
+        throw CanonicalApprovalError.malformed
+    }
 }
 
 private extension Data {
@@ -635,6 +696,7 @@ private final class AppleFakeHardwareWrapping: AppleHardwareWrapping {
     private(set) var tags: Set<Data> = []
     var substitutePlaintext: Data?
     var failure: AppleCustodyError?
+    private(set) var unwrapCount = 0
 
     func createAndWrap(secret: Data, tag: Data) throws -> Data {
         tags.insert(tag)
@@ -642,6 +704,7 @@ private final class AppleFakeHardwareWrapping: AppleHardwareWrapping {
     }
 
     func unwrap(ciphertext: Data, tag: Data, reason: String) throws -> Data {
+        unwrapCount += 1
         if let failure { throw failure }
         guard tags.contains(tag) else { throw AppleCustodyError.missingSlot }
         return substitutePlaintext ?? Data(ciphertext.map { $0 ^ 0x5a })

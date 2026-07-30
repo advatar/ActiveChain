@@ -402,6 +402,12 @@ final class AppleNativeCustodyProvider {
         return signature
     }
 
+    func publicKey(slotID: String) throws -> Data {
+        let record = try load(slotID: slotID)
+        guard !record.revoked else { throw AppleCustodyError.revoked }
+        return record.publicKey
+    }
+
     func rotate(
         slotID: String,
         newVersion: UInt32,

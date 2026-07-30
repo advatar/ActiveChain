@@ -1,5 +1,7 @@
 package dev.activechain.wallet
 
+import java.util.concurrent.atomic.AtomicBoolean
+
 data class Unsigned128(val high: ULong, val low: ULong)
 
 data class CanonicalWalletApproval(
@@ -35,11 +37,55 @@ data class CanonicalWalletApproval(
     }
 }
 
-private object NativeCanonicalApproval {
+internal object NativeCanonicalApproval {
     init { System.loadLibrary("activechain_wallet_ffi") }
     fun review(request: ByteArray): String = nativeReview(request)
+    fun signingPayload(request: ByteArray, intent: ByteArray): ByteArray =
+        nativeSigningPayload(request, intent)
+    fun authorize(
+        request: ByteArray, intent: ByteArray, publicKey: ByteArray, signature: ByteArray,
+    ): ByteArray = nativeAuthorize(request, intent, publicKey, signature)
+    fun verifyForSubmission(envelope: ByteArray, publicKey: ByteArray): ByteArray =
+        nativeVerifyForSubmission(envelope, publicKey)
     @JvmStatic private external fun nativeReview(request: ByteArray): String
+    @JvmStatic private external fun nativeSigningPayload(request: ByteArray, intent: ByteArray): ByteArray
+    @JvmStatic private external fun nativeAuthorize(
+        request: ByteArray, intent: ByteArray, publicKey: ByteArray, signature: ByteArray,
+    ): ByteArray
+    @JvmStatic private external fun nativeVerifyForSubmission(
+        envelope: ByteArray, publicKey: ByteArray,
+    ): ByteArray
 }
+
+class CanonicalWalletApprovalSession(private val approval: CanonicalWalletApproval) {
+    private val consumed = AtomicBoolean(false)
+
+    fun sign(
+        custody: AndroidNativeCustodyProvider,
+        slotID: String,
+        minimumVersion: Int,
+        minimumFinalizedHeight: Long,
+    ): ByteArray {
+        val reviewed = CanonicalWalletApproval.review(approval.request)
+        require(reviewed.sameReview(approval)) { "canonical approval was substituted" }
+        check(consumed.compareAndSet(false, true)) { "canonical approval was already consumed" }
+        val intent = approval.approvedIntent()
+        val payload = NativeCanonicalApproval.signingPayload(approval.request, intent)
+        val publicKey = custody.publicKey(slotID)
+        val signature = custody.sign(
+            slotID, payload, minimumVersion, minimumFinalizedHeight,
+            "Approve the reviewed ActiveChain transfer",
+        )
+        return NativeCanonicalApproval.authorize(approval.request, intent, publicKey, signature)
+    }
+}
+
+private fun CanonicalWalletApproval.sameReview(other: CanonicalWalletApproval): Boolean =
+    request.contentEquals(other.request) && chainID == other.chainID && signer == other.signer &&
+        recipient == other.recipient && feeReserve == other.feeReserve && sessionID == other.sessionID &&
+        intentID == other.intentID && nonce == other.nonce && sessionExpiresAt == other.sessionExpiresAt &&
+        amount == other.amount && fee == other.fee && validUntil == other.validUntil &&
+        inputCount == other.inputCount
 
 internal fun parseCanonicalApproval(request: ByteArray, encoded: String): CanonicalWalletApproval {
     val fields = encoded.split('\t')

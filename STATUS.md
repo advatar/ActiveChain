@@ -39,7 +39,7 @@ Tracked by [GitHub issue #339](https://github.com/advatar/ActiveChain/issues/339
   transaction bridges.
 - [x] Expose one bounded canonical approval transcript and human-readable fields from Rust through
   the C/JNI boundaries, bound to the exact intent commitment.
-- [ ] Require immediate platform authentication before native custody signs that exact transcript;
+- [x] Require immediate platform authentication before native custody signs that exact transcript;
   reject mutation, substitution, replay, and alternate encodings.
 - [ ] Add shared cross-language vectors plus Rust, FFI, Apple, Android, and end-to-end submission
   tests.

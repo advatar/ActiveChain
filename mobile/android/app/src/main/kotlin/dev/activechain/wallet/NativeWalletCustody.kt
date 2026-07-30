@@ -469,6 +469,12 @@ class AndroidNativeCustodyProvider(
         }
     }
 
+    fun publicKey(slotID: String): ByteArray {
+        val record = load(slotID)
+        if (record.revoked) failure(AndroidCustodyFailure.REVOKED)
+        return record.publicKey.copyOf()
+    }
+
     fun rotate(
         slotID: String,
         newVersion: Int,

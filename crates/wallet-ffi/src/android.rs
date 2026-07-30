@@ -3,10 +3,18 @@ use super::{
     WALLET_OK, activechain_wallet_agent_count, activechain_wallet_agent_register,
     activechain_wallet_agent_revoke, activechain_wallet_agent_set_paused,
     activechain_wallet_agent_summary, activechain_wallet_cash_approval,
+    activechain_wallet_sign_cash_intent, activechain_wallet_submit_authorized,
 };
+use activechain_canonical_codec::decode_envelope;
+use activechain_wallet_core::CashAuthorizationRequestV1;
+use core::ffi::c_void;
 use jni::JNIEnv;
 use jni::objects::{JByteArray, JClass, JString};
 use jni::sys::{jboolean, jbyteArray, jint, jlong, jstring};
+
+const INTENT_LENGTH: usize = 48;
+const PUBLIC_KEY_LENGTH: usize = 1_312;
+const SIGNATURE_LENGTH: usize = 2_420;
 
 fn snapshot(env: &JNIEnv<'_>, value: &JByteArray<'_>) -> Result<Vec<u8>, String> {
     env.convert_byte_array(value).map_err(|error| error.to_string())
@@ -58,6 +66,157 @@ pub extern "system" fn Java_dev_activechain_wallet_NativeCanonicalApproval_nativ
             core::ptr::null_mut()
         }
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_activechain_wallet_NativeCanonicalApproval_nativeSigningPayload(
+    env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    request: JByteArray<'_>,
+    intent: JByteArray<'_>,
+) -> jbyteArray {
+    let result = (|| {
+        let request = snapshot(&env, &request)?;
+        let approved = snapshot(&env, &intent)?;
+        if approved.len() != INTENT_LENGTH {
+            return Err("approved intent must be 48 bytes".into());
+        }
+        let decoded = decode_envelope::<CashAuthorizationRequestV1>(&request)
+            .map_err(|_| "malformed canonical cash request".to_owned())?;
+        let actual = decoded.intent_id().map_err(|_| "invalid cash intent".to_owned())?;
+        if actual.as_bytes() != approved.as_slice() {
+            return Err("canonical approval does not match request".into());
+        }
+        decoded.signing_payload().map_err(|_| "invalid cash signing payload".to_owned())
+    })();
+    byte_array_or_throw(env, result)
+}
+
+struct FixedSignature(Vec<u8>);
+
+unsafe extern "C" fn fixed_signature_callback(
+    context: *mut c_void,
+    _payload: *const u8,
+    _payload_len: u32,
+    signature_out: *mut u8,
+    signature_len: u32,
+) -> u32 {
+    if context.is_null() || signature_out.is_null() || signature_len as usize != SIGNATURE_LENGTH {
+        return 1;
+    }
+    let signature = unsafe { &*context.cast::<FixedSignature>() };
+    if signature.0.len() != SIGNATURE_LENGTH {
+        return 1;
+    }
+    unsafe {
+        core::ptr::copy_nonoverlapping(signature.0.as_ptr(), signature_out, SIGNATURE_LENGTH);
+    }
+    0
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_activechain_wallet_NativeCanonicalApproval_nativeAuthorize(
+    env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    request: JByteArray<'_>,
+    intent: JByteArray<'_>,
+    public_key: JByteArray<'_>,
+    signature: JByteArray<'_>,
+) -> jbyteArray {
+    let result = (|| {
+        let request = snapshot(&env, &request)?;
+        let intent = snapshot(&env, &intent)?;
+        let public_key = snapshot(&env, &public_key)?;
+        let signature = FixedSignature(snapshot(&env, &signature)?);
+        if intent.len() != INTENT_LENGTH
+            || public_key.len() != PUBLIC_KEY_LENGTH
+            || signature.0.len() != SIGNATURE_LENGTH
+        {
+            return Err("invalid canonical signing material length".into());
+        }
+        let mut required = 0;
+        let context = (&signature as *const FixedSignature).cast_mut().cast::<c_void>();
+        let query = unsafe {
+            activechain_wallet_sign_cash_intent(
+                request.as_ptr(),
+                request.len() as u32,
+                intent.as_ptr(),
+                public_key.as_ptr(),
+                Some(fixed_signature_callback),
+                context,
+                core::ptr::null_mut(),
+                0,
+                &mut required,
+            )
+        };
+        if query != WALLET_BUFFER_TOO_SMALL || required == 0 {
+            return Err(format!("canonical authorization size query failed with {query}"));
+        }
+        let mut authorized = vec![0; required as usize];
+        let code = unsafe {
+            activechain_wallet_sign_cash_intent(
+                request.as_ptr(),
+                request.len() as u32,
+                intent.as_ptr(),
+                public_key.as_ptr(),
+                Some(fixed_signature_callback),
+                context,
+                authorized.as_mut_ptr(),
+                required,
+                &mut required,
+            )
+        };
+        if code != WALLET_OK {
+            return Err(format!("canonical authorization failed with {code}"));
+        }
+        Ok(authorized)
+    })();
+    byte_array_or_throw(env, result)
+}
+
+unsafe extern "C" fn capture_submission_callback(
+    context: *mut c_void,
+    envelope: *const u8,
+    envelope_len: u32,
+) -> u32 {
+    if context.is_null() || envelope.is_null() || envelope_len == 0 {
+        return 1;
+    }
+    let captured = unsafe { &mut *context.cast::<Vec<u8>>() };
+    let bytes = unsafe { core::slice::from_raw_parts(envelope, envelope_len as usize) };
+    captured.extend_from_slice(bytes);
+    0
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_activechain_wallet_NativeCanonicalApproval_nativeVerifyForSubmission(
+    env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    envelope: JByteArray<'_>,
+    public_key: JByteArray<'_>,
+) -> jbyteArray {
+    let result = (|| {
+        let envelope = snapshot(&env, &envelope)?;
+        let public_key = snapshot(&env, &public_key)?;
+        if public_key.len() != PUBLIC_KEY_LENGTH {
+            return Err("invalid submission public key length".into());
+        }
+        let mut captured = Vec::new();
+        let code = unsafe {
+            activechain_wallet_submit_authorized(
+                envelope.as_ptr(),
+                envelope.len() as u32,
+                public_key.as_ptr(),
+                Some(capture_submission_callback),
+                (&mut captured as *mut Vec<u8>).cast(),
+            )
+        };
+        if code != WALLET_OK {
+            return Err(format!("canonical submission verification failed with {code}"));
+        }
+        Ok(captured)
+    })();
+    byte_array_or_throw(env, result)
 }
 
 fn principal(value: &[u8]) -> Result<[u8; 48], String> {
