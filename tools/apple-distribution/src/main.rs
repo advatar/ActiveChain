@@ -261,7 +261,7 @@ fn write_manifest(
         signature_scheme: "none".to_owned(),
         verifier_abi_revision: 1,
         verifier_schema_revision: 1,
-        wallet_abi_revision: 2,
+        wallet_abi_revision: 3,
         rpc_schema_revision: 1,
         light_client_schema_revision: 1,
         minimum_protocol_revision: 1,
@@ -295,7 +295,7 @@ fn verify_manifest(
         || manifest.signature_scheme != "none"
         || manifest.verifier_abi_revision != 1
         || manifest.verifier_schema_revision != 1
-        || manifest.wallet_abi_revision != 2
+        || manifest.wallet_abi_revision != 3
         || manifest.rpc_schema_revision != 1
         || manifest.light_client_schema_revision != 1
         || manifest.minimum_protocol_revision != 1

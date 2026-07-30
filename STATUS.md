@@ -8,6 +8,7 @@ Tracked by [GitHub issue #401](https://github.com/advatar/ActiveChain/issues/401
 
 - [x] Reconcile the published per-version active canonical identity counts with the registry after
   merged protocol additions, without changing the approved staffing ranges or release gates.
+- [x] Reconcile the Apple compatibility manifest and C/Swift consumers with wallet ABI revision 3.
 - [ ] Pass the deterministic-kernel gate and merge the repair to `main`.
 
 ## Active landing-page rebrand — Actum
