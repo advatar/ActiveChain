@@ -162,6 +162,73 @@ protocol AppleMLDSA44Engine {
     func sign(payload: Data, seed: inout Data) throws -> Data
 }
 
+/// Wire-compatible ML-DSA-44 implementation supplied by the same audited Rust library that
+/// verifies wallet authorization envelopes. Seeds remain transient and caller-owned.
+final class RustAppleMLDSA44Engine: AppleMLDSA44Engine {
+    func generateSeed() throws -> Data {
+        var seed = Data(count: AppleNativeCustodyProvider.seedLength)
+        let status = seed.withUnsafeMutableBytes { bytes in
+            SecRandomCopyBytes(
+                kSecRandomDefault,
+                bytes.count,
+                bytes.bindMemory(to: UInt8.self).baseAddress!
+            )
+        }
+        guard status == errSecSuccess else { throw AppleCustodyError.cryptographicFailure }
+        return seed
+    }
+
+    func publicKey(seed: inout Data) throws -> Data {
+        guard seed.count == AppleNativeCustodyProvider.seedLength else {
+            throw AppleCustodyError.invalidKeyMaterial
+        }
+        var publicKey = Data(count: AppleNativeCustodyProvider.publicKeyLength)
+        let code = seed.withUnsafeBytes { seedBytes in
+            publicKey.withUnsafeMutableBytes { outputBytes in
+                activechain_wallet_mldsa44_public_key(
+                    seedBytes.bindMemory(to: UInt8.self).baseAddress,
+                    UInt32(seedBytes.count),
+                    outputBytes.bindMemory(to: UInt8.self).baseAddress,
+                    UInt32(outputBytes.count)
+                )
+            }
+        }
+        guard code == ACTIVECHAIN_WALLET_OK else { throw Self.map(code) }
+        return publicKey
+    }
+
+    func sign(payload: Data, seed: inout Data) throws -> Data {
+        guard seed.count == AppleNativeCustodyProvider.seedLength else {
+            throw AppleCustodyError.invalidKeyMaterial
+        }
+        var signature = Data(count: AppleNativeCustodyProvider.signatureLength)
+        let code = seed.withUnsafeBytes { seedBytes in
+            payload.withUnsafeBytes { payloadBytes in
+                signature.withUnsafeMutableBytes { outputBytes in
+                    activechain_wallet_mldsa44_sign(
+                        seedBytes.bindMemory(to: UInt8.self).baseAddress,
+                        UInt32(seedBytes.count),
+                        payloadBytes.bindMemory(to: UInt8.self).baseAddress,
+                        UInt32(payloadBytes.count),
+                        outputBytes.bindMemory(to: UInt8.self).baseAddress,
+                        UInt32(outputBytes.count)
+                    )
+                }
+            }
+        }
+        guard code == ACTIVECHAIN_WALLET_OK else { throw Self.map(code) }
+        return signature
+    }
+
+    private static func map(_ code: UInt32) -> AppleCustodyError {
+        switch code {
+        case ACTIVECHAIN_WALLET_INVALID_SIGNATURE: .invalidSignature
+        case ACTIVECHAIN_WALLET_MALFORMED, ACTIVECHAIN_WALLET_NULL_POINTER: .invalidKeyMaterial
+        default: .cryptographicFailure
+        }
+    }
+}
+
 protocol AppleCustodyRecordStore {
     func loadCustodyRecord(slotID: String) throws -> Data?
     func saveCustodyRecord(_ data: Data, slotID: String) throws
@@ -351,6 +418,10 @@ final class AppleNativeCustodyProvider {
         self.store = store
         self.hardware = hardware
         self.engine = engine
+    }
+
+    convenience init(store: AppleCustodyRecordStore, hardware: AppleHardwareWrapping) {
+        self.init(store: store, hardware: hardware, engine: RustAppleMLDSA44Engine())
     }
 
     func provision(
