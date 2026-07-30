@@ -14,6 +14,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-accumulator"
+version = "0.1.0"
+dependencies = [
+ "sha3 0.10.9",
+]
+
+[[package]]
 name = "activechain-action-kernel"
 version = "0.1.0"
 dependencies = [

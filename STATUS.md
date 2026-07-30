@@ -29,7 +29,9 @@ normative and measurement slice in [#398](https://github.com/advatar/ActiveChain
   - [x] Add checked byte-epoch quotes, pressure admission, bounded endowments, archive-certified
     hibernation, and owner-copy restoration.
   - [ ] Integrate rent and hibernation commands with authenticated global state transitions.
-  - [ ] Replace bounded replay collections with witnessed authenticated accumulators.
+  - [x] Add stateless witnessed sparse replay sets and append-only header history commitments
+    ([GitHub issue #411](https://github.com/advatar/ActiveChain/issues/411)).
+  - [ ] Migrate bounded production replay collections to the witnessed accumulator roots.
 - [ ] Qualify checkpoint snapshot sync, light clients, operator metrics, and sustained 1 TiB bounds.
 
 ## Active landing-page rebrand — Actum

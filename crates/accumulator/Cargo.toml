@@ -1,0 +1,14 @@
+[package]
+name = "activechain-accumulator"
+description = "Witnessed replay sets and archived header history commitments for ActiveChain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+sha3.workspace = true
+
+[lints]
+workspace = true
