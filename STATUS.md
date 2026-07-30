@@ -113,7 +113,7 @@ Tracked by [GitHub issue #335](https://github.com/advatar/ActiveChain/issues/335
 - [x] Define and enforce a fail-closed migration/reissuance policy for legacy attestations.
 - [x] Add field-substitution, omission, replay, expiry, cross-network, canonical-vector, and
   production caller-graph regressions.
-- [ ] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
+- [x] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
   #335.
 
 ## Critical transport recovery — mutually authenticated peer sessions
