@@ -1882,3 +1882,23 @@ wallet and all testnets remain explicitly developmental until this milestone com
 - [ ] Remediate all findings or document explicitly accepted risks.
 - [ ] Complete the firm's re-review of every fix.
 - [ ] Publish the final report and remediation log in this repository.
+
+## Planned initiative — MCP interoperability and constrained A2UI approvals
+
+- [ ] Deliver MCP agent interoperability and constrained A2UI approval surfaces without making
+  either transport or presentation an authority boundary
+  ([GitHub issue #355](https://github.com/advatar/ActiveChain/issues/355)).
+  - [ ] Freeze versioned schemas, trust boundaries, and the threat model
+    ([GitHub issue #356](https://github.com/advatar/ActiveChain/issues/356)).
+  - [ ] Implement proof-bearing read-only MCP tools and resources
+    ([GitHub issue #361](https://github.com/advatar/ActiveChain/issues/361)).
+  - [ ] Implement a proposal-only MCP intent and capability gateway
+    ([GitHub issue #357](https://github.com/advatar/ActiveChain/issues/357)).
+  - [ ] Route MCP proposals through canonical native wallet approval
+    ([GitHub issue #358](https://github.com/advatar/ActiveChain/issues/358)).
+  - [ ] Render approvals and results through a constrained, fail-closed A2UI layer
+    ([GitHub issue #360](https://github.com/advatar/ActiveChain/issues/360)).
+  - [ ] Rehearse an end-to-end MCP transfer proposal, approval, finality, and verified receipt
+    ([GitHub issue #362](https://github.com/advatar/ActiveChain/issues/362)).
+  - [ ] Complete adversarial security, compatibility, and operational qualification
+    ([GitHub issue #359](https://github.com/advatar/ActiveChain/issues/359)).
