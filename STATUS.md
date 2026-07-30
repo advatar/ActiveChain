@@ -305,6 +305,26 @@ Tracked by [GitHub issue #345](https://github.com/advatar/ActiveChain/issues/345
   As of 2026-07-27, `cargo test -p activechain-cash-air --offline` passes 22 tests with one
   intentionally ignored full-depth timing gate; no FRI-parameter mismatch remains. The two
   outstanding items are implementation work, not release claims.
+  - [x] Constrain every native input, output, and fee trace value to an in-AIR 64-bit boolean
+    decomposition; host-side trace construction checks are defense in depth only.
+  - [x] Replace the ignored full composite proof with a bounded accepted-row fixture that runs in
+    ordinary CI and retains the separate full-depth benchmark gate.
+  - [ ] Pass focused CashAIR tests and clippy, then the frozen deterministic-kernel gate; merge and
+    verify the issue commits are reachable from `origin/main`.
+- [x] Redesign authenticated CashAIR receipt aggregation to fit the existing bounded ingress
+  ceiling instead of enlarging it; add compact accepted-row encode/decode/verify qualification
+  ([#379](https://github.com/advatar/ActiveChain/issues/379)).
+  - [x] Aggregate a full authenticated mutation path into bounded large batches so FRI query
+    openings are not repeated once per 64 permutations, while preserving the pinned security
+    parameters and ordered transcript binding.
+  - [x] Replace the JSON proof representation with strict bounded binary encoding and reject
+    trailing, truncated, oversized, and allocation-amplifying inputs before proof decoding.
+  - [x] Prove, canonically encode, decode, and verify the accepted-row release fixture below the
+    8 MiB ingress ceiling; record size, verification time, and peak-memory measurements.
+    The 2026-07-30 Apple M5 Max release run produced a 3,591,727-byte logical proof and a
+    3,750,254-byte receipt in four canonical segments, verified in 2,545 ms, and reported a
+    3,087,925,248-byte maximum resident set for the combined prove/verify process (54,526,624-byte
+    peak physical footprint). Two encoded receipts fit an 8 MiB byte-admission budget; three do not.
 - [x] Cover authenticated envelope round-trip and suite mutation rejection without running the
   full SHAKE proving benchmark.
 - [x] Make the reference package independently testable outside the root workspace.

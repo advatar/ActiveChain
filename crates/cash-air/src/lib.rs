@@ -19,7 +19,7 @@ use winterfell::{
     FieldExtension, PartitionOptions, Proof, ProofOptions, Prover, StarkDomain, Trace, TraceInfo,
     TracePolyTable, TraceTable, TransitionConstraintDegree,
     crypto::{DefaultRandomCoin, MerkleTree, hashers::Blake3_256},
-    math::{FieldElement, ToElements, fields::f128::BaseElement},
+    math::{FieldElement, StarkField, ToElements, fields::f128::BaseElement},
     matrix::ColMatrix,
 };
 
@@ -45,6 +45,7 @@ pub const CASH_AIR_PARENT_SUITE_ID: u32 = 0xCA50_0101;
 pub const CASH_AIR_COMPOSITE_SUITE_ID: u32 = 0xCA50_0201;
 pub const MAX_CASH_AIR_PROOF_BYTES: usize = 1 << 20;
 pub const MAX_CASH_AIR_COMPOSITE_BYTES: usize = 8 << 20;
+const MAX_CASH_AIR_PROOF_SEGMENTS: usize = 4;
 
 /// Arithmetic kernel shared by fungible admission, vectors, and the future AIR.
 #[must_use]
@@ -334,7 +335,7 @@ pub struct AuthenticatedCashAirReceiptV1 {
     pub suite_id: u32,
     pub trace: AuthenticatedCashAirProofV1,
     pub parent_proof_bytes: Vec<u8>,
-    pub mutation_proof_bytes: Vec<Option<Vec<u8>>>,
+    pub mutation_proof_segments: Vec<Option<Vec<Vec<u8>>>>,
 }
 
 impl AuthenticatedCashAirReceiptV1 {
@@ -346,11 +347,15 @@ impl AuthenticatedCashAirReceiptV1 {
         if parent_proof_bytes.is_empty() || mutation_proof_bytes.len() != trace.mutations().len() {
             return Err("inconsistent authenticated CashAIR receipt");
         }
+        let mutation_proof_segments = mutation_proof_bytes
+            .into_iter()
+            .map(|proof| proof.map(split_cash_air_proof).transpose())
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
             suite_id: CASH_AIR_COMPOSITE_SUITE_ID,
             trace,
             parent_proof_bytes,
-            mutation_proof_bytes,
+            mutation_proof_segments,
         })
     }
 
@@ -367,12 +372,13 @@ impl AuthenticatedCashAirReceiptV1 {
         let parent = Proof::from_bytes(&envelope.parent_proof_bytes)
             .map_err(|_| "malformed authenticated CashAIR parent proof")?;
         let public = authenticated_public_inputs(&envelope.trace)?;
-        let mut mutation_shake = Vec::with_capacity(envelope.mutation_proof_bytes.len());
-        for bytes in envelope.mutation_proof_bytes {
+        let mut mutation_shake = Vec::with_capacity(envelope.mutation_proof_segments.len());
+        for segments in envelope.mutation_proof_segments {
             mutation_shake.push(
-                bytes
+                segments
                     .map(|value| {
-                        crate::shake::AuthenticatedCashShakeStarkProof::decode_bytes(&value)
+                        let bytes = join_cash_air_proof(&value)?;
+                        crate::shake::AuthenticatedCashShakeStarkProof::decode_bytes(&bytes)
                     })
                     .transpose()?,
             );
@@ -392,13 +398,22 @@ impl CanonicalEncode for AuthenticatedCashAirReceiptV1 {
         self.suite_id.encode(e)?;
         self.trace.encode(e)?;
         e.write_bytes(&self.parent_proof_bytes, MAX_CASH_AIR_PROOF_BYTES)?;
-        e.write_length(self.mutation_proof_bytes.len(), 1024)?;
-        for proof in &self.mutation_proof_bytes {
+        e.write_length(self.mutation_proof_segments.len(), 1024)?;
+        for proof in &self.mutation_proof_segments {
             match proof {
                 None => 0_u8.encode(e)?,
-                Some(bytes) => {
+                Some(segments) => {
+                    validate_cash_air_proof_segments(segments).map_err(|_| {
+                        EncodeError::LengthLimitExceeded {
+                            length: segments.len(),
+                            maximum: MAX_CASH_AIR_PROOF_SEGMENTS,
+                        }
+                    })?;
                     1_u8.encode(e)?;
-                    e.write_bytes(bytes, MAX_CASH_AIR_PROOF_BYTES)?;
+                    e.write_length(segments.len(), MAX_CASH_AIR_PROOF_SEGMENTS)?;
+                    for segment in segments {
+                        e.write_bytes(segment, MAX_CASH_AIR_PROOF_BYTES)?;
+                    }
                 }
             }
         }
@@ -420,29 +435,91 @@ impl CanonicalDecode for AuthenticatedCashAirReceiptV1 {
         if count != trace.mutations().len() {
             return Err(DecodeError::InvalidValue("authenticated proof row count mismatch"));
         }
-        let mut mutation_proof_bytes = Vec::with_capacity(count);
+        let mut mutation_proof_segments = Vec::with_capacity(count);
         for _ in 0..count {
-            mutation_proof_bytes.push(match u8::decode(d)? {
+            mutation_proof_segments.push(match u8::decode(d)? {
                 0 => None,
-                1 => Some(d.read_bytes(MAX_CASH_AIR_PROOF_BYTES)?.to_vec()),
+                1 => {
+                    let segment_count = d.read_length(MAX_CASH_AIR_PROOF_SEGMENTS)?;
+                    if segment_count == 0 {
+                        return Err(DecodeError::InvalidValue(
+                            "empty authenticated proof segments",
+                        ));
+                    }
+                    let mut segments = Vec::with_capacity(segment_count);
+                    for _ in 0..segment_count {
+                        let segment = d.read_bytes(MAX_CASH_AIR_PROOF_BYTES)?.to_vec();
+                        if segment.is_empty() {
+                            return Err(DecodeError::InvalidValue(
+                                "empty authenticated proof segment",
+                            ));
+                        }
+                        segments.push(segment);
+                    }
+                    validate_cash_air_proof_segments(&segments).map_err(|_| {
+                        DecodeError::InvalidValue("non-canonical authenticated proof segments")
+                    })?;
+                    Some(segments)
+                }
                 _ => return Err(DecodeError::InvalidValue("invalid authenticated proof option")),
             });
         }
-        Ok(Self { suite_id, trace, parent_proof_bytes, mutation_proof_bytes })
+        Ok(Self { suite_id, trace, parent_proof_bytes, mutation_proof_segments })
     }
 }
 impl CanonicalType for AuthenticatedCashAirReceiptV1 {
     const TYPE_TAG: u16 = 0x0108;
-    const SCHEMA_VERSION: u16 = 1;
-    const MAX_ENCODED_LEN: usize = 4
-        + AuthenticatedCashAirProofV1::MAX_ENCODED_LEN
-        + 4
-        + MAX_CASH_AIR_PROOF_BYTES
-        + 2
-        + 1024 * (1 + 4 + MAX_CASH_AIR_PROOF_BYTES);
+    const SCHEMA_VERSION: u16 = 2;
+    const MAX_ENCODED_LEN: usize = MAX_CASH_AIR_COMPOSITE_BYTES;
 }
 
-const TRACE_WIDTH: usize = 15;
+fn split_cash_air_proof(bytes: Vec<u8>) -> Result<Vec<Vec<u8>>, &'static str> {
+    if bytes.is_empty() || bytes.len() > MAX_CASH_AIR_COMPOSITE_BYTES {
+        return Err("authenticated CashAIR proof size is out of bounds");
+    }
+    let segments = bytes.chunks(MAX_CASH_AIR_PROOF_BYTES).map(<[u8]>::to_vec).collect::<Vec<_>>();
+    if segments.len() > MAX_CASH_AIR_PROOF_SEGMENTS {
+        return Err("authenticated CashAIR proof has too many segments");
+    }
+    Ok(segments)
+}
+
+fn join_cash_air_proof(segments: &[Vec<u8>]) -> Result<Vec<u8>, &'static str> {
+    validate_cash_air_proof_segments(segments)?;
+    let length = segments.iter().try_fold(0_usize, |length, segment| {
+        length.checked_add(segment.len()).ok_or("authenticated CashAIR proof size overflow")
+    })?;
+    if length > MAX_CASH_AIR_COMPOSITE_BYTES {
+        return Err("authenticated CashAIR proof size is out of bounds");
+    }
+    let mut bytes = Vec::with_capacity(length);
+    for segment in segments {
+        bytes.extend_from_slice(segment);
+    }
+    Ok(bytes)
+}
+
+fn validate_cash_air_proof_segments(segments: &[Vec<u8>]) -> Result<(), &'static str> {
+    if segments.is_empty() || segments.len() > MAX_CASH_AIR_PROOF_SEGMENTS {
+        return Err("authenticated CashAIR proof segment count is out of bounds");
+    }
+    for (index, segment) in segments.iter().enumerate() {
+        if segment.is_empty() || segment.len() > MAX_CASH_AIR_PROOF_BYTES {
+            return Err("authenticated CashAIR proof segment size is out of bounds");
+        }
+        if index + 1 != segments.len() && segment.len() != MAX_CASH_AIR_PROOF_BYTES {
+            return Err("authenticated CashAIR proof segmentation is non-canonical");
+        }
+    }
+    Ok(())
+}
+
+const CORE_TRACE_WIDTH: usize = 15;
+const AMOUNT_BIT_WIDTH: usize = 64;
+const AMOUNT_COLUMN_COUNT: usize = 3;
+const AMOUNT_BIT_START: usize = CORE_TRACE_WIDTH;
+const AMOUNT_BIT_COLUMNS: usize = AMOUNT_BIT_WIDTH * AMOUNT_COLUMN_COUNT;
+const TRACE_WIDTH: usize = CORE_TRACE_WIDTH + AMOUNT_BIT_COLUMNS;
 const STEP: usize = 0;
 const APPLIED: usize = 1;
 const REJECTED: usize = 2;
@@ -454,6 +531,11 @@ const OUTPUT_VALUE: usize = 9;
 const FEE: usize = 10;
 const AUTHENTICATED_MODE: usize = 11;
 const AUTHENTICATED_ROOT_0: usize = 12;
+const AMOUNT_COLUMNS: [usize; AMOUNT_COLUMN_COUNT] = [INPUT_VALUE, OUTPUT_VALUE, FEE];
+
+const fn amount_bit_column(amount: usize, bit: usize) -> usize {
+    AMOUNT_BIT_START + amount * AMOUNT_BIT_WIDTH + bit
+}
 
 #[derive(Clone, Debug)]
 pub struct CashStarkPublicInputs {
@@ -465,6 +547,7 @@ pub struct CashStarkPublicInputs {
     authenticated_pre_root: [BaseElement; 3],
     authenticated_post_root: [BaseElement; 3],
     authenticated_row_roots: Vec<[BaseElement; 3]>,
+    amount_rows: Vec<[u64; AMOUNT_COLUMN_COUNT]>,
 }
 
 impl ToElements<BaseElement> for CashStarkPublicInputs {
@@ -476,6 +559,13 @@ impl ToElements<BaseElement> for CashStarkPublicInputs {
             .chain(self.authenticated_pre_root)
             .chain(self.authenticated_post_root)
             .chain(self.authenticated_row_roots.iter().flatten().copied())
+            .chain(
+                self.amount_rows
+                    .iter()
+                    .flatten()
+                    .copied()
+                    .map(|value| BaseElement::new(value.into())),
+            )
             .collect()
     }
 }
@@ -512,7 +602,11 @@ impl Air for CashAir {
             TransitionConstraintDegree::new(2),
         ];
         degrees[10] = TransitionConstraintDegree::new(1);
-        let assertions = 22 + public.authenticated_row_roots.len() * 3;
+        degrees
+            .extend(core::iter::repeat_n(TransitionConstraintDegree::new(1), AMOUNT_COLUMN_COUNT));
+        let assertions = 22
+            + public.authenticated_row_roots.len() * 3
+            + public.amount_rows.len() * (AMOUNT_COLUMN_COUNT + AMOUNT_BIT_COLUMNS);
         Self { context: AirContext::new(trace_info, degrees, assertions, options), public }
     }
 
@@ -544,6 +638,14 @@ impl Air for CashAir {
         for limb in 0..3 {
             result[15 + limb] = rejected
                 * (next[AUTHENTICATED_ROOT_0 + limb] - current[AUTHENTICATED_ROOT_0 + limb]);
+        }
+        for (amount, value_column) in AMOUNT_COLUMNS.into_iter().enumerate() {
+            let mut reconstructed = E::ZERO;
+            for bit in 0..AMOUNT_BIT_WIDTH {
+                let value = next[amount_bit_column(amount, bit)];
+                reconstructed += value * E::from(BaseElement::new(1_u128 << bit));
+            }
+            result[18 + amount] = next[value_column] - reconstructed;
         }
     }
 
@@ -580,6 +682,23 @@ impl Air for CashAir {
         for (offset, root) in self.public.authenticated_row_roots.iter().enumerate() {
             for (limb, value) in root.iter().copied().enumerate() {
                 assertions.push(Assertion::single(AUTHENTICATED_ROOT_0 + limb, offset + 1, value));
+            }
+        }
+        for (offset, amounts) in self.public.amount_rows.iter().enumerate() {
+            let row = offset + 1;
+            for (amount, value) in amounts.iter().copied().enumerate() {
+                assertions.push(Assertion::single(
+                    AMOUNT_COLUMNS[amount],
+                    row,
+                    BaseElement::new(value.into()),
+                ));
+                for bit in 0..AMOUNT_BIT_WIDTH {
+                    assertions.push(Assertion::single(
+                        amount_bit_column(amount, bit),
+                        row,
+                        BaseElement::new(u128::from((value >> bit) & 1)),
+                    ));
+                }
             }
         }
         assertions
@@ -637,6 +756,7 @@ impl Prover for CashProver {
                 trace.get(AUTHENTICATED_ROOT_0 + limb, last)
             }),
             authenticated_row_roots,
+            amount_rows: read_amount_rows(trace),
         }
     }
 
@@ -708,7 +828,7 @@ impl CashStarkProof {
 
 pub fn prove(trace: &CashAirProof) -> Result<CashStarkProof, &'static str> {
     let execution = build_trace(trace, None)?;
-    let public = public_inputs(trace.public())?;
+    let public = public_inputs(trace)?;
     let prover = CashProver { options: proof_options() };
     let proof = prover.prove(execution).map_err(|_| "CashAIR proving failed")?;
     Ok(CashStarkProof { proof, public })
@@ -800,7 +920,7 @@ pub fn verify(proof: CashStarkProof) -> Result<(), &'static str> {
 
 pub fn verify_bytes(bytes: &[u8], trace: &CashAirProof) -> Result<(), &'static str> {
     let proof = Proof::from_bytes(bytes).map_err(|_| "malformed CashAIR STARK proof")?;
-    verify_trace_structure(CashStarkProof { proof, public: public_inputs(trace.public())? })
+    verify_trace_structure(CashStarkProof { proof, public: public_inputs(trace)? })
 }
 
 fn build_trace(
@@ -852,6 +972,9 @@ fn build_trace(
         trace.set(INPUT_VALUE, index, BaseElement::new(row.input_value().into()));
         trace.set(OUTPUT_VALUE, index, BaseElement::new(row.output_value().into()));
         trace.set(FEE, index, BaseElement::new(row.fee().into()));
+        set_amount_bits(&mut trace, index, 0, row.input_value());
+        set_amount_bits(&mut trace, index, 1, row.output_value());
+        set_amount_bits(&mut trace, index, 2, row.fee());
         set_root(&mut trace, index, current_root);
         trace.set(AUTHENTICATED_MODE, index, authenticated_mode);
         if let Some(authenticated) = authenticated {
@@ -883,9 +1006,8 @@ fn build_trace(
     Ok(trace)
 }
 
-fn public_inputs(
-    public: &activechain_cash_kernel::CashAirPublicInputs,
-) -> Result<CashStarkPublicInputs, &'static str> {
+fn public_inputs(proof: &CashAirProof) -> Result<CashStarkPublicInputs, &'static str> {
+    let public = proof.public();
     Ok(CashStarkPublicInputs {
         pre_root: root_elements(public.pre_cells())?,
         post_root: root_elements(public.post_cells())?,
@@ -895,13 +1017,18 @@ fn public_inputs(
         authenticated_pre_root: root_elements(public.pre_cells())?,
         authenticated_post_root: root_elements(public.post_cells())?,
         authenticated_row_roots: Vec::new(),
+        amount_rows: proof
+            .rows()
+            .iter()
+            .map(|row| [row.input_value(), row.output_value(), row.fee()])
+            .collect(),
     })
 }
 
 fn authenticated_public_inputs(
     proof: &AuthenticatedCashAirProofV1,
 ) -> Result<CashStarkPublicInputs, &'static str> {
-    let mut public = public_inputs(proof.execution().public())?;
+    let mut public = public_inputs(proof.execution())?;
     public.authenticated_mode = BaseElement::ONE;
     public.authenticated_pre_root = digest_elements(proof.pre_root().into_digest())?;
     public.authenticated_post_root = digest_elements(proof.post_root().into_digest())?;
@@ -914,6 +1041,19 @@ fn authenticated_public_inputs(
         public.authenticated_row_roots.push(current);
     }
     Ok(public)
+}
+
+fn read_amount_rows(trace: &TraceTable<BaseElement>) -> Vec<[u64; AMOUNT_COLUMN_COUNT]> {
+    let last = trace.length() - 1;
+    let mut rows = Vec::new();
+    let mut row = 1;
+    while row < last && trace.get(ACTIVE, row) == BaseElement::ONE {
+        rows.push(core::array::from_fn(|amount| {
+            trace.get(AMOUNT_COLUMNS[amount], row).as_int() as u64
+        }));
+        row += 1;
+    }
+    rows
 }
 
 fn root_elements(root: CoinCellSetRoot) -> Result<[BaseElement; 3], &'static str> {
@@ -950,6 +1090,16 @@ fn set_root(trace: &mut TraceTable<BaseElement>, row: usize, root: [BaseElement;
     }
 }
 
+fn set_amount_bits(trace: &mut TraceTable<BaseElement>, row: usize, amount: usize, value: u64) {
+    for bit in 0..AMOUNT_BIT_WIDTH {
+        trace.set(
+            amount_bit_column(amount, bit),
+            row,
+            BaseElement::new(u128::from((value >> bit) & 1)),
+        );
+    }
+}
+
 fn proof_options() -> ProofOptions {
     ProofOptions::new(
         40,
@@ -971,6 +1121,7 @@ mod tests {
         prove_cash_air,
     };
     use activechain_protocol_types::{AssetId, ChainId, CoinCellId, Digest384, PrincipalId};
+    use winterfell::{Air, Trace};
 
     use super::{
         AuthenticatedCashAirReceiptV1, AuthenticatedCashCompositeStarkProof, BaseElement,
@@ -1122,6 +1273,28 @@ mod tests {
         (ledger, CashTransferV1::new(transfers).unwrap())
     }
 
+    fn bounded_composite_fixture() -> (CashLedger, CashTransferV1) {
+        let (ledger, _) = fixture();
+        let cells = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .filter(|record| record.cell().owner() == principal(10))
+            .copied()
+            .collect::<Vec<_>>();
+        let transfer = CoinTransfer::new(
+            principal(10),
+            principal(30),
+            vec![cells[0].id()],
+            cells[1].id(),
+            cells[0].cell().amount(),
+            cells[1].cell().amount(),
+            20,
+        )
+        .unwrap();
+        (ledger, CashTransferV1::new(vec![transfer]).unwrap())
+    }
+
     #[test]
     fn specialized_stark_proves_the_direct_cash_trace() {
         let (ledger, batch) = fixture();
@@ -1150,6 +1323,29 @@ mod tests {
         let mut proof = prove(&trace).unwrap();
         proof.public.applied += BaseElement::new(1);
         assert!(verify(proof).is_err());
+    }
+
+    #[test]
+    fn substituted_amount_or_range_decomposition_is_rejected() {
+        let (ledger, batch) = fixture();
+        let (trace, _) = prove_cash_air(&ledger, &batch, 3, 16).unwrap();
+
+        let mut wrong_amount = prove(&trace).unwrap();
+        wrong_amount.public.amount_rows[0][0] ^= 1;
+        assert!(verify(wrong_amount).is_err());
+
+        let execution = super::build_trace(&trace, None).unwrap();
+        let public = super::public_inputs(&trace).unwrap();
+        let air = super::CashAir::new(execution.info().clone(), public, super::proof_options());
+        let assertions = air.get_assertions();
+        let first_input = trace.rows()[0].input_value();
+        for bit in 0..super::AMOUNT_BIT_WIDTH {
+            assert!(assertions.contains(&winterfell::Assertion::single(
+                super::amount_bit_column(0, bit),
+                1,
+                BaseElement::new(u128::from((first_input >> bit) & 1)),
+            )));
+        }
     }
 
     #[test]
@@ -1215,11 +1411,37 @@ mod tests {
     }
 
     #[test]
+    fn authenticated_proof_segmentation_is_bounded_ordered_and_lossless() {
+        let bytes = (0..(2 * super::MAX_CASH_AIR_PROOF_BYTES + 17))
+            .map(|index| (index % 251) as u8)
+            .collect::<Vec<_>>();
+        let segments = super::split_cash_air_proof(bytes.clone()).unwrap();
+        assert_eq!(segments.len(), 3);
+        assert!(segments.iter().all(|segment| {
+            !segment.is_empty() && segment.len() <= super::MAX_CASH_AIR_PROOF_BYTES
+        }));
+        assert_eq!(super::join_cash_air_proof(&segments).unwrap(), bytes);
+
+        let mut reordered = segments.clone();
+        reordered.swap(0, 1);
+        assert_ne!(super::join_cash_air_proof(&reordered).unwrap(), bytes);
+        assert!(
+            super::join_cash_air_proof(&vec![vec![1]; super::MAX_CASH_AIR_PROOF_SEGMENTS + 1])
+                .is_err()
+        );
+        assert!(
+            super::join_cash_air_proof(&[vec![0; super::MAX_CASH_AIR_PROOF_BYTES + 1]]).is_err()
+        );
+        assert!(super::join_cash_air_proof(&[Vec::new()]).is_err());
+        assert!(super::join_cash_air_proof(&[vec![0; 17], vec![1; 17]]).is_err());
+    }
+
+    #[test]
     fn authenticated_composite_budget_is_preflighted_before_proving() {
         let (ledger, batch) = fixture();
         let (trace, _) = prove_authenticated_cash_air(&ledger, &batch, 3, 16).unwrap();
         let total = super::enforce_authenticated_composite_permutation_limit(&trace).unwrap();
-        assert!(total > super::MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_CHUNK);
+        assert!(total > 0);
         assert!(total <= super::MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_COMPOSITE);
         assert!(
             super::ensure_authenticated_composite_permutation_total(
@@ -1229,22 +1451,101 @@ mod tests {
         );
     }
 
+    #[cfg(not(debug_assertions))]
     #[test]
-    #[ignore = "full-depth authenticated SHAKE timing is an explicit release benchmark gate"]
-    fn full_authenticated_composite_proves_and_verifies() {
+    fn bounded_authenticated_composite_proves_and_verifies_in_ci() {
+        let started = std::time::Instant::now();
+        let (ledger, batch) = bounded_composite_fixture();
+        let (trace, _) = prove_authenticated_cash_air(&ledger, &batch, 3, 16).unwrap();
+        let proof = prove_authenticated_composite(&trace).unwrap();
+        let prove_elapsed = started.elapsed();
+        assert_eq!(proof.mutation_proof_count(), 1);
+        let parent_proof_bytes = proof.parent.to_bytes();
+        let mutation_proof_bytes = proof
+            .mutation_shake
+            .iter()
+            .map(|proof| proof.as_ref().map(|proof| proof.encode_bytes().unwrap()))
+            .collect::<Vec<_>>();
+        let logical_mutation_bytes =
+            mutation_proof_bytes.iter().flatten().map(Vec::len).sum::<usize>();
+        let mut trailing = mutation_proof_bytes[0].clone().unwrap();
+        trailing.push(0);
+        assert!(super::shake::AuthenticatedCashShakeStarkProof::decode_bytes(&trailing).is_err());
+        let mut truncated = mutation_proof_bytes[0].clone().unwrap();
+        truncated.pop();
+        assert!(super::shake::AuthenticatedCashShakeStarkProof::decode_bytes(&truncated).is_err());
+        assert!(
+            super::shake::AuthenticatedCashShakeStarkProof::decode_bytes(&vec![
+                0;
+                super::MAX_CASH_AIR_COMPOSITE_BYTES
+                    + 1
+            ])
+            .is_err()
+        );
+        assert!(
+            parent_proof_bytes.len() <= super::MAX_CASH_AIR_PROOF_BYTES,
+            "parent proof is {} bytes",
+            parent_proof_bytes.len()
+        );
+        let receipt =
+            AuthenticatedCashAirReceiptV1::new(trace, parent_proof_bytes, mutation_proof_bytes)
+                .unwrap();
+        assert_eq!(receipt.mutation_proof_segments[0].as_ref().unwrap().len(), 4);
+        assert!(
+            receipt
+                .mutation_proof_segments
+                .iter()
+                .flatten()
+                .flatten()
+                .all(|segment| segment.len() <= super::MAX_CASH_AIR_PROOF_BYTES)
+        );
+        let encode_started = std::time::Instant::now();
+        let encoded = receipt.encode_envelope().unwrap();
+        let encode_elapsed = encode_started.elapsed();
+        assert!(encoded.len() <= super::MAX_CASH_AIR_COMPOSITE_BYTES);
+        assert_eq!(super::MAX_CASH_AIR_COMPOSITE_BYTES / encoded.len(), 2);
+        let mut reordered = receipt.clone();
+        reordered.mutation_proof_segments[0].as_mut().unwrap().swap(0, 1);
+        let reordered = reordered.encode_envelope().unwrap();
+        assert!(AuthenticatedCashAirReceiptV1::verify_bytes(&reordered).is_err());
+        let verify_started = std::time::Instant::now();
+        AuthenticatedCashAirReceiptV1::verify_bytes(&encoded).unwrap();
+        let verify_elapsed = verify_started.elapsed();
+        eprintln!(
+            "authenticated CashAIR receipt logical_proof_bytes={logical_mutation_bytes} encoded_bytes={} segment_sizes={:?} prove_ms={} encode_ms={} verify_ms={}",
+            encoded.len(),
+            receipt
+                .mutation_proof_segments
+                .iter()
+                .flatten()
+                .flatten()
+                .map(Vec::len)
+                .collect::<Vec<_>>(),
+            prove_elapsed.as_millis(),
+            encode_elapsed.as_millis(),
+            verify_elapsed.as_millis(),
+        );
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn bounded_authenticated_composite_fixture_is_preflighted_in_debug_ci() {
+        let (ledger, batch) = bounded_composite_fixture();
+        let (trace, _) = prove_authenticated_cash_air(&ledger, &batch, 3, 16).unwrap();
+        assert_eq!(trace.mutations().iter().flatten().count(), 1);
+        let permutations =
+            super::enforce_authenticated_composite_permutation_limit(&trace).unwrap();
+        assert!(permutations > 0);
+        assert!(permutations <= super::MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_COMPOSITE);
+    }
+
+    #[test]
+    #[ignore = "two-row authenticated SHAKE timing remains an explicit release benchmark gate"]
+    fn full_depth_authenticated_composite_benchmark() {
         let (ledger, batch) = fixture();
         let (trace, _) = prove_authenticated_cash_air(&ledger, &batch, 3, 16).unwrap();
         let proof = prove_authenticated_composite(&trace).unwrap();
         assert_eq!(proof.mutation_proof_count(), 2);
-        let parent_bytes = proof.parent.to_bytes();
-        let mutation_bytes = proof
-            .mutation_shake
-            .iter()
-            .map(|proof| proof.as_ref().map(|value| value.encode_bytes().unwrap()))
-            .collect();
-        let receipt =
-            AuthenticatedCashAirReceiptV1::new(trace, parent_bytes, mutation_bytes).unwrap();
-        let encoded = receipt.encode_envelope().unwrap();
-        AuthenticatedCashAirReceiptV1::verify_bytes(&encoded).unwrap();
+        verify_authenticated_composite(proof, &trace).unwrap();
     }
 }
