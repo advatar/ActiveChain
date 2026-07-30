@@ -104,7 +104,7 @@ pub struct KenyaRegulatedProfileV1 {
     revision: u16,
 }
 impl KenyaRegulatedProfileV1 {
-    pub const TYPE_TAG: u16 = 0x0125;
+    pub const TYPE_TAG: u16 = 0x0145;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 * 18 + 1 + 4 + 8 * 2 + 2;
 
