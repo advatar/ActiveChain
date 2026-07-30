@@ -504,6 +504,66 @@ pub struct AuthorizedCashTransferV1 {
     signature: ProtocolSignature,
 }
 
+/// Operator-only faucet authorization bundle. The one-shot session grant and transfer are one
+/// canonical value so durable settlement cannot replay or publish only half of the authorization.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OperatorFaucetAuthorizationV1 {
+    session: AuthorizedCashSessionGrantV1,
+    transfer: AuthorizedCashTransferV1,
+}
+
+impl OperatorFaucetAuthorizationV1 {
+    pub const TYPE_TAG: u16 = 0x0149;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize =
+        AuthorizedCashSessionGrantV1::MAX_ENCODED_LEN + AuthorizedCashTransferV1::MAX_ENCODED_LEN;
+
+    pub fn new(
+        session: AuthorizedCashSessionGrantV1,
+        transfer: AuthorizedCashTransferV1,
+    ) -> Result<Self, WalletError> {
+        if session.grant().chain_id() != transfer.request().chain_id()
+            || session.grant().signer() != transfer.request().signer()
+            || session.grant().session_id() != transfer.request().session_id()
+            || session.grant().expires_at() < transfer.request().session_expires_at()
+        {
+            return Err(WalletError::MalformedAuthorization);
+        }
+        Ok(Self { session, transfer })
+    }
+
+    pub const fn session(&self) -> &AuthorizedCashSessionGrantV1 {
+        &self.session
+    }
+
+    pub const fn transfer(&self) -> &AuthorizedCashTransferV1 {
+        &self.transfer
+    }
+}
+
+impl CanonicalEncode for OperatorFaucetAuthorizationV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.session.encode(encoder)?;
+        self.transfer.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for OperatorFaucetAuthorizationV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            AuthorizedCashSessionGrantV1::decode(decoder)?,
+            AuthorizedCashTransferV1::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid operator faucet authorization"))
+    }
+}
+
+impl CanonicalType for OperatorFaucetAuthorizationV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 impl AuthorizedCashTransferV1 {
     pub const TYPE_TAG: u16 = 0x008b;
     pub const SCHEMA_VERSION: u16 = 2;

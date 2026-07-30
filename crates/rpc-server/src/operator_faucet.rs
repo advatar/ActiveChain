@@ -1,9 +1,10 @@
-use crate::{AuthorizedFaucetSettlementAdapter, FaucetError, FaucetSettlementAdapter};
+use crate::{FaucetError, FaucetSettlementAdapter};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, DecodeError, Decoder, EncodeError, Encoder, decode_envelope,
+    encode_envelope,
 };
 use activechain_protocol_types::{Digest384, PrincipalId, TransactionId};
-use activechain_wallet_core::AuthorizedCashTransferV1;
+use activechain_wallet_core::OperatorFaucetAuthorizationV1;
 use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
@@ -28,21 +29,33 @@ pub trait FaucetEnvelopeAuthorizer: Send {
         recipient: PrincipalId,
         amount: u128,
         reference: Digest384,
-    ) -> Result<Vec<u8>, FaucetError>;
+    ) -> Result<OperatorFaucetAuthorizationV1, FaucetError>;
 }
 
 impl<F> FaucetEnvelopeAuthorizer for F
 where
-    F: FnMut(PrincipalId, u128, Digest384) -> Result<Vec<u8>, FaucetError> + Send,
+    F: FnMut(PrincipalId, u128, Digest384) -> Result<OperatorFaucetAuthorizationV1, FaucetError>
+        + Send,
 {
     fn authorize(
         &mut self,
         recipient: PrincipalId,
         amount: u128,
         reference: Digest384,
-    ) -> Result<Vec<u8>, FaucetError> {
+    ) -> Result<OperatorFaucetAuthorizationV1, FaucetError> {
         self(recipient, amount, reference)
     }
+}
+
+/// Validator ingress boundary for the complete operator session-plus-transfer bundle.
+pub trait OperatorFaucetIngressAdapter: Send + Sync {
+    fn settle_operator_authorization(
+        &self,
+        authorization: &OperatorFaucetAuthorizationV1,
+        recipient: PrincipalId,
+        amount: u128,
+        reference: Digest384,
+    ) -> Result<TransactionId, FaucetError>;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -150,7 +163,7 @@ pub struct DurableOperatorFaucetSettlement<A, S> {
 
 impl<A, S> DurableOperatorFaucetSettlement<A, S>
 where
-    A: AuthorizedFaucetSettlementAdapter,
+    A: OperatorFaucetIngressAdapter,
     S: FaucetEnvelopeAuthorizer,
 {
     pub fn create(
@@ -176,7 +189,7 @@ where
 
 impl<A, S> FaucetSettlementAdapter for DurableOperatorFaucetSettlement<A, S>
 where
-    A: AuthorizedFaucetSettlementAdapter,
+    A: OperatorFaucetIngressAdapter,
     S: FaucetEnvelopeAuthorizer,
 {
     fn settle(
@@ -195,18 +208,22 @@ where
             }
             prepared.clone()
         } else {
-            let envelope = self
+            let authorization = self
                 .authorizer
                 .lock()
                 .map_err(|_| FaucetError::Persistence)?
                 .authorize(recipient, amount, reference)?;
+            let envelope =
+                encode_envelope(&authorization).map_err(|_| FaucetError::InvalidTransition)?;
             let prepared = prepared_settlement(envelope, recipient, amount, reference)?;
             journal.prepare(prepared.clone())?;
             prepared
         };
         drop(journal);
-        let transaction = self.authorized_ingress.settle_authorized(
-            &prepared.envelope,
+        let authorization = decode_envelope::<OperatorFaucetAuthorizationV1>(&prepared.envelope)
+            .map_err(|_| FaucetError::InvalidTransition)?;
+        let transaction = self.authorized_ingress.settle_operator_authorization(
+            &authorization,
             recipient,
             amount,
             reference,
@@ -227,9 +244,9 @@ fn prepared_settlement(
     if envelope.is_empty() || envelope.len() > MAX_AUTHORIZED_ENVELOPE {
         return Err(FaucetError::InvalidTransition);
     }
-    let authorized = decode_envelope::<AuthorizedCashTransferV1>(&envelope)
+    let authorized = decode_envelope::<OperatorFaucetAuthorizationV1>(&envelope)
         .map_err(|_| FaucetError::InvalidTransition)?;
-    let request = authorized.request();
+    let request = authorized.transfer().request();
     let transaction =
         TransactionId::new(request.intent_id().map_err(|_| FaucetError::InvalidTransition)?);
     let prepared = PreparedSettlement { reference, recipient, amount, transaction, envelope };
@@ -238,9 +255,9 @@ fn prepared_settlement(
 }
 
 fn validate_prepared(prepared: &PreparedSettlement) -> Result<(), FaucetError> {
-    let authorized = decode_envelope::<AuthorizedCashTransferV1>(&prepared.envelope)
+    let authorized = decode_envelope::<OperatorFaucetAuthorizationV1>(&prepared.envelope)
         .map_err(|_| FaucetError::InvalidTransition)?;
-    let request = authorized.request();
+    let request = authorized.transfer().request();
     if request.settlement_reference() != Some(prepared.reference)
         || request.transfer().recipient() != prepared.recipient
         || request.transfer().amount() != prepared.amount
@@ -329,17 +346,23 @@ fn journal_tag(bytes: &[u8]) -> [u8; JOURNAL_TAG_LENGTH] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use activechain_canonical_codec::encode_envelope;
     use activechain_cash_kernel::CoinTransfer;
     use activechain_protocol_types::{ChainId, CoinCellId, CryptoSuiteId, ProtocolSignature};
-    use activechain_wallet_core::CashAuthorizationRequestV1;
+    use activechain_wallet_core::{
+        AuthorizedCashSessionGrantV1, AuthorizedCashTransferV1, CashAuthorizationRequestV1,
+        CashSessionGrantV1,
+    };
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
     }
 
-    fn envelope(reference: Digest384, recipient: PrincipalId, amount: u128) -> Vec<u8> {
+    fn authorization(
+        reference: Digest384,
+        recipient: PrincipalId,
+        amount: u128,
+    ) -> OperatorFaucetAuthorizationV1 {
         let sender = PrincipalId::new(digest(2));
         let transfer = CoinTransfer::new(
             sender,
@@ -361,30 +384,31 @@ mod tests {
             transfer,
         )
         .unwrap();
-        encode_envelope(
-            &AuthorizedCashTransferV1::new(
-                request,
-                ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![7; 2_420]).unwrap(),
-            )
-            .unwrap(),
+        let signature =
+            || ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![7; 2_420]).unwrap();
+        let session = AuthorizedCashSessionGrantV1::new(
+            CashSessionGrantV1::new(ChainId::new(digest(1)), sender, reference, 1, 20, amount + 1)
+                .unwrap(),
+            signature(),
         )
-        .unwrap()
+        .unwrap();
+        let transfer = AuthorizedCashTransferV1::new(request, signature()).unwrap();
+        OperatorFaucetAuthorizationV1::new(session, transfer).unwrap()
     }
 
     struct Ingress {
         calls: AtomicUsize,
     }
-    impl AuthorizedFaucetSettlementAdapter for Ingress {
-        fn settle_authorized(
+    impl OperatorFaucetIngressAdapter for Ingress {
+        fn settle_operator_authorization(
             &self,
-            envelope: &[u8],
+            authorization: &OperatorFaucetAuthorizationV1,
             _recipient: PrincipalId,
             _amount: u128,
             _reference: Digest384,
         ) -> Result<TransactionId, FaucetError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
-            let authorized = decode_envelope::<AuthorizedCashTransferV1>(envelope).unwrap();
-            Ok(TransactionId::new(authorized.request().intent_id().unwrap()))
+            Ok(TransactionId::new(authorization.transfer().request().intent_id().unwrap()))
         }
     }
 
@@ -401,7 +425,7 @@ mod tests {
             path.clone(),
             move |recipient, amount, reference| {
                 counter.fetch_add(1, Ordering::SeqCst);
-                Ok(envelope(reference, recipient, amount))
+                Ok(authorization(reference, recipient, amount))
             },
             Ingress { calls: AtomicUsize::new(0) },
         )
@@ -415,7 +439,7 @@ mod tests {
             path.clone(),
             move |recipient, amount, reference| {
                 counter.fetch_add(1, Ordering::SeqCst);
-                Ok(envelope(reference, recipient, amount))
+                Ok(authorization(reference, recipient, amount))
             },
             Ingress { calls: AtomicUsize::new(0) },
         )

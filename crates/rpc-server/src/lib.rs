@@ -11,7 +11,9 @@ pub use faucet::{
     DurableFaucet, FaucetError, FaucetPolicy, FaucetReconciliation, SybilPolicy,
     faucet_abuse_identity, faucet_settlement_commitment,
 };
-pub use operator_faucet::{DurableOperatorFaucetSettlement, FaucetEnvelopeAuthorizer};
+pub use operator_faucet::{
+    DurableOperatorFaucetSettlement, FaucetEnvelopeAuthorizer, OperatorFaucetIngressAdapter,
+};
 
 use activechain_action_kernel::{ActionEnvelope, action_id};
 use activechain_application_primitives::{DigestAnchorStatementV1, DurableAnchorRegistry};
@@ -756,6 +758,66 @@ impl AuthorizedFaucetSettlementAdapter for WalletIngressAuthorizedSettlementAdap
     }
 }
 
+/// Direct production ingress for an operator-created session-plus-transfer bundle. The operator
+/// journal persists the exact bundle first; this adapter then publishes both authorization state
+/// and the cash transition in one wallet snapshot.
+pub struct WalletIngressOperatorSettlementAdapter {
+    ingress: Arc<std::sync::Mutex<activechain_wallet_core::TransactionIngress>>,
+    snapshot_path: PathBuf,
+    finalized_state: Arc<DurableRpcStore>,
+}
+
+impl WalletIngressOperatorSettlementAdapter {
+    pub fn new(
+        ingress: Arc<std::sync::Mutex<activechain_wallet_core::TransactionIngress>>,
+        snapshot_path: PathBuf,
+        finalized_state: Arc<DurableRpcStore>,
+    ) -> Self {
+        Self { ingress, snapshot_path, finalized_state }
+    }
+}
+
+impl OperatorFaucetIngressAdapter for WalletIngressOperatorSettlementAdapter {
+    fn settle_operator_authorization(
+        &self,
+        authorization: &activechain_wallet_core::OperatorFaucetAuthorizationV1,
+        recipient: PrincipalId,
+        amount: u128,
+        reference: Digest384,
+    ) -> Result<TransactionId, FaucetError> {
+        let request = authorization.transfer().request();
+        let transaction =
+            TransactionId::new(request.intent_id().map_err(|_| FaucetError::InvalidTransition)?);
+        self.finalized_state.reload().map_err(|_| FaucetError::Persistence)?;
+        let chain_id = self.finalized_state.chain_id().map_err(|_| FaucetError::Persistence)?;
+        let height =
+            self.finalized_state.finalized_height().map_err(|_| FaucetError::Persistence)?;
+        if request.chain_id() != chain_id
+            || request.transfer().recipient() != recipient
+            || request.transfer().amount() != amount
+            || request.settlement_reference() != Some(reference)
+            || height > request.transfer().valid_until()
+        {
+            return Err(FaucetError::InvalidTransition);
+        }
+        let mut ingress = self.ingress.lock().map_err(|_| FaucetError::Persistence)?;
+        if ingress.transaction_admitted(transaction) {
+            return Ok(transaction);
+        }
+        ingress
+            .submit_operator_faucet_authorization_durable(
+                authorization,
+                height,
+                &self.snapshot_path,
+            )
+            .map_err(|error| match error {
+                activechain_wallet_core::WalletError::Persistence => FaucetError::Persistence,
+                _ => FaucetError::InvalidTransition,
+            })?;
+        Ok(transaction)
+    }
+}
+
 impl<F> AuthorizedFaucetSettlementAdapter for F
 where
     F: Fn(&[u8], PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError> + Send + Sync,
@@ -1179,7 +1241,7 @@ mod tests {
     use activechain_wallet_core::{
         AuthorizedCashSessionGrantV1, AuthorizedCashTransferV1, CashAuthorizationRequestV1,
         CashSessionGrantV1, FinalizedIdentityKeyProof, FinalizedIdentityKeyVerifier,
-        TransactionIngress, authenticator_set_root,
+        OperatorFaucetAuthorizationV1, TransactionIngress, authenticator_set_root,
     };
     use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
     use std::thread;
@@ -1344,6 +1406,88 @@ mod tests {
         )
         .unwrap();
         (envelope, reference)
+    }
+
+    fn operator_faucet_authorization(
+        key: &SigningKey<MlDsa44>,
+        owner: PrincipalId,
+        transfer: CoinTransfer,
+        settlement_reference: Digest384,
+    ) -> OperatorFaucetAuthorizationV1 {
+        let session_grant = CashSessionGrantV1::new(
+            ChainId::new(digest(1)),
+            owner,
+            settlement_reference,
+            1,
+            10,
+            transfer.amount() + transfer.fee(),
+        )
+        .unwrap();
+        let session_signature = key.sign(&session_grant.signing_payload().unwrap());
+        let session = AuthorizedCashSessionGrantV1::new(
+            session_grant,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, session_signature.encode().to_vec())
+                .unwrap(),
+        )
+        .unwrap();
+        let request = CashAuthorizationRequestV1::new_with_settlement_reference(
+            ChainId::new(digest(1)),
+            owner,
+            0,
+            settlement_reference,
+            10,
+            Some(settlement_reference),
+            transfer,
+        )
+        .unwrap();
+        let transfer_signature = key.sign(&request.signing_payload().unwrap());
+        let transfer = AuthorizedCashTransferV1::new(
+            request,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, transfer_signature.encode().to_vec())
+                .unwrap(),
+        )
+        .unwrap();
+        OperatorFaucetAuthorizationV1::new(session, transfer).unwrap()
+    }
+
+    #[test]
+    fn operator_faucet_adapter_atomically_publishes_session_and_transfer() {
+        let (ingress, key, owner, transfer) = authorized_cash_fixture();
+        let recipient = transfer.recipient();
+        let reference = digest(79);
+        let authorization = operator_faucet_authorization(&key, owner, transfer, reference);
+        let transaction =
+            TransactionId::new(authorization.transfer().request().intent_id().unwrap());
+        let index_path = temporary("operator-faucet-index");
+        let wallet_path = temporary("operator-faucet-wallet");
+        let _ = std::fs::remove_file(&index_path);
+        let _ = std::fs::remove_file(&wallet_path);
+        ingress.save_atomic(&wallet_path).unwrap();
+        let finalized = Arc::new(DurableRpcStore::create(index_path.clone(), index()).unwrap());
+        let shared = Arc::new(std::sync::Mutex::new(ingress));
+        let adapter = WalletIngressOperatorSettlementAdapter::new(
+            Arc::clone(&shared),
+            wallet_path.clone(),
+            finalized,
+        );
+
+        assert_eq!(
+            adapter
+                .settle_operator_authorization(&authorization, recipient, 10, reference)
+                .unwrap(),
+            transaction
+        );
+        assert_eq!(
+            adapter
+                .settle_operator_authorization(&authorization, recipient, 10, reference)
+                .unwrap(),
+            transaction
+        );
+        let restored = TransactionIngress::load(&wallet_path, ChainId::new(digest(1))).unwrap();
+        assert_eq!(restored.next_nonce(owner), Some(1));
+        assert!(restored.session_consumed(owner, reference));
+        std::fs::remove_file(index_path).unwrap();
+        std::fs::remove_file(wallet_path).unwrap();
     }
 
     #[test]

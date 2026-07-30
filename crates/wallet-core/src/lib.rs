@@ -28,7 +28,8 @@ pub use agent_management::{
 };
 pub use cash_authorization::{
     AuthorizedCashSessionGrantV1, AuthorizedCashTransferV1, CashAuthorizationRequestV1,
-    CashSessionAdmissionWitnessV1, CashSessionGrantV1, recipient_commitment,
+    CashSessionAdmissionWitnessV1, CashSessionGrantV1, OperatorFaucetAuthorizationV1,
+    recipient_commitment,
 };
 pub use cash_persistence::{
     FinalizedIdentityKeyProof, FinalizedIdentityKeyVerifier, authenticator_set_root,
@@ -599,6 +600,20 @@ impl TransactionIngress {
         next.save_atomic(path)?;
         *self = next;
         Ok(())
+    }
+
+    pub fn submit_operator_faucet_authorization_durable(
+        &mut self,
+        authorization: &OperatorFaucetAuthorizationV1,
+        height: u64,
+        path: &std::path::Path,
+    ) -> Result<(), WalletError> {
+        self.submit_session_and_transfer_durable(
+            authorization.session(),
+            authorization.transfer(),
+            height,
+            path,
+        )
     }
 
     /// Non-authoritative compatibility helper for isolated ledger tests only.
