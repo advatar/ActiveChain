@@ -74,7 +74,7 @@ private struct HomeView: View {
                     Header()
                     BalanceCard(networkState: liveState.networkState, verifiedPage: liveState.verifiedOwnerPage)
                     FundingCard(state: liveState.fundingState) {
-                        liveState.requestTestnetFunding()
+                        Task { await liveState.requestTestnetFunding() }
                     }
                     NetworkCard(state: liveState.networkState) {
                         Task { await liveState.refresh() }

@@ -29,6 +29,58 @@ final class ActiveChainWalletTests: XCTestCase {
         )
     }
 
+    func testFaucetRequestUsesPlainBoundedCanonicalRPCShape() throws {
+        let frame = try WalletRPCCodec.framedFaucetRequest(
+            owner: Data(repeating: 3, count: 48),
+            idempotencyKey: Data(repeating: 4, count: 48),
+            sourceCommitment: Data(repeating: 5, count: 48)
+        )
+        XCTAssertEqual(Array(frame.prefix(4)), [0, 0, 1, 0])
+        XCTAssertEqual(Array(frame[4..<8]), [0, 0xa0, 0, 1])
+        XCTAssertEqual(Array(frame[8..<10]), [0xfa, 0x01])
+        XCTAssertEqual(frame[10], 5)
+        XCTAssertEqual(frame.count, 260)
+        XCTAssertThrowsError(
+            try WalletRPCCodec.framedFaucetRequest(
+                owner: Data(repeating: 0, count: 48),
+                idempotencyKey: Data(repeating: 4, count: 48),
+                sourceCommitment: Data(repeating: 5, count: 48)
+            )
+        )
+    }
+
+    func testFaucetTermsAndPendingReceiptDecodeWithoutCreditingBalance() throws {
+        var termsBody = Data([7])
+        termsBody.append(WalletKanalen.chainID)
+        termsBody.append(WalletKanalen.genesis)
+        termsBody.append(contentsOf: UInt64(1).bigEndianBytes)
+        termsBody.append(contentsOf: UInt64(1_000).bigEndianBytes)
+        termsBody.append(Data(repeating: 0, count: 15) + Data([10]))
+        termsBody.append(contentsOf: UInt64(60).bigEndianBytes)
+        termsBody.append(contentsOf: UInt16(2).bigEndianBytes)
+        termsBody.append(contentsOf: UInt64(60).bigEndianBytes)
+        termsBody.append(contentsOf: UInt16(2).bigEndianBytes)
+        termsBody.append(contentsOf: UInt64(60).bigEndianBytes)
+        termsBody.append(contentsOf: UInt32(10).bigEndianBytes)
+        termsBody.append(contentsOf: [0, 0])
+        let terms = try WalletRPCCodec.decodeFaucetTerms(rpcResponse(body: termsBody))
+        XCTAssertEqual(terms.chainID, WalletKanalen.chainID)
+        XCTAssertEqual(terms.genesis, WalletKanalen.genesis)
+        XCTAssertEqual(terms.challengeKind, 0)
+
+        var receiptBody = Data([6])
+        receiptBody.append(Data(repeating: 7, count: 48))
+        receiptBody.append(Data(repeating: 8, count: 48))
+        receiptBody.append(Data(repeating: 0, count: 15) + Data([10]))
+        receiptBody.append(contentsOf: [0, 1])
+        receiptBody.append(Data(repeating: 9, count: 48))
+        receiptBody.append(contentsOf: [0, 0, 0])
+        let receipt = try WalletRPCCodec.decodeFaucetReceipt(rpcResponse(body: receiptBody))
+        XCTAssertEqual(receipt.state, 0)
+        XCTAssertNil(receipt.finalizedHeight)
+        XCTAssertFalse(WalletFundingState.pending(reference: "07").creditsBalance)
+    }
+
     func testReceiveRequestBindsAddressToNetworkAndGenesis() throws {
         let request = ReceiveRequest(
             networkID: "roslagen",
@@ -358,6 +410,13 @@ final class ActiveChainWalletTests: XCTestCase {
         body.append(health)
         body.append(contentsOf: [2, 0, 1])
         var envelope = Data([0, 0xa1, 0, 1, 0x91, 0x01])
+        envelope.append(body)
+        return envelope
+    }
+
+    private func rpcResponse(body: Data) -> Data {
+        var envelope = Data([0, 0xa1, 0, 1])
+        envelope.append(contentsOf: uleb128(body.count))
         envelope.append(body)
         return envelope
     }

@@ -34,10 +34,11 @@ Reference, recipient, amount, chain, envelope, or height substitution rejects wi
 cash authorization state. Retrying the same exact admitted transaction is idempotent. Schema-1
 cash authorizations are rejected at the network boundary; there is no pre-testnet migration need.
 
-The current implementation provides the fail-closed native funding lifecycle presentation, but
-does not enable its action until the platform cash-key adapter and public operator signer are
-installed. The complete journal/filesystem refinement proof also remains a launch task in
-`STATUS.md`.
+The current implementation provides the fail-closed native funding lifecycle, validates terms,
+submits the public request, and decodes pending/finalized/rejected receipts. The action becomes
+available only with a healthy finalized checkpoint and a chain-bound wallet profile. The complete
+journal/filesystem refinement proof and live Kanalen deployment qualification remain launch tasks
+in `STATUS.md`.
 
 ## Operator configuration
 

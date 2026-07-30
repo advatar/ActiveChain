@@ -633,7 +633,7 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
   publish the proof scope and every remaining assumption or gap.
 - [x] Freeze the faucet invariant model and executable conformance vectors before formal proof
   integration.
-- [ ] Add an iOS/macOS testnet funding flow that never credits optimistic or local-only balances.
+- [x] Add an iOS/macOS testnet funding flow that never credits optimistic or local-only balances.
 - [ ] Pass replay, concurrency, forged-chain, exhaustion, restart, privacy, and end-to-end tests.
 
 ## Active protocol design — multi-asset Coin Cells
