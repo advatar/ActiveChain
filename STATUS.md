@@ -77,7 +77,7 @@ Tracked by [GitHub issue #333](https://github.com/advatar/ActiveChain/issues/333
   intentional aliases from independent protocol types.
 - [x] Assign a unique v1 `(type tag, schema version)` identity to every live type without consuming
   reserved v1.1/v1.2 extension ranges.
-- [ ] Migrate or reject legacy collided envelopes explicitly and regenerate every affected vector,
+- [x] Migrate or reject legacy collided envelopes explicitly and regenerate every affected vector,
   manifest, header, and external-verifier fixture.
 - [x] Bind an unambiguous registered type identity into canonical value commitments and signatures.
 - [x] Add CI enforcement for registry completeness, uniqueness, allowed ranges, and cross-type
