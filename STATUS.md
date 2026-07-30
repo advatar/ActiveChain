@@ -37,6 +37,23 @@ Tracked by [GitHub issue #329](https://github.com/advatar/ActiveChain/issues/329
 - [x] Pass the complete deterministic-kernel gate, merge to `main`, and verify reachability before
   closing #329.
 
+## Critical transport recovery — mutually authenticated peer sessions
+
+Tracked by [GitHub issue #330](https://github.com/advatar/ActiveChain/issues/330).
+
+- [x] Replace the replayable challenge-only handshake with the proved server-challenge, signed
+  client-finish, and signed key-confirmation state machine using fresh CSPRNG nonces.
+- [x] Bind the complete transcript to chain genesis, epoch, protocol revision, both peer identities,
+  and the pinned ML-DSA-44/ML-KEM-768 suites.
+- [x] Authenticate every consensus frame under the negotiated session key with durable, bounded,
+  write-before-admission send/receive sequence state and expiry.
+- [x] Remove unauthenticated and challenge-only production paths; bind each admitted socket to the
+  configured peer identity and session before consensus parsing.
+- [x] Cover capture/replay, reflection, wrong identity, cross-genesis/protocol use, expiry, restart,
+  corruption, and protected-frame mutation in unit and live process tests.
+- [ ] Align the Rust implementation, Tamarin model, canonical vectors, operations guidance, and
+  observability; pass the deterministic-kernel gate and merge #330 to `main`.
+
 ## Deterministic-kernel CI baseline
 
 ### Tiered verification cadence

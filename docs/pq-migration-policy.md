@@ -11,7 +11,8 @@ window in the testnet profile.
 - A classical or partially registered `CryptoSuiteId` is rejected by every
   safety-critical constructor (`require_post_quantum`) before bytes reach an
   engine or verifier.
-- Peer handshakes and authenticated consensus envelopes use ML-DSA-44 only.
+- Peer identity signatures use ML-DSA-44 and each V2 session uses a fresh ephemeral ML-KEM-768
+  recipient plus transcript-bound key confirmation. There is no reusable bearer handshake.
 - Protected transaction envelopes use ML-KEM-768 for key establishment; a
   classical confidentiality dependency is not an acceptable fallback.
 
@@ -35,9 +36,18 @@ local-runner rehearsal before a live testnet upgrade.
 | Validator consensus | ML-DSA-44 | Finalized epoch transition and bounded migration vector |
 | Principal / credential signatures | Registered PQ signature suite | Purpose-specific validation and activation window |
 | Transport peer identity | ML-DSA-44 | Authenticated reconnect handshake before frame admission |
+| Transport session establishment | Ephemeral ML-KEM-768 | New transcript domain, protocol revision, canonical vectors, formal-model update, and restart/replay rehearsal |
 | Protected-envelope key establishment | ML-KEM-768 | New envelope domain/version and decapsulation vectors |
 | ObjectVM execution evidence | ML-DSA-44 evidence signatures | Replay-verification vector before activation |
 
 No class may silently fall back to a classical key. An unrecognized class,
 suite, or window is rejected as a configuration error and cannot enter a
 consensus-critical state transition.
+
+Transport suite rotation requires a new session domain and protocol revision. Existing sessions
+must expire or be discarded; session keys and high-water records are never translated into the new
+domain. Operators rotate the long-term validator identity through a finalized validator-set
+transition or a replacement genesis, then require all peers to reconnect and monitor session
+rejections before reopening consensus ingress. A migration is incomplete until wrong-domain,
+wrong-key, replay, expiry, protected-frame mutation, and restart cases pass alongside the updated
+Tamarin model and canonical vector.
