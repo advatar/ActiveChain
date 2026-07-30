@@ -33,6 +33,8 @@ normative and measurement slice in [#398](https://github.com/advatar/ActiveChain
     ([GitHub issue #411](https://github.com/advatar/ActiveChain/issues/411)).
   - [ ] Migrate bounded production replay collections to the witnessed accumulator roots.
 - [ ] Qualify checkpoint snapshot sync, light clients, operator metrics, and sustained 1 TiB bounds.
+  - [x] Add bounded checkpoint sync and light-client checkpoint verification
+    ([GitHub issue #414](https://github.com/advatar/ActiveChain/issues/414)).
 
 ## Active landing-page rebrand — Actum
 
