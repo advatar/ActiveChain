@@ -76,6 +76,11 @@ jobs:
         run: cargo fmt --all --check
       - name: Verify canonical type-tag registry
         run: python3 scripts/check-type-tag-registry.py
+      - name: Verify independent-client complexity budget
+        run: python3 scripts/check-independent-client-budget.py
+      - name: Test independent Go M0 vector reader
+        working-directory: tools/go-verifier
+        run: go test ./...
       - name: Check all targets
         env:
           # Clippy checks host code; the following test step builds the pinned guest image.
