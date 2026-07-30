@@ -1268,6 +1268,69 @@ fn verify_proposal_signature(public_key: &[u8], signature: &[u8], payload: &[u8]
     key.verify(payload, &signature).is_ok()
 }
 
+/// Safe Rust entry point for authorizing an already reviewed MCP proposal.
+///
+/// The caller retains custody of the signing key through `sign`; this function enforces the same
+/// expiry, commitment-matching, signature-verification, and canonical-envelope rules as the C ABI.
+pub fn authorize_proposal_intent<F>(
+    intent: &ActionIntentV1,
+    current_finalized_height: u64,
+    approved_commitment: Digest384,
+    public_key: Vec<u8>,
+    sign: F,
+) -> Result<Vec<u8>, u32>
+where
+    F: FnOnce(&[u8]) -> Vec<u8>,
+{
+    if current_finalized_height >= intent.expires_at_height {
+        return Err(WALLET_AGENT_REJECTED);
+    }
+    if intent.commitment().map_err(|_| WALLET_MALFORMED)? != approved_commitment {
+        return Err(WALLET_APPROVAL_MISMATCH);
+    }
+    if public_key.len() != ML_DSA44_PUBLIC_KEY_LENGTH {
+        return Err(WALLET_INVALID_SIGNATURE);
+    }
+    let payload = intent.signing_payload().map_err(|_| WALLET_MALFORMED)?;
+    let signature = sign(&payload);
+    if !verify_proposal_signature(&public_key, &signature, &payload) {
+        return Err(WALLET_INVALID_SIGNATURE);
+    }
+    let signature = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature)
+        .map_err(|_| WALLET_INVALID_SIGNATURE)?;
+    let authorized = AuthorizedActionIntentV1::new(intent.clone(), public_key, signature)
+        .map_err(|_| WALLET_MALFORMED)?;
+    encode_envelope(&authorized).map_err(|_| WALLET_MALFORMED)
+}
+
+/// Safe Rust entry point for verifying and forwarding an authorized MCP proposal.
+pub fn submit_authorized_proposal<F>(
+    envelope: &[u8],
+    current_finalized_height: u64,
+    submit: F,
+) -> Result<(), u32>
+where
+    F: FnOnce(&[u8]) -> bool,
+{
+    if envelope.len() > MAX_WALLET_INPUT as usize {
+        return Err(WALLET_TOO_LARGE);
+    }
+    let authorized =
+        decode_envelope::<AuthorizedActionIntentV1>(envelope).map_err(|_| WALLET_MALFORMED)?;
+    if current_finalized_height >= authorized.intent.expires_at_height {
+        return Err(WALLET_AGENT_REJECTED);
+    }
+    let payload = authorized.intent.signing_payload().map_err(|_| WALLET_MALFORMED)?;
+    if !verify_proposal_signature(&authorized.public_key, authorized.signature.as_bytes(), &payload)
+    {
+        return Err(WALLET_INVALID_SIGNATURE);
+    }
+    if !submit(envelope) {
+        return Err(WALLET_CALLBACK_FAILED);
+    }
+    Ok(())
+}
+
 /// Signs exactly one reviewed canonical MCP action intent through caller-owned native custody.
 ///
 /// # Safety

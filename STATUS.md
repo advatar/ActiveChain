@@ -2101,6 +2101,15 @@ wallet and all testnets remain explicitly developmental until this milestone com
       skipped exhaustive CI gate during issue reconciliation; integrate into `origin/main`.
   - [ ] Rehearse an end-to-end MCP transfer proposal, approval, finality, and verified receipt
     ([GitHub issue #362](https://github.com/advatar/ActiveChain/issues/362)).
+    - [x] Add a deterministic three-validator local rehearsal harness with bounded setup/teardown
+      and no persistent custody secrets.
+    - [x] Correlate the MCP request, canonical proposal, reviewed commitment, authorization,
+      transaction, finalized record, and independently verified receipt.
+    - [x] Exercise happy-path, denial, expiry, failure, and idempotent reconnect/retry lifecycle
+      outcomes without treating MCP transport or A2UI presentation as authority.
+    - [ ] Document every trust boundary and developmental/unaudited status; normal affected
+      integration tests and strict Clippy are green, with merge and `origin/main` reachability
+      verification remaining.
   - [ ] Complete adversarial security, compatibility, and operational qualification
     ([GitHub issue #359](https://github.com/advatar/ActiveChain/issues/359)).
   - [ ] Announce the planned MCP and constrained A2UI interfaces on the public landing page

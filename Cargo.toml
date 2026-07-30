@@ -23,6 +23,7 @@ members = [
     "crates/finality-types",
     "crates/light-client",
     "crates/mcp-server",
+    "crates/mcp-rehearsal",
     "crates/object",
     "crates/object-vm",
     "crates/payment-types",
