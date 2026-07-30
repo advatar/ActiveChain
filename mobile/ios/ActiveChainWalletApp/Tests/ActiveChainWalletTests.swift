@@ -80,6 +80,19 @@ final class ActiveChainWalletTests: XCTestCase {
         XCTAssertEqual(fixture.hardware.unwrapCount, 0)
     }
 
+    func testRustNativeMLDSAEngineProducesWireCompatibleLengths() throws {
+        let engine = RustAppleMLDSA44Engine()
+        var seed = Data(repeating: 73, count: AppleNativeCustodyProvider.seedLength)
+        let publicKey = try engine.publicKey(seed: &seed)
+        let repeatedPublicKey = try engine.publicKey(seed: &seed)
+        let signature = try engine.sign(payload: Data("canonical payload".utf8), seed: &seed)
+
+        XCTAssertEqual(publicKey.count, AppleNativeCustodyProvider.publicKeyLength)
+        XCTAssertEqual(publicKey, repeatedPublicKey)
+        XCTAssertEqual(signature.count, AppleNativeCustodyProvider.signatureLength)
+        XCTAssertEqual(seed, Data(repeating: 73, count: AppleNativeCustodyProvider.seedLength))
+    }
+
     func testReceiveRequestBindsAddressToNetworkAndGenesis() throws {
         let request = ReceiveRequest(
             networkID: "roslagen",

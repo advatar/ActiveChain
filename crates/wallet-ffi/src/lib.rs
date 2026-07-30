@@ -15,6 +15,7 @@ use activechain_wallet_core::{
 #[cfg(target_os = "android")]
 mod android;
 use core::ffi::c_void;
+use ml_dsa::{Keypair, MlDsa44, Signer, SigningKey, Verifier};
 
 const MAX_WALLET_INPUT: u32 = 256 * 1024;
 pub const ACTIVECHAIN_WALLET_OK: u32 = 0;
@@ -132,6 +133,86 @@ impl Default for ActivechainWalletAgentSummary {
 #[unsafe(no_mangle)]
 pub extern "C" fn activechain_wallet_ffi_revision() -> u32 {
     3
+}
+
+/// Derives the canonical ML-DSA-44 public key for one transient 32-byte seed.
+///
+/// # Safety
+///
+/// `seed` must point to 32 readable bytes and `public_key_out` to 1,312 writable bytes. Neither
+/// pointer is retained.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn activechain_wallet_mldsa44_public_key(
+    seed: *const u8,
+    seed_len: u32,
+    public_key_out: *mut u8,
+    public_key_len: u32,
+) -> u32 {
+    if seed.is_null() || public_key_out.is_null() {
+        return WALLET_NULL_POINTER;
+    }
+    if seed_len != 32 || public_key_len != ML_DSA44_PUBLIC_KEY_LENGTH as u32 {
+        return WALLET_MALFORMED;
+    }
+    let mut seed_bytes = [0_u8; 32];
+    seed_bytes.copy_from_slice(unsafe { core::slice::from_raw_parts(seed, seed_len as usize) });
+    let key = SigningKey::<MlDsa44>::from_seed(&ml_dsa::Seed::from(seed_bytes));
+    seed_bytes.fill(0);
+    let public_key = key.verifying_key().encode();
+    unsafe {
+        core::ptr::copy_nonoverlapping(
+            public_key.as_slice().as_ptr(),
+            public_key_out,
+            public_key.len(),
+        );
+    }
+    WALLET_OK
+}
+
+/// Signs one bounded payload with a transient ML-DSA-44 seed and verifies the signature before
+/// publishing it to the caller.
+///
+/// # Safety
+///
+/// `seed` must point to 32 readable bytes. A non-empty `payload` must be readable for
+/// `payload_len` bytes, and `signature_out` must point to 2,420 writable bytes. No pointer is
+/// retained.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn activechain_wallet_mldsa44_sign(
+    seed: *const u8,
+    seed_len: u32,
+    payload: *const u8,
+    payload_len: u32,
+    signature_out: *mut u8,
+    signature_len: u32,
+) -> u32 {
+    if seed.is_null() || (payload.is_null() && payload_len != 0) || signature_out.is_null() {
+        return WALLET_NULL_POINTER;
+    }
+    if payload_len > MAX_WALLET_INPUT {
+        return WALLET_TOO_LARGE;
+    }
+    if seed_len != 32 || signature_len != ML_DSA44_SIGNATURE_LENGTH as u32 {
+        return WALLET_MALFORMED;
+    }
+    let mut seed_bytes = [0_u8; 32];
+    seed_bytes.copy_from_slice(unsafe { core::slice::from_raw_parts(seed, seed_len as usize) });
+    let key = SigningKey::<MlDsa44>::from_seed(&ml_dsa::Seed::from(seed_bytes));
+    seed_bytes.fill(0);
+    let payload = if payload_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(payload, payload_len as usize) }
+    };
+    let signature = key.sign(payload);
+    if key.verifying_key().verify(payload, &signature).is_err() {
+        return WALLET_INVALID_SIGNATURE;
+    }
+    let encoded = signature.encode();
+    unsafe {
+        core::ptr::copy_nonoverlapping(encoded.as_slice().as_ptr(), signature_out, encoded.len());
+    }
+    WALLET_OK
 }
 
 /// Validates one canonical OpenWallet envelope and returns its protocol commitment.
@@ -1320,7 +1401,7 @@ mod tests {
     use activechain_canonical_codec::encode_envelope;
     use activechain_cash_kernel::{CoinCell, CoinCellOrigin, CoinCellRecord};
     use activechain_protocol_types::TransactionId;
-    use ml_dsa::{Keypair, MlDsa44, Signer, SigningKey};
+    use ml_dsa::{EncodedSignature, Keypair, MlDsa44, Signature, Signer, SigningKey, Verifier};
 
     fn approval_vector() -> std::collections::BTreeMap<&'static str, &'static str> {
         include_str!("../../../testing/vectors/wallet-canonical-approval-v1.txt")
@@ -1349,6 +1430,75 @@ mod tests {
     #[test]
     fn revision_is_stable() {
         assert_eq!(activechain_wallet_ffi_revision(), 3);
+    }
+
+    #[test]
+    fn native_mldsa44_engine_derives_and_self_verifies_wire_values() {
+        let seed = [73_u8; 32];
+        let payload = b"canonical Apple custody signing payload";
+        let mut public_key = [0_u8; ML_DSA44_PUBLIC_KEY_LENGTH];
+        let mut signature = [0_u8; ML_DSA44_SIGNATURE_LENGTH];
+        assert_eq!(
+            unsafe {
+                activechain_wallet_mldsa44_public_key(
+                    seed.as_ptr(),
+                    seed.len() as u32,
+                    public_key.as_mut_ptr(),
+                    public_key.len() as u32,
+                )
+            },
+            WALLET_OK
+        );
+        assert_eq!(
+            unsafe {
+                activechain_wallet_mldsa44_sign(
+                    seed.as_ptr(),
+                    seed.len() as u32,
+                    payload.as_ptr(),
+                    payload.len() as u32,
+                    signature.as_mut_ptr(),
+                    signature.len() as u32,
+                )
+            },
+            WALLET_OK
+        );
+        let expected = SigningKey::<MlDsa44>::from_seed(&ml_dsa::Seed::from(seed));
+        assert_eq!(public_key.as_slice(), expected.verifying_key().encode().as_slice());
+        let encoded: EncodedSignature<MlDsa44> = signature.into();
+        let signature = Signature::<MlDsa44>::decode(&encoded).unwrap();
+        assert!(expected.verifying_key().verify(payload, &signature).is_ok());
+    }
+
+    #[test]
+    fn native_mldsa44_engine_rejects_invalid_lengths_and_oversized_payloads() {
+        let seed = [1_u8; 32];
+        let payload = [2_u8; 1];
+        let mut public_key = [0_u8; ML_DSA44_PUBLIC_KEY_LENGTH];
+        let mut signature = [0_u8; ML_DSA44_SIGNATURE_LENGTH];
+        assert_eq!(
+            unsafe {
+                activechain_wallet_mldsa44_public_key(
+                    seed.as_ptr(),
+                    31,
+                    public_key.as_mut_ptr(),
+                    public_key.len() as u32,
+                )
+            },
+            WALLET_MALFORMED
+        );
+        assert_eq!(
+            unsafe {
+                activechain_wallet_mldsa44_sign(
+                    seed.as_ptr(),
+                    seed.len() as u32,
+                    payload.as_ptr(),
+                    MAX_WALLET_INPUT + 1,
+                    signature.as_mut_ptr(),
+                    signature.len() as u32,
+                )
+            },
+            WALLET_TOO_LARGE
+        );
     }
 
     #[test]

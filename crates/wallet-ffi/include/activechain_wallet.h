@@ -90,6 +90,36 @@ extern "C" {
 uint32_t activechain_wallet_ffi_revision(void);
 
 /**
+ * Derives the canonical ML-DSA-44 public key for one transient 32-byte seed.
+ *
+ * # Safety
+ *
+ * `seed` must point to 32 readable bytes and `public_key_out` to 1,312 writable bytes. Neither
+ * pointer is retained.
+ */
+uint32_t activechain_wallet_mldsa44_public_key(const uint8_t *seed,
+                                               uint32_t seed_len,
+                                               uint8_t *public_key_out,
+                                               uint32_t public_key_len);
+
+/**
+ * Signs one bounded payload with a transient ML-DSA-44 seed and verifies the signature before
+ * publishing it to the caller.
+ *
+ * # Safety
+ *
+ * `seed` must point to 32 readable bytes. A non-empty `payload` must be readable for
+ * `payload_len` bytes, and `signature_out` must point to 2,420 writable bytes. No pointer is
+ * retained.
+ */
+uint32_t activechain_wallet_mldsa44_sign(const uint8_t *seed,
+                                         uint32_t seed_len,
+                                         const uint8_t *payload,
+                                         uint32_t payload_len,
+                                         uint8_t *signature_out,
+                                         uint32_t signature_len);
+
+/**
  * Validates one canonical OpenWallet envelope and returns its protocol commitment.
  *
  * `kind` must be one of the `ACTIVECHAIN_WALLET_OPENWALLET_*` constants. This boundary
