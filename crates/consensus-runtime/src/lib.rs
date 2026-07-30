@@ -1432,6 +1432,7 @@ impl PeerConnector {
             }
             Err(error) => {
                 service.record_peer_session_rejection();
+                service.record_peer_io_error(&error);
                 Err(error)
             }
         }
@@ -3699,6 +3700,17 @@ impl ValidatorService {
     fn record_peer_session_rejection(&self) {
         self.metrics.peer_session_rejections.fetch_add(1, Ordering::Relaxed);
     }
+    fn record_peer_io_error(&self, error: &std::io::Error) {
+        match error.kind() {
+            std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock => {
+                self.metrics.peer_timeouts.fetch_add(1, Ordering::Relaxed);
+            }
+            std::io::ErrorKind::InvalidData => {
+                self.metrics.peer_malformed_frames.fetch_add(1, Ordering::Relaxed);
+            }
+            _ => {}
+        }
+    }
     fn allow_authenticated_receive(&self, peer_id: u16, now: Instant) -> std::io::Result<bool> {
         let mut limits = self
             .authenticated_rate_limits
@@ -4287,6 +4299,7 @@ impl ValidatorService {
             }
             Err(error) => {
                 self.record_peer_session_rejection();
+                self.record_peer_io_error(&error);
                 Err(error)
             }
         }
@@ -4305,15 +4318,7 @@ impl ValidatorService {
         let (session_sequence, message) = match peer.receive_protected_message(session) {
             Ok(received) => received,
             Err(error) => {
-                match error.kind() {
-                    std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock => {
-                        self.metrics.peer_timeouts.fetch_add(1, Ordering::Relaxed);
-                    }
-                    std::io::ErrorKind::InvalidData => {
-                        self.metrics.peer_malformed_frames.fetch_add(1, Ordering::Relaxed);
-                    }
-                    _ => {}
-                }
+                self.record_peer_io_error(&error);
                 return Err(error);
             }
         };
@@ -5547,6 +5552,19 @@ mod tests {
         }
         assert!(!service.allow_authenticated_receive(1, rate_window).unwrap());
         assert_eq!(service.metrics().peer_rate_limited, 1);
+        service.record_peer_io_error(&std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "test timeout",
+        ));
+        service.record_peer_io_error(&invalid_data("test malformed frame"));
+        let ingress_metrics = service.metrics();
+        assert_eq!(ingress_metrics.peer_timeouts, 1);
+        assert_eq!(ingress_metrics.peer_malformed_frames, 1);
+        let rendered = ingress_metrics.prometheus(1);
+        assert!(rendered.contains("activechain_validator_peer_timeouts{validator=\"1\"} 1"));
+        assert!(
+            rendered.contains("activechain_validator_peer_malformed_frames{validator=\"1\"} 1")
+        );
         std::fs::remove_file(path).unwrap();
     }
 
