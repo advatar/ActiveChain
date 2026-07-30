@@ -1,6 +1,7 @@
 # TLS-derived VC to ActiveChain proof pipeline
 
-Status: requirements and trust-boundary specification; tracked by issue #169.
+Status: ActiveChain canonical evidence and predicate-admission boundary implemented; cross-repo
+wallet/device conformance and independent review remain open under issue #169.
 
 ## Ownership
 
@@ -17,6 +18,17 @@ No layer may reinterpret the assurance supplied by the previous layer:
 | Holder/self-issued VC | The holder key packaged the declared evidence and claims. It is not automatically third-party identity or regulated KYC. |
 | Authorized issuer-upgraded VC | The named issuer attested the claims under its declared authorization, schema, status, and assurance framework. |
 | ActiveChain ZK result | The committed credential of the declared assurance class satisfied the exact public predicate and action context. |
+
+The canonical `TlsCredentialEvidenceV1` envelope contains only notary, server, transcript,
+disclosed-field, holder, schema, status, freshness, and optional issuer-authorization commitments.
+It has no field capable of carrying a source transcript or account identifier. The assurance enum
+is ordered but not self-asserting: issuer-upgraded and regulated classes are structurally invalid
+without a nonzero issuer-authorization commitment, while lower classes must not carry one.
+
+`admit_tls_credential_predicate` requires the predicate claims commitment to equal the commitment
+of the complete evidence envelope, then independently checks holder, schema, freshness, minimum
+assurance, chain, audience, action, predicate expiry, and the hidden-value proof callback. A
+holder/self-issued envelope therefore cannot satisfy an issuer-upgraded or regulated policy.
 
 ## Proof-of-funds profile
 

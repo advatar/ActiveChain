@@ -24,6 +24,172 @@ pub const MAX_ACCEPTED_CREDENTIAL_ISSUERS: usize = 32;
 /// Maximum accepted schemas in one development policy.
 pub const MAX_ACCEPTED_CREDENTIAL_SCHEMAS: usize = 32;
 
+/// Provenance class retained from TLS evidence through credential and predicate verification.
+/// Ordering is intentional: a policy may require a minimum class, but adapters cannot construct a
+/// stronger class without the corresponding canonical authorization commitment.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[repr(u8)]
+pub enum CredentialAssuranceClassV1 {
+    TlsNotarizedEvidence = 0,
+    HolderSelfIssued = 1,
+    IssuerUpgraded = 2,
+    RegulatedAttestation = 3,
+}
+
+impl CanonicalEncode for CredentialAssuranceClassV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(encoder)
+    }
+}
+
+impl CanonicalDecode for CredentialAssuranceClassV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(decoder)? {
+            0 => Ok(Self::TlsNotarizedEvidence),
+            1 => Ok(Self::HolderSelfIssued),
+            2 => Ok(Self::IssuerUpgraded),
+            3 => Ok(Self::RegulatedAttestation),
+            tag => {
+                Err(DecodeError::InvalidEnumTag { type_name: "CredentialAssuranceClassV1", tag })
+            }
+        }
+    }
+}
+
+/// Transcript-free evidence boundary for credentials derived from holder-controlled TLSNotary
+/// sessions. Only commitments and provenance needed by a verifier are carried.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TlsCredentialEvidenceV1 {
+    notary_identity: Digest384,
+    server_identity: Digest384,
+    transcript_commitment: Digest384,
+    disclosed_fields_commitment: Digest384,
+    holder_binding: Digest384,
+    schema_id: Digest384,
+    observed_height: Height,
+    fresh_until_height: Height,
+    status_commitment: Digest384,
+    assurance: CredentialAssuranceClassV1,
+    issuer_authorization_commitment: Option<Digest384>,
+}
+
+impl TlsCredentialEvidenceV1 {
+    pub const TYPE_TAG: u16 = 0x014d;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 7 + 8 * 2 + 1 + 1 + 48;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        notary_identity: Digest384,
+        server_identity: Digest384,
+        transcript_commitment: Digest384,
+        disclosed_fields_commitment: Digest384,
+        holder_binding: Digest384,
+        schema_id: Digest384,
+        observed_height: Height,
+        fresh_until_height: Height,
+        status_commitment: Digest384,
+        assurance: CredentialAssuranceClassV1,
+        issuer_authorization_commitment: Option<Digest384>,
+    ) -> Result<Self, CredentialValidationError> {
+        if [
+            notary_identity,
+            server_identity,
+            transcript_commitment,
+            disclosed_fields_commitment,
+            holder_binding,
+            schema_id,
+            status_commitment,
+        ]
+        .into_iter()
+        .any(|value| value == Digest384::ZERO)
+            || observed_height == 0
+            || fresh_until_height <= observed_height
+            || issuer_authorization_commitment == Some(Digest384::ZERO)
+            || (assurance >= CredentialAssuranceClassV1::IssuerUpgraded)
+                != issuer_authorization_commitment.is_some()
+        {
+            return Err(CredentialValidationError::InvalidTlsEvidence);
+        }
+        Ok(Self {
+            notary_identity,
+            server_identity,
+            transcript_commitment,
+            disclosed_fields_commitment,
+            holder_binding,
+            schema_id,
+            observed_height,
+            fresh_until_height,
+            status_commitment,
+            assurance,
+            issuer_authorization_commitment,
+        })
+    }
+
+    pub const fn assurance(&self) -> CredentialAssuranceClassV1 {
+        self.assurance
+    }
+    pub const fn holder_binding(&self) -> Digest384 {
+        self.holder_binding
+    }
+    pub const fn schema_id(&self) -> Digest384 {
+        self.schema_id
+    }
+    pub const fn valid_at(&self, height: Height) -> bool {
+        self.observed_height <= height && height < self.fresh_until_height
+    }
+    pub fn commitment(&self) -> Result<Digest384, EncodeError> {
+        let bytes = activechain_canonical_codec::encode_envelope(self)?;
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-TLS-CREDENTIAL-EVIDENCE-V1");
+        hasher.update(&bytes);
+        let mut output = [0_u8; 48];
+        XofReader::read(&mut hasher.finalize_xof(), &mut output);
+        Ok(Digest384::new(output))
+    }
+}
+
+impl CanonicalEncode for TlsCredentialEvidenceV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.notary_identity.encode(encoder)?;
+        self.server_identity.encode(encoder)?;
+        self.transcript_commitment.encode(encoder)?;
+        self.disclosed_fields_commitment.encode(encoder)?;
+        self.holder_binding.encode(encoder)?;
+        self.schema_id.encode(encoder)?;
+        self.observed_height.encode(encoder)?;
+        self.fresh_until_height.encode(encoder)?;
+        self.status_commitment.encode(encoder)?;
+        self.assurance.encode(encoder)?;
+        self.issuer_authorization_commitment.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for TlsCredentialEvidenceV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Height::decode(decoder)?,
+            Height::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            CredentialAssuranceClassV1::decode(decoder)?,
+            Option::<Digest384>::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid TLS credential evidence"))
+    }
+}
+
+impl CanonicalType for TlsCredentialEvidenceV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 /// Canonical unsigned statement committed by a credential issuer signature.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CredentialStatement {
@@ -638,6 +804,15 @@ impl CredentialPredicateV1 {
     pub const fn kind(&self) -> CredentialPredicateKind {
         self.kind
     }
+    pub const fn schema_id(&self) -> Digest384 {
+        self.schema_id
+    }
+    pub const fn claims_commitment(&self) -> Digest384 {
+        self.claims_commitment
+    }
+    pub const fn holder_binding(&self) -> Digest384 {
+        self.holder_binding
+    }
     pub const fn expires_height(&self) -> Height {
         self.expires_height
     }
@@ -720,6 +895,9 @@ pub enum CredentialValidationError {
     AcceptedSchemasNotStrictlyIncreasing,
     /// Predicate public inputs are zero, expired, or otherwise not action-bound.
     InvalidPredicateBinding,
+    /// TLS-derived evidence is zero, stale at construction, or claims an assurance class without
+    /// the authorization required for that class.
+    InvalidTlsEvidence,
 }
 
 fn strictly_increasing<T: Ord>(values: &[T]) -> bool {
@@ -752,6 +930,9 @@ fn credential_decode_error(error: CredentialValidationError) -> DecodeError {
         CredentialValidationError::InvalidPredicateBinding => {
             DecodeError::InvalidValue("credential predicate binding is invalid")
         }
+        CredentialValidationError::InvalidTlsEvidence => {
+            DecodeError::InvalidValue("TLS credential evidence is invalid")
+        }
     }
 }
 
@@ -764,9 +945,10 @@ mod tests {
     use activechain_canonical_codec::{decode_envelope, encode_body, encode_envelope};
 
     use super::{
-        CREDENTIAL_FORMAT_VERSION, Credential, CredentialAcceptancePolicy, CredentialPredicateKind,
-        CredentialPredicateV1, CredentialStatement, CredentialStatusRegistry,
-        CredentialValidationError,
+        CREDENTIAL_FORMAT_VERSION, Credential, CredentialAcceptancePolicy,
+        CredentialAssuranceClassV1, CredentialPredicateKind, CredentialPredicateV1,
+        CredentialStatement, CredentialStatusRegistry, CredentialValidationError,
+        TlsCredentialEvidenceV1,
     };
     use crate::{
         ChainId, CryptoSuiteId, Digest384, ObjectId, PrincipalId, ProtocolSignature, TransactionId,
@@ -1089,6 +1271,67 @@ mod tests {
                 digest(8),
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn tls_evidence_preserves_assurance_and_never_carries_a_transcript() {
+        let holder = digest(5);
+        let schema = digest(6);
+        let self_issued = TlsCredentialEvidenceV1::new(
+            digest(1),
+            digest(2),
+            digest(3),
+            digest(4),
+            holder,
+            schema,
+            10,
+            20,
+            digest(7),
+            CredentialAssuranceClassV1::HolderSelfIssued,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            decode_envelope::<TlsCredentialEvidenceV1>(&encode_envelope(&self_issued).unwrap()),
+            Ok(self_issued)
+        );
+        assert!(self_issued.valid_at(10));
+        assert!(!self_issued.valid_at(20));
+        assert_eq!(self_issued.holder_binding(), holder);
+        assert_eq!(self_issued.schema_id(), schema);
+
+        assert_eq!(
+            TlsCredentialEvidenceV1::new(
+                digest(1),
+                digest(2),
+                digest(3),
+                digest(4),
+                holder,
+                schema,
+                10,
+                20,
+                digest(7),
+                CredentialAssuranceClassV1::IssuerUpgraded,
+                None,
+            ),
+            Err(CredentialValidationError::InvalidTlsEvidence)
+        );
+        assert!(
+            TlsCredentialEvidenceV1::new(
+                digest(1),
+                digest(2),
+                digest(3),
+                digest(4),
+                holder,
+                schema,
+                10,
+                20,
+                digest(7),
+                CredentialAssuranceClassV1::IssuerUpgraded,
+                Some(digest(8)),
+            )
+            .is_ok()
         );
     }
 }

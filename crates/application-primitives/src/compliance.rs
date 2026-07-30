@@ -5,8 +5,9 @@ use activechain_canonical_codec::{
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
     AssetId, ChainId, ComplianceError, ComplianceEvidenceBindingV1, ComplianceReplayKey,
-    ComplianceReplaySet, ComplianceSignatureEnvelopeV2, CredentialPredicateV1, Digest384,
-    ML_DSA44_PUBLIC_KEY_LENGTH, PrincipalId, ProfileSelection, TransactionId, TravelRuleBindingV1,
+    ComplianceReplaySet, ComplianceSignatureEnvelopeV2, CredentialAssuranceClassV1,
+    CredentialPredicateV1, Digest384, ML_DSA44_PUBLIC_KEY_LENGTH, PrincipalId, ProfileSelection,
+    TlsCredentialEvidenceV1, TransactionId, TravelRuleBindingV1,
 };
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -182,7 +183,44 @@ pub enum ComplianceAdmissionError {
 pub enum CredentialPredicateAdmissionError {
     Expired,
     ContextMismatch,
+    EvidenceMismatch,
+    InsufficientAssurance,
     InvalidValueProof,
+}
+
+/// Admits a TLS-derived credential predicate while preserving its exact provenance class.
+/// The evidence commitment occupies the predicate's claims-commitment slot, preventing an adapter
+/// from substituting a different transcript, disclosure, holder, schema, or assurance class.
+#[allow(clippy::too_many_arguments)]
+pub fn admit_tls_credential_predicate(
+    evidence: &TlsCredentialEvidenceV1,
+    predicate: &CredentialPredicateV1,
+    minimum_assurance: CredentialAssuranceClassV1,
+    chain_id: ChainId,
+    audience: PrincipalId,
+    action: TransactionId,
+    height: u64,
+    verify_value: impl FnOnce(&CredentialPredicateV1) -> bool,
+) -> Result<(), CredentialPredicateAdmissionError> {
+    if !evidence.valid_at(height) || !predicate.valid_at(height) {
+        return Err(CredentialPredicateAdmissionError::Expired);
+    }
+    if evidence.assurance() < minimum_assurance {
+        return Err(CredentialPredicateAdmissionError::InsufficientAssurance);
+    }
+    if evidence.schema_id() != predicate.schema_id()
+        || evidence.holder_binding() != predicate.holder_binding()
+        || evidence.commitment().ok() != Some(predicate.claims_commitment())
+    {
+        return Err(CredentialPredicateAdmissionError::EvidenceMismatch);
+    }
+    if !predicate.binds_action(chain_id, audience, action) {
+        return Err(CredentialPredicateAdmissionError::ContextMismatch);
+    }
+    if !verify_value(predicate) {
+        return Err(CredentialPredicateAdmissionError::InvalidValueProof);
+    }
+    Ok(())
 }
 
 /// Admits a selective-disclosure predicate without exposing credential claims.
@@ -605,6 +643,99 @@ mod tests {
                 |_| true
             ),
             Err(CredentialPredicateAdmissionError::ContextMismatch)
+        );
+    }
+
+    #[test]
+    fn tls_predicate_admission_rejects_assurance_and_evidence_substitution() {
+        use activechain_protocol_types::{
+            CredentialAssuranceClassV1, CredentialPredicateKind, TlsCredentialEvidenceV1,
+        };
+
+        let chain = ChainId::new(Digest384::new([10; 48]));
+        let audience = PrincipalId::new(Digest384::new([11; 48]));
+        let action = TransactionId::new(Digest384::new([12; 48]));
+        let evidence = TlsCredentialEvidenceV1::new(
+            Digest384::new([1; 48]),
+            Digest384::new([2; 48]),
+            Digest384::new([3; 48]),
+            Digest384::new([4; 48]),
+            Digest384::new([5; 48]),
+            Digest384::new([6; 48]),
+            10,
+            100,
+            Digest384::new([7; 48]),
+            CredentialAssuranceClassV1::HolderSelfIssued,
+            None,
+        )
+        .unwrap();
+        let predicate = CredentialPredicateV1::new(
+            evidence.schema_id(),
+            evidence.commitment().unwrap(),
+            evidence.holder_binding(),
+            chain,
+            audience,
+            action,
+            Digest384::new([8; 48]),
+            1,
+            90,
+            CredentialPredicateKind::AssetAmountAtLeast,
+            Digest384::new([9; 48]),
+        )
+        .unwrap();
+        assert_eq!(
+            admit_tls_credential_predicate(
+                &evidence,
+                &predicate,
+                CredentialAssuranceClassV1::HolderSelfIssued,
+                chain,
+                audience,
+                action,
+                50,
+                |_| true,
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            admit_tls_credential_predicate(
+                &evidence,
+                &predicate,
+                CredentialAssuranceClassV1::IssuerUpgraded,
+                chain,
+                audience,
+                action,
+                50,
+                |_| true,
+            ),
+            Err(CredentialPredicateAdmissionError::InsufficientAssurance)
+        );
+
+        let substituted = TlsCredentialEvidenceV1::new(
+            Digest384::new([1; 48]),
+            Digest384::new([2; 48]),
+            Digest384::new([30; 48]),
+            Digest384::new([4; 48]),
+            Digest384::new([5; 48]),
+            Digest384::new([6; 48]),
+            10,
+            100,
+            Digest384::new([7; 48]),
+            CredentialAssuranceClassV1::HolderSelfIssued,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            admit_tls_credential_predicate(
+                &substituted,
+                &predicate,
+                CredentialAssuranceClassV1::TlsNotarizedEvidence,
+                chain,
+                audience,
+                action,
+                50,
+                |_| true,
+            ),
+            Err(CredentialPredicateAdmissionError::EvidenceMismatch)
         );
     }
 }
