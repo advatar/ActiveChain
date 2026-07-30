@@ -63,6 +63,9 @@ typedef struct ActivechainWalletAgentSummary {
   uint64_t revocation_finalized_height;
 } ActivechainWalletAgentSummary;
 
+/**
+ * Fixed-layout human-review fields decoded from one canonical cash authorization request.
+ */
 typedef struct ActivechainWalletCashApproval {
   uint8_t chain_id[48];
   uint8_t signer[48];
@@ -402,8 +405,11 @@ uint32_t activechain_wallet_build_cash_intent(const uint8_t *chain_id,
                                               uint8_t *intent_out);
 
 /**
- * Decodes one strict canonical request into the complete fixed human-review summary.
- * `intent_id` binds every displayed field to the exact signing transcript.
+ * Decodes the exact canonical cash request into fixed human-review fields.
+ *
+ * # Safety
+ * `request` must be readable for `request_len` bytes and `approval_out` must be writable. No
+ * pointer is retained and the output is published only after strict canonical decoding succeeds.
  */
 uint32_t activechain_wallet_cash_approval(const uint8_t *request,
                                           uint32_t request_len,
@@ -434,10 +440,11 @@ uint32_t activechain_wallet_build_fungible_transfer(const uint8_t *cells,
  *
  * # Safety
  *
- * `request`, the 48-byte `approved_intent`, and `public_key` must be readable. The intent must be
- * the commitment returned with the human-reviewed approval summary. `callback` must obey its
- * declared contract for the duration of the call. `output` may be null only for a zero-capacity
- * size query; `required_len` must be writable. The callback is never retained.
+ * `request`, the 48-byte `approved_intent`, and `public_key` must be readable for their declared
+ * or fixed lengths. The approved intent must be the commitment returned with the human-reviewed
+ * summary. `callback` must obey its declared contract for the duration of the call. `output` may
+ * be null only for a zero-capacity size query; `required_len` must be writable. The callback is
+ * never retained.
  */
 uint32_t activechain_wallet_sign_cash_intent(const uint8_t *request,
                                              uint32_t request_len,
