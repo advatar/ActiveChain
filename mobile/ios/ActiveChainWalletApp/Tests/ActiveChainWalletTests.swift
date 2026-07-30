@@ -309,6 +309,173 @@ final class ActiveChainWalletTests: XCTestCase {
         XCTAssertNil(AgentIntentRouter.consume(defaults: defaults))
     }
 
+    func testNativeCustodySignsOnlyAtCurrentRollbackAnchors() throws {
+        let fixture = AppleCustodyFixture()
+        var recoveryKey = Data(repeating: 9, count: 32)
+        let publicKey = try fixture.provider.provision(
+            slotID: "primary",
+            keyVersion: 1,
+            finalizedHeight: 10,
+            recoveryKey: &recoveryKey
+        )
+
+        XCTAssertEqual(publicKey.count, 1_312)
+        XCTAssertEqual(
+            try fixture.provider.sign(
+                slotID: "primary",
+                payload: Data([7]),
+                minimumVersion: 1,
+                minimumFinalizedHeight: 10,
+                reason: "Approve"
+            ).count,
+            2_420
+        )
+        XCTAssertThrowsError(
+            try fixture.provider.sign(
+                slotID: "primary",
+                payload: Data([7]),
+                minimumVersion: 2,
+                minimumFinalizedHeight: 10,
+                reason: "Approve"
+            )
+        ) { XCTAssertEqual($0 as? AppleCustodyError, .rollback) }
+        XCTAssertThrowsError(
+            try fixture.provider.sign(
+                slotID: "primary",
+                payload: Data([7]),
+                minimumVersion: 1,
+                minimumFinalizedHeight: 11,
+                reason: "Approve"
+            )
+        ) { XCTAssertEqual($0 as? AppleCustodyError, .rollback) }
+    }
+
+    func testNativeCustodyRejectsCancellationLockedWrongAndRevokedKeys() throws {
+        let fixture = AppleCustodyFixture()
+        var recoveryKey = Data(repeating: 4, count: 32)
+        _ = try fixture.provider.provision(
+            slotID: "primary",
+            keyVersion: 1,
+            finalizedHeight: 10,
+            recoveryKey: &recoveryKey
+        )
+        fixture.hardware.failure = .authenticationCancelled
+        XCTAssertThrowsError(
+            try fixture.provider.sign(
+                slotID: "primary", payload: Data([1]), minimumVersion: 1,
+                minimumFinalizedHeight: 10, reason: "Approve"
+            )
+        ) { XCTAssertEqual($0 as? AppleCustodyError, .authenticationCancelled) }
+        fixture.hardware.failure = .deviceLocked
+        XCTAssertThrowsError(
+            try fixture.provider.sign(
+                slotID: "primary", payload: Data([1]), minimumVersion: 1,
+                minimumFinalizedHeight: 10, reason: "Approve"
+            )
+        ) { XCTAssertEqual($0 as? AppleCustodyError, .deviceLocked) }
+        fixture.hardware.failure = nil
+        fixture.hardware.substitutePlaintext = Data(repeating: 99, count: 32)
+        XCTAssertThrowsError(
+            try fixture.provider.sign(
+                slotID: "primary", payload: Data([1]), minimumVersion: 1,
+                minimumFinalizedHeight: 10, reason: "Approve"
+            )
+        ) { XCTAssertEqual($0 as? AppleCustodyError, .wrongKey) }
+        fixture.hardware.substitutePlaintext = nil
+        try fixture.provider.revoke(slotID: "primary")
+        XCTAssertThrowsError(
+            try fixture.provider.sign(
+                slotID: "primary", payload: Data([1]), minimumVersion: 1,
+                minimumFinalizedHeight: 10, reason: "Approve"
+            )
+        ) { XCTAssertEqual($0 as? AppleCustodyError, .revoked) }
+        XCTAssertThrowsError(try fixture.provider.exportRecoveryEnvelope(slotID: "primary")) {
+            XCTAssertEqual($0 as? AppleCustodyError, .revoked)
+        }
+    }
+
+    func testNativeCustodyRotationStoresReplacementBeforeDeletingOldKey() throws {
+        let fixture = AppleCustodyFixture()
+        var recoveryKey = Data(repeating: 4, count: 32)
+        _ = try fixture.provider.provision(
+            slotID: "primary", keyVersion: 1, finalizedHeight: 10,
+            recoveryKey: &recoveryKey
+        )
+        let oldTag = try XCTUnwrap(fixture.hardware.tags.first)
+        fixture.store.failNextSave = true
+        XCTAssertThrowsError(
+            try fixture.provider.rotate(
+                slotID: "primary", newVersion: 2, finalizedHeight: 11,
+                recoveryKey: &recoveryKey
+            )
+        ) { XCTAssertEqual($0 as? AppleCustodyError, .storageFailure) }
+        XCTAssertTrue(fixture.hardware.tags.contains(oldTag))
+        XCTAssertEqual(fixture.hardware.tags.count, 1)
+
+        _ = try fixture.provider.rotate(
+            slotID: "primary", newVersion: 2, finalizedHeight: 11,
+            recoveryKey: &recoveryKey
+        )
+        XCTAssertFalse(fixture.hardware.tags.contains(oldTag))
+        XCTAssertThrowsError(
+            try fixture.provider.rotate(
+                slotID: "primary", newVersion: 2, finalizedHeight: 12,
+                recoveryKey: &recoveryKey
+            )
+        ) { XCTAssertEqual($0 as? AppleCustodyError, .rollback) }
+    }
+
+    func testNativeCustodyRecoveryBindsKeyVersionAndMetadata() throws {
+        let fixture = AppleCustodyFixture()
+        var recoveryKey = Data(repeating: 4, count: 32)
+        let publicKey = try fixture.provider.provision(
+            slotID: "primary", keyVersion: 1, finalizedHeight: 10,
+            recoveryKey: &recoveryKey
+        )
+        let envelope = try fixture.provider.exportRecoveryEnvelope(slotID: "primary")
+        try fixture.provider.revoke(slotID: "primary")
+
+        let replacement = AppleCustodyFixture()
+        XCTAssertEqual(
+            try replacement.provider.recover(
+                envelopeBytes: envelope,
+                expectedPublicKey: publicKey,
+                newVersion: 2,
+                finalizedHeight: 11,
+                recoveryKey: &recoveryKey
+            ),
+            publicKey
+        )
+        XCTAssertThrowsError(
+            try AppleCustodyFixture().provider.recover(
+                envelopeBytes: envelope,
+                expectedPublicKey: Data(repeating: 0, count: 1_312),
+                newVersion: 2,
+                finalizedHeight: 11,
+                recoveryKey: &recoveryKey
+            )
+        ) { XCTAssertEqual($0 as? AppleCustodyError, .wrongKey) }
+        var wrongRecoveryKey = Data(repeating: 8, count: 32)
+        XCTAssertThrowsError(
+            try AppleCustodyFixture().provider.recover(
+                envelopeBytes: envelope,
+                expectedPublicKey: publicKey,
+                newVersion: 2,
+                finalizedHeight: 11,
+                recoveryKey: &wrongRecoveryKey
+            )
+        ) { XCTAssertEqual($0 as? AppleCustodyError, .cryptographicFailure) }
+        XCTAssertThrowsError(
+            try AppleCustodyFixture().provider.recover(
+                envelopeBytes: Data([1, 2, 3]),
+                expectedPublicKey: publicKey,
+                newVersion: 2,
+                finalizedHeight: 11,
+                recoveryKey: &recoveryKey
+            )
+        ) { XCTAssertEqual($0 as? AppleCustodyError, .unsupportedRecord) }
+    }
+
     private func makeStatusResponse(
         chainID: Data = WalletKanalen.chainID,
         genesis: Data = WalletKanalen.genesis,
@@ -346,6 +513,72 @@ final class ActiveChainWalletTests: XCTestCase {
             result.append(byte)
         } while value != 0
         return result
+    }
+}
+
+private final class AppleCustodyFixture {
+    let store = AppleMemoryCustodyStore()
+    let hardware = AppleFakeHardwareWrapping()
+    lazy var provider = AppleNativeCustodyProvider(
+        store: store,
+        hardware: hardware,
+        engine: AppleFakeMLDSA44Engine()
+    )
+}
+
+private final class AppleMemoryCustodyStore: AppleCustodyRecordStore {
+    private var records: [String: Data] = [:]
+    var failNextSave = false
+
+    func loadCustodyRecord(slotID: String) throws -> Data? { records[slotID] }
+
+    func saveCustodyRecord(_ data: Data, slotID: String) throws {
+        if failNextSave {
+            failNextSave = false
+            throw AppleCustodyError.storageFailure
+        }
+        records[slotID] = data
+    }
+
+    func deleteCustodyRecord(slotID: String) throws { records.removeValue(forKey: slotID) }
+}
+
+private final class AppleFakeHardwareWrapping: AppleHardwareWrapping {
+    let capability = AppleCustodyCapability.secureEnclaveWrappedMLDSA44
+    private(set) var tags: Set<Data> = []
+    var substitutePlaintext: Data?
+    var failure: AppleCustodyError?
+
+    func createAndWrap(secret: Data, tag: Data) throws -> Data {
+        tags.insert(tag)
+        return Data(secret.map { $0 ^ 0x5a })
+    }
+
+    func unwrap(ciphertext: Data, tag: Data, reason: String) throws -> Data {
+        if let failure { throw failure }
+        guard tags.contains(tag) else { throw AppleCustodyError.missingSlot }
+        return substitutePlaintext ?? Data(ciphertext.map { $0 ^ 0x5a })
+    }
+
+    func deleteWrappingKey(tag: Data) throws { tags.remove(tag) }
+}
+
+private final class AppleFakeMLDSA44Engine: AppleMLDSA44Engine {
+    private var next: UInt8 = 1
+
+    func generateSeed() throws -> Data {
+        defer { next &+= 1 }
+        return Data(repeating: next, count: 32)
+    }
+
+    func publicKey(seed: inout Data) throws -> Data {
+        Data((0..<1_312).map { seed[$0 % seed.count] ^ UInt8(truncatingIfNeeded: $0) })
+    }
+
+    func sign(payload: Data, seed: inout Data) throws -> Data {
+        Data((0..<2_420).map {
+            seed[$0 % seed.count] ^ payload[$0 % payload.count]
+        })
     }
 }
 
