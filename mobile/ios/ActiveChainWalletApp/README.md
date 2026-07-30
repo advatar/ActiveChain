@@ -22,7 +22,15 @@ Both targets use the shared Keychain Access Group
 `$(AppIdentifierPrefix)dev.activechain.wallet.shared`. The macOS target uses the Data Protection
 Keychain for compatible access-group behavior. Items remain device-bound by default; callers must
 explicitly request iCloud Keychain synchronization for non-authorizing wallet metadata. Secure
-Enclave and transaction-authorization keys must remain device-specific.
+Enclave and transaction-authorization records must remain device-specific.
+
+The custody implementation stores a versioned ML-DSA-44 slot record as
+`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`. A user-presence-gated Secure Enclave P-256 key is
+used only to wrap the ML-DSA-44 seed; P-256 is never ActiveChain transaction authority. Rotation,
+revocation, finalized-height rollback protection, and an independently encrypted recovery envelope
+are covered by the macOS-hosted unit suite. Production signing remains disabled until the
+wire-compatible native ML-DSA-44 engine and real approval callback are connected and physical-device
+recovery/user-presence qualification passes.
 
 The dashboard obtains Kanalen health and finalized height from the canonical TLS-framed status RPC
 at `rpc.kanalen.activechain.dev`. It pins the immutable chain ID, genesis commitment, protocol

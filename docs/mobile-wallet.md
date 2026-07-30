@@ -1,8 +1,10 @@
 # ActiveChain mobile wallet plan
 
-The mobile wallet is a thin native shell over `activechain-wallet-core`. Cryptographic and Coin Cell
-logic MUST remain in the shared Rust core; Swift/Kotlin code owns platform UI, lifecycle, secure
-storage handles, and transport.
+The mobile wallet is a native custody shell around `activechain-wallet-core`. Canonical protocol,
+policy, Coin Cell, signature-verification, and transaction logic remains in the shared Rust core.
+Swift/Kotlin owns platform UI, lifecycle, hardware wrapping, encrypted recovery, and transport. The
+platform custody provider owns transient plaintext ML-DSA-44 seed material; raw seed material must
+never cross the Rust FFI boundary.
 
 ## Native boundary
 
@@ -53,13 +55,32 @@ signature before publishing a canonical `AuthorizedCashTransferV1`.
 before invoking a caller-owned transport callback with the exact bytes. This separates networking
 from key custody and ensures malformed or signature-substituted requests never reach transport.
 
-## iOS and Android
+## Hardware-wrapped post-quantum custody
 
-- iOS stores encrypted key-slot material behind Keychain/Secure Enclave handles.
-- Android stores encrypted key-slot material behind Android Keystore handles.
-- The Rust core receives opaque ciphertext or hardware-backed signing callbacks.
+Neither platform path may be described as a hardware-native ML-DSA-44 signing key. The protocol
+cash suite is ML-DSA-44. Current Apple CryptoKit provides ML-DSA-65 and ML-DSA-87, including newer
+Secure Enclave variants, but not the wire-compatible ML-DSA-44 suite. Android KeyMint/StrongBox
+does not expose ML-DSA-44. The production design therefore keeps ML-DSA-44 as transaction authority
+and uses platform hardware only to wrap its seed under explicit user presence.
+
+- Apple stores a versioned, device-only encrypted slot record in Keychain. A non-exportable Secure
+  Enclave P-256 key is used only for authenticated ECIES wrapping; it never signs an ActiveChain
+  transaction.
+- Android stores a versioned slot record under `noBackupFilesDir`. A per-use authenticated AES-GCM
+  key in StrongBox, or hardware-isolated TEE fallback, only wraps the ML-DSA-44 seed.
+- Both records bind the public key, monotonically increasing key version, finalized height,
+  capability, and independently encrypted recovery envelope. Revoked records fail closed, and
+  rotation persists the replacement before deleting the prior hardware key.
+- Plaintext seed material exists only transiently inside the platform custody provider and is
+  overwritten after public-key derivation or signing. Rust receives only the public key and
+  signature through its callback and reverifies the exact canonical payload.
 - UI displays the exact recipient, amount, fee reserve, validity height, and policy decision before
   approval.
+
+The Apple and Android custody state machines and negative tests are implemented on issue #327.
+They are not production-complete until a reviewed, wire-compatible native ML-DSA-44 engine is
+connected on both platforms, the real approval callbacks replace developer bridges, physical-device
+user-presence/backup/rollback rehearsals pass, and the external mobile/PQ review is complete.
 
 ## Interoperability adapters
 

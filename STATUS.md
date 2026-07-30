@@ -31,6 +31,30 @@ Tracked by [GitHub issue #326](https://github.com/advatar/ActiveChain/issues/326
 - [x] Remove deterministic CLI wallet identities and track native platform key custody separately
   ([GitHub issue #327](https://github.com/advatar/ActiveChain/issues/327)).
 
+## Critical wallet recovery — hardware-wrapped post-quantum custody
+
+Tracked by [GitHub issue #327](https://github.com/advatar/ActiveChain/issues/327).
+
+- [x] Define a versioned native custody contract with honest hardware capability reporting,
+  explicit user-presence policy, finalized-state rollback protection, rotation, revocation, and
+  independently encrypted recovery envelopes.
+- [x] Implement Apple Keychain/Secure Enclave wrapping for backup-excluded ML-DSA-44 slots, keeping
+  plaintext secret bytes transient inside the native provider and zeroizing them after signing.
+  - [x] Replace the Apple test-only ML-DSA engine with the wire-compatible Rust implementation,
+    deriving public keys and producing self-verified signatures from transient unwrapped seeds.
+- [x] Implement Android Keystore/StrongBox wrapping with user authentication and backup exclusion,
+  keeping plaintext secret bytes transient inside the native provider and zeroizing them after
+  signing.
+- [x] Keep secret key material behind opaque native handles across the Rust FFI, reverify every
+  returned ML-DSA-44 signature, and add locked-device, cancelled-authentication, rollback, wrong-key,
+  revoked-key, recovery, rotation, and migration-failure tests.
+- [ ] Correct mobile custody and recovery claims and complete the independent platform review gate.
+  Targeted Rust (13), macOS (26), and Android unit/build qualification passes on the merged
+  implementation candidate.
+- [x] Merge the implementation to `main` and verify reachability. The queued full deterministic
+  kernel run is skipped in favor of normal tests during issue reconciliation; #327 remains open
+  until independent platform review is complete.
+
 ## Critical consensus recovery — bounded views and leader rotation
 
 Tracked by [GitHub issue #329](https://github.com/advatar/ActiveChain/issues/329).
