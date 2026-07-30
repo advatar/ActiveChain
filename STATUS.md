@@ -470,6 +470,11 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
 - [x] Enable the Kanalen ingestion runner to publish finalized cash snapshots when validator
   output and its matching finality bundle are available; retain metadata-only ingestion until
   then.
+- [ ] Make the production validator round execute or load the authoritative cash transition,
+  verify it through the non-test finalized-block verifier, and atomically emit the matching
+  finalized cash snapshot plus certificate bundle; metadata consensus alone is insufficient.
+- [ ] Make a fresh Kanalen reset provision the genesis cash state consumed by that execution path,
+  then prove the first and restarted rounds publish matching cash/finality artifacts.
 - [x] Load a real device wallet profile and remove the hard-coded unavailable dashboard path;
   balances remain fail-closed until the linked verifier accepts finalized owner proofs.
 - [ ] Extend Kanalen ingestion/rehearsal, add adversarial tests, deploy, and verify the public RPC.
