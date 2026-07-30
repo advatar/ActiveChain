@@ -43,8 +43,9 @@ Tracked by [GitHub issue #339](https://github.com/advatar/ActiveChain/issues/339
   reject mutation, substitution, replay, and alternate encodings.
 - [x] Add shared cross-language vectors plus Rust, FFI, Apple, Android, and end-to-end submission
   tests.
-- [ ] Pass targeted builds and the deterministic-kernel gate, merge to `main`, and verify
-  reachability before closing #339.
+- [x] Pass targeted Rust, Android, and Apple builds/tests, merge to `main`, and verify
+  reachability before closing #339. The exhaustive deterministic-kernel CI gate was explicitly
+  skipped during issue reconciliation in favor of the normal affected-platform test suites.
 
 ## Critical wallet recovery — hardware-wrapped post-quantum custody
 
