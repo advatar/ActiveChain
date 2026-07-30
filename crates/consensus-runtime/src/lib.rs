@@ -121,8 +121,12 @@ impl WalletTransactionGateway {
         {
             return Err(activechain_wallet_core::WalletError::PolicyDenied);
         }
+        let transaction = TransactionId::new(transaction);
+        if self.ingress.transaction_admitted(transaction) {
+            return Ok(transaction);
+        }
         self.ingress.submit_envelope_durable(envelope, height, &self.snapshot_path)?;
-        Ok(TransactionId::new(transaction))
+        Ok(transaction)
     }
 
     /// Registers one sender's finalized ML-DSA-44 cash-session key and initial nonce.
@@ -234,7 +238,10 @@ impl AuthorizedFaucetSettlementAdapter for ValidatorFaucetSettlementAdapter {
         let mut gateway = self.gateway.lock().map_err(|_| FaucetError::Persistence)?;
         gateway
             .submit_faucet_authorized_envelope(envelope, reference, recipient, amount, height)
-            .map_err(|_| FaucetError::InvalidTransition)
+            .map_err(|error| match error {
+                activechain_wallet_core::WalletError::Persistence => FaucetError::Persistence,
+                _ => FaucetError::InvalidTransition,
+            })
     }
 }
 

@@ -15,13 +15,16 @@ cargo kani -p activechain-rpc-server --harness increasing_usage_cannot_turn_a_re
 ```
 
 These are compositional arithmetic/control-flow results over the exact production helper. SHAKE256
-collision and preimage resistance, trusted wall-clock progression, source-commitment provenance,
-filesystem and `fsync` crash semantics, transaction-ingress correctness, validator finality, and
-proof-system soundness remain explicit external assumptions. Runtime tests cover atomic snapshot
-replacement, checksum rejection, restart equivalence, idempotency, wrong-network rejection,
-cooldowns, and finalized receipt structure.
+collision and preimage resistance, trusted wall-clock progression, filesystem and `fsync` crash
+semantics, transaction-ingress correctness, validator finality, and proof-system soundness remain
+explicit external assumptions. Production RPC derives the abuse-control identity from the accepted
+peer address rather than the request's client-selected challenge commitment. Runtime tests cover
+every reservation and receipt write interruption, before/after-settlement uncertainty, atomic
+snapshot replacement, checksum rejection, restart reconciliation, concurrent idempotency,
+wrong-network rejection, cooldowns, and finalized receipt structure.
 
-This proof does **not** yet establish end-to-end supply conservation or exactly-one finalized Coin
-Cell issuance. Those require the faucet-authorized cash transition and finalized receipt verifier
-that are still tracked by issue #167. The public faucet and in-app funding control must remain
-disabled until those links exist and their proof obligations are discharged.
+This proof does **not** establish end-to-end supply conservation or exactly-one finalized Coin Cell
+issuance by itself. The runtime now writes a transcript-bound reservation before settlement and the
+wallet/validator adapters make exact transaction submission idempotent, while finalized receipt
+verification remains a separate requirement tracked by issue #167. The public faucet and in-app
+funding control must remain disabled until all of that issue's proof obligations are discharged.

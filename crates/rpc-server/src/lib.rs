@@ -6,7 +6,10 @@ mod faucet;
 pub use access::{
     AccessCharge, RpcAccessController, load_access_terms, verify_access_terms, write_access_terms,
 };
-pub use faucet::{DurableFaucet, FaucetError, FaucetPolicy, SybilPolicy};
+pub use faucet::{
+    DurableFaucet, FaucetError, FaucetPolicy, FaucetReconciliation, SybilPolicy,
+    faucet_abuse_identity, faucet_settlement_commitment,
+};
 
 use activechain_action_kernel::{ActionEnvelope, action_id};
 use activechain_application_primitives::{DigestAnchorStatementV1, DurableAnchorRegistry};
@@ -732,10 +735,17 @@ impl AuthorizedFaucetSettlementAdapter for WalletIngressAuthorizedSettlementAdap
         let height =
             self.finalized_state.finalized_height().map_err(|_| FaucetError::Persistence)?;
         let mut ingress = self.ingress.lock().map_err(|_| FaucetError::Persistence)?;
-        ingress
-            .submit_envelope_durable(envelope, height, &self.snapshot_path)
-            .map_err(|_| FaucetError::InvalidTransition)?;
-        Ok(TransactionId::new(transaction))
+        let transaction = TransactionId::new(transaction);
+        if ingress.transaction_admitted(transaction) {
+            return Ok(transaction);
+        }
+        ingress.submit_envelope_durable(envelope, height, &self.snapshot_path).map_err(
+            |error| match error {
+                activechain_wallet_core::WalletError::Persistence => FaucetError::Persistence,
+                _ => FaucetError::InvalidTransition,
+            },
+        )?;
+        Ok(transaction)
     }
 }
 
@@ -855,7 +865,17 @@ impl RpcServer {
         })
     }
 
+    #[cfg(test)]
     fn handle(&self, request: RpcRequest, now: u64) -> RpcResponse {
+        self.handle_from_source(request, now, None)
+    }
+
+    fn handle_from_source(
+        &self,
+        request: RpcRequest,
+        now: u64,
+        abuse_identity: Option<Digest384>,
+    ) -> RpcResponse {
         match request {
             RpcRequest::SubmitAnchor { statement } => {
                 let Some(anchors) = &self.anchors else {
@@ -919,9 +939,16 @@ impl RpcServer {
                 let Ok(mut faucet) = faucet.write() else {
                     return RpcResponse::Error(RpcError::Internal);
                 };
+                let Some(abuse_identity) = abuse_identity else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let Ok(request_bytes) = encode_envelope(request.as_ref()) else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
                 match faucet.request(
                     &request,
-                    request.source_commitment(),
+                    abuse_identity,
+                    faucet_settlement_commitment(&request_bytes),
                     now,
                     |recipient, amount, reference| settlement(recipient, amount, reference),
                 ) {
@@ -940,9 +967,13 @@ impl RpcServer {
                 let Ok(mut faucet) = faucet.write() else {
                     return RpcResponse::Error(RpcError::Internal);
                 };
+                let Some(abuse_identity) = abuse_identity else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
                 match faucet.request(
                     faucet_request,
-                    faucet_request.source_commitment(),
+                    abuse_identity,
+                    faucet_settlement_commitment(&envelope),
                     now,
                     |recipient, amount, reference| {
                         settlement(&envelope, recipient, amount, reference)
@@ -957,7 +988,21 @@ impl RpcServer {
     }
 
     pub fn serve_once(&self, listener: &TcpListener, now: u64) -> Result<(), RpcStoreError> {
-        let (mut stream, _) = listener.accept().map_err(|_| RpcStoreError::Io)?;
+        let (mut stream, peer) = listener.accept().map_err(|_| RpcStoreError::Io)?;
+        let abuse_identity = match peer.ip() {
+            std::net::IpAddr::V4(address) => {
+                let mut identity = [0_u8; 5];
+                identity[0] = 4;
+                identity[1..].copy_from_slice(&address.octets());
+                faucet_abuse_identity(&identity)
+            }
+            std::net::IpAddr::V6(address) => {
+                let mut identity = [0_u8; 17];
+                identity[0] = 6;
+                identity[1..].copy_from_slice(&address.octets());
+                faucet_abuse_identity(&identity)
+            }
+        };
         self.store.reload()?;
         configure_stream(&stream)?;
         let request = read_frame(&mut stream)?;
@@ -983,7 +1028,7 @@ impl RpcServer {
                         AccessCharge::free()
                     };
                     RpcAccessResponse::Response {
-                        response: self.handle(request, now),
+                        response: self.handle_from_source(request, now, Some(abuse_identity)),
                         charged_units: charge.charged_units(),
                         remaining_units: charge.remaining_units(),
                     }
@@ -998,7 +1043,7 @@ impl RpcServer {
             {
                 RpcResponse::Error(RpcError::InvalidRequest)
             } else {
-                self.handle(request, now)
+                self.handle_from_source(request, now, Some(abuse_identity))
             };
             encode_envelope(&response).map_err(|_| RpcStoreError::Invalid)?
         };
@@ -1317,7 +1362,18 @@ mod tests {
         assert_eq!(restored.next_nonce(owner), Some(1));
         assert_eq!(
             adapter.settle_authorized(&envelope, recipient, 10, reference),
-            Err(FaucetError::InvalidTransition)
+            Ok(TransactionId::new(reference))
+        );
+        let restarted_adapter = WalletIngressAuthorizedSettlementAdapter::new(
+            Arc::new(std::sync::Mutex::new(
+                TransactionIngress::load(&wallet_path, ChainId::new(digest(1))).unwrap(),
+            )),
+            wallet_path.clone(),
+            Arc::clone(&finalized),
+        );
+        assert_eq!(
+            restarted_adapter.settle_authorized(&envelope, recipient, 10, reference),
+            Ok(TransactionId::new(reference))
         );
 
         let (stale_ingress, stale_key, stale_owner, stale_transfer) = authorized_cash_fixture();
@@ -1426,6 +1482,68 @@ mod tests {
         std::fs::remove_file(stale_wallet_path).unwrap();
         std::fs::remove_file(network_index_path).unwrap();
         std::fs::remove_file(network_wallet_path).unwrap();
+        std::fs::remove_file(faucet_path).unwrap();
+    }
+
+    #[test]
+    fn network_faucet_rate_limits_use_server_derived_peer_identity() {
+        let index_path = temporary("faucet-peer-index");
+        let faucet_path = temporary("faucet-peer-journal");
+        let _ = std::fs::remove_file(&index_path);
+        let _ = std::fs::remove_file(&faucet_path);
+        let store = Arc::new(DurableRpcStore::create(index_path.clone(), index()).unwrap());
+        let faucet = DurableFaucet::create(
+            FaucetPolicy {
+                chain_id: ChainId::new(digest(1)),
+                genesis_commitment: digest(2),
+                testnet_only: true,
+                enabled: true,
+                policy_revision: 1,
+                valid_until: 1_000,
+                grant_amount: 10,
+                recipient_cooldown_seconds: 1,
+                recipient_lifetime_limit: 2,
+                source_window_seconds: 60,
+                source_window_limit: 1,
+                global_window_seconds: 60,
+                global_window_limit: 3,
+                sybil_policy: SybilPolicy::CooldownOnly,
+            },
+            faucet_path.clone(),
+        )
+        .unwrap();
+        let settlements = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let settlement_counter = Arc::clone(&settlements);
+        let server = Arc::new(RpcServer::new(store).with_faucet(faucet).with_faucet_settlement(
+            move |_, _, _| {
+                let sequence = settlement_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(TransactionId::new(digest(80 + sequence as u8)))
+            },
+        ));
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+
+        for (recipient, idempotency, client_source) in [(3, 40, 50), (4, 41, 51)] {
+            let server = Arc::clone(&server);
+            let listener = listener.try_clone().unwrap();
+            let handle = thread::spawn(move || server.serve_once(&listener, 100).unwrap());
+            let request = FaucetRequestV1::new(
+                ChainId::new(digest(1)),
+                digest(2),
+                PrincipalId::new(digest(recipient)),
+                digest(idempotency),
+                digest(client_source),
+                0,
+                Vec::new(),
+            )
+            .unwrap();
+            let _ =
+                query(address, &RpcRequest::RequestFaucet { request: Box::new(request) }).unwrap();
+            handle.join().unwrap();
+        }
+
+        assert_eq!(settlements.load(std::sync::atomic::Ordering::SeqCst), 1);
+        std::fs::remove_file(index_path).unwrap();
         std::fs::remove_file(faucet_path).unwrap();
     }
     fn signed_finality(byte: u8, inputs: ProofPublicInputs) -> Vec<u8> {

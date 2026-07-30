@@ -50,6 +50,7 @@ fn interrupt(
 }
 
 const AUTHENTICATOR_SET_DOMAIN: &[u8] = b"ACTIVECHAIN-AUTHENTICATOR-SET-V1";
+const CASH_SNAPSHOT_TAG_LENGTH: usize = 32;
 pub(crate) const MAX_AUTHORIZATION_LANES: usize = 256;
 pub(crate) const MAX_CONSUMED_SESSIONS_PER_LANE: usize = 4_096;
 pub(crate) const MAX_SESSION_BUDGETS_PER_LANE: usize = 4_096;
@@ -164,7 +165,9 @@ impl TransactionIngress {
         #[cfg(test)] interrupt_after: Option<AtomicSaveStage>,
         #[cfg(not(test))] _interrupt_after: Option<()>,
     ) -> Result<(), AtomicSaveError> {
-        let bytes = encode_envelope(self).map_err(|_| AtomicSaveError::BeforePublish)?;
+        let mut bytes = encode_envelope(self).map_err(|_| AtomicSaveError::BeforePublish)?;
+        let tag = cash_snapshot_tag(&bytes);
+        bytes.extend_from_slice(&tag);
         let parent = path.parent().ok_or(AtomicSaveError::BeforePublish)?;
         std::fs::create_dir_all(parent).map_err(|_| AtomicSaveError::BeforePublish)?;
         let file_name = path.file_name().ok_or(AtomicSaveError::BeforePublish)?.to_string_lossy();
@@ -232,8 +235,9 @@ impl TransactionIngress {
     /// Loads a strict canonical snapshot and checks it belongs to the expected chain.
     pub fn load(path: &Path, expected_chain: ChainId) -> Result<Self, WalletError> {
         let bytes = std::fs::read(path).map_err(|_| WalletError::Persistence)?;
-        let ingress = decode_envelope::<Self>(&bytes)
-            .or_else(|_| Self::decode_legacy_v2_envelope(&bytes))
+        let snapshot = verified_cash_snapshot(&bytes).unwrap_or(&bytes);
+        let ingress = decode_envelope::<Self>(snapshot)
+            .or_else(|_| Self::decode_legacy_v2_envelope(snapshot))
             .map_err(|_| WalletError::Persistence)?;
         if ingress.chain_id != expected_chain {
             return Err(WalletError::WrongChain);
@@ -357,6 +361,22 @@ impl TransactionIngress {
         self.publish_next(next, path)?;
         Ok(output)
     }
+}
+
+fn cash_snapshot_tag(bytes: &[u8]) -> [u8; CASH_SNAPSHOT_TAG_LENGTH] {
+    let mut hasher = Shake256::default();
+    hasher.update(b"ACTIVECHAIN-CASH-INGRESS-SNAPSHOT-V1");
+    hasher.update(&(bytes.len() as u64).to_be_bytes());
+    hasher.update(bytes);
+    let mut output = [0_u8; CASH_SNAPSHOT_TAG_LENGTH];
+    XofReader::read(&mut hasher.finalize_xof(), &mut output);
+    output
+}
+
+fn verified_cash_snapshot(bytes: &[u8]) -> Option<&[u8]> {
+    let body_length = bytes.len().checked_sub(CASH_SNAPSHOT_TAG_LENGTH)?;
+    let body = &bytes[..body_length];
+    (cash_snapshot_tag(body).as_slice() == &bytes[body_length..]).then_some(body)
 }
 
 impl CanonicalEncode for TransactionIngress {

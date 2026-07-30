@@ -116,6 +116,20 @@ Tracked by [GitHub issue #335](https://github.com/advatar/ActiveChain/issues/335
 - [x] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
   #335.
 
+## Critical faucet recovery — durable settlement reservations
+
+Tracked by [GitHub issue #336](https://github.com/advatar/ActiveChain/issues/336).
+
+- [x] Persist a bounded, canonical grant reservation before invoking settlement and retain every
+  possibly-settled record across persistence failures.
+- [x] Make retry and operator reconciliation idempotent across crashes before, during, and after
+  settlement and receipt publication.
+- [x] Derive abuse-control identities at the authenticated server boundary rather than trusting a
+  client-selected source commitment.
+- [x] Add fault-injection, restart, duplicate, concurrent-request, and uncertain-settlement tests.
+- [ ] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
+  #336.
+
 ## Critical transport recovery — mutually authenticated peer sessions
 
 Tracked by [GitHub issue #330](https://github.com/advatar/ActiveChain/issues/330).

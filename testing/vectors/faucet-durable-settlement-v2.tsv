@@ -1,0 +1,10 @@
+case	interruption	durable_state	settlement_effect	recovery
+reservation_pre_publish	temporary-created|body-written|temporary-synced	absent	not-invoked	retry-new-request
+reservation_publication_uncertain	renamed|directory-synced	reserved	not-invoked	restart-then-reconcile
+before_settlement	before-callback	reserved	not-invoked	reconcile-same-reference
+after_settlement	after-callback	reserved	possibly-complete	reconcile-idempotently
+receipt_pre_publish	temporary-created|body-written|temporary-synced	reserved	complete	reconcile-idempotently
+receipt_publication_uncertain	renamed|directory-synced	settled	complete	restart-resolves-without-resubmit
+duplicate_concurrent	after-first-settlement	settled	exactly-one-reference	return-same-receipt
+client_source_substitution	different-client-source-field	source-window-unchanged	not-second-settlement	server-derived-peer-identity
+legacy_v1	missing-v2-transcript	settled-only	never-resubmit	resolve-and-rewrite-v2
