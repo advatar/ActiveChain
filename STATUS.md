@@ -1915,6 +1915,12 @@ wallet and all testnets remain explicitly developmental until this milestone com
     ([GitHub issue #358](https://github.com/advatar/ActiveChain/issues/358)).
   - [ ] Render approvals and results through a constrained, fail-closed A2UI layer
     ([GitHub issue #360](https://github.com/advatar/ActiveChain/issues/360)).
+    - [x] Add a host-only renderer that reconstructs verified approval facts, separates untrusted
+      explanations, binds actions to the canonical intent, and emits a deterministic native fallback.
+    - [x] Add bounded A2UI component/data fixtures and adversarial tests for deceptive content,
+      action substitution, accessibility labels, and unsupported surfaces.
+    - [ ] Add the remaining approval/result DTOs and authenticated native-wallet dispatch after
+      proposal approval integration in #358, then run the complete deterministic-kernel gate.
   - [ ] Rehearse an end-to-end MCP transfer proposal, approval, finality, and verified receipt
     ([GitHub issue #362](https://github.com/advatar/ActiveChain/issues/362)).
   - [ ] Complete adversarial security, compatibility, and operational qualification

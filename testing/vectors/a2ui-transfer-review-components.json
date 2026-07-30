@@ -1,0 +1,23 @@
+{
+  "version": "v0.9",
+  "updateComponents": {
+    "surfaceId": "activechain.transfer_review.v1",
+    "components": [
+      {"id":"root","component":"Card","child":"approval_body"},
+      {"id":"approval_body","component":"Column","children":["verified_facts","agent_content","action_column"],"align":"stretch","styles":{"padding":"24px 24px 24px 24px","filter":"drop-shadow(0px 2px 12px rgba(16, 42, 67, 0.08))"}},
+      {"id":"verified_facts","component":"Column","children":["title","amount","recipient","warning"],"align":"stretch","styles":{"padding":"24px 24px 24px 24px","background-color":"#F4F7FC","border-radius":"20px"}},
+      {"id":"title","component":"Text","text":{"path":"/approval/title"},"variant":"h3","styles":{"font-size":"36px","font-weight":"bold","color":"#102A43","margin":"0px 0px 16px 0px"}},
+      {"id":"amount","component":"Text","text":{"path":"/approval/verified/amount"},"variant":"h1","styles":{"font-size":"40px","font-weight":"bold","color":"#0057B8","margin":"0px 0px 12px 0px"}},
+      {"id":"recipient","component":"Text","text":{"path":"/approval/verified/recipient"},"variant":"body","styles":{"font-size":"28px","color":"#243B53","line-clamp":2,"text-overflow":"ellipsis","margin":"0px 0px 12px 0px"}},
+      {"id":"warning","component":"Text","text":{"path":"/approval/warning"},"variant":"caption","styles":{"font-size":"24px","font-weight":"bold","color":"#8A4B08","background-color":"#FFF4D6","border-radius":"12px","padding":"16px 16px 16px 16px"}},
+      {"id":"agent_content","component":"Column","children":["agent_label","agent_explanation"],"align":"stretch","styles":{"padding":"20px 20px 20px 20px","margin":"20px 0px 20px 0px","border-color":"#BCCCDC","border-style":"solid","border-width":"1px","border-radius":"12px"}},
+      {"id":"agent_label","component":"Text","text":{"path":"/approval/agent/label"},"variant":"caption","styles":{"font-size":"24px","font-weight":"bold","color":"#7B341E","margin":"0px 0px 8px 0px"}},
+      {"id":"agent_explanation","component":"Text","text":{"path":"/approval/agent/explanation"},"variant":"body","styles":{"font-size":"28px","color":"#486581","line-clamp":2,"text-overflow":"ellipsis"}},
+      {"id":"action_column","component":"Column","children":["approve","reject"],"align":"stretch"},
+      {"id":"reject","component":"Button","child":"reject_label","variant":"borderless","action":{"event":{"name":"activechain.reject","context":{"intent_commitment":"abababababababababababababababababababababababababababababababababababababababababababababababab"}}},"styles":{"padding":"16px 24px 16px 24px","margin":"12px 0px 0px 0px","border-radius":"20px","border-color":"#9FB3C8","border-style":"solid","border-width":"1px"}},
+      {"id":"reject_label","component":"Text","text":{"path":"/approval/actions/reject"},"variant":"body","styles":{"font-size":"28px","font-weight":"bold","color":"#334E68"}},
+      {"id":"approve","component":"Button","child":"approve_label","variant":"primary","action":{"event":{"name":"activechain.approve","context":{"intent_commitment":"abababababababababababababababababababababababababababababababababababababababababababababababab"}}},"styles":{"padding":"16px 24px 16px 24px","background-color":"#0057B8","border-radius":"20px","filter":"drop-shadow(0px 2px 12px rgba(0, 87, 184, 0.18))"}},
+      {"id":"approve_label","component":"Text","text":{"path":"/approval/actions/approve"},"variant":"body","styles":{"font-size":"28px","font-weight":"bold","color":"#FFFFFF"}}
+    ]
+  }
+}
