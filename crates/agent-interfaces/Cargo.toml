@@ -1,0 +1,14 @@
+[package]
+name = "activechain-agent-interfaces"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Bounded host-only MCP and A2UI interoperability contracts"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

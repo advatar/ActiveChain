@@ -1903,6 +1903,10 @@ wallet and all testnets remain explicitly developmental until this milestone com
   ([GitHub issue #355](https://github.com/advatar/ActiveChain/issues/355)).
   - [ ] Freeze versioned schemas, trust boundaries, and the threat model
     ([GitHub issue #356](https://github.com/advatar/ActiveChain/issues/356)).
+    - [x] Add a host-only bounded MCP/A2UI DTO crate outside the consensus trusted base.
+    - [x] Publish machine-readable schemas, normative boundaries, threats, and conformance vectors.
+    - [ ] Pass the complete deterministic-kernel gate on the exact merge candidate and integrate it
+      into `origin/main`.
   - [ ] Implement proof-bearing read-only MCP tools and resources
     ([GitHub issue #361](https://github.com/advatar/ActiveChain/issues/361)).
   - [ ] Implement a proposal-only MCP intent and capability gateway
