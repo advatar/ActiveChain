@@ -24,5 +24,13 @@ ANDROID_HOME="$ANDROID_SDK_ROOT" ./gradlew connectedDebugAndroidTest
 
 The first command validates the canonical RPC codec and builds the APK. The second verifies that an
 empty device registry does not create or persist sample agent authority on an arm64 emulator or
-device. `LocalWalletBridge` transaction paths remain deterministic developer integrations until
-Android Keystore callbacks are connected; this app must not handle production keys or funds yet.
+device.
+
+The custody implementation writes its versioned ML-DSA-44 slot record under `noBackupFilesDir` and
+wraps the seed with a per-use authenticated Android Keystore AES-GCM key. StrongBox is preferred;
+hardware-isolated TEE is the explicit fallback. The AES key never signs an ActiveChain transaction.
+Rotation, revocation, finalized-height rollback protection, recovery metadata binding, wrong-key
+failure, and plaintext-buffer clearing have host unit coverage. `LocalWalletBridge` transaction
+paths remain deterministic developer integrations until the wire-compatible native ML-DSA-44
+engine and real BiometricPrompt signing callback are connected and physical-device
+StrongBox/TEE/backup qualification passes; this app must not handle production keys or funds yet.
