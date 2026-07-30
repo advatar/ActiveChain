@@ -1252,7 +1252,7 @@ impl PeerDirectory {
         if now.duration_since(entry.0) >= Duration::from_secs(1) {
             *entry = (now, 0);
         }
-        if entry.1 >= 256 {
+        if entry.1 >= MAX_AUTHENTICATED_MESSAGES_PER_SECOND {
             return false;
         }
         entry.1 += 1;
