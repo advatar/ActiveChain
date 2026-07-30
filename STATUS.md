@@ -99,7 +99,7 @@ Tracked by [GitHub issue #334](https://github.com/advatar/ActiveChain/issues/334
   publication uncertainty.
 - [x] Add forgery, substitution, stale-state, cross-transaction, serialization, restart, and
   production caller-graph regression tests.
-- [ ] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
+- [x] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
   #334.
 
 ## Critical transport recovery — mutually authenticated peer sessions
