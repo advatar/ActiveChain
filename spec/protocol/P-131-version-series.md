@@ -13,6 +13,22 @@ Canonical v1 type assignments use `0x0020..0x00d9` and the sparse extension bloc
 not activate a deferred feature; it only gives already implemented v1 development types globally
 unique identities.
 
+The protocol-revision field uses the closed sequence `1..=6` for v1.0, v1.1, v1.2, v1.3, v1.4,
+and v2 respectively. Consensus genesis, vote contexts, snapshots, and upgrade authorizations MUST
+reject values outside that sequence. A revision-changing authorization MUST advance by exactly one
+revision; skipping a migration boundary is invalid.
+
+| Activation envelope | Tag |
+|---|---:|
+| v1.1 execution-validity proof | `0x00e0` |
+| v1.2 private credential | `0x00f0` |
+| v1.2 shielded payment | `0x00f1` |
+| v1.2 private object | `0x00f2` |
+| v1.2 viewing capability | `0x00f3` |
+
+Every other identity in `0x00e0..0x00ff` remains unassigned and MUST fail closed, including after
+the corresponding revision activates.
+
 | Version | Mandatory surface | Reserved/deferred surface |
 |---|---|---|
 | v1.0 | PQ authorization and consensus signatures, principals/recovery, attenuated capabilities, APL, ObjectVM, multidimensional fees/state rent, public cash lane, light-client verification, validator re-execution | validity-proof header slot, private-object tags, protected-ordering tag, compute-job tags |

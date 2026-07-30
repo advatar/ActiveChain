@@ -6,8 +6,12 @@ use core::cmp::Ordering;
 use activechain_action_kernel::{ActionEnvelope, NonceChannel, ResourcePrices, ResourceVector};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
+    decode_envelope, inspect_canonical_envelope,
 };
-use activechain_protocol_types::{Amount, ChainId, Digest384, Height, ObjectId, TransactionId};
+use activechain_protocol_commitment::{DomainTag, commit};
+use activechain_protocol_types::{
+    Amount, ChainId, Digest384, Height, ObjectId, PrincipalId, TransactionId,
+};
 use activechain_state_tree::StateCommitment;
 use activechain_transition::{ObjectState, TransitionReceipt};
 
@@ -15,8 +19,136 @@ use activechain_transition::{ObjectState, TransitionReceipt};
 pub const MAX_BLOCK_ACTIONS: usize = 32;
 /// Maximum sender nonce channels in the explicit development chain state.
 pub const MAX_NONCE_CHANNELS: usize = 64;
+/// Maximum fee-paying accounts in the explicit development chain state.
+pub const MAX_FEE_ACCOUNTS: usize = 64;
+/// Maximum inclusive lifetime of a fee ticket, in finalized blocks.
+pub const MAX_FEE_TICKET_LIFETIME: Height = 7;
 /// Maximum one-shot tickets retained by the bounded development chain.
+///
+/// At most 32 tickets can be admitted at each of the eight heights in an inclusive seven-block
+/// validity window, so pruning expired entries before admission makes this bound unreachable for
+/// conforming traffic.
 pub const MAX_USED_FEE_TICKETS: usize = 256;
+/// Non-refundable admission charge which economically backs every retained replay record.
+pub const FEE_TICKET_ADMISSION_CHARGE: Amount = 1;
+const LEGACY_CHAIN_STATE_MAX_ENCODED_LEN: usize = 48
+    + 8
+    + 48
+    + ObjectState::MAX_ENCODED_LEN
+    + 2
+    + MAX_NONCE_CHANNELS * NonceChannel::ENCODED_LENGTH
+    + 2
+    + MAX_USED_FEE_TICKETS * 48
+    + ResourcePrices::ENCODED_LENGTH;
+
+/// Canonically ordered fee-paying account with an exact ticket-issuance nonce.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FeeAccount {
+    payer: PrincipalId,
+    balance: Amount,
+    next_nonce: u64,
+}
+
+impl FeeAccount {
+    /// Fixed nested canonical length.
+    pub const ENCODED_LENGTH: usize = 72;
+
+    /// Constructs an explicit funded account.
+    #[must_use]
+    pub const fn new(payer: PrincipalId, balance: Amount, next_nonce: u64) -> Self {
+        Self { payer, balance, next_nonce }
+    }
+
+    /// Returns the account owner.
+    #[must_use]
+    pub const fn payer(self) -> PrincipalId {
+        self.payer
+    }
+
+    /// Returns spendable fee balance.
+    #[must_use]
+    pub const fn balance(self) -> Amount {
+        self.balance
+    }
+
+    /// Returns the only ticket nonce accepted next.
+    #[must_use]
+    pub const fn next_nonce(self) -> u64 {
+        self.next_nonce
+    }
+
+    pub(crate) fn consume(&mut self, charge: Amount) -> Result<(), FeeAccountConsumeError> {
+        self.balance =
+            self.balance.checked_sub(charge).ok_or(FeeAccountConsumeError::InsufficientBalance)?;
+        self.next_nonce =
+            self.next_nonce.checked_add(1).ok_or(FeeAccountConsumeError::NonceExhausted)?;
+        Ok(())
+    }
+}
+
+impl CanonicalEncode for FeeAccount {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.payer.encode(encoder)?;
+        self.balance.encode(encoder)?;
+        self.next_nonce.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for FeeAccount {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Ok(Self::new(PrincipalId::decode(decoder)?, u128::decode(decoder)?, u64::decode(decoder)?))
+    }
+}
+
+/// Failures while atomically charging a fee account.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FeeAccountConsumeError {
+    InsufficientBalance,
+    NonceExhausted,
+}
+
+/// A consumed ticket retained until its final valid height has passed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UsedFeeTicket {
+    ticket_id: ObjectId,
+    expires_at: Height,
+}
+
+impl UsedFeeTicket {
+    /// Fixed nested canonical length.
+    pub const ENCODED_LENGTH: usize = 56;
+
+    /// Constructs a replay record.
+    #[must_use]
+    pub const fn new(ticket_id: ObjectId, expires_at: Height) -> Self {
+        Self { ticket_id, expires_at }
+    }
+
+    /// Returns the consumed ticket identifier.
+    #[must_use]
+    pub const fn ticket_id(self) -> ObjectId {
+        self.ticket_id
+    }
+
+    /// Returns the last height at which replay must remain blocked by identifier.
+    #[must_use]
+    pub const fn expires_at(self) -> Height {
+        self.expires_at
+    }
+}
+
+impl CanonicalEncode for UsedFeeTicket {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.ticket_id.encode(encoder)?;
+        self.expires_at.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for UsedFeeTicket {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Ok(Self::new(ObjectId::decode(decoder)?, u64::decode(decoder)?))
+    }
+}
 
 /// Canonical single-node block proposal.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -25,16 +157,17 @@ pub struct DevnetBlock {
     height: Height,
     parent_block_id: Digest384,
     pre_state: StateCommitment,
+    pre_chain_state: Digest384,
     actions: Vec<ActionEnvelope>,
 }
 
 impl DevnetBlock {
     /// Registered development-block type tag.
     pub const TYPE_TAG: u16 = 0x0073;
-    /// Initial development-block schema version.
-    pub const SCHEMA_VERSION: u16 = 1;
+    /// Full-state-bound development-block schema version.
+    pub const SCHEMA_VERSION: u16 = 2;
     /// Worst-case canonical development-block body length.
-    pub const MAX_ENCODED_LEN: usize = 40_505_057;
+    pub const MAX_ENCODED_LEN: usize = 40_505_105;
 
     /// Enforces the block action-count bound. Ordering is commitment-dependent and checked later.
     pub fn new(
@@ -42,6 +175,7 @@ impl DevnetBlock {
         height: Height,
         parent_block_id: Digest384,
         pre_state: StateCommitment,
+        pre_chain_state: Digest384,
         actions: Vec<ActionEnvelope>,
     ) -> Result<Self, DevnetBlockError> {
         if actions.len() > MAX_BLOCK_ACTIONS {
@@ -50,7 +184,7 @@ impl DevnetBlock {
                 maximum: MAX_BLOCK_ACTIONS,
             });
         }
-        Ok(Self { chain_id, height, parent_block_id, pre_state, actions })
+        Ok(Self { chain_id, height, parent_block_id, pre_state, pre_chain_state, actions })
     }
 
     /// Returns the chain identifier.
@@ -77,6 +211,12 @@ impl DevnetBlock {
         self.pre_state
     }
 
+    /// Returns the canonical commitment to the complete input chain state.
+    #[must_use]
+    pub const fn pre_chain_state(&self) -> Digest384 {
+        self.pre_chain_state
+    }
+
     /// Borrows actions in claimed canonical order.
     #[must_use]
     pub fn actions(&self) -> &[ActionEnvelope] {
@@ -90,6 +230,7 @@ impl CanonicalEncode for DevnetBlock {
         self.height.encode(encoder)?;
         self.parent_block_id.encode(encoder)?;
         self.pre_state.encode(encoder)?;
+        self.pre_chain_state.encode(encoder)?;
         encoder.write_length(self.actions.len(), MAX_BLOCK_ACTIONS)?;
         for action in &self.actions {
             action.encode(encoder)?;
@@ -104,12 +245,13 @@ impl CanonicalDecode for DevnetBlock {
         let height = u64::decode(decoder)?;
         let parent_block_id = Digest384::decode(decoder)?;
         let pre_state = StateCommitment::decode(decoder)?;
+        let pre_chain_state = Digest384::decode(decoder)?;
         let action_count = decoder.read_length(MAX_BLOCK_ACTIONS)?;
         let mut actions = Vec::with_capacity(action_count);
         for _ in 0..action_count {
             actions.push(ActionEnvelope::decode(decoder)?);
         }
-        Self::new(chain_id, height, parent_block_id, pre_state, actions)
+        Self::new(chain_id, height, parent_block_id, pre_state, pre_chain_state, actions)
             .map_err(|_| DecodeError::InvalidValue("development block exceeds its action bound"))
     }
 }
@@ -254,16 +396,18 @@ pub struct BlockReceipt {
     height: Height,
     pre_state: StateCommitment,
     post_state: StateCommitment,
+    pre_chain_state: Digest384,
+    post_chain_state: Digest384,
     action_receipts: Vec<ActionReceipt>,
 }
 
 impl BlockReceipt {
     /// Registered block-receipt type tag.
     pub const TYPE_TAG: u16 = 0x0074;
-    /// Initial block-receipt schema version.
-    pub const SCHEMA_VERSION: u16 = 1;
+    /// Full-state-bound block-receipt schema version.
+    pub const SCHEMA_VERSION: u16 = 2;
     /// Worst-case canonical block-receipt body length.
-    pub const MAX_ENCODED_LEN: usize = 9_161;
+    pub const MAX_ENCODED_LEN: usize = 9_257;
 
     /// Enforces the receipt-count bound.
     pub fn new(
@@ -271,6 +415,8 @@ impl BlockReceipt {
         height: Height,
         pre_state: StateCommitment,
         post_state: StateCommitment,
+        pre_chain_state: Digest384,
+        post_chain_state: Digest384,
         action_receipts: Vec<ActionReceipt>,
     ) -> Result<Self, BlockReceiptError> {
         if action_receipts.len() > MAX_BLOCK_ACTIONS {
@@ -279,7 +425,15 @@ impl BlockReceipt {
                 maximum: MAX_BLOCK_ACTIONS,
             });
         }
-        Ok(Self { block_id, height, pre_state, post_state, action_receipts })
+        Ok(Self {
+            block_id,
+            height,
+            pre_state,
+            post_state,
+            pre_chain_state,
+            post_chain_state,
+            action_receipts,
+        })
     }
 
     /// Returns the committed development block identifier.
@@ -306,6 +460,18 @@ impl BlockReceipt {
         self.post_state
     }
 
+    /// Returns the canonical commitment to the complete input chain state.
+    #[must_use]
+    pub const fn pre_chain_state(&self) -> Digest384 {
+        self.pre_chain_state
+    }
+
+    /// Returns the canonical commitment to the complete successor chain state.
+    #[must_use]
+    pub const fn post_chain_state(&self) -> Digest384 {
+        self.post_chain_state
+    }
+
     /// Borrows receipts in action order.
     #[must_use]
     pub fn action_receipts(&self) -> &[ActionReceipt] {
@@ -319,6 +485,8 @@ impl CanonicalEncode for BlockReceipt {
         self.height.encode(encoder)?;
         self.pre_state.encode(encoder)?;
         self.post_state.encode(encoder)?;
+        self.pre_chain_state.encode(encoder)?;
+        self.post_chain_state.encode(encoder)?;
         encoder.write_length(self.action_receipts.len(), MAX_BLOCK_ACTIONS)?;
         for receipt in &self.action_receipts {
             receipt.encode(encoder)?;
@@ -333,13 +501,23 @@ impl CanonicalDecode for BlockReceipt {
         let height = u64::decode(decoder)?;
         let pre_state = StateCommitment::decode(decoder)?;
         let post_state = StateCommitment::decode(decoder)?;
+        let pre_chain_state = Digest384::decode(decoder)?;
+        let post_chain_state = Digest384::decode(decoder)?;
         let receipt_count = decoder.read_length(MAX_BLOCK_ACTIONS)?;
         let mut action_receipts = Vec::with_capacity(receipt_count);
         for _ in 0..receipt_count {
             action_receipts.push(ActionReceipt::decode(decoder)?);
         }
-        Self::new(block_id, height, pre_state, post_state, action_receipts)
-            .map_err(|_| DecodeError::InvalidValue("block receipt exceeds its action bound"))
+        Self::new(
+            block_id,
+            height,
+            pre_state,
+            post_state,
+            pre_chain_state,
+            post_chain_state,
+            action_receipts,
+        )
+        .map_err(|_| DecodeError::InvalidValue("block receipt exceeds its action bound"))
     }
 }
 
@@ -364,16 +542,89 @@ pub struct ChainState {
     head_block_id: Digest384,
     objects: ObjectState,
     nonce_channels: Vec<NonceChannel>,
-    used_fee_tickets: Vec<ObjectId>,
+    fee_accounts: Vec<FeeAccount>,
+    used_fee_tickets: Vec<UsedFeeTicket>,
     resource_prices: ResourcePrices,
 }
 
 impl ChainState {
+    /// Commits the complete durable object, replay, fee, and price state.
+    pub fn commitment(&self) -> Result<Digest384, EncodeError> {
+        commit(DomainTag::CANONICAL_VALUE, self)
+    }
+
+    /// Decodes schema 2, or safely migrates an empty schema-1 replay history with explicit
+    /// canonically ordered fee accounts supplied by the operator.
+    ///
+    /// Schema 1 did not retain ticket expiry or payer nonce information. A non-empty legacy replay
+    /// set therefore fails closed instead of guessing when its identifiers may be forgotten.
+    pub fn decode_snapshot(
+        input: &[u8],
+        legacy_fee_accounts: Vec<FeeAccount>,
+    ) -> Result<(Self, bool), DecodeError> {
+        if let Ok(state) = decode_envelope::<Self>(input) {
+            return Ok((state, false));
+        }
+        let envelope = inspect_canonical_envelope(
+            input,
+            Self::TYPE_TAG,
+            1,
+            LEGACY_CHAIN_STATE_MAX_ENCODED_LEN,
+        )?;
+        let mut decoder = Decoder::new(envelope.body());
+        let chain_id = ChainId::decode(&mut decoder)?;
+        let height = u64::decode(&mut decoder)?;
+        let head_block_id = Digest384::decode(&mut decoder)?;
+        let objects = ObjectState::decode(&mut decoder)?;
+        let channel_count = decoder.read_length(MAX_NONCE_CHANNELS)?;
+        let mut channels = Vec::with_capacity(channel_count);
+        for _ in 0..channel_count {
+            channels.push(NonceChannel::decode(&mut decoder)?);
+        }
+        let ticket_count = decoder.read_length(MAX_USED_FEE_TICKETS)?;
+        if ticket_count != 0 {
+            return Err(DecodeError::InvalidValue(
+                "legacy chain state has replay records without safe expiry or payer nonce data",
+            ));
+        }
+        let resource_prices = ResourcePrices::decode(&mut decoder)?;
+        decoder.finish()?;
+        Self::new(
+            chain_id,
+            height,
+            head_block_id,
+            objects,
+            channels,
+            legacy_fee_accounts,
+            Vec::new(),
+            resource_prices,
+        )
+        .map(|state| (state, true))
+        .map_err(|_| DecodeError::InvalidValue("invalid migrated chain state"))
+    }
+
     /// Constructs genesis at height zero with an all-zero parent identifier.
     pub fn genesis(
         chain_id: ChainId,
         objects: ObjectState,
         nonce_channels: Vec<NonceChannel>,
+        resource_prices: ResourcePrices,
+    ) -> Result<Self, ChainStateError> {
+        Self::genesis_with_fee_accounts(
+            chain_id,
+            objects,
+            nonce_channels,
+            Vec::new(),
+            resource_prices,
+        )
+    }
+
+    /// Constructs genesis with canonically ordered funded fee accounts.
+    pub fn genesis_with_fee_accounts(
+        chain_id: ChainId,
+        objects: ObjectState,
+        nonce_channels: Vec<NonceChannel>,
+        fee_accounts: Vec<FeeAccount>,
         resource_prices: ResourcePrices,
     ) -> Result<Self, ChainStateError> {
         Self::new(
@@ -382,6 +633,7 @@ impl ChainState {
             Digest384::ZERO,
             objects,
             nonce_channels,
+            fee_accounts,
             Vec::new(),
             resource_prices,
         )
@@ -395,7 +647,8 @@ impl ChainState {
         head_block_id: Digest384,
         objects: ObjectState,
         nonce_channels: Vec<NonceChannel>,
-        used_fee_tickets: Vec<ObjectId>,
+        fee_accounts: Vec<FeeAccount>,
+        used_fee_tickets: Vec<UsedFeeTicket>,
         resource_prices: ResourcePrices,
     ) -> Result<Self, ChainStateError> {
         if nonce_channels.len() > MAX_NONCE_CHANNELS {
@@ -407,14 +660,30 @@ impl ChainState {
         if !nonce_channels.windows(2).all(|pair| nonce_key_order(&pair[0], &pair[1]).is_lt()) {
             return Err(ChainStateError::NonceChannelsNotStrictlyIncreasing);
         }
+        if fee_accounts.len() > MAX_FEE_ACCOUNTS {
+            return Err(ChainStateError::TooManyFeeAccounts {
+                actual: fee_accounts.len(),
+                maximum: MAX_FEE_ACCOUNTS,
+            });
+        }
+        if !fee_accounts.windows(2).all(|pair| pair[0].payer() < pair[1].payer()) {
+            return Err(ChainStateError::FeeAccountsNotStrictlyIncreasing);
+        }
         if used_fee_tickets.len() > MAX_USED_FEE_TICKETS {
             return Err(ChainStateError::TooManyUsedFeeTickets {
                 actual: used_fee_tickets.len(),
                 maximum: MAX_USED_FEE_TICKETS,
             });
         }
-        if !used_fee_tickets.windows(2).all(|pair| pair[0] < pair[1]) {
+        if !used_fee_tickets.windows(2).all(|pair| pair[0].ticket_id() < pair[1].ticket_id()) {
             return Err(ChainStateError::UsedFeeTicketsNotStrictlyIncreasing);
+        }
+        let maximum_expiry = height.saturating_add(MAX_FEE_TICKET_LIFETIME);
+        if used_fee_tickets
+            .iter()
+            .any(|ticket| ticket.expires_at() < height || ticket.expires_at() > maximum_expiry)
+        {
+            return Err(ChainStateError::UsedFeeTicketOutsideReplayWindow);
         }
         Ok(Self {
             chain_id,
@@ -422,6 +691,7 @@ impl ChainState {
             head_block_id,
             objects,
             nonce_channels,
+            fee_accounts,
             used_fee_tickets,
             resource_prices,
         })
@@ -457,9 +727,15 @@ impl ChainState {
         &self.nonce_channels
     }
 
+    /// Borrows funded fee accounts in payer order.
+    #[must_use]
+    pub fn fee_accounts(&self) -> &[FeeAccount] {
+        &self.fee_accounts
+    }
+
     /// Borrows consumed ticket identifiers in canonical order.
     #[must_use]
-    pub fn used_fee_tickets(&self) -> &[ObjectId] {
+    pub fn used_fee_tickets(&self) -> &[UsedFeeTicket] {
         &self.used_fee_tickets
     }
 
@@ -480,6 +756,10 @@ impl CanonicalEncode for ChainState {
         for channel in &self.nonce_channels {
             channel.encode(encoder)?;
         }
+        encoder.write_length(self.fee_accounts.len(), MAX_FEE_ACCOUNTS)?;
+        for account in &self.fee_accounts {
+            account.encode(encoder)?;
+        }
         encoder.write_length(self.used_fee_tickets.len(), MAX_USED_FEE_TICKETS)?;
         for ticket in &self.used_fee_tickets {
             ticket.encode(encoder)?;
@@ -499,10 +779,15 @@ impl CanonicalDecode for ChainState {
         for _ in 0..channel_count {
             channels.push(NonceChannel::decode(decoder)?);
         }
+        let account_count = decoder.read_length(MAX_FEE_ACCOUNTS)?;
+        let mut accounts = Vec::with_capacity(account_count);
+        for _ in 0..account_count {
+            accounts.push(FeeAccount::decode(decoder)?);
+        }
         let ticket_count = decoder.read_length(MAX_USED_FEE_TICKETS)?;
         let mut tickets = Vec::with_capacity(ticket_count);
         for _ in 0..ticket_count {
-            tickets.push(ObjectId::decode(decoder)?);
+            tickets.push(UsedFeeTicket::decode(decoder)?);
         }
         Self::new(
             chain_id,
@@ -510,6 +795,7 @@ impl CanonicalDecode for ChainState {
             head_block_id,
             objects,
             channels,
+            accounts,
             tickets,
             ResourcePrices::decode(decoder)?,
         )
@@ -519,7 +805,7 @@ impl CanonicalDecode for ChainState {
 
 impl CanonicalType for ChainState {
     const TYPE_TAG: u16 = 0x007b;
-    const SCHEMA_VERSION: u16 = 1;
+    const SCHEMA_VERSION: u16 = 2;
     const MAX_ENCODED_LEN: usize = 48
         + 8
         + 48
@@ -527,7 +813,9 @@ impl CanonicalType for ChainState {
         + 2
         + MAX_NONCE_CHANNELS * NonceChannel::ENCODED_LENGTH
         + 2
-        + MAX_USED_FEE_TICKETS * 48
+        + MAX_FEE_ACCOUNTS * FeeAccount::ENCODED_LENGTH
+        + 2
+        + MAX_USED_FEE_TICKETS * UsedFeeTicket::ENCODED_LENGTH
         + ResourcePrices::ENCODED_LENGTH;
 }
 
@@ -542,8 +830,14 @@ pub enum ChainStateError {
     TooManyNonceChannels { actual: usize, maximum: usize },
     /// Channel keys are duplicated or not in sender/channel order.
     NonceChannelsNotStrictlyIncreasing,
+    /// Too many funded fee accounts were supplied.
+    TooManyFeeAccounts { actual: usize, maximum: usize },
+    /// Fee accounts are duplicated or not in payer order.
+    FeeAccountsNotStrictlyIncreasing,
     /// The bounded development ticket history is full.
     TooManyUsedFeeTickets { actual: usize, maximum: usize },
     /// Ticket identifiers are duplicated or not ordered.
     UsedFeeTicketsNotStrictlyIncreasing,
+    /// A retained ticket is already expired or exceeds the fixed replay window.
+    UsedFeeTicketOutsideReplayWindow,
 }

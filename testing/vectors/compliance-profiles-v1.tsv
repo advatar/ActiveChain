@@ -1,7 +1,7 @@
 case_id	profiles	facts	expected
 eu-only	eu.casp.transfer.v1	EU/hosted_transfer	select-eu
 tz-only	tz.payment-operator.v1	TZ/payment_operator	select-tz
-us-kenya	us.msb.transfer.v1,ke.virtual-asset-service.v1	US+KE/hosted_transfer	intersection
+us-kenya	us.msb.transfer.v1,ke.virtual-asset-service.v2	US+KE/hosted_transfer	intersection
 ambiguous-jurisdiction	eu.casp.transfer.v1,us.msb.transfer.v1	EU+US/unknown_entity	manual-review
 expired-profile	eu.casp.transfer.v1	EU/hosted_transfer/expired	reject
 design-only	tz.payment-operator.v1	TZ/payment_operator	reject-production
@@ -10,3 +10,8 @@ retention_zero_access	access_policy=zero	reject	confidential access policy requi
 retention_expired	retention_until=0	reject	bounded retention deadline required
 disclosure_after_retention	height=10001,retention_until=10000	reject	no post-retention disclosure
 offline_verifier_present	offline_verifier_commitment=nonzero	accept	independent verification without raw evidence
+kenya-vasp-complete	ke.virtual-asset-service.v2,control_mask=0x00003fff,all_common_commitments=nonzero,bounded_validity	KE/virtual_asset_service	accept-activation
+kenya-vasp-missing-cdd	ke.virtual-asset-service.v2,control_mask=0x00003ffb	KE/virtual_asset_service	reject-activation
+kenya-stablecoin-complete	ke.stablecoin-issuer.v1,control_mask=0x0003ffff,all_common_and_asset_commitments=nonzero,bounded_validity	KE/stablecoin_issuance	accept-activation
+kenya-stablecoin-missing-reserve	ke.stablecoin-issuer.v1,control_mask=0x0002ffff,reserve_commitment=zero	KE/stablecoin_issuance	reject-activation
+kenya-stablecoin-expired	ke.stablecoin-issuer.v1,current_height=expires_height	KE/stablecoin_issuance	reject-activation

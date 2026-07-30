@@ -1252,9 +1252,9 @@ fn devnet_values() -> (FeeTicket, NonceChannel, ActionEnvelope, DevnetBlock, Blo
     let maximum_resources = ResourceVector::new(100, 1, 1, 0, 0, 2_000_000);
     let fee_ticket = FeeTicket::new(
         ObjectId::new(repeated_digest(0xe1)),
-        identifier_principal(0xe2),
+        sender,
         3_000_000,
-        60,
+        57,
         11,
         maximum_resources,
     )
@@ -1268,7 +1268,7 @@ fn devnet_values() -> (FeeTicket, NonceChannel, ActionEnvelope, DevnetBlock, Blo
         fee_ticket,
         3,
         7,
-        ValidityInterval::new(40, 60).expect("development vector validity is ordered"),
+        ValidityInterval::new(50, 57).expect("development vector validity is ordered"),
         maximum_resources,
         payload_commitment,
         transaction,
@@ -1280,17 +1280,31 @@ fn devnet_values() -> (FeeTicket, NonceChannel, ActionEnvelope, DevnetBlock, Blo
     let pre_state_commitment =
         commit_objects(pre_state.objects()).expect("development pre-state commits");
     let prices = ResourcePrices::new(1, 2, 3, 4, 5, 1);
-    let state =
-        ChainState::new(chain_id, 49, parent_block_id, pre_state, vec![nonce], vec![], prices)
-            .expect("development vector chain state is canonical");
-    let block =
-        DevnetBlock::new(chain_id, 50, parent_block_id, pre_state_commitment, vec![action.clone()])
-            .expect("development vector block is bounded");
+    let state = ChainState::new(
+        chain_id,
+        49,
+        parent_block_id,
+        pre_state,
+        vec![nonce],
+        vec![activechain_devnet_kernel::FeeAccount::new(sender, 10_000_000, 11)],
+        vec![],
+        prices,
+    )
+    .expect("development vector chain state is canonical");
+    let block = DevnetBlock::new(
+        chain_id,
+        50,
+        parent_block_id,
+        pre_state_commitment,
+        state.commitment().expect("development chain state commits"),
+        vec![action.clone()],
+    )
+    .expect("development vector block is bounded");
     let output = apply_block(&state, &block).expect("development vector block applies");
 
     assert_eq!(output.state().height(), 50);
     assert_eq!(output.state().nonce_channels()[0].next_sequence(), 8);
-    assert_eq!(output.state().used_fee_tickets(), [fee_ticket.ticket_id()]);
+    assert_eq!(output.state().used_fee_tickets()[0].ticket_id(), fee_ticket.ticket_id());
     assert_eq!(
         output
             .state()

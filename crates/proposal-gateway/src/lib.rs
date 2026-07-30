@@ -148,7 +148,7 @@ impl CanonicalDecode for ActionIntentV1 {
 }
 
 impl CanonicalType for ActionIntentV1 {
-    const TYPE_TAG: u16 = 0x0146;
+    const TYPE_TAG: u16 = 0x0149;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 3 + 4 * (3 + MAX_IDENTIFIER) + 48 * 5 + 1 + 16 * 2 + 8;
 }
@@ -322,7 +322,7 @@ impl CanonicalDecode for ProposalJournalV1 {
 }
 
 impl CanonicalType for ProposalJournalV1 {
-    const TYPE_TAG: u16 = 0x0147;
+    const TYPE_TAG: u16 = 0x014A;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize =
         3 + MAX_PROPOSALS * (3 + MAX_IDENTIFIER + ActionIntentV1::MAX_ENCODED_LEN);
