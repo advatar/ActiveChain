@@ -107,7 +107,7 @@ impl CanonicalDecode for Artifact {
         .map_err(|_| DecodeError::InvalidValue("invalid application artifact"))
     }
 }
-canonical_type!(Artifact, 0x00c0, 48 + 2 + MAX_MEDIA_TYPE_LENGTH + 8 + 48 + 48);
+canonical_type!(Artifact, 0x0132, 48 + 2 + MAX_MEDIA_TYPE_LENGTH + 8 + 48 + 48);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ApplicationManifest {
@@ -226,7 +226,7 @@ impl CanonicalDecode for ApplicationManifest {
 }
 canonical_type!(
     ApplicationManifest,
-    0x00c1,
+    0x0133,
     48 + 48 + 4 + 2 + MAX_ENTRYPOINT_LENGTH + 48 + 2 + MAX_ARTIFACTS * 48 + 16 + 8 + 8 + 16
 );
 

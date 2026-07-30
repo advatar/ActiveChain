@@ -35,7 +35,7 @@ pub struct BuilderBid {
 }
 
 impl BuilderBid {
-    pub const TYPE_TAG: u16 = 0x00b0;
+    pub const TYPE_TAG: u16 = 0x011A;
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         chain_id: ChainId,

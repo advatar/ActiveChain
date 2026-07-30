@@ -50,7 +50,13 @@ body_length    : minimal u32 ULEB128
 body           : body_length bytes
 ```
 
-Development type tags are `0x0020` for `Principal`, `0x0021` for `AuthenticatorDescriptor`, `0x0022` for `RecoveryRequest`, and `0x0030` for `CapabilityGrant`. Their development schema version is `1`. Tags not registered for the expected type, unsupported versions, trailing bytes after the envelope, and trailing bytes inside the body MUST be rejected.
+The authoritative development registry is `testing/type-tag-registry-v1.tsv`. Registered v1 tags
+occupy two sparse blocks: `0x0020..0x00d9` and `0x0100..0x01ff`. The intervening
+`0x00e0..0x00ff` range remains reserved for the deferred v1.1 and v1.2 surfaces and MUST be
+rejected by v1 decoders. A tag identifies exactly one canonical type across the repository; schema
+versions do not permit a tag to be shared by unrelated types. Tags not registered for the expected
+type, unsupported versions, trailing bytes after the envelope, and trailing bytes inside the body
+MUST be rejected.
 
 Fields in a body occur exactly once in schema order. There are no field names or field numbers on the wire. Schema evolution therefore requires a new schema version.
 
@@ -115,6 +121,12 @@ The initial principal vector is `testing/vectors/canonical/principal-v1.txt`. Fu
 ## 11. Compatibility
 
 A decoder for one type and schema version MUST reject every other tag and version. A new version MAY define a migration, but MUST NOT alter version 1 decoding. Unknown fields are impossible in a fixed body and MUST NOT be simulated by accepting trailing bytes.
+
+The pre-registry development assignments were not a stable release encoding: several unrelated
+types shared tags and several active types occupied reserved future-version ranges. Decoders MUST
+reject those ambiguous legacy envelopes under their newly registered type. There is no automatic
+migration from an ambiguous envelope; any retained development data MUST be regenerated from an
+independently authenticated semantic source and encoded with the authoritative registry.
 
 ## 12. Implementation notes (non-normative)
 

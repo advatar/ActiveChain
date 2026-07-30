@@ -377,7 +377,7 @@ impl CanonicalDecode for DurableProofPipeline {
     }
 }
 impl CanonicalType for DurableProofPipeline {
-    const TYPE_TAG: u16 = 0x007a;
+    const TYPE_TAG: u16 = 0x0101;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 8
         + 2

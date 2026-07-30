@@ -267,7 +267,7 @@ impl CanonicalDecode for FungibleCashAirPublicInputsV1 {
     }
 }
 impl CanonicalType for FungibleCashAirPublicInputsV1 {
-    const TYPE_TAG: u16 = 0x00b0;
+    const TYPE_TAG: u16 = 0x011c;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 48 + 48 + 16 * 7;
 }
@@ -323,7 +323,7 @@ impl CanonicalDecode for CashAirReceiptV1 {
     }
 }
 impl CanonicalType for CashAirReceiptV1 {
-    const TYPE_TAG: u16 = 0x00a0;
+    const TYPE_TAG: u16 = 0x0104;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 4 + CashAirProof::MAX_ENCODED_LEN + 4 + MAX_CASH_AIR_PROOF_BYTES;
 }
@@ -432,7 +432,7 @@ impl CanonicalDecode for AuthenticatedCashAirReceiptV1 {
     }
 }
 impl CanonicalType for AuthenticatedCashAirReceiptV1 {
-    const TYPE_TAG: u16 = 0x00a1;
+    const TYPE_TAG: u16 = 0x0108;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 4
         + AuthenticatedCashAirProofV1::MAX_ENCODED_LEN

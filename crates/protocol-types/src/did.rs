@@ -47,7 +47,7 @@ pub struct DidControllerRecordV1 {
 }
 
 impl DidControllerRecordV1 {
-    pub const TYPE_TAG: u16 = 0x00d8;
+    pub const TYPE_TAG: u16 = 0x0130;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 + 48 * 5 + 1 + 8 + 1;
 
@@ -182,7 +182,7 @@ pub struct DidResolutionV1 {
 }
 
 impl DidResolutionV1 {
-    pub const TYPE_TAG: u16 = 0x00d9;
+    pub const TYPE_TAG: u16 = 0x0131;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 + 8 + 2 + DidControllerRecordV1::MAX_ENCODED_LEN;
 
@@ -252,7 +252,7 @@ pub struct DidControllerOperationV1 {
 }
 
 impl DidControllerOperationV1 {
-    pub const TYPE_TAG: u16 = 0x00da;
+    pub const TYPE_TAG: u16 = 0x0136;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize =
         1 + 48 + 1 + 48 + DidControllerRecordV1::MAX_ENCODED_LEN + 48;

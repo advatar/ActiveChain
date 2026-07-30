@@ -261,7 +261,7 @@ impl CanonicalDecode for AgentEnrollmentEvidenceV1 {
 }
 
 impl CanonicalType for AgentEnrollmentEvidenceV1 {
-    const TYPE_TAG: u16 = 0x00e4;
+    const TYPE_TAG: u16 = 0x013b;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 48 * 4 + 1 + 48 + 8 + 48 + 48;
 }
@@ -436,7 +436,7 @@ impl CanonicalDecode for AgentEnrollmentJournalV1 {
 }
 
 impl CanonicalType for AgentEnrollmentJournalV1 {
-    const TYPE_TAG: u16 = 0x00e5;
+    const TYPE_TAG: u16 = 0x013c;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 3
         + MAX_AGENT_ENROLLMENT_RECORDS * 48
@@ -631,7 +631,7 @@ impl CanonicalDecode for AgentEnrollmentRequestV1 {
 }
 
 impl CanonicalType for AgentEnrollmentRequestV1 {
-    const TYPE_TAG: u16 = 0x00e0;
+    const TYPE_TAG: u16 = 0x0137;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 48 * 3
         + 3
@@ -698,7 +698,7 @@ impl CanonicalDecode for AuthorizedAgentEnrollmentRequestV1 {
     }
 }
 impl CanonicalType for AuthorizedAgentEnrollmentRequestV1 {
-    const TYPE_TAG: u16 = 0x00e1;
+    const TYPE_TAG: u16 = 0x0138;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize =
         AgentEnrollmentRequestV1::MAX_ENCODED_LEN + ProtocolSignature::MAX_ENCODED_LEN;
@@ -859,7 +859,7 @@ impl CanonicalDecode for AgentEnrollmentGrantV1 {
     }
 }
 impl CanonicalType for AgentEnrollmentGrantV1 {
-    const TYPE_TAG: u16 = 0x00e2;
+    const TYPE_TAG: u16 = 0x0139;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 48 * 4 + 1 + MAX_AGENT_CAPABILITIES * 48 + 16 + 8 + 1;
 }
@@ -903,7 +903,7 @@ impl CanonicalDecode for AuthorizedAgentEnrollmentGrantV1 {
     }
 }
 impl CanonicalType for AuthorizedAgentEnrollmentGrantV1 {
-    const TYPE_TAG: u16 = 0x00e3;
+    const TYPE_TAG: u16 = 0x013a;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize =
         AgentEnrollmentGrantV1::MAX_ENCODED_LEN + ProtocolSignature::MAX_ENCODED_LEN;
@@ -999,9 +999,9 @@ mod tests {
         assert_eq!(
             request.commitment().unwrap(),
             Digest384::new([
-                105, 80, 147, 237, 243, 62, 151, 186, 6, 91, 149, 38, 111, 249, 209, 13, 100, 113,
-                226, 95, 161, 116, 200, 46, 6, 193, 100, 53, 207, 144, 196, 98, 43, 109, 9, 238,
-                170, 168, 142, 212, 66, 211, 116, 97, 232, 239, 51, 45,
+                124, 76, 65, 179, 59, 210, 207, 114, 174, 53, 145, 194, 86, 86, 237, 190, 115, 152,
+                244, 148, 104, 124, 213, 14, 215, 46, 202, 189, 149, 243, 230, 188, 184, 234, 230,
+                85, 22, 29, 178, 16, 197, 97, 179, 2, 154, 146, 130, 82,
             ])
         );
         let signature = ProtocolSignature::new(

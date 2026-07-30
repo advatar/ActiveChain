@@ -113,7 +113,7 @@ impl CanonicalDecode for ComplianceProviderKeyRecord {
     }
 }
 impl CanonicalType for ComplianceProviderKeyRecord {
-    const TYPE_TAG: u16 = 0x00d6;
+    const TYPE_TAG: u16 = 0x012E;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 48 + 2 + ML_DSA44_PUBLIC_KEY_LENGTH;
 }

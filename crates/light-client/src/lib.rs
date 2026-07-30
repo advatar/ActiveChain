@@ -53,7 +53,7 @@ pub struct UpgradeCertificateBundle {
     next_genesis: ValidatorGenesis,
 }
 impl UpgradeCertificateBundle {
-    pub const TYPE_TAG: u16 = 0x00a5;
+    pub const TYPE_TAG: u16 = 0x0117;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = ConsensusUpgradeAuthorization::ENCODED_LENGTH
         + QuorumCertificate::ENCODED_LENGTH
@@ -446,7 +446,7 @@ impl CanonicalDecode for LightClientState {
     }
 }
 impl CanonicalType for LightClientState {
-    const TYPE_TAG: u16 = 0x00a4;
+    const TYPE_TAG: u16 = 0x0112;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 4
         + 48

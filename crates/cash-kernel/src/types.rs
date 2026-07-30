@@ -498,7 +498,7 @@ pub struct FungibleCoinCell {
     creation_height: Height,
 }
 impl FungibleCoinCell {
-    pub const TYPE_TAG: u16 = 0x00A2;
+    pub const TYPE_TAG: u16 = 0x010B;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = CoinCellOrigin::MAX_ENCODED_LEN + 48 + 48 + 16 + 8;
     pub fn new(
@@ -552,7 +552,7 @@ pub struct NonFungibleCoinCell {
     creation_height: Height,
 }
 impl NonFungibleCoinCell {
-    pub const TYPE_TAG: u16 = 0x00A4;
+    pub const TYPE_TAG: u16 = 0x0113;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = CoinCellOrigin::MAX_ENCODED_LEN + 48 * 4 + 8;
     pub fn new(
@@ -634,7 +634,7 @@ pub struct NonFungibleCoinCellRecord {
     cell: NonFungibleCoinCell,
 }
 impl NonFungibleCoinCellRecord {
-    pub const TYPE_TAG: u16 = 0x00A5;
+    pub const TYPE_TAG: u16 = 0x0116;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 + NonFungibleCoinCell::MAX_ENCODED_LEN;
     pub const fn new(id: CoinCellId, cell: NonFungibleCoinCell) -> Self {
@@ -664,7 +664,7 @@ impl CanonicalType for NonFungibleCoinCellRecord {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 impl FungibleCoinCellRecord {
-    pub const TYPE_TAG: u16 = 0x00A3;
+    pub const TYPE_TAG: u16 = 0x010E;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 + FungibleCoinCell::MAX_ENCODED_LEN;
     pub const fn new(id: CoinCellId, cell: FungibleCoinCell) -> Self {
@@ -697,7 +697,7 @@ impl CanonicalType for FungibleCoinCellRecord {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FungibleCoinCellSet(Vec<FungibleCoinCellRecord>);
 impl FungibleCoinCellSet {
-    pub const TYPE_TAG: u16 = 0x00A4;
+    pub const TYPE_TAG: u16 = 0x0110;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 2 + MAX_COIN_CELLS * FungibleCoinCellRecord::MAX_ENCODED_LEN;
     pub fn new(records: Vec<FungibleCoinCellRecord>) -> Result<Self, NativeMoneyError> {
@@ -758,7 +758,7 @@ pub struct FungibleCoinCellMembershipProof {
     witness: FungibleCoinCellSet,
 }
 impl FungibleCoinCellMembershipProof {
-    pub const TYPE_TAG: u16 = 0x00A5;
+    pub const TYPE_TAG: u16 = 0x0115;
     pub const SCHEMA_VERSION: u16 = 1;
     pub fn prove(set: &FungibleCoinCellSet, id: CoinCellId) -> Result<Self, NativeMoneyError> {
         let index = set
@@ -859,7 +859,7 @@ pub struct FungibleTransferV1 {
     amount: Amount,
 }
 impl FungibleTransferV1 {
-    pub const TYPE_TAG: u16 = 0x00A3;
+    pub const TYPE_TAG: u16 = 0x010F;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize =
         48 + 48 + 48 + 2 + MAX_TRANSFER_INPUTS * FungibleCoinCell::MAX_ENCODED_LEN + 16;
@@ -964,7 +964,7 @@ pub struct FungibleMintV1 {
     supply_cap: Amount,
 }
 impl FungibleMintV1 {
-    pub const TYPE_TAG: u16 = 0x00A4;
+    pub const TYPE_TAG: u16 = 0x0111;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 + 48 + 48 + 16 * 3;
     pub fn new(
@@ -1074,7 +1074,7 @@ pub struct FungibleBurnV1 {
     amount: Amount,
 }
 impl FungibleBurnV1 {
-    pub const TYPE_TAG: u16 = 0x00A5;
+    pub const TYPE_TAG: u16 = 0x0114;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize =
         48 + 48 + 2 + MAX_TRANSFER_INPUTS * FungibleCoinCell::MAX_ENCODED_LEN + 16;
@@ -1185,7 +1185,7 @@ pub struct FungibleRedemptionV1 {
     settlement_reference: Digest384,
 }
 impl FungibleRedemptionV1 {
-    pub const TYPE_TAG: u16 = 0x00A6;
+    pub const TYPE_TAG: u16 = 0x0118;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize =
         48 + 48 + 2 + MAX_TRANSFER_INPUTS * FungibleCoinCell::MAX_ENCODED_LEN + 16 + 48;
@@ -1296,7 +1296,7 @@ pub struct FungibleSettlementReceiptV1 {
     proof_commitment: Digest384,
 }
 impl FungibleSettlementReceiptV1 {
-    pub const TYPE_TAG: u16 = 0x00A7;
+    pub const TYPE_TAG: u16 = 0x0119;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 + 48 + 48 + 16 + 8 + 48;
     pub fn new(
@@ -1818,7 +1818,7 @@ pub struct CoinCellRecord {
     cell: CoinCell,
 }
 impl CoinCellRecord {
-    pub const TYPE_TAG: u16 = 0x00d6;
+    pub const TYPE_TAG: u16 = 0x012D;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 + CoinCell::MAX_ENCODED_LEN;
     pub const fn new(id: CoinCellId, cell: CoinCell) -> Self {

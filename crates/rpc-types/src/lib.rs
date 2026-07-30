@@ -530,7 +530,7 @@ impl CanonicalDecode for AuthorizedFaucetRequestV1 {
     }
 }
 impl CanonicalType for AuthorizedFaucetRequestV1 {
-    const TYPE_TAG: u16 = 0x00d3;
+    const TYPE_TAG: u16 = 0x012a;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = FaucetRequestV1::MAX_ENCODED_LEN + 4 + 64 * 1024;
 }
@@ -804,7 +804,7 @@ impl CanonicalDecode for RpcRequest {
     }
 }
 impl CanonicalType for RpcRequest {
-    const TYPE_TAG: u16 = 0x00a0;
+    const TYPE_TAG: u16 = 0x0107;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 1 + AuthorizedFaucetRequestV1::MAX_ENCODED_LEN;
 }
@@ -1436,7 +1436,7 @@ pub struct ActionSetProof {
     transaction_ids: Vec<TransactionId>,
 }
 impl ActionSetProof {
-    pub const TYPE_TAG: u16 = 0x00a3;
+    pub const TYPE_TAG: u16 = 0x010d;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 1 + MAX_ACTIONS_PER_PROOF * 48;
 
@@ -1690,7 +1690,7 @@ impl CanonicalDecode for RpcResponse {
     }
 }
 impl CanonicalType for RpcResponse {
-    const TYPE_TAG: u16 = 0x00a1;
+    const TYPE_TAG: u16 = 0x010a;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 1
         + 2
@@ -1702,10 +1702,34 @@ impl CanonicalType for RpcResponse {
 mod tests {
     use super::*;
     use activechain_canonical_codec::{decode_envelope, encode_envelope};
+    use activechain_protocol_types::FungibleAssetDefinition;
     use alloc::vec;
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
+    }
+
+    #[test]
+    fn canonical_registry_prevents_cross_type_envelope_substitution() {
+        let asset = FungibleAssetDefinition::new(
+            AssetId::new(digest(1)),
+            PrincipalId::new(digest(2)),
+            b"TEST".to_vec(),
+            6,
+            1_000_000,
+            digest(3),
+        )
+        .unwrap();
+        let encoded = encode_envelope(&asset).unwrap();
+
+        assert_ne!(
+            <FungibleAssetDefinition as CanonicalType>::TYPE_TAG,
+            <RpcRequest as CanonicalType>::TYPE_TAG
+        );
+        assert!(matches!(
+            decode_envelope::<RpcRequest>(&encoded),
+            Err(DecodeError::InvalidTypeTag { .. })
+        ));
     }
 
     #[test]

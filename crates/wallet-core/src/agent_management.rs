@@ -362,7 +362,7 @@ impl CanonicalDecode for AgentRegistryCommandV1 {
 }
 
 impl CanonicalType for AgentRegistryCommandV1 {
-    const TYPE_TAG: u16 = 0x00d4;
+    const TYPE_TAG: u16 = 0x012B;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 1
         + 48
@@ -667,7 +667,7 @@ impl CanonicalDecode for AgentRegistryV1 {
 }
 
 impl CanonicalType for AgentRegistryV1 {
-    const TYPE_TAG: u16 = 0x00d3;
+    const TYPE_TAG: u16 = 0x0129;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 3
         + MAX_MANAGED_AGENTS

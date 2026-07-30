@@ -7,6 +7,12 @@ unknown type tags, header extensions, and transition actions; it MUST NOT ignore
 them. Genesis reserves the extension ranges below so later versions add semantics without
 changing the meaning of v1 bytes.
 
+Canonical v1 type assignments use `0x0020..0x00d9` and the sparse extension block
+`0x0100..0x01ff`. The `0x00e0..0x00ef` block remains reserved for v1.1 activation and
+`0x00f0..0x00ff` remains reserved for v1.2 activation. Registration in the v1 extension block does
+not activate a deferred feature; it only gives already implemented v1 development types globally
+unique identities.
+
 | Version | Mandatory surface | Reserved/deferred surface |
 |---|---|---|
 | v1.0 | PQ authorization and consensus signatures, principals/recovery, attenuated capabilities, APL, ObjectVM, multidimensional fees/state rent, public cash lane, light-client verification, validator re-execution | validity-proof header slot, private-object tags, protected-ordering tag, compute-job tags |

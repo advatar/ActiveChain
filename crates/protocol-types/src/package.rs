@@ -42,7 +42,7 @@ pub struct PackageManifest {
 }
 
 impl PackageManifest {
-    pub const TYPE_TAG: u16 = 0x0062;
+    pub const TYPE_TAG: u16 = 0x0100;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize =
         48 + 1 + MAX_PACKAGE_ENTRIES * 2 + 1 + MAX_PACKAGE_IMPORTS * 48 + 1;
