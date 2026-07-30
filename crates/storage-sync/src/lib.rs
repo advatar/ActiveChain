@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub use activechain_storage_engine::partition_payload_root;
 use activechain_storage_engine::{PARTITION_COUNT, Root, SnapshotManifest};
 use sha3::{
     Shake256,
@@ -351,16 +352,6 @@ fn verify_checkpoint<V: FinalityVerifier>(
         return Err(SyncError::Finality);
     }
     Ok(())
-}
-
-#[must_use]
-pub fn partition_payload_root(partition_id: u16, bytes: &[u8]) -> Root {
-    digest(&[
-        b"ACTIVECHAIN-SNAPSHOT-PARTITION-V1",
-        &partition_id.to_be_bytes(),
-        &(bytes.len() as u64).to_be_bytes(),
-        bytes,
-    ])
 }
 
 fn digest(parts: &[&[u8]]) -> Root {
