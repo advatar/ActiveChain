@@ -61,9 +61,10 @@ pub use checked_arithmetic::{
 };
 pub use compliance::{
     ComplianceError, ComplianceEvidenceBindingV1, ComplianceReplayKey, ComplianceReplaySet,
-    ComplianceSignatureEnvelopeV1, EvidenceDeletionMode, EvidenceRetentionPolicyV1,
-    JurisdictionProfileCandidate, ProfileSelection, ScreeningDecisionV1, ScreeningOutcome,
-    ScreeningOverrideV1, ScreeningPolicyV1, TravelRuleBindingV1, select_jurisdiction_profiles,
+    ComplianceSignatureEnvelopeV1, ComplianceSignatureEnvelopeV2, EvidenceDeletionMode,
+    EvidenceRetentionPolicyV1, JurisdictionProfileCandidate, ProfileSelection, ScreeningDecisionV1,
+    ScreeningOutcome, ScreeningOverrideV1, ScreeningPolicyV1, TravelRuleBindingV1,
+    select_jurisdiction_profiles,
 };
 pub use consensus::{
     BlockProposal, BlockProposalError, ConsensusBlockRef, ConsensusUpgradeAuthorization,

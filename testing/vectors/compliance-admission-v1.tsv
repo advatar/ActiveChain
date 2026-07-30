@@ -3,6 +3,11 @@ first-use	true	match	match	unused	admit-and-consume
 signature-failure	false	match	match	unused	reject-no-consume
 wrong-chain	true	mismatch	match	unused	reject-no-consume
 wrong-action	true	mismatch	match	unused	reject-no-consume
+evidence-substitution	true	mismatch	match	unused	reject-no-consume
+wrong-provider	true	mismatch	match	unused	reject-no-consume
+wrong-subject	true	mismatch	match	unused	reject-no-consume
+wrong-genesis	true	mismatch	match	unused	reject-no-consume
+wrong-protocol-revision	true	mismatch	match	unused	reject-no-consume
 expired-evidence	true	expired	match	unused	reject-no-consume
 travel-asset-substitution	true	match	mismatch	unused	reject-no-consume
 travel-expired	true	match	expired	unused	reject-no-consume

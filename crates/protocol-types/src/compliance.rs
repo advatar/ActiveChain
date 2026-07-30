@@ -462,7 +462,7 @@ impl ScreeningPolicyV1 {
     pub fn accepts_with_signature(
         &self,
         decision: &ScreeningDecisionV1,
-        signature: Option<&ComplianceSignatureEnvelopeV1>,
+        signature: Option<&ComplianceSignatureEnvelopeV2>,
         now: u64,
     ) -> bool {
         if !self.accepts(decision, now) {
@@ -475,7 +475,7 @@ impl ScreeningPolicyV1 {
         signature.profile() == self.profile
             && signature.chain_id() == decision.chain_id
             && signature.action() == decision.action
-            && signature.commitment() == decision.commitment().unwrap_or(Digest384::ZERO)
+            && signature.evidence_commitment() == decision.commitment().unwrap_or(Digest384::ZERO)
     }
 }
 impl CanonicalEncode for ScreeningPolicyV1 {
@@ -697,6 +697,175 @@ pub struct ComplianceSignatureEnvelopeV1 {
     nonce: Digest384,
     signature: ProtocolSignature,
 }
+
+/// Version-two provider attestation over an exact canonical evidence binding and chain context.
+///
+/// V1 remains decodable for archival inspection but is deliberately not accepted by production
+/// admission because it did not bind the evidence body, provider, genesis, revision, or validity.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComplianceSignatureEnvelopeV2 {
+    provider: PrincipalId,
+    profile: Digest384,
+    chain_id: ChainId,
+    genesis: Digest384,
+    protocol_revision: u64,
+    subject: Digest384,
+    action: TransactionId,
+    evidence_commitment: Digest384,
+    valid_from: Height,
+    valid_until: Height,
+    nonce: Digest384,
+    signature: ProtocolSignature,
+}
+impl ComplianceSignatureEnvelopeV2 {
+    pub const TYPE_TAG: u16 = 0x0144;
+    pub const SCHEMA_VERSION: u16 = 2;
+    pub const MAX_ENCODED_LEN: usize = 48 * 9 + 8 * 3 + ProtocolSignature::MAX_ENCODED_LEN;
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        provider: PrincipalId,
+        profile: Digest384,
+        chain_id: ChainId,
+        genesis: Digest384,
+        protocol_revision: u64,
+        subject: Digest384,
+        action: TransactionId,
+        evidence_commitment: Digest384,
+        valid_from: Height,
+        valid_until: Height,
+        nonce: Digest384,
+        signature: ProtocolSignature,
+    ) -> Result<Self, ComplianceError> {
+        if profile == Digest384::ZERO
+            || genesis == Digest384::ZERO
+            || subject == Digest384::ZERO
+            || *action.digest() == Digest384::ZERO
+            || evidence_commitment == Digest384::ZERO
+            || nonce == Digest384::ZERO
+        {
+            return Err(ComplianceError::ZeroCommitment);
+        }
+        if valid_until < valid_from {
+            return Err(ComplianceError::InvalidValidity);
+        }
+        Ok(Self {
+            provider,
+            profile,
+            chain_id,
+            genesis,
+            protocol_revision,
+            subject,
+            action,
+            evidence_commitment,
+            valid_from,
+            valid_until,
+            nonce,
+            signature,
+        })
+    }
+    pub const fn provider(&self) -> PrincipalId {
+        self.provider
+    }
+    pub const fn profile(&self) -> Digest384 {
+        self.profile
+    }
+    pub const fn chain_id(&self) -> ChainId {
+        self.chain_id
+    }
+    pub const fn genesis(&self) -> Digest384 {
+        self.genesis
+    }
+    pub const fn protocol_revision(&self) -> u64 {
+        self.protocol_revision
+    }
+    pub const fn subject(&self) -> Digest384 {
+        self.subject
+    }
+    pub const fn action(&self) -> TransactionId {
+        self.action
+    }
+    pub const fn evidence_commitment(&self) -> Digest384 {
+        self.evidence_commitment
+    }
+    pub const fn valid_from(&self) -> Height {
+        self.valid_from
+    }
+    pub const fn valid_until(&self) -> Height {
+        self.valid_until
+    }
+    pub const fn nonce(&self) -> Digest384 {
+        self.nonce
+    }
+    pub const fn signature(&self) -> &ProtocolSignature {
+        &self.signature
+    }
+    pub fn signing_payload(&self) -> Vec<u8> {
+        let mut encoder = Encoder::new(Self::MAX_ENCODED_LEN);
+        self.provider.encode(&mut encoder).expect("validated field encodes");
+        self.profile.encode(&mut encoder).expect("validated field encodes");
+        self.chain_id.encode(&mut encoder).expect("validated field encodes");
+        self.genesis.encode(&mut encoder).expect("validated field encodes");
+        self.protocol_revision.encode(&mut encoder).expect("validated field encodes");
+        self.subject.encode(&mut encoder).expect("validated field encodes");
+        self.action.encode(&mut encoder).expect("validated field encodes");
+        self.evidence_commitment.encode(&mut encoder).expect("validated field encodes");
+        self.valid_from.encode(&mut encoder).expect("validated field encodes");
+        self.valid_until.encode(&mut encoder).expect("validated field encodes");
+        self.nonce.encode(&mut encoder).expect("validated field encodes");
+        let bytes = encoder.finish();
+        let mut payload = Vec::with_capacity(38 + bytes.len());
+        payload.extend_from_slice(b"ACTIVECHAIN-COMPLIANCE-ATTESTATION-V2");
+        payload.extend_from_slice(&bytes);
+        payload
+    }
+    pub fn transcript_commitment(&self) -> Digest384 {
+        let mut hasher = Shake256::default();
+        hasher.update(&self.signing_payload());
+        let mut output = [0_u8; 48];
+        XofReader::read(&mut hasher.finalize_xof(), &mut output);
+        Digest384::new(output)
+    }
+}
+impl CanonicalEncode for ComplianceSignatureEnvelopeV2 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.provider.encode(e)?;
+        self.profile.encode(e)?;
+        self.chain_id.encode(e)?;
+        self.genesis.encode(e)?;
+        self.protocol_revision.encode(e)?;
+        self.subject.encode(e)?;
+        self.action.encode(e)?;
+        self.evidence_commitment.encode(e)?;
+        self.valid_from.encode(e)?;
+        self.valid_until.encode(e)?;
+        self.nonce.encode(e)?;
+        self.signature.encode(e)
+    }
+}
+impl CanonicalDecode for ComplianceSignatureEnvelopeV2 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            PrincipalId::decode(d)?,
+            Digest384::decode(d)?,
+            ChainId::decode(d)?,
+            Digest384::decode(d)?,
+            u64::decode(d)?,
+            Digest384::decode(d)?,
+            TransactionId::decode(d)?,
+            Digest384::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            Digest384::decode(d)?,
+            ProtocolSignature::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid v2 compliance attestation"))
+    }
+}
+impl CanonicalType for ComplianceSignatureEnvelopeV2 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
 impl ComplianceSignatureEnvelopeV1 {
     pub const TYPE_TAG: u16 = 0x00D2;
     pub const SCHEMA_VERSION: u16 = 1;
@@ -852,11 +1021,23 @@ impl ComplianceEvidenceBindingV1 {
     pub const fn action(self) -> TransactionId {
         self.action
     }
+    pub const fn genesis(self) -> Digest384 {
+        self.genesis
+    }
     pub const fn operator(self) -> PrincipalId {
         self.operator
     }
+    pub const fn subject(self) -> Digest384 {
+        self.subject
+    }
+    pub const fn valid_from(self) -> Height {
+        self.valid_from
+    }
     pub const fn valid_until(self) -> Height {
         self.valid_until
+    }
+    pub const fn nonce(self) -> Digest384 {
+        self.nonce
     }
     pub fn valid_at(self, height: Height) -> bool {
         height >= self.valid_from && height <= self.valid_until
@@ -1235,16 +1416,59 @@ mod tests {
 
         let signed_policy = ScreeningPolicyV1::new(d(1), d(5), d(7), 100, 2, true).unwrap();
         assert!(!signed_policy.accepts_with_signature(&clear, None, 50));
-        let signature = ComplianceSignatureEnvelopeV1::new(
+        let signature = ComplianceSignatureEnvelopeV2::new(
+            PrincipalId::new(d(9)),
             d(1),
             ChainId::new(d(2)),
+            d(10),
+            1,
+            d(11),
             TransactionId::new(d(3)),
             clear.commitment().unwrap(),
+            1,
+            100,
             d(8),
             ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2_420]).unwrap(),
         )
         .unwrap();
         assert!(signed_policy.accepts_with_signature(&clear, Some(&signature), 50));
+    }
+
+    #[test]
+    fn compliance_v2_transcript_is_frozen_and_canonical() {
+        let attestation = ComplianceSignatureEnvelopeV2::new(
+            PrincipalId::new(d(1)),
+            d(2),
+            ChainId::new(d(3)),
+            d(4),
+            7,
+            d(5),
+            TransactionId::new(d(6)),
+            d(7),
+            10,
+            20,
+            d(8),
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2_420]).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            decode_envelope::<ComplianceSignatureEnvelopeV2>(
+                &encode_envelope(&attestation).unwrap()
+            ),
+            Ok(attestation.clone())
+        );
+        assert_eq!(
+            attestation.transcript_commitment(),
+            Digest384::new([
+                148, 230, 19, 108, 251, 162, 145, 142, 94, 155, 101, 2, 217, 167, 212, 197, 107,
+                100, 163, 204, 245, 86, 130, 17, 80, 149, 47, 197, 97, 61, 18, 208, 7, 221, 210,
+                23, 234, 45, 224, 183, 187, 125, 167, 157, 245, 221, 213, 254,
+            ])
+        );
+        assert_eq!(
+            include_str!("../../../testing/vectors/compliance-attestation-v2.txt"),
+            "type_tag=0x0144\nschema_version=2\ntranscript_commitment=94e6136cfba2918e5e9b6502d9a7d4c56b64a3ccf556821150952fc5613d12d007ddd217ea2de0b7bb7da79df5ddd5fe\n"
+        );
     }
 
     #[test]
