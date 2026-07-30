@@ -7,7 +7,7 @@ use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
 };
-use std::{collections::BTreeMap, io::Write, path::Path};
+use std::{collections::BTreeMap, path::Path};
 
 const DOMAIN: &[u8] = b"ACTIVECHAIN-PQ-SESSION-V2";
 const KDF_DOMAIN: &[u8] = b"ACTIVECHAIN-PQ-SESSION-KDF-V2";
@@ -451,8 +451,7 @@ impl PeerSocket {
         if frame.len() > MAX_PEER_FRAME_LEN {
             return Err(invalid_data("PQ session frame exceeds limit"));
         }
-        self.stream.write_all(&(frame.len() as u32).to_be_bytes())?;
-        self.stream.write_all(frame)
+        self.write_frame(frame)
     }
 
     pub fn send_protected_message(
