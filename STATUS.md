@@ -69,6 +69,22 @@ Tracked by [GitHub issue #332](https://github.com/advatar/ActiveChain/issues/332
 - [ ] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
   #332.
 
+## Critical codec recovery — canonical type-tag registry
+
+Tracked by [GitHub issue #333](https://github.com/advatar/ActiveChain/issues/333).
+
+- [ ] Inventory every production canonical type in one machine-readable registry and distinguish
+  intentional aliases from independent protocol types.
+- [ ] Assign a unique v1 `(type tag, schema version)` identity to every live type without consuming
+  reserved v1.1/v1.2 extension ranges.
+- [ ] Migrate or reject legacy collided envelopes explicitly and regenerate every affected vector,
+  manifest, header, and external-verifier fixture.
+- [ ] Bind an unambiguous registered type identity into canonical value commitments and signatures.
+- [ ] Add CI enforcement for registry completeness, uniqueness, allowed ranges, and cross-type
+  decode/commitment rejection, including the demonstrated asset/RPC collision.
+- [ ] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
+  #333.
+
 ## Critical transport recovery — mutually authenticated peer sessions
 
 Tracked by [GitHub issue #330](https://github.com/advatar/ActiveChain/issues/330).
