@@ -1,3 +1,4 @@
+import ActiveChainWallet
 import Foundation
 import Security
 import CryptoKit
@@ -221,11 +222,14 @@ final class RustAppleMLDSA44Engine: AppleMLDSA44Engine {
     }
 
     private static func map(_ code: UInt32) -> AppleCustodyError {
-        switch code {
-        case ACTIVECHAIN_WALLET_INVALID_SIGNATURE: .invalidSignature
-        case ACTIVECHAIN_WALLET_MALFORMED, ACTIVECHAIN_WALLET_NULL_POINTER: .invalidKeyMaterial
-        default: .cryptographicFailure
+        if code == UInt32(ACTIVECHAIN_WALLET_INVALID_SIGNATURE) {
+            return .invalidSignature
         }
+        if code == UInt32(ACTIVECHAIN_WALLET_MALFORMED)
+            || code == UInt32(ACTIVECHAIN_WALLET_NULL_POINTER) {
+            return .invalidKeyMaterial
+        }
+        return .cryptographicFailure
     }
 }
 

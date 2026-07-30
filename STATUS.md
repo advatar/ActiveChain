@@ -40,7 +40,7 @@ Tracked by [GitHub issue #327](https://github.com/advatar/ActiveChain/issues/327
   independently encrypted recovery envelopes.
 - [x] Implement Apple Keychain/Secure Enclave wrapping for backup-excluded ML-DSA-44 slots, keeping
   plaintext secret bytes transient inside the native provider and zeroizing them after signing.
-  - [ ] Replace the Apple test-only ML-DSA engine with the wire-compatible Rust implementation,
+  - [x] Replace the Apple test-only ML-DSA engine with the wire-compatible Rust implementation,
     deriving public keys and producing self-verified signatures from transient unwrapped seeds.
 - [x] Implement Android Keystore/StrongBox wrapping with user authentication and backup exclusion,
   keeping plaintext secret bytes transient inside the native provider and zeroizing them after
