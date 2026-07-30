@@ -367,6 +367,7 @@ name = "activechain-proposal-gateway"
 version = "0.1.0"
 dependencies = [
  "activechain-agent-interfaces",
+ "activechain-application-primitives",
  "activechain-canonical-codec",
  "activechain-protocol-types",
  "serde",

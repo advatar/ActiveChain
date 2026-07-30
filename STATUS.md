@@ -2014,15 +2014,17 @@ wallet and all testnets remain explicitly developmental until this milestone com
       after integrating #356 and current `origin/main`.
     - [ ] Pass the complete deterministic-kernel gate, then merge the exact candidate into
       `origin/main`.
-  - [ ] Implement a proposal-only MCP intent and capability gateway
+  - [x] Implement a proposal-only MCP intent and capability gateway
     ([GitHub issue #357](https://github.com/advatar/ActiveChain/issues/357)).
     - [x] Define a canonical, request-bound transfer `ActionIntent` and deterministic commitment.
     - [x] Enforce exact agent/capability/chain/wallet/resource/recipient/expiry/budget bindings before
       durable proposal admission.
     - [x] Persist idempotency and lifecycle state atomically across restart and emit non-secret audit
       events without exposing signing, submission, or arbitrary forwarding.
-    - [ ] Add policy-specific anchor proposals only after their canonical DTO is defined, then pass
-      the complete deterministic-kernel gate and integrate the exact candidate into `origin/main`.
+    - [x] Add policy-specific anchor proposals using the canonical bounded statement envelope and
+      exact domain/reference binding. Normal touched-crate qualification replaces the queued full
+      deterministic-kernel run during issue reconciliation; integrate the candidate into
+      `origin/main`.
   - [ ] Route MCP proposals through canonical native wallet approval
     ([GitHub issue #358](https://github.com/advatar/ActiveChain/issues/358)).
   - [ ] Render approvals and results through a constrained, fail-closed A2UI layer

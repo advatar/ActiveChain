@@ -5,6 +5,7 @@
 use std::{collections::BTreeMap, fs::File, io::Write, path::Path};
 
 use activechain_agent_interfaces::AuthorityBindingV1;
+use activechain_application_primitives::DigestAnchorStatementV1;
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     decode_envelope, encode_envelope,
@@ -163,6 +164,14 @@ pub struct TransferProposalArgumentsV1 {
     pub replay_domain: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AnchorProposalArgumentsV1 {
+    /// Canonical `DigestAnchorStatementV1` envelope encoded as hexadecimal.
+    pub statement_envelope: String,
+    pub replay_domain: String,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AuthenticatedProposalContext {
     pub chain_id: String,
@@ -174,6 +183,7 @@ pub struct AuthenticatedProposalContext {
     pub maximum_single_amount: u128,
     pub remaining_budget: u128,
     pub maximum_fee: u128,
+    pub permitted_anchor_domain: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -215,7 +225,30 @@ impl ProposalJournalV1 {
     ) -> Result<(ProposalReceipt, AuditEvent), GatewayError> {
         let intent =
             build_transfer_intent(request_id, authority, arguments, context, current_height)?;
-        let key = request_id.as_bytes();
+        self.admit_durable(intent, context, path)
+    }
+
+    pub fn propose_anchor_durable(
+        &mut self,
+        request_id: &str,
+        authority: &AuthorityBindingV1,
+        arguments: &AnchorProposalArgumentsV1,
+        context: &AuthenticatedProposalContext,
+        current_height: u64,
+        path: &Path,
+    ) -> Result<(ProposalReceipt, AuditEvent), GatewayError> {
+        let intent =
+            build_anchor_intent(request_id, authority, arguments, context, current_height)?;
+        self.admit_durable(intent, context, path)
+    }
+
+    fn admit_durable(
+        &mut self,
+        intent: ActionIntentV1,
+        context: &AuthenticatedProposalContext,
+        path: &Path,
+    ) -> Result<(ProposalReceipt, AuditEvent), GatewayError> {
+        let key = intent.request_id.as_slice();
         if let Some(existing) = self.proposals.get(key) {
             if existing != &intent {
                 return Err(GatewayError::ReplayConflict);
@@ -229,17 +262,22 @@ impl ProposalJournalV1 {
         }) {
             return Err(GatewayError::ReplayConflict);
         }
-        let used_budget = self
-            .proposals
-            .values()
-            .filter(|existing| existing.capability_id == intent.capability_id)
-            .try_fold(0_u128, |used, existing| used.checked_add(existing.amount))
-            .ok_or(GatewayError::BudgetExceeded)?;
-        if used_budget
-            .checked_add(intent.amount)
-            .is_none_or(|total| total > context.remaining_budget)
-        {
-            return Err(GatewayError::BudgetExceeded);
+        if intent.action == ActionKindV1::Transfer {
+            let used_budget = self
+                .proposals
+                .values()
+                .filter(|existing| {
+                    existing.capability_id == intent.capability_id
+                        && existing.action == ActionKindV1::Transfer
+                })
+                .try_fold(0_u128, |used, existing| used.checked_add(existing.amount))
+                .ok_or(GatewayError::BudgetExceeded)?;
+            if used_budget
+                .checked_add(intent.amount)
+                .is_none_or(|total| total > context.remaining_budget)
+            {
+                return Err(GatewayError::BudgetExceeded);
+            }
         }
         if self.proposals.len() >= MAX_PROPOSALS {
             return Err(GatewayError::Capacity);
@@ -386,13 +424,83 @@ fn build_transfer_intent(
     Ok(intent)
 }
 
+fn build_anchor_intent(
+    request_id: &str,
+    authority: &AuthorityBindingV1,
+    arguments: &AnchorProposalArgumentsV1,
+    context: &AuthenticatedProposalContext,
+    current_height: u64,
+) -> Result<ActionIntentV1, GatewayError> {
+    validate_common_authority(request_id, authority, context, current_height)?;
+    let statement_bytes = parse_hex_bytes(
+        &arguments.statement_envelope,
+        DigestAnchorStatementV1::MAX_ENCODED_LEN + 9,
+    )?;
+    let statement: DigestAnchorStatementV1 =
+        decode_envelope(&statement_bytes).map_err(|_| GatewayError::InvalidArguments)?;
+    let permitted_domain =
+        context.permitted_anchor_domain.as_deref().ok_or(GatewayError::PolicyDenied)?;
+    if statement.application_domain() != permitted_domain {
+        return Err(GatewayError::PolicyDenied);
+    }
+    let resource = statement.submission_reference().map_err(|_| GatewayError::InvalidArguments)?;
+    if resource != context.permitted_resource {
+        return Err(GatewayError::PolicyDenied);
+    }
+    let replay_domain = parse_digest(&arguments.replay_domain)?;
+    let intent = ActionIntentV1 {
+        request_id: request_id.as_bytes().to_vec(),
+        chain_id: authority.chain_id.as_bytes().to_vec(),
+        wallet_id: authority.wallet_id.as_bytes().to_vec(),
+        agent_principal: context.agent_principal,
+        capability_id: context.capability_id,
+        request_nonce: authority.request_nonce.as_bytes().to_vec(),
+        action: ActionKindV1::SubmitAnchor,
+        resource,
+        recipient: domain_digest(b"ACTIVECHAIN-MCP-ANCHOR-DOMAIN-V1", permitted_domain),
+        amount: 1,
+        maximum_fee: 0,
+        expires_at_height: authority.expires_at_height,
+        replay_domain,
+    };
+    if intent.commitment()? != parse_digest(&authority.intent_commitment)? {
+        return Err(GatewayError::InvalidAuthority);
+    }
+    Ok(intent)
+}
+
+fn validate_common_authority(
+    request_id: &str,
+    authority: &AuthorityBindingV1,
+    context: &AuthenticatedProposalContext,
+    current_height: u64,
+) -> Result<(), GatewayError> {
+    validate_identifier(request_id)?;
+    validate_identifier(&authority.chain_id)?;
+    validate_identifier(&authority.wallet_id)?;
+    validate_identifier(&authority.request_nonce)?;
+    let agent = parse_digest(&authority.agent_principal)?;
+    let capability = parse_digest(&authority.capability_id)?;
+    if authority.chain_id != context.chain_id
+        || authority.wallet_id != context.wallet_id
+        || agent != context.agent_principal
+        || capability != context.capability_id
+    {
+        return Err(GatewayError::InvalidAuthority);
+    }
+    if authority.expires_at_height <= current_height {
+        return Err(GatewayError::Expired);
+    }
+    Ok(())
+}
+
 fn result_for(
     intent: &ActionIntentV1,
     duplicate: bool,
 ) -> Result<(ProposalReceipt, AuditEvent), GatewayError> {
     let proposal_id = intent.proposal_id()?;
     let intent_commitment = intent.commitment()?;
-    let approval = if intent.amount > 1_000_000 {
+    let approval = if intent.action == ActionKindV1::Transfer && intent.amount > 1_000_000 {
         ApprovalRequirement::NativeWalletReviewWithWarning
     } else {
         ApprovalRequirement::NativeWalletReview
@@ -430,6 +538,17 @@ fn parse_digest(value: &str) -> Result<Digest384, GatewayError> {
     }
     let digest = Digest384::new(output);
     if digest == Digest384::ZERO { Err(GatewayError::InvalidArguments) } else { Ok(digest) }
+}
+
+fn parse_hex_bytes(value: &str, maximum: usize) -> Result<Vec<u8>, GatewayError> {
+    if value.is_empty() || !value.len().is_multiple_of(2) || value.len() / 2 > maximum {
+        return Err(GatewayError::InvalidArguments);
+    }
+    value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| Ok((hex_nibble(pair[0])? << 4) | hex_nibble(pair[1])?))
+        .collect()
 }
 
 fn hex_nibble(value: u8) -> Result<u8, GatewayError> {
@@ -480,6 +599,7 @@ mod tests {
             maximum_single_amount: 2_000_000,
             remaining_budget: 3_000_000,
             maximum_fee: 100,
+            permitted_anchor_domain: None,
         }
     }
 
@@ -526,6 +646,105 @@ mod tests {
     fn path(label: &str) -> std::path::PathBuf {
         std::env::temp_dir()
             .join(format!("activechain-proposal-gateway-{}-{label}.snapshot", std::process::id()))
+    }
+
+    fn anchor_arguments(statement: &DigestAnchorStatementV1) -> AnchorProposalArgumentsV1 {
+        AnchorProposalArgumentsV1 {
+            statement_envelope: encode_envelope(statement)
+                .unwrap()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect(),
+            replay_domain: hex(digest(5)),
+        }
+    }
+
+    fn anchor_authority(
+        statement: &DigestAnchorStatementV1,
+        arguments: &AnchorProposalArgumentsV1,
+    ) -> (AuthorityBindingV1, AuthenticatedProposalContext) {
+        let mut context = context();
+        context.permitted_resource = statement.submission_reference().unwrap();
+        context.permitted_anchor_domain = Some(statement.application_domain().to_vec());
+        let mut authority = AuthorityBindingV1 {
+            chain_id: context.chain_id.clone(),
+            wallet_id: context.wallet_id.clone(),
+            agent_principal: hex(context.agent_principal),
+            capability_id: hex(context.capability_id),
+            request_nonce: "anchor.nonce.1".into(),
+            expires_at_height: 50,
+            intent_commitment: hex(digest(9)),
+        };
+        let intent = build_anchor_intent("anchor.request.1", &authority, arguments, &context, 10)
+            .unwrap_err();
+        assert_eq!(intent, GatewayError::InvalidAuthority);
+        let replay_domain = parse_digest(&arguments.replay_domain).unwrap();
+        let expected = ActionIntentV1 {
+            request_id: b"anchor.request.1".to_vec(),
+            chain_id: authority.chain_id.as_bytes().to_vec(),
+            wallet_id: authority.wallet_id.as_bytes().to_vec(),
+            agent_principal: context.agent_principal,
+            capability_id: context.capability_id,
+            request_nonce: authority.request_nonce.as_bytes().to_vec(),
+            action: ActionKindV1::SubmitAnchor,
+            resource: context.permitted_resource,
+            recipient: domain_digest(
+                b"ACTIVECHAIN-MCP-ANCHOR-DOMAIN-V1",
+                statement.application_domain(),
+            ),
+            amount: 1,
+            maximum_fee: 0,
+            expires_at_height: authority.expires_at_height,
+            replay_domain,
+        };
+        authority.intent_commitment = hex(expected.commitment().unwrap());
+        (authority, context)
+    }
+
+    #[test]
+    fn anchor_proposal_binds_exact_statement_domain_and_restart_state() {
+        let statement =
+            DigestAnchorStatementV1::new(b"example.anchor.v1".to_vec(), [7; 32]).unwrap();
+        let arguments = anchor_arguments(&statement);
+        let (authority, context) = anchor_authority(&statement, &arguments);
+        let path = path("anchor");
+        let mut journal = ProposalJournalV1::default();
+        let (receipt, event) = journal
+            .propose_anchor_durable("anchor.request.1", &authority, &arguments, &context, 10, &path)
+            .unwrap();
+        assert_eq!(event.action, ActionKindV1::SubmitAnchor);
+        assert!(!receipt.duplicate);
+        let mut restarted = ProposalJournalV1::load(&path).unwrap();
+        assert!(
+            restarted
+                .propose_anchor_durable(
+                    "anchor.request.1",
+                    &authority,
+                    &arguments,
+                    &context,
+                    10,
+                    &path,
+                )
+                .unwrap()
+                .0
+                .duplicate
+        );
+
+        let other = DigestAnchorStatementV1::new(b"other.anchor.v1".to_vec(), [7; 32]).unwrap();
+        let mut substituted = anchor_arguments(&other);
+        substituted.replay_domain = arguments.replay_domain;
+        assert_eq!(
+            restarted.propose_anchor_durable(
+                "anchor.request.1",
+                &authority,
+                &substituted,
+                &context,
+                10,
+                &path,
+            ),
+            Err(GatewayError::PolicyDenied)
+        );
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

@@ -16,6 +16,12 @@ canonically encodes it, derives its domain-separated 384-bit commitment, and rej
 Changing the amount, fee, recipient, resource, nonce, expiry, principal, capability, chain, wallet,
 or request ID therefore changes the commitment.
 
+`activechain_submit_anchor_proposal` accepts only a bounded canonical
+`DigestAnchorStatementV1` envelope. The authenticated capability context fixes the permitted
+application domain and exact statement reference. The resulting intent binds that reference,
+domain, replay domain, agent, wallet, chain, nonce, and expiry before entering the same durable
+native-wallet-review lifecycle.
+
 ## Lifecycle and replay
 
 Before returning, the gateway atomically persists a tagged canonical `ProposalJournalV1` snapshot
@@ -32,4 +38,4 @@ status. It contains no credentials, signatures, secrets, or reusable authorizati
 This crate contains no signing key, signer interface, transaction builder, submitter, arbitrary RPC
 forwarder, or generic signing tool. Its only consequential output is a proposal requiring
 `native_wallet_review` (or review with a deterministic warning). Native-wallet approval and dispatch
-belong to #358. Anchor proposals remain disabled until their policy-specific canonical DTO exists.
+belong to #358. Anchor proposals never call the anchor submission RPC directly.

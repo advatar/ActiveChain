@@ -8,6 +8,7 @@ description = "Durable proposal-only MCP authority and intent gateway"
 
 [dependencies]
 activechain-agent-interfaces.workspace = true
+activechain-application-primitives.workspace = true
 activechain-canonical-codec.workspace = true
 activechain-protocol-types.workspace = true
 serde.workspace = true
