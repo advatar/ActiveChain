@@ -1,6 +1,6 @@
 use activechain_consensus_runtime::{
-    PeerListener, ValidatorService, load_genesis, load_snapshot,
-    load_snapshot_chain_genesis_commitment, save_snapshot,
+    PeerIngressMetricsSnapshot, PeerIngressMonitor, PeerListener, ValidatorService, load_genesis,
+    load_snapshot, load_snapshot_chain_genesis_commitment, save_snapshot,
 };
 use activechain_protocol_types::ConsensusState;
 use activechain_protocol_types::Digest384;
@@ -10,6 +10,32 @@ use sha3::{
 };
 use std::env;
 use std::path::Path;
+
+fn log_ingress_metrics(validator_id: u16, metrics: PeerIngressMetricsSnapshot) {
+    eprintln!(
+        "peer_ingress event=metrics validator={validator_id} accepted={} active={} queued={} shed={} pre_auth_rate_limited={} recovered={}",
+        metrics.accepted,
+        metrics.active,
+        metrics.queued,
+        metrics.shed,
+        metrics.pre_auth_rate_limited,
+        metrics.recovered,
+    );
+}
+
+fn spawn_ingress_metrics_logger(monitor: PeerIngressMonitor, validator_id: u16) {
+    std::thread::spawn(move || {
+        let mut previous = PeerIngressMetricsSnapshot::default();
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(30));
+            let current = monitor.snapshot();
+            if current != previous {
+                log_ingress_metrics(validator_id, current);
+                previous = current;
+            }
+        }
+    });
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = env::args().skip(1);
@@ -81,6 +107,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         save_snapshot(Path::new(path), &state)?;
     }
     let listener = PeerListener::bind(("0.0.0.0", port))?;
+    let ingress_monitor = listener.monitor();
     println!(
         "activechain validator listening on {} (epoch {}, finalized height {})",
         listener.local_addr()?,
@@ -209,6 +236,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "network round metrics: proposals={} votes={} rejected={}",
                 metrics.proposals, metrics.votes, metrics.rejected_messages
             );
+            log_ingress_metrics(local_peer_id, ingress_monitor.snapshot());
             return Ok(());
         }
         if run_once {
@@ -272,6 +300,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         if let Some(index) = validator_index {
             let local_peer_id = index as u16 + 1;
+            spawn_ingress_metrics_logger(ingress_monitor, local_peer_id);
             let signer =
                 std::sync::Arc::clone(signer.as_ref().ok_or("validator signer was not loaded")?);
             listener.spawn_accept_loop(move |peer| {
@@ -289,6 +318,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err("validator genesis requires a configured validator index".into());
         }
     } else {
+        spawn_ingress_metrics_logger(ingress_monitor, 0);
         listener.spawn_accept_loop(|mut peer| {
             let _ = peer.receive_frame();
         })?;
