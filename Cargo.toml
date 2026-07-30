@@ -51,6 +51,7 @@ members = [
     "crates/storage-sync",
     "crates/storage-qualification",
     "crates/archive-settlement",
+    "crates/storage-transition",
     "crates/transition",
     "node/semantic-devnet",
     "tools/vector-generator",
@@ -112,6 +113,7 @@ activechain-accumulator = { path = "crates/accumulator", version = "0.1.0" }
 activechain-storage-sync = { path = "crates/storage-sync", version = "0.1.0" }
 activechain-storage-qualification = { path = "crates/storage-qualification", version = "0.1.0" }
 activechain-archive-settlement = { path = "crates/archive-settlement", version = "0.1.0" }
+activechain-storage-transition = { path = "crates/storage-transition", version = "0.1.0" }
 activechain-transition = { path = "crates/transition", version = "0.1.0" }
 proptest = { version = "1.7.0", default-features = false, features = ["std"] }
 p3-air = "=0.6.2"

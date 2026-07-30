@@ -546,6 +546,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-storage-transition"
+version = "0.1.0"
+dependencies = [
+ "activechain-archive",
+ "activechain-canonical-codec",
+ "activechain-protocol-types",
+ "activechain-state-tree",
+ "activechain-storage-profile",
+ "activechain-storage-rent",
+]
+
+[[package]]
 name = "activechain-transition"
 version = "0.1.0"
 dependencies = [

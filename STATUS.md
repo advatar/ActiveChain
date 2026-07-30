@@ -31,7 +31,10 @@ normative and measurement slice in [#398](https://github.com/advatar/ActiveChain
   ([GitHub issue #409](https://github.com/advatar/ActiveChain/issues/409)).
   - [x] Add checked byte-epoch quotes, pressure admission, bounded endowments, archive-certified
     hibernation, and owner-copy restoration.
-  - [ ] Integrate rent and hibernation commands with authenticated global state transitions.
+  - [x] Integrate rent and hibernation commands with authenticated global state transitions.
+    - [x] Add proof-authenticated canonical object renew, hibernate, and restore transitions
+      ([GitHub issue #420](https://github.com/advatar/ActiveChain/issues/420)).
+    - [ ] Route storage commands through finalized transaction ingress after #167/#180 land.
   - [x] Add stateless witnessed sparse replay sets and append-only header history commitments
     ([GitHub issue #411](https://github.com/advatar/ActiveChain/issues/411)).
   - [ ] Migrate bounded production replay collections to the witnessed accumulator roots.
