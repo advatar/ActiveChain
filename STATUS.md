@@ -2,6 +2,16 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Active landing-page rebrand — Actum
+
+Tracked by [GitHub issue #391](https://github.com/advatar/ActiveChain/issues/391).
+
+- [x] Rebrand the public landing-page copy and metadata from ActiveChain to Actum while retaining
+  compatibility-sensitive protocol, repository, RPC, and network identifiers for a later phase.
+- [x] Add a regression check for the public brand surface and pass landing-page lint and production
+  build verification.
+- [ ] Merge the verified landing-page revision and parent submodule update into `main`.
+
 ## Landing-page information architecture
 
 GitHub issue creation pending restoration of the repository's `gh` authentication.
