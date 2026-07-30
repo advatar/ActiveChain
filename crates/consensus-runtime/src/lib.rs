@@ -6540,6 +6540,97 @@ mod tests {
     }
 
     #[test]
+    fn authenticated_rate_limit_is_reached_before_protected_frame_decode() {
+        use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
+        let local = Arc::new(ValidatorSigner::from_seed(
+            PrincipalId::new(Digest384::new([141; 48])),
+            [142; 32],
+        ));
+        let remote =
+            ValidatorSigner::from_seed(PrincipalId::new(Digest384::new([143; 48])), [144; 32]);
+        let genesis = ValidatorGenesis::new(
+            1,
+            1,
+            vec![
+                ValidatorGenesisEntry::new(
+                    local.validator(),
+                    1,
+                    local.public_key().try_into().unwrap(),
+                )
+                .unwrap(),
+                ValidatorGenesisEntry::new(
+                    remote.validator(),
+                    1,
+                    remote.public_key().try_into().unwrap(),
+                )
+                .unwrap(),
+            ],
+        )
+        .unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "activechain-rate-limit-{}-{:?}.bin",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let session_path = path.with_extension("sessions");
+        let service = Arc::new(
+            ValidatorService::from_genesis(
+                ConsensusState::new_with_validator_set_root(1, genesis.validator_set_root()),
+                &genesis,
+                path.clone(),
+            )
+            .unwrap(),
+        );
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let (ready_sender, ready_receiver) = mpsc::channel();
+        let (go_sender, go_receiver) = mpsc::channel();
+        let server_service = Arc::clone(&service);
+        let server_signer = Arc::clone(&local);
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let (mut peer, session) = server_service
+                .authenticate_inbound_peer(PeerSocket::connect(stream), 1, &server_signer)
+                .unwrap();
+            ready_sender.send(()).unwrap();
+            go_receiver.recv().unwrap();
+            let limited = server_service.receive_session_message(&mut peer, &session).unwrap_err();
+            assert_eq!(limited.kind(), std::io::ErrorKind::WouldBlock);
+            server_service.authenticated_rate_limits.lock().unwrap().clear();
+            server_service.receive_session_message(&mut peer, &session).unwrap()
+        });
+
+        let mut client = PeerSocket::connect(TcpStream::connect(address).unwrap());
+        let session = client
+            .initiate_pq_session(
+                PqSessionContext {
+                    chain: genesis.genesis_commitment(),
+                    epoch: genesis.epoch(),
+                    protocol_revision: genesis.protocol_revision(),
+                    initiator: 2,
+                    responder: 1,
+                },
+                &remote,
+                &local.public_key(),
+            )
+            .unwrap();
+        ready_receiver.recv().unwrap();
+        let window = Instant::now();
+        for _ in 0..MAX_AUTHENTICATED_MESSAGES_PER_SECOND {
+            assert!(service.allow_authenticated_receive(2, window).unwrap());
+        }
+        let proposal = sign_genesis_proposal(&local, &genesis, 1, 0, Digest384::new([145; 48]));
+        let sent = remote.sign_envelope(2, 1, ConsensusMessage::Proposal(proposal)).unwrap();
+        client.send_protected_message(&session, 1, &sent).unwrap();
+        go_sender.send(()).unwrap();
+        assert_eq!(server.join().unwrap(), sent);
+        assert_eq!(service.metrics().peer_rate_limited, 1);
+        drop(client);
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(session_path);
+    }
+
+    #[test]
     fn live_vote_sequence_is_local_durable_state_not_remote_sequence() {
         use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
         let local = std::sync::Arc::new(ValidatorSigner::from_seed(
