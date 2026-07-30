@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 activechain-crypto-provider.workspace = true
 activechain-protocol-types.workspace = true
+activechain-protocol-commitment.workspace = true
 activechain-canonical-codec.workspace = true
 activechain-action-kernel.workspace = true
 activechain-application-primitives.workspace = true

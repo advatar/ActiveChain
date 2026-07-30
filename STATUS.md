@@ -143,6 +143,23 @@ Tracked by [GitHub issue #336](https://github.com/advatar/ActiveChain/issues/336
 - [x] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
   #336.
 
+## Critical fee recovery — bounded economically backed tickets
+
+Tracked by [GitHub issue #337](https://github.com/advatar/ActiveChain/issues/337).
+
+- [x] Define canonical ticket backing, issuer authority, uniqueness, validity, and replay-window
+  semantics with an explicit consensus state-growth bound.
+- [x] Verify and atomically consume backing with each charged action before state execution.
+- [x] Replace permanent ticket history with consensus-safe expiry pruning and bounded snapshot
+  migration while preserving replay rejection.
+- [x] Add forged, duplicate, expired, future, restart, pruning-boundary, saturation, property, and
+  sustained-hostile-traffic tests.
+- [x] Raise the deterministic-kernel job timeout so the exact candidate can complete the full
+  formal, model-checking, test, release, rehearsal, and vector gate without a deterministic
+  120-minute cancellation.
+- [x] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
+  #337.
+
 ## Critical transport recovery — mutually authenticated peer sessions
 
 Tracked by [GitHub issue #330](https://github.com/advatar/ActiveChain/issues/330).
@@ -159,6 +176,23 @@ Tracked by [GitHub issue #330](https://github.com/advatar/ActiveChain/issues/330
   corruption, and protected-frame mutation in unit and live process tests.
 - [x] Align the Rust implementation, Tamarin model, canonical vectors, operations guidance, and
   observability; pass the deterministic-kernel gate and merge #330 to `main`.
+
+## Critical ingress recovery — bounded authenticated network service
+
+Tracked by [GitHub issue #338](https://github.com/advatar/ActiveChain/issues/338).
+
+- [x] Replace the unbounded thread-per-connection listener with a fixed worker set, bounded socket
+  queue, and immediate overload shedding whose resource ceilings are operator-visible.
+- [x] Enforce absolute handshake, frame read/write, authenticated-session idle, lifetime, and
+  message-count limits so byte-drip and stalled peers cannot retain workers indefinitely.
+- [x] Put bounded pre-authentication limits on the server-observed source address and
+  service-level limits on the authenticated validator identity before expensive message decoding.
+- [x] Expose accepted, active, queued, shed, timed-out, rate-limited, malformed, and recovered
+  traffic metrics with structured operator diagnostics.
+- [x] Add slow-drip, connection-flood, oversized/expensive-invalid-frame, reachable-rate-limit,
+  recovery, and healthy-peer-under-hostile-load tests.
+- [x] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
+  #338.
 
 ## Deterministic-kernel CI baseline
 
@@ -1873,6 +1907,20 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
   - [ ] Consolidate verified release branches into `main`, retire superseded branches, and enforce
     a single active implementation branch per issue
     ([GitHub issue #125](https://github.com/advatar/ActiveChain/issues/125)).
+
+## Planned initiative — Kenya VASP and stablecoin regulatory profile
+
+- [ ] Implement fail-closed Kenya VASP and stablecoin regulatory support aligned to the 2025 Act
+  and 2026 Regulations without representing protocol capability as legal approval
+  ([GitHub issue #369](https://github.com/advatar/ActiveChain/issues/369)).
+  - [ ] Publish a regulation-by-regulation Kenya control register and source/version metadata.
+  - [ ] Replace the Kenya design placeholder with versioned VASP and stablecoin-issuer manifests.
+  - [ ] Add canonical activation validation for mandatory controls, approvals, validity, and policy
+    commitments.
+  - [ ] Add deterministic positive, negative, expiry, ambiguity, inheritance, and cross-border
+    conformance vectors and unit tests.
+  - [ ] Document deployment gates for licensing, regulator approval, counsel, reserves, custody,
+    audits, reporting, and operating-period evidence.
 
 ## Planned milestone — external pre-launch security audit
 

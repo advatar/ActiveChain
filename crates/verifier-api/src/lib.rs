@@ -1150,7 +1150,9 @@ mod tests {
     fn block_receipt_verifier_binds_finality_root_height_and_state_transition() {
         let pre_state = StateCommitment::new(digest(60), 2);
         let post_state = StateCommitment::new(digest(61), 3);
-        let receipt = BlockReceipt::new(digest(62), 9, pre_state, post_state, vec![]).unwrap();
+        let receipt =
+            BlockReceipt::new(digest(62), 9, pre_state, post_state, digest(64), digest(65), vec![])
+                .unwrap();
         let receipt_root = commit(DomainTag::CANONICAL_VALUE, &receipt).unwrap();
         let finality = encode_envelope(&finality_bundle_with_inputs(
             receipt_root,
@@ -1164,7 +1166,16 @@ mod tests {
         assert_eq!(verify_block_receipt(&finality, &encoded), Ok(receipt.clone()));
 
         let substituted = encode_envelope(
-            &BlockReceipt::new(digest(63), 9, pre_state, post_state, vec![]).unwrap(),
+            &BlockReceipt::new(
+                digest(63),
+                9,
+                pre_state,
+                post_state,
+                digest(64),
+                digest(65),
+                vec![],
+            )
+            .unwrap(),
         )
         .unwrap();
         assert_eq!(
@@ -1172,7 +1183,16 @@ mod tests {
             VerifyError::RelationMismatch.code()
         );
         let wrong_height = encode_envelope(
-            &BlockReceipt::new(digest(62), 10, pre_state, post_state, vec![]).unwrap(),
+            &BlockReceipt::new(
+                digest(62),
+                10,
+                pre_state,
+                post_state,
+                digest(64),
+                digest(65),
+                vec![],
+            )
+            .unwrap(),
         )
         .unwrap();
         assert_eq!(
@@ -1186,7 +1206,7 @@ mod tests {
         trailing.push(0);
         assert_ne!(verify_block_receipt_code(&finality, &trailing), VERIFY_OK);
         let mut wrong_version = encoded;
-        wrong_version[3] = 2;
+        wrong_version[3] = 3;
         assert_eq!(
             verify_block_receipt_code(&finality, &wrong_version),
             VerifyError::VersionMismatch.code()
@@ -1203,6 +1223,8 @@ mod tests {
             9,
             pre_state,
             post_state,
+            digest(64),
+            digest(65),
             vec![ActionReceipt::new(
                 transaction,
                 ActionOutcome::ResourceLimitExceeded,

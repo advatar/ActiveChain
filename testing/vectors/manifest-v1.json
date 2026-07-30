@@ -62,9 +62,9 @@
     {
       "id": "devnet-block-v1",
       "type_tag": "0x0073",
-      "schema_version": 1,
+      "schema_version": 2,
       "source": "devnet/devnet-block-v1.txt",
-      "sha256": "80050406b27ad3f53bf3094938a9e39c5154e38eaa03240d84f3c9317fa9b627",
+      "sha256": "dde6ad90280686ff53ca0302f8a61863addb6fc0768812efd0a58c7d990426c4",
       "status": "valid"
     },
     {

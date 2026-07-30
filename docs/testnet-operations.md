@@ -183,7 +183,23 @@ through three authenticated processes, and restarts each validator from durable 
 
 Metrics exposed by `ValidatorService::metrics()` are intentionally monotonic: `proposals`, `votes`,
 `finalized_certificates`, `rejected_messages`, `peer_sessions_established`, and
-`peer_session_rejections`.
+`peer_session_rejections`, `peer_rate_limited`, `peer_timeouts`, and `peer_malformed_frames`.
+`PeerListener::monitor()` separately exposes monotonic accepted, shed, pre-authentication-limited,
+and recovered connection counts plus the current active and queued gauges. The production defaults
+are 16 workers, 64 queued sockets, 32 accepted connections per observed source IP per second, and
+1,024 tracked source windows. A full queue is shed immediately; it never creates another worker.
+Configuration is rejected above the compiled ceilings of 64 workers, 1,024 queued sockets, 4,096
+pre-authentication accepts per source per second, or 8,192 tracked source windows.
+
+Every handshake and frame has a five-second absolute completion deadline. Authenticated sessions
+also have a 30-second idle deadline, a five-minute lifetime, a 4,096-message ceiling, and a
+256-message-per-second validator-identity limit applied before protected-message decoding. These
+are protocol-service safety ceilings, not capacity targets. Alert immediately on any non-zero shed,
+timeout, malformed-frame, or rate-limited count during an expected healthy three-validator run;
+alert on an active count pinned at 16 or a non-zero queue for more than 30 seconds. Correlate
+`peer_ingress event=queue_full`, `pre_auth_rate_limited`, `authenticated_rate_limited`, and
+`handler_panic` diagnostics with the corresponding counters. Do not raise these limits to mask an
+incident; restrict the source at the VPN/firewall boundary and preserve logs for investigation.
 
 ## Public DNS and TLS
 
