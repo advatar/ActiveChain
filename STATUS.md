@@ -1902,3 +1902,6 @@ wallet and all testnets remain explicitly developmental until this milestone com
     ([GitHub issue #362](https://github.com/advatar/ActiveChain/issues/362)).
   - [ ] Complete adversarial security, compatibility, and operational qualification
     ([GitHub issue #359](https://github.com/advatar/ActiveChain/issues/359)).
+  - [ ] Announce the planned MCP and constrained A2UI interfaces on the public landing page
+    without presenting them as shipped or audited
+    ([GitHub issue #364](https://github.com/advatar/ActiveChain/issues/364)).
