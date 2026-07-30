@@ -48,6 +48,7 @@ dependencies = [
  "activechain-policy-kernel",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
+ "activechain-state-tree",
  "activechain-transition",
  "sha3 0.10.9",
 ]
@@ -122,8 +123,11 @@ name = "activechain-consensus-runtime"
 version = "0.1.0"
 dependencies = [
  "activechain-action-kernel",
+ "activechain-authorization-kernel",
  "activechain-canonical-codec",
+ "activechain-capability",
  "activechain-cash-kernel",
+ "activechain-credential",
  "activechain-crypto-provider",
  "activechain-data-availability",
  "activechain-devnet-kernel",

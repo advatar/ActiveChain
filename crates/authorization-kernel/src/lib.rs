@@ -20,6 +20,7 @@ use activechain_protocol_types::{
     CredentialStatusRegistry, CryptoSuiteId, Digest384, FreezeState, HolderBinding, PrincipalId,
     ProtocolSignature, RateLimit, ResourceSelector,
 };
+use activechain_state_tree::commit_objects;
 use activechain_transition::{
     ObjectState, ReceiptResult, TRANSFER_OBJECT_ACTION_ID, TransferTransaction, TransitionReceipt,
     apply_transfer_transaction,
@@ -42,6 +43,8 @@ pub const MAX_AUTHORIZATION_INVOCATIONS: usize = 4096;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AuthorizationEnvelope {
     invocation_id: Digest384,
+    chain_genesis_commitment: Digest384,
+    epoch: u64,
     actor: PrincipalId,
     height: u64,
     timestamp: u64,
@@ -61,6 +64,8 @@ impl AuthorizationEnvelope {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         invocation_id: Digest384,
+        chain_genesis_commitment: Digest384,
+        epoch: u64,
         actor: PrincipalId,
         height: u64,
         timestamp: u64,
@@ -76,6 +81,7 @@ impl AuthorizationEnvelope {
         actor_signature: ProtocolSignature,
     ) -> Result<Self, AuthorizationError> {
         if invocation_id == Digest384::ZERO
+            || chain_genesis_commitment == Digest384::ZERO
             || finalized_state_root == Digest384::ZERO
             || transition_commitment == Digest384::ZERO
             || actor_signature.suite() != CryptoSuiteId::ML_DSA_44
@@ -90,6 +96,8 @@ impl AuthorizationEnvelope {
         }
         Ok(Self {
             invocation_id,
+            chain_genesis_commitment,
+            epoch,
             actor,
             height,
             timestamp,
@@ -107,6 +115,12 @@ impl AuthorizationEnvelope {
     }
     pub const fn invocation_id(&self) -> Digest384 {
         self.invocation_id
+    }
+    pub const fn chain_genesis_commitment(&self) -> Digest384 {
+        self.chain_genesis_commitment
+    }
+    pub const fn epoch(&self) -> u64 {
+        self.epoch
     }
     pub const fn actor(&self) -> PrincipalId {
         self.actor
@@ -134,6 +148,8 @@ impl AuthorizationEnvelope {
 impl CanonicalEncode for AuthorizationEnvelope {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
         self.invocation_id.encode(e)?;
+        self.chain_genesis_commitment.encode(e)?;
+        self.epoch.encode(e)?;
         self.actor.encode(e)?;
         self.height.encode(e)?;
         self.timestamp.encode(e)?;
@@ -161,6 +177,8 @@ impl CanonicalEncode for AuthorizationEnvelope {
 impl CanonicalDecode for AuthorizationEnvelope {
     fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
         let invocation_id = Digest384::decode(d)?;
+        let chain_genesis_commitment = Digest384::decode(d)?;
+        let epoch = u64::decode(d)?;
         let actor = PrincipalId::decode(d)?;
         let height = u64::decode(d)?;
         let timestamp = u64::decode(d)?;
@@ -187,6 +205,8 @@ impl CanonicalDecode for AuthorizationEnvelope {
         }
         Self::new(
             invocation_id,
+            chain_genesis_commitment,
+            epoch,
             actor,
             height,
             timestamp,
@@ -206,8 +226,10 @@ impl CanonicalDecode for AuthorizationEnvelope {
 }
 impl CanonicalType for AuthorizationEnvelope {
     const TYPE_TAG: u16 = 0x007d;
-    const SCHEMA_VERSION: u16 = 1;
+    const SCHEMA_VERSION: u16 = 2;
     const MAX_ENCODED_LEN: usize = 48
+        + 48
+        + 8
         + 48
         + 8
         + 8
@@ -255,6 +277,38 @@ pub trait AuthorizationVerifier {
     ) -> bool;
 }
 
+/// Opaque capability emitted only by the complete joined authorization verifier.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VerifiedAuthorization {
+    envelope: AuthorizationEnvelope,
+    envelope_commitment: Digest384,
+    leaf_capability: CapabilityGrant,
+}
+
+impl VerifiedAuthorization {
+    pub const fn invocation_id(&self) -> Digest384 {
+        self.envelope.invocation_id
+    }
+    pub const fn chain_genesis_commitment(&self) -> Digest384 {
+        self.envelope.chain_genesis_commitment
+    }
+    pub const fn epoch(&self) -> u64 {
+        self.envelope.epoch
+    }
+    pub const fn actor(&self) -> PrincipalId {
+        self.envelope.actor
+    }
+    pub const fn finalized_state_root(&self) -> Digest384 {
+        self.envelope.finalized_state_root
+    }
+    pub const fn transition_commitment(&self) -> Digest384 {
+        self.envelope.transition_commitment
+    }
+    pub const fn envelope_commitment(&self) -> Digest384 {
+        self.envelope_commitment
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct BudgetUsage {
     uses: u64,
@@ -292,16 +346,16 @@ struct AuthorizationLedger {
 impl AuthorizationLedger {
     fn consume(
         &mut self,
-        envelope: &AuthorizationEnvelope,
-        leaf: &CapabilityGrant,
+        authorization: &VerifiedAuthorization,
         receipt: Digest384,
     ) -> Result<(), AuthorizationError> {
+        let envelope = &authorization.envelope;
         if self.invocations.len() >= MAX_AUTHORIZATION_INVOCATIONS
             || self.invocations.contains_key(&envelope.invocation_id)
         {
             return Err(AuthorizationError::Replay);
         }
-        let fields = leaf.fields();
+        let fields = authorization.leaf_capability.fields();
         let usage = self.budgets.entry(fields.capability_id).or_default();
         let uses = usage.uses.checked_add(1).ok_or(AuthorizationError::Budget)?;
         let money = usage.money.checked_add(envelope.value).ok_or(AuthorizationError::Budget)?;
@@ -386,7 +440,121 @@ impl CanonicalDecode for AuthorizationLedger {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+struct AuthorizationReplaySnapshot {
+    chain_genesis_commitment: Digest384,
+    epoch: u64,
+    ledger: AuthorizationLedger,
+}
+impl CanonicalEncode for AuthorizationReplaySnapshot {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain_genesis_commitment.encode(e)?;
+        self.epoch.encode(e)?;
+        self.ledger.encode(e)
+    }
+}
+impl CanonicalDecode for AuthorizationReplaySnapshot {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Ok(Self {
+            chain_genesis_commitment: Digest384::decode(d)?,
+            epoch: u64::decode(d)?,
+            ledger: AuthorizationLedger::decode(d)?,
+        })
+    }
+}
+impl CanonicalType for AuthorizationReplaySnapshot {
+    const TYPE_TAG: u16 = 0x0143;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48
+        + 8
+        + 2
+        + MAX_AUTHORIZATION_INVOCATIONS * 96
+        + 2
+        + MAX_AUTHORIZATION_INVOCATIONS * (48 + 56);
+}
+
+/// Durable replay and capability-budget state for finalized-block authorization.
+pub struct AuthorizationReplayStore {
+    inner: Mutex<ReplayRuntime>,
+    snapshot_path: PathBuf,
+    chain_genesis_commitment: Digest384,
+    epoch: u64,
+}
+struct ReplayRuntime {
+    ledger: AuthorizationLedger,
+    poisoned: bool,
+}
+impl AuthorizationReplayStore {
+    pub fn new(
+        snapshot_path: PathBuf,
+        chain_genesis_commitment: Digest384,
+        epoch: u64,
+    ) -> Result<Self, AuthorizationError> {
+        if chain_genesis_commitment == Digest384::ZERO {
+            return Err(AuthorizationError::MalformedEnvelope);
+        }
+        Ok(Self {
+            inner: Mutex::new(ReplayRuntime {
+                ledger: AuthorizationLedger::default(),
+                poisoned: false,
+            }),
+            snapshot_path,
+            chain_genesis_commitment,
+            epoch,
+        })
+    }
+
+    pub fn load(snapshot_path: PathBuf) -> std::io::Result<Self> {
+        let snapshot: AuthorizationReplaySnapshot = load_typed_snapshot(&snapshot_path)?;
+        if snapshot.chain_genesis_commitment == Digest384::ZERO {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "authorization replay snapshot has zero genesis",
+            ));
+        }
+        Ok(Self {
+            inner: Mutex::new(ReplayRuntime { ledger: snapshot.ledger, poisoned: false }),
+            snapshot_path,
+            chain_genesis_commitment: snapshot.chain_genesis_commitment,
+            epoch: snapshot.epoch,
+        })
+    }
+
+    /// Atomically persists the whole block's replay and budget effects before admission returns.
+    pub fn admit_batch(
+        &self,
+        authorizations: &[VerifiedAuthorization],
+    ) -> Result<(), AuthorizationError> {
+        let mut runtime = self.inner.lock().map_err(|_| AuthorizationError::Poisoned)?;
+        if runtime.poisoned {
+            return Err(AuthorizationError::Poisoned);
+        }
+        let mut next = runtime.ledger.clone();
+        for authorization in authorizations {
+            if authorization.chain_genesis_commitment() != self.chain_genesis_commitment
+                || authorization.epoch() != self.epoch
+            {
+                return Err(AuthorizationError::Authentication);
+            }
+            next.consume(authorization, authorization.transition_commitment())?;
+        }
+        let snapshot = AuthorizationReplaySnapshot {
+            chain_genesis_commitment: self.chain_genesis_commitment,
+            epoch: self.epoch,
+            ledger: next.clone(),
+        };
+        if save_typed_snapshot(&self.snapshot_path, &snapshot).is_err() {
+            runtime.poisoned = true;
+            return Err(AuthorizationError::Persistence);
+        }
+        runtime.ledger = next;
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct AuthorizedSnapshot {
+    chain_genesis_commitment: Digest384,
+    epoch: u64,
     state: ObjectState,
     ledger: AuthorizationLedger,
     last_receipt: TransitionReceipt,
@@ -394,6 +562,8 @@ struct AuthorizedSnapshot {
 }
 impl CanonicalEncode for AuthorizedSnapshot {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain_genesis_commitment.encode(e)?;
+        self.epoch.encode(e)?;
         self.state.encode(e)?;
         self.ledger.encode(e)?;
         self.last_receipt.encode(e)?;
@@ -403,6 +573,8 @@ impl CanonicalEncode for AuthorizedSnapshot {
 impl CanonicalDecode for AuthorizedSnapshot {
     fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
         Ok(Self {
+            chain_genesis_commitment: Digest384::decode(d)?,
+            epoch: u64::decode(d)?,
             state: ObjectState::decode(d)?,
             ledger: AuthorizationLedger::decode(d)?,
             last_receipt: TransitionReceipt::decode(d)?,
@@ -412,8 +584,10 @@ impl CanonicalDecode for AuthorizedSnapshot {
 }
 impl CanonicalType for AuthorizedSnapshot {
     const TYPE_TAG: u16 = 0x007e;
-    const SCHEMA_VERSION: u16 = 1;
-    const MAX_ENCODED_LEN: usize = ObjectState::MAX_ENCODED_LEN
+    const SCHEMA_VERSION: u16 = 2;
+    const MAX_ENCODED_LEN: usize = 48
+        + 8
+        + ObjectState::MAX_ENCODED_LEN
         + 2
         + MAX_AUTHORIZATION_INVOCATIONS * 96
         + 2
@@ -425,27 +599,54 @@ impl CanonicalType for AuthorizedSnapshot {
 struct RuntimeState {
     state: ObjectState,
     ledger: AuthorizationLedger,
+    poisoned: bool,
 }
 pub struct AuthorizationGateway {
     inner: Mutex<RuntimeState>,
     snapshot_path: PathBuf,
+    chain_genesis_commitment: Digest384,
+    epoch: u64,
 }
 impl AuthorizationGateway {
-    pub fn new(state: ObjectState, snapshot_path: PathBuf) -> Self {
-        Self {
-            inner: Mutex::new(RuntimeState { state, ledger: AuthorizationLedger::default() }),
-            snapshot_path,
+    pub fn new(
+        state: ObjectState,
+        snapshot_path: PathBuf,
+        chain_genesis_commitment: Digest384,
+        epoch: u64,
+    ) -> Result<Self, AuthorizationError> {
+        if chain_genesis_commitment == Digest384::ZERO {
+            return Err(AuthorizationError::MalformedEnvelope);
         }
+        Ok(Self {
+            inner: Mutex::new(RuntimeState {
+                state,
+                ledger: AuthorizationLedger::default(),
+                poisoned: false,
+            }),
+            snapshot_path,
+            chain_genesis_commitment,
+            epoch,
+        })
     }
     pub fn load(snapshot_path: PathBuf) -> std::io::Result<Self> {
         let snapshot = load_snapshot(&snapshot_path)?;
         Ok(Self {
-            inner: Mutex::new(RuntimeState { state: snapshot.state, ledger: snapshot.ledger }),
+            inner: Mutex::new(RuntimeState {
+                state: snapshot.state,
+                ledger: snapshot.ledger,
+                poisoned: false,
+            }),
             snapshot_path,
+            chain_genesis_commitment: snapshot.chain_genesis_commitment,
+            epoch: snapshot.epoch,
         })
     }
     pub fn state(&self) -> Result<ObjectState, AuthorizationError> {
-        Ok(self.inner.lock().map_err(|_| AuthorizationError::Poisoned)?.state.clone())
+        let runtime = self.inner.lock().map_err(|_| AuthorizationError::Poisoned)?;
+        if runtime.poisoned {
+            return Err(AuthorizationError::Poisoned);
+        }
+        Ok(runtime.state.clone())
     }
     pub fn admit<V: AuthorizationVerifier>(
         &self,
@@ -453,17 +654,24 @@ impl AuthorizationGateway {
         verifier: &V,
     ) -> Result<TransitionReceipt, AuthorizationError> {
         let mut runtime = self.inner.lock().map_err(|_| AuthorizationError::Poisoned)?;
+        if runtime.poisoned {
+            return Err(AuthorizationError::Poisoned);
+        }
         if runtime.ledger.invocations.contains_key(&candidate.envelope.invocation_id) {
             return Err(AuthorizationError::Replay);
         }
-        let (request, leaf) = verify_candidate(&candidate, verifier)?;
-        if candidate.transaction.commands().len() != 1
-            || candidate.transaction.commands()[0].request() != &request
-        {
-            return Err(AuthorizationError::RequestSubstitution);
-        }
+        let finalized_state_root = commit_objects(runtime.state.objects())
+            .map_err(|_| AuthorizationError::Encoding)?
+            .root();
+        let authorization = verify_authorization_candidate(
+            &candidate,
+            self.chain_genesis_commitment,
+            self.epoch,
+            finalized_state_root,
+            verifier,
+        )?;
         let mut ledger = runtime.ledger.clone();
-        ledger.consume(&candidate.envelope, leaf, Digest384::ZERO)?;
+        ledger.consume(&authorization, Digest384::ZERO)?;
         let output = apply_transfer_transaction(&runtime.state, &candidate.transaction)
             .map_err(|_| AuthorizationError::Transition)?;
         if !matches!(output.receipt().result(), ReceiptResult::Success) {
@@ -472,34 +680,47 @@ impl AuthorizationGateway {
         let receipt_commitment = commit(DomainTag::CANONICAL_VALUE, &output.receipt())
             .map_err(|_| AuthorizationError::Encoding)?;
         ledger.invocations.insert(candidate.envelope.invocation_id, receipt_commitment);
-        let envelope_commitment = commit(DomainTag::CANONICAL_VALUE, &candidate.envelope)
-            .map_err(|_| AuthorizationError::Encoding)?;
         let snapshot = AuthorizedSnapshot {
+            chain_genesis_commitment: self.chain_genesis_commitment,
+            epoch: self.epoch,
             state: output.state().clone(),
             ledger: ledger.clone(),
             last_receipt: output.receipt(),
-            last_envelope: envelope_commitment,
+            last_envelope: authorization.envelope_commitment,
         };
-        save_snapshot(&self.snapshot_path, &snapshot)
-            .map_err(|_| AuthorizationError::Persistence)?;
+        if save_snapshot(&self.snapshot_path, &snapshot).is_err() {
+            runtime.poisoned = true;
+            return Err(AuthorizationError::Persistence);
+        }
         runtime.state = output.state().clone();
         runtime.ledger = ledger;
         Ok(output.receipt())
     }
 }
 
-fn verify_candidate<'a, V: AuthorizationVerifier>(
-    candidate: &'a AuthorizationCandidate,
+pub fn verify_authorization_candidate<V: AuthorizationVerifier>(
+    candidate: &AuthorizationCandidate,
+    expected_chain_genesis_commitment: Digest384,
+    expected_epoch: u64,
+    expected_finalized_state_root: Digest384,
     verifier: &V,
-) -> Result<(PolicyRequest, &'a CapabilityGrant), AuthorizationError> {
+) -> Result<VerifiedAuthorization, AuthorizationError> {
     let envelope = &candidate.envelope;
-    if !verifier.verify_actor_signature(envelope) || !verifier.verify_finalized_context(envelope) {
+    if envelope.chain_genesis_commitment != expected_chain_genesis_commitment
+        || envelope.epoch != expected_epoch
+        || envelope.finalized_state_root != expected_finalized_state_root
+        || !verifier.verify_actor_signature(envelope)
+        || !verifier.verify_finalized_context(envelope)
+    {
         return Err(AuthorizationError::Authentication);
     }
     let transition = commit(DomainTag::CANONICAL_VALUE, &candidate.transaction)
         .map_err(|_| AuthorizationError::Encoding)?;
     if transition != envelope.transition_commitment {
         return Err(AuthorizationError::TransitionSubstitution);
+    }
+    if candidate.transaction.commands().len() != 1 {
+        return Err(AuthorizationError::RequestSubstitution);
     }
     if candidate.credentials.len() > MAX_AUTHORIZATION_CREDENTIALS {
         return Err(AuthorizationError::Credential);
@@ -584,10 +805,19 @@ fn verify_candidate<'a, V: AuthorizationVerifier>(
     if decision.result() != DecisionResult::Permit || !decision.obligations().is_empty() {
         return Err(AuthorizationError::Policy);
     }
-    Ok((request, leaf))
+    if candidate.transaction.commands()[0].request() != &request {
+        return Err(AuthorizationError::RequestSubstitution);
+    }
+    let envelope_commitment =
+        commit(DomainTag::CANONICAL_VALUE, envelope).map_err(|_| AuthorizationError::Encoding)?;
+    Ok(VerifiedAuthorization {
+        envelope: envelope.clone(),
+        envelope_commitment,
+        leaf_capability: leaf.clone(),
+    })
 }
 
-fn save_snapshot(path: &Path, snapshot: &AuthorizedSnapshot) -> std::io::Result<()> {
+fn save_typed_snapshot<T: CanonicalType>(path: &Path, snapshot: &T) -> std::io::Result<()> {
     let mut bytes = encode_envelope(snapshot).map_err(|_| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -605,7 +835,7 @@ fn save_snapshot(path: &Path, snapshot: &AuthorizedSnapshot) -> std::io::Result<
         path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
     std::fs::File::open(parent)?.sync_all()
 }
-fn load_snapshot(path: &Path) -> std::io::Result<AuthorizedSnapshot> {
+fn load_typed_snapshot<T: CanonicalType>(path: &Path) -> std::io::Result<T> {
     let bytes = std::fs::read(path)?;
     if bytes.len() < 32 {
         return Err(std::io::Error::new(
@@ -623,6 +853,12 @@ fn load_snapshot(path: &Path) -> std::io::Result<AuthorizedSnapshot> {
     decode_envelope(&bytes[..body]).map_err(|_| {
         std::io::Error::new(std::io::ErrorKind::InvalidData, "authorization snapshot invalid")
     })
+}
+fn save_snapshot(path: &Path, snapshot: &AuthorizedSnapshot) -> std::io::Result<()> {
+    save_typed_snapshot(path, snapshot)
+}
+fn load_snapshot(path: &Path) -> std::io::Result<AuthorizedSnapshot> {
+    load_typed_snapshot(path)
 }
 fn snapshot_tag(bytes: &[u8]) -> [u8; 32] {
     let mut h = Shake256::default();
@@ -676,6 +912,10 @@ mod tests {
     fn actor() -> PrincipalId {
         PrincipalId::new(digest(0x20))
     }
+    fn genesis() -> Digest384 {
+        digest(0x98)
+    }
+    const EPOCH: u64 = 7;
     fn object_id() -> ObjectId {
         ObjectId::new(digest(0x40))
     }
@@ -837,6 +1077,14 @@ mod tests {
         .unwrap()
     }
 
+    fn gateway(path: PathBuf) -> AuthorizationGateway {
+        AuthorizationGateway::new(state(), path, genesis(), EPOCH).unwrap()
+    }
+
+    fn state_root() -> Digest384 {
+        commit_objects(state().objects()).unwrap().root()
+    }
+
     fn candidate(invocation: u8, value: u128) -> AuthorizationCandidate {
         let caps = capability_chain();
         let material = credential_material();
@@ -874,10 +1122,12 @@ mod tests {
         let transition = commit(DomainTag::CANONICAL_VALUE, &transaction).unwrap();
         let envelope = AuthorizationEnvelope::new(
             digest(invocation),
+            genesis(),
+            EPOCH,
             actor(),
             50,
             1000,
-            digest(0x99),
+            state_root(),
             transition,
             value,
             1,
@@ -942,19 +1192,35 @@ mod tests {
     fn joined_chain_accepts_once_persists_and_fails_closed() {
         let path =
             std::env::temp_dir().join(format!("activechain-auth-{}.snapshot", std::process::id()));
-        let gateway = AuthorizationGateway::new(state(), path.clone());
+        let gateway = gateway(path.clone());
         assert_eq!(
             commit(DomainTag::CANONICAL_VALUE, &candidate(1, 5).envelope).unwrap(),
             Digest384::new([
-                122, 143, 8, 147, 237, 60, 239, 50, 136, 162, 29, 9, 174, 154, 128, 120, 106, 79,
-                23, 233, 205, 122, 61, 44, 138, 230, 132, 148, 46, 200, 163, 130, 59, 139, 9, 105,
-                119, 237, 217, 247, 34, 139, 205, 13, 144, 156, 7, 96,
+                80, 87, 26, 234, 234, 21, 147, 104, 247, 71, 49, 91, 21, 148, 221, 74, 138, 155,
+                166, 205, 26, 3, 175, 56, 190, 50, 147, 157, 216, 184, 80, 88, 200, 150, 149, 246,
+                184, 149, 85, 172, 230, 12, 46, 59, 194, 219, 164, 216,
             ])
         );
         assert_eq!(
             include_str!("../../../testing/vectors/authority/authorization-chain-v1.txt"),
-            "type_tag=0x007d\nschema_version=1\ncredential_count=1\ncapability_depth=2\nenvelope_commitment=7a8f0893ed3cef3288a21d09ae9a80786a4f17e9cd7a3d2c8ae684942ec8a3823b8b096977edd9f7228bcd0d909c0760\n"
+            "type_tag=0x007d\nschema_version=2\ncredential_count=1\ncapability_depth=2\nenvelope_commitment=50571aeaea159368f747315b1594dd4a8a9ba6cd1a03af38be32939dd8b85058c89695f6b89555ace60c2e3bc2dba4d8\n"
         );
+        for (expected_genesis, expected_epoch, expected_root) in [
+            (digest(0x99), EPOCH, state_root()),
+            (genesis(), EPOCH + 1, state_root()),
+            (genesis(), EPOCH, digest(0x97)),
+        ] {
+            assert_eq!(
+                verify_authorization_candidate(
+                    &candidate(1, 5),
+                    expected_genesis,
+                    expected_epoch,
+                    expected_root,
+                    &Verifier::default(),
+                ),
+                Err(AuthorizationError::Authentication)
+            );
+        }
         assert_eq!(
             gateway.admit(candidate(1, 5), &Verifier::default()).unwrap().result(),
             ReceiptResult::Success
@@ -963,10 +1229,10 @@ mod tests {
             gateway.admit(candidate(1, 5), &Verifier::default()),
             Err(AuthorizationError::Replay)
         );
-        assert_eq!(
-            gateway.admit(candidate(2, 5), &Verifier::default()),
-            Err(AuthorizationError::Budget)
-        );
+        let mut exhausted = candidate(2, 5);
+        exhausted.envelope.finalized_state_root =
+            commit_objects(gateway.state().unwrap().objects()).unwrap().root();
+        assert_eq!(gateway.admit(exhausted, &Verifier::default()), Err(AuthorizationError::Budget));
         let restarted = AuthorizationGateway::load(path.clone()).unwrap();
         assert_eq!(restarted.state().unwrap().objects()[0].owner(), ObjectOwner::Shared);
         let mut bytes = std::fs::read(&path).unwrap();
@@ -993,21 +1259,16 @@ mod tests {
             (Verifier { capability: false, ..Verifier::default() }, AuthorizationError::Capability),
             (Verifier { active: false, ..Verifier::default() }, AuthorizationError::Capability),
         ] {
-            assert_eq!(
-                AuthorizationGateway::new(state(), unique(error as u8))
-                    .admit(candidate(2, 5), &verifier),
-                Err(error)
-            );
+            assert_eq!(gateway(unique(error as u8)).admit(candidate(2, 5), &verifier), Err(error));
         }
         assert_eq!(
-            AuthorizationGateway::new(state(), unique(9))
-                .admit(candidate(3, 11), &Verifier::default()),
+            gateway(unique(9)).admit(candidate(3, 11), &Verifier::default()),
             Err(AuthorizationError::Budget)
         );
         let mut substituted = candidate(10, 5);
         substituted.envelope.transition_commitment = digest(0xee);
         assert_eq!(
-            AuthorizationGateway::new(state(), unique(10)).admit(substituted, &Verifier::default()),
+            gateway(unique(10)).admit(substituted, &Verifier::default()),
             Err(AuthorizationError::TransitionSubstitution)
         );
         let mut amplified = candidate(11, 5);
@@ -1015,7 +1276,7 @@ mod tests {
         fields.monetary_limit = Some(21);
         amplified.capability_chain[1] = CapabilityGrant::new(fields, signature()).unwrap();
         assert_eq!(
-            AuthorizationGateway::new(state(), unique(11)).admit(amplified, &Verifier::default()),
+            gateway(unique(11)).admit(amplified, &Verifier::default()),
             Err(AuthorizationError::Attenuation)
         );
         let mut stale = candidate(12, 5);
@@ -1028,7 +1289,7 @@ mod tests {
             44,
         ));
         assert_eq!(
-            AuthorizationGateway::new(state(), unique(12)).admit(stale, &Verifier::default()),
+            gateway(unique(12)).admit(stale, &Verifier::default()),
             Err(AuthorizationError::Credential)
         );
         let mut revoked = candidate(13, 5);
@@ -1042,7 +1303,7 @@ mod tests {
             CredentialStatus::Revoked,
         ));
         assert_eq!(
-            AuthorizationGateway::new(state(), unique(13)).admit(revoked, &Verifier::default()),
+            gateway(unique(13)).admit(revoked, &Verifier::default()),
             Err(AuthorizationError::Credential)
         );
         let mut request_substitution = candidate(14, 5);
@@ -1074,21 +1335,21 @@ mod tests {
         request_substitution.envelope.transition_commitment =
             commit(DomainTag::CANONICAL_VALUE, &request_substitution.transaction).unwrap();
         assert_eq!(
-            AuthorizationGateway::new(state(), unique(14))
-                .admit(request_substitution, &Verifier::default()),
+            gateway(unique(14)).admit(request_substitution, &Verifier::default()),
             Err(AuthorizationError::RequestSubstitution)
         );
         let missing_parent = std::env::temp_dir()
             .join(format!("activechain-auth-missing-{}", std::process::id()))
             .join("snapshot");
-        let failed_publish = AuthorizationGateway::new(state(), missing_parent);
+        let failed_publish = gateway(missing_parent);
         assert_eq!(
             failed_publish.admit(candidate(15, 5), &Verifier::default()),
             Err(AuthorizationError::Persistence)
         );
+        assert_eq!(failed_publish.state(), Err(AuthorizationError::Poisoned));
         assert_eq!(
-            failed_publish.state().unwrap().objects()[0].owner(),
-            ObjectOwner::Principal(actor())
+            failed_publish.admit(candidate(15, 5), &Verifier::default()),
+            Err(AuthorizationError::Poisoned)
         );
         let rate_candidate = |invocation| {
             let mut value = candidate(invocation, 1);
@@ -1100,18 +1361,20 @@ mod tests {
             value
         };
         let rate_path = unique(16);
-        let rate_gateway = AuthorizationGateway::new(state(), rate_path.clone());
+        let rate_gateway = gateway(rate_path.clone());
         assert!(rate_gateway.admit(rate_candidate(16), &Verifier::default()).is_ok());
+        let mut second = rate_candidate(17);
+        second.envelope.finalized_state_root =
+            commit_objects(rate_gateway.state().unwrap().objects()).unwrap().root();
         assert_eq!(
-            rate_gateway.admit(rate_candidate(17), &Verifier::default()),
+            rate_gateway.admit(second, &Verifier::default()),
             Err(AuthorizationError::RateLimit)
         );
         let _ = std::fs::remove_file(rate_path);
         let mut compute_exhausted = candidate(18, 1);
         compute_exhausted.envelope.compute = 101;
         assert_eq!(
-            AuthorizationGateway::new(state(), unique(18))
-                .admit(compute_exhausted, &Verifier::default()),
+            gateway(unique(18)).admit(compute_exhausted, &Verifier::default()),
             Err(AuthorizationError::Budget)
         );
     }
@@ -1120,7 +1383,7 @@ mod tests {
     fn concurrent_duplicate_invocation_has_one_atomic_winner() {
         let path = std::env::temp_dir()
             .join(format!("activechain-auth-concurrent-{}.snapshot", std::process::id()));
-        let gateway = Arc::new(AuthorizationGateway::new(state(), path.clone()));
+        let gateway = Arc::new(gateway(path.clone()));
         let barrier = Arc::new(Barrier::new(3));
         let mut handles = Vec::new();
         for _ in 0..2 {
@@ -1137,6 +1400,47 @@ mod tests {
         assert_eq!(
             results.iter().filter(|v| matches!(v, Err(AuthorizationError::Replay))).count(),
             1
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn finalized_replay_store_is_batch_atomic_and_restart_safe() {
+        let path = std::env::temp_dir()
+            .join(format!("activechain-authorization-replay-{}.snapshot", std::process::id()));
+        let untrusted = candidate(21, 5);
+        let verified = verify_authorization_candidate(
+            &untrusted,
+            genesis(),
+            EPOCH,
+            state_root(),
+            &Verifier::default(),
+        )
+        .unwrap();
+        let store = AuthorizationReplayStore::new(path.clone(), genesis(), EPOCH).unwrap();
+
+        assert_eq!(
+            store.admit_batch(&[verified.clone(), verified.clone()]),
+            Err(AuthorizationError::Replay)
+        );
+        assert!(store.admit_batch(std::slice::from_ref(&verified)).is_ok());
+
+        let restored = AuthorizationReplayStore::load(path.clone()).unwrap();
+        assert_eq!(
+            restored.admit_batch(std::slice::from_ref(&verified)),
+            Err(AuthorizationError::Replay)
+        );
+        let unavailable = std::env::temp_dir()
+            .join(format!("activechain-auth-replay-missing-{}", std::process::id()))
+            .join("snapshot");
+        let failed = AuthorizationReplayStore::new(unavailable, genesis(), EPOCH).unwrap();
+        assert_eq!(
+            failed.admit_batch(std::slice::from_ref(&verified)),
+            Err(AuthorizationError::Persistence)
+        );
+        assert_eq!(
+            failed.admit_batch(std::slice::from_ref(&verified)),
+            Err(AuthorizationError::Poisoned)
         );
         let _ = std::fs::remove_file(path);
     }

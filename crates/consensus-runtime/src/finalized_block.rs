@@ -1,6 +1,9 @@
 //! Complete typed finalized-block composition boundary.
 
-use activechain_action_kernel::ActionEnvelope;
+use activechain_authorization_kernel::{
+    AuthorizationCandidate, AuthorizationReplayStore, AuthorizationVerifier,
+    verify_authorization_candidate,
+};
 use activechain_canonical_codec::{EncodeError, decode_envelope, encode_envelope};
 use activechain_data_availability::AvailabilityBatch;
 use activechain_devnet_kernel::{BlockReceipt, ChainState, DevnetBlock, apply_block};
@@ -100,6 +103,7 @@ impl VerifiedExecutionProof {
 /// Untrusted material supplied to the authoritative admission path.
 pub struct FinalizedBlockCandidate {
     pub encoded_block: Vec<u8>,
+    pub authorization_candidates: Vec<AuthorizationCandidate>,
     pub claimed_header: FinalizedBlockHeader,
     pub proof: VerifiedExecutionProof,
     pub certificate: QuorumCertificate,
@@ -126,8 +130,7 @@ pub trait ExecutionProofVerifier {
 }
 
 /// External cryptographic observations required by the deterministic composition predicate.
-pub trait FinalizedBlockVerifier: ExecutionProofVerifier {
-    fn verify_authorization(&self, action: &ActionEnvelope) -> bool;
+pub trait FinalizedBlockVerifier: ExecutionProofVerifier + AuthorizationVerifier {
     fn verify_certificate(&self, certificate: &QuorumCertificate) -> bool;
 }
 impl<F: Fn(u16, Digest384, &[u8]) -> bool> ExecutionProofVerifier for F {
@@ -149,6 +152,7 @@ impl FinalizedBlockCandidate {
         issuance: u128,
         burn: u128,
         cash_cell_root: Digest384,
+        authorization_store: &AuthorizationReplayStore,
         verifier: &V,
     ) -> Result<FinalizedBlock, FinalizedBlockAdmissionError> {
         let block: DevnetBlock = decode_envelope(&self.encoded_block)
@@ -161,8 +165,29 @@ impl FinalizedBlockCandidate {
         if block.chain_id() != state.chain_id() || block.height() != self.certificate.height() {
             return Err(FinalizedBlockAdmissionError::Context);
         }
-        if block.actions().iter().any(|action| !verifier.verify_authorization(action)) {
+        if block.actions().len() != self.authorization_candidates.len() {
             return Err(FinalizedBlockAdmissionError::Authorization);
+        }
+        let mut verified_authorizations = Vec::with_capacity(block.actions().len());
+        for (action, candidate) in
+            block.actions().iter().zip(self.authorization_candidates.iter())
+        {
+            let verified = verify_authorization_candidate(
+                candidate,
+                chain_genesis_commitment,
+                epoch,
+                block.pre_state().root(),
+                verifier,
+            )
+            .map_err(|_| FinalizedBlockAdmissionError::Authorization)?;
+            if verified.actor() != action.sender()
+                || verified.envelope_commitment() != action.authorization_commitment()
+                || verified.transition_commitment() != action.payload_commitment()
+                || candidate.transaction != *action.payload()
+            {
+                return Err(FinalizedBlockAdmissionError::Authorization);
+            }
+            verified_authorizations.push(verified);
         }
         let (inputs, next_state, receipt, _) = derive_proof_public_inputs(
             state,
@@ -200,6 +225,9 @@ impl FinalizedBlockCandidate {
         {
             return Err(FinalizedBlockAdmissionError::Certificate);
         }
+        authorization_store
+            .admit_batch(&verified_authorizations)
+            .map_err(|_| FinalizedBlockAdmissionError::Authorization)?;
         Ok(FinalizedBlock {
             header: self.claimed_header,
             block_digest: digest,
@@ -244,10 +272,47 @@ mod tests {
         }
     }
     impl FinalizedBlockVerifier for AcceptAll {
-        fn verify_authorization(&self, _action: &ActionEnvelope) -> bool {
+        fn verify_certificate(&self, _certificate: &QuorumCertificate) -> bool {
             true
         }
-        fn verify_certificate(&self, _certificate: &QuorumCertificate) -> bool {
+    }
+    impl AuthorizationVerifier for AcceptAll {
+        fn verify_actor_signature(
+            &self,
+            _envelope: &activechain_authorization_kernel::AuthorizationEnvelope,
+        ) -> bool {
+            true
+        }
+        fn verify_finalized_context(
+            &self,
+            _envelope: &activechain_authorization_kernel::AuthorizationEnvelope,
+        ) -> bool {
+            true
+        }
+        fn verify_credential_signature(
+            &self,
+            _credential: &activechain_credential::Credential,
+        ) -> bool {
+            true
+        }
+        fn verify_credential_status(
+            &self,
+            _material: &activechain_authorization_kernel::CredentialMaterial,
+        ) -> bool {
+            true
+        }
+        fn verify_capability_signature(
+            &self,
+            _capability: &activechain_capability::CapabilityGrant,
+        ) -> bool {
+            true
+        }
+        fn verify_capability_active(
+            &self,
+            _capability: &activechain_capability::CapabilityGrant,
+            _height: u64,
+            _state_root: Digest384,
+        ) -> bool {
             true
         }
     }
@@ -300,6 +365,12 @@ mod tests {
     #[test]
     fn typed_finalization_recomputes_every_binding_and_rejects_substitution() {
         let (state, block, _inputs, proof, header, genesis, root) = fixture();
+        let authorization_path = std::env::temp_dir().join(format!(
+            "activechain-finalization-authorization-{}.snapshot",
+            std::process::id()
+        ));
+        let authorization_store =
+            AuthorizationReplayStore::new(authorization_path.clone(), genesis, 7).unwrap();
         let digest = header.digest().unwrap();
         assert_eq!(
             digest,
@@ -318,6 +389,7 @@ mod tests {
             QuorumCertificate::new(context, 1, 0, digest, Digest384::new([5; 48]), 1, 1).unwrap();
         let candidate = FinalizedBlockCandidate {
             encoded_block: encode_envelope(&block).unwrap(),
+            authorization_candidates: vec![],
             claimed_header: header,
             proof: proof.clone(),
             certificate: certificate.clone(),
@@ -336,6 +408,7 @@ mod tests {
                     3,
                     2,
                     header.inputs.cash_cell_root,
+                    &authorization_store,
                     &AcceptAll,
                 )
                 .unwrap()
@@ -345,6 +418,7 @@ mod tests {
 
         let wrong = FinalizedBlockCandidate {
             encoded_block: encode_envelope(&block).unwrap(),
+            authorization_candidates: vec![],
             claimed_header: FinalizedBlockHeader {
                 inputs: ProofPublicInputs { burn: 3, ..header.inputs },
                 ..header
@@ -365,6 +439,7 @@ mod tests {
                 3,
                 2,
                 header.inputs.cash_cell_root,
+                &authorization_store,
                 &AcceptAll,
             ),
             Err(FinalizedBlockAdmissionError::ComponentMismatch)
@@ -388,6 +463,7 @@ mod tests {
         ] {
             let candidate = FinalizedBlockCandidate {
                 encoded_block: encode_envelope(&block).unwrap(),
+                authorization_candidates: vec![],
                 claimed_header: FinalizedBlockHeader { inputs: mutated, ..header },
                 proof: proof.clone(),
                 certificate: certificate.clone(),
@@ -405,16 +481,24 @@ mod tests {
                     3,
                     2,
                     header.inputs.cash_cell_root,
+                    &authorization_store,
                     &AcceptAll,
                 ),
                 Err(FinalizedBlockAdmissionError::ComponentMismatch)
             );
         }
+        let _ = std::fs::remove_file(authorization_path);
     }
 
     #[test]
     fn proof_pipeline_is_ordered_durable_and_reward_replay_safe() {
         let (state, block, inputs, proof, header, genesis, root) = fixture();
+        let authorization_path = std::env::temp_dir().join(format!(
+            "activechain-proof-authorization-{}.snapshot",
+            std::process::id()
+        ));
+        let authorization_store =
+            AuthorizationReplayStore::new(authorization_path.clone(), genesis, 7).unwrap();
         let certificate = QuorumCertificate::new(
             ConsensusVoteContext::new_with_revision(genesis, 7, root, 4).unwrap(),
             1,
@@ -427,13 +511,26 @@ mod tests {
         .unwrap();
         let finalized = FinalizedBlockCandidate {
             encoded_block: encode_envelope(&block).unwrap(),
+            authorization_candidates: vec![],
             claimed_header: header,
             proof: proof.clone(),
             certificate,
             data_shards: 1,
             parity_shards: 1,
         }
-        .admit(&state, genesis, 7, 4, root, 100, 3, 2, header.inputs.cash_cell_root, &AcceptAll)
+        .admit(
+            &state,
+            genesis,
+            7,
+            4,
+            root,
+            100,
+            3,
+            2,
+            header.inputs.cash_cell_root,
+            &authorization_store,
+            &AcceptAll,
+        )
         .unwrap();
         let mut pipeline = DurableProofPipeline::default();
         let id = pipeline.enqueue(inputs).unwrap();
@@ -480,5 +577,6 @@ mod tests {
             bounded.enqueue(ProofPublicInputs { height: 65, ..inputs }),
             Err(ProofPipelineError::Backpressure)
         );
+        let _ = std::fs::remove_file(authorization_path);
     }
 }
