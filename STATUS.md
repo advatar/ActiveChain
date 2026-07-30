@@ -24,7 +24,12 @@ normative and measurement slice in [#398](https://github.com/advatar/ActiveChain
     snapshot, grace-period, checkpoint, and archive evidence before idempotent deletion
     ([GitHub issue #407](https://github.com/advatar/ActiveChain/issues/407)).
   - [ ] Integrate objective payment/slashing settlement and finalized certificate ingestion.
-- [ ] Implement prepaid leases, hibernation/restoration, and accumulator-backed replay history.
+- [ ] Implement prepaid leases, hibernation/restoration, and accumulator-backed replay history
+  ([GitHub issue #409](https://github.com/advatar/ActiveChain/issues/409)).
+  - [x] Add checked byte-epoch quotes, pressure admission, bounded endowments, archive-certified
+    hibernation, and owner-copy restoration.
+  - [ ] Integrate rent and hibernation commands with authenticated global state transitions.
+  - [ ] Replace bounded replay collections with witnessed authenticated accumulators.
 - [ ] Qualify checkpoint snapshot sync, light clients, operator metrics, and sustained 1 TiB bounds.
 
 ## Active landing-page rebrand — Actum

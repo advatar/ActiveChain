@@ -46,6 +46,7 @@ members = [
     "crates/storage-engine",
     "crates/archive",
     "crates/pruning",
+    "crates/storage-rent",
     "crates/transition",
     "node/semantic-devnet",
     "tools/vector-generator",
@@ -102,6 +103,7 @@ activechain-storage-profile = { path = "crates/storage-profile", version = "0.1.
 activechain-storage-engine = { path = "crates/storage-engine", version = "0.1.0" }
 activechain-archive = { path = "crates/archive", version = "0.1.0" }
 activechain-pruning = { path = "crates/pruning", version = "0.1.0" }
+activechain-storage-rent = { path = "crates/storage-rent", version = "0.1.0" }
 activechain-transition = { path = "crates/transition", version = "0.1.0" }
 proptest = { version = "1.7.0", default-features = false, features = ["std"] }
 p3-air = "=0.6.2"
