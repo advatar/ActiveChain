@@ -1,3 +1,8 @@
+> **Normative relationship:** [P-130](spec/protocol/P-130-economics.md) fixes the v1 security
+> model as native-stake security. The bonds and rewards below account for objectively assigned
+> duties within that model. Stablecoin collateral may secure an application service, but it is not
+> a validator-admission or consensus-weight alternative in v1.
+
 # Core principle
 
 We should **not** pay everyone who claims to have verified a block or proof.

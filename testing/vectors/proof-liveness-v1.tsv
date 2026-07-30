@@ -1,8 +1,12 @@
-case\tstate\texpected\treason
-valid_proof\tproof-valid,commitment-matches\tfinalize\tnormal proof path
-invalid_proof\tproof-invalid\treject\tvalidity remains authoritative
-outage_grace\tno-proof,reexecution-valid,within-grace\tpending\tliveness aid only
-recovered_proof\tpending,proof-valid,same-commitment\tfinalize\trecovery is exact-bound
-grace_expired\tno-proof,reexecution-valid,grace-expired\texpire\tno proof-qualified finality
-degraded_devnet\tno-proof,development-profile\tordered-not-finalized\tno production claim
-degraded_production\tno-proof,production-profile\treject\tproduction cannot bypass proof gate
+case	pending_depth	rounds_waited	reexecution_valid	evidence	covered_depth	expected	reason
+normal_proof	0	0	true	valid-current	0	finalize-proven	exact valid proof finalizes normally
+invalid_proof	0	0	true	invalid	0	reject-invalid-proof	invalid evidence never degrades into grace
+mismatched_proof	0	0	true	mismatched	0	reject-mismatch	proof must bind exact execution commitment
+before_deadline	0	2	true	missing	0	await-proof	deadline is inclusive and does not finalize early
+outage_grace_starts	0	3	true	missing	0	pending-1	valid reexecution permits bounded pending finality
+outage_grace_continues	7	3	true	missing	0	pending-8	pending depth advances to the configured bound
+recovery_exact	3	0	true	valid-recovery	3	recover-3	recovery covers every pending history item
+recovery_partial	3	0	true	valid-recovery	2	reject-history	recovery cannot skip pending history
+current_proof_with_history	3	0	true	valid-current	0	reject-history	current proof alone cannot clear older history
+grace_exhausted	8	3	true	missing	0	halt	bound exhaustion halts instead of weakening validity
+invalid_reexecution	0	3	false	missing	0	reject-execution	grace never admits invalid execution

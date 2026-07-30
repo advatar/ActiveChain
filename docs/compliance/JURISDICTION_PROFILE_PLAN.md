@@ -37,7 +37,8 @@ These are planning identifiers, not legal conclusions:
 - `eu.casp.transfer.v1`
 - `us.msb.transfer.v1`
 - `tz.payment-operator.v1`
-- `ke.virtual-asset-service.v1`
+- `ke.virtual-asset-service.v2`
+- `ke.stablecoin-issuer.v1`
 
 Each profile requires qualified local counsel, a signed role/jurisdiction matrix, a regulatory
 change owner, privacy/data-boundary review, provider configuration, deterministic vectors, and
@@ -73,3 +74,11 @@ responsible operator under applicable process; it is not a consensus-level spy/f
 5. Add formal proofs for no weakening through inheritance, deterministic conflict resolution,
    expiry, non-retroactivity, and privacy-boundary preservation.
 6. Run jurisdiction-specific operational pilots and obtain legal/security/compliance review.
+
+## Kenya implementation
+
+The Kenya profiles use the canonical `KenyaRegulatedProfileV1` activation record and the
+[Kenya control register](KENYA_VASP_CONTROL_REGISTER_V1.md). They are implementation-complete but
+activation-gated templates: deployment-specific commitments replace every `REQUIRED` marker only
+after licence/approval verification, Kenyan counsel review, operator configuration, testing, and
+independent evidence. Repository inclusion is not regulatory authorization.
