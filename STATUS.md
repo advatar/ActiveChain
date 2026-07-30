@@ -177,6 +177,23 @@ Tracked by [GitHub issue #330](https://github.com/advatar/ActiveChain/issues/330
 - [x] Align the Rust implementation, Tamarin model, canonical vectors, operations guidance, and
   observability; pass the deterministic-kernel gate and merge #330 to `main`.
 
+## Critical ingress recovery — bounded authenticated network service
+
+Tracked by [GitHub issue #338](https://github.com/advatar/ActiveChain/issues/338).
+
+- [ ] Replace the unbounded thread-per-connection listener with a fixed worker set, bounded socket
+  queue, and immediate overload shedding whose resource ceilings are operator-visible.
+- [ ] Enforce absolute handshake, frame read/write, authenticated-session idle, lifetime, and
+  message-count limits so byte-drip and stalled peers cannot retain workers indefinitely.
+- [ ] Put bounded pre-authentication limits on the server-observed source address and
+  service-level limits on the authenticated validator identity before expensive message decoding.
+- [ ] Expose accepted, active, queued, shed, timed-out, rate-limited, malformed, and recovered
+  traffic metrics with structured operator diagnostics.
+- [ ] Add slow-drip, connection-flood, oversized/expensive-invalid-frame, reachable-rate-limit,
+  recovery, and healthy-peer-under-hostile-load tests.
+- [ ] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
+  #338.
+
 ## Deterministic-kernel CI baseline
 
 ### Tiered verification cadence
