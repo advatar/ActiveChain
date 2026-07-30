@@ -2,6 +2,14 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Independent-client budget gate repair
+
+Tracked by [GitHub issue #401](https://github.com/advatar/ActiveChain/issues/401).
+
+- [x] Reconcile the published per-version active canonical identity counts with the registry after
+  merged protocol additions, without changing the approved staffing ranges or release gates.
+- [ ] Pass the deterministic-kernel gate and merge the repair to `main`.
+
 ## Active landing-page rebrand — Actum
 
 Tracked by [GitHub issue #391](https://github.com/advatar/ActiveChain/issues/391).
