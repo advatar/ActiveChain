@@ -1105,13 +1105,17 @@ impl PeerListener {
             });
         }
         let mut source_windows = BTreeMap::<IpAddr, (Instant, usize)>::new();
+        let mut last_source_prune = Instant::now();
         loop {
             let (stream, address) = self.listener.accept()?;
             self.metrics.accepted.fetch_add(1, Ordering::Relaxed);
             let now = Instant::now();
-            source_windows.retain(|_, (started, _)| {
-                now.saturating_duration_since(*started) < Duration::from_secs(1)
-            });
+            if now.saturating_duration_since(last_source_prune) >= Duration::from_secs(1) {
+                source_windows.retain(|_, (started, _)| {
+                    now.saturating_duration_since(*started) < Duration::from_secs(1)
+                });
+                last_source_prune = now;
+            }
             let source = address.ip();
             let allowed = if let Some((started, count)) = source_windows.get_mut(&source) {
                 if now.saturating_duration_since(*started) >= Duration::from_secs(1) {
@@ -4947,8 +4951,14 @@ mod tests {
         let snapshot = monitor.snapshot();
         assert_eq!(snapshot.accepted, 2);
         assert_eq!(snapshot.shed, 1);
+        std::thread::sleep(Duration::from_millis(1050));
+        let recovered_source = TcpStream::connect(address).unwrap();
+        wait_until(|| monitor.snapshot().queued == 1);
         release_sender.send(()).unwrap();
-        drop((first, limited));
+        release_sender.send(()).unwrap();
+        wait_until(|| monitor.snapshot().recovered == 2);
+        assert_eq!(monitor.snapshot().pre_auth_rate_limited, 1);
+        drop((first, limited, recovered_source));
     }
 
     #[test]
