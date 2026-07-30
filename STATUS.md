@@ -35,12 +35,12 @@ Tracked by [GitHub issue #326](https://github.com/advatar/ActiveChain/issues/326
 
 Tracked by [GitHub issue #327](https://github.com/advatar/ActiveChain/issues/327).
 
-- [ ] Define a versioned native custody contract with honest hardware capability reporting,
+- [x] Define a versioned native custody contract with honest hardware capability reporting,
   explicit user-presence policy, finalized-state rollback protection, rotation, revocation, and
   independently encrypted recovery envelopes.
-- [ ] Implement Apple Keychain/Secure Enclave wrapping for backup-excluded ML-DSA-44 slots, keeping
+- [x] Implement Apple Keychain/Secure Enclave wrapping for backup-excluded ML-DSA-44 slots, keeping
   plaintext secret bytes transient inside the native provider and zeroizing them after signing.
-- [ ] Implement Android Keystore/StrongBox wrapping with user authentication and backup exclusion,
+- [x] Implement Android Keystore/StrongBox wrapping with user authentication and backup exclusion,
   keeping plaintext secret bytes transient inside the native provider and zeroizing them after
   signing.
 - [ ] Keep secret key material behind opaque native handles across the Rust FFI, reverify every
