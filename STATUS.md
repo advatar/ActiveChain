@@ -66,7 +66,7 @@ Tracked by [GitHub issue #332](https://github.com/advatar/ActiveChain/issues/332
 - [x] Prune expired session records and redundant spent-input markers without reopening nonce,
   session, or Coin Cell replay windows.
 - [x] Add restart, duplicate, corruption, publish-failure, pruning, and live RPC-process tests.
-- [ ] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
+- [x] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
   #332.
 
 ## Critical codec recovery — canonical type-tag registry
