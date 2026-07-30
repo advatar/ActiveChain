@@ -1774,6 +1774,19 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 
 ## Active milestone — dBrowser verifier compatibility
 
+### Apple external digest-anchor client boundary
+
+Tracked by [GitHub issue #387](https://github.com/advatar/ActiveChain/issues/387).
+
+- [ ] Construct bounded canonical `DigestAnchorStatementV1` envelopes and deterministic
+  submission references through the shipped Apple verifier ABI.
+- [ ] Encode submit/resolve RPC request envelopes and decode bounded anchor RPC responses without
+  requiring Swift to reimplement the consensus codec.
+- [ ] Publish generated C declarations, deterministic vectors, and Swift/URLSession integration
+  guidance while retaining explicit-trust finalized-evidence verification.
+- [ ] Pass affected-crate, Apple distribution, and full deterministic-kernel qualification; merge
+  the implementation and verify it is reachable from `origin/main`.
+
 - [x] Complete external digest anchor finalization and client verification
   ([GitHub issue #131](https://github.com/advatar/ActiveChain/issues/131)).
   - [x] Add bounded operator finalization and rejection operations without exposing public
