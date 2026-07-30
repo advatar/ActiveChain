@@ -15,6 +15,11 @@ commitment. A proof from another revision or state is not a usable substitute.
 
 ## Grace period and fallback
 
+The initial v1.1 profile waits through two consensus rounds for a proof and permits at most eight
+consecutive proof-pending blocks. The deadline is inclusive: grace begins only after round two.
+Both values are consensus parameters bounded to `1..=64`; zero and out-of-range profiles are
+invalid.
+
 If no valid proof is available before the proof deadline, validators may continue a bounded
 re-execution-only grace period. During the grace period:
 
@@ -32,6 +37,10 @@ The chain resumes normal mode only after a proof satisfying the active profile i
 the recovery block includes a deterministic proof-availability receipt. Recovery cannot rewrite or
 skip proof-pending history. Operators may rotate among registered proving implementations, but
 they cannot lower the security floor or substitute a self-attestation.
+
+A normal proof for the newest block does not clear older pending history. Recovery evidence MUST
+cover the exact complete consecutive pending prefix. Partial, mismatched, and invalid evidence is
+rejected without changing state.
 
 ## Decentralisation accounting
 
