@@ -511,7 +511,7 @@ fn digest(parts: &[&[u8]]) -> Root {
 fn finish(hasher: Shake256) -> Root {
     let mut reader = hasher.finalize_xof();
     let mut root = [0; 48];
-    reader.read(&mut root);
+    XofReader::read(&mut reader, &mut root);
     root
 }
 
