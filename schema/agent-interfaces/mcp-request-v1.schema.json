@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://activechain.dev/schema/agent-interfaces/mcp-request-v1.schema.json",
+  "title": "ActiveChain MCP request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "request_id", "tool", "authority", "arguments"],
+  "properties": {
+    "version": { "const": "activechain.agent-interfaces.v1" },
+    "request_id": { "$ref": "#/$defs/identifier" },
+    "tool": {
+      "enum": [
+        "get_status",
+        "list_assets",
+        "verify_record",
+        "get_pending_approvals",
+        "resolve_receipt",
+        "propose_transfer",
+        "submit_anchor_proposal"
+      ]
+    },
+    "authority": {
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/authority" }]
+    },
+    "arguments": { "type": "object", "maxProperties": 256 }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "commitment": {
+      "type": "string",
+      "pattern": "^[A-Fa-f0-9]{96}$"
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "chain_id",
+        "wallet_id",
+        "agent_principal",
+        "capability_id",
+        "request_nonce",
+        "expires_at_height",
+        "intent_commitment"
+      ],
+      "properties": {
+        "chain_id": { "$ref": "#/$defs/identifier" },
+        "wallet_id": { "$ref": "#/$defs/identifier" },
+        "agent_principal": { "$ref": "#/$defs/commitment" },
+        "capability_id": { "$ref": "#/$defs/commitment" },
+        "request_nonce": { "$ref": "#/$defs/identifier" },
+        "expires_at_height": { "type": "integer", "minimum": 1 },
+        "intent_commitment": { "$ref": "#/$defs/commitment" }
+      }
+    }
+  }
+}

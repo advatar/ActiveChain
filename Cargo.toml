@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/action-kernel",
+    "crates/agent-interfaces",
     "crates/application-primitives",
     "crates/authorization-kernel",
     "crates/bytecode-verifier",
@@ -52,6 +53,7 @@ repository = "https://github.com/advatar/ActiveChain"
 
 [workspace.dependencies]
 activechain-action-kernel = { path = "crates/action-kernel", version = "0.1.0" }
+activechain-agent-interfaces = { path = "crates/agent-interfaces", version = "0.1.0" }
 activechain-application-primitives = { path = "crates/application-primitives", version = "0.1.0" }
 activechain-authorization-kernel = { path = "crates/authorization-kernel", version = "0.1.0" }
 activechain-bytecode-verifier = { path = "crates/bytecode-verifier", version = "0.1.0" }
@@ -104,6 +106,7 @@ sha3 = { version = "0.10.8", default-features = false }
 sha2 = { version = "0.10.9", default-features = false }
 hmac = { version = "0.12.1", default-features = false }
 serde_json = "1.0.149"
+serde = { version = "1.0.228", features = ["derive"] }
 risc0-zkvm = { version = "=3.0.5", default-features = false }
 winterfell = "=0.13.1"
 

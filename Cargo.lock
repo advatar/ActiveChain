@@ -15,6 +15,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-agent-interfaces"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "activechain-apple-distribution"
 version = "0.1.0"
 dependencies = [
