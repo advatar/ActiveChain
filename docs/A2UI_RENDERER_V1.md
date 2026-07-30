@@ -19,9 +19,17 @@ security-critical facts.
 - The profile contains no `Web`, remote media, executable content, hidden controls, or generated
   action labels.
 
-The first supported surface is transfer review. Capability, enrollment, credential disclosure,
-proof status, receipt, and authenticated native-wallet dispatch remain gated on their owning DTO
-and wallet-integration issues rather than accepting placeholder authority.
+The renderer supports transfer review and verified result receipts, capability grants, agent
+enrollment, credential disclosure consent, and job/proof verification status. Transfer facts can
+be constructed directly from the canonical `ActionIntentV1`; the conversion derives the exact
+commitment, resource, recipient, amount, fee, network, and expiry rather than accepting display
+labels from MCP or A2UI.
+
+Approval actions still cannot sign or submit. After the surface and exact commitment binding are
+validated, `dispatch_wallet_action` may only ask a platform implementation of
+`NativeWalletApprovalDispatch` to begin its authenticated approval flow or persist rejection.
+This is the handoff to the native-wallet boundary introduced by issue #358; the renderer never
+receives custody keys or signatures.
 
 ## Accessibility profile
 
