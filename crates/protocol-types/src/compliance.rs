@@ -20,6 +20,253 @@ pub enum ComplianceError {
     InvalidScreening,
     InvalidRetention,
     InvalidOverride,
+    InvalidJurisdictionProfile,
+}
+
+/// Activity licensed under Kenya's Virtual Asset Service Providers framework.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum KenyaRegulatedActivity {
+    VirtualAssetService = 0,
+    StablecoinIssuance = 1,
+}
+impl CanonicalEncode for KenyaRegulatedActivity {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(e)
+    }
+}
+impl CanonicalDecode for KenyaRegulatedActivity {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(d)? {
+            0 => Ok(Self::VirtualAssetService),
+            1 => Ok(Self::StablecoinIssuance),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "KenyaRegulatedActivity", tag }),
+        }
+    }
+}
+
+/// Mandatory control families derived from Kenya Legal Notice No. 134 of 2026.
+///
+/// The bits commit to accountable off-chain controls; they do not represent a licence,
+/// regulatory approval, reserve balance, or legal conclusion by themselves.
+pub struct KenyaControlSet;
+impl KenyaControlSet {
+    pub const LICENSING: u32 = 1 << 0;
+    pub const ONGOING_OBLIGATIONS: u32 = 1 << 1;
+    pub const CDD_AML_AND_TRANSACTION_INFORMATION: u32 = 1 << 2;
+    pub const GOVERNANCE_AND_RISK: u32 = 1 << 3;
+    pub const CAPITAL_AUDIT_AND_REPORTING: u32 = 1 << 4;
+    pub const CYBERSECURITY_AND_CONTINUITY: u32 = 1 << 5;
+    pub const ASSET_SAFEKEEPING: u32 = 1 << 6;
+    pub const CONSUMER_PROTECTION: u32 = 1 << 7;
+    pub const MARKET_CONDUCT: u32 = 1 << 8;
+    pub const ADVERTISING: u32 = 1 << 9;
+    pub const FREEZING_AND_SEIZURE: u32 = 1 << 10;
+    pub const ENFORCEMENT_AND_EXIT: u32 = 1 << 11;
+    pub const RECORDS_AND_REGULATOR_ACCESS: u32 = 1 << 12;
+    pub const CONFLICTS_AND_OUTSOURCING: u32 = 1 << 13;
+    pub const STABLECOIN_WHITE_PAPER: u32 = 1 << 14;
+    pub const STABLECOIN_ISSUANCE_AND_REDEMPTION: u32 = 1 << 15;
+    pub const STABLECOIN_RESERVES_AND_CUSTODY: u32 = 1 << 16;
+    pub const STABLECOIN_AUDIT_REPORTING_AND_HALT: u32 = 1 << 17;
+    pub const VASP_REQUIRED: u32 = (1 << 14) - 1;
+    pub const STABLECOIN_REQUIRED: u32 = (1 << 18) - 1;
+}
+
+/// Canonical activation record for a Kenya-regulated application profile.
+///
+/// Every digest is a non-enumerable commitment to the named signed approval, policy, or control
+/// register. Actual regulated records remain with the responsible operator and authorities.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct KenyaRegulatedProfileV1 {
+    profile_id: Digest384,
+    operator: PrincipalId,
+    activity: KenyaRegulatedActivity,
+    control_set: u32,
+    source: Digest384,
+    legal_review: Digest384,
+    regulatory_authorization: Digest384,
+    credential_policy: Digest384,
+    screening_policy: Digest384,
+    travel_rule_policy: Digest384,
+    privacy_policy: Digest384,
+    reporting_policy: Digest384,
+    governance_policy: Digest384,
+    consumer_protection_policy: Digest384,
+    cybersecurity_policy: Digest384,
+    enforcement_policy: Digest384,
+    reserve_policy: Digest384,
+    custody_policy: Digest384,
+    redemption_policy: Digest384,
+    white_paper_approval: Digest384,
+    effective_height: Height,
+    expires_height: Height,
+    revision: u16,
+}
+impl KenyaRegulatedProfileV1 {
+    pub const TYPE_TAG: u16 = 0x0145;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 18 + 1 + 4 + 8 * 2 + 2;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        profile_id: Digest384,
+        operator: PrincipalId,
+        activity: KenyaRegulatedActivity,
+        control_set: u32,
+        source: Digest384,
+        legal_review: Digest384,
+        regulatory_authorization: Digest384,
+        credential_policy: Digest384,
+        screening_policy: Digest384,
+        travel_rule_policy: Digest384,
+        privacy_policy: Digest384,
+        reporting_policy: Digest384,
+        governance_policy: Digest384,
+        consumer_protection_policy: Digest384,
+        cybersecurity_policy: Digest384,
+        enforcement_policy: Digest384,
+        reserve_policy: Digest384,
+        custody_policy: Digest384,
+        redemption_policy: Digest384,
+        white_paper_approval: Digest384,
+        effective_height: Height,
+        expires_height: Height,
+        revision: u16,
+    ) -> Result<Self, ComplianceError> {
+        let common = [
+            profile_id,
+            *operator.digest(),
+            source,
+            legal_review,
+            regulatory_authorization,
+            credential_policy,
+            screening_policy,
+            travel_rule_policy,
+            privacy_policy,
+            reporting_policy,
+            governance_policy,
+            consumer_protection_policy,
+            cybersecurity_policy,
+            enforcement_policy,
+        ];
+        let required_controls = match activity {
+            KenyaRegulatedActivity::VirtualAssetService => KenyaControlSet::VASP_REQUIRED,
+            KenyaRegulatedActivity::StablecoinIssuance => KenyaControlSet::STABLECOIN_REQUIRED,
+        };
+        if common.into_iter().any(|value| value == Digest384::ZERO)
+            || control_set & required_controls != required_controls
+            || control_set & !KenyaControlSet::STABLECOIN_REQUIRED != 0
+            || effective_height == 0
+            || expires_height <= effective_height
+            || revision == 0
+            || (activity == KenyaRegulatedActivity::StablecoinIssuance
+                && [reserve_policy, custody_policy, redemption_policy, white_paper_approval]
+                    .into_iter()
+                    .any(|value| value == Digest384::ZERO))
+        {
+            return Err(ComplianceError::InvalidJurisdictionProfile);
+        }
+        Ok(Self {
+            profile_id,
+            operator,
+            activity,
+            control_set,
+            source,
+            legal_review,
+            regulatory_authorization,
+            credential_policy,
+            screening_policy,
+            travel_rule_policy,
+            privacy_policy,
+            reporting_policy,
+            governance_policy,
+            consumer_protection_policy,
+            cybersecurity_policy,
+            enforcement_policy,
+            reserve_policy,
+            custody_policy,
+            redemption_policy,
+            white_paper_approval,
+            effective_height,
+            expires_height,
+            revision,
+        })
+    }
+    pub const fn activity(&self) -> KenyaRegulatedActivity {
+        self.activity
+    }
+    pub const fn control_set(&self) -> u32 {
+        self.control_set
+    }
+    pub const fn active_at(&self, height: Height) -> bool {
+        height >= self.effective_height && height < self.expires_height
+    }
+    pub const fn profile_id(&self) -> Digest384 {
+        self.profile_id
+    }
+}
+impl CanonicalEncode for KenyaRegulatedProfileV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.profile_id.encode(e)?;
+        self.operator.encode(e)?;
+        self.activity.encode(e)?;
+        self.control_set.encode(e)?;
+        self.source.encode(e)?;
+        self.legal_review.encode(e)?;
+        self.regulatory_authorization.encode(e)?;
+        self.credential_policy.encode(e)?;
+        self.screening_policy.encode(e)?;
+        self.travel_rule_policy.encode(e)?;
+        self.privacy_policy.encode(e)?;
+        self.reporting_policy.encode(e)?;
+        self.governance_policy.encode(e)?;
+        self.consumer_protection_policy.encode(e)?;
+        self.cybersecurity_policy.encode(e)?;
+        self.enforcement_policy.encode(e)?;
+        self.reserve_policy.encode(e)?;
+        self.custody_policy.encode(e)?;
+        self.redemption_policy.encode(e)?;
+        self.white_paper_approval.encode(e)?;
+        self.effective_height.encode(e)?;
+        self.expires_height.encode(e)?;
+        self.revision.encode(e)
+    }
+}
+impl CanonicalDecode for KenyaRegulatedProfileV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            Digest384::decode(d)?,
+            PrincipalId::decode(d)?,
+            KenyaRegulatedActivity::decode(d)?,
+            u32::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Height::decode(d)?,
+            Height::decode(d)?,
+            u16::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid Kenya regulated profile"))
+    }
+}
+impl CanonicalType for KenyaRegulatedProfileV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
 pub const MAX_COMPLIANCE_REPLAY_KEYS: usize = 4096;
@@ -1314,6 +1561,95 @@ mod tests {
                 ]
             ),
             ProfileSelection::Rejected
+        );
+    }
+
+    fn kenya_profile(
+        activity: KenyaRegulatedActivity,
+        controls: u32,
+        stablecoin_commitments: bool,
+    ) -> Result<KenyaRegulatedProfileV1, ComplianceError> {
+        KenyaRegulatedProfileV1::new(
+            d(1),
+            PrincipalId::new(d(2)),
+            activity,
+            controls,
+            d(3),
+            d(4),
+            d(5),
+            d(6),
+            d(7),
+            d(8),
+            d(9),
+            d(10),
+            d(11),
+            d(12),
+            d(13),
+            d(14),
+            if stablecoin_commitments { d(15) } else { Digest384::ZERO },
+            if stablecoin_commitments { d(16) } else { Digest384::ZERO },
+            if stablecoin_commitments { d(17) } else { Digest384::ZERO },
+            if stablecoin_commitments { d(18) } else { Digest384::ZERO },
+            100,
+            200,
+            1,
+        )
+    }
+
+    #[test]
+    fn kenya_vasp_profile_requires_every_cross_cutting_control() {
+        let profile = kenya_profile(
+            KenyaRegulatedActivity::VirtualAssetService,
+            KenyaControlSet::VASP_REQUIRED,
+            false,
+        )
+        .unwrap();
+        assert_eq!(profile.activity(), KenyaRegulatedActivity::VirtualAssetService);
+        assert!(profile.active_at(100));
+        assert!(!profile.active_at(200));
+        assert_eq!(
+            decode_envelope::<KenyaRegulatedProfileV1>(&encode_envelope(&profile).unwrap()),
+            Ok(profile)
+        );
+        assert_eq!(
+            kenya_profile(
+                KenyaRegulatedActivity::VirtualAssetService,
+                KenyaControlSet::VASP_REQUIRED
+                    & !KenyaControlSet::CDD_AML_AND_TRANSACTION_INFORMATION,
+                false,
+            ),
+            Err(ComplianceError::InvalidJurisdictionProfile)
+        );
+    }
+
+    #[test]
+    fn kenya_stablecoin_profile_requires_specific_controls_and_commitments() {
+        let profile = kenya_profile(
+            KenyaRegulatedActivity::StablecoinIssuance,
+            KenyaControlSet::STABLECOIN_REQUIRED,
+            true,
+        )
+        .unwrap();
+        assert_eq!(profile.control_set(), KenyaControlSet::STABLECOIN_REQUIRED);
+        assert_eq!(
+            decode_envelope::<KenyaRegulatedProfileV1>(&encode_envelope(&profile).unwrap()),
+            Ok(profile)
+        );
+        assert_eq!(
+            kenya_profile(
+                KenyaRegulatedActivity::StablecoinIssuance,
+                KenyaControlSet::VASP_REQUIRED,
+                true,
+            ),
+            Err(ComplianceError::InvalidJurisdictionProfile)
+        );
+        assert_eq!(
+            kenya_profile(
+                KenyaRegulatedActivity::StablecoinIssuance,
+                KenyaControlSet::STABLECOIN_REQUIRED,
+                false,
+            ),
+            Err(ComplianceError::InvalidJurisdictionProfile)
         );
     }
 

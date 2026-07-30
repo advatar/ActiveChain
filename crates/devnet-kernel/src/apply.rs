@@ -5,14 +5,15 @@ use alloc::vec::Vec;
 use activechain_action_kernel::{NonceAdvanceError, ResourceVector, action_id};
 use activechain_canonical_codec::{EncodeError, encode_envelope};
 use activechain_protocol_commitment::{DomainTag, commit};
-use activechain_protocol_types::{Digest384, ObjectId, PrincipalId};
+use activechain_protocol_types::{Digest384, PrincipalId};
 use activechain_state_tree::{StateTreeError, commit_objects};
 use activechain_transition::{TransitionError, apply_transfer_transaction};
 
-use crate::types::nonce_key_order;
+use crate::types::{FeeAccountConsumeError, nonce_key_order};
 use crate::{
     ActionOutcome, ActionReceipt, BlockReceipt, BlockReceiptError, ChainState, ChainStateError,
-    DevnetBlock, MAX_USED_FEE_TICKETS,
+    DevnetBlock, FEE_TICKET_ADMISSION_CHARGE, MAX_FEE_TICKET_LIFETIME, MAX_USED_FEE_TICKETS,
+    UsedFeeTicket,
 };
 
 /// Applies one canonical development block without mutating its input state.
@@ -38,6 +39,10 @@ pub fn apply_block(
     if block.pre_state() != actual_pre_state {
         return Err(BlockApplyError::PreStateMismatch);
     }
+    let actual_pre_chain_state = state.commitment().map_err(BlockApplyError::CommitmentEncoding)?;
+    if block.pre_chain_state() != actual_pre_chain_state {
+        return Err(BlockApplyError::PreChainStateMismatch);
+    }
 
     let block_id =
         commit(DomainTag::BLOCK_ID, block).map_err(BlockApplyError::CommitmentEncoding)?;
@@ -54,7 +59,9 @@ pub fn apply_block(
 
     let mut objects = state.objects().clone();
     let mut nonce_channels = Vec::from(state.nonce_channels());
+    let mut fee_accounts = Vec::from(state.fee_accounts());
     let mut used_fee_tickets = Vec::from(state.used_fee_tickets());
+    used_fee_tickets.retain(|ticket| ticket.expires_at() >= block.height());
     let mut action_receipts = Vec::with_capacity(block.actions().len());
 
     for (index, (action, transaction_id)) in block.actions().iter().zip(action_ids).enumerate() {
@@ -71,15 +78,52 @@ pub fn apply_block(
         if ticket.valid_until() < block.height() {
             return Err(BlockApplyError::FeeTicketExpired { index });
         }
+        if ticket.payer() != action.sender() {
+            return Err(BlockApplyError::FeePayerDoesNotMatchSender { index });
+        }
+        if ticket.valid_until() != action.validity().valid_until()
+            || ticket.valid_until().saturating_sub(action.validity().valid_from())
+                > MAX_FEE_TICKET_LIFETIME
+        {
+            return Err(BlockApplyError::FeeTicketValidityTooLong { index });
+        }
         let maximum_charge = action
             .maximum_resources()
             .checked_charge(state.resource_prices())
             .ok_or(BlockApplyError::ResourceChargeOverflow { index })?;
-        if maximum_charge > ticket.reserved_amount() {
+        let maximum_backed_charge = maximum_charge
+            .checked_add(FEE_TICKET_ADMISSION_CHARGE)
+            .ok_or(BlockApplyError::ResourceChargeOverflow { index })?;
+        if maximum_backed_charge > ticket.reserved_amount() {
             return Err(BlockApplyError::InsufficientFeeReservation { index });
         }
+        let fee_account_index = fee_accounts
+            .binary_search_by_key(&ticket.payer(), |account| account.payer())
+            .map_err(|_| BlockApplyError::MissingFeeAccount { index })?;
+        let account = fee_accounts[fee_account_index];
+        if ticket.nonce() < account.next_nonce() {
+            return Err(BlockApplyError::FeeTicketNonceReplay {
+                index,
+                supplied: ticket.nonce(),
+                expected: account.next_nonce(),
+            });
+        }
+        if ticket.nonce() > account.next_nonce() {
+            return Err(BlockApplyError::FeeTicketNonceGap {
+                index,
+                supplied: ticket.nonce(),
+                expected: account.next_nonce(),
+            });
+        }
+        if account.balance() < ticket.reserved_amount() {
+            return Err(BlockApplyError::InsufficientFeeBalance { index });
+        }
 
-        insert_used_ticket(&mut used_fee_tickets, ticket.ticket_id(), index)?;
+        insert_used_ticket(
+            &mut used_fee_tickets,
+            UsedFeeTicket::new(ticket.ticket_id(), ticket.valid_until()),
+            index,
+        )?;
         let channel_index =
             find_nonce_channel(&nonce_channels, action.sender(), action.nonce_channel())
                 .ok_or(BlockApplyError::MissingNonceChannel { index })?;
@@ -104,7 +148,7 @@ pub fn apply_block(
             encoded_bytes,
         );
 
-        let (outcome, fee_charged) = if resources_used.fits_within(action.maximum_resources()) {
+        let (outcome, resource_charge) = if resources_used.fits_within(action.maximum_resources()) {
             objects = transition.state().clone();
             let charge = resources_used
                 .checked_charge(state.resource_prices())
@@ -113,6 +157,17 @@ pub fn apply_block(
         } else {
             (ActionOutcome::ResourceLimitExceeded, maximum_charge)
         };
+        let fee_charged = resource_charge
+            .checked_add(FEE_TICKET_ADMISSION_CHARGE)
+            .ok_or(BlockApplyError::ResourceChargeOverflow { index })?;
+        fee_accounts[fee_account_index].consume(fee_charged).map_err(|error| match error {
+            FeeAccountConsumeError::InsufficientBalance => {
+                BlockApplyError::InsufficientFeeBalance { index }
+            }
+            FeeAccountConsumeError::NonceExhausted => {
+                BlockApplyError::FeeTicketNonceExhausted { index }
+            }
+        })?;
         let post_state = commit_objects(objects.objects()).map_err(BlockApplyError::StateTree)?;
         action_receipts.push(ActionReceipt::new(
             transaction_id,
@@ -125,21 +180,30 @@ pub fn apply_block(
     }
 
     let post_state = commit_objects(objects.objects()).map_err(BlockApplyError::StateTree)?;
-    let receipt =
-        BlockReceipt::new(block_id, block.height(), actual_pre_state, post_state, action_receipts)
-            .map_err(BlockApplyError::InvalidBlockReceipt)?;
-    let receipt_root = commit(DomainTag::CANONICAL_VALUE, &receipt)
-        .map_err(BlockApplyError::CommitmentEncoding)?;
     let next_state = ChainState::new(
         state.chain_id(),
         block.height(),
         block_id,
         objects,
         nonce_channels,
+        fee_accounts,
         used_fee_tickets,
         state.resource_prices(),
     )
     .map_err(BlockApplyError::InvalidChainState)?;
+    let post_chain_state = next_state.commitment().map_err(BlockApplyError::CommitmentEncoding)?;
+    let receipt = BlockReceipt::new(
+        block_id,
+        block.height(),
+        actual_pre_state,
+        post_state,
+        actual_pre_chain_state,
+        post_chain_state,
+        action_receipts,
+    )
+    .map_err(BlockApplyError::InvalidBlockReceipt)?;
+    let receipt_root = commit(DomainTag::CANONICAL_VALUE, &receipt)
+        .map_err(BlockApplyError::CommitmentEncoding)?;
     Ok(BlockOutput { state: next_state, receipt, receipt_root })
 }
 
@@ -153,11 +217,11 @@ fn find_nonce_channel(
 }
 
 fn insert_used_ticket(
-    tickets: &mut Vec<ObjectId>,
-    ticket: ObjectId,
+    tickets: &mut Vec<UsedFeeTicket>,
+    ticket: UsedFeeTicket,
     index: usize,
 ) -> Result<(), BlockApplyError> {
-    match tickets.binary_search(&ticket) {
+    match tickets.binary_search_by_key(&ticket.ticket_id(), |candidate| candidate.ticket_id()) {
         Ok(_) => Err(BlockApplyError::FeeTicketAlreadyUsed { index }),
         Err(position) => {
             if tickets.len() >= MAX_USED_FEE_TICKETS {
@@ -210,6 +274,8 @@ pub enum BlockApplyError {
     WrongParent,
     /// The claimed pre-state does not match current objects.
     PreStateMismatch,
+    /// The claimed full pre-state does not match durable admission and object state.
+    PreChainStateMismatch,
     /// An action identifier is duplicated or out of order.
     ActionsNotStrictlyIncreasing { index: usize },
     /// One nested action targets another chain.
@@ -220,6 +286,20 @@ pub enum BlockApplyError {
     PayloadHeightMismatch { index: usize },
     /// A one-shot fee ticket has expired.
     FeeTicketExpired { index: usize },
+    /// A development ticket may only debit its authenticated sender's account.
+    FeePayerDoesNotMatchSender { index: usize },
+    /// Ticket validity is not identical to the action or exceeds the replay window.
+    FeeTicketValidityTooLong { index: usize },
+    /// No durable funded account exists for the declared payer.
+    MissingFeeAccount { index: usize },
+    /// The ticket nonce was already consumed.
+    FeeTicketNonceReplay { index: usize, supplied: u64, expected: u64 },
+    /// The ticket skips one or more payer nonces.
+    FeeTicketNonceGap { index: usize, supplied: u64, expected: u64 },
+    /// The payer cannot cover the ticket's complete declared reservation.
+    InsufficientFeeBalance { index: usize },
+    /// The payer nonce cannot advance without wrapping.
+    FeeTicketNonceExhausted { index: usize },
     /// The same fee-ticket identifier was already consumed.
     FeeTicketAlreadyUsed { index: usize },
     /// The bounded development ticket history is full.

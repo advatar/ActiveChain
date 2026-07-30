@@ -7,7 +7,7 @@ use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
 };
-use std::{collections::BTreeMap, io::Write, path::Path};
+use std::{collections::BTreeMap, path::Path};
 
 const DOMAIN: &[u8] = b"ACTIVECHAIN-PQ-SESSION-V2";
 const KDF_DOMAIN: &[u8] = b"ACTIVECHAIN-PQ-SESSION-KDF-V2";
@@ -451,8 +451,7 @@ impl PeerSocket {
         if frame.len() > MAX_PEER_FRAME_LEN {
             return Err(invalid_data("PQ session frame exceeds limit"));
         }
-        self.stream.write_all(&(frame.len() as u32).to_be_bytes())?;
-        self.stream.write_all(frame)
+        self.write_frame(frame)
     }
 
     pub fn send_protected_message(
@@ -461,6 +460,7 @@ impl PeerSocket {
         sequence: u64,
         message: &AuthenticatedConsensusMessage,
     ) -> std::io::Result<()> {
+        self.ensure_session_message_capacity()?;
         if sequence == 0 || session.expires_at <= now_secs()? {
             return Err(invalid_data("expired PQ session"));
         }
@@ -485,13 +485,16 @@ impl PeerSocket {
         frame.extend_from_slice(&(ciphertext.len() as u32).to_be_bytes());
         frame.extend_from_slice(&ciphertext);
         frame.extend_from_slice(&tag);
-        self.write_session_frame(&frame)
+        self.write_session_frame(&frame)?;
+        self.record_session_message();
+        Ok(())
     }
 
     pub fn receive_protected_message(
         &mut self,
         session: &PqPeerSession,
     ) -> std::io::Result<(u64, AuthenticatedConsensusMessage)> {
+        self.ensure_session_message_capacity()?;
         if session.expires_at <= now_secs()? {
             return Err(invalid_data("expired PQ session"));
         }
@@ -520,7 +523,9 @@ impl PeerSocket {
         let keystream = stream(&session.key, &associated_data, ciphertext.len());
         let plaintext =
             ciphertext.iter().zip(keystream).map(|(byte, mask)| byte ^ mask).collect::<Vec<_>>();
-        Ok((sequence, AuthenticatedConsensusMessage::from_wire_bytes(&plaintext)?))
+        let message = AuthenticatedConsensusMessage::from_wire_bytes(&plaintext)?;
+        self.record_session_message();
+        Ok((sequence, message))
     }
 }
 

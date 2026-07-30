@@ -17,7 +17,9 @@ jobs:
   rust:
     name: Rust kernel on local ARM64
     runs-on: [self-hosted, macOS, ARM64, activechain-ci]
-    timeout-minutes: 120
+    # The authorization-chain Tamarin suite can consume almost two hours on
+    # the pinned ARM64 runner before the remaining deterministic checks run.
+    timeout-minutes: 180
     env:
       CARGO_TERM_COLOR: always
       # Keep build artifacts scoped to the exact synthetic merge revision under qualification.
@@ -74,6 +76,11 @@ jobs:
         run: cargo fmt --all --check
       - name: Verify canonical type-tag registry
         run: python3 scripts/check-type-tag-registry.py
+      - name: Verify independent-client complexity budget
+        run: python3 scripts/check-independent-client-budget.py
+      - name: Test independent Go M0 vector reader
+        working-directory: tools/go-verifier
+        run: go test ./...
       - name: Check all targets
         env:
           # Clippy checks host code; the following test step builds the pinned guest image.
@@ -136,6 +143,8 @@ jobs:
         run: bash scripts/rehearse-consensus-view-change.sh
       - name: Rehearse validator key rotation
         run: bash scripts/rehearse-validator-key-rotation.sh
+      - name: Verify fail-closed Kanalen cash publication
+        run: bash scripts/test-kanalen-round-cash-gate.sh
       - name: Reproduce canonical vectors
         run: |
           cargo run --locked --quiet -p activechain-vector-generator -- principal-v1 | diff -u testing/vectors/canonical/principal-v1.txt -

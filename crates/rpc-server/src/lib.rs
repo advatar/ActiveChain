@@ -1643,7 +1643,16 @@ mod tests {
     fn receipt_record(byte: u8) -> QueryRecord {
         let pre_state = StateCommitment::new(digest(80), 0);
         let post_state = StateCommitment::new(digest(81), 0);
-        let receipt = BlockReceipt::new(digest(byte), 7, pre_state, post_state, vec![]).unwrap();
+        let receipt = BlockReceipt::new(
+            digest(byte),
+            7,
+            pre_state,
+            post_state,
+            digest(82),
+            digest(83),
+            vec![],
+        )
+        .unwrap();
         let receipt_root = commit(DomainTag::CANONICAL_VALUE, &receipt).unwrap();
         let finality = signed_finality(
             byte,

@@ -17,3 +17,7 @@ The milestone is staged: codec/primitives first, cash and authorization second, 
 proof reservations third. Later shielded, compute, and advanced proof profiles add new conformance
 profiles rather than changing v1.0 semantics. A profile cannot be called independently verified
 until two implementations pass the same frozen vector set.
+
+The checked-in Go tool currently establishes M0 file-shape and implementation-independence
+metadata only. It has not implemented the semantic checks above and MUST NOT be reported as M2.
+The machine-counted per-version budget and staffing decision live in P-134.

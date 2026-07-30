@@ -22,10 +22,12 @@ members = [
     "crates/devnet-kernel",
     "crates/finality-types",
     "crates/light-client",
+    "crates/mcp-server",
     "crates/object",
     "crates/object-vm",
     "crates/payment-types",
     "crates/payment-connector-host",
+    "crates/proposal-gateway",
     "connectors/ntzs",
     "crates/policy-kernel",
     "crates/principal",
@@ -75,10 +77,13 @@ activechain-credential = { path = "crates/credential", version = "0.1.0" }
 activechain-devnet-kernel = { path = "crates/devnet-kernel", version = "0.1.0" }
 activechain-finality-types = { path = "crates/finality-types", version = "0.1.0" }
 activechain-light-client = { path = "crates/light-client", version = "0.1.0" }
+activechain-mcp-server = { path = "crates/mcp-server", version = "0.1.0" }
 activechain-object = { path = "crates/object", version = "0.1.0" }
 activechain-object-vm = { path = "crates/object-vm", version = "0.1.0" }
+postcard = { version = "1.1.3", features = ["use-std"] }
 activechain-payment-types = { path = "crates/payment-types", version = "0.1.0" }
 activechain-payment-connector-host = { path = "crates/payment-connector-host", version = "0.1.0" }
+activechain-proposal-gateway = { path = "crates/proposal-gateway", version = "0.1.0" }
 activechain-policy-kernel = { path = "crates/policy-kernel", version = "0.1.0" }
 activechain-principal = { path = "crates/principal", version = "0.1.0" }
 activechain-privacy-kernel = { path = "crates/privacy-kernel", version = "0.1.0" }

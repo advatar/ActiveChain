@@ -28,7 +28,7 @@ use sha3::{
 };
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
@@ -48,6 +48,11 @@ mod pq_session;
 pub use pq_session::{PqPeerSession, PqSessionContext, PqSessionStore, SESSION_TTL_SECS};
 mod proof_pipeline;
 pub use proof_pipeline::{DurableFinalizedState, DurableProofPipeline, ProofPipelineError};
+mod proof_liveness;
+pub use proof_liveness::{
+    MAX_PROOF_DEADLINE_ROUNDS, MAX_PROOF_GRACE_DEPTH, ProofEvidence, ProofLivenessDecision,
+    ProofLivenessError, ProofLivenessInput, ProofLivenessProfile,
+};
 
 /// Canonical wallet transaction admission owned by the validator runtime.
 /// Authenticated network handlers can delegate here after peer/session checks.
@@ -247,6 +252,15 @@ impl AuthorizedFaucetSettlementAdapter for ValidatorFaucetSettlementAdapter {
 
 const PEER_BODY_DOMAIN: &[u8] = b"ACTIVECHAIN-PEER-BODY-V1";
 pub const MAX_PEER_FRAME_LEN: usize = 16 * 1024;
+pub const PEER_FRAME_DEADLINE: Duration = Duration::from_secs(5);
+pub const PEER_SESSION_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+pub const PEER_SESSION_LIFETIME: Duration = Duration::from_secs(5 * 60);
+pub const MAX_PEER_SESSION_MESSAGES: usize = 4096;
+pub const MAX_AUTHENTICATED_MESSAGES_PER_SECOND: usize = 256;
+pub const MAX_PEER_INGRESS_WORKERS: usize = 64;
+pub const MAX_PEER_INGRESS_QUEUE: usize = 1024;
+pub const MAX_PRE_AUTH_PER_SOURCE_PER_SECOND: usize = 4096;
+pub const MAX_TRACKED_INGRESS_SOURCES: usize = 8192;
 
 #[derive(Default)]
 pub struct ValidatorMetrics {
@@ -256,6 +270,9 @@ pub struct ValidatorMetrics {
     rejected_messages: AtomicU64,
     peer_sessions_established: AtomicU64,
     peer_session_rejections: AtomicU64,
+    peer_rate_limited: AtomicU64,
+    peer_timeouts: AtomicU64,
+    peer_malformed_frames: AtomicU64,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MetricsSnapshot {
@@ -265,17 +282,23 @@ pub struct MetricsSnapshot {
     pub rejected_messages: u64,
     pub peer_sessions_established: u64,
     pub peer_session_rejections: u64,
+    pub peer_rate_limited: u64,
+    pub peer_timeouts: u64,
+    pub peer_malformed_frames: u64,
 }
 impl MetricsSnapshot {
     pub fn prometheus(self, validator_id: u16) -> String {
         format!(
-            "activechain_validator_proposals{{validator=\"{validator_id}\"}} {}\nactivechain_validator_votes{{validator=\"{validator_id}\"}} {}\nactivechain_validator_finalized_certificates{{validator=\"{validator_id}\"}} {}\nactivechain_validator_rejected_messages{{validator=\"{validator_id}\"}} {}\nactivechain_validator_peer_sessions_established{{validator=\"{validator_id}\"}} {}\nactivechain_validator_peer_session_rejections{{validator=\"{validator_id}\"}} {}\n",
+            "activechain_validator_proposals{{validator=\"{validator_id}\"}} {}\nactivechain_validator_votes{{validator=\"{validator_id}\"}} {}\nactivechain_validator_finalized_certificates{{validator=\"{validator_id}\"}} {}\nactivechain_validator_rejected_messages{{validator=\"{validator_id}\"}} {}\nactivechain_validator_peer_sessions_established{{validator=\"{validator_id}\"}} {}\nactivechain_validator_peer_session_rejections{{validator=\"{validator_id}\"}} {}\nactivechain_validator_peer_rate_limited{{validator=\"{validator_id}\"}} {}\nactivechain_validator_peer_timeouts{{validator=\"{validator_id}\"}} {}\nactivechain_validator_peer_malformed_frames{{validator=\"{validator_id}\"}} {}\n",
             self.proposals,
             self.votes,
             self.finalized_certificates,
             self.rejected_messages,
             self.peer_sessions_established,
             self.peer_session_rejections,
+            self.peer_rate_limited,
+            self.peer_timeouts,
+            self.peer_malformed_frames,
         )
     }
 }
@@ -288,6 +311,9 @@ impl ValidatorMetrics {
             rejected_messages: self.rejected_messages.load(Ordering::Relaxed),
             peer_sessions_established: self.peer_sessions_established.load(Ordering::Relaxed),
             peer_session_rejections: self.peer_session_rejections.load(Ordering::Relaxed),
+            peer_rate_limited: self.peer_rate_limited.load(Ordering::Relaxed),
+            peer_timeouts: self.peer_timeouts.load(Ordering::Relaxed),
+            peer_malformed_frames: self.peer_malformed_frames.load(Ordering::Relaxed),
         }
     }
 }
@@ -911,6 +937,8 @@ impl SignedPeerEnvelope {
 
 pub struct PeerSocket {
     stream: TcpStream,
+    absolute_deadline: Option<Instant>,
+    session_messages: usize,
 }
 
 struct PeerConnection {
@@ -927,12 +955,115 @@ pub struct PeerDirectory {
     session_store_path: std::path::PathBuf,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PeerIngressConfig {
+    pub workers: usize,
+    pub queue_capacity: usize,
+    pub pre_auth_per_source_per_second: usize,
+    pub max_tracked_sources: usize,
+}
+
+impl Default for PeerIngressConfig {
+    fn default() -> Self {
+        Self {
+            workers: 16,
+            queue_capacity: 64,
+            pre_auth_per_source_per_second: 32,
+            max_tracked_sources: 1024,
+        }
+    }
+}
+
+#[derive(Default)]
+struct PeerIngressMetrics {
+    accepted: AtomicU64,
+    active: AtomicU64,
+    queued: AtomicU64,
+    shed: AtomicU64,
+    pre_auth_rate_limited: AtomicU64,
+    recovered: AtomicU64,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PeerIngressMetricsSnapshot {
+    pub accepted: u64,
+    pub active: u64,
+    pub queued: u64,
+    pub shed: u64,
+    pub pre_auth_rate_limited: u64,
+    pub recovered: u64,
+}
+
+impl PeerIngressMetricsSnapshot {
+    pub fn prometheus(self, validator_id: u16) -> String {
+        format!(
+            "activechain_peer_ingress_accepted{{validator=\"{validator_id}\"}} {}\nactivechain_peer_ingress_active{{validator=\"{validator_id}\"}} {}\nactivechain_peer_ingress_queued{{validator=\"{validator_id}\"}} {}\nactivechain_peer_ingress_shed{{validator=\"{validator_id}\"}} {}\nactivechain_peer_ingress_pre_auth_rate_limited{{validator=\"{validator_id}\"}} {}\nactivechain_peer_ingress_recovered{{validator=\"{validator_id}\"}} {}\n",
+            self.accepted,
+            self.active,
+            self.queued,
+            self.shed,
+            self.pre_auth_rate_limited,
+            self.recovered,
+        )
+    }
+}
+
+#[derive(Clone)]
+pub struct PeerIngressMonitor {
+    metrics: Arc<PeerIngressMetrics>,
+}
+
+impl PeerIngressMonitor {
+    pub fn snapshot(&self) -> PeerIngressMetricsSnapshot {
+        self.metrics.snapshot()
+    }
+}
+
+impl PeerIngressMetrics {
+    fn snapshot(&self) -> PeerIngressMetricsSnapshot {
+        PeerIngressMetricsSnapshot {
+            accepted: self.accepted.load(Ordering::Relaxed),
+            active: self.active.load(Ordering::Relaxed),
+            queued: self.queued.load(Ordering::Relaxed),
+            shed: self.shed.load(Ordering::Relaxed),
+            pre_auth_rate_limited: self.pre_auth_rate_limited.load(Ordering::Relaxed),
+            recovered: self.recovered.load(Ordering::Relaxed),
+        }
+    }
+}
+
 pub struct PeerListener {
     listener: TcpListener,
+    config: PeerIngressConfig,
+    metrics: Arc<PeerIngressMetrics>,
 }
 impl PeerListener {
     pub fn bind(address: (&str, u16)) -> std::io::Result<Self> {
-        Ok(Self { listener: TcpListener::bind(address)? })
+        Self::bind_with_config(address, PeerIngressConfig::default())
+    }
+    pub fn bind_with_config(
+        address: (&str, u16),
+        config: PeerIngressConfig,
+    ) -> std::io::Result<Self> {
+        if config.workers == 0
+            || config.workers > MAX_PEER_INGRESS_WORKERS
+            || config.queue_capacity == 0
+            || config.queue_capacity > MAX_PEER_INGRESS_QUEUE
+            || config.pre_auth_per_source_per_second == 0
+            || config.pre_auth_per_source_per_second > MAX_PRE_AUTH_PER_SOURCE_PER_SECOND
+            || config.max_tracked_sources == 0
+            || config.max_tracked_sources > MAX_TRACKED_INGRESS_SOURCES
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "peer ingress bounds must be non-zero",
+            ));
+        }
+        Ok(Self {
+            listener: TcpListener::bind(address)?,
+            config,
+            metrics: Arc::new(PeerIngressMetrics::default()),
+        })
     }
     pub fn local_addr(&self) -> std::io::Result<std::net::SocketAddr> {
         self.listener.local_addr()
@@ -941,15 +1072,97 @@ impl PeerListener {
         let (stream, _) = self.listener.accept()?;
         Ok(PeerSocket::connect(stream))
     }
+    pub fn metrics(&self) -> PeerIngressMetricsSnapshot {
+        self.metrics.snapshot()
+    }
+    pub fn monitor(&self) -> PeerIngressMonitor {
+        PeerIngressMonitor { metrics: Arc::clone(&self.metrics) }
+    }
     pub fn spawn_accept_loop<F>(&self, handler: F) -> std::io::Result<()>
     where
         F: Fn(PeerSocket) + Send + Sync + 'static,
     {
-        let handler = std::sync::Arc::new(handler);
+        let handler = Arc::new(handler);
+        let (sender, receiver) = mpsc::sync_channel::<PeerSocket>(self.config.queue_capacity);
+        let receiver = Arc::new(Mutex::new(receiver));
+        for _ in 0..self.config.workers {
+            let handler = Arc::clone(&handler);
+            let receiver = Arc::clone(&receiver);
+            let metrics = Arc::clone(&self.metrics);
+            std::thread::spawn(move || {
+                loop {
+                    let socket = match receiver.lock() {
+                        Ok(receiver) => receiver.recv(),
+                        Err(_) => return,
+                    };
+                    let Ok(socket) = socket else { return };
+                    metrics.queued.fetch_sub(1, Ordering::Relaxed);
+                    metrics.active.fetch_add(1, Ordering::Relaxed);
+                    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        handler(socket);
+                    }));
+                    metrics.active.fetch_sub(1, Ordering::Relaxed);
+                    metrics.recovered.fetch_add(1, Ordering::Relaxed);
+                    if outcome.is_err() {
+                        eprintln!("peer_ingress event=handler_panic worker=recovered");
+                    }
+                }
+            });
+        }
+        let mut source_windows = BTreeMap::<IpAddr, (Instant, usize)>::new();
+        let mut last_source_prune = Instant::now();
         loop {
-            let socket = self.accept()?;
-            let handler = std::sync::Arc::clone(&handler);
-            std::thread::spawn(move || handler(socket));
+            let (stream, address) = self.listener.accept()?;
+            self.metrics.accepted.fetch_add(1, Ordering::Relaxed);
+            let now = Instant::now();
+            if now.saturating_duration_since(last_source_prune) >= Duration::from_secs(1) {
+                source_windows.retain(|_, (started, _)| {
+                    now.saturating_duration_since(*started) < Duration::from_secs(1)
+                });
+                last_source_prune = now;
+            }
+            let source = address.ip();
+            let allowed = if let Some((started, count)) = source_windows.get_mut(&source) {
+                if now.saturating_duration_since(*started) >= Duration::from_secs(1) {
+                    *started = now;
+                    *count = 1;
+                    true
+                } else if *count < self.config.pre_auth_per_source_per_second {
+                    *count += 1;
+                    true
+                } else {
+                    false
+                }
+            } else if source_windows.len() < self.config.max_tracked_sources {
+                source_windows.insert(source, (now, 1));
+                true
+            } else {
+                false
+            };
+            if !allowed {
+                self.metrics.pre_auth_rate_limited.fetch_add(1, Ordering::Relaxed);
+                self.metrics.shed.fetch_add(1, Ordering::Relaxed);
+                eprintln!("peer_ingress event=pre_auth_rate_limited source={source}");
+                drop(stream);
+                continue;
+            }
+            self.metrics.queued.fetch_add(1, Ordering::Relaxed);
+            match sender.try_send(PeerSocket::connect(stream)) {
+                Ok(()) => {}
+                Err(mpsc::TrySendError::Full(socket)) => {
+                    self.metrics.queued.fetch_sub(1, Ordering::Relaxed);
+                    self.metrics.shed.fetch_add(1, Ordering::Relaxed);
+                    eprintln!("peer_ingress event=queue_full source={source}");
+                    drop(socket);
+                }
+                Err(mpsc::TrySendError::Disconnected(_)) => {
+                    self.metrics.queued.fetch_sub(1, Ordering::Relaxed);
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "peer ingress worker queue disconnected",
+                    ));
+                }
+            }
         }
     }
 }
@@ -1044,7 +1257,7 @@ impl PeerDirectory {
         if now.duration_since(entry.0) >= Duration::from_secs(1) {
             *entry = (now, 0);
         }
-        if entry.1 >= 256 {
+        if entry.1 >= MAX_AUTHENTICATED_MESSAGES_PER_SECOND {
             return false;
         }
         entry.1 += 1;
@@ -1213,11 +1426,13 @@ impl PeerConnector {
                 return Err(invalid_data("local session signer identity mismatch"));
             }
             let mut socket = self.reconnect(endpoint)?;
-            socket.set_timeouts(Some(Duration::from_secs(5)), Some(Duration::from_secs(5)))?;
+            socket.set_timeouts(Some(PEER_FRAME_DEADLINE), Some(PEER_FRAME_DEADLINE))?;
+            socket.set_absolute_deadline(Some(Instant::now() + PEER_FRAME_DEADLINE));
             let context = service.session_context(local_peer_id, endpoint.id)?;
             let session = socket.initiate_pq_session(context, signer, &endpoint.public_key)?;
             service.accept_session(&session)?;
-            socket.set_timeouts(None, None)?;
+            socket.set_absolute_deadline(Some(Instant::now() + PEER_SESSION_LIFETIME));
+            socket.set_timeouts(Some(PEER_SESSION_IDLE_TIMEOUT), Some(PEER_FRAME_DEADLINE))?;
             Ok((socket, session))
         })();
         match result {
@@ -1227,6 +1442,7 @@ impl PeerConnector {
             }
             Err(error) => {
                 service.record_peer_session_rejection();
+                service.record_peer_io_error(&error);
                 Err(error)
             }
         }
@@ -1511,7 +1727,7 @@ pub fn load_distributed_snapshot(path: &std::path::Path) -> std::io::Result<Cons
 }
 impl PeerSocket {
     pub fn connect(stream: TcpStream) -> Self {
-        Self { stream }
+        Self { stream, absolute_deadline: None, session_messages: 0 }
     }
     pub fn set_timeouts(
         &self,
@@ -1521,6 +1737,74 @@ impl PeerSocket {
         self.stream.set_read_timeout(read)?;
         self.stream.set_write_timeout(write)
     }
+    pub fn set_absolute_deadline(&mut self, deadline: Option<Instant>) {
+        self.absolute_deadline = deadline;
+    }
+    pub(crate) fn ensure_session_message_capacity(&self) -> std::io::Result<()> {
+        if self.session_messages >= MAX_PEER_SESSION_MESSAGES {
+            return Err(invalid_data("authenticated peer session message limit reached"));
+        }
+        Ok(())
+    }
+    pub(crate) fn record_session_message(&mut self) {
+        self.session_messages += 1;
+    }
+    fn operation_deadline(&self) -> Instant {
+        let frame_deadline = Instant::now() + PEER_FRAME_DEADLINE;
+        self.absolute_deadline.map_or(frame_deadline, |cap| cap.min(frame_deadline))
+    }
+    fn remaining(deadline: Instant) -> std::io::Result<Duration> {
+        deadline
+            .checked_duration_since(Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::TimedOut, "peer frame deadline exceeded")
+            })
+    }
+    fn read_exact_until(&mut self, bytes: &mut [u8], deadline: Instant) -> std::io::Result<()> {
+        let mut offset = 0;
+        while offset < bytes.len() {
+            self.stream.set_read_timeout(Some(Self::remaining(deadline)?))?;
+            match self.stream.read(&mut bytes[offset..]) {
+                Ok(0) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "peer closed during frame",
+                    ));
+                }
+                Ok(read) => offset += read,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
+    }
+    fn write_all_until(&mut self, bytes: &[u8], deadline: Instant) -> std::io::Result<()> {
+        let mut offset = 0;
+        while offset < bytes.len() {
+            self.stream.set_write_timeout(Some(Self::remaining(deadline)?))?;
+            match self.stream.write(&bytes[offset..]) {
+                Ok(0) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::WriteZero,
+                        "peer stopped accepting frame",
+                    ));
+                }
+                Ok(written) => offset += written,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
+    }
+    pub(crate) fn write_frame(&mut self, frame: &[u8]) -> std::io::Result<()> {
+        if frame.len() > MAX_PEER_FRAME_LEN {
+            return Err(invalid_data("peer frame exceeds limit"));
+        }
+        let deadline = self.operation_deadline();
+        self.write_all_until(&(frame.len() as u32).to_be_bytes(), deadline)?;
+        self.write_all_until(frame, deadline)
+    }
     #[cfg(test)]
     pub fn send(&mut self, envelope: &SignedPeerEnvelope) -> std::io::Result<()> {
         let mut frame = Vec::with_capacity(2 + 8 + 48 + 2 + envelope.signature_bytes().len());
@@ -1529,12 +1813,25 @@ impl PeerSocket {
         frame.extend_from_slice(envelope.body_digest().as_bytes());
         frame.extend_from_slice(&(envelope.signature_bytes().len() as u16).to_be_bytes());
         frame.extend_from_slice(envelope.signature_bytes());
-        self.stream.write_all(&(frame.len() as u32).to_be_bytes())?;
-        self.stream.write_all(&frame)
+        self.write_frame(&frame)
     }
     pub fn receive_frame(&mut self) -> std::io::Result<Vec<u8>> {
+        let idle_deadline = Instant::now() + PEER_SESSION_IDLE_TIMEOUT;
+        let idle_deadline =
+            self.absolute_deadline.map_or(idle_deadline, |cap| cap.min(idle_deadline));
         let mut len = [0; 4];
-        self.stream.read_exact(&mut len)?;
+        self.read_exact_until(&mut len[..1], idle_deadline)?;
+        let frame_deadline = self.operation_deadline();
+        self.read_exact_until(&mut len[1..], frame_deadline)?;
+        self.receive_frame_body(len, frame_deadline)
+    }
+    #[cfg(test)]
+    fn receive_frame_until(&mut self, deadline: Instant) -> std::io::Result<Vec<u8>> {
+        let mut len = [0; 4];
+        self.read_exact_until(&mut len, deadline)?;
+        self.receive_frame_body(len, deadline)
+    }
+    fn receive_frame_body(&mut self, len: [u8; 4], deadline: Instant) -> std::io::Result<Vec<u8>> {
         let frame_len = u32::from_be_bytes(len) as usize;
         if frame_len > MAX_PEER_FRAME_LEN {
             return Err(std::io::Error::new(
@@ -1543,7 +1840,7 @@ impl PeerSocket {
             ));
         }
         let mut frame = vec![0; frame_len];
-        self.stream.read_exact(&mut frame)?;
+        self.read_exact_until(&mut frame, deadline)?;
         Ok(frame)
     }
     #[cfg(test)]
@@ -1579,8 +1876,7 @@ impl PeerSocket {
         authenticated: &AuthenticatedConsensusMessage,
     ) -> std::io::Result<()> {
         let frame = authenticated.wire_bytes()?;
-        self.stream.write_all(&(frame.len() as u32).to_be_bytes())?;
-        self.stream.write_all(&frame)
+        self.write_frame(&frame)
     }
     #[cfg(test)]
     pub fn receive_message(&mut self) -> std::io::Result<AuthenticatedConsensusMessage> {
@@ -3294,6 +3590,7 @@ pub struct ValidatorService {
     session_store: Arc<Mutex<PqSessionStore>>,
     session_store_path: std::path::PathBuf,
     metrics: std::sync::Arc<ValidatorMetrics>,
+    authenticated_rate_limits: std::sync::Mutex<BTreeMap<u16, (Instant, usize)>>,
 }
 impl ValidatorService {
     pub fn from_genesis(
@@ -3383,6 +3680,7 @@ impl ValidatorService {
             session_store: Arc::new(Mutex::new(session_store)),
             session_store_path,
             metrics: std::sync::Arc::new(ValidatorMetrics::default()),
+            authenticated_rate_limits: std::sync::Mutex::new(BTreeMap::new()),
         })
     }
     fn session_context(&self, initiator: u16, responder: u16) -> std::io::Result<PqSessionContext> {
@@ -3420,6 +3718,34 @@ impl ValidatorService {
     }
     fn record_peer_session_rejection(&self) {
         self.metrics.peer_session_rejections.fetch_add(1, Ordering::Relaxed);
+    }
+    fn record_peer_io_error(&self, error: &std::io::Error) {
+        match error.kind() {
+            std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock => {
+                self.metrics.peer_timeouts.fetch_add(1, Ordering::Relaxed);
+            }
+            std::io::ErrorKind::InvalidData => {
+                self.metrics.peer_malformed_frames.fetch_add(1, Ordering::Relaxed);
+            }
+            _ => {}
+        }
+    }
+    fn allow_authenticated_receive(&self, peer_id: u16, now: Instant) -> std::io::Result<bool> {
+        let mut limits = self
+            .authenticated_rate_limits
+            .lock()
+            .map_err(|_| invalid_data("authenticated rate-limit lock poisoned"))?;
+        let entry = limits.entry(peer_id).or_insert((now, 0));
+        if now.saturating_duration_since(entry.0) >= Duration::from_secs(1) {
+            *entry = (now, 0);
+        }
+        if entry.1 >= MAX_AUTHENTICATED_MESSAGES_PER_SECOND {
+            self.metrics.peer_rate_limited.fetch_add(1, Ordering::Relaxed);
+            eprintln!("peer_ingress event=authenticated_rate_limited peer={peer_id}");
+            return Ok(false);
+        }
+        entry.1 += 1;
+        Ok(true)
     }
     pub fn state(&self) -> Result<ConsensusState, ValidatorServiceError> {
         self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned).map(|engine| engine.state())
@@ -3953,7 +4279,8 @@ impl ValidatorService {
             {
                 return Err(invalid_data("local session signer identity mismatch"));
             }
-            peer.set_timeouts(Some(Duration::from_secs(5)), Some(Duration::from_secs(5)))?;
+            peer.set_timeouts(Some(PEER_FRAME_DEADLINE), Some(PEER_FRAME_DEADLINE))?;
+            peer.set_absolute_deadline(Some(Instant::now() + PEER_FRAME_DEADLINE));
             let (chain, epoch, protocol_revision, peer_keys) = {
                 let engine = self
                     .engine
@@ -3980,7 +4307,8 @@ impl ValidatorService {
                 &peer_keys,
             )?;
             self.accept_session(&session)?;
-            peer.set_timeouts(None, None)?;
+            peer.set_absolute_deadline(Some(Instant::now() + PEER_SESSION_LIFETIME));
+            peer.set_timeouts(Some(PEER_SESSION_IDLE_TIMEOUT), Some(PEER_FRAME_DEADLINE))?;
             Ok((peer, session))
         })();
         match result {
@@ -3990,6 +4318,7 @@ impl ValidatorService {
             }
             Err(error) => {
                 self.record_peer_session_rejection();
+                self.record_peer_io_error(&error);
                 Err(error)
             }
         }
@@ -3999,7 +4328,19 @@ impl ValidatorService {
         peer: &mut PeerSocket,
         session: &PqPeerSession,
     ) -> std::io::Result<AuthenticatedConsensusMessage> {
-        let (session_sequence, message) = peer.receive_protected_message(session)?;
+        if !self.allow_authenticated_receive(session.peer, Instant::now())? {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "authenticated peer rate limited",
+            ));
+        }
+        let (session_sequence, message) = match peer.receive_protected_message(session) {
+            Ok(received) => received,
+            Err(error) => {
+                self.record_peer_io_error(&error);
+                return Err(error);
+            }
+        };
         if message.envelope.sender() != session.peer {
             return Err(invalid_data("protected frame sender does not match session peer"));
         }
@@ -4009,6 +4350,18 @@ impl ValidatorService {
             .accept_receive_and_save(session.id, session_sequence, &self.session_store_path)?;
         Ok(message)
     }
+    fn enforce_session_bounds(started: Instant, messages: usize) -> std::io::Result<()> {
+        if messages >= MAX_PEER_SESSION_MESSAGES {
+            return Err(invalid_data("authenticated peer session message limit reached"));
+        }
+        if started.elapsed() >= PEER_SESSION_LIFETIME {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "authenticated peer session lifetime exceeded",
+            ));
+        }
+        Ok(())
+    }
     pub fn serve_authenticated_genesis_peer(
         &self,
         peer: PeerSocket,
@@ -4016,12 +4369,16 @@ impl ValidatorService {
         signer: &ValidatorSigner,
     ) -> std::io::Result<()> {
         let (mut peer, session) = self.authenticate_inbound_peer(peer, local_peer_id, signer)?;
+        let started = Instant::now();
+        let mut messages = 0;
         loop {
+            Self::enforce_session_bounds(started, messages)?;
             let message = match self.receive_session_message(&mut peer, &session) {
                 Ok(message) => message,
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
                 Err(error) => return Err(error),
             };
+            messages += 1;
             self.process_message(message).map_err(|error| {
                 std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{error:?}"))
             })?;
@@ -4034,12 +4391,16 @@ impl ValidatorService {
         signer: &ValidatorSigner,
     ) -> std::io::Result<()> {
         let (mut peer, session) = self.authenticate_inbound_peer(peer, local_peer_id, signer)?;
+        let started = Instant::now();
+        let mut messages = 0;
         loop {
+            Self::enforce_session_bounds(started, messages)?;
             let message = match self.receive_session_message(&mut peer, &session) {
                 Ok(message) => message,
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
                 Err(error) => return Err(error),
             };
+            messages += 1;
             if let ConsensusMessage::Proposal(_) = &message.message {
                 let sequence = self
                     .next_sequence(local_peer_id)
@@ -4484,6 +4845,180 @@ mod tests {
         let error = PeerSocket::connect(stream).receive_frame().unwrap_err();
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
         sender.join().unwrap();
+    }
+
+    fn wait_until(mut predicate: impl FnMut() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !predicate() {
+            assert!(Instant::now() < deadline, "condition did not become true");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn peer_frame_deadline_rejects_slow_byte_drip() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let sender = std::thread::spawn(move || {
+            let mut stream = std::net::TcpStream::connect(address).unwrap();
+            for byte in 4_u32.to_be_bytes() {
+                if stream.write_all(&[byte]).is_err() {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(30));
+            }
+        });
+        let (stream, _) = listener.accept().unwrap();
+        let started = Instant::now();
+        let error = PeerSocket::connect(stream)
+            .receive_frame_until(Instant::now() + Duration::from_millis(70))
+            .unwrap_err();
+        assert!(matches!(
+            error.kind(),
+            std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+        ));
+        assert!(started.elapsed() < Duration::from_millis(500));
+        sender.join().unwrap();
+    }
+
+    #[test]
+    fn bounded_peer_ingress_sheds_saturation_and_recovers_for_healthy_peer() {
+        let listener = PeerListener::bind_with_config(
+            ("127.0.0.1", 0),
+            PeerIngressConfig {
+                workers: 1,
+                queue_capacity: 1,
+                pre_auth_per_source_per_second: 64,
+                max_tracked_sources: 4,
+            },
+        )
+        .unwrap();
+        let address = listener.local_addr().unwrap();
+        let monitor = listener.monitor();
+        let (release_sender, release_receiver) = mpsc::channel();
+        let release_receiver = Arc::new(Mutex::new(release_receiver));
+        std::thread::spawn(move || {
+            listener
+                .spawn_accept_loop(move |_| {
+                    let _ = release_receiver.lock().unwrap().recv();
+                })
+                .unwrap();
+        });
+
+        let first = TcpStream::connect(address).unwrap();
+        wait_until(|| monitor.snapshot().active == 1);
+        let second = TcpStream::connect(address).unwrap();
+        wait_until(|| monitor.snapshot().queued == 1);
+        let shed = TcpStream::connect(address).unwrap();
+        wait_until(|| monitor.snapshot().shed == 1);
+        drop(shed);
+
+        release_sender.send(()).unwrap();
+        release_sender.send(()).unwrap();
+        wait_until(|| monitor.snapshot().recovered == 2);
+        let healthy = TcpStream::connect(address).unwrap();
+        release_sender.send(()).unwrap();
+        wait_until(|| monitor.snapshot().recovered == 3);
+        let snapshot = monitor.snapshot();
+        assert_eq!(snapshot.active, 0);
+        assert_eq!(snapshot.queued, 0);
+        assert_eq!(snapshot.shed, 1);
+        drop((first, second, healthy));
+    }
+
+    #[test]
+    fn peer_ingress_pre_auth_limit_uses_observed_source_address() {
+        let listener = PeerListener::bind_with_config(
+            ("127.0.0.1", 0),
+            PeerIngressConfig {
+                workers: 1,
+                queue_capacity: 2,
+                pre_auth_per_source_per_second: 1,
+                max_tracked_sources: 1,
+            },
+        )
+        .unwrap();
+        let address = listener.local_addr().unwrap();
+        let monitor = listener.monitor();
+        let (release_sender, release_receiver) = mpsc::channel();
+        let release_receiver = Arc::new(Mutex::new(release_receiver));
+        std::thread::spawn(move || {
+            listener
+                .spawn_accept_loop(move |_| {
+                    let _ = release_receiver.lock().unwrap().recv();
+                })
+                .unwrap();
+        });
+        let first = TcpStream::connect(address).unwrap();
+        wait_until(|| monitor.snapshot().active == 1);
+        let limited = TcpStream::connect(address).unwrap();
+        wait_until(|| monitor.snapshot().pre_auth_rate_limited == 1);
+        let snapshot = monitor.snapshot();
+        assert_eq!(snapshot.accepted, 2);
+        assert_eq!(snapshot.shed, 1);
+        std::thread::sleep(Duration::from_millis(1050));
+        let recovered_source = TcpStream::connect(address).unwrap();
+        wait_until(|| monitor.snapshot().queued == 1);
+        release_sender.send(()).unwrap();
+        release_sender.send(()).unwrap();
+        wait_until(|| monitor.snapshot().recovered == 2);
+        assert_eq!(monitor.snapshot().pre_auth_rate_limited, 1);
+        drop((first, limited, recovered_source));
+    }
+
+    #[test]
+    fn peer_ingress_configuration_is_absolutely_bounded() {
+        let invalid = [
+            PeerIngressConfig { workers: 0, ..PeerIngressConfig::default() },
+            PeerIngressConfig {
+                workers: MAX_PEER_INGRESS_WORKERS + 1,
+                ..PeerIngressConfig::default()
+            },
+            PeerIngressConfig {
+                queue_capacity: MAX_PEER_INGRESS_QUEUE + 1,
+                ..PeerIngressConfig::default()
+            },
+            PeerIngressConfig {
+                pre_auth_per_source_per_second: MAX_PRE_AUTH_PER_SOURCE_PER_SECOND + 1,
+                ..PeerIngressConfig::default()
+            },
+            PeerIngressConfig {
+                max_tracked_sources: MAX_TRACKED_INGRESS_SOURCES + 1,
+                ..PeerIngressConfig::default()
+            },
+        ];
+        for config in invalid {
+            assert_eq!(
+                PeerListener::bind_with_config(("127.0.0.1", 0), config).err().unwrap().kind(),
+                std::io::ErrorKind::InvalidInput
+            );
+        }
+    }
+
+    #[test]
+    fn authenticated_peer_session_bounds_messages_and_lifetime() {
+        assert!(ValidatorService::enforce_session_bounds(Instant::now(), 0).is_ok());
+        let message_error =
+            ValidatorService::enforce_session_bounds(Instant::now(), MAX_PEER_SESSION_MESSAGES)
+                .unwrap_err();
+        assert_eq!(message_error.kind(), std::io::ErrorKind::InvalidData);
+        let lifetime_error =
+            ValidatorService::enforce_session_bounds(Instant::now() - PEER_SESSION_LIFETIME, 0)
+                .unwrap_err();
+        assert_eq!(lifetime_error.kind(), std::io::ErrorKind::TimedOut);
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (stream, _) = listener.accept().unwrap();
+        let mut socket = PeerSocket::connect(stream);
+        for _ in 0..MAX_PEER_SESSION_MESSAGES {
+            socket.record_session_message();
+        }
+        assert_eq!(
+            socket.ensure_session_message_capacity().unwrap_err().kind(),
+            std::io::ErrorKind::InvalidData
+        );
+        drop(client);
     }
 
     #[test]
@@ -5048,6 +5583,25 @@ mod tests {
             metrics
                 .prometheus(1)
                 .contains("activechain_validator_finalized_certificates{validator=\"1\"} 1")
+        );
+        let rate_window = Instant::now();
+        for _ in 0..MAX_AUTHENTICATED_MESSAGES_PER_SECOND {
+            assert!(service.allow_authenticated_receive(1, rate_window).unwrap());
+        }
+        assert!(!service.allow_authenticated_receive(1, rate_window).unwrap());
+        assert_eq!(service.metrics().peer_rate_limited, 1);
+        service.record_peer_io_error(&std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "test timeout",
+        ));
+        service.record_peer_io_error(&invalid_data("test malformed frame"));
+        let ingress_metrics = service.metrics();
+        assert_eq!(ingress_metrics.peer_timeouts, 1);
+        assert_eq!(ingress_metrics.peer_malformed_frames, 1);
+        let rendered = ingress_metrics.prometheus(1);
+        assert!(rendered.contains("activechain_validator_peer_timeouts{validator=\"1\"} 1"));
+        assert!(
+            rendered.contains("activechain_validator_peer_malformed_frames{validator=\"1\"} 1")
         );
         std::fs::remove_file(path).unwrap();
     }
@@ -6037,6 +6591,97 @@ mod tests {
         assert_eq!(service.metrics().proposals, 1);
         assert_eq!(service.metrics().peer_sessions_established, 1);
         assert_eq!(service.metrics().peer_session_rejections, 0);
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(session_path);
+    }
+
+    #[test]
+    fn authenticated_rate_limit_is_reached_before_protected_frame_decode() {
+        use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
+        let local = Arc::new(ValidatorSigner::from_seed(
+            PrincipalId::new(Digest384::new([141; 48])),
+            [142; 32],
+        ));
+        let remote =
+            ValidatorSigner::from_seed(PrincipalId::new(Digest384::new([143; 48])), [144; 32]);
+        let genesis = ValidatorGenesis::new(
+            1,
+            1,
+            vec![
+                ValidatorGenesisEntry::new(
+                    local.validator(),
+                    1,
+                    local.public_key().try_into().unwrap(),
+                )
+                .unwrap(),
+                ValidatorGenesisEntry::new(
+                    remote.validator(),
+                    1,
+                    remote.public_key().try_into().unwrap(),
+                )
+                .unwrap(),
+            ],
+        )
+        .unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "activechain-rate-limit-{}-{:?}.bin",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let session_path = path.with_extension("sessions");
+        let service = Arc::new(
+            ValidatorService::from_genesis(
+                ConsensusState::new_with_validator_set_root(1, genesis.validator_set_root()),
+                &genesis,
+                path.clone(),
+            )
+            .unwrap(),
+        );
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let (ready_sender, ready_receiver) = mpsc::channel();
+        let (go_sender, go_receiver) = mpsc::channel();
+        let server_service = Arc::clone(&service);
+        let server_signer = Arc::clone(&local);
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let (mut peer, session) = server_service
+                .authenticate_inbound_peer(PeerSocket::connect(stream), 1, &server_signer)
+                .unwrap();
+            ready_sender.send(()).unwrap();
+            go_receiver.recv().unwrap();
+            let limited = server_service.receive_session_message(&mut peer, &session).unwrap_err();
+            assert_eq!(limited.kind(), std::io::ErrorKind::WouldBlock);
+            server_service.authenticated_rate_limits.lock().unwrap().clear();
+            server_service.receive_session_message(&mut peer, &session).unwrap()
+        });
+
+        let mut client = PeerSocket::connect(TcpStream::connect(address).unwrap());
+        let session = client
+            .initiate_pq_session(
+                PqSessionContext {
+                    chain: genesis.genesis_commitment(),
+                    epoch: genesis.epoch(),
+                    protocol_revision: genesis.protocol_revision(),
+                    initiator: 2,
+                    responder: 1,
+                },
+                &remote,
+                &local.public_key(),
+            )
+            .unwrap();
+        ready_receiver.recv().unwrap();
+        let window = Instant::now();
+        for _ in 0..MAX_AUTHENTICATED_MESSAGES_PER_SECOND {
+            assert!(service.allow_authenticated_receive(2, window).unwrap());
+        }
+        let proposal = sign_genesis_proposal(&local, &genesis, 1, 0, Digest384::new([145; 48]));
+        let sent = remote.sign_envelope(2, 1, ConsensusMessage::Proposal(proposal)).unwrap();
+        client.send_protected_message(&session, 1, &sent).unwrap();
+        go_sender.send(()).unwrap();
+        assert_eq!(server.join().unwrap(), sent);
+        assert_eq!(service.metrics().peer_rate_limited, 1);
+        drop(client);
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_file(session_path);
     }

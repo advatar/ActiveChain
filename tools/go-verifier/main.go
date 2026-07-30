@@ -1,4 +1,4 @@
-// Command ac-go-verifier is the independent v1.0 vector gate. It deliberately
+// Command ac-go-verifier is the independent v1.0 M0 vector reader. It deliberately
 // uses only the Go standard library and published TSV vectors; it must not
 // import ActiveChain's Rust transition crates.
 package main
@@ -103,5 +103,5 @@ func main() {
 	if _, err := hex.DecodeString(strings.Repeat("00", 48)); err != nil {
 		os.Exit(1)
 	}
-	fmt.Printf("M2 PASS: %d published v1 cases across %d vector files\n", total, len(files))
+	fmt.Printf("M0 PASS: %d published v1 rows parsed across %d vector files\n", total, len(files))
 }
