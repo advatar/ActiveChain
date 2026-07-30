@@ -1909,6 +1909,10 @@ wallet and all testnets remain explicitly developmental until this milestone com
       into `origin/main`.
   - [ ] Implement proof-bearing read-only MCP tools and resources
     ([GitHub issue #361](https://github.com/advatar/ActiveChain/issues/361)).
+    - [x] Implement stable MCP lifecycle, deterministic tool discovery, bounded stdio framing, and
+      typed proof-verifying RPC adapters on a branch stacked above #356.
+    - [ ] Pass touched-crate qualification and the complete deterministic-kernel gate after #356 is
+      integrated, then merge the exact candidate into `origin/main`.
   - [ ] Implement a proposal-only MCP intent and capability gateway
     ([GitHub issue #357](https://github.com/advatar/ActiveChain/issues/357)).
   - [ ] Route MCP proposals through canonical native wallet approval

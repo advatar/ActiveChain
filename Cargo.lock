@@ -239,6 +239,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-mcp-server"
+version = "0.1.0"
+dependencies = [
+ "activechain-agent-interfaces",
+ "activechain-canonical-codec",
+ "activechain-protocol-types",
+ "activechain-rpc-server",
+ "activechain-rpc-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "activechain-object"
 version = "0.1.0"
 dependencies = [
