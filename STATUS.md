@@ -246,20 +246,28 @@ Tracked by [GitHub issue #345](https://github.com/advatar/ActiveChain/issues/345
 
 - [x] Record the v1 native-staked-asset decision and reject stablecoin-secured validators as a
   consensus-security alternative in `spec/protocol/P-130-economics.md`.
-- [ ] Reconcile all legacy economics/decentralisation text and recompute the scorecard.
+- [x] Make `MINT.md`, `REWARDS.md`, and `CASH.md` explicitly subordinate to P-130 and remove any
+  implication that stablecoin collateral is a selectable v1 validator-security profile.
+- [x] Recompute the decentralisation scorecard for native-stake security, show the weighted
+  arithmetic and assumptions, and record the rejected branch's issuer capture penalty.
 
 ## Active protocol decision — P-131 version series
 
 - [x] Publish the ordered v1.0–v2 launch contract and reserve extension surfaces in
   `spec/protocol/P-131-version-series.md`.
-- [ ] Add concrete reserved-tag/header-slot vectors and wire the activation gates into the
-  version dispatcher.
+- [x] Add a bounded protocol-version profile that rejects unknown revisions and exposes explicit
+  feature activation/requirement gates for the complete v1.0–v2 series.
+- [x] Assign named deferred-feature tags inside the reserved v1.1/v1.2 ranges and reject every
+  unassigned reserved tag even after activation.
+- [x] Freeze executable reserved-tag/header-slot vectors and wire them into touched-crate tests.
 
 ## Active protocol decision — P-132 proof liveness
 
 - [x] Define validator re-execution fallback, bounded proof grace depth, proof-pending state, and
   recovery behavior in `spec/protocol/P-132-proof-liveness.md`.
-- [ ] Encode the proof deadline/grace profile and add liveness transition vectors.
+- [x] Encode a bounded proof deadline/grace profile and fail-closed liveness transition policy.
+- [x] Freeze executable normal, outage, recovery, and exhaustion vectors and split validity from
+  prover-liveness concentration in the decentralization scorecard.
 
 ## Active protocol decision — P-133 compute admission
 
@@ -307,6 +315,26 @@ Tracked by [GitHub issue #345](https://github.com/advatar/ActiveChain/issues/345
   As of 2026-07-27, `cargo test -p activechain-cash-air --offline` passes 22 tests with one
   intentionally ignored full-depth timing gate; no FRI-parameter mismatch remains. The two
   outstanding items are implementation work, not release claims.
+  - [x] Constrain every native input, output, and fee trace value to an in-AIR 64-bit boolean
+    decomposition; host-side trace construction checks are defense in depth only.
+  - [x] Replace the ignored full composite proof with a bounded accepted-row fixture that runs in
+    ordinary CI and retains the separate full-depth benchmark gate.
+  - [ ] Pass focused CashAIR tests and clippy, then the frozen deterministic-kernel gate; merge and
+    verify the issue commits are reachable from `origin/main`.
+- [x] Redesign authenticated CashAIR receipt aggregation to fit the existing bounded ingress
+  ceiling instead of enlarging it; add compact accepted-row encode/decode/verify qualification
+  ([#379](https://github.com/advatar/ActiveChain/issues/379)).
+  - [x] Aggregate a full authenticated mutation path into bounded large batches so FRI query
+    openings are not repeated once per 64 permutations, while preserving the pinned security
+    parameters and ordered transcript binding.
+  - [x] Replace the JSON proof representation with strict bounded binary encoding and reject
+    trailing, truncated, oversized, and allocation-amplifying inputs before proof decoding.
+  - [x] Prove, canonically encode, decode, and verify the accepted-row release fixture below the
+    8 MiB ingress ceiling; record size, verification time, and peak-memory measurements.
+    The 2026-07-30 Apple M5 Max release run produced a 3,591,727-byte logical proof and a
+    3,750,254-byte receipt in four canonical segments, verified in 2,545 ms, and reported a
+    3,087,925,248-byte maximum resident set for the combined prove/verify process (54,526,624-byte
+    peak physical footprint). Two encoded receipts fit an 8 MiB byte-admission budget; three do not.
 - [x] Cover authenticated envelope round-trip and suite mutation rejection without running the
   full SHAKE proving benchmark.
 - [x] Make the reference package independently testable outside the root workspace.
@@ -1844,6 +1872,9 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
       size-query C ABI without exposing secret material.
   - [ ] Complete validator-backed owner-scoped Coin Cell/state extraction before serving wallet
     balances on Kanalen; consensus snapshots currently contain metadata only (issue #180).
+    - [x] Make the Kanalen round publisher fail closed unless the exact finalized cash snapshot and
+      certificate bundle are both present, so a metadata-only height cannot be advertised as a
+      wallet-ready finalized state.
     - [x] Invoke opaque secure-key callbacks only over the canonical approval-bound signing
       transcript and verify the returned ML-DSA-44 signature before publishing an authorized
       envelope.
@@ -1959,6 +1990,12 @@ wallet and all testnets remain explicitly developmental until this milestone com
       into `origin/main`.
   - [ ] Implement proof-bearing read-only MCP tools and resources
     ([GitHub issue #361](https://github.com/advatar/ActiveChain/issues/361)).
+    - [x] Implement stable MCP lifecycle, deterministic tool discovery, bounded stdio framing, and
+      typed proof-verifying RPC adapters on a branch stacked above #356.
+    - [x] Pass touched-crate tests, strict Clippy, formatting, and canonical type-registry checks
+      after integrating #356 and current `origin/main`.
+    - [ ] Pass the complete deterministic-kernel gate, then merge the exact candidate into
+      `origin/main`.
   - [ ] Implement a proposal-only MCP intent and capability gateway
     ([GitHub issue #357](https://github.com/advatar/ActiveChain/issues/357)).
   - [ ] Route MCP proposals through canonical native wallet approval

@@ -297,7 +297,21 @@ not provide execution validity for public blocks.
 The CashAIR crate is a separate specialized Option-A demonstration for the cash lane. Its
 authenticated composite is registered as one suite identifier composed of the pinned Winterfell
 parent and SHAKE permutation suite; it is not a general ObjectVM execution proof and does not
-close the P-050 refinement gate.
+close the P-050 refinement gate. Receipt schema v2 aggregates the ordered SHAKE transcript for one
+authenticated mutation path into one pinned FRI proof and uses an uncompressed bounded binary
+encoding. A logical proof is split canonically into at most four 1 MiB transport segments: every
+non-final segment is exactly 1 MiB and the final segment is nonempty and at most 1 MiB. The complete
+canonical receipt remains subject to the unchanged 8 MiB composite ceiling before reconstruction.
+Decoders reject non-canonical segment shapes, truncation, trailing bytes, and oversized inputs; no
+decompression step or decompression allocation exists.
+
+The 2026-07-30 release fixture on an Apple M5 Max (macOS 26.5.2, 128 GiB) measured a 3,591,727-byte
+logical SHAKE proof, a 3,750,254-byte canonical receipt, 49,580 ms proving, 1 ms receipt encoding,
+and 2,545 ms decoding plus verification. `/usr/bin/time -l` reported a 3,087,925,248-byte maximum
+resident set for the combined prove/verify test process and a 54,526,624-byte peak physical
+footprint. Two such encoded receipts fit within one 8 MiB byte-admission budget; a third does not.
+These are implementation measurements, not activation of proof-authoritative consensus or closure
+of the independent-verifier and P-050 refinement gates.
 
 The cheapest next step is Gate 1: arithmetize the existing `P-050` interpreter and measure. That
 produces the evidence §10 requires and is useful work under every option, because a `P-050` AIR is

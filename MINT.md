@@ -1,3 +1,8 @@
+> **Normative relationship:** [P-130](spec/protocol/P-130-economics.md) fixes the v1 security
+> model as native-stake security. This document specifies its monetary mechanics. Stablecoins are
+> application assets and cannot replace native validator stake or obtain consensus mint authority
+> in any v1 profile.
+
 The **native coin must never be minted by an administrator, validator, proposer, foundation, or multisignature**. It should be minted only by deterministic protocol transitions that every node can recompute and that the global transition proof verifies.
 
 For mainnet, there should be exactly two native-coin creation paths:
