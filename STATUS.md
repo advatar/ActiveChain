@@ -82,7 +82,7 @@ Tracked by [GitHub issue #333](https://github.com/advatar/ActiveChain/issues/333
 - [x] Bind an unambiguous registered type identity into canonical value commitments and signatures.
 - [x] Add CI enforcement for registry completeness, uniqueness, allowed ranges, and cross-type
   decode/commitment rejection, including the demonstrated asset/RPC collision.
-- [ ] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
+- [x] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
   #333.
 
 ## Critical transport recovery — mutually authenticated peer sessions
