@@ -2,6 +2,19 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Landing-page information architecture
+
+GitHub issue creation pending restoration of the repository's `gh` authentication.
+
+- [x] Replace the single long-form landing route with a focused home page and dedicated content
+  pages grouped under clear top-level categories and subcategories.
+- [x] Add shared desktop and mobile navigation with active-page context, category menus, and
+  direct links to every page.
+- [x] Preserve the existing visual language and substantive content while improving page-level
+  hierarchy, orientation, and cross-page discovery.
+- [ ] Complete visual browser qualification and the final deterministic-kernel gate; merge the
+  parent-repository pointer to `main` and confirm reachability from `origin/main`.
+
 ## Critical incident — deterministic validator key compromise
 
 Tracked by [GitHub issue #326](https://github.com/advatar/ActiveChain/issues/326).
