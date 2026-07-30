@@ -11,7 +11,10 @@ normative and measurement slice in [#398](https://github.com/advatar/ActiveChain
   deterministic charged-byte schedule, automatic pressure bands, 30-day assigned hot retention,
   two certified snapshots, 8-of-12 archives, and renewable hibernation.
 - [x] Add overflow-safe executable storage accounting and a drift-checked machine-readable profile.
-- [ ] Implement persistent partition state, immutable ledger segments, and certified snapshots.
+- [ ] Implement persistent partition state, immutable ledger segments, and certified snapshots
+  ([GitHub issue #403](https://github.com/advatar/ActiveChain/issues/403)).
+  - [x] Add sealed, chain-linked ledger segments and crash-safe two-generation partition manifests.
+  - [ ] Bind snapshot certification to finalized state and implement the production state database.
 - [ ] Implement paid archive assignment, challenges, reconstruction, and crash-safe pruning.
 - [ ] Implement prepaid leases, hibernation/restoration, and accumulator-backed replay history.
 - [ ] Qualify checkpoint snapshot sync, light clients, operator metrics, and sustained 1 TiB bounds.

@@ -478,6 +478,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-storage-engine"
+version = "0.1.0"
+dependencies = [
+ "sha3 0.10.9",
+ "tempfile",
+]
+
+[[package]]
 name = "activechain-storage-profile"
 version = "0.1.0"
 
