@@ -500,12 +500,14 @@ dependencies = [
 name = "activechain-verifier-ffi"
 version = "0.1.0"
 dependencies = [
+ "activechain-application-primitives",
  "activechain-canonical-codec",
  "activechain-devnet-kernel",
  "activechain-finality-types",
  "activechain-policy-kernel",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
+ "activechain-rpc-types",
  "activechain-state-tree",
  "activechain-verifier-api",
  "ml-dsa",
