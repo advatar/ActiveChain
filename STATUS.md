@@ -157,7 +157,7 @@ Tracked by [GitHub issue #337](https://github.com/advatar/ActiveChain/issues/337
 - [x] Raise the deterministic-kernel job timeout so the exact candidate can complete the full
   formal, model-checking, test, release, rehearsal, and vector gate without a deterministic
   120-minute cancellation.
-- [ ] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
+- [x] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
   #337.
 
 ## Critical transport recovery — mutually authenticated peer sessions
