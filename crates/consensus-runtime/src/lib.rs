@@ -252,6 +252,10 @@ pub const PEER_SESSION_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 pub const PEER_SESSION_LIFETIME: Duration = Duration::from_secs(5 * 60);
 pub const MAX_PEER_SESSION_MESSAGES: usize = 4096;
 pub const MAX_AUTHENTICATED_MESSAGES_PER_SECOND: usize = 256;
+pub const MAX_PEER_INGRESS_WORKERS: usize = 64;
+pub const MAX_PEER_INGRESS_QUEUE: usize = 1024;
+pub const MAX_PRE_AUTH_PER_SOURCE_PER_SECOND: usize = 4096;
+pub const MAX_TRACKED_INGRESS_SOURCES: usize = 8192;
 
 #[derive(Default)]
 pub struct ValidatorMetrics {
@@ -1036,9 +1040,13 @@ impl PeerListener {
         config: PeerIngressConfig,
     ) -> std::io::Result<Self> {
         if config.workers == 0
+            || config.workers > MAX_PEER_INGRESS_WORKERS
             || config.queue_capacity == 0
+            || config.queue_capacity > MAX_PEER_INGRESS_QUEUE
             || config.pre_auth_per_source_per_second == 0
+            || config.pre_auth_per_source_per_second > MAX_PRE_AUTH_PER_SOURCE_PER_SECOND
             || config.max_tracked_sources == 0
+            || config.max_tracked_sources > MAX_TRACKED_INGRESS_SOURCES
         {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -4926,6 +4934,35 @@ mod tests {
         assert_eq!(snapshot.shed, 1);
         release_sender.send(()).unwrap();
         drop((first, limited));
+    }
+
+    #[test]
+    fn peer_ingress_configuration_is_absolutely_bounded() {
+        let invalid = [
+            PeerIngressConfig { workers: 0, ..PeerIngressConfig::default() },
+            PeerIngressConfig {
+                workers: MAX_PEER_INGRESS_WORKERS + 1,
+                ..PeerIngressConfig::default()
+            },
+            PeerIngressConfig {
+                queue_capacity: MAX_PEER_INGRESS_QUEUE + 1,
+                ..PeerIngressConfig::default()
+            },
+            PeerIngressConfig {
+                pre_auth_per_source_per_second: MAX_PRE_AUTH_PER_SOURCE_PER_SECOND + 1,
+                ..PeerIngressConfig::default()
+            },
+            PeerIngressConfig {
+                max_tracked_sources: MAX_TRACKED_INGRESS_SOURCES + 1,
+                ..PeerIngressConfig::default()
+            },
+        ];
+        for config in invalid {
+            assert_eq!(
+                PeerListener::bind_with_config(("127.0.0.1", 0), config).err().unwrap().kind(),
+                std::io::ErrorKind::InvalidInput
+            );
+        }
     }
 
     #[test]

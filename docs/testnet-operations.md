@@ -188,6 +188,8 @@ Metrics exposed by `ValidatorService::metrics()` are intentionally monotonic: `p
 and recovered connection counts plus the current active and queued gauges. The production defaults
 are 16 workers, 64 queued sockets, 32 accepted connections per observed source IP per second, and
 1,024 tracked source windows. A full queue is shed immediately; it never creates another worker.
+Configuration is rejected above the compiled ceilings of 64 workers, 1,024 queued sockets, 4,096
+pre-authentication accepts per source per second, or 8,192 tracked source windows.
 
 Every handshake and frame has a five-second absolute completion deadline. Authenticated sessions
 also have a 30-second idle deadline, a five-minute lifetime, a 4,096-message ceiling, and a
