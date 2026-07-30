@@ -311,6 +311,9 @@ Tracked by [GitHub issue #345](https://github.com/advatar/ActiveChain/issues/345
     ordinary CI and retains the separate full-depth benchmark gate.
   - [ ] Pass focused CashAIR tests and clippy, then the frozen deterministic-kernel gate; merge and
     verify the issue commits are reachable from `origin/main`.
+- [ ] Redesign authenticated CashAIR receipt aggregation to fit the existing bounded ingress
+  ceiling instead of enlarging it; add compact accepted-row encode/decode/verify qualification
+  ([#379](https://github.com/advatar/ActiveChain/issues/379)).
 - [x] Cover authenticated envelope round-trip and suite mutation rejection without running the
   full SHAKE proving benchmark.
 - [x] Make the reference package independently testable outside the root workspace.
