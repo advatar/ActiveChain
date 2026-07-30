@@ -191,7 +191,7 @@ Tracked by [GitHub issue #338](https://github.com/advatar/ActiveChain/issues/338
   traffic metrics with structured operator diagnostics.
 - [x] Add slow-drip, connection-flood, oversized/expensive-invalid-frame, reachable-rate-limit,
   recovery, and healthy-peer-under-hostile-load tests.
-- [ ] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
+- [x] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
   #338.
 
 ## Deterministic-kernel CI baseline
