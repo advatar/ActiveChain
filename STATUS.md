@@ -259,8 +259,8 @@ Tracked by [GitHub issue #345](https://github.com/advatar/ActiveChain/issues/345
 
 - [x] Define validator re-execution fallback, bounded proof grace depth, proof-pending state, and
   recovery behavior in `spec/protocol/P-132-proof-liveness.md`.
-- [ ] Encode a bounded proof deadline/grace profile and fail-closed liveness transition policy.
-- [ ] Freeze executable normal, outage, recovery, and exhaustion vectors and split validity from
+- [x] Encode a bounded proof deadline/grace profile and fail-closed liveness transition policy.
+- [x] Freeze executable normal, outage, recovery, and exhaustion vectors and split validity from
   prover-liveness concentration in the decentralization scorecard.
 
 ## Active protocol decision — P-133 compute admission
