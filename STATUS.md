@@ -154,6 +154,9 @@ Tracked by [GitHub issue #337](https://github.com/advatar/ActiveChain/issues/337
   migration while preserving replay rejection.
 - [x] Add forged, duplicate, expired, future, restart, pruning-boundary, saturation, property, and
   sustained-hostile-traffic tests.
+- [x] Raise the deterministic-kernel job timeout so the exact candidate can complete the full
+  formal, model-checking, test, release, rehearsal, and vector gate without a deterministic
+  120-minute cancellation.
 - [ ] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
   #337.
 

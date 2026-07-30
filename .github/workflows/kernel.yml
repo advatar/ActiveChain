@@ -17,7 +17,9 @@ jobs:
   rust:
     name: Rust kernel on local ARM64
     runs-on: [self-hosted, macOS, ARM64, activechain-ci]
-    timeout-minutes: 120
+    # The authorization-chain Tamarin suite can consume almost two hours on
+    # the pinned ARM64 runner before the remaining deterministic checks run.
+    timeout-minutes: 180
     env:
       CARGO_TERM_COLOR: always
       # Keep build artifacts scoped to the exact synthetic merge revision under qualification.
