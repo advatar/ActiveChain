@@ -2,7 +2,7 @@
 
 use crate::{
     ConsensusBlockRef, ConsensusUpgradeAuthorization, Digest384, Epoch, INITIAL_PROTOCOL_REVISION,
-    QuorumCertificate,
+    ProtocolVersionProfile, QuorumCertificate,
 };
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
@@ -59,7 +59,9 @@ impl ConsensusState {
         validator_set_root: Digest384,
         protocol_revision: u64,
     ) -> Result<Self, ConsensusStateError> {
-        if validator_set_root == Digest384::ZERO || protocol_revision == 0 {
+        if validator_set_root == Digest384::ZERO
+            || ProtocolVersionProfile::new(protocol_revision).is_err()
+        {
             return Err(ConsensusStateError::InvalidConsensusContext);
         }
         Ok(Self {
@@ -342,8 +344,8 @@ impl CanonicalDecode for ConsensusSnapshot {
         }
         let validator_set_root = Digest384::decode(decoder)?;
         let protocol_revision = u64::decode(decoder)?;
-        if protocol_revision == 0 {
-            return Err(DecodeError::InvalidValue("zero consensus protocol revision"));
+        if ProtocolVersionProfile::new(protocol_revision).is_err() {
+            return Err(DecodeError::InvalidValue("unknown consensus protocol revision"));
         }
         let count = decoder.read_length(MAX_RETIRED_VALIDATOR_SET_ROOTS)?;
         let mut roots = [Digest384::ZERO; MAX_RETIRED_VALIDATOR_SET_ROOTS];
@@ -572,9 +574,13 @@ mod tests {
     }
 
     #[test]
-    fn explicit_context_rejects_zero_revision() {
+    fn explicit_context_rejects_unknown_revision() {
         assert_eq!(
             ConsensusState::new_with_consensus_context(1, digest(1), 0),
+            Err(ConsensusStateError::InvalidConsensusContext)
+        );
+        assert_eq!(
+            ConsensusState::new_with_consensus_context(1, digest(1), 7),
             Err(ConsensusStateError::InvalidConsensusContext)
         );
         assert!(ConsensusVoteContext::new_with_revision(digest(1), 1, digest(2), 0).is_err());

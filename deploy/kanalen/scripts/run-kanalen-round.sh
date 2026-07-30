@@ -8,6 +8,8 @@ rpc_root="$deployment_root/rpc"
 rpc_snapshot="$rpc_root/rpc-index.snapshot"
 network_env="$deployment_root/network.env"
 lock="$state_root/round.lock"
+cash_snapshot="$state_root/finalized-cash.snapshot"
+finality_bundle="$state_root/finality.bundle"
 
 test -f "$network_env" || {
   echo "runtime network manifest is missing: $network_env" >&2
@@ -52,11 +54,14 @@ if test ! -f "$rpc_snapshot"; then
   "$binary_root/activechain-rpc-bootstrap" \
     "$state_root/genesis.bin" "$chain_id" "$rpc_snapshot"
 fi
-if test -f "$state_root/finalized-cash.snapshot" && test -f "$state_root/finality.bundle"; then
-  "$binary_root/activechain-rpc-ingest" \
-    "$state_root/validator-0.snapshot" "$deployment_root/rpc/rpc-index.snapshot" \
-    "$state_root/finalized-cash.snapshot" "$state_root/finality.bundle"
-else
-  "$binary_root/activechain-rpc-ingest" \
-    "$state_root/validator-0.snapshot" "$deployment_root/rpc/rpc-index.snapshot"
-fi
+test -f "$cash_snapshot" || {
+  echo "finalized cash snapshot is missing; refusing metadata-only RPC publication: $cash_snapshot" >&2
+  exit 1
+}
+test -f "$finality_bundle" || {
+  echo "cash finality bundle is missing; refusing unauthenticated RPC publication: $finality_bundle" >&2
+  exit 1
+}
+"$binary_root/activechain-rpc-ingest" \
+  "$state_root/validator-0.snapshot" "$rpc_snapshot" \
+  "$cash_snapshot" "$finality_bundle"
