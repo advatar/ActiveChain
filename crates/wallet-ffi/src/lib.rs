@@ -1322,6 +1322,26 @@ mod tests {
     use activechain_protocol_types::TransactionId;
     use ml_dsa::{Keypair, MlDsa44, Signer, SigningKey};
 
+    fn approval_vector() -> std::collections::BTreeMap<&'static str, &'static str> {
+        include_str!("../../../testing/vectors/wallet-canonical-approval-v1.txt")
+            .lines()
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .map(|line| line.split_once('=').expect("key=value approval vector"))
+            .collect()
+    }
+
+    fn decode_hex(value: &str) -> Vec<u8> {
+        assert_eq!(value.len() % 2, 0);
+        value
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|pair| {
+                let pair = core::str::from_utf8(pair).unwrap();
+                u8::from_str_radix(pair, 16).unwrap()
+            })
+            .collect()
+    }
+
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
     }
@@ -1919,6 +1939,54 @@ mod tests {
                 )
             },
             0
+        );
+    }
+
+    #[test]
+    fn shared_approval_vector_is_strictly_decoded_by_the_production_abi() {
+        let vector = approval_vector();
+        let request = decode_hex(vector["request_hex"]);
+        let mut approval = ActivechainWalletCashApproval::default();
+        assert_eq!(
+            unsafe {
+                activechain_wallet_cash_approval(
+                    request.as_ptr(),
+                    request.len() as u32,
+                    &mut approval,
+                )
+            },
+            WALLET_OK
+        );
+        for (actual, name) in [
+            (&approval.chain_id, "chain_id"),
+            (&approval.signer, "signer"),
+            (&approval.recipient, "recipient"),
+            (&approval.fee_reserve, "fee_reserve"),
+            (&approval.session_id, "session_id"),
+            (&approval.intent_id, "intent_id"),
+        ] {
+            assert_eq!(actual.as_slice(), decode_hex(vector[name]));
+        }
+        assert_eq!(approval.nonce, vector["nonce"].parse().unwrap());
+        assert_eq!(approval.session_expires_at, vector["session_expires_at"].parse().unwrap());
+        assert_eq!(approval.amount_high, vector["amount_high"].parse().unwrap());
+        assert_eq!(approval.amount_low, vector["amount_low"].parse().unwrap());
+        assert_eq!(approval.fee_high, vector["fee_high"].parse().unwrap());
+        assert_eq!(approval.fee_low, vector["fee_low"].parse().unwrap());
+        assert_eq!(approval.valid_until, vector["valid_until"].parse().unwrap());
+        assert_eq!(approval.input_count, vector["input_count"].parse().unwrap());
+
+        let mut alternate = request;
+        alternate.push(0);
+        assert_eq!(
+            unsafe {
+                activechain_wallet_cash_approval(
+                    alternate.as_ptr(),
+                    alternate.len() as u32,
+                    &mut approval,
+                )
+            },
+            WALLET_MALFORMED
         );
     }
 

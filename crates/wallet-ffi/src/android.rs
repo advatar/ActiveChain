@@ -1,7 +1,6 @@
 use super::{
     ActivechainWalletAgentSummary, ActivechainWalletCashApproval, WALLET_BUFFER_TOO_SMALL,
-    WALLET_OK,
-    activechain_wallet_agent_count, activechain_wallet_agent_register,
+    WALLET_OK, activechain_wallet_agent_count, activechain_wallet_agent_register,
     activechain_wallet_agent_revoke, activechain_wallet_agent_set_paused,
     activechain_wallet_agent_summary, activechain_wallet_cash_approval,
 };
@@ -27,19 +26,26 @@ pub extern "system" fn Java_dev_activechain_wallet_NativeCanonicalApproval_nativ
         let request = snapshot(&env, &request)?;
         let mut approval = ActivechainWalletCashApproval::default();
         let code = unsafe {
-            activechain_wallet_cash_approval(
-                request.as_ptr(), request.len() as u32, &mut approval,
-            )
+            activechain_wallet_cash_approval(request.as_ptr(), request.len() as u32, &mut approval)
         };
         if code != WALLET_OK {
             return Err(format!("canonical wallet approval failed with {code}"));
         }
         Ok(format!(
             "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
-            hex(&approval.chain_id), hex(&approval.signer), hex(&approval.recipient),
-            hex(&approval.fee_reserve), hex(&approval.session_id), hex(&approval.intent_id),
-            approval.nonce, approval.session_expires_at, approval.amount_high,
-            approval.amount_low, approval.fee_high, approval.fee_low, approval.valid_until,
+            hex(&approval.chain_id),
+            hex(&approval.signer),
+            hex(&approval.recipient),
+            hex(&approval.fee_reserve),
+            hex(&approval.session_id),
+            hex(&approval.intent_id),
+            approval.nonce,
+            approval.session_expires_at,
+            approval.amount_high,
+            approval.amount_low,
+            approval.fee_high,
+            approval.fee_low,
+            approval.valid_until,
             approval.input_count,
         ))
     })();

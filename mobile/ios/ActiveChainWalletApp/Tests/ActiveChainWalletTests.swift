@@ -4,6 +4,39 @@ import ActiveChainWallet
 @testable import ActiveChainWalletApp
 
 final class ActiveChainWalletTests: XCTestCase {
+    func testSharedCanonicalApprovalVectorCrossesTheRustCAndSwiftBoundaries() throws {
+        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        var vectorURL: URL?
+        while directory.path != "/" {
+            let candidate = directory.appendingPathComponent(
+                "testing/vectors/wallet-canonical-approval-v1.txt"
+            )
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                vectorURL = candidate
+                break
+            }
+            directory.deleteLastPathComponent()
+        }
+        let contents = try String(contentsOf: try XCTUnwrap(vectorURL), encoding: .utf8)
+        let vector = Dictionary(uniqueKeysWithValues: contents.split(separator: "\n")
+            .filter { !$0.hasPrefix("#") && $0.contains("=") }
+            .map { line -> (String, String) in
+                let fields = line.split(separator: "=", maxSplits: 1)
+                return (String(fields[0]), String(fields[1]))
+            })
+        let request = try XCTUnwrap(Data(strictHex: vector["request_hex"]!))
+        let approval = try RustCanonicalApproval.review(request)
+
+        XCTAssertEqual(approval.intentID, Data(strictHex: vector["intent_id"]!))
+        XCTAssertEqual(approval.recipient, Data(strictHex: vector["recipient"]!))
+        XCTAssertEqual(approval.nonce, 7)
+        XCTAssertEqual(approval.amount, Unsigned128Words(high: 0, low: 50))
+
+        var alternate = request
+        alternate.append(0)
+        XCTAssertThrowsError(try RustCanonicalApproval.review(alternate))
+    }
+
     func testReceiveRequestBindsAddressToNetworkAndGenesis() throws {
         let request = ReceiveRequest(
             networkID: "roslagen",
@@ -384,6 +417,22 @@ final class ActiveChainWalletTests: XCTestCase {
             result.append(byte)
         } while value != 0
         return result
+    }
+}
+
+private extension Data {
+    init?(strictHex: String) {
+        guard strictHex.count.isMultiple(of: 2),
+              strictHex.allSatisfy({ $0.isNumber || $0 >= "a" && $0 <= "f" }) else { return nil }
+        self.init()
+        reserveCapacity(strictHex.count / 2)
+        var index = strictHex.startIndex
+        while index < strictHex.endIndex {
+            let next = strictHex.index(index, offsetBy: 2)
+            guard let byte = UInt8(strictHex[index..<next], radix: 16) else { return nil }
+            append(byte)
+            index = next
+        }
     }
 }
 
