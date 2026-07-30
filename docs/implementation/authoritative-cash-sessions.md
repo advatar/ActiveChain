@@ -11,10 +11,22 @@ enough budget for `amount + fee`. The ingress constructs the complete next ledge
 sets, and session spend on a clone. It exposes that state only after every check succeeds.
 
 Validator networking accepts grants and transfers only through their canonical typed envelopes.
-Durable registration and transfer methods write the complete version-2 ingress snapshot using a
+Durable key installation, session registration, transfer, and economics methods write the complete
+version-3 ingress snapshot using a
 temporary file, `fsync`, and atomic rename before publishing it in memory. Restart therefore
 restores the exact grant and consumed spend; malformed snapshots, wrong-chain snapshots, failed
 publishes, unknown sessions, wrong keys, expired grants, and over-budget spends fail closed.
+The RPC faucet adapter reloads the monotonic finalized index immediately before admission and
+persists this snapshot before returning a transaction identifier. If rename may have completed but
+directory durability cannot be confirmed, the in-process ingress is poisoned until restart; it
+cannot continue from an ambiguous pre-state.
+
+Replay storage is bounded without weakening rejection. Once finality is beyond a session expiry,
+the session budget and consumed-session entry may be removed because its signed requests are both
+expired and below the lane's monotonic next nonce. Spent-input markers may be removed because spent
+Coin Cells are absent from the committed UTXO set. Crash-point tests cover temporary creation,
+write, file sync, rename, and directory sync and require recovery to expose exactly the complete old
+or complete new snapshot.
 
 CashAIR derives its canonical admission witness by reexecuting this exact authoritative ingress on
 a clone. Its dedicated 128-row bit trace proves `amount + fee = spend`, `pre + spend = post`, and

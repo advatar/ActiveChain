@@ -9,7 +9,6 @@ use std::{
     net::TcpListener,
     path::PathBuf,
     sync::Arc,
-    sync::atomic::AtomicU64,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -69,13 +68,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         .map_err(|error| format!("could not initialize RPC access policy: {error:?}"))?;
-        RpcServer::with_access(store, Arc::new(access))
+        RpcServer::with_access(Arc::clone(&store), Arc::new(access))
             .map_err(|error| format!("RPC access policy does not match the index: {error:?}"))?
     } else {
         if usage_snapshot.is_some() {
             return Err("usage snapshot requires access terms".into());
         }
-        RpcServer::new(store)
+        RpcServer::new(Arc::clone(&store))
     };
     let server = if let Some(anchor_path) = anchor_snapshot {
         server.with_anchor_registry(
@@ -89,14 +88,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let wallet_path = PathBuf::from(wallet_path);
         let ingress = activechain_wallet_core::TransactionIngress::load(&wallet_path, chain_id)
             .map_err(|error| format!("could not load wallet ingress snapshot: {error:?}"))?;
-        let height = env::var("ACTIVECHAIN_FINALIZED_HEIGHT")
-            .map_err(|_| "ACTIVECHAIN_FINALIZED_HEIGHT is required with wallet ingress")?
-            .parse::<u64>()
-            .map_err(|_| "ACTIVECHAIN_FINALIZED_HEIGHT is not a u64")?;
         let adapter = WalletIngressAuthorizedSettlementAdapter::new(
             Arc::new(std::sync::Mutex::new(ingress)),
-            chain_id,
-            Arc::new(AtomicU64::new(height)),
+            wallet_path,
+            Arc::clone(&store),
         );
         server.with_authorized_faucet_settlement_adapter(adapter)
     } else {

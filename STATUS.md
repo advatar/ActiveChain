@@ -54,6 +54,21 @@ Tracked by [GitHub issue #331](https://github.com/advatar/ActiveChain/issues/331
 - [x] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
   #331.
 
+## Critical cash recovery — durable replay protection
+
+Tracked by [GitHub issue #332](https://github.com/advatar/ActiveChain/issues/332).
+
+- [x] Route every production wallet and faucet mutation through one write-before-acknowledgement
+  durable ingress boundary.
+- [x] Derive admission height from the live finalized RPC state instead of immutable startup input.
+- [x] Specify crash outcomes for each atomic-publication boundary and fail closed after uncertain
+  publication.
+- [x] Prune expired session records and redundant spent-input markers without reopening nonce,
+  session, or Coin Cell replay windows.
+- [x] Add restart, duplicate, corruption, publish-failure, pruning, and live RPC-process tests.
+- [ ] Pass the deterministic-kernel gate, merge to `main`, and verify reachability before closing
+  #332.
+
 ## Critical transport recovery — mutually authenticated peer sessions
 
 Tracked by [GitHub issue #330](https://github.com/advatar/ActiveChain/issues/330).

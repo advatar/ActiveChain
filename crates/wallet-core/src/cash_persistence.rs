@@ -14,7 +14,40 @@ use sha3::{
 use std::io::Write;
 use std::path::Path;
 
-use crate::{CashAuthorizationLane, TransactionIngress, WalletError};
+use crate::{AuthorizedCashSessionGrantV1, CashAuthorizationLane, TransactionIngress, WalletError};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AtomicSaveError {
+    BeforePublish,
+    PublicationUncertain,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum AtomicSaveStage {
+    TemporaryCreated,
+    BodyWritten,
+    TemporarySynced,
+    Renamed,
+    DirectorySynced,
+}
+
+#[cfg(test)]
+fn interrupt(
+    requested: Option<AtomicSaveStage>,
+    current: AtomicSaveStage,
+    published: bool,
+) -> Result<(), AtomicSaveError> {
+    if requested == Some(current) {
+        Err(if published {
+            AtomicSaveError::PublicationUncertain
+        } else {
+            AtomicSaveError::BeforePublish
+        })
+    } else {
+        Ok(())
+    }
+}
 
 const AUTHENTICATOR_SET_DOMAIN: &[u8] = b"ACTIVECHAIN-AUTHENTICATOR-SET-V1";
 pub(crate) const MAX_AUTHORIZATION_LANES: usize = 256;
@@ -118,25 +151,82 @@ pub fn authenticator_set_root(
 impl TransactionIngress {
     /// Saves the complete ledger and authorization state using temp-file, fsync, and rename.
     pub fn save_atomic(&self, path: &Path) -> Result<(), WalletError> {
-        let bytes = encode_envelope(self).map_err(|_| WalletError::Persistence)?;
-        let parent = path.parent().ok_or(WalletError::Persistence)?;
-        std::fs::create_dir_all(parent).map_err(|_| WalletError::Persistence)?;
-        let file_name = path.file_name().ok_or(WalletError::Persistence)?.to_string_lossy();
+        self.save_atomic_classified(path).map_err(|_| WalletError::Persistence)
+    }
+
+    fn save_atomic_classified(&self, path: &Path) -> Result<(), AtomicSaveError> {
+        self.save_atomic_classified_at(path, None)
+    }
+
+    fn save_atomic_classified_at(
+        &self,
+        path: &Path,
+        #[cfg(test)] interrupt_after: Option<AtomicSaveStage>,
+        #[cfg(not(test))] _interrupt_after: Option<()>,
+    ) -> Result<(), AtomicSaveError> {
+        let bytes = encode_envelope(self).map_err(|_| AtomicSaveError::BeforePublish)?;
+        let parent = path.parent().ok_or(AtomicSaveError::BeforePublish)?;
+        std::fs::create_dir_all(parent).map_err(|_| AtomicSaveError::BeforePublish)?;
+        let file_name = path.file_name().ok_or(AtomicSaveError::BeforePublish)?.to_string_lossy();
         let temporary = parent.join(format!(".{file_name}.{}.tmp", std::process::id()));
+        let mut published = false;
         let result = (|| {
             let mut file =
-                std::fs::File::create(&temporary).map_err(|_| WalletError::Persistence)?;
-            file.write_all(&bytes).map_err(|_| WalletError::Persistence)?;
-            file.sync_all().map_err(|_| WalletError::Persistence)?;
-            std::fs::rename(&temporary, path).map_err(|_| WalletError::Persistence)?;
+                std::fs::File::create(&temporary).map_err(|_| AtomicSaveError::BeforePublish)?;
+            #[cfg(test)]
+            interrupt(interrupt_after, AtomicSaveStage::TemporaryCreated, false)?;
+            file.write_all(&bytes).map_err(|_| AtomicSaveError::BeforePublish)?;
+            #[cfg(test)]
+            interrupt(interrupt_after, AtomicSaveStage::BodyWritten, false)?;
+            file.sync_all().map_err(|_| AtomicSaveError::BeforePublish)?;
+            #[cfg(test)]
+            interrupt(interrupt_after, AtomicSaveStage::TemporarySynced, false)?;
+            std::fs::rename(&temporary, path).map_err(|_| AtomicSaveError::BeforePublish)?;
+            published = true;
+            #[cfg(test)]
+            interrupt(interrupt_after, AtomicSaveStage::Renamed, true)?;
             std::fs::File::open(parent)
                 .and_then(|directory| directory.sync_all())
-                .map_err(|_| WalletError::Persistence)
+                .map_err(|_| AtomicSaveError::PublicationUncertain)?;
+            #[cfg(test)]
+            interrupt(interrupt_after, AtomicSaveStage::DirectorySynced, true)?;
+            Ok(())
         })();
         if result.is_err() {
             let _ = std::fs::remove_file(&temporary);
         }
-        result
+        result.map_err(
+            |error| {
+                if published { AtomicSaveError::PublicationUncertain } else { error }
+            },
+        )
+    }
+
+    fn publish_next(&mut self, next: Self, path: &Path) -> Result<(), WalletError> {
+        self.publish_next_at(next, path, None)
+    }
+
+    fn publish_next_at(
+        &mut self,
+        next: Self,
+        path: &Path,
+        #[cfg(test)] interrupt_after: Option<AtomicSaveStage>,
+        #[cfg(not(test))] interrupt_after: Option<()>,
+    ) -> Result<(), WalletError> {
+        if self.persistence_faulted {
+            return Err(WalletError::Persistence);
+        }
+        match next.save_atomic_classified_at(path, interrupt_after) {
+            Ok(()) => {
+                *self = next;
+                Ok(())
+            }
+            Err(AtomicSaveError::BeforePublish) => Err(WalletError::Persistence),
+            Err(AtomicSaveError::PublicationUncertain) => {
+                self.persistence_faulted = true;
+                Err(WalletError::Persistence)
+            }
+        }
     }
 
     /// Loads a strict canonical snapshot and checks it belongs to the expected chain.
@@ -168,23 +258,79 @@ impl TransactionIngress {
         path: &Path,
     ) -> Result<(), WalletError> {
         let mut next = self.clone();
+        next.prune_replay_state(height);
         next.submit_envelope(bytes, height)?;
-        next.save_atomic(path)?;
-        *self = next;
-        Ok(())
+        self.publish_next(next, path)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn submit_envelope_durable_interrupted(
+        &mut self,
+        bytes: &[u8],
+        height: u64,
+        path: &Path,
+        interrupt_after: AtomicSaveStage,
+    ) -> Result<(), WalletError> {
+        let mut next = self.clone();
+        next.prune_replay_state(height);
+        next.submit_envelope(bytes, height)?;
+        self.publish_next_at(next, path, Some(interrupt_after))
     }
 
     /// Registers a session grant only after its complete next state is durably published.
     pub fn register_session_envelope_durable(
         &mut self,
         bytes: &[u8],
+        finalized_height: u64,
         path: &Path,
     ) -> Result<(), WalletError> {
         let mut next = self.clone();
+        next.prune_replay_state(finalized_height);
         next.register_session_envelope(bytes)?;
-        next.save_atomic(path)?;
-        *self = next;
-        Ok(())
+        self.publish_next(next, path)
+    }
+
+    pub fn register_session_durable(
+        &mut self,
+        grant: &AuthorizedCashSessionGrantV1,
+        finalized_height: u64,
+        path: &Path,
+    ) -> Result<(), WalletError> {
+        let mut next = self.clone();
+        next.prune_replay_state(finalized_height);
+        next.register_session(grant)?;
+        self.publish_next(next, path)
+    }
+
+    pub fn install_finalized_authorization_key_durable<V: FinalizedIdentityKeyVerifier>(
+        &mut self,
+        proof: &FinalizedIdentityKeyProof,
+        initial_nonce: u64,
+        verifier: &V,
+        path: &Path,
+    ) -> Result<(), WalletError> {
+        let mut next = self.clone();
+        next.install_finalized_authorization_key(proof, initial_nonce, verifier)?;
+        self.publish_next(next, path)
+    }
+
+    /// Removes only replay records whose rejection is already implied by monotonic committed
+    /// state. Expired sessions can never become valid again at a later finalized height, the
+    /// sender nonce rejects their old requests, and spent Coin Cells are absent from the UTXO set.
+    pub fn prune_replay_state(&mut self, finalized_height: u64) {
+        for lane in &mut self.authorization_lanes {
+            let expired = lane
+                .session_budgets
+                .iter()
+                .filter(|session| session.expires_at < finalized_height)
+                .map(|session| session.session_id)
+                .collect::<Vec<_>>();
+            lane.session_budgets.retain(|session| session.expires_at >= finalized_height);
+            lane.consumed_sessions.retain(|session| expired.binary_search(session).is_err());
+        }
+        self.consumed_inputs.retain(|consumed| {
+            self.ledger.cells().as_slice().iter().any(|record| record.id() == *consumed)
+        });
     }
 
     /// Applies one state-derived economics settlement and publishes the complete ledger and replay
@@ -208,8 +354,7 @@ impl TransactionIngress {
                 .map_err(|_| WalletError::InvalidEconomicsTransition)?;
             None
         };
-        next.save_atomic(path)?;
-        *self = next;
+        self.publish_next(next, path)?;
         Ok(output)
     }
 }
@@ -372,6 +517,7 @@ impl TransactionIngress {
             authorization_lanes,
             consumed_inputs,
             non_authoritative_accepted,
+            persistence_faulted: false,
         })
     }
 }
