@@ -1,4 +1,4 @@
-# Independent Go verifier (v1.0 M2 gate)
+# Independent Go verifier (v1.0 M0 reader)
 
 This module is intentionally standard-library-only and does not import the Rust
 workspace. It validates the published v1 TSV contract: strict headers, bounded
@@ -10,6 +10,7 @@ go test ./...
 go run . -vectors ../../testing/vectors
 ```
 
-This is the conformance-surface gate for M2, not a claim that Go already
-reimplements every consensus plane. The v1.0 complexity budget and funding
-decision are recorded in `spec/protocol/P-134-independent-client.md`.
+This is an M0 parser/independence smoke check only. It does not decode canonical envelopes,
+verify ML-DSA signatures, execute transitions, or replay finalized roots, and therefore is not M1
+or M2 evidence. The v1.0 complexity budget, required staffing, and launch decision are recorded in
+`spec/protocol/P-134-independent-client.md`.
