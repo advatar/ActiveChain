@@ -20,7 +20,10 @@ normative and measurement slice in [#398](https://github.com/advatar/ActiveChain
   ([GitHub issue #405](https://github.com/advatar/ActiveChain/issues/405)).
   - [x] Add permissionless 8-of-12 archive assignments, custody receipts, retrieval proofs, and
     exact reconstruction with failure-domain bounds.
-  - [ ] Integrate objective payment/slashing settlement and finalized pruning certificates.
+  - [x] Add a monotonic, authenticated pruning watermark that requires complete retention,
+    snapshot, grace-period, checkpoint, and archive evidence before idempotent deletion
+    ([GitHub issue #407](https://github.com/advatar/ActiveChain/issues/407)).
+  - [ ] Integrate objective payment/slashing settlement and finalized certificate ingestion.
 - [ ] Implement prepaid leases, hibernation/restoration, and accumulator-backed replay history.
 - [ ] Qualify checkpoint snapshot sync, light clients, operator metrics, and sustained 1 TiB bounds.
 

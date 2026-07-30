@@ -338,6 +338,28 @@ impl LedgerStore {
         Ok(segment)
     }
 
+    pub fn delete_if_matches(
+        &self,
+        sequence: u64,
+        expected_root: Root,
+    ) -> Result<(), StorageError> {
+        let path = self.segment_path(sequence);
+        if !path.exists() {
+            return Ok(());
+        }
+        if self.load(sequence)?.content_root != expected_root {
+            return Err(StorageError::Identity);
+        }
+        fs::remove_file(path)?;
+        sync_directory(&self.directory)?;
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn contains(&self, sequence: u64) -> bool {
+        self.segment_path(sequence).exists()
+    }
+
     fn segment_path(&self, sequence: u64) -> PathBuf {
         self.directory.join(format!("segment-{sequence:016x}.seg"))
     }

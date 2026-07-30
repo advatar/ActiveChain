@@ -433,6 +433,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-pruning"
+version = "0.1.0"
+dependencies = [
+ "activechain-archive",
+ "activechain-storage-engine",
+ "sha3 0.10.9",
+ "tempfile",
+]
+
+[[package]]
 name = "activechain-rpc-server"
 version = "0.1.0"
 dependencies = [

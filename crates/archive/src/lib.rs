@@ -18,6 +18,11 @@ pub const CHUNK_BYTES: usize = 4_096;
 pub const MAX_ARCHIVE_PAYLOAD_BYTES: usize = 256 * 1024 * 1024;
 pub const MAX_RECEIPT_SIGNATURE_BYTES: usize = 8_192;
 
+#[must_use]
+pub fn content_commitment(payload: &[u8]) -> Root {
+    digest(&[b"ACTIVECHAIN-ARCHIVE-CONTENT-V1", payload])
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ArchiveError {
     Bounds,
@@ -133,7 +138,7 @@ impl ArchiveBundle {
         }
         let assignments: [ArchiveAssignment; TOTAL_SHARDS] =
             assignments.try_into().map_err(|_| ArchiveError::Bounds)?;
-        let content_root = digest(&[b"ACTIVECHAIN-ARCHIVE-CONTENT-V1", payload]);
+        let content_root = content_commitment(payload);
         let manifest_root = manifest_root(
             chain_genesis,
             content_root,
@@ -272,7 +277,7 @@ impl ArchiveManifest {
             payload.extend_from_slice(shard.as_ref().ok_or(ArchiveError::Coding)?);
         }
         payload.truncate(self.original_bytes as usize);
-        if digest(&[b"ACTIVECHAIN-ARCHIVE-CONTENT-V1", &payload]) != self.content_root {
+        if content_commitment(&payload) != self.content_root {
             return Err(ArchiveError::Corrupt);
         }
         Ok(payload)
@@ -307,8 +312,8 @@ impl CustodyReceipt {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArchiveCertificate {
-    pub manifest: ArchiveManifest,
-    pub receipts: Vec<CustodyReceipt>,
+    manifest: ArchiveManifest,
+    receipts: Vec<CustodyReceipt>,
 }
 
 impl ArchiveCertificate {
@@ -338,6 +343,16 @@ impl ArchiveCertificate {
             }
         }
         Ok(Self { manifest, receipts })
+    }
+
+    #[must_use]
+    pub const fn manifest(&self) -> &ArchiveManifest {
+        &self.manifest
+    }
+
+    #[must_use]
+    pub fn receipts(&self) -> &[CustodyReceipt] {
+        &self.receipts
     }
 }
 
