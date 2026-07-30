@@ -1,8 +1,9 @@
 use super::{
-    ActivechainWalletAgentSummary, WALLET_BUFFER_TOO_SMALL, WALLET_OK,
+    ActivechainWalletAgentSummary, ActivechainWalletCashApproval, WALLET_BUFFER_TOO_SMALL,
+    WALLET_OK,
     activechain_wallet_agent_count, activechain_wallet_agent_register,
     activechain_wallet_agent_revoke, activechain_wallet_agent_set_paused,
-    activechain_wallet_agent_summary,
+    activechain_wallet_agent_summary, activechain_wallet_cash_approval,
 };
 use jni::JNIEnv;
 use jni::objects::{JByteArray, JClass, JString};
@@ -10,6 +11,47 @@ use jni::sys::{jboolean, jbyteArray, jint, jlong, jstring};
 
 fn snapshot(env: &JNIEnv<'_>, value: &JByteArray<'_>) -> Result<Vec<u8>, String> {
     env.convert_byte_array(value).map_err(|error| error.to_string())
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_activechain_wallet_NativeCanonicalApproval_nativeReview(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    request: JByteArray<'_>,
+) -> jstring {
+    let result = (|| {
+        let request = snapshot(&env, &request)?;
+        let mut approval = ActivechainWalletCashApproval::default();
+        let code = unsafe {
+            activechain_wallet_cash_approval(
+                request.as_ptr(), request.len() as u32, &mut approval,
+            )
+        };
+        if code != WALLET_OK {
+            return Err(format!("canonical wallet approval failed with {code}"));
+        }
+        Ok(format!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            hex(&approval.chain_id), hex(&approval.signer), hex(&approval.recipient),
+            hex(&approval.fee_reserve), hex(&approval.session_id), hex(&approval.intent_id),
+            approval.nonce, approval.session_expires_at, approval.amount_high,
+            approval.amount_low, approval.fee_high, approval.fee_low, approval.valid_until,
+            approval.input_count,
+        ))
+    })();
+    match result.and_then(|value| {
+        env.new_string(value).map(|value| value.into_raw()).map_err(|error| error.to_string())
+    }) {
+        Ok(value) => value,
+        Err(error) => {
+            let _ = env.throw_new("java/lang/IllegalArgumentException", error);
+            core::ptr::null_mut()
+        }
+    }
 }
 
 fn principal(value: &[u8]) -> Result<[u8; 48], String> {
