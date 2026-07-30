@@ -48,7 +48,8 @@ and no stablecoin issuer with validator-set or quorum authority.
 | Independent verification | 15% | 9.0 | 9.5 | Proof-verifier defects |
 | Ordering and censorship resistance | 10% | 8.0 | 9.0 | Builder and validator cartels |
 | Data availability | 8% | 8.0 | 9.0 | Hosting and retention concentration |
-| Execution and proving | 8% | 5.5 | 8.0 | Specialized prover economies of scale |
+| Execution validity concentration | 4% | 5.5 | 8.0 | Proof-system and verifier defects |
+| Prover liveness concentration | 4% | 5.5 | 8.0 | Specialized prover economies of scale and outages |
 | Client diversity | 8% | 7.5 | 9.0 | One implementation becoming dominant |
 | Infrastructure accessibility | 8% | 6.5 | 8.0 | PQ bandwidth and DA load |
 | Governance decentralization | 8% | 8.0 | 8.5 | Informal developer or foundation control |
@@ -222,7 +223,10 @@ At genesis, the likely situation is:
 - large economies of scale;
 - limited geographic diversity.
 
-This is why the architecture only receives **5.5/10 for proving at genesis**.
+This is why both execution-validity diversity and prover-liveness diversity receive **5.5/10 at
+genesis**. They are measured separately: proof soundness protects validity even under a prover
+monopoly, while supplier availability, proof latency, and the age of proof-pending history measure
+the distinct liveness risk.
 
 The mandatory mitigations are:
 
