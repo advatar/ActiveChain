@@ -252,8 +252,11 @@ Tracked by [GitHub issue #345](https://github.com/advatar/ActiveChain/issues/345
 
 - [x] Publish the ordered v1.0–v2 launch contract and reserve extension surfaces in
   `spec/protocol/P-131-version-series.md`.
-- [ ] Add concrete reserved-tag/header-slot vectors and wire the activation gates into the
-  version dispatcher.
+- [ ] Add a bounded protocol-version profile that rejects unknown revisions and exposes explicit
+  feature activation/requirement gates for the complete v1.0–v2 series.
+- [ ] Assign named deferred-feature tags inside the reserved v1.1/v1.2 ranges and reject every
+  unassigned reserved tag even after activation.
+- [ ] Freeze executable reserved-tag/header-slot vectors and wire them into touched-crate tests.
 
 ## Active protocol decision — P-132 proof liveness
 
