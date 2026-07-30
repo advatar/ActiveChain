@@ -3,6 +3,17 @@
 version = 4
 
 [[package]]
+name = "activechain-a2ui-renderer"
+version = "0.1.0"
+dependencies = [
+ "activechain-agent-interfaces",
+ "activechain-proposal-gateway",
+ "activechain-protocol-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "activechain-action-kernel"
 version = "0.1.0"
 dependencies = [

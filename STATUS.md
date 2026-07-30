@@ -2088,8 +2088,17 @@ wallet and all testnets remain explicitly developmental until this milestone com
       Rust, Android, Swift-package, and exact-head Apple distribution/macOS suites replace the
       explicitly skipped exhaustive CI gate during issue reconciliation; integrate and verify the
       candidate in `origin/main`.
-  - [ ] Render approvals and results through a constrained, fail-closed A2UI layer
+  - [x] Render approvals and results through a constrained, fail-closed A2UI layer
     ([GitHub issue #360](https://github.com/advatar/ActiveChain/issues/360)).
+    - [x] Add a host-only renderer that reconstructs verified approval facts, separates untrusted
+      explanations, binds actions to the canonical intent, and emits a deterministic native fallback.
+    - [x] Add bounded A2UI component/data fixtures and adversarial tests for deceptive content,
+      action substitution, accessibility labels, and unsupported surfaces.
+    - [x] Add transfer receipt, capability grant, agent enrollment, credential disclosure, and
+      job/proof DTOs; reconstruct transfer facts directly from the canonical proposal intent and
+      allow commitment-bound actions only to begin #358's authenticated native-wallet flow or
+      persist rejection. Normal touched-crate tests and strict Clippy replace the explicitly
+      skipped exhaustive CI gate during issue reconciliation; integrate into `origin/main`.
   - [ ] Rehearse an end-to-end MCP transfer proposal, approval, finality, and verified receipt
     ([GitHub issue #362](https://github.com/advatar/ActiveChain/issues/362)).
   - [ ] Complete adversarial security, compatibility, and operational qualification
