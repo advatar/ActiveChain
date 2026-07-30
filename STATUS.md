@@ -758,9 +758,12 @@ Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163
 - [x] Add deterministic wallet selection over `FungibleCoinCellSet` with explicit asset identity.
 - [x] Qualify native, test-EUR, and test-USD assets with cross-asset adversarial vectors.
 
-## Active regulated-profile implementation — screening semantics
+## Regulated-profile assurance plan and screening semantics
 
-Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213).
+The dependency-ordered assurance implementation plan tracked by
+[GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213) is complete. Later operating
+evidence, jurisdiction activation, independent review, and regulated-deployment decisions remain
+separate release gates and are not implied by completing the plan.
 
 - [x] Qualify canonical protocol-type coverage: all 75 library tests pass across assets, issuer
   lifecycle, consensus/QC, credentials, DID, compliance evidence, travel-rule bindings, and
@@ -770,7 +773,7 @@ Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213
   implementation: four focused application-primitive tests pass, including durable replay and
   malformed provider-key rejection.
 
-- [ ] Specify versioned sanctions/KYC screening inputs, freshness, matching, overrides, and
+- [x] Specify versioned sanctions/KYC screening inputs, freshness, matching, overrides, and
   privacy-preserving evidence handling with deterministic vectors.
 - [x] Freeze the commitment-only screening decision envelope, bounded validity, outcomes, and
   malformed vectors; private list matches and analyst evidence remain provider-held.

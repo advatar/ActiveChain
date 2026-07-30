@@ -160,7 +160,7 @@ docs/compliance/COMPLIANCE_BOUNDARY.md
 docs/compliance/REGULATORY_CHANGE_LOG.md
 docs/compliance/PRIVACY_AND_DATA_BOUNDARY.md
 docs/compliance/TRAVEL_RULE_PROFILE.md
-docs/compliance/SANCTIONS_AND_SCREENING_PROFILE.md
+docs/compliance/SCREENING_PROFILE_V1.md
 docs/compliance/TRANSACTION_MONITORING_CONTROL_SPEC.md
 docs/compliance/ASSET_ISSUER_CONTROL_PROFILE.md
 spec/protocol/P-120-compliance-evidence.md
