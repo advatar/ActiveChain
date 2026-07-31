@@ -32,6 +32,7 @@ zeroize = "1.8"
 rustix = { version = "1.1", features = ["fs", "process"] }
 
 [dev-dependencies]
+activechain-accumulator.workspace = true
 activechain-transition.workspace = true
 activechain-capability.workspace = true
 activechain-credential.workspace = true

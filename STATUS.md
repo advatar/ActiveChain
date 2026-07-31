@@ -43,6 +43,8 @@ normative and measurement slice in [#398](https://github.com/advatar/ActiveChain
       ([GitHub issue #424](https://github.com/advatar/ActiveChain/issues/424)).
     - [x] Replace the cash ledger's redeemed-reward vector with a constant-size witnessed root
       ([GitHub issue #426](https://github.com/advatar/ActiveChain/issues/426)).
+    - [x] Replace durable compliance replay vectors with constant-size witnessed roots
+      ([GitHub issue #428](https://github.com/advatar/ActiveChain/issues/428)).
 - [x] Qualify checkpoint snapshot sync, light clients, operator metrics, and sustained 1 TiB bounds.
   - [x] Add bounded checkpoint sync and light-client checkpoint verification
     ([GitHub issue #414](https://github.com/advatar/ActiveChain/issues/414)).

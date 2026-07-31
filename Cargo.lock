@@ -54,6 +54,7 @@ dependencies = [
 name = "activechain-application-primitives"
 version = "0.1.0"
 dependencies = [
+ "activechain-accumulator",
  "activechain-canonical-codec",
  "activechain-crypto-provider",
  "activechain-protocol-commitment",
@@ -166,6 +167,7 @@ dependencies = [
 name = "activechain-consensus-runtime"
 version = "0.1.0"
 dependencies = [
+ "activechain-accumulator",
  "activechain-action-kernel",
  "activechain-application-primitives",
  "activechain-authorization-kernel",
@@ -445,6 +447,7 @@ dependencies = [
 name = "activechain-protocol-types"
 version = "0.1.0"
 dependencies = [
+ "activechain-accumulator",
  "activechain-canonical-codec",
  "proptest",
  "sha3 0.10.9",

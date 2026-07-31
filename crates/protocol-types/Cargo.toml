@@ -9,6 +9,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+activechain-accumulator.workspace = true
 activechain-canonical-codec.workspace = true
 sha3.workspace = true
 

@@ -5,8 +5,8 @@ use activechain_application_primitives::{
     DurableComplianceReplayJournal, admit_regulated_transfer,
 };
 use activechain_protocol_types::{
-    AssetId, ChainId, ComplianceEvidenceBindingV1, ComplianceSignatureEnvelopeV2, Digest384,
-    TransactionId, TravelRuleBindingV1,
+    AssetId, ChainId, ComplianceEvidenceBindingV1, ComplianceReplayWitness,
+    ComplianceSignatureEnvelopeV2, Digest384, TransactionId, TravelRuleBindingV1,
 };
 use std::path::Path;
 
@@ -44,6 +44,7 @@ impl RegulatedTransferAdmission {
     pub fn admit(
         &mut self,
         evidence: ComplianceEvidenceBindingV1,
+        replay_witness: &ComplianceReplayWitness,
         signature: &ComplianceSignatureEnvelopeV2,
         travel: Option<&TravelRuleBindingV1>,
         action: TransactionId,
@@ -53,6 +54,7 @@ impl RegulatedTransferAdmission {
     ) -> Result<(), ComplianceAdmissionError> {
         admit_regulated_transfer(
             &mut self.replay,
+            replay_witness,
             evidence,
             signature,
             travel,
@@ -71,12 +73,26 @@ impl RegulatedTransferAdmission {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use activechain_accumulator::{AccumulatorDomain, ReferenceSet};
     use activechain_application_primitives::compliance_evidence_commitment;
-    use activechain_protocol_types::{CryptoSuiteId, PrincipalId, ProtocolSignature};
+    use activechain_protocol_types::{
+        ComplianceReplayKey, CryptoSuiteId, PrincipalId, ProtocolSignature,
+    };
     use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
+    }
+
+    fn replay_witness(key: ComplianceReplayKey) -> ComplianceReplayWitness {
+        let reference = ReferenceSet::new(AccumulatorDomain::SpentInput);
+        let key = key.accumulator_key();
+        let witness = reference.non_membership_witness(key.into_bytes()).unwrap();
+        ComplianceReplayWitness::new(
+            key,
+            witness.siblings.into_iter().map(Digest384::new).collect(),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -142,13 +158,23 @@ mod tests {
         let mut admission =
             RegulatedTransferAdmission::open(chain_id, genesis, 7, registry.clone(), &replay_path)
                 .unwrap();
-        assert_eq!(admission.admit(evidence, &signature, None, action, None, None, 15), Ok(()));
+        let replay_key = ComplianceReplayKey::new(
+            evidence.profile(),
+            evidence.operator(),
+            action,
+            evidence.nonce(),
+        );
+        let witness = replay_witness(replay_key);
+        assert_eq!(
+            admission.admit(evidence, &witness, &signature, None, action, None, None, 15),
+            Ok(())
+        );
         drop(admission);
 
         let mut restarted =
             RegulatedTransferAdmission::open(chain_id, genesis, 7, registry, &replay_path).unwrap();
         assert_eq!(
-            restarted.admit(evidence, &signature, None, action, None, None, 15),
+            restarted.admit(evidence, &witness, &signature, None, action, None, None, 15,),
             Err(ComplianceAdmissionError::Replay(CompliancePersistenceError::Replay))
         );
     }
