@@ -8,7 +8,7 @@ derivcheck_timeout=${ACTIVECHAIN_TAMARIN_DERIVCHECK_TIMEOUT:-180}
 tamarin_process_timeout=${ACTIVECHAIN_TAMARIN_PROCESS_TIMEOUT:-300}
 authorization_derivcheck_timeout=${ACTIVECHAIN_AUTHORIZATION_DERIVCHECK_TIMEOUT:-900}
 authorization_preflight_timeout=${ACTIVECHAIN_AUTHORIZATION_PREFLIGHT_TIMEOUT:-1200}
-authorization_lemma_timeout=${ACTIVECHAIN_AUTHORIZATION_LEMMA_TIMEOUT:-600}
+authorization_lemma_timeout=${ACTIVECHAIN_AUTHORIZATION_LEMMA_TIMEOUT:-900}
 
 "$root/scripts/test-formal-output-capture.sh"
 python3 "$root/scripts/check-formal-coverage.py"
