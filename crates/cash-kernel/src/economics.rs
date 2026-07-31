@@ -1,3 +1,7 @@
+use activechain_accumulator::KEY_BITS;
+use activechain_canonical_codec::{
+    CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
+};
 use activechain_protocol_types::{CoinCellId, Digest384, PrincipalId, fee_total, next_base_fee};
 use alloc::vec::Vec;
 
@@ -46,13 +50,68 @@ pub struct RewardSettlement {
     pub slash_amount: u128,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RewardRedemption {
     pub settlement: Digest384,
+    pub replay_witness: RewardReplayWitness,
     pub pool_owner: PrincipalId,
     pub pool_cell: CoinCellId,
     pub fee_reserve: CoinCellId,
     pub height: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RewardReplayWitness {
+    assignment: Digest384,
+    siblings: Vec<Digest384>,
+}
+
+impl RewardReplayWitness {
+    pub const TYPE_TAG: u16 = 0x014f;
+
+    pub fn new(assignment: Digest384, siblings: Vec<Digest384>) -> Result<Self, DecodeError> {
+        if assignment == Digest384::ZERO || siblings.len() != KEY_BITS {
+            return Err(DecodeError::InvalidValue("invalid reward replay witness"));
+        }
+        Ok(Self { assignment, siblings })
+    }
+
+    #[must_use]
+    pub const fn assignment(&self) -> Digest384 {
+        self.assignment
+    }
+
+    #[must_use]
+    pub fn siblings(&self) -> &[Digest384] {
+        &self.siblings
+    }
+}
+
+impl CanonicalEncode for RewardReplayWitness {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.assignment.encode(encoder)?;
+        for sibling in &self.siblings {
+            sibling.encode(encoder)?;
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for RewardReplayWitness {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let assignment = Digest384::decode(decoder)?;
+        let mut siblings = Vec::with_capacity(KEY_BITS);
+        for _ in 0..KEY_BITS {
+            siblings.push(Digest384::decode(decoder)?);
+        }
+        Self::new(assignment, siblings)
+    }
+}
+
+impl CanonicalType for RewardReplayWitness {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 * (1 + KEY_BITS);
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

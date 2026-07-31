@@ -38,13 +38,14 @@ pub use authenticated::{
 };
 pub use economics::{
     ChallengeAssignment, DutyAssignment, DutyReceipt, EconomicsError, FeeMarket, FeeQuote,
-    ObjectiveFault, RewardRedemption, RewardSettlement, SecurityPoolAllocation, SlashSplit,
-    VerifierRole, assign_challenge, register_assignment, resolve_challenge, settle_duty,
+    ObjectiveFault, RewardRedemption, RewardReplayWitness, RewardSettlement,
+    SecurityPoolAllocation, SlashSplit, VerifierRole, assign_challenge, register_assignment,
+    resolve_challenge, settle_duty,
 };
 pub use partitioned::{
     MAX_CASH_PARTITIONS, PartitionedCashPlan, PartitionedCashReceipt, cash_partition_for,
 };
-pub use transition::{CashLedger, CashTransitionError, MAX_REDEEMED_REWARDS};
+pub use transition::{CashLedger, CashTransitionError, LEGACY_MAX_REDEEMED_REWARDS};
 pub use types::{
     CashTransferV1, CoinBurnTransition, CoinCell, CoinCellOrigin, CoinCellRecord, CoinCellSet,
     CoinMintTransition, CoinTransfer, EpochEconomicsTransition, FungibleBurnV1, FungibleCoinCell,
@@ -104,7 +105,8 @@ mod tests {
         CashLedger, CashTransferV1, CashTransitionError, CoinBurnTransition, CoinMintTransition,
         CoinTransfer, EpochEconomicsTransition, FungibleCoinCell, GenesisAllocation,
         GenesisEconomy, NativeAssetDefinition, NativeMoneyError, NativeSupply, NonFungibleCoinCell,
-        NonFungibleCoinCellRecord, PartitionedCashPlan, RewardRedemption, RewardSettlement,
+        NonFungibleCoinCellRecord, PartitionedCashPlan, RewardRedemption, RewardReplayWitness,
+        RewardSettlement,
     };
 
     fn digest(byte: u8) -> Digest384 {
@@ -125,6 +127,33 @@ mod tests {
                 .unwrap()
             })
             .collect()
+    }
+
+    fn reward_replay_witness(assignment: Digest384) -> RewardReplayWitness {
+        let reference = ReferenceSet::new(AccumulatorDomain::SpentInput);
+        let witness = reference.non_membership_witness(assignment.into_bytes()).unwrap();
+        RewardReplayWitness::new(
+            assignment,
+            witness.siblings.into_iter().map(Digest384::new).collect(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn reward_replay_witness_is_canonical_and_exactly_bounded() {
+        let witness = reward_replay_witness(digest(90));
+        let encoded = encode_envelope(&witness).unwrap();
+        assert_eq!(decode_envelope::<RewardReplayWitness>(&encoded), Ok(witness));
+        assert_eq!(RewardReplayWitness::MAX_ENCODED_LEN, 48 * 385);
+        assert_eq!(
+            RewardReplayWitness::new(
+                digest(90),
+                vec![Digest384::ZERO; activechain_accumulator::KEY_BITS - 1],
+            ),
+            Err(activechain_canonical_codec::DecodeError::InvalidValue(
+                "invalid reward replay witness"
+            ))
+        );
     }
 
     #[test]
@@ -743,6 +772,25 @@ mod tests {
     }
 
     #[test]
+    fn legacy_reward_history_migrates_to_the_spent_input_root() {
+        let ledger = CashLedger::from_genesis(&economy()).unwrap();
+        let assignments = [digest(80), digest(81)];
+        let mut encoder = Encoder::new(CashLedger::MAX_ENCODED_LEN);
+        ledger.encode_legacy_v1_with_rewards_for_test(&mut encoder, &assignments).unwrap();
+        let body = encoder.finish();
+        let mut decoder = Decoder::new(&body);
+        let migrated = CashLedger::decode_legacy_v1(&mut decoder).unwrap();
+        decoder.finish().unwrap();
+
+        let mut reference = ReferenceSet::new(AccumulatorDomain::SpentInput);
+        for assignment in assignments {
+            reference.insert(assignment.into_bytes()).unwrap();
+        }
+        assert_eq!(migrated.redeemed_reward_count(), 2);
+        assert_eq!(migrated.redeemed_reward_root().into_bytes(), reference.commitment().root);
+    }
+
+    #[test]
     fn transfer_charges_owned_fee_reserve_and_rejects_replay() {
         let economy = economy();
         let mut ledger = CashLedger::from_genesis(&economy).unwrap();
@@ -922,29 +970,33 @@ mod tests {
         };
         let redemption = RewardRedemption {
             settlement: reward.assignment,
+            replay_witness: reward_replay_witness(reward.assignment),
             pool_owner: principal(10),
             pool_cell,
             fee_reserve,
             height: 2,
         };
         let supply_before = ledger.supply().current_total_supply();
+        let replay_root_before = ledger.redeemed_reward_root();
         ledger.redeem_reward(&reward, &redemption).unwrap();
         assert_eq!(ledger.supply().current_total_supply(), supply_before);
-        assert_eq!(ledger.redeemed_rewards(), &[reward.assignment]);
+        assert_eq!(ledger.redeemed_reward_count(), 1);
+        assert_ne!(ledger.redeemed_reward_root(), replay_root_before);
 
         let paid = ledger.clone();
         assert_eq!(
             ledger.redeem_reward(&reward, &redemption),
-            Err(CashTransitionError::Invalid(NativeMoneyError::RewardAlreadyRedeemed))
+            Err(CashTransitionError::Invalid(NativeMoneyError::InvalidRewardReplayWitness))
         );
         assert_eq!(ledger, paid);
 
         let mut restarted: CashLedger =
             decode_envelope(&encode_envelope(&ledger).unwrap()).unwrap();
-        assert_eq!(restarted.redeemed_rewards(), &[reward.assignment]);
+        assert_eq!(restarted.redeemed_reward_count(), 1);
+        assert_eq!(restarted.redeemed_reward_root(), ledger.redeemed_reward_root());
         assert_eq!(
             restarted.redeem_reward(&reward, &redemption),
-            Err(CashTransitionError::Invalid(NativeMoneyError::RewardAlreadyRedeemed))
+            Err(CashTransitionError::Invalid(NativeMoneyError::InvalidRewardReplayWitness))
         );
         assert_eq!(restarted, ledger);
 
@@ -1005,6 +1057,7 @@ mod tests {
         let shielded = shield_first.clone();
         let unavailable = RewardRedemption {
             settlement: reward.assignment,
+            replay_witness: reward_replay_witness(reward.assignment),
             pool_owner: principal(10),
             pool_cell: shield_input,
             fee_reserve: shield_fee,
@@ -1014,7 +1067,7 @@ mod tests {
             shield_first.redeem_reward(&reward, &unavailable),
             Err(CashTransitionError::Invalid(NativeMoneyError::MissingCell))
         );
-        assert!(shield_first.redeemed_rewards().is_empty());
+        assert_eq!(shield_first.redeemed_reward_count(), 0);
         assert_eq!(shield_first, shielded);
     }
 
@@ -1181,6 +1234,7 @@ mod tests {
             };
             let redemption = RewardRedemption {
                 settlement: reward.assignment,
+                replay_witness: reward_replay_witness(reward.assignment),
                 pool_owner: principal(10),
                 pool_cell,
                 fee_reserve,
@@ -1192,7 +1246,9 @@ mod tests {
             let paid = ledger.clone();
             prop_assert_eq!(
                 ledger.redeem_reward(&reward, &redemption),
-                Err(CashTransitionError::Invalid(NativeMoneyError::RewardAlreadyRedeemed))
+                Err(CashTransitionError::Invalid(
+                    NativeMoneyError::InvalidRewardReplayWitness
+                ))
             );
             prop_assert_eq!(ledger, paid);
         }

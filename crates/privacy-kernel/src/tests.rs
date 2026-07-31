@@ -377,6 +377,29 @@ fn nullifier_witness_is_canonical_and_exactly_bounded() {
 }
 
 #[test]
+fn legacy_nullifier_history_migrates_to_the_nullifier_root() {
+    let keys = [digest(10), digest(11)];
+    let mut encoder = Encoder::new(16 + 48 + 2 + keys.len() * 48);
+    500_u128.encode(&mut encoder).unwrap();
+    digest(12).encode(&mut encoder).unwrap();
+    encoder.write_length(keys.len(), LEGACY_MAX_SPENT_NULLIFIERS).unwrap();
+    for key in keys {
+        key.encode(&mut encoder).unwrap();
+    }
+    let body = encoder.finish();
+    let mut decoder = Decoder::new(&body);
+    let migrated = ShieldedCashState::decode_legacy_v1(&mut decoder).unwrap();
+    decoder.finish().unwrap();
+
+    let mut reference = ReferenceSet::new(AccumulatorDomain::Nullifier);
+    for key in keys {
+        reference.insert(key.into_bytes()).unwrap();
+    }
+    assert_eq!(migrated.nullifiers().count(), 2);
+    assert_eq!(migrated.nullifiers().root().into_bytes(), reference.commitment().root);
+}
+
+#[test]
 fn verified_nullifier_consumption_is_atomic() {
     let initial = [digest(10)];
     let mut set = NullifierSet::default();

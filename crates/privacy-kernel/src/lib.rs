@@ -29,7 +29,9 @@ pub use protected::{
     ProtectedEnvelope, ProtectedOrdering,
 };
 
-use activechain_accumulator::{AccumulatorDomain, KEY_BITS, NonMembershipWitness, SetCommitment};
+use activechain_accumulator::{
+    AccumulatorDomain, KEY_BITS, NonMembershipWitness, ReferenceSet, SetCommitment,
+};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
@@ -39,6 +41,8 @@ use alloc::vec::Vec;
 
 /// Maximum inputs or outputs in one shielded transfer.
 pub const MAX_SHIELDED_ITEMS: usize = 16;
+/// Historical schema-v1 nullifier bound, retained only for snapshot migration.
+pub const LEGACY_MAX_SPENT_NULLIFIERS: usize = 4_096;
 /// Maximum explicitly disclosed field identifiers in one capability.
 pub const MAX_DISCLOSED_FIELDS: usize = 64;
 
@@ -1283,6 +1287,25 @@ impl NullifierSet {
         }
     }
 
+    pub fn decode_legacy_v1(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let length = d.read_length(LEGACY_MAX_SPENT_NULLIFIERS)?;
+        let mut reference = ReferenceSet::new(AccumulatorDomain::Nullifier);
+        let mut previous = None;
+        for _ in 0..length {
+            let nullifier = Digest384::decode(d)?;
+            if previous.is_some_and(|prior| prior >= nullifier) {
+                return Err(DecodeError::InvalidValue(
+                    "legacy nullifiers are not strictly ordered",
+                ));
+            }
+            reference
+                .insert(nullifier.into_bytes())
+                .map_err(|_| DecodeError::InvalidValue("invalid legacy nullifier set"))?;
+            previous = Some(nullifier);
+        }
+        Ok(Self::from_commitment(reference.commitment()))
+    }
+
     /// Validates all conditions before changing state, so every rejection is atomic.
     pub fn admit(
         &mut self,
@@ -1427,6 +1450,27 @@ impl ShieldedCashState {
         self.nullifiers = next_nullifiers;
         self.anchor = if self.pool_balance == 0 { Digest384::ZERO } else { next_anchor };
         Ok(())
+    }
+
+    #[doc(hidden)]
+    pub fn encode_legacy_v1(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        if self.nullifiers.count != 0 {
+            return Err(EncodeError::LengthLimitExceeded {
+                length: usize::try_from(self.nullifiers.count).unwrap_or(usize::MAX),
+                maximum: 0,
+            });
+        }
+        self.pool_balance.encode(e)?;
+        self.anchor.encode(e)?;
+        e.write_length(0, LEGACY_MAX_SPENT_NULLIFIERS)
+    }
+
+    pub fn decode_legacy_v1(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        map_decode(Self::new(
+            u128::decode(d)?,
+            Digest384::decode(d)?,
+            NullifierSet::decode_legacy_v1(d)?,
+        ))
     }
 }
 
