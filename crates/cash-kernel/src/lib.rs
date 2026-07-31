@@ -86,15 +86,18 @@ mod nft_kani_proofs {
 mod tests {
     extern crate alloc;
 
+    use activechain_accumulator::{AccumulatorDomain, ReferenceSet};
     use activechain_canonical_codec::{
         CanonicalType, Decoder, Encoder, decode_envelope, encode_envelope,
     };
-    use activechain_privacy_kernel::{ShieldIntent, UnshieldIntent, VerifiedPrivacyProof};
+    use activechain_privacy_kernel::{
+        NullifierWitness, ShieldIntent, UnshieldIntent, VerifiedPrivacyProof,
+    };
     use activechain_protocol_commitment::{DomainTag, commit};
     use activechain_protocol_types::{
         AssetId, ChainId, CoinCellId, Digest384, PrincipalId, TransactionId,
     };
-    use alloc::vec;
+    use alloc::{vec, vec::Vec};
     use proptest::prelude::*;
 
     use super::{
@@ -106,6 +109,22 @@ mod tests {
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
+    }
+
+    fn nullifier_witnesses(nullifiers: &[Digest384]) -> Vec<NullifierWitness> {
+        let mut reference = ReferenceSet::new(AccumulatorDomain::Nullifier);
+        nullifiers
+            .iter()
+            .map(|nullifier| {
+                let witness = reference.non_membership_witness(nullifier.into_bytes()).unwrap();
+                reference.insert(nullifier.into_bytes()).unwrap();
+                NullifierWitness::new(
+                    *nullifier,
+                    witness.siblings.into_iter().map(Digest384::new).collect(),
+                )
+                .unwrap()
+            })
+            .collect()
     }
 
     #[test]
@@ -816,6 +835,7 @@ mod tests {
             100,
             3,
             vec![digest(70)],
+            nullifier_witnesses(&[digest(70)]),
             vec![digest(80)],
             30,
         )
@@ -857,6 +877,7 @@ mod tests {
             100,
             3,
             vec![digest(70)],
+            unshield.nullifier_witnesses().to_vec(),
             vec![digest(81)],
             30,
         )
@@ -869,7 +890,7 @@ mod tests {
         assert_eq!(
             ledger.apply_unshield(&rebound_replay, rebound_proof, 4),
             Err(CashTransitionError::Privacy(
-                activechain_privacy_kernel::PrivacyError::NullifierAlreadySpent
+                activechain_privacy_kernel::PrivacyError::InvalidNullifierWitness
             ))
         );
         assert_eq!(ledger, snapshot);

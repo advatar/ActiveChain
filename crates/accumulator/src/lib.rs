@@ -1,10 +1,13 @@
+#![no_std]
 #![forbid(unsafe_code)]
 
+extern crate alloc;
+
+use alloc::{collections::BTreeSet, format, string::String, vec, vec::Vec};
 use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
 };
-use std::collections::BTreeSet;
 
 pub type Root = [u8; 48];
 pub const KEY_BITS: usize = 384;
@@ -44,6 +47,12 @@ pub struct NonMembershipWitness {
 }
 
 impl SetCommitment {
+    #[must_use]
+    pub fn empty(domain: AccumulatorDomain) -> Self {
+        let tree_root = set_empty_hashes(domain)[0];
+        Self { domain, root: set_commitment_root(domain, 0, tree_root), count: 0 }
+    }
+
     pub fn insert(
         self,
         key: Root,

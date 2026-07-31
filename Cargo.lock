@@ -153,6 +153,7 @@ dependencies = [
 name = "activechain-cash-kernel"
 version = "0.1.0"
 dependencies = [
+ "activechain-accumulator",
  "activechain-canonical-codec",
  "activechain-privacy-kernel",
  "activechain-protocol-commitment",
@@ -396,6 +397,7 @@ dependencies = [
 name = "activechain-privacy-kernel"
 version = "0.1.0"
 dependencies = [
+ "activechain-accumulator",
  "activechain-canonical-codec",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
@@ -406,6 +408,7 @@ dependencies = [
 name = "activechain-private-billboard"
 version = "0.1.0"
 dependencies = [
+ "activechain-accumulator",
  "activechain-canonical-codec",
  "activechain-cash-kernel",
  "activechain-crypto-provider",
@@ -592,6 +595,7 @@ dependencies = [
 name = "activechain-vector-generator"
 version = "0.1.0"
 dependencies = [
+ "activechain-accumulator",
  "activechain-action-kernel",
  "activechain-bytecode-verifier",
  "activechain-canonical-codec",

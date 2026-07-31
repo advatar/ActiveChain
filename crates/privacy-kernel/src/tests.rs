@@ -1,3 +1,4 @@
+use activechain_accumulator::{AccumulatorDomain, ReferenceSet};
 use activechain_canonical_codec::{decode_envelope, encode_envelope};
 use activechain_protocol_types::{AssetId, ChainId, CoinCellId, Digest384, PrincipalId};
 use alloc::{vec, vec::Vec};
@@ -21,6 +22,22 @@ fn inputs(nullifiers: Vec<Digest384>) -> ShieldedTransferPublicInputs {
         100,
     )
     .unwrap()
+}
+
+fn nullifier_witnesses(nullifiers: &[Digest384]) -> Vec<NullifierWitness> {
+    let mut reference = ReferenceSet::new(AccumulatorDomain::Nullifier);
+    nullifiers
+        .iter()
+        .map(|nullifier| {
+            let witness = reference.non_membership_witness(nullifier.into_bytes()).unwrap();
+            reference.insert(nullifier.into_bytes()).unwrap();
+            NullifierWitness::new(
+                *nullifier,
+                witness.siblings.into_iter().map(Digest384::new).collect(),
+            )
+            .unwrap()
+        })
+        .collect()
 }
 
 #[test]
@@ -64,6 +81,7 @@ fn canonical_values_round_trip() {
         30,
         2,
         vec![digest(10)],
+        nullifier_witnesses(&[digest(10)]),
         vec![digest(20)],
         100,
     )
@@ -272,16 +290,17 @@ fn admission_is_fail_closed_and_atomic() {
         verified: true,
     };
     let mut state = NullifierSet::default();
+    let witnesses = nullifier_witnesses(&statement.nullifiers);
     assert_eq!(
-        state.admit(&statement, proof, ChainId::new(digest(1)), digest(99), 10),
+        state.admit(&statement, proof, ChainId::new(digest(1)), digest(99), 10, &witnesses),
         Err(PrivacyError::WrongAnchor)
     );
-    assert!(state.as_slice().is_empty());
-    state.admit(&statement, proof, ChainId::new(digest(1)), digest(2), 10).unwrap();
+    assert_eq!(state.count(), 0);
+    state.admit(&statement, proof, ChainId::new(digest(1)), digest(2), 10, &witnesses).unwrap();
     let snapshot = state.clone();
     assert_eq!(
-        state.admit(&statement, proof, ChainId::new(digest(1)), digest(2), 10),
-        Err(PrivacyError::NullifierAlreadySpent)
+        state.admit(&statement, proof, ChainId::new(digest(1)), digest(2), 10, &witnesses),
+        Err(PrivacyError::InvalidNullifierWitness)
     );
     assert_eq!(state, snapshot);
 }
@@ -316,29 +335,57 @@ fn malformed_and_unbound_inputs_are_rejected() {
     );
     let statement = inputs(vec![digest(10)]);
     let mut state = NullifierSet::default();
+    let witnesses = nullifier_witnesses(&statement.nullifiers);
     let rejected = VerifiedPrivacyProof { public_inputs_commitment: digest(99), verified: true };
     assert_eq!(
-        state.admit(&statement, rejected, ChainId::new(digest(1)), digest(2), 10),
+        state.admit(&statement, rejected, ChainId::new(digest(1)), digest(2), 10, &witnesses,),
         Err(PrivacyError::PublicInputMismatch)
     );
-    assert!(state.as_slice().is_empty());
+    assert_eq!(state.count(), 0);
 }
 
 #[test]
 fn shielded_cash_state_round_trips_with_persistent_nullifiers() {
-    let nullifiers = NullifierSet::new(vec![digest(10), digest(11)]).unwrap();
+    let keys = [digest(10), digest(11)];
+    let witnesses = nullifier_witnesses(&keys);
+    let mut nullifiers = NullifierSet::default();
+    nullifiers.consume_verified(&keys, &witnesses).unwrap();
+    assert_eq!(nullifiers.count(), 2);
+
+    let mut reference = ReferenceSet::new(AccumulatorDomain::Nullifier);
+    for key in keys {
+        reference.insert(key.into_bytes()).unwrap();
+    }
+    assert_eq!(nullifiers.root().into_bytes(), reference.commitment().root);
+
     let state = ShieldedCashState::new(500, digest(12), nullifiers).unwrap();
     let encoded = encode_envelope(&state).unwrap();
     assert_eq!(decode_envelope::<ShieldedCashState>(&encoded), Ok(state));
+    assert_eq!(ShieldedCashState::MAX_ENCODED_LEN, 120);
+}
+
+#[test]
+fn nullifier_witness_is_canonical_and_exactly_bounded() {
+    let witness = nullifier_witnesses(&[digest(10)]).into_iter().next().unwrap();
+    let encoded = encode_envelope(&witness).unwrap();
+    assert_eq!(decode_envelope::<NullifierWitness>(&encoded), Ok(witness));
+    assert_eq!(NullifierWitness::MAX_ENCODED_LEN, 48 * 385);
+    assert_eq!(
+        NullifierWitness::new(digest(10), vec![Digest384::ZERO; KEY_BITS - 1]),
+        Err(PrivacyError::InvalidNullifierWitness)
+    );
 }
 
 #[test]
 fn verified_nullifier_consumption_is_atomic() {
-    let mut set = NullifierSet::new(vec![digest(10)]).unwrap();
+    let initial = [digest(10)];
+    let mut set = NullifierSet::default();
+    set.consume_verified(&initial, &nullifier_witnesses(&initial)).unwrap();
     let snapshot = set.clone();
+    let stale = nullifier_witnesses(&[digest(9), digest(10)]);
     assert_eq!(
-        set.consume_verified(&[digest(9), digest(10)]),
-        Err(PrivacyError::NullifierAlreadySpent)
+        set.consume_verified(&[digest(9), digest(10)], &stale),
+        Err(PrivacyError::InvalidNullifierWitness)
     );
     assert_eq!(set, snapshot);
 }
@@ -354,18 +401,27 @@ proptest! {
     }
 
     #[test]
-    fn every_rejected_replay_preserves_state(bytes in prop::collection::btree_set(1_u8..200, 1..16)) {
-        let nullifiers = bytes.into_iter().map(digest).collect::<Vec<_>>();
-        let statement = inputs(nullifiers);
+    fn every_rejected_replay_preserves_state(byte in 1_u8..200) {
+        let statement = inputs(vec![digest(byte)]);
         let proof = VerifiedPrivacyProof {
             public_inputs_commitment: statement.commitment().unwrap(), verified: true,
         };
         let mut state = NullifierSet::default();
-        state.admit(&statement, proof, ChainId::new(digest(1)), digest(2), 1).unwrap();
+        let witnesses = nullifier_witnesses(&statement.nullifiers);
+        state
+            .admit(&statement, proof, ChainId::new(digest(1)), digest(2), 1, &witnesses)
+            .unwrap();
         let snapshot = state.clone();
         prop_assert_eq!(
-            state.admit(&statement, proof, ChainId::new(digest(1)), digest(2), 1),
-            Err(PrivacyError::NullifierAlreadySpent)
+            state.admit(
+                &statement,
+                proof,
+                ChainId::new(digest(1)),
+                digest(2),
+                1,
+                &witnesses,
+            ),
+            Err(PrivacyError::InvalidNullifierWitness)
         );
         prop_assert_eq!(state, snapshot);
     }

@@ -255,7 +255,7 @@ impl CashLedger {
             .checked_add(intent.fee())
             .ok_or(CashTransitionError::Invalid(NativeMoneyError::AmountOverflow))?;
         self.shielded
-            .debit(debit, intent.nullifiers(), proof_commitment)
+            .debit(debit, intent.nullifiers(), intent.nullifier_witnesses(), proof_commitment)
             .map_err(CashTransitionError::Privacy)?;
         let transition_id = cash_transition_id(intent).map_err(CashTransitionError::Encoding)?;
         let cell = CoinCell::new(

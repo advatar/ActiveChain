@@ -245,9 +245,9 @@
       "source": "privacy/privacy-v1.txt",
       "field": "shielded_state_envelope_hex",
       "type_tag": "0x00a5",
-      "schema_version": 1,
-      "envelope_sha256": "907bda77e8b674c0b1666d1d1b514315b32252434525db65449f5f7ed7c66180",
-      "canonical_value_commitment": "341c11a19116ab2c5bd14023c8c8f824b9c5bb0cc1bb8c635697979b69d6af64a5892b2e88a174637f52b0f0e7c5ff5e"
+      "schema_version": 2,
+      "envelope_sha256": "515d92a414c9645ee08da527e7a49e3f2dbd9f4533a5a4f0aedcb93c4b6e72b8",
+      "canonical_value_commitment": "52772db7548819c876e8da30a4f1b8e11cef3523123a3fdf7fdccc6c585e1e01798009000bac2934ae2a59d0a02ab457"
     },
     {
       "source": "state/state-tree-v1.txt",

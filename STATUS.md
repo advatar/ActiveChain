@@ -38,6 +38,9 @@ normative and measurement slice in [#398](https://github.com/advatar/ActiveChain
   - [x] Add stateless witnessed sparse replay sets and append-only header history commitments
     ([GitHub issue #411](https://github.com/advatar/ActiveChain/issues/411)).
   - [ ] Migrate bounded production replay collections to the witnessed accumulator roots.
+    - [x] Replace the privacy kernel's stored nullifier vector with a constant-size witnessed root
+      and canonical non-membership updates
+      ([GitHub issue #424](https://github.com/advatar/ActiveChain/issues/424)).
 - [x] Qualify checkpoint snapshot sync, light clients, operator metrics, and sustained 1 TiB bounds.
   - [x] Add bounded checkpoint sync and light-client checkpoint verification
     ([GitHub issue #414](https://github.com/advatar/ActiveChain/issues/414)).
