@@ -1,0 +1,14 @@
+report_version=1
+partition_bytes=16384
+segment_bytes=4194304
+segments=8
+logical_snapshot_bytes=67108864
+peak_physical_bytes=235817289
+final_physical_bytes=170281547
+interrupted_activation_rejected=true
+prior_generation_survived_restart=true
+corruption_detected_on_restart=true
+eight_shards_reconstructed=true
+seven_shards_rejected=true
+incomplete_pruning_rejected=true
+pruning_resumed_after_restart=true

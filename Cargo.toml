@@ -50,6 +50,7 @@ members = [
     "crates/accumulator",
     "crates/storage-sync",
     "crates/storage-qualification",
+    "crates/storage-soak",
     "crates/archive-settlement",
     "crates/storage-transition",
     "crates/transition",
@@ -98,6 +99,7 @@ activechain-proposal-gateway = { path = "crates/proposal-gateway", version = "0.
 activechain-policy-kernel = { path = "crates/policy-kernel", version = "0.1.0" }
 activechain-principal = { path = "crates/principal", version = "0.1.0" }
 activechain-privacy-kernel = { path = "crates/privacy-kernel", version = "0.1.0" }
+activechain-storage-soak = { path = "crates/storage-soak", version = "0.1.0" }
 activechain-private-billboard = { path = "crates/private-billboard", version = "0.1.0" }
 activechain-rpc-types = { path = "crates/rpc-types", version = "0.1.0" }
 activechain-rpc-server = { path = "crates/rpc-server", version = "0.1.0" }

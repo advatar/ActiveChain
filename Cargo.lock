@@ -538,6 +538,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-storage-soak"
+version = "0.1.0"
+dependencies = [
+ "activechain-archive",
+ "activechain-pruning",
+ "activechain-storage-engine",
+ "tempfile",
+]
+
+[[package]]
 name = "activechain-storage-sync"
 version = "0.1.0"
 dependencies = [

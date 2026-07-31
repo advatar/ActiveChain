@@ -38,12 +38,16 @@ normative and measurement slice in [#398](https://github.com/advatar/ActiveChain
   - [x] Add stateless witnessed sparse replay sets and append-only header history commitments
     ([GitHub issue #411](https://github.com/advatar/ActiveChain/issues/411)).
   - [ ] Migrate bounded production replay collections to the witnessed accumulator roots.
-- [ ] Qualify checkpoint snapshot sync, light clients, operator metrics, and sustained 1 TiB bounds.
+- [x] Qualify checkpoint snapshot sync, light clients, operator metrics, and sustained 1 TiB bounds.
   - [x] Add bounded checkpoint sync and light-client checkpoint verification
     ([GitHub issue #414](https://github.com/advatar/ActiveChain/issues/414)).
   - [x] Add bounded operator telemetry and deterministic multi-year capacity qualification
     ([GitHub issue #416](https://github.com/advatar/ActiveChain/issues/416)).
-  - [ ] Run a production-like physical disk soak with crash/restart and archive-loss injection.
+  - [x] Run a production-like physical disk soak with crash/restart and archive-loss injection
+    ([GitHub issue #422](https://github.com/advatar/ActiveChain/issues/422)).
+    - [x] Add a configurable production-API filesystem soak harness and versioned report.
+    - [x] Qualify interrupted activation, corruption, archive loss, and pruning fail-closed behavior.
+    - [x] Record a production-like local run with measured peak and final physical usage.
 
 ## Active landing-page rebrand — Actum
 
