@@ -7,8 +7,8 @@ use activechain_canonical_codec::{
     decode_envelope, encode_envelope,
 };
 use activechain_payment_types::{
-    ConnectorId, PaymentValidationError, PaymentWebhookCursorV1, PaymentWebhookEventV1,
-    ProviderObservationV1, RailId,
+    ConnectorId, PaymentApiAuthorizationV1, PaymentApiReplayStateV1, PaymentValidationError,
+    PaymentWebhookCursorV1, PaymentWebhookEventV1, ProviderObservationV1, RailId,
 };
 use activechain_protocol_types::{AssetId, Digest384};
 use sha3::{
@@ -30,6 +30,7 @@ pub use simulator::{
 
 const MAX_OBSERVATIONS: usize = 65_535;
 const MAX_WEBHOOK_CURSORS: usize = 65_535;
+const MAX_API_CLIENTS: usize = 65_535;
 const SNAPSHOT_TAG_LENGTH: usize = 48;
 const SNAPSHOT_DOMAIN: &[u8] = b"ACTIVECHAIN-ACTIVEBRIDGE-JOURNAL-V1";
 const MAX_CONNECTOR_ORIGINS: usize = 16;
@@ -224,6 +225,7 @@ impl CanonicalType for ConnectorHostPolicyV1 {
 pub enum JournalError {
     InvalidObservation,
     InvalidDelivery,
+    InvalidAuthorization,
     Capacity,
     Persistence,
 }
@@ -429,6 +431,95 @@ impl CanonicalType for WebhookDeliveryJournalV1 {
         3 + MAX_WEBHOOK_CURSORS * PaymentWebhookCursorV1::MAX_ENCODED_LEN;
 }
 
+/// Crash-safe exact API sequence for every authenticated caller and audience pair.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ApiAuthorizationJournalV1 {
+    states: Vec<PaymentApiReplayStateV1>,
+}
+impl ApiAuthorizationJournalV1 {
+    pub const TYPE_TAG: u16 = 0x0172;
+    #[must_use]
+    pub fn states(&self) -> &[PaymentApiReplayStateV1] {
+        &self.states
+    }
+    pub fn authorize(
+        &mut self,
+        authorization: &PaymentApiAuthorizationV1,
+        timestamp: u64,
+    ) -> Result<(), JournalError> {
+        let key = (authorization.caller(), authorization.audience());
+        match self.states.binary_search_by_key(&key, |state| (state.caller(), state.audience())) {
+            Ok(index) => {
+                self.states[index] = self.states[index]
+                    .authorize(authorization, timestamp)
+                    .map_err(|_| JournalError::InvalidAuthorization)?;
+            }
+            Err(index) => {
+                if self.states.len() == MAX_API_CLIENTS {
+                    return Err(JournalError::Capacity);
+                }
+                let state =
+                    PaymentApiReplayStateV1::new(authorization.caller(), authorization.audience())
+                        .and_then(|state| state.authorize(authorization, timestamp))
+                        .map_err(|_| JournalError::InvalidAuthorization)?;
+                self.states.insert(index, state);
+            }
+        }
+        Ok(())
+    }
+    pub fn authorize_durable(
+        &mut self,
+        authorization: &PaymentApiAuthorizationV1,
+        timestamp: u64,
+        path: &Path,
+    ) -> Result<(), JournalError> {
+        let mut next = self.clone();
+        next.authorize(authorization, timestamp)?;
+        next.save_atomic(path)?;
+        *self = next;
+        Ok(())
+    }
+    pub fn save_atomic(&self, path: &Path) -> Result<(), JournalError> {
+        save_snapshot(self, path)
+    }
+    pub fn load(path: &Path) -> Result<Self, JournalError> {
+        load_snapshot(path)
+    }
+}
+impl CanonicalEncode for ApiAuthorizationJournalV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        encoder.write_length(self.states.len(), MAX_API_CLIENTS)?;
+        for state in &self.states {
+            state.encode(encoder)?;
+        }
+        Ok(())
+    }
+}
+impl CanonicalDecode for ApiAuthorizationJournalV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let count = decoder.read_length(MAX_API_CLIENTS)?;
+        let mut states = Vec::with_capacity(count);
+        for _ in 0..count {
+            let state = PaymentApiReplayStateV1::decode(decoder)?;
+            let key = (state.caller(), state.audience());
+            if states.last().is_some_and(|previous: &PaymentApiReplayStateV1| {
+                (previous.caller(), previous.audience()) >= key
+            }) {
+                return Err(DecodeError::InvalidValue(
+                    "API authorization states are not canonically ordered",
+                ));
+            }
+            states.push(state);
+        }
+        Ok(Self { states })
+    }
+}
+impl CanonicalType for ApiAuthorizationJournalV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 3 + MAX_API_CLIENTS * PaymentApiReplayStateV1::MAX_ENCODED_LEN;
+}
+
 fn map_validation(_: PaymentValidationError) -> JournalError {
     JournalError::InvalidObservation
 }
@@ -486,11 +577,11 @@ fn snapshot_tag(bytes: &[u8]) -> [u8; SNAPSHOT_TAG_LENGTH] {
 mod tests {
     use super::*;
     use activechain_payment_types::{
-        AssetAmountV1, ConnectorId, EvidenceClass, PaymentAttemptId, PaymentIntentId,
-        PaymentLifecycleRecordV1, PaymentState, PaymentWebhookEventId, PaymentWebhookEventV1,
-        PaymentWebhookSubscriptionId, ProviderOperationState, RailId,
+        AssetAmountV1, ConnectorId, EvidenceClass, PaymentApiOperation, PaymentAttemptId,
+        PaymentIntentId, PaymentLifecycleRecordV1, PaymentState, PaymentWebhookEventId,
+        PaymentWebhookEventV1, PaymentWebhookSubscriptionId, ProviderOperationState, RailId,
     };
-    use activechain_protocol_types::{AssetId, ChainId, Digest384};
+    use activechain_protocol_types::{AssetId, ChainId, Digest384, PrincipalId};
     use std::path::PathBuf;
 
     fn digest(byte: u8) -> Digest384 {
@@ -538,6 +629,22 @@ mod tests {
             digest(81),
             100,
             200,
+        )
+        .unwrap()
+    }
+
+    fn api_authorization(caller: u8, audience: u8, sequence: u64) -> PaymentApiAuthorizationV1 {
+        PaymentApiAuthorizationV1::new(
+            PrincipalId::new(digest(caller)),
+            digest(audience),
+            PaymentApiOperation::CreateIntent,
+            digest(70),
+            digest(71),
+            Some(PaymentIntentId::new(digest(4)).unwrap()),
+            sequence,
+            100,
+            200,
+            digest(72 + sequence as u8),
         )
         .unwrap()
     }
@@ -753,6 +860,56 @@ mod tests {
             Err(JournalError::Persistence)
         );
         assert!(journal.cursors().is_empty());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn api_authorization_survives_restart_and_rejects_replay_or_gaps() {
+        let path = path("api-auth-restart");
+        let _ = std::fs::remove_file(&path);
+        let mut journal = ApiAuthorizationJournalV1::default();
+        let first = api_authorization(50, 60, 1);
+        journal.authorize_durable(&first, 150, &path).unwrap();
+        assert_eq!(ApiAuthorizationJournalV1::load(&path).unwrap(), journal);
+        assert_eq!(journal.states()[0].next_sequence(), 2);
+        assert_eq!(journal.authorize(&first, 150), Err(JournalError::InvalidAuthorization));
+        assert_eq!(
+            journal.authorize(&api_authorization(50, 60, 3), 150),
+            Err(JournalError::InvalidAuthorization)
+        );
+        journal.authorize_durable(&api_authorization(50, 60, 2), 150, &path).unwrap();
+        assert_eq!(ApiAuthorizationJournalV1::load(&path).unwrap(), journal);
+        assert_eq!(journal.states()[0].next_sequence(), 3);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn api_authorization_journal_is_ordered_and_corruption_fails_closed() {
+        let path = path("api-auth-corrupt");
+        let _ = std::fs::remove_file(&path);
+        let mut journal = ApiAuthorizationJournalV1::default();
+        journal.authorize(&api_authorization(60, 61, 1), 150).unwrap();
+        journal.authorize(&api_authorization(50, 60, 1), 150).unwrap();
+        assert!(journal.states()[0].caller() < journal.states()[1].caller());
+        journal.save_atomic(&path).unwrap();
+        let mut bytes = std::fs::read(&path).unwrap();
+        bytes[8] ^= 1;
+        std::fs::write(&path, bytes).unwrap();
+        assert_eq!(ApiAuthorizationJournalV1::load(&path), Err(JournalError::Persistence));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn failed_api_authorization_persistence_does_not_advance_memory() {
+        let directory = path("api-auth-directory");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let mut journal = ApiAuthorizationJournalV1::default();
+        assert_eq!(
+            journal.authorize_durable(&api_authorization(50, 60, 1), 150, &directory),
+            Err(JournalError::Persistence)
+        );
+        assert!(journal.states().is_empty());
         std::fs::remove_dir_all(directory).unwrap();
     }
 }

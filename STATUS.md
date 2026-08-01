@@ -1013,6 +1013,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
   survives restart and failed or corrupt storage cannot advance in-memory state.
 - [x] Bind authenticated API calls to exact caller, audience, operation, request, idempotency,
   optional intent, sequence, validity, and authenticator commitments with replay-safe client state.
+- [x] Persist authenticated API replay state atomically per caller and audience before request
+  acknowledgement, rejecting corrupt snapshots without advancing memory.
 
 ## Active EUDI/TLSNotary/ZK qualification
 
