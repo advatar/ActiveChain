@@ -9,9 +9,9 @@ use activechain_agent_interfaces::{
 };
 use activechain_proposal_gateway::{ActionIntentV1, ActionKindV1};
 use activechain_protocol_types::{
-    FungibleAssetPolicyV1, FungibleIssuerApprovalV1, FungibleIssuerOperation,
-    NonFungibleIssuerApprovalV1, NonFungibleMintManifestV1, NonFungibleSeriesV1,
-    NonFungibleTokenRegistryV1,
+    FungibleAssetPolicyV1, FungibleControllerRotationV1, FungibleControllerStateV1,
+    FungibleIssuerApprovalV1, FungibleIssuerOperation, NonFungibleIssuerApprovalV1,
+    NonFungibleMintManifestV1, NonFungibleSeriesV1, NonFungibleTokenRegistryV1,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -240,6 +240,62 @@ impl NftIssuerOperationFacts {
             ),
             effective_height: approval.effective_height(),
             expires_height: approval.expires_height(),
+        })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ControllerRotationFacts {
+    pub approval_commitment: String,
+    pub asset: String,
+    pub issuer: String,
+    pub current_authority: String,
+    pub replacement_authority: String,
+    pub policy_before: String,
+    pub policy_after: String,
+    pub controller_before: String,
+    pub controller_after: String,
+    pub revision_before: u64,
+    pub revision_after: u64,
+    pub effective_height: u64,
+    pub expires_height: u64,
+}
+
+impl ControllerRotationFacts {
+    pub fn from_approved_rotation(
+        policy: &FungibleAssetPolicyV1,
+        state: &FungibleControllerStateV1,
+        rotation: &FungibleControllerRotationV1,
+        finalized_height: u64,
+    ) -> Result<Self, RenderError> {
+        let (next_policy, next_state) = state
+            .apply_rotation(policy, rotation, finalized_height)
+            .map_err(|_| RenderError::InvalidCanonicalFacts)?;
+        Ok(Self {
+            approval_commitment: lower_hex(rotation.approval_commitment().as_bytes()),
+            asset: lower_hex(rotation.asset_id().digest().as_bytes()),
+            issuer: lower_hex(rotation.issuer().digest().as_bytes()),
+            current_authority: lower_hex(rotation.current_authority_set().as_bytes()),
+            replacement_authority: lower_hex(rotation.replacement_authority_set().as_bytes()),
+            policy_before: lower_hex(
+                policy.commitment().map_err(|_| RenderError::InvalidCanonicalFacts)?.as_bytes(),
+            ),
+            policy_after: lower_hex(
+                next_policy
+                    .commitment()
+                    .map_err(|_| RenderError::InvalidCanonicalFacts)?
+                    .as_bytes(),
+            ),
+            controller_before: lower_hex(
+                state.commitment().map_err(|_| RenderError::InvalidCanonicalFacts)?.as_bytes(),
+            ),
+            controller_after: lower_hex(
+                next_state.commitment().map_err(|_| RenderError::InvalidCanonicalFacts)?.as_bytes(),
+            ),
+            revision_before: rotation.expected_revision(),
+            revision_after: next_state.revision(),
+            effective_height: rotation.effective_height(),
+            expires_height: rotation.expires_height(),
         })
     }
 }
@@ -562,6 +618,52 @@ pub fn render_nft_issuer_operation(
             ("Series after".into(), facts.series_after.clone()),
             ("Registry before".into(), facts.registry_before.clone()),
             ("Registry after".into(), facts.registry_after.clone()),
+            ("Effective height".into(), facts.effective_height.to_string()),
+            ("Expiry height".into(), facts.expires_height.to_string()),
+        ],
+        Some(explanation),
+        true,
+    )
+}
+
+pub fn render_controller_rotation(
+    facts: &ControllerRotationFacts,
+    explanation: &str,
+) -> Result<RenderedApproval, RenderError> {
+    for digest in [
+        &facts.approval_commitment,
+        &facts.asset,
+        &facts.issuer,
+        &facts.current_authority,
+        &facts.replacement_authority,
+        &facts.policy_before,
+        &facts.policy_after,
+        &facts.controller_before,
+        &facts.controller_after,
+    ] {
+        require_digest_text(digest)?;
+    }
+    if facts.current_authority == facts.replacement_authority
+        || facts.revision_before.checked_add(1) != Some(facts.revision_after)
+        || facts.effective_height >= facts.expires_height
+    {
+        return Err(RenderError::InvalidCanonicalFacts);
+    }
+    render_fact_surface(
+        "activechain.controller_rotation.v1",
+        "Review controller rotation",
+        &facts.approval_commitment,
+        &[
+            ("Asset ID".into(), facts.asset.clone()),
+            ("Issuer".into(), facts.issuer.clone()),
+            ("Current authority".into(), facts.current_authority.clone()),
+            ("Replacement authority".into(), facts.replacement_authority.clone()),
+            ("Policy before".into(), facts.policy_before.clone()),
+            ("Policy after".into(), facts.policy_after.clone()),
+            ("Controller state before".into(), facts.controller_before.clone()),
+            ("Controller state after".into(), facts.controller_after.clone()),
+            ("Revision before".into(), facts.revision_before.to_string()),
+            ("Revision after".into(), facts.revision_after.to_string()),
             ("Effective height".into(), facts.effective_height.to_string()),
             ("Expiry height".into(), facts.expires_height.to_string()),
         ],
@@ -1275,6 +1377,81 @@ mod tests {
                 &manifest,
                 15,
             ),
+            Err(RenderError::InvalidCanonicalFacts)
+        );
+    }
+
+    #[test]
+    fn controller_rotation_review_is_derived_from_exact_transition() {
+        let policy = issuer_policy();
+        let state = FungibleControllerStateV1::from_policy(&policy, 7).unwrap();
+        let rotation = FungibleControllerRotationV1::new(
+            policy.asset_id(),
+            policy.issuer(),
+            state.commitment().unwrap(),
+            policy.authority_set(),
+            Digest384::new([85; 48]),
+            Digest384::new([86; 48]),
+            state.revision(),
+            10,
+            20,
+        )
+        .unwrap();
+        let facts = ControllerRotationFacts::from_approved_rotation(&policy, &state, &rotation, 15)
+            .unwrap();
+        assert_eq!(facts.revision_before, 7);
+        assert_eq!(facts.revision_after, 8);
+        assert_eq!(facts.replacement_authority, "55".repeat(48));
+        let rendered = render_controller_rotation(&facts, "Rotate the issuer quorum").unwrap();
+        let surface = rendered.surface.unwrap();
+        assert_eq!(surface.surface_id, "activechain.controller_rotation.v1");
+        assert_eq!(surface.intent_commitment, "56".repeat(48));
+    }
+
+    #[test]
+    fn controller_rotation_review_rejects_stale_replay_and_changed_policy() {
+        let policy = issuer_policy();
+        let state = FungibleControllerStateV1::from_policy(&policy, 7).unwrap();
+        let rotation = FungibleControllerRotationV1::new(
+            policy.asset_id(),
+            policy.issuer(),
+            state.commitment().unwrap(),
+            policy.authority_set(),
+            Digest384::new([85; 48]),
+            Digest384::new([86; 48]),
+            state.revision(),
+            10,
+            20,
+        )
+        .unwrap();
+        assert_eq!(
+            ControllerRotationFacts::from_approved_rotation(&policy, &state, &rotation, 20),
+            Err(RenderError::InvalidCanonicalFacts)
+        );
+        let (next_policy, next_state) = state.apply_rotation(&policy, &rotation, 15).unwrap();
+        assert_eq!(
+            ControllerRotationFacts::from_approved_rotation(
+                &next_policy,
+                &next_state,
+                &rotation,
+                15,
+            ),
+            Err(RenderError::InvalidCanonicalFacts)
+        );
+        let changed = FungibleAssetPolicyV1::new(
+            policy.asset_id(),
+            policy.issuer(),
+            Digest384::ZERO,
+            Digest384::ZERO,
+            Digest384::ZERO,
+            policy.authority_set(),
+            policy.supply_cap(),
+            99,
+            policy.lifecycle(),
+        )
+        .unwrap();
+        assert_eq!(
+            ControllerRotationFacts::from_approved_rotation(&changed, &state, &rotation, 15),
             Err(RenderError::InvalidCanonicalFacts)
         );
     }
