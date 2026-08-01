@@ -11,6 +11,7 @@ use sha3::{
 
 pub const MAX_ASSET_SYMBOL_LENGTH: usize = 12;
 pub const MAX_FUNGIBLE_ASSETS: usize = 1024;
+pub const MAX_CORPORATE_ACTIONS: usize = 4096;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AssetDefinitionError {
@@ -1097,6 +1098,15 @@ impl FungibleCorporateActionV1 {
     pub const fn kind(self) -> FungibleCorporateActionKind {
         self.kind
     }
+    pub const fn policy_commitment(self) -> Digest384 {
+        self.policy_commitment
+    }
+    pub const fn authority_set(self) -> Digest384 {
+        self.authority_set
+    }
+    pub const fn active_at(self, height: u64) -> bool {
+        height >= self.effective_height && height < self.expires_height
+    }
     pub fn action_id(&self) -> Result<Digest384, EncodeError> {
         let bytes = activechain_canonical_codec::encode_envelope(self)?;
         let mut hasher = Shake256::default();
@@ -1146,6 +1156,80 @@ impl CanonicalDecode for FungibleCorporateActionV1 {
     }
 }
 impl CanonicalType for FungibleCorporateActionV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
+/// Durable exact-once replay barrier for finalized corporate actions.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct FungibleCorporateActionRegistryV1(Vec<Digest384>);
+impl FungibleCorporateActionRegistryV1 {
+    pub const TYPE_TAG: u16 = 0x015B;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 2 + MAX_CORPORATE_ACTIONS * 48;
+
+    pub fn new(action_ids: Vec<Digest384>) -> Result<Self, AssetDefinitionError> {
+        if action_ids.len() > MAX_CORPORATE_ACTIONS
+            || action_ids.iter().any(|id| *id == Digest384::ZERO)
+            || action_ids.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err(AssetDefinitionError::InvalidLifecycleTransition);
+        }
+        Ok(Self(action_ids))
+    }
+    pub fn action_ids(&self) -> &[Digest384] {
+        &self.0
+    }
+    pub fn admit(
+        &mut self,
+        action: &FungibleCorporateActionV1,
+        asset_id: AssetId,
+        policy_commitment: Digest384,
+        authority_set: Digest384,
+        finalized_height: u64,
+    ) -> Result<Digest384, AssetDefinitionError> {
+        if action.asset_id() != asset_id
+            || action.policy_commitment() != policy_commitment
+            || action.authority_set() != authority_set
+            || !action.active_at(finalized_height)
+        {
+            return Err(AssetDefinitionError::InvalidLifecycleTransition);
+        }
+        let action_id =
+            action.action_id().map_err(|_| AssetDefinitionError::InvalidLifecycleTransition)?;
+        match self.0.binary_search(&action_id) {
+            Ok(_) => Err(AssetDefinitionError::InvalidLifecycleTransition),
+            Err(_) if self.0.len() == MAX_CORPORATE_ACTIONS => {
+                Err(AssetDefinitionError::TooManyAssets)
+            }
+            Err(index) => {
+                self.0.insert(index, action_id);
+                Ok(action_id)
+            }
+        }
+    }
+}
+impl CanonicalEncode for FungibleCorporateActionRegistryV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        e.write_length(self.0.len(), MAX_CORPORATE_ACTIONS)?;
+        for id in &self.0 {
+            id.encode(e)?;
+        }
+        Ok(())
+    }
+}
+impl CanonicalDecode for FungibleCorporateActionRegistryV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let length = d.read_length(MAX_CORPORATE_ACTIONS)?;
+        let mut ids = Vec::with_capacity(length);
+        for _ in 0..length {
+            ids.push(Digest384::decode(d)?);
+        }
+        Self::new(ids).map_err(|_| DecodeError::InvalidValue("invalid corporate action registry"))
+    }
+}
+impl CanonicalType for FungibleCorporateActionRegistryV1 {
     const TYPE_TAG: u16 = Self::TYPE_TAG;
     const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
@@ -1962,5 +2046,51 @@ mod tests {
             1,
         );
         assert!(invalid_window.is_err());
+    }
+
+    #[test]
+    fn corporate_action_registry_is_exact_once_policy_bound_and_canonical() {
+        let action = FungibleCorporateActionV1::new(
+            id(1),
+            PrincipalId::new(Digest384::new([2; 48])),
+            Digest384::new([3; 48]),
+            Digest384::new([4; 48]),
+            Digest384::new([5; 48]),
+            Digest384::new([6; 48]),
+            FungibleCorporateActionKind::Coupon,
+            10,
+            20,
+            30,
+            25,
+            1,
+            1,
+        )
+        .unwrap();
+        let mut registry = FungibleCorporateActionRegistryV1::default();
+        let action_id = registry
+            .admit(&action, id(1), Digest384::new([3; 48]), Digest384::new([4; 48]), 20)
+            .unwrap();
+        assert_eq!(registry.action_ids(), &[action_id]);
+        assert!(
+            registry
+                .admit(&action, id(1), Digest384::new([3; 48]), Digest384::new([4; 48]), 20)
+                .is_err()
+        );
+        assert!(
+            FungibleCorporateActionRegistryV1::default()
+                .admit(&action, id(1), Digest384::new([99; 48]), Digest384::new([4; 48]), 20)
+                .is_err()
+        );
+        assert!(
+            FungibleCorporateActionRegistryV1::default()
+                .admit(&action, id(1), Digest384::new([3; 48]), Digest384::new([4; 48]), 30)
+                .is_err()
+        );
+        assert_eq!(
+            decode_envelope::<FungibleCorporateActionRegistryV1>(
+                &encode_envelope(&registry).unwrap()
+            ),
+            Ok(registry)
+        );
     }
 }

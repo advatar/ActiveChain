@@ -221,3 +221,4 @@
 0x0158	1	ExternalCredentialStatusRegistryV1	crates/protocol-types/src/external_status.rs
 0x0159	1	FungibleCorporateActionV1	crates/protocol-types/src/asset.rs
 0x015A	1	ProofOfFundsPredicateV1	crates/protocol-types/src/credential.rs
+0x015B	1	FungibleCorporateActionRegistryV1	crates/protocol-types/src/asset.rs
