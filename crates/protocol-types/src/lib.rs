@@ -19,6 +19,7 @@ mod consensus_state;
 mod credential;
 mod crypto;
 mod did;
+mod external_identity;
 mod migration;
 mod object;
 mod package;
@@ -94,6 +95,11 @@ pub use crypto::{
 pub use did::{
     DidControllerOperationV1, DidControllerRecordV1, DidOperationKind, DidRecordError,
     DidResolutionV1, derive_activechain_did,
+};
+pub use external_identity::{
+    ExternalIssuerBindingError, ExternalIssuerBindingStatusV1, ExternalIssuerBindingV1,
+    ExternalIssuerProfileV1, ExternalIssuerRegistryV1, MAX_EXTERNAL_ISSUER_BINDINGS,
+    MAX_EXTERNAL_ISSUER_PROFILES,
 };
 pub use migration::{CryptoMigrationError, CryptoMigrationWindow};
 pub use object::{

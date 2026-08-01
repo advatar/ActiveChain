@@ -213,3 +213,5 @@
 0x0150	1	ComplianceReplayWitness	crates/protocol-types/src/compliance.rs
 0x0151	1	OperatorFaucetAuthorizationV1	crates/wallet-core/src/cash_authorization.rs
 0x0152	1	VcIssuerPresentationV1	crates/protocol-types/src/credential.rs
+0x0153	1	ExternalIssuerBindingV1	crates/protocol-types/src/external_identity.rs
+0x0154	1	ExternalIssuerRegistryV1	crates/protocol-types/src/external_identity.rs
