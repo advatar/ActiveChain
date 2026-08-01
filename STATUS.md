@@ -1137,6 +1137,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   inverted-window rejection.
 - [x] Extend the issuer CLI with strict canonical asset-definition and pause/resume/retire
   lifecycle-action generation.
+- [x] Extend the issuer CLI with deterministic NFT series, exact mint-manifest, threshold-approval,
+  and replay-protected offline dry-run workflows.
 - [x] Extend the issuer CLI with canonical distribution, split/consolidation, coupon, maturity,
   record-date vote, and redemption-offer generation.
 - [x] Publish deterministic issuer-registration vectors for activation boundaries and malformed

@@ -494,6 +494,9 @@ impl NonFungibleMintManifestV1 {
         hasher.finalize_xof().read(&mut digest);
         Ok(Digest384::new(digest))
     }
+    pub fn item_count(&self) -> usize {
+        self.items.len()
+    }
 }
 impl CanonicalEncode for NonFungibleMintManifestV1 {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
