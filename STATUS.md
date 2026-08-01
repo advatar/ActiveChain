@@ -652,6 +652,8 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
   ledger instead of synthesizing an empty Coin Cell set.
 - [ ] Make a fresh Kanalen reset provision the genesis cash state consumed by that execution path,
   then prove the first and restarted rounds publish matching cash/finality artifacts.
+  - [x] Rehearse first and restarted round publication from the exact reset-provisioned cash ledger,
+    retaining authoritative state while regenerating only derived publication artifacts.
 - [x] Provision a canonical chain-bound cash ledger during reset from an explicit operator treasury
   principal and validated supply/reserve parameters.
 - [x] Make the Kanalen proposer certify the exact finalized cash root and emit the verifier-ready
