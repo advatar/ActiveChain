@@ -59,6 +59,7 @@ payment_identifier!(PaymentAttemptId, "One provider attempt under a payment inte
 payment_identifier!(ConnectorId, "An operator-registered connector identifier.");
 payment_identifier!(RailId, "An operator-registered collection or payout rail.");
 payment_identifier!(TreasuryId, "A native merchant treasury object identifier.");
+payment_identifier!(PaymentRefundId, "One exact refund request under a finalized payment.");
 
 /// A validation failure for a canonical payment value or lifecycle transition.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -943,6 +944,236 @@ impl CanonicalType for PaymentLifecycleRecordV1 {
     const MAX_ENCODED_LEN: usize = 264;
 }
 
+/// One bounded refund request against an exact finalized payment settlement.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PaymentRefundRequestV1 {
+    refund: PaymentRefundId,
+    intent: PaymentIntentId,
+    requester: PrincipalId,
+    settlement_commitment: Digest384,
+    amount: AssetAmountV1,
+    reason_commitment: Digest384,
+    idempotency_commitment: Digest384,
+    sequence: u64,
+    expected_refunded_units: u128,
+    requested_at: u64,
+    expires_at: u64,
+}
+
+impl PaymentRefundRequestV1 {
+    pub const TYPE_TAG: u16 = 0x0162;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        refund: PaymentRefundId,
+        intent: PaymentIntentId,
+        requester: PrincipalId,
+        settlement_commitment: Digest384,
+        amount: AssetAmountV1,
+        reason_commitment: Digest384,
+        idempotency_commitment: Digest384,
+        sequence: u64,
+        expected_refunded_units: u128,
+        requested_at: u64,
+        expires_at: u64,
+    ) -> Result<Self, PaymentValidationError> {
+        if requester.digest() == &Digest384::ZERO
+            || settlement_commitment == Digest384::ZERO
+            || reason_commitment == Digest384::ZERO
+            || idempotency_commitment == Digest384::ZERO
+            || sequence == 0
+        {
+            return Err(PaymentValidationError::InvalidBinding);
+        }
+        if requested_at == 0 || requested_at >= expires_at {
+            return Err(PaymentValidationError::InvalidValidity);
+        }
+        Ok(Self {
+            refund,
+            intent,
+            requester,
+            settlement_commitment,
+            amount,
+            reason_commitment,
+            idempotency_commitment,
+            sequence,
+            expected_refunded_units,
+            requested_at,
+            expires_at,
+        })
+    }
+
+    pub const fn refund(&self) -> PaymentRefundId {
+        self.refund
+    }
+
+    pub const fn amount(&self) -> AssetAmountV1 {
+        self.amount
+    }
+
+    pub const fn active_at(&self, timestamp: u64) -> bool {
+        timestamp >= self.requested_at && timestamp < self.expires_at
+    }
+}
+
+impl CanonicalEncode for PaymentRefundRequestV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.refund.encode(encoder)?;
+        self.intent.encode(encoder)?;
+        self.requester.encode(encoder)?;
+        self.settlement_commitment.encode(encoder)?;
+        self.amount.encode(encoder)?;
+        self.reason_commitment.encode(encoder)?;
+        self.idempotency_commitment.encode(encoder)?;
+        self.sequence.encode(encoder)?;
+        self.expected_refunded_units.encode(encoder)?;
+        self.requested_at.encode(encoder)?;
+        self.expires_at.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for PaymentRefundRequestV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            PaymentRefundId::decode(decoder)?,
+            PaymentIntentId::decode(decoder)?,
+            PrincipalId::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            AssetAmountV1::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            u64::decode(decoder)?,
+            u128::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid payment refund request"))
+    }
+}
+
+impl CanonicalType for PaymentRefundRequestV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = PAYMENT_SCHEMA_REVISION;
+    const MAX_ENCODED_LEN: usize = 392;
+}
+
+/// Monotonic cumulative refund accounting for one finalized settlement.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PaymentRefundStateV1 {
+    intent: PaymentIntentId,
+    settlement_commitment: Digest384,
+    settled_amount: AssetAmountV1,
+    refunded_units: u128,
+    next_sequence: u64,
+    last_refund: Option<PaymentRefundId>,
+}
+
+impl PaymentRefundStateV1 {
+    pub const TYPE_TAG: u16 = 0x0163;
+
+    pub fn new(
+        intent: PaymentIntentId,
+        settlement_commitment: Digest384,
+        settled_amount: AssetAmountV1,
+    ) -> Result<Self, PaymentValidationError> {
+        if settlement_commitment == Digest384::ZERO {
+            return Err(PaymentValidationError::InvalidBinding);
+        }
+        Ok(Self {
+            intent,
+            settlement_commitment,
+            settled_amount,
+            refunded_units: 0,
+            next_sequence: 1,
+            last_refund: None,
+        })
+    }
+
+    pub const fn refunded_units(&self) -> u128 {
+        self.refunded_units
+    }
+
+    pub const fn next_sequence(&self) -> u64 {
+        self.next_sequence
+    }
+
+    pub fn apply(
+        &self,
+        request: &PaymentRefundRequestV1,
+        timestamp: u64,
+    ) -> Result<Self, PaymentValidationError> {
+        if request.intent != self.intent
+            || request.settlement_commitment != self.settlement_commitment
+            || request.amount.asset() != self.settled_amount.asset()
+            || request.sequence != self.next_sequence
+            || request.expected_refunded_units != self.refunded_units
+            || !request.active_at(timestamp)
+        {
+            return Err(PaymentValidationError::InvalidBinding);
+        }
+        let refunded_units = self
+            .refunded_units
+            .checked_add(request.amount.atomic_units())
+            .ok_or(PaymentValidationError::InvalidAmountBound)?;
+        if refunded_units > self.settled_amount.atomic_units() {
+            return Err(PaymentValidationError::InvalidAmountBound);
+        }
+        let next_sequence =
+            self.next_sequence.checked_add(1).ok_or(PaymentValidationError::InvalidSequence)?;
+        Ok(Self {
+            refunded_units,
+            next_sequence,
+            last_refund: Some(request.refund),
+            ..self.clone()
+        })
+    }
+}
+
+impl CanonicalEncode for PaymentRefundStateV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.intent.encode(encoder)?;
+        self.settlement_commitment.encode(encoder)?;
+        self.settled_amount.encode(encoder)?;
+        self.refunded_units.encode(encoder)?;
+        self.next_sequence.encode(encoder)?;
+        self.last_refund.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for PaymentRefundStateV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let intent = PaymentIntentId::decode(decoder)?;
+        let settlement_commitment = Digest384::decode(decoder)?;
+        let settled_amount = AssetAmountV1::decode(decoder)?;
+        let refunded_units = u128::decode(decoder)?;
+        let next_sequence = u64::decode(decoder)?;
+        let last_refund = Option::<PaymentRefundId>::decode(decoder)?;
+        if settlement_commitment == Digest384::ZERO
+            || refunded_units > settled_amount.atomic_units()
+            || next_sequence == 0
+            || (refunded_units == 0) != last_refund.is_none()
+            || (last_refund.is_none() && next_sequence != 1)
+            || (last_refund.is_some() && next_sequence < 2)
+        {
+            return Err(DecodeError::InvalidValue("invalid payment refund state"));
+        }
+        Ok(Self {
+            intent,
+            settlement_commitment,
+            settled_amount,
+            refunded_units,
+            next_sequence,
+            last_refund,
+        })
+    }
+}
+
+impl CanonicalType for PaymentRefundStateV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = PAYMENT_SCHEMA_REVISION;
+    const MAX_ENCODED_LEN: usize = 233;
+}
+
 /// Durable binding from a caller's idempotency key to one exact request and operation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IdempotencyBindingV1 {
@@ -1348,6 +1579,74 @@ mod tests {
             EvidenceClass::decode(&mut decoder),
             Err(DecodeError::InvalidEnumTag { type_name: "EvidenceClass", tag: 99 })
         ));
+    }
+
+    fn refund_request(
+        state: &PaymentRefundStateV1,
+        refund_byte: u8,
+        units: u128,
+    ) -> PaymentRefundRequestV1 {
+        PaymentRefundRequestV1::new(
+            PaymentRefundId::new(digest(refund_byte)).unwrap(),
+            intent_id(),
+            principal(2),
+            digest(40),
+            amount(12, units),
+            digest(41),
+            digest(42 + refund_byte),
+            state.next_sequence(),
+            state.refunded_units(),
+            100,
+            200,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn partial_refunds_are_cumulative_bounded_and_canonical() {
+        let state = PaymentRefundStateV1::new(intent_id(), digest(40), amount(12, 100)).unwrap();
+        let first = refund_request(&state, 50, 30);
+        assert_eq!(
+            decode_envelope::<PaymentRefundRequestV1>(&encode_envelope(&first).unwrap()),
+            Ok(first.clone())
+        );
+        let state = state.apply(&first, 150).unwrap();
+        assert_eq!(state.refunded_units(), 30);
+        assert_eq!(state.next_sequence(), 2);
+        let second = refund_request(&state, 51, 70);
+        let state = state.apply(&second, 150).unwrap();
+        assert_eq!(state.refunded_units(), 100);
+        assert_eq!(
+            decode_envelope::<PaymentRefundStateV1>(&encode_envelope(&state).unwrap()),
+            Ok(state)
+        );
+    }
+
+    #[test]
+    fn refunds_reject_replay_overrun_expiry_and_asset_substitution() {
+        let state = PaymentRefundStateV1::new(intent_id(), digest(40), amount(12, 100)).unwrap();
+        let first = refund_request(&state, 50, 60);
+        let advanced = state.apply(&first, 150).unwrap();
+        assert_eq!(advanced.apply(&first, 150), Err(PaymentValidationError::InvalidBinding));
+        let overrun = refund_request(&advanced, 51, 41);
+        assert_eq!(advanced.apply(&overrun, 150), Err(PaymentValidationError::InvalidAmountBound));
+        let expired = refund_request(&advanced, 52, 40);
+        assert_eq!(advanced.apply(&expired, 200), Err(PaymentValidationError::InvalidBinding));
+        let wrong_asset = PaymentRefundRequestV1::new(
+            PaymentRefundId::new(digest(53)).unwrap(),
+            intent_id(),
+            principal(2),
+            digest(40),
+            amount(13, 40),
+            digest(41),
+            digest(95),
+            advanced.next_sequence(),
+            advanced.refunded_units(),
+            100,
+            200,
+        )
+        .unwrap();
+        assert_eq!(advanced.apply(&wrong_asset, 150), Err(PaymentValidationError::InvalidBinding));
     }
 
     #[test]
