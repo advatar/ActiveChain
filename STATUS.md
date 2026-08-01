@@ -97,11 +97,13 @@ Tracked by [GitHub issue #391](https://github.com/advatar/ActiveChain/issues/391
   compatibility-sensitive protocol, repository, RPC, and network identifiers for a later phase.
 - [x] Add a regression check for the public brand surface and pass landing-page lint and production
   build verification.
-- [ ] Merge the verified landing-page revision and parent submodule update into `main`.
+- [x] Merge the unit-tested landing-page revision and parent submodule update into `main`.
 
 ## Landing-page information architecture
 
-GitHub issue creation pending restoration of the repository's `gh` authentication.
+Tracked by [GitHub issue #366](https://github.com/advatar/ActiveChain/issues/366), readiness
+cross-reference [#343](https://github.com/advatar/ActiveChain/issues/343), and native-assets
+readability issue [#191](https://github.com/advatar/ActiveChain/issues/191).
 
 - [x] Replace the single long-form landing route with a focused home page and dedicated content
   pages grouped under clear top-level categories and subcategories.
@@ -109,8 +111,9 @@ GitHub issue creation pending restoration of the repository's `gh` authenticatio
   direct links to every page.
 - [x] Preserve the existing visual language and substantive content while improving page-level
   hierarchy, orientation, and cross-page discovery.
-- [ ] Complete visual browser qualification and the final deterministic-kernel gate; merge the
-  parent-repository pointer to `main` and confirm reachability from `origin/main`.
+- [x] Pass the landing unit-test suite, publish the display revision, and merge the
+  parent-repository pointer to `main`; browser, CI, and full-build qualification were explicitly
+  skipped for this integration at operator request.
 
 ## Critical incident — deterministic validator key compromise
 
