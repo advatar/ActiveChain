@@ -12,6 +12,8 @@ mod anchor;
 mod compliance;
 mod compute;
 #[cfg(feature = "std")]
+mod controller_rotation;
+#[cfg(feature = "std")]
 mod corporate_action;
 #[cfg(feature = "std")]
 mod fungible_transfer;
@@ -41,6 +43,10 @@ pub use compute::{
     ComputeBoundaryError, ComputeEscrowV1, FutureComputeVerifier, FutureComputeVerifierLimits,
     MAX_FUTURE_COMPUTE_PROOF_BYTES, MAX_FUTURE_COMPUTE_VERIFIER_UNITS,
     verify_compute_assurance_signature,
+};
+#[cfg(feature = "std")]
+pub use controller_rotation::{
+    ControllerLedgerSnapshotV1, ControllerRotationPersistenceError, DurableControllerLedger,
 };
 #[cfg(feature = "std")]
 pub use corporate_action::{CorporateActionPersistenceError, DurableCorporateActionRegistry};
