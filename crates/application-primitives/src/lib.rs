@@ -15,6 +15,8 @@ mod compute;
 mod corporate_action;
 #[cfg(feature = "std")]
 mod receipt_nullifier;
+#[cfg(feature = "std")]
+mod sponsored_cash;
 
 #[cfg(feature = "std")]
 pub use anchor::DurableAnchorRegistry;
@@ -40,6 +42,10 @@ pub use compute::{
 pub use corporate_action::{CorporateActionPersistenceError, DurableCorporateActionRegistry};
 #[cfg(feature = "std")]
 pub use receipt_nullifier::{CredentialReceiptJournalError, DurableCredentialReceiptJournal};
+#[cfg(feature = "std")]
+pub use sponsored_cash::{
+    DurableSponsoredCash, SponsoredCashPersistenceError, SponsoredCashSnapshotV1,
+};
 
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
