@@ -1297,6 +1297,18 @@ impl DurablePaymentRequestState {
         self.snapshot = next;
         Ok(intent_id)
     }
+
+    pub fn advance_lifecycle(
+        &mut self,
+        next_record: PaymentLifecycleRecordV1,
+    ) -> Result<(), JournalError> {
+        let mut next = self.snapshot.clone();
+        next.lifecycles.advance(next_record)?;
+        let next = PaymentRequestStateV1::new(next.intents, next.idempotency, next.lifecycles)?;
+        next.save_atomic(&self.path)?;
+        self.snapshot = next;
+        Ok(())
+    }
 }
 
 impl PaymentRequestStateV1 {
@@ -2453,5 +2465,42 @@ mod tests {
         std::fs::write(&corrupt, b"not canonical").unwrap();
         assert_eq!(DurablePaymentRequestState::open(&corrupt), Err(JournalError::Persistence));
         std::fs::remove_file(corrupt).unwrap();
+    }
+
+    #[test]
+    fn joined_lifecycle_advance_survives_restart_and_replay_fails_closed() {
+        let path = path("joined-lifecycle-restart");
+        let _ = std::fs::remove_file(&path);
+        let intent = payment_intent(10, 11, 12, 13);
+        let mut durable = DurablePaymentRequestState::open(&path).unwrap();
+        durable.create_intent(intent.clone(), intent_binding(&intent), digest(14), 150).unwrap();
+        let successor = lifecycle_successor(10, 2, PaymentState::AwaitingPayer);
+        durable.advance_lifecycle(successor.clone()).unwrap();
+        assert_eq!(durable.snapshot().lifecycles().records()[0], successor);
+        assert_eq!(DurablePaymentRequestState::open(&path).unwrap().snapshot(), durable.snapshot());
+        let before = durable.snapshot().clone();
+        assert_eq!(durable.advance_lifecycle(successor), Err(JournalError::InvalidLifecycle));
+        assert_eq!(durable.snapshot(), &before);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn failed_joined_lifecycle_write_keeps_the_complete_snapshot() {
+        let directory = path("joined-lifecycle-directory");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("request-state.bin");
+        let intent = payment_intent(10, 11, 12, 13);
+        let mut durable = DurablePaymentRequestState::open(&path).unwrap();
+        durable.create_intent(intent.clone(), intent_binding(&intent), digest(14), 150).unwrap();
+        let before = durable.snapshot().clone();
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        assert_eq!(
+            durable.advance_lifecycle(lifecycle_successor(10, 2, PaymentState::AwaitingPayer,)),
+            Err(JournalError::Persistence)
+        );
+        assert_eq!(durable.snapshot(), &before);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }
