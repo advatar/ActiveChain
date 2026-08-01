@@ -1308,6 +1308,12 @@ impl PaymentApiReplayStateV1 {
     pub const fn next_sequence(&self) -> u64 {
         self.next_sequence
     }
+    pub const fn caller(&self) -> PrincipalId {
+        self.caller
+    }
+    pub const fn audience(&self) -> Digest384 {
+        self.audience
+    }
     pub fn authorize(
         &self,
         authorization: &PaymentApiAuthorizationV1,
