@@ -34,3 +34,14 @@ Application execution uses `DurableCorporateActionRegistry`: it applies the same
 authority checks to a cloned registry, fsyncs and atomically replaces the canonical snapshot, and
 only then advances live memory. Restart restores the exact action identities; replay, corrupt
 storage, and write failure fail closed.
+
+## Declared holder controls
+
+Holder freeze and clawback are absent unless a canonical
+`FungibleExceptionalControlPolicyV1` declares them and its commitment is the immutable asset
+definition `policy_hash`. Each action binds the asset, holder, destination, declared policy,
+authority set, approval and reason commitments, exact amount, expected holder-control revision,
+and half-open execution window. Freeze blocks the ordinary transfer path. Clawback operates on one
+exact Coin Cell and may change only its owner; origin, asset identity, amount, and creation height
+are conserved. These primitives establish protocol mechanics, not the legal authority to exercise
+them.

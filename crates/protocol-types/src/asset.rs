@@ -1452,6 +1452,344 @@ impl CanonicalType for FungibleAssetPolicyRegistry {
     const MAX_ENCODED_LEN: usize = 2 + MAX_FUNGIBLE_ASSETS * FungibleAssetPolicyV1::MAX_ENCODED_LEN;
 }
 
+/// Exceptional holder powers disclosed by the immutable asset definition's policy commitment.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FungibleExceptionalControlPolicyV1 {
+    asset_id: AssetId,
+    issuer: PrincipalId,
+    authority_set: Digest384,
+    holder_freeze_declared: bool,
+    clawback_declared: bool,
+}
+impl FungibleExceptionalControlPolicyV1 {
+    pub const TYPE_TAG: u16 = 0x0174;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 3 + 2;
+    pub fn new(
+        asset_id: AssetId,
+        issuer: PrincipalId,
+        authority_set: Digest384,
+        holder_freeze_declared: bool,
+        clawback_declared: bool,
+    ) -> Result<Self, AssetDefinitionError> {
+        if asset_id.digest() == &Digest384::ZERO
+            || issuer.digest() == &Digest384::ZERO
+            || authority_set == Digest384::ZERO
+        {
+            return Err(AssetDefinitionError::InvalidAssetIdentity);
+        }
+        Ok(Self { asset_id, issuer, authority_set, holder_freeze_declared, clawback_declared })
+    }
+    pub const fn asset_id(self) -> AssetId {
+        self.asset_id
+    }
+    pub const fn issuer(self) -> PrincipalId {
+        self.issuer
+    }
+    pub const fn authority_set(self) -> Digest384 {
+        self.authority_set
+    }
+    pub const fn holder_freeze_declared(self) -> bool {
+        self.holder_freeze_declared
+    }
+    pub const fn clawback_declared(self) -> bool {
+        self.clawback_declared
+    }
+    pub fn commitment(&self) -> Result<Digest384, EncodeError> {
+        let bytes = activechain_canonical_codec::encode_envelope(self)?;
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-FUNGIBLE-EXCEPTIONAL-CONTROL-POLICY-V1");
+        hasher.update(&bytes);
+        let mut output = [0_u8; 48];
+        hasher.finalize_xof().read(&mut output);
+        Ok(Digest384::new(output))
+    }
+    pub fn binds_definition(&self, definition: &FungibleAssetDefinition) -> bool {
+        self.asset_id == definition.asset_id()
+            && self.issuer == definition.issuer()
+            && self.commitment().ok() == Some(definition.policy_hash())
+    }
+}
+impl CanonicalEncode for FungibleExceptionalControlPolicyV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.asset_id.encode(e)?;
+        self.issuer.encode(e)?;
+        self.authority_set.encode(e)?;
+        self.holder_freeze_declared.encode(e)?;
+        self.clawback_declared.encode(e)
+    }
+}
+impl CanonicalDecode for FungibleExceptionalControlPolicyV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            AssetId::decode(d)?,
+            PrincipalId::decode(d)?,
+            Digest384::decode(d)?,
+            bool::decode(d)?,
+            bool::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid exceptional control policy"))
+    }
+}
+impl CanonicalType for FungibleExceptionalControlPolicyV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum FungibleExceptionalControlKind {
+    Freeze = 0,
+    Unfreeze = 1,
+    Clawback = 2,
+}
+impl CanonicalEncode for FungibleExceptionalControlKind {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(e)
+    }
+}
+impl CanonicalDecode for FungibleExceptionalControlKind {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(d)? {
+            0 => Ok(Self::Freeze),
+            1 => Ok(Self::Unfreeze),
+            2 => Ok(Self::Clawback),
+            tag => Err(DecodeError::InvalidEnumTag {
+                type_name: "FungibleExceptionalControlKind",
+                tag,
+            }),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FungibleHolderControlStateV1 {
+    asset_id: AssetId,
+    holder: PrincipalId,
+    revision: u64,
+    frozen: bool,
+}
+impl FungibleHolderControlStateV1 {
+    pub const TYPE_TAG: u16 = 0x0175;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 2 + 8 + 1;
+    pub fn new(asset_id: AssetId, holder: PrincipalId) -> Result<Self, AssetDefinitionError> {
+        if asset_id.digest() == &Digest384::ZERO || holder.digest() == &Digest384::ZERO {
+            return Err(AssetDefinitionError::InvalidAssetIdentity);
+        }
+        Ok(Self { asset_id, holder, revision: 0, frozen: false })
+    }
+    pub const fn asset_id(self) -> AssetId {
+        self.asset_id
+    }
+    pub const fn holder(self) -> PrincipalId {
+        self.holder
+    }
+    pub const fn revision(self) -> u64 {
+        self.revision
+    }
+    pub const fn frozen(self) -> bool {
+        self.frozen
+    }
+    pub fn apply(
+        &self,
+        definition: &FungibleAssetDefinition,
+        policy: &FungibleExceptionalControlPolicyV1,
+        action: &FungibleExceptionalControlActionV1,
+        height: u64,
+    ) -> Result<Self, AssetDefinitionError> {
+        if !policy.binds_definition(definition)
+            || action.asset_id != self.asset_id
+            || action.holder != self.holder
+            || action.control_policy_commitment
+                != policy
+                    .commitment()
+                    .map_err(|_| AssetDefinitionError::InvalidLifecycleTransition)?
+            || action.authority_set != policy.authority_set
+            || action.expected_revision != self.revision
+            || !action.active_at(height)
+        {
+            return Err(AssetDefinitionError::InvalidLifecycleTransition);
+        }
+        let frozen = match action.kind {
+            FungibleExceptionalControlKind::Freeze
+                if policy.holder_freeze_declared && !self.frozen =>
+            {
+                true
+            }
+            FungibleExceptionalControlKind::Unfreeze
+                if policy.holder_freeze_declared && self.frozen =>
+            {
+                false
+            }
+            FungibleExceptionalControlKind::Clawback if policy.clawback_declared => self.frozen,
+            _ => return Err(AssetDefinitionError::InvalidLifecycleTransition),
+        };
+        Ok(Self {
+            revision: self
+                .revision
+                .checked_add(1)
+                .ok_or(AssetDefinitionError::InvalidLifecycleTransition)?,
+            frozen,
+            ..*self
+        })
+    }
+}
+impl CanonicalEncode for FungibleHolderControlStateV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.asset_id.encode(e)?;
+        self.holder.encode(e)?;
+        self.revision.encode(e)?;
+        self.frozen.encode(e)
+    }
+}
+impl CanonicalDecode for FungibleHolderControlStateV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let asset_id = AssetId::decode(d)?;
+        let holder = PrincipalId::decode(d)?;
+        let revision = u64::decode(d)?;
+        let frozen = bool::decode(d)?;
+        if asset_id.digest() == &Digest384::ZERO
+            || holder.digest() == &Digest384::ZERO
+            || (revision == 0 && frozen)
+        {
+            return Err(DecodeError::InvalidValue("invalid holder control state"));
+        }
+        Ok(Self { asset_id, holder, revision, frozen })
+    }
+}
+impl CanonicalType for FungibleHolderControlStateV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FungibleExceptionalControlActionV1 {
+    asset_id: AssetId,
+    holder: PrincipalId,
+    recipient: PrincipalId,
+    control_policy_commitment: Digest384,
+    authority_set: Digest384,
+    approval_commitment: Digest384,
+    reason_commitment: Digest384,
+    kind: FungibleExceptionalControlKind,
+    amount: u128,
+    expected_revision: u64,
+    effective_height: u64,
+    expires_height: u64,
+}
+impl FungibleExceptionalControlActionV1 {
+    pub const TYPE_TAG: u16 = 0x0176;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 7 + 1 + 16 + 8 * 3;
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        asset_id: AssetId,
+        holder: PrincipalId,
+        recipient: PrincipalId,
+        control_policy_commitment: Digest384,
+        authority_set: Digest384,
+        approval_commitment: Digest384,
+        reason_commitment: Digest384,
+        kind: FungibleExceptionalControlKind,
+        amount: u128,
+        expected_revision: u64,
+        effective_height: u64,
+        expires_height: u64,
+    ) -> Result<Self, AssetDefinitionError> {
+        let clawback_shape =
+            kind == FungibleExceptionalControlKind::Clawback && amount > 0 && recipient != holder;
+        let state_shape =
+            kind != FungibleExceptionalControlKind::Clawback && amount == 0 && recipient == holder;
+        if asset_id.digest() == &Digest384::ZERO
+            || holder.digest() == &Digest384::ZERO
+            || recipient.digest() == &Digest384::ZERO
+            || control_policy_commitment == Digest384::ZERO
+            || authority_set == Digest384::ZERO
+            || approval_commitment == Digest384::ZERO
+            || reason_commitment == Digest384::ZERO
+            || effective_height >= expires_height
+            || (!clawback_shape && !state_shape)
+        {
+            return Err(AssetDefinitionError::InvalidLifecycleTransition);
+        }
+        Ok(Self {
+            asset_id,
+            holder,
+            recipient,
+            control_policy_commitment,
+            authority_set,
+            approval_commitment,
+            reason_commitment,
+            kind,
+            amount,
+            expected_revision,
+            effective_height,
+            expires_height,
+        })
+    }
+    pub const fn asset_id(self) -> AssetId {
+        self.asset_id
+    }
+    pub const fn holder(self) -> PrincipalId {
+        self.holder
+    }
+    pub const fn recipient(self) -> PrincipalId {
+        self.recipient
+    }
+    pub const fn kind(self) -> FungibleExceptionalControlKind {
+        self.kind
+    }
+    pub const fn amount(self) -> u128 {
+        self.amount
+    }
+    pub const fn active_at(self, height: u64) -> bool {
+        height >= self.effective_height && height < self.expires_height
+    }
+}
+impl CanonicalEncode for FungibleExceptionalControlActionV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.asset_id.encode(e)?;
+        self.holder.encode(e)?;
+        self.recipient.encode(e)?;
+        self.control_policy_commitment.encode(e)?;
+        self.authority_set.encode(e)?;
+        self.approval_commitment.encode(e)?;
+        self.reason_commitment.encode(e)?;
+        self.kind.encode(e)?;
+        self.amount.encode(e)?;
+        self.expected_revision.encode(e)?;
+        self.effective_height.encode(e)?;
+        self.expires_height.encode(e)
+    }
+}
+impl CanonicalDecode for FungibleExceptionalControlActionV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            AssetId::decode(d)?,
+            PrincipalId::decode(d)?,
+            PrincipalId::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            FungibleExceptionalControlKind::decode(d)?,
+            u128::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid exceptional control action"))
+    }
+}
+impl CanonicalType for FungibleExceptionalControlActionV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum FungibleAssetLifecycleAction {
@@ -3078,5 +3416,102 @@ mod tests {
             ),
             Ok(registry)
         );
+    }
+
+    #[test]
+    fn exceptional_holder_controls_are_declared_revisioned_and_canonical() {
+        let asset = id(1);
+        let issuer = PrincipalId::new(Digest384::new([2; 48]));
+        let authority = Digest384::new([3; 48]);
+        let policy =
+            FungibleExceptionalControlPolicyV1::new(asset, issuer, authority, true, true).unwrap();
+        let definition = FungibleAssetDefinition::new(
+            asset,
+            issuer,
+            b"TEST".to_vec(),
+            2,
+            1_000,
+            policy.commitment().unwrap(),
+        )
+        .unwrap();
+        assert!(policy.binds_definition(&definition));
+        let holder = PrincipalId::new(Digest384::new([4; 48]));
+        let state = FungibleHolderControlStateV1::new(asset, holder).unwrap();
+        let freeze = FungibleExceptionalControlActionV1::new(
+            asset,
+            holder,
+            holder,
+            policy.commitment().unwrap(),
+            authority,
+            Digest384::new([5; 48]),
+            Digest384::new([6; 48]),
+            FungibleExceptionalControlKind::Freeze,
+            0,
+            0,
+            10,
+            20,
+        )
+        .unwrap();
+        let frozen = state.apply(&definition, &policy, &freeze, 10).unwrap();
+        assert!(frozen.frozen());
+        assert_eq!(frozen.revision(), 1);
+        assert!(frozen.apply(&definition, &policy, &freeze, 10).is_err());
+        assert_eq!(
+            decode_envelope::<FungibleExceptionalControlActionV1>(
+                &encode_envelope(&freeze).unwrap()
+            ),
+            Ok(freeze)
+        );
+        assert_eq!(
+            decode_envelope::<FungibleHolderControlStateV1>(&encode_envelope(&frozen).unwrap()),
+            Ok(frozen)
+        );
+    }
+
+    #[test]
+    fn undeclared_or_definition_substituted_controls_fail_closed() {
+        let asset = id(1);
+        let issuer = PrincipalId::new(Digest384::new([2; 48]));
+        let authority = Digest384::new([3; 48]);
+        let policy =
+            FungibleExceptionalControlPolicyV1::new(asset, issuer, authority, false, false)
+                .unwrap();
+        let definition = FungibleAssetDefinition::new(
+            asset,
+            issuer,
+            b"TEST".to_vec(),
+            2,
+            1_000,
+            policy.commitment().unwrap(),
+        )
+        .unwrap();
+        let holder = PrincipalId::new(Digest384::new([4; 48]));
+        let action = FungibleExceptionalControlActionV1::new(
+            asset,
+            holder,
+            PrincipalId::new(Digest384::new([7; 48])),
+            policy.commitment().unwrap(),
+            authority,
+            Digest384::new([5; 48]),
+            Digest384::new([6; 48]),
+            FungibleExceptionalControlKind::Clawback,
+            10,
+            0,
+            10,
+            20,
+        )
+        .unwrap();
+        let state = FungibleHolderControlStateV1::new(asset, holder).unwrap();
+        assert!(state.apply(&definition, &policy, &action, 10).is_err());
+        let substituted = FungibleAssetDefinition::new(
+            asset,
+            issuer,
+            b"TEST".to_vec(),
+            2,
+            1_000,
+            Digest384::new([99; 48]),
+        )
+        .unwrap();
+        assert!(state.apply(&substituted, &policy, &action, 10).is_err());
     }
 }

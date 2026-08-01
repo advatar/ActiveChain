@@ -5,10 +5,12 @@ use activechain_canonical_codec::{
 };
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
-    Amount, AssetId, ChainId, CoinCellId, Digest384, Epoch, FungibleAssetLifecycle,
-    FungibleAssetPolicyV1, FungibleIssuerApprovalV1, FungibleIssuerOperation, Height, PrincipalId,
-    TransactionId, authorized_issuance as compute_authorized_issuance, partition_total,
-    post_supply as compute_post_supply,
+    Amount, AssetId, ChainId, CoinCellId, Digest384, Epoch, FungibleAssetDefinition,
+    FungibleAssetLifecycle, FungibleAssetPolicyV1, FungibleExceptionalControlActionV1,
+    FungibleExceptionalControlKind, FungibleExceptionalControlPolicyV1,
+    FungibleHolderControlStateV1, FungibleIssuerApprovalV1, FungibleIssuerOperation, Height,
+    PrincipalId, TransactionId, authorized_issuance as compute_authorized_issuance,
+    partition_total, post_supply as compute_post_supply,
 };
 use sha3::{
     Shake256,
@@ -531,6 +533,33 @@ impl FungibleCoinCell {
     pub const fn creation_height(self) -> Height {
         self.creation_height
     }
+    pub fn apply_declared_clawback(
+        self,
+        definition: &FungibleAssetDefinition,
+        policy: &FungibleExceptionalControlPolicyV1,
+        state: &FungibleHolderControlStateV1,
+        action: &FungibleExceptionalControlActionV1,
+        height: Height,
+    ) -> Result<(Self, FungibleHolderControlStateV1), NativeMoneyError> {
+        if action.kind() != FungibleExceptionalControlKind::Clawback
+            || self.asset_id != state.asset_id()
+            || self.owner != state.holder()
+            || action.amount() != self.amount
+        {
+            return Err(NativeMoneyError::InvalidInputs);
+        }
+        let next_state = state
+            .apply(definition, policy, action, height)
+            .map_err(|_| NativeMoneyError::MintAuthorityMismatch)?;
+        let next = Self::new(
+            self.origin,
+            self.asset_id,
+            action.recipient(),
+            self.amount,
+            self.creation_height,
+        )?;
+        Ok((next, next_state))
+    }
 }
 
 /// Asset-bound Coin Cell record. Native `CoinCellRecord` remains unchanged for wire compatibility.
@@ -916,6 +945,15 @@ impl FungibleTransferV1 {
             || self.amount > policy.supply_issued()
             || policy.lifecycle() != FungibleAssetLifecycle::Registered
         {
+            return Err(NativeMoneyError::InvalidInputs);
+        }
+        Ok(())
+    }
+    pub fn validate_against_holder_control(
+        &self,
+        state: &FungibleHolderControlStateV1,
+    ) -> Result<(), NativeMoneyError> {
+        if state.asset_id() != self.asset_id || state.holder() != self.sender || state.frozen() {
             return Err(NativeMoneyError::InvalidInputs);
         }
         Ok(())
@@ -1569,6 +1607,110 @@ mod fungible_cell_tests {
         )
         .unwrap();
         assert!(!wrong_amount.binds_redemption(&redemption));
+    }
+
+    fn declared_controls() -> (
+        FungibleAssetDefinition,
+        FungibleExceptionalControlPolicyV1,
+        FungibleHolderControlStateV1,
+        FungibleCoinCell,
+    ) {
+        let asset = AssetId::new(Digest384::new([2; 48]));
+        let issuer = PrincipalId::new(Digest384::new([3; 48]));
+        let holder = PrincipalId::new(Digest384::new([4; 48]));
+        let policy = FungibleExceptionalControlPolicyV1::new(
+            asset,
+            issuer,
+            Digest384::new([5; 48]),
+            true,
+            true,
+        )
+        .unwrap();
+        let definition = FungibleAssetDefinition::new(
+            asset,
+            issuer,
+            b"TEST".to_vec(),
+            2,
+            1_000,
+            policy.commitment().unwrap(),
+        )
+        .unwrap();
+        let state = FungibleHolderControlStateV1::new(asset, holder).unwrap();
+        let cell = FungibleCoinCell::new(
+            CoinCellOrigin::new(TransactionId::new(Digest384::new([1; 48])), 0),
+            asset,
+            holder,
+            42,
+            7,
+        )
+        .unwrap();
+        (definition, policy, state, cell)
+    }
+
+    #[test]
+    fn declared_clawback_changes_only_owner_and_control_revision() {
+        let (definition, policy, state, cell) = declared_controls();
+        let recipient = PrincipalId::new(Digest384::new([6; 48]));
+        let action = FungibleExceptionalControlActionV1::new(
+            cell.asset_id(),
+            cell.owner(),
+            recipient,
+            policy.commitment().unwrap(),
+            policy.authority_set(),
+            Digest384::new([7; 48]),
+            Digest384::new([8; 48]),
+            FungibleExceptionalControlKind::Clawback,
+            cell.amount(),
+            0,
+            10,
+            20,
+        )
+        .unwrap();
+        let (next, next_state) =
+            cell.apply_declared_clawback(&definition, &policy, &state, &action, 10).unwrap();
+        assert_eq!(next.owner(), recipient);
+        assert_eq!(next.origin(), cell.origin());
+        assert_eq!(next.asset_id(), cell.asset_id());
+        assert_eq!(next.amount(), cell.amount());
+        assert_eq!(next.creation_height(), cell.creation_height());
+        assert_eq!(next_state.revision(), 1);
+        assert!(
+            cell.apply_declared_clawback(&definition, &policy, &next_state, &action, 10).is_err()
+        );
+    }
+
+    #[test]
+    fn frozen_holder_cannot_use_normal_transfer_path() {
+        let (definition, policy, state, cell) = declared_controls();
+        let freeze = FungibleExceptionalControlActionV1::new(
+            cell.asset_id(),
+            cell.owner(),
+            cell.owner(),
+            policy.commitment().unwrap(),
+            policy.authority_set(),
+            Digest384::new([7; 48]),
+            Digest384::new([8; 48]),
+            FungibleExceptionalControlKind::Freeze,
+            0,
+            0,
+            10,
+            20,
+        )
+        .unwrap();
+        let frozen = state.apply(&definition, &policy, &freeze, 10).unwrap();
+        let transfer = FungibleTransferV1::new(
+            cell.asset_id(),
+            cell.owner(),
+            PrincipalId::new(Digest384::new([9; 48])),
+            vec![cell],
+            cell.amount(),
+        )
+        .unwrap();
+        assert_eq!(
+            transfer.validate_against_holder_control(&frozen),
+            Err(NativeMoneyError::InvalidInputs)
+        );
+        assert!(transfer.validate_against_holder_control(&state).is_ok());
     }
 }
 

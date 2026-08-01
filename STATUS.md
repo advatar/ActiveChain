@@ -1165,6 +1165,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   replay protection fail-closed across restart or corrupt storage.
 - [x] Prove the production corporate-action admission predicate requires the exact asset, policy,
   authority set, and half-open finalized execution window.
+- [x] Declare holder freeze and clawback powers immutably at asset creation, then enforce exact,
+  revisioned, authority-approved exceptional controls without changing Coin Cell value or identity.
 - [x] Publish deterministic issuer-registration vectors for activation boundaries and malformed
   authority/policy bindings.
 - [x] Keep the workspace lockfile synchronized with the canonical payment-types cryptographic
