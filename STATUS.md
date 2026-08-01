@@ -1017,6 +1017,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
     validated successor, retaining external-versus-finalized evidence semantics on restart.
 - [x] Add canonical treasury debit policy and exact-once payout/conversion/refund/fee/settlement
   authorization with operator, asset, ceiling, period-budget, nonce, and expiry controls.
+  - [x] Persist a bounded per-treasury policy journal atomically across registration and every
+    authorized debit, preserving exact budget and nonce successors across restart.
 - [x] Add canonical webhook events and exact-sequence subscriber cursors that reject duplicate,
   skipped, cross-subscription, cross-intent, and expired delivery without promoting evidence.
 - [x] Persist canonically ordered webhook subscriber cursors atomically so acknowledged delivery

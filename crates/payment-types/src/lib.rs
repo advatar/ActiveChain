@@ -2221,6 +2221,10 @@ impl TreasuryDebitPolicyV1 {
         self.spent_units
     }
 
+    pub const fn treasury(&self) -> TreasuryId {
+        self.treasury
+    }
+
     pub const fn next_nonce(&self) -> u64 {
         self.next_nonce
     }
@@ -2362,6 +2366,10 @@ impl TreasuryDebitRequestV1 {
             nonce,
             expires_at,
         })
+    }
+
+    pub const fn treasury(&self) -> TreasuryId {
+        self.treasury
     }
 }
 
