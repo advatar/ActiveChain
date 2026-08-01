@@ -250,3 +250,4 @@
 0x0175	1	FungibleHolderControlStateV1	crates/protocol-types/src/asset.rs
 0x0176	1	FungibleExceptionalControlActionV1	crates/protocol-types/src/asset.rs
 0x0177	1	CredentialPredicateReceiptV1	crates/protocol-types/src/credential.rs
+0x0178	1	PaymentWebhookSignedEventV1	crates/payment-types/src/lib.rs

@@ -1030,6 +1030,21 @@ impl PaymentWebhookEventV1 {
         self.record.evidence_class()
     }
 
+    /// Returns the commitment to the transport signer authorized for this delivery.
+    #[must_use]
+    pub const fn signer_commitment(&self) -> Digest384 {
+        self.signing_transcript_commitment
+    }
+
+    /// Returns the domain-separated canonical transport-authentication payload.
+    pub fn signing_payload(&self) -> Result<Vec<u8>, EncodeError> {
+        let encoded = encode_envelope(self)?;
+        let mut payload = Vec::with_capacity(34 + encoded.len());
+        payload.extend_from_slice(b"ACTIVECHAIN-PAYMENT-WEBHOOK-EVENT-V1");
+        payload.extend_from_slice(&encoded);
+        Ok(payload)
+    }
+
     #[must_use]
     pub const fn active_at(&self, timestamp: u64) -> bool {
         timestamp >= self.emitted_at && timestamp < self.expires_at
@@ -1067,6 +1082,79 @@ impl CanonicalType for PaymentWebhookEventV1 {
     const TYPE_TAG: u16 = Self::TYPE_TAG;
     const SCHEMA_VERSION: u16 = PAYMENT_SCHEMA_REVISION;
     const MAX_ENCODED_LEN: usize = 48 * 4 + PaymentLifecycleRecordV1::MAX_ENCODED_LEN + 8 * 2;
+}
+
+/// Commits a webhook transport signer without assigning finality to its event.
+pub fn payment_webhook_signer_commitment(public_key: &[u8]) -> Digest384 {
+    let mut hasher = Shake256::default();
+    hasher.update(b"ACTIVECHAIN-PAYMENT-WEBHOOK-SIGNER-V1");
+    hasher.update(&(public_key.len() as u32).to_be_bytes());
+    hasher.update(public_key);
+    let mut digest = [0_u8; 48];
+    hasher.finalize_xof().read(&mut digest);
+    Digest384::new(digest)
+}
+
+/// Canonical proof that the webhook event's committed transport signer approved the exact event.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PaymentWebhookSignedEventV1 {
+    event: PaymentWebhookEventV1,
+    public_key: Vec<u8>,
+    signature: ProtocolSignature,
+}
+impl PaymentWebhookSignedEventV1 {
+    pub const TYPE_TAG: u16 = 0x0178;
+
+    pub fn new(
+        event: PaymentWebhookEventV1,
+        public_key: Vec<u8>,
+        signature: ProtocolSignature,
+    ) -> Result<Self, PaymentValidationError> {
+        if public_key.len() != ML_DSA44_PUBLIC_KEY_LENGTH
+            || signature.suite() != CryptoSuiteId::ML_DSA_44
+            || payment_webhook_signer_commitment(&public_key) != event.signer_commitment()
+        {
+            return Err(PaymentValidationError::InvalidBinding);
+        }
+        Ok(Self { event, public_key, signature })
+    }
+
+    pub const fn event(&self) -> &PaymentWebhookEventV1 {
+        &self.event
+    }
+
+    pub fn public_key(&self) -> &[u8] {
+        &self.public_key
+    }
+
+    pub const fn signature(&self) -> &ProtocolSignature {
+        &self.signature
+    }
+}
+impl CanonicalEncode for PaymentWebhookSignedEventV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.event.encode(encoder)?;
+        encoder.write_bytes(&self.public_key, ML_DSA44_PUBLIC_KEY_LENGTH)?;
+        self.signature.encode(encoder)
+    }
+}
+impl CanonicalDecode for PaymentWebhookSignedEventV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            PaymentWebhookEventV1::decode(decoder)?,
+            decoder.read_bytes(ML_DSA44_PUBLIC_KEY_LENGTH)?.to_vec(),
+            ProtocolSignature::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid signed payment webhook event"))
+    }
+}
+impl CanonicalType for PaymentWebhookSignedEventV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = PAYMENT_SCHEMA_REVISION;
+    const MAX_ENCODED_LEN: usize = PaymentWebhookEventV1::MAX_ENCODED_LEN
+        + 3
+        + ML_DSA44_PUBLIC_KEY_LENGTH
+        + ProtocolSignature::MAX_ENCODED_LEN;
 }
 
 /// Durable subscriber progress requiring each lifecycle sequence exactly once and in order.
@@ -2724,6 +2812,42 @@ mod tests {
         assert_eq!(
             build(digest(60), digest(61), 200, 200),
             Err(PaymentValidationError::InvalidValidity)
+        );
+    }
+
+    #[test]
+    fn signed_webhook_envelope_binds_exact_signer_and_round_trips() {
+        let public_key = vec![7_u8; ML_DSA44_PUBLIC_KEY_LENGTH];
+        let created = PaymentLifecycleRecordV1::created(intent_id(), digest(19)).unwrap();
+        let event = PaymentWebhookEventV1::new(
+            PaymentWebhookSubscriptionId::new(digest(50)).unwrap(),
+            PaymentWebhookEventId::new(digest(51)).unwrap(),
+            created,
+            digest(60),
+            payment_webhook_signer_commitment(&public_key),
+            100,
+            200,
+        )
+        .unwrap();
+        let signed = PaymentWebhookSignedEventV1::new(
+            event,
+            public_key.clone(),
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![8_u8; 2_420]).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            decode_envelope::<PaymentWebhookSignedEventV1>(&encode_envelope(&signed).unwrap())
+                .unwrap(),
+            signed
+        );
+        let wrong_key = vec![9_u8; ML_DSA44_PUBLIC_KEY_LENGTH];
+        assert_eq!(
+            PaymentWebhookSignedEventV1::new(
+                signed.event().clone(),
+                wrong_key,
+                signed.signature().clone(),
+            ),
+            Err(PaymentValidationError::InvalidBinding)
         );
     }
 
