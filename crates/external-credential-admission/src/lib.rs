@@ -429,4 +429,33 @@ mod tests {
         assert_eq!(request.capabilities(), &[capability]);
         assert_eq!(request.approvals(), &[approval]);
     }
+    #[test]
+    fn published_cross_repository_matrix_has_closed_boundaries_and_codes() {
+        let matrix = include_str!("../../../testing/vectors/identity-bridge-conformance-v1.tsv");
+        let allowed_boundaries =
+            ["apl", "adapter", "registry", "admission", "wallet", "handoff", "receipt"];
+        let mut positive = 0;
+        let mut negative = 0;
+        for line in matrix.lines().skip(1) {
+            let fields: Vec<_> = line.split('\t').collect();
+            assert_eq!(fields.len(), 7, "{line}");
+            assert!(matches!(fields[2], "dc+sd-jwt" | "mso_mdoc"));
+            assert!(matches!(fields[4], "account" | "pairwise" | "private-proof" | "device"));
+            assert!(allowed_boundaries.contains(&fields[5]));
+            match fields[1] {
+                "accept" => {
+                    positive += 1;
+                    assert_eq!(fields[6], "permit")
+                }
+                "reject" => {
+                    negative += 1;
+                    assert_ne!(fields[6], "permit")
+                }
+                other => panic!("unknown outcome {other}"),
+            }
+        }
+        assert_eq!((positive, negative), (7, 23));
+        assert!(!matrix.contains("Erika"));
+        assert!(!matrix.contains("Mustermann"));
+    }
 }
