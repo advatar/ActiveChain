@@ -245,3 +245,4 @@
 0x0170	1	PaymentApiAuthorizationV1	crates/payment-types/src/lib.rs
 0x0171	1	PaymentApiReplayStateV1	crates/payment-types/src/lib.rs
 0x0172	1	ApiAuthorizationJournalV1	crates/payment-connector-host/src/lib.rs
+0x0173	1	PaymentApiSignedAuthorizationV1	crates/payment-types/src/lib.rs

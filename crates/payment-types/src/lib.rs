@@ -13,8 +13,12 @@ use alloc::vec::Vec;
 
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
+    encode_envelope,
 };
-use activechain_protocol_types::{AssetId, ChainId, Digest384, PrincipalId, TransactionId};
+use activechain_protocol_types::{
+    AssetId, ChainId, CryptoSuiteId, Digest384, ML_DSA44_PUBLIC_KEY_LENGTH, PrincipalId,
+    ProtocolSignature, TransactionId,
+};
 use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
@@ -1248,9 +1252,88 @@ impl PaymentApiAuthorizationV1 {
     pub const fn sequence(&self) -> u64 {
         self.sequence
     }
+    pub const fn authenticator_commitment(&self) -> Digest384 {
+        self.authenticator_commitment
+    }
+    pub fn signing_payload(&self) -> Result<Vec<u8>, EncodeError> {
+        let encoded = encode_envelope(self)?;
+        let mut payload = Vec::with_capacity(39 + encoded.len());
+        payload.extend_from_slice(b"ACTIVECHAIN-PAYMENT-API-AUTHORIZATION-V1");
+        payload.extend_from_slice(&encoded);
+        Ok(payload)
+    }
     pub const fn active_at(&self, timestamp: u64) -> bool {
         timestamp >= self.issued_at && timestamp < self.expires_at
     }
+}
+
+pub fn payment_api_authenticator_commitment(public_key: &[u8]) -> Digest384 {
+    let mut hasher = Shake256::default();
+    hasher.update(b"ACTIVECHAIN-PAYMENT-API-AUTHENTICATOR-V1");
+    hasher.update(&(public_key.len() as u32).to_be_bytes());
+    hasher.update(public_key);
+    let mut digest = [0_u8; 48];
+    hasher.finalize_xof().read(&mut digest);
+    Digest384::new(digest)
+}
+
+/// Canonical proof that the committed API authenticator approved an exact authorization.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PaymentApiSignedAuthorizationV1 {
+    authorization: PaymentApiAuthorizationV1,
+    public_key: Vec<u8>,
+    signature: ProtocolSignature,
+}
+impl PaymentApiSignedAuthorizationV1 {
+    pub const TYPE_TAG: u16 = 0x0173;
+    pub fn new(
+        authorization: PaymentApiAuthorizationV1,
+        public_key: Vec<u8>,
+        signature: ProtocolSignature,
+    ) -> Result<Self, PaymentValidationError> {
+        if public_key.len() != ML_DSA44_PUBLIC_KEY_LENGTH
+            || signature.suite() != CryptoSuiteId::ML_DSA_44
+            || payment_api_authenticator_commitment(&public_key)
+                != authorization.authenticator_commitment
+        {
+            return Err(PaymentValidationError::InvalidBinding);
+        }
+        Ok(Self { authorization, public_key, signature })
+    }
+    pub const fn authorization(&self) -> &PaymentApiAuthorizationV1 {
+        &self.authorization
+    }
+    pub fn public_key(&self) -> &[u8] {
+        &self.public_key
+    }
+    pub const fn signature(&self) -> &ProtocolSignature {
+        &self.signature
+    }
+}
+impl CanonicalEncode for PaymentApiSignedAuthorizationV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.authorization.encode(encoder)?;
+        encoder.write_bytes(&self.public_key, ML_DSA44_PUBLIC_KEY_LENGTH)?;
+        self.signature.encode(encoder)
+    }
+}
+impl CanonicalDecode for PaymentApiSignedAuthorizationV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            PaymentApiAuthorizationV1::decode(decoder)?,
+            decoder.read_bytes(ML_DSA44_PUBLIC_KEY_LENGTH)?.to_vec(),
+            ProtocolSignature::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid signed payment API authorization"))
+    }
+}
+impl CanonicalType for PaymentApiSignedAuthorizationV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = PAYMENT_SCHEMA_REVISION;
+    const MAX_ENCODED_LEN: usize = PaymentApiAuthorizationV1::MAX_ENCODED_LEN
+        + 3
+        + ML_DSA44_PUBLIC_KEY_LENGTH
+        + ProtocolSignature::MAX_ENCODED_LEN;
 }
 impl CanonicalEncode for PaymentApiAuthorizationV1 {
     fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
@@ -2730,6 +2813,47 @@ mod tests {
         assert!(build(digest(1), digest(2), digest(3), 0, 10, 20, digest(4)).is_err());
         assert!(build(digest(1), digest(2), digest(3), 1, 20, 20, digest(4)).is_err());
         assert!(build(digest(1), digest(2), digest(3), 1, 10, 20, Digest384::ZERO).is_err());
+    }
+
+    #[test]
+    fn signed_api_authorization_binds_exact_ml_dsa_authenticator() {
+        let public_key = vec![9; ML_DSA44_PUBLIC_KEY_LENGTH];
+        let authorization = PaymentApiAuthorizationV1::new(
+            principal(2),
+            digest(60),
+            PaymentApiOperation::CreateIntent,
+            digest(70),
+            digest(71),
+            Some(intent_id()),
+            1,
+            100,
+            200,
+            payment_api_authenticator_commitment(&public_key),
+        )
+        .unwrap();
+        let signature = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![7; 2_420]).unwrap();
+        let signed = PaymentApiSignedAuthorizationV1::new(
+            authorization,
+            public_key.clone(),
+            signature.clone(),
+        )
+        .unwrap();
+        assert_eq!(
+            decode_envelope::<PaymentApiSignedAuthorizationV1>(&encode_envelope(&signed).unwrap()),
+            Ok(signed)
+        );
+        let mut wrong_key = public_key;
+        wrong_key[0] ^= 1;
+        assert_eq!(
+            PaymentApiSignedAuthorizationV1::new(authorization, wrong_key, signature),
+            Err(PaymentValidationError::InvalidBinding)
+        );
+        assert!(
+            authorization
+                .signing_payload()
+                .unwrap()
+                .starts_with(b"ACTIVECHAIN-PAYMENT-API-AUTHORIZATION-V1")
+        );
     }
 
     #[test]
