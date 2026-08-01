@@ -1095,6 +1095,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   commitment, minted count, quantity, approval commitment, and finalized execution window.
 - [x] Bind approved NFT minting to a bounded canonical manifest of exact token IDs, recipients,
   and metadata commitments, then derive the reserved series state and token records atomically.
+- [x] Reject NFT token-ID reuse across mint batches with a canonical per-asset registry whose
+  pre/post cardinality must equal the exact series supply transition.
 - [x] Reject NFT token and series definitions with zero asset, issuer, or owner identities before
   metadata and supply admission.
 - [x] Add an immutable-identity NFT Coin Cell carrying asset/token/metadata commitments and
