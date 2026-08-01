@@ -1145,6 +1145,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   lifecycle-action generation.
 - [x] Extend the issuer CLI with deterministic NFT series, exact mint-manifest, threshold-approval,
   and replay-protected offline dry-run workflows.
+- [x] Extend the issuer CLI with canonical controller-state, rotation-envelope, and exact offline
+  policy/controller post-state dry-run workflows.
 - [x] Add an issuer-console review surface derived from the exact approved NFT manifest, series,
   minted-token registry, authority, validity window, and replay-protected post-state transition.
 - [x] Extend the issuer CLI with canonical distribution, split/consolidation, coupon, maturity,
