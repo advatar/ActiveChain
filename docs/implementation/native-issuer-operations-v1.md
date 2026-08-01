@@ -73,6 +73,12 @@ the policy with advanced issued supply and one deterministic recipient Coin Cell
 canonical mint. Stale or replayed supply, cap overflow, paused policy, substituted approval,
 capacity, and output collision return neither successor.
 
+Approved burns use the inverse indivisible transition. Every declared input ID is derived from its
+origin and must match the authoritative record exactly; all inputs are removed only in the same
+returned successor that reduces issued supply by the identical approved amount. Replay, missing or
+substituted cells, cross-asset authority, stale supply, paused policy, approval substitution, and
+underflow return neither the cell-set successor nor the policy successor.
+
 The native issuer CLI exposes `control-policy`, `holder-control-state`, `control-action`, and
 `dry-run-control`. Freeze and unfreeze preflight return the exact post-state. Clawback additionally
 requires a canonical input Coin Cell and returns both the conserved post-cell and revisioned

@@ -839,6 +839,43 @@ impl FungibleCoinCellSet {
         records.sort_by_key(|record| record.id());
         Ok((Self::new(records)?, next_policy))
     }
+
+    /// Atomically joins exact approved input destruction to issued-supply reduction.
+    pub fn apply_burn(
+        &self,
+        burn: &FungibleBurnV1,
+        policy: &FungibleAssetPolicyV1,
+        approval: &FungibleIssuerApprovalV1,
+        height: Height,
+    ) -> Result<(Self, FungibleAssetPolicyV1), NativeMoneyError> {
+        burn.validate_against_policy_and_approval(policy, approval, height)?;
+        let next_policy = policy
+            .apply_approved_burn(approval, FungibleIssuerOperation::Burn, height)
+            .map_err(|_| NativeMoneyError::InvalidInputs)?;
+        if next_policy.supply_issued().checked_add(burn.amount()) != Some(policy.supply_issued()) {
+            return Err(NativeMoneyError::InvalidInputs);
+        }
+        let mut spent = Vec::with_capacity(burn.inputs().len());
+        for input in burn.inputs() {
+            let id = coin_cell_id(&input.origin()).map_err(|_| NativeMoneyError::InvalidInputs)?;
+            let index = self
+                .0
+                .binary_search_by_key(&id, |record| record.id())
+                .map_err(|_| NativeMoneyError::MissingCell)?;
+            if self.0[index].cell() != *input {
+                return Err(NativeMoneyError::InvalidInputs);
+            }
+            spent.push(id);
+        }
+        spent.sort_unstable();
+        let records = self
+            .0
+            .iter()
+            .copied()
+            .filter(|record| spent.binary_search(&record.id()).is_err())
+            .collect::<Vec<_>>();
+        Ok((Self::new(records)?, next_policy))
+    }
 }
 impl CanonicalEncode for FungibleCoinCellSet {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
@@ -1810,6 +1847,62 @@ mod fungible_cell_tests {
             Err(NativeMoneyError::MintAuthorityMismatch)
         );
         assert!(set.as_slice().is_empty());
+    }
+
+    #[test]
+    fn authoritative_burn_consumes_cells_and_reduces_supply_together() {
+        let asset = AssetId::new(Digest384::new([2; 48]));
+        let issuer = PrincipalId::new(Digest384::new([3; 48]));
+        let origin = CoinCellOrigin::new(TransactionId::new(Digest384::new([20; 48])), 0);
+        let input = FungibleCoinCell::new(origin, asset, issuer, 10, 4).unwrap();
+        let retained_origin = CoinCellOrigin::new(TransactionId::new(Digest384::new([21; 48])), 0);
+        let retained = FungibleCoinCell::new(retained_origin, asset, issuer, 40, 4).unwrap();
+        let mut records = vec![
+            FungibleCoinCellRecord::new(coin_cell_id(&origin).unwrap(), input),
+            FungibleCoinCellRecord::new(coin_cell_id(&retained_origin).unwrap(), retained),
+        ];
+        records.sort_by_key(|record| record.id());
+        let set = FungibleCoinCellSet::new(records).unwrap();
+        let policy = FungibleAssetPolicyV1::new(
+            asset,
+            issuer,
+            Digest384::new([6; 48]),
+            Digest384::new([7; 48]),
+            Digest384::new([8; 48]),
+            Digest384::new([9; 48]),
+            100,
+            50,
+            FungibleAssetLifecycle::Registered,
+        )
+        .unwrap();
+        let burn = FungibleBurnV1::new(asset, issuer, vec![input], 10).unwrap();
+        let approval = FungibleIssuerApprovalV1::new(
+            asset,
+            policy.commitment().unwrap(),
+            policy.authority_set(),
+            Digest384::new([10; 48]),
+            FungibleIssuerOperation::Burn,
+            10,
+            50,
+            5,
+            10,
+        )
+        .unwrap();
+        let (after, next_policy) = set.apply_burn(&burn, &policy, &approval, 5).unwrap();
+        assert_eq!(next_policy.supply_issued(), 40);
+        assert_eq!(after.as_slice().len(), 1);
+        assert_eq!(after.as_slice()[0].cell(), retained);
+        assert_eq!(
+            after.apply_burn(&burn, &next_policy, &approval, 5),
+            Err(NativeMoneyError::InvalidInputs)
+        );
+        let substituted = FungibleCoinCell::new(origin, asset, issuer, 10, 5).unwrap();
+        let substituted_burn = FungibleBurnV1::new(asset, issuer, vec![substituted], 10).unwrap();
+        assert_eq!(
+            set.apply_burn(&substituted_burn, &policy, &approval, 5),
+            Err(NativeMoneyError::InvalidInputs)
+        );
+        assert_eq!(set.as_slice().len(), 2);
     }
 
     #[test]
