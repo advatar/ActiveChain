@@ -29,3 +29,8 @@ canonical policy, current exact-once registry, action envelope, and finalized he
 preflight returns the action identity and canonical post-registry. The issuer console reconstructs
 its review from that same accepted transition; stale, replayed, cross-policy, and cross-authority
 actions fail before a wallet approval can be requested.
+
+Application execution uses `DurableCorporateActionRegistry`: it applies the same policy and
+authority checks to a cloned registry, fsyncs and atomically replaces the canonical snapshot, and
+only then advances live memory. Restart restores the exact action identities; replay, corrupt
+storage, and write failure fail closed.

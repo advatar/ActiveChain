@@ -1161,6 +1161,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   record-date vote, and redemption-offer generation.
 - [x] Add exact-once corporate-action CLI preflight and an issuer-console review derived from the
   accepted policy, action, and registry transition.
+- [x] Persist accepted corporate-action identities atomically before acknowledgement and restore
+  replay protection fail-closed across restart or corrupt storage.
 - [x] Publish deterministic issuer-registration vectors for activation boundaries and malformed
   authority/policy bindings.
 - [x] Keep the workspace lockfile synchronized with the canonical payment-types cryptographic

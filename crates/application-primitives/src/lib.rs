@@ -11,6 +11,8 @@ mod anchor;
 #[cfg(feature = "std")]
 mod compliance;
 mod compute;
+#[cfg(feature = "std")]
+mod corporate_action;
 
 #[cfg(feature = "std")]
 pub use anchor::DurableAnchorRegistry;
@@ -32,6 +34,8 @@ pub use compute::{
     MAX_FUTURE_COMPUTE_PROOF_BYTES, MAX_FUTURE_COMPUTE_VERIFIER_UNITS,
     verify_compute_assurance_signature,
 };
+#[cfg(feature = "std")]
+pub use corporate_action::{CorporateActionPersistenceError, DurableCorporateActionRegistry};
 
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
