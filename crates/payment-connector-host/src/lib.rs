@@ -12,6 +12,7 @@ use activechain_payment_types::{
     PaymentApiSignedAuthorizationV1, PaymentDisputeRecordV1, PaymentDisputeRequestV1,
     PaymentRefundRequestV1, PaymentRefundStateV1, PaymentValidationError, PaymentWebhookCursorV1,
     PaymentWebhookEventV1, PaymentWebhookSignedEventV1, ProviderObservationV1, RailId,
+    TreasuryDebitPolicyV1, TreasuryDebitRequestV1,
 };
 use activechain_protocol_types::{AssetId, Digest384};
 use sha3::{
@@ -36,6 +37,7 @@ const MAX_WEBHOOK_CURSORS: usize = 65_535;
 const MAX_API_CLIENTS: usize = 65_535;
 const MAX_REFUND_STATES: usize = 65_535;
 const MAX_DISPUTES: usize = 65_535;
+const MAX_TREASURIES: usize = 65_535;
 const SNAPSHOT_TAG_LENGTH: usize = 48;
 const SNAPSHOT_DOMAIN: &[u8] = b"ACTIVECHAIN-ACTIVEBRIDGE-JOURNAL-V1";
 const MAX_CONNECTOR_ORIGINS: usize = 16;
@@ -233,6 +235,7 @@ pub enum JournalError {
     InvalidAuthorization,
     InvalidRefund,
     InvalidDispute,
+    InvalidTreasury,
     Capacity,
     Persistence,
 }
@@ -772,6 +775,118 @@ impl CanonicalType for DisputeJournalV1 {
     const MAX_ENCODED_LEN: usize = 3 + MAX_DISPUTES * PaymentDisputeRecordV1::MAX_ENCODED_LEN;
 }
 
+/// Crash-safe treasury budgets and exact next nonces, ordered by treasury identity.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TreasuryJournalV1 {
+    policies: Vec<TreasuryDebitPolicyV1>,
+}
+
+impl TreasuryJournalV1 {
+    pub const TYPE_TAG: u16 = 0x0184;
+
+    #[must_use]
+    pub fn policies(&self) -> &[TreasuryDebitPolicyV1] {
+        &self.policies
+    }
+
+    pub fn register(&mut self, policy: TreasuryDebitPolicyV1) -> Result<(), JournalError> {
+        match self
+            .policies
+            .binary_search_by_key(&policy.treasury(), TreasuryDebitPolicyV1::treasury)
+        {
+            Ok(_) => Err(JournalError::InvalidTreasury),
+            Err(_) if self.policies.len() == MAX_TREASURIES => Err(JournalError::Capacity),
+            Err(index) => {
+                self.policies.insert(index, policy);
+                Ok(())
+            }
+        }
+    }
+
+    pub fn register_durable(
+        &mut self,
+        policy: TreasuryDebitPolicyV1,
+        path: &Path,
+    ) -> Result<(), JournalError> {
+        let mut next = self.clone();
+        next.register(policy)?;
+        next.save_atomic(path)?;
+        *self = next;
+        Ok(())
+    }
+
+    pub fn authorize(
+        &mut self,
+        request: &TreasuryDebitRequestV1,
+        timestamp: u64,
+    ) -> Result<(), JournalError> {
+        let index = self
+            .policies
+            .binary_search_by_key(&request.treasury(), TreasuryDebitPolicyV1::treasury)
+            .map_err(|_| JournalError::InvalidTreasury)?;
+        self.policies[index] = self.policies[index]
+            .authorize(request, timestamp)
+            .map_err(|_| JournalError::InvalidTreasury)?;
+        Ok(())
+    }
+
+    pub fn authorize_durable(
+        &mut self,
+        request: &TreasuryDebitRequestV1,
+        timestamp: u64,
+        path: &Path,
+    ) -> Result<(), JournalError> {
+        let mut next = self.clone();
+        next.authorize(request, timestamp)?;
+        next.save_atomic(path)?;
+        *self = next;
+        Ok(())
+    }
+
+    pub fn save_atomic(&self, path: &Path) -> Result<(), JournalError> {
+        save_snapshot(self, path)
+    }
+
+    pub fn load(path: &Path) -> Result<Self, JournalError> {
+        load_snapshot(path)
+    }
+}
+
+impl CanonicalEncode for TreasuryJournalV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        encoder.write_length(self.policies.len(), MAX_TREASURIES)?;
+        for policy in &self.policies {
+            policy.encode(encoder)?;
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for TreasuryJournalV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let count = decoder.read_length(MAX_TREASURIES)?;
+        let mut policies = Vec::with_capacity(count);
+        for _ in 0..count {
+            let policy = TreasuryDebitPolicyV1::decode(decoder)?;
+            if policies.last().is_some_and(|previous: &TreasuryDebitPolicyV1| {
+                previous.treasury() >= policy.treasury()
+            }) {
+                return Err(DecodeError::InvalidValue(
+                    "treasury policies are not canonically ordered",
+                ));
+            }
+            policies.push(policy);
+        }
+        Ok(Self { policies })
+    }
+}
+
+impl CanonicalType for TreasuryJournalV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 3 + MAX_TREASURIES * TreasuryDebitPolicyV1::MAX_ENCODED_LEN;
+}
+
 fn map_validation(_: PaymentValidationError) -> JournalError {
     JournalError::InvalidObservation
 }
@@ -833,8 +948,9 @@ mod tests {
         PaymentDisputeId, PaymentDisputeState, PaymentIntentId, PaymentLifecycleRecordV1,
         PaymentRefundId, PaymentRefundRequestV1, PaymentRefundStateV1, PaymentState,
         PaymentWebhookEventId, PaymentWebhookEventV1, PaymentWebhookSignedEventV1,
-        PaymentWebhookSubscriptionId, ProviderOperationState, RailId,
-        payment_api_authenticator_commitment, payment_webhook_signer_commitment,
+        PaymentWebhookSubscriptionId, ProviderOperationState, RailId, TreasuryDebitKind,
+        TreasuryDebitRequestV1, TreasuryId, payment_api_authenticator_commitment,
+        payment_webhook_signer_commitment,
     };
     use activechain_protocol_types::{
         AssetId, ChainId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature,
@@ -1480,6 +1596,107 @@ mod tests {
         let _ = std::fs::remove_file(&corrupt);
         std::fs::write(&corrupt, b"not canonical").unwrap();
         assert_eq!(DisputeJournalV1::load(&corrupt), Err(JournalError::Persistence));
+        std::fs::remove_file(corrupt).unwrap();
+    }
+
+    fn treasury_policy(treasury: u8) -> TreasuryDebitPolicyV1 {
+        TreasuryDebitPolicyV1::new(
+            TreasuryId::new(digest(treasury)).unwrap(),
+            PrincipalId::new(digest(100)),
+            vec![PrincipalId::new(digest(101))],
+            AssetId::new(digest(102)),
+            50,
+            100,
+            0,
+            7,
+            1,
+            1_000,
+        )
+        .unwrap()
+    }
+
+    fn treasury_request(
+        policy: &TreasuryDebitPolicyV1,
+        amount: u128,
+        expected: u128,
+        nonce: u64,
+    ) -> TreasuryDebitRequestV1 {
+        TreasuryDebitRequestV1::new(
+            policy.treasury(),
+            PrincipalId::new(digest(101)),
+            TreasuryDebitKind::Payout,
+            AssetAmountV1::new(AssetId::new(digest(102)), amount).unwrap(),
+            digest(103),
+            digest(104),
+            digest(105),
+            policy.commitment().unwrap(),
+            expected,
+            7,
+            nonce,
+            900,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn treasury_budget_and_nonce_survive_restart_and_replay_fails_closed() {
+        let path = path("treasury-restart");
+        let _ = std::fs::remove_file(&path);
+        let policy = treasury_policy(10);
+        let request = treasury_request(&policy, 40, 0, 1);
+        let mut journal = TreasuryJournalV1::default();
+        journal.register_durable(policy, &path).unwrap();
+        journal.authorize_durable(&request, 800, &path).unwrap();
+        assert_eq!(journal.policies()[0].spent_units(), 40);
+        assert_eq!(journal.policies()[0].next_nonce(), 2);
+        assert_eq!(TreasuryJournalV1::load(&path).unwrap(), journal);
+        let before = journal.clone();
+        assert_eq!(
+            journal.authorize_durable(&request, 800, &path),
+            Err(JournalError::InvalidTreasury)
+        );
+        assert_eq!(journal, before);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn treasury_journal_orders_ids_and_rejects_duplicate_unknown_and_budget_overrun() {
+        let mut journal = TreasuryJournalV1::default();
+        journal.register(treasury_policy(20)).unwrap();
+        journal.register(treasury_policy(10)).unwrap();
+        assert!(journal.policies()[0].treasury() < journal.policies()[1].treasury());
+        assert_eq!(journal.register(treasury_policy(10)), Err(JournalError::InvalidTreasury));
+        let unknown = treasury_policy(30);
+        assert_eq!(
+            journal.authorize(&treasury_request(&unknown, 1, 0, 1), 800),
+            Err(JournalError::InvalidTreasury)
+        );
+        let first = treasury_request(&journal.policies()[0], 50, 0, 1);
+        journal.authorize(&first, 800).unwrap();
+        let over_budget = treasury_request(&journal.policies()[0], 50, 50, 2);
+        assert_eq!(journal.authorize(&over_budget, 800), Ok(()));
+        let over_limit = treasury_request(&journal.policies()[0], 1, 100, 3);
+        assert_eq!(journal.authorize(&over_limit, 800), Err(JournalError::InvalidTreasury));
+        assert_eq!(journal.policies()[0].spent_units(), 100);
+    }
+
+    #[test]
+    fn failed_treasury_persistence_and_corrupt_restart_do_not_advance() {
+        let directory = path("treasury-directory");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let mut journal = TreasuryJournalV1::default();
+        assert_eq!(
+            journal.register_durable(treasury_policy(10), &directory),
+            Err(JournalError::Persistence)
+        );
+        assert!(journal.policies().is_empty());
+        std::fs::remove_dir_all(&directory).unwrap();
+
+        let corrupt = path("treasury-corrupt");
+        let _ = std::fs::remove_file(&corrupt);
+        std::fs::write(&corrupt, b"not canonical").unwrap();
+        assert_eq!(TreasuryJournalV1::load(&corrupt), Err(JournalError::Persistence));
         std::fs::remove_file(corrupt).unwrap();
     }
 }

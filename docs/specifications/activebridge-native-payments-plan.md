@@ -545,6 +545,12 @@ High-risk actions use threshold approval, amount/time budgets, asset and destina
 and hardware-backed operator keys where supported. Agent principals receive attenuated,
 revocable, expiring capabilities; they never receive a treasury root key.
 
+`TreasuryJournalV1` persists the bounded policy set in canonical `TreasuryId` order. Registration
+and each authorized payout, conversion, refund, fee, or settlement debit are synchronized and
+atomically replaced before acknowledgement, carrying the exact spent budget and next nonce across
+restart. Duplicate or unknown treasuries, stale commitments, wrong operators/assets/periods,
+amount or period-budget overruns, replay, corruption, and failed writes cannot advance live policy.
+
 Identity policy should consume minimal predicates such as:
 
 - residency or permitted-jurisdiction membership;
