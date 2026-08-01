@@ -97,9 +97,11 @@ pub use did::{
     DidResolutionV1, derive_activechain_did,
 };
 pub use external_identity::{
+    ExternalCredentialSchemaMappingV1, ExternalCredentialSchemaRegistryV1,
     ExternalIssuerBindingError, ExternalIssuerBindingStatusV1, ExternalIssuerBindingV1,
     ExternalIssuerProfileV1, ExternalIssuerRegistryV1, MAX_EXTERNAL_ISSUER_BINDINGS,
-    MAX_EXTERNAL_ISSUER_PROFILES,
+    MAX_EXTERNAL_ISSUER_PROFILES, MAX_EXTERNAL_PROFILE_IDENTIFIER_BYTES,
+    MAX_EXTERNAL_SCHEMA_MAPPINGS, derive_external_credential_schema_id,
 };
 pub use migration::{CryptoMigrationError, CryptoMigrationWindow};
 pub use object::{

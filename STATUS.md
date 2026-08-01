@@ -1913,6 +1913,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [x] Implement the governed `ExternalIssuerBindingV1` and finalized bounded registry: stable
   issuer principals, explicit ordered profile allowlists, previous-bound lifecycle transitions,
   collision rejection, finalized lookup, and cross-network/rollback failure are unit tested.
+- [x] Freeze EUDI/VCIssuer profile-to-schema derivation and consume byte-identical vectors in
+  ActiveChain and VCIssuer; arbitrary caller-provided schema identifiers must fail closed (#439).
 - [ ] Complete wallet OpenID4VP transport, consent UX, live trust/status adapters, cross-repository
   vectors, device qualification, and independent interoperability review.
 

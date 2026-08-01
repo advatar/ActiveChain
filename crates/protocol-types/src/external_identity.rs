@@ -14,6 +14,8 @@ use sha3::{
 
 pub const MAX_EXTERNAL_ISSUER_PROFILES: usize = 16;
 pub const MAX_EXTERNAL_ISSUER_BINDINGS: usize = 64;
+pub const MAX_EXTERNAL_PROFILE_IDENTIFIER_BYTES: usize = 256;
+pub const MAX_EXTERNAL_SCHEMA_MAPPINGS: usize = 32;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExternalIssuerBindingError {
@@ -28,6 +30,138 @@ pub enum ExternalIssuerBindingError {
     BindingsNotOrdered,
     ExternalIdentityCollision,
     FinalizedHeightRollback,
+    InvalidSchemaMapping,
+}
+
+fn update_length_prefixed(hasher: &mut Shake256, value: &[u8]) {
+    hasher.update(&(value.len() as u32).to_be_bytes());
+    hasher.update(value);
+}
+
+fn profile_field_commitment(domain: &[u8], value: &[u8]) -> Digest384 {
+    let mut hasher = Shake256::default();
+    hasher.update(domain);
+    update_length_prefixed(&mut hasher, value);
+    let mut output = [0; 48];
+    XofReader::read(&mut hasher.finalize_xof(), &mut output);
+    Digest384::new(output)
+}
+
+/// Derives the only schema identifier admitted for one normalized external profile tuple.
+pub fn derive_external_credential_schema_id(
+    configuration: &[u8],
+    credential_type: &[u8],
+    rulebook_id: &[u8],
+    rulebook_version: u32,
+    rulebook_digest: Digest384,
+) -> Result<Digest384, ExternalIssuerBindingError> {
+    if [configuration, credential_type, rulebook_id]
+        .into_iter()
+        .any(|value| value.is_empty() || value.len() > MAX_EXTERNAL_PROFILE_IDENTIFIER_BYTES)
+        || rulebook_version == 0
+        || rulebook_digest == Digest384::ZERO
+    {
+        return Err(ExternalIssuerBindingError::InvalidSchemaMapping);
+    }
+    let mut hasher = Shake256::default();
+    hasher.update(b"ACTIVECHAIN-EUDI-SCHEMA-V1");
+    update_length_prefixed(&mut hasher, configuration);
+    update_length_prefixed(&mut hasher, credential_type);
+    update_length_prefixed(&mut hasher, rulebook_id);
+    hasher.update(&rulebook_version.to_be_bytes());
+    update_length_prefixed(&mut hasher, rulebook_digest.as_bytes());
+    let mut output = [0; 48];
+    XofReader::read(&mut hasher.finalize_xof(), &mut output);
+    Ok(Digest384::new(output))
+}
+
+/// Canonical mapping selected from a pinned table, never from a caller-supplied schema digest.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ExternalCredentialSchemaMappingV1 {
+    credential_configuration_id: Digest384,
+    credential_type: Digest384,
+    rulebook_id: Digest384,
+    rulebook_version: u32,
+    rulebook_digest: Digest384,
+    schema_id: Digest384,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExternalCredentialSchemaRegistryV1(Vec<ExternalCredentialSchemaMappingV1>);
+
+impl ExternalCredentialSchemaRegistryV1 {
+    pub fn new(
+        mappings: Vec<ExternalCredentialSchemaMappingV1>,
+    ) -> Result<Self, ExternalIssuerBindingError> {
+        if mappings.is_empty()
+            || mappings.len() > MAX_EXTERNAL_SCHEMA_MAPPINGS
+            || !mappings.windows(2).all(|pair| {
+                pair[0].credential_configuration_id < pair[1].credential_configuration_id
+            })
+        {
+            return Err(ExternalIssuerBindingError::InvalidSchemaMapping);
+        }
+        Ok(Self(mappings))
+    }
+
+    pub fn resolve(&self, normalized_configuration: &[u8]) -> Option<Digest384> {
+        if normalized_configuration.is_empty()
+            || normalized_configuration.len() > MAX_EXTERNAL_PROFILE_IDENTIFIER_BYTES
+        {
+            return None;
+        }
+        let commitment = profile_field_commitment(
+            b"ACTIVECHAIN-EUDI-CONFIGURATION-ID-V1",
+            normalized_configuration,
+        );
+        self.0
+            .binary_search_by_key(&commitment, |mapping| mapping.credential_configuration_id)
+            .ok()
+            .map(|index| self.0[index].schema_id)
+    }
+}
+
+impl ExternalCredentialSchemaMappingV1 {
+    pub fn from_profile_inputs(
+        configuration: &[u8],
+        credential_type: &[u8],
+        rulebook_id: &[u8],
+        rulebook_version: u32,
+        rulebook_digest: Digest384,
+    ) -> Result<Self, ExternalIssuerBindingError> {
+        let schema_id = derive_external_credential_schema_id(
+            configuration,
+            credential_type,
+            rulebook_id,
+            rulebook_version,
+            rulebook_digest,
+        )?;
+        Ok(Self {
+            credential_configuration_id: profile_field_commitment(
+                b"ACTIVECHAIN-EUDI-CONFIGURATION-ID-V1",
+                configuration,
+            ),
+            credential_type: profile_field_commitment(
+                b"ACTIVECHAIN-EUDI-CREDENTIAL-TYPE-V1",
+                credential_type,
+            ),
+            rulebook_id: profile_field_commitment(b"ACTIVECHAIN-EUDI-RULEBOOK-ID-V1", rulebook_id),
+            rulebook_version,
+            rulebook_digest,
+            schema_id,
+        })
+    }
+
+    pub const fn schema_id(&self) -> Digest384 {
+        self.schema_id
+    }
+    pub fn matches_profile(&self, profile: &ExternalIssuerProfileV1) -> bool {
+        self.credential_configuration_id == profile.credential_configuration_id
+            && self.credential_type == profile.credential_type
+            && self.rulebook_id == profile.rulebook_id
+            && self.rulebook_version == profile.rulebook_version
+            && self.rulebook_digest == profile.rulebook_digest
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -458,6 +592,14 @@ mod tests {
     fn p(n: u8) -> ExternalIssuerProfileV1 {
         ExternalIssuerProfileV1::new(d(n), d(n + 1), d(n + 2), 1, d(n + 3), d(n + 4)).unwrap()
     }
+    fn hex_digest(value: &str) -> Digest384 {
+        assert_eq!(value.len(), 96);
+        let mut bytes = [0; 48];
+        for (index, byte) in bytes.iter_mut().enumerate() {
+            *byte = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16).unwrap();
+        }
+        Digest384::new(bytes)
+    }
     #[allow(clippy::too_many_arguments)]
     fn binding(
         issuer: u8,
@@ -592,5 +734,64 @@ mod tests {
         assert!(rows.iter().all(|row| row.len() == 11));
         assert_eq!(rows.iter().filter(|row| row[9] == "accept").count(), 4);
         assert_eq!(rows.iter().filter(|row| row[9] == "reject").count(), 7);
+    }
+
+    #[test]
+    fn shared_eudi_schema_vectors_derive_exact_mappings() {
+        let vector = include_str!("../../../testing/vectors/eudi-schema-mapping-v1.tsv");
+        let mut lines = vector.lines();
+        assert_eq!(
+            lines.next(),
+            Some(
+                "credential_configuration_id\tcredential_type\trulebook_id\trulebook_version\trulebook_digest\tschema_id"
+            )
+        );
+        let mut mappings = Vec::new();
+        for line in lines {
+            let fields = line.split('\t').collect::<Vec<_>>();
+            assert_eq!(fields.len(), 6);
+            let version = fields[3].parse::<u32>().unwrap();
+            let rulebook_digest = hex_digest(fields[4]);
+            let mapping = ExternalCredentialSchemaMappingV1::from_profile_inputs(
+                fields[0].as_bytes(),
+                fields[1].as_bytes(),
+                fields[2].as_bytes(),
+                version,
+                rulebook_digest,
+            )
+            .unwrap();
+            assert_eq!(mapping.schema_id(), hex_digest(fields[5]));
+            let profile = ExternalIssuerProfileV1::new(
+                mapping.credential_configuration_id,
+                mapping.credential_type,
+                mapping.rulebook_id,
+                version,
+                rulebook_digest,
+                d(90),
+            )
+            .unwrap();
+            assert!(mapping.matches_profile(&profile));
+            mappings.push(mapping);
+        }
+        assert_eq!(mappings.len(), 7);
+        mappings.sort_by_key(|mapping| mapping.credential_configuration_id);
+        let registry = ExternalCredentialSchemaRegistryV1::new(mappings.clone()).unwrap();
+        assert_eq!(
+            registry.resolve(b"eu.europa.ec.eudi.pid_vc_sd_jwt.de"),
+            Some(hex_digest(
+                "692c786a6197301d281d02e47173397255fe067b90f5ba3c89f1bef3b84188f489282853a0df33846fe29f2fccdc3676"
+            ))
+        );
+        assert_eq!(registry.resolve(b"unknown.profile"), None);
+        mappings.push(mappings[0]);
+        mappings.sort_by_key(|mapping| mapping.credential_configuration_id);
+        assert_eq!(
+            ExternalCredentialSchemaRegistryV1::new(mappings),
+            Err(ExternalIssuerBindingError::InvalidSchemaMapping)
+        );
+        assert!(derive_external_credential_schema_id(b"", b"type", b"rulebook", 1, d(1)).is_err());
+        assert!(
+            derive_external_credential_schema_id(b"config", b"type", b"rulebook", 0, d(1)).is_err()
+        );
     }
 }
