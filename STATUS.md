@@ -1009,6 +1009,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
   authorization with operator, asset, ceiling, period-budget, nonce, and expiry controls.
 - [x] Add canonical webhook events and exact-sequence subscriber cursors that reject duplicate,
   skipped, cross-subscription, cross-intent, and expired delivery without promoting evidence.
+- [x] Persist canonically ordered webhook subscriber cursors atomically so acknowledged delivery
+  survives restart and failed or corrupt storage cannot advance in-memory state.
 
 ## Active EUDI/TLSNotary/ZK qualification
 

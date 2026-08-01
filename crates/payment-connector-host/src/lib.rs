@@ -7,7 +7,8 @@ use activechain_canonical_codec::{
     decode_envelope, encode_envelope,
 };
 use activechain_payment_types::{
-    ConnectorId, PaymentValidationError, ProviderObservationV1, RailId,
+    ConnectorId, PaymentValidationError, PaymentWebhookCursorV1, PaymentWebhookEventV1,
+    ProviderObservationV1, RailId,
 };
 use activechain_protocol_types::{AssetId, Digest384};
 use sha3::{
@@ -23,6 +24,7 @@ pub use simulator::{
 };
 
 const MAX_OBSERVATIONS: usize = 65_535;
+const MAX_WEBHOOK_CURSORS: usize = 65_535;
 const SNAPSHOT_TAG_LENGTH: usize = 48;
 const SNAPSHOT_DOMAIN: &[u8] = b"ACTIVECHAIN-ACTIVEBRIDGE-JOURNAL-V1";
 const MAX_CONNECTOR_ORIGINS: usize = 16;
@@ -216,6 +218,7 @@ impl CanonicalType for ConnectorHostPolicyV1 {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum JournalError {
     InvalidObservation,
+    InvalidDelivery,
     Capacity,
     Persistence,
 }
@@ -275,39 +278,11 @@ impl ConnectorJournalV1 {
     }
 
     pub fn save_atomic(&self, path: &Path) -> Result<(), JournalError> {
-        let body = encode_envelope(self).map_err(|_| JournalError::Persistence)?;
-        let tag = snapshot_tag(&body);
-        let parent = path.parent().ok_or(JournalError::Persistence)?;
-        std::fs::create_dir_all(parent).map_err(|_| JournalError::Persistence)?;
-        let name = path.file_name().ok_or(JournalError::Persistence)?.to_string_lossy();
-        let temporary = parent.join(format!(".{name}.{}.tmp", std::process::id()));
-        let result = (|| {
-            let mut file = File::create(&temporary).map_err(|_| JournalError::Persistence)?;
-            file.write_all(&body)
-                .and_then(|_| file.write_all(&tag))
-                .and_then(|_| file.sync_all())
-                .map_err(|_| JournalError::Persistence)?;
-            std::fs::rename(&temporary, path).map_err(|_| JournalError::Persistence)?;
-            File::open(parent)
-                .and_then(|directory| directory.sync_all())
-                .map_err(|_| JournalError::Persistence)
-        })();
-        if result.is_err() {
-            let _ = std::fs::remove_file(temporary);
-        }
-        result
+        save_snapshot(self, path)
     }
 
     pub fn load(path: &Path) -> Result<Self, JournalError> {
-        let bytes = std::fs::read(path).map_err(|_| JournalError::Persistence)?;
-        if bytes.len() < SNAPSHOT_TAG_LENGTH {
-            return Err(JournalError::Persistence);
-        }
-        let body_length = bytes.len() - SNAPSHOT_TAG_LENGTH;
-        if snapshot_tag(&bytes[..body_length]) != bytes[body_length..] {
-            return Err(JournalError::Persistence);
-        }
-        decode_envelope(&bytes[..body_length]).map_err(|_| JournalError::Persistence)
+        load_snapshot(path)
     }
 }
 
@@ -348,8 +323,148 @@ impl CanonicalType for ConnectorJournalV1 {
     const MAX_ENCODED_LEN: usize = 3 + MAX_OBSERVATIONS * ProviderObservationV1::MAX_ENCODED_LEN;
 }
 
+/// Crash-safe progress for every webhook subscription and payment intent pair.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct WebhookDeliveryJournalV1 {
+    cursors: Vec<PaymentWebhookCursorV1>,
+}
+
+impl WebhookDeliveryJournalV1 {
+    pub const TYPE_TAG: u16 = 0x016A;
+
+    #[must_use]
+    pub fn cursors(&self) -> &[PaymentWebhookCursorV1] {
+        &self.cursors
+    }
+
+    pub fn deliver(
+        &mut self,
+        event: &PaymentWebhookEventV1,
+        timestamp: u64,
+    ) -> Result<(), JournalError> {
+        let key = (event.subscription(), event.intent());
+        match self
+            .cursors
+            .binary_search_by_key(&key, |cursor| (cursor.subscription(), cursor.intent()))
+        {
+            Ok(index) => {
+                self.cursors[index] = self.cursors[index]
+                    .advance(event, timestamp)
+                    .map_err(|_| JournalError::InvalidDelivery)?;
+            }
+            Err(index) => {
+                if self.cursors.len() == MAX_WEBHOOK_CURSORS {
+                    return Err(JournalError::Capacity);
+                }
+                let cursor = PaymentWebhookCursorV1::new(event.subscription(), event.intent())
+                    .advance(event, timestamp)
+                    .map_err(|_| JournalError::InvalidDelivery)?;
+                self.cursors.insert(index, cursor);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn deliver_durable(
+        &mut self,
+        event: &PaymentWebhookEventV1,
+        timestamp: u64,
+        path: &Path,
+    ) -> Result<(), JournalError> {
+        let mut next = self.clone();
+        next.deliver(event, timestamp)?;
+        next.save_atomic(path)?;
+        *self = next;
+        Ok(())
+    }
+
+    pub fn save_atomic(&self, path: &Path) -> Result<(), JournalError> {
+        save_snapshot(self, path)
+    }
+
+    pub fn load(path: &Path) -> Result<Self, JournalError> {
+        load_snapshot(path)
+    }
+}
+
+impl CanonicalEncode for WebhookDeliveryJournalV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        encoder.write_length(self.cursors.len(), MAX_WEBHOOK_CURSORS)?;
+        for cursor in &self.cursors {
+            cursor.encode(encoder)?;
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for WebhookDeliveryJournalV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let count = decoder.read_length(MAX_WEBHOOK_CURSORS)?;
+        let mut cursors = Vec::with_capacity(count);
+        for _ in 0..count {
+            let cursor = PaymentWebhookCursorV1::decode(decoder)?;
+            let key = (cursor.subscription(), cursor.intent());
+            if cursors.last().is_some_and(|previous: &PaymentWebhookCursorV1| {
+                (previous.subscription(), previous.intent()) >= key
+            }) {
+                return Err(DecodeError::InvalidValue(
+                    "webhook cursors are not canonically ordered",
+                ));
+            }
+            cursors.push(cursor);
+        }
+        Ok(Self { cursors })
+    }
+}
+
+impl CanonicalType for WebhookDeliveryJournalV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize =
+        3 + MAX_WEBHOOK_CURSORS * PaymentWebhookCursorV1::MAX_ENCODED_LEN;
+}
+
 fn map_validation(_: PaymentValidationError) -> JournalError {
     JournalError::InvalidObservation
+}
+
+fn save_snapshot<T: CanonicalType + CanonicalEncode>(
+    value: &T,
+    path: &Path,
+) -> Result<(), JournalError> {
+    let body = encode_envelope(value).map_err(|_| JournalError::Persistence)?;
+    let tag = snapshot_tag(&body);
+    let parent = path.parent().ok_or(JournalError::Persistence)?;
+    std::fs::create_dir_all(parent).map_err(|_| JournalError::Persistence)?;
+    let name = path.file_name().ok_or(JournalError::Persistence)?.to_string_lossy();
+    let temporary = parent.join(format!(".{name}.{}.tmp", std::process::id()));
+    let result = (|| {
+        let mut file = File::create(&temporary).map_err(|_| JournalError::Persistence)?;
+        file.write_all(&body)
+            .and_then(|_| file.write_all(&tag))
+            .and_then(|_| file.sync_all())
+            .map_err(|_| JournalError::Persistence)?;
+        std::fs::rename(&temporary, path).map_err(|_| JournalError::Persistence)?;
+        File::open(parent)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|_| JournalError::Persistence)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(temporary);
+    }
+    result
+}
+
+fn load_snapshot<T: CanonicalType + CanonicalDecode>(path: &Path) -> Result<T, JournalError> {
+    let bytes = std::fs::read(path).map_err(|_| JournalError::Persistence)?;
+    if bytes.len() < SNAPSHOT_TAG_LENGTH {
+        return Err(JournalError::Persistence);
+    }
+    let body_length = bytes.len() - SNAPSHOT_TAG_LENGTH;
+    if snapshot_tag(&bytes[..body_length]) != bytes[body_length..] {
+        return Err(JournalError::Persistence);
+    }
+    decode_envelope(&bytes[..body_length]).map_err(|_| JournalError::Persistence)
 }
 
 fn snapshot_tag(bytes: &[u8]) -> [u8; SNAPSHOT_TAG_LENGTH] {
@@ -367,7 +482,8 @@ mod tests {
     use super::*;
     use activechain_payment_types::{
         AssetAmountV1, ConnectorId, EvidenceClass, PaymentAttemptId, PaymentIntentId,
-        ProviderOperationState, RailId,
+        PaymentLifecycleRecordV1, PaymentState, PaymentWebhookEventId, PaymentWebhookEventV1,
+        PaymentWebhookSubscriptionId, ProviderOperationState, RailId,
     };
     use activechain_protocol_types::{AssetId, ChainId, Digest384};
     use std::path::PathBuf;
@@ -391,6 +507,32 @@ mod tests {
             100 + sequence,
             EvidenceClass::ProviderSigned,
             digest(payload),
+        )
+        .unwrap()
+    }
+
+    fn webhook_event(subscription: u8, event: u8, sequence: u64) -> PaymentWebhookEventV1 {
+        let state =
+            if sequence == 1 { PaymentState::Created } else { PaymentState::ProviderPending };
+        PaymentWebhookEventV1::new(
+            PaymentWebhookSubscriptionId::new(digest(subscription)).unwrap(),
+            PaymentWebhookEventId::new(digest(event)).unwrap(),
+            PaymentLifecycleRecordV1::new(
+                PaymentIntentId::new(digest(4)).unwrap(),
+                sequence,
+                state,
+                EvidenceClass::ConnectorAuthenticated,
+                digest(70 + sequence as u8),
+                None,
+                0,
+                None,
+                0,
+            )
+            .unwrap(),
+            digest(80),
+            digest(81),
+            100,
+            200,
         )
         .unwrap()
     }
@@ -556,6 +698,56 @@ mod tests {
             Err(JournalError::Persistence)
         );
         assert!(journal.observations().is_empty());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn webhook_delivery_survives_restart_and_rejects_replay_or_gaps() {
+        let path = path("webhook-restart");
+        let _ = std::fs::remove_file(&path);
+        let mut journal = WebhookDeliveryJournalV1::default();
+        let first = webhook_event(50, 51, 1);
+        journal.deliver_durable(&first, 150, &path).unwrap();
+        assert_eq!(WebhookDeliveryJournalV1::load(&path).unwrap(), journal);
+        assert_eq!(journal.cursors()[0].next_sequence(), 2);
+        assert_eq!(journal.deliver(&first, 150), Err(JournalError::InvalidDelivery));
+        assert_eq!(
+            journal.deliver(&webhook_event(50, 53, 3), 150),
+            Err(JournalError::InvalidDelivery)
+        );
+        journal.deliver_durable(&webhook_event(50, 52, 2), 150, &path).unwrap();
+        assert_eq!(WebhookDeliveryJournalV1::load(&path).unwrap(), journal);
+        assert_eq!(journal.cursors()[0].next_sequence(), 3);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn webhook_journal_is_ordered_and_corruption_fails_closed() {
+        let path = path("webhook-corrupt");
+        let _ = std::fs::remove_file(&path);
+        let mut journal = WebhookDeliveryJournalV1::default();
+        journal.deliver(&webhook_event(60, 61, 1), 150).unwrap();
+        journal.deliver(&webhook_event(50, 51, 1), 150).unwrap();
+        assert!(journal.cursors()[0].subscription() < journal.cursors()[1].subscription());
+        journal.save_atomic(&path).unwrap();
+        let mut bytes = std::fs::read(&path).unwrap();
+        bytes[8] ^= 1;
+        std::fs::write(&path, bytes).unwrap();
+        assert_eq!(WebhookDeliveryJournalV1::load(&path), Err(JournalError::Persistence));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn failed_webhook_persistence_does_not_advance_memory() {
+        let directory = path("webhook-directory");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let mut journal = WebhookDeliveryJournalV1::default();
+        assert_eq!(
+            journal.deliver_durable(&webhook_event(50, 51, 1), 150, &directory),
+            Err(JournalError::Persistence)
+        );
+        assert!(journal.cursors().is_empty());
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
