@@ -237,3 +237,4 @@
 0x0168	1	PaymentWebhookEventV1	crates/payment-types/src/lib.rs
 0x0169	1	PaymentWebhookCursorV1	crates/payment-types/src/lib.rs
 0x016A	1	WebhookDeliveryJournalV1	crates/payment-connector-host/src/lib.rs
+0x016B	1	NonFungibleIssuerApprovalV1	crates/protocol-types/src/asset.rs
