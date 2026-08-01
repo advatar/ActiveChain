@@ -7,12 +7,15 @@ use std::collections::BTreeMap;
 use activechain_agent_interfaces::{
     A2UI_VERSION, A2uiActionV1, A2uiComponentV1, A2uiSurfaceV1, BindingV1, INTERFACE_VERSION,
 };
+use activechain_cash_kernel::FungibleCoinCell;
 use activechain_proposal_gateway::{ActionIntentV1, ActionKindV1};
 use activechain_protocol_types::{
-    FungibleAssetPolicyV1, FungibleControllerRotationV1, FungibleControllerStateV1,
-    FungibleCorporateActionKind, FungibleCorporateActionRegistryV1, FungibleCorporateActionV1,
-    FungibleIssuerApprovalV1, FungibleIssuerOperation, NonFungibleIssuerApprovalV1,
-    NonFungibleMintManifestV1, NonFungibleSeriesV1, NonFungibleTokenRegistryV1,
+    FungibleAssetDefinition, FungibleAssetPolicyV1, FungibleControllerRotationV1,
+    FungibleControllerStateV1, FungibleCorporateActionKind, FungibleCorporateActionRegistryV1,
+    FungibleCorporateActionV1, FungibleExceptionalControlActionV1, FungibleExceptionalControlKind,
+    FungibleExceptionalControlPolicyV1, FungibleHolderControlStateV1, FungibleIssuerApprovalV1,
+    FungibleIssuerOperation, NonFungibleIssuerApprovalV1, NonFungibleMintManifestV1,
+    NonFungibleSeriesV1, NonFungibleTokenRegistryV1,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -364,6 +367,88 @@ impl CorporateActionFacts {
             expires_height: action.expires_height(),
             amount_per_unit: action.amount_per_unit().to_string(),
             ratio: format!("{}:{}", action.ratio_numerator(), action.ratio_denominator()),
+        })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HolderControlFacts {
+    pub approval_commitment: String,
+    pub asset: String,
+    pub holder: String,
+    pub recipient: String,
+    pub control_policy: String,
+    pub authority_set: String,
+    pub reason_commitment: String,
+    pub action: String,
+    pub amount: String,
+    pub revision_before: u64,
+    pub revision_after: u64,
+    pub frozen_before: bool,
+    pub frozen_after: bool,
+    pub cell_owner_before: String,
+    pub cell_owner_after: String,
+    pub effective_height: u64,
+    pub expires_height: u64,
+}
+
+impl HolderControlFacts {
+    pub fn from_approved_action(
+        definition: &FungibleAssetDefinition,
+        policy: &FungibleExceptionalControlPolicyV1,
+        state: &FungibleHolderControlStateV1,
+        action: &FungibleExceptionalControlActionV1,
+        cell: Option<FungibleCoinCell>,
+        finalized_height: u64,
+    ) -> Result<Self, RenderError> {
+        let (next_state, cell_owner_before, cell_owner_after) = match action.kind() {
+            FungibleExceptionalControlKind::Clawback => {
+                let cell = cell.ok_or(RenderError::InvalidCanonicalFacts)?;
+                let (next_cell, next_state) = cell
+                    .apply_declared_clawback(definition, policy, state, action, finalized_height)
+                    .map_err(|_| RenderError::InvalidCanonicalFacts)?;
+                (
+                    next_state,
+                    lower_hex(cell.owner().digest().as_bytes()),
+                    lower_hex(next_cell.owner().digest().as_bytes()),
+                )
+            }
+            FungibleExceptionalControlKind::Freeze | FungibleExceptionalControlKind::Unfreeze => {
+                if cell.is_some() {
+                    return Err(RenderError::InvalidCanonicalFacts);
+                }
+                (
+                    state
+                        .apply(definition, policy, action, finalized_height)
+                        .map_err(|_| RenderError::InvalidCanonicalFacts)?,
+                    "No Coin Cell movement".into(),
+                    "No Coin Cell movement".into(),
+                )
+            }
+        };
+        let action_name = match action.kind() {
+            FungibleExceptionalControlKind::Freeze => "Freeze",
+            FungibleExceptionalControlKind::Unfreeze => "Unfreeze",
+            FungibleExceptionalControlKind::Clawback => "Clawback",
+        };
+        Ok(Self {
+            approval_commitment: lower_hex(action.approval_commitment().as_bytes()),
+            asset: lower_hex(action.asset_id().digest().as_bytes()),
+            holder: lower_hex(action.holder().digest().as_bytes()),
+            recipient: lower_hex(action.recipient().digest().as_bytes()),
+            control_policy: lower_hex(action.control_policy_commitment().as_bytes()),
+            authority_set: lower_hex(action.authority_set().as_bytes()),
+            reason_commitment: lower_hex(action.reason_commitment().as_bytes()),
+            action: action_name.into(),
+            amount: action.amount().to_string(),
+            revision_before: action.expected_revision(),
+            revision_after: next_state.revision(),
+            frozen_before: state.frozen(),
+            frozen_after: next_state.frozen(),
+            cell_owner_before,
+            cell_owner_after,
+            effective_height: action.effective_height(),
+            expires_height: action.expires_height(),
         })
     }
 }
@@ -786,6 +871,55 @@ pub fn render_corporate_action(
     )
 }
 
+pub fn render_holder_control(
+    facts: &HolderControlFacts,
+    explanation: &str,
+) -> Result<RenderedApproval, RenderError> {
+    for digest in [
+        &facts.approval_commitment,
+        &facts.asset,
+        &facts.holder,
+        &facts.recipient,
+        &facts.control_policy,
+        &facts.authority_set,
+        &facts.reason_commitment,
+    ] {
+        require_digest_text(digest)?;
+    }
+    if facts.revision_before.checked_add(1) != Some(facts.revision_after)
+        || facts.effective_height >= facts.expires_height
+        || facts.amount.parse::<u128>().is_err()
+        || !matches!(facts.action.as_str(), "Freeze" | "Unfreeze" | "Clawback")
+    {
+        return Err(RenderError::InvalidCanonicalFacts);
+    }
+    render_fact_surface(
+        "activechain.holder_control.v1",
+        "Review exceptional holder control",
+        &facts.approval_commitment,
+        &[
+            ("Asset ID".into(), facts.asset.clone()),
+            ("Action".into(), facts.action.clone()),
+            ("Holder".into(), facts.holder.clone()),
+            ("Destination".into(), facts.recipient.clone()),
+            ("Amount".into(), facts.amount.clone()),
+            ("Declared policy".into(), facts.control_policy.clone()),
+            ("Authority set".into(), facts.authority_set.clone()),
+            ("Reason".into(), facts.reason_commitment.clone()),
+            ("Revision before".into(), facts.revision_before.to_string()),
+            ("Revision after".into(), facts.revision_after.to_string()),
+            ("Frozen before".into(), facts.frozen_before.to_string()),
+            ("Frozen after".into(), facts.frozen_after.to_string()),
+            ("Coin Cell owner before".into(), facts.cell_owner_before.clone()),
+            ("Coin Cell owner after".into(), facts.cell_owner_after.clone()),
+            ("Effective height".into(), facts.effective_height.to_string()),
+            ("Expiry height".into(), facts.expires_height.to_string()),
+        ],
+        Some(explanation),
+        true,
+    )
+}
+
 fn render_fact_surface(
     surface_id: &str,
     title: &str,
@@ -1083,8 +1217,10 @@ fn button(id: &str, child: &str, action_name: &str, commitment: &str) -> A2uiCom
 #[cfg(test)]
 mod tests {
     use super::*;
+    use activechain_cash_kernel::CoinCellOrigin;
     use activechain_protocol_types::{
         AssetId, Digest384, FungibleAssetLifecycle, NonFungibleMintItemV1, PrincipalId,
+        TransactionId,
     };
 
     fn facts() -> TransferApprovalFacts {
@@ -1625,6 +1761,148 @@ mod tests {
             .unwrap();
         assert_eq!(
             CorporateActionFacts::from_approved_action(&policy, &registry, &action, 12),
+            Err(RenderError::InvalidCanonicalFacts)
+        );
+    }
+
+    fn holder_control_inputs() -> (
+        FungibleAssetDefinition,
+        FungibleExceptionalControlPolicyV1,
+        FungibleHolderControlStateV1,
+        FungibleCoinCell,
+    ) {
+        let asset = AssetId::new(Digest384::new([101; 48]));
+        let issuer = PrincipalId::new(Digest384::new([102; 48]));
+        let holder = PrincipalId::new(Digest384::new([103; 48]));
+        let policy = FungibleExceptionalControlPolicyV1::new(
+            asset,
+            issuer,
+            Digest384::new([104; 48]),
+            true,
+            true,
+        )
+        .unwrap();
+        let definition = FungibleAssetDefinition::new(
+            asset,
+            issuer,
+            b"TEST".to_vec(),
+            2,
+            1_000,
+            policy.commitment().unwrap(),
+        )
+        .unwrap();
+        let state = FungibleHolderControlStateV1::new(asset, holder).unwrap();
+        let cell = FungibleCoinCell::new(
+            CoinCellOrigin::new(TransactionId::new(Digest384::new([105; 48])), 0),
+            asset,
+            holder,
+            42,
+            7,
+        )
+        .unwrap();
+        (definition, policy, state, cell)
+    }
+
+    #[test]
+    fn holder_control_review_is_derived_from_conserved_clawback() {
+        let (definition, policy, state, cell) = holder_control_inputs();
+        let action = FungibleExceptionalControlActionV1::new(
+            cell.asset_id(),
+            cell.owner(),
+            PrincipalId::new(Digest384::new([106; 48])),
+            policy.commitment().unwrap(),
+            policy.authority_set(),
+            Digest384::new([107; 48]),
+            Digest384::new([108; 48]),
+            FungibleExceptionalControlKind::Clawback,
+            42,
+            0,
+            10,
+            20,
+        )
+        .unwrap();
+        let facts = HolderControlFacts::from_approved_action(
+            &definition,
+            &policy,
+            &state,
+            &action,
+            Some(cell),
+            10,
+        )
+        .unwrap();
+        assert_eq!(facts.action, "Clawback");
+        assert_eq!(facts.amount, "42");
+        assert_ne!(facts.cell_owner_before, facts.cell_owner_after);
+        let rendered = render_holder_control(&facts, "Execute the approved recovery").unwrap();
+        let surface = rendered.surface.unwrap();
+        assert_eq!(surface.surface_id, "activechain.holder_control.v1");
+        assert_eq!(surface.intent_commitment, "6b".repeat(48));
+    }
+
+    #[test]
+    fn holder_control_review_rejects_missing_extra_or_stale_cell_context() {
+        let (definition, policy, state, cell) = holder_control_inputs();
+        let clawback = FungibleExceptionalControlActionV1::new(
+            cell.asset_id(),
+            cell.owner(),
+            PrincipalId::new(Digest384::new([106; 48])),
+            policy.commitment().unwrap(),
+            policy.authority_set(),
+            Digest384::new([107; 48]),
+            Digest384::new([108; 48]),
+            FungibleExceptionalControlKind::Clawback,
+            42,
+            0,
+            10,
+            20,
+        )
+        .unwrap();
+        assert_eq!(
+            HolderControlFacts::from_approved_action(
+                &definition,
+                &policy,
+                &state,
+                &clawback,
+                None,
+                10,
+            ),
+            Err(RenderError::InvalidCanonicalFacts)
+        );
+        let freeze = FungibleExceptionalControlActionV1::new(
+            cell.asset_id(),
+            cell.owner(),
+            cell.owner(),
+            policy.commitment().unwrap(),
+            policy.authority_set(),
+            Digest384::new([109; 48]),
+            Digest384::new([110; 48]),
+            FungibleExceptionalControlKind::Freeze,
+            0,
+            0,
+            10,
+            20,
+        )
+        .unwrap();
+        assert_eq!(
+            HolderControlFacts::from_approved_action(
+                &definition,
+                &policy,
+                &state,
+                &freeze,
+                Some(cell),
+                10,
+            ),
+            Err(RenderError::InvalidCanonicalFacts)
+        );
+        assert_eq!(
+            HolderControlFacts::from_approved_action(
+                &definition,
+                &policy,
+                &state,
+                &freeze,
+                None,
+                20,
+            ),
             Err(RenderError::InvalidCanonicalFacts)
         );
     }

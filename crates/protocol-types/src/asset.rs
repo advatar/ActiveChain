@@ -1745,6 +1745,27 @@ impl FungibleExceptionalControlActionV1 {
     pub const fn amount(self) -> u128 {
         self.amount
     }
+    pub const fn control_policy_commitment(self) -> Digest384 {
+        self.control_policy_commitment
+    }
+    pub const fn authority_set(self) -> Digest384 {
+        self.authority_set
+    }
+    pub const fn approval_commitment(self) -> Digest384 {
+        self.approval_commitment
+    }
+    pub const fn reason_commitment(self) -> Digest384 {
+        self.reason_commitment
+    }
+    pub const fn expected_revision(self) -> u64 {
+        self.expected_revision
+    }
+    pub const fn effective_height(self) -> u64 {
+        self.effective_height
+    }
+    pub const fn expires_height(self) -> u64 {
+        self.expires_height
+    }
     pub const fn active_at(self, height: u64) -> bool {
         height >= self.effective_height && height < self.expires_height
     }

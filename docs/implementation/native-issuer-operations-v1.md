@@ -50,3 +50,8 @@ The native issuer CLI exposes `control-policy`, `holder-control-state`, `control
 `dry-run-control`. Freeze and unfreeze preflight return the exact post-state. Clawback additionally
 requires a canonical input Coin Cell and returns both the conserved post-cell and revisioned
 post-state; omission or substitution of that cell is rejected.
+
+The issuer-console holder-control review executes the same transition before rendering. Wallet
+facts show the declared policy and authority, approval and reason commitments, holder and
+destination, exact amount, revision and freeze state before/after, Coin Cell ownership movement,
+and half-open window. The wallet action remains bound to the exact approval commitment.
