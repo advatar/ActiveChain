@@ -648,6 +648,8 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
 - [ ] Make the production validator round execute or load the authoritative cash transition,
   verify it through the non-test finalized-block verifier, and atomically emit the matching
   finalized cash snapshot plus certificate bundle; metadata consensus alone is insufficient.
+- [x] Require finalized-cash publication to load a canonical invariant-checked, chain-bound cash
+  ledger instead of synthesizing an empty Coin Cell set.
 - [ ] Make a fresh Kanalen reset provision the genesis cash state consumed by that execution path,
   then prove the first and restarted rounds publish matching cash/finality artifacts.
 - [x] Make the Kanalen proposer certify the exact finalized cash root and emit the verifier-ready
