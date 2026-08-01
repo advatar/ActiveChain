@@ -10,6 +10,7 @@ default = ["std"]
 std = []
 
 [dependencies]
+activechain-accumulator.workspace = true
 activechain-canonical-codec.workspace = true
 activechain-cash-kernel.workspace = true
 activechain-crypto-provider.workspace = true
@@ -20,7 +21,6 @@ activechain-rpc-types.workspace = true
 sha2.workspace = true
 
 [dev-dependencies]
-activechain-accumulator.workspace = true
 tempfile = "3.20.0"
 ml-dsa = "0.1.1"
 

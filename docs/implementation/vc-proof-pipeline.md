@@ -110,3 +110,10 @@ envelope, and atomically replaces durable state before advancing memory or ackno
 Replays, stale or substituted witnesses, mismatched evidence, and corrupt restart state fail
 closed. The journal deliberately does not replace proof or finality verification; it provides the
 durable exactly-once boundary after those checks succeed.
+
+`DurableCredentialReceiptLedger` retains the complete transcript-free receipts and the canonical
+nullifier accumulator in one synchronized atomic snapshot. Receipts are ordered uniquely by
+nullifier. Every restart reconstructs an independent nullifier accumulator from that receipt list
+and requires its root and count to match the stored accumulator before admission can resume. A
+replay, substituted binding, noncanonical or inconsistent snapshot, capacity failure, or failed
+write advances neither receipt evidence nor replay state.

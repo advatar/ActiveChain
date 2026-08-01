@@ -49,7 +49,10 @@ pub use holder_control::{
     HolderControlRegistryV1,
 };
 #[cfg(feature = "std")]
-pub use receipt_nullifier::{CredentialReceiptJournalError, DurableCredentialReceiptJournal};
+pub use receipt_nullifier::{
+    CredentialReceiptJournalError, CredentialReceiptLedgerV1, DurableCredentialReceiptJournal,
+    DurableCredentialReceiptLedger,
+};
 #[cfg(feature = "std")]
 pub use sponsored_cash::{
     DurableSponsoredCash, SponsoredCashPersistenceError, SponsoredCashReceiptV1,

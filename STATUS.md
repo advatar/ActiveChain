@@ -1241,6 +1241,8 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
     predicate, verifier/proof version, status, policy, nullifier, and finalized-height bindings.
   - [x] Consume receipt nullifiers through the canonical accumulator and persist the updated root
     atomically before acknowledgement, rejecting replay, stale witnesses, and corrupt restart state.
+  - [x] Persist admitted transcript-free receipts and the corresponding nullifier accumulator as
+    one canonical atomic ledger so restart preserves both replay protection and receipt evidence.
 - [ ] Formally prove the evidence-to-claim-to-circuit-to-APL refinement, no provenance escalation,
   predicate soundness, action/audience binding, replay resistance, and declared unlinkability.
 - [ ] Pass cross-repository malformed/adversarial vectors, device-key integration, privacy review,
