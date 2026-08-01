@@ -23,3 +23,9 @@ Issuer, reserve, compliance, and emergency roles are separate attenuated capabil
 attestations and KYC material remain off-chain; only their signed commitments and verifier versions
 are public. A regulated profile can constrain operations without changing the asset identifier or
 granting universal chain-wide freeze authority.
+
+Before submitting a corporate action, operators use `dry-run-corporate-action` with the exact
+canonical policy, current exact-once registry, action envelope, and finalized height. Successful
+preflight returns the action identity and canonical post-registry. The issuer console reconstructs
+its review from that same accepted transition; stale, replayed, cross-policy, and cross-authority
+actions fail before a wallet approval can be requested.

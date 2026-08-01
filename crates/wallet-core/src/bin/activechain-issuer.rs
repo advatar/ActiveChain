@@ -3,10 +3,10 @@ use activechain_protocol_types::{
     AssetId, Digest384, FungibleAssetDefinition, FungibleAssetLifecycle,
     FungibleAssetLifecycleAction, FungibleAssetLifecycleActionV1, FungibleAssetPolicyV1,
     FungibleControllerRotationV1, FungibleControllerStateV1, FungibleCorporateActionKind,
-    FungibleCorporateActionV1, FungibleIssuerApprovalV1, FungibleIssuerOperation,
-    FungibleIssuerRegistrationV1, FungibleSupplyAttestationV1, NonFungibleIssuerApprovalV1,
-    NonFungibleMintItemV1, NonFungibleMintManifestV1, NonFungibleSeriesV1,
-    NonFungibleTokenRegistryV1, PrincipalId,
+    FungibleCorporateActionRegistryV1, FungibleCorporateActionV1, FungibleIssuerApprovalV1,
+    FungibleIssuerOperation, FungibleIssuerRegistrationV1, FungibleSupplyAttestationV1,
+    NonFungibleIssuerApprovalV1, NonFungibleMintItemV1, NonFungibleMintManifestV1,
+    NonFungibleSeriesV1, NonFungibleTokenRegistryV1, PrincipalId,
 };
 
 fn hex_digest(value: &str) -> Result<Digest384, String> {
@@ -62,7 +62,7 @@ fn corporate_action(value: &str) -> Result<FungibleCorporateActionKind, String> 
 }
 
 fn usage() -> &'static str {
-    "usage:\n  activechain-issuer definition <asset> <issuer> <symbol> <decimals> <supply-cap> <policy>\n  activechain-issuer policy <asset> <issuer> <authority-set> <cap> <issued>\n  activechain-issuer approval <asset> <policy> <authority-set> <approval> <operation> <amount> <supply-before> <effective-height> <expires-height>\n  activechain-issuer attestation <asset> <policy> <issuer> <supply> <finalized-height> <approval>\n  activechain-issuer registration <asset> <issuer> <authority-set> <policy> <effective-height> <expires-height>\n  activechain-issuer lifecycle <asset> <policy> <authority-set> <approval> <reason> <pause|resume|retire> <effective-height> <expires-height>\n  activechain-issuer corporate-action <asset> <issuer> <policy> <authority-set> <approval> <terms> <kind> <record-height> <effective-height> <expires-height> <amount-per-unit> <ratio-numerator> <ratio-denominator>\n  activechain-issuer dry-run-supply <policy-envelope> <approval-envelope> <finalized-height>\n  activechain-issuer nft-series <asset> <issuer> <max-supply> <minted> <metadata-schema>\n  activechain-issuer nft-registry <asset> [token-id ...]\n  activechain-issuer nft-manifest <asset> <issuer> (<token-id> <owner> <metadata>)+\n  activechain-issuer nft-approval <series-envelope> <authority-set> <approval> <manifest-envelope> <effective-height> <expires-height>\n  activechain-issuer dry-run-nft <series-envelope> <registry-envelope> <authority-set> <approval-envelope> <manifest-envelope> <finalized-height>\n  activechain-issuer controller-state <policy-envelope> <revision>\n  activechain-issuer controller-rotation <policy-envelope> <state-envelope> <replacement-authority> <approval> <effective-height> <expires-height>\n  activechain-issuer dry-run-controller-rotation <policy-envelope> <state-envelope> <rotation-envelope> <finalized-height>"
+    "usage:\n  activechain-issuer definition <asset> <issuer> <symbol> <decimals> <supply-cap> <policy>\n  activechain-issuer policy <asset> <issuer> <authority-set> <cap> <issued>\n  activechain-issuer approval <asset> <policy> <authority-set> <approval> <operation> <amount> <supply-before> <effective-height> <expires-height>\n  activechain-issuer attestation <asset> <policy> <issuer> <supply> <finalized-height> <approval>\n  activechain-issuer registration <asset> <issuer> <authority-set> <policy> <effective-height> <expires-height>\n  activechain-issuer lifecycle <asset> <policy> <authority-set> <approval> <reason> <pause|resume|retire> <effective-height> <expires-height>\n  activechain-issuer corporate-action <asset> <issuer> <policy> <authority-set> <approval> <terms> <kind> <record-height> <effective-height> <expires-height> <amount-per-unit> <ratio-numerator> <ratio-denominator>\n  activechain-issuer dry-run-supply <policy-envelope> <approval-envelope> <finalized-height>\n  activechain-issuer dry-run-corporate-action <policy-envelope> <registry-envelope> <action-envelope> <finalized-height>\n  activechain-issuer nft-series <asset> <issuer> <max-supply> <minted> <metadata-schema>\n  activechain-issuer nft-registry <asset> [token-id ...]\n  activechain-issuer nft-manifest <asset> <issuer> (<token-id> <owner> <metadata>)+\n  activechain-issuer nft-approval <series-envelope> <authority-set> <approval> <manifest-envelope> <effective-height> <expires-height>\n  activechain-issuer dry-run-nft <series-envelope> <registry-envelope> <authority-set> <approval-envelope> <manifest-envelope> <finalized-height>\n  activechain-issuer controller-state <policy-envelope> <revision>\n  activechain-issuer controller-rotation <policy-envelope> <state-envelope> <replacement-authority> <approval> <effective-height> <expires-height>\n  activechain-issuer dry-run-controller-rotation <policy-envelope> <state-envelope> <rotation-envelope> <finalized-height>"
 }
 
 fn hex_bytes(bytes: &[u8]) -> String {
@@ -210,6 +210,31 @@ fn run(args: &[String]) -> Result<String, String> {
             }
             .map_err(|_| "issuer supply dry-run rejected")?;
             Ok(hex_bytes(&encode_envelope(&next).map_err(|_| "next policy encoding failed")?))
+        }
+        Some("dry-run-corporate-action") if args.len() == 5 => {
+            let policy: FungibleAssetPolicyV1 = envelope(&args[1], "policy")?;
+            let mut registry: FungibleCorporateActionRegistryV1 =
+                envelope(&args[2], "corporate action registry")?;
+            let action: FungibleCorporateActionV1 = envelope(&args[3], "corporate action")?;
+            let height =
+                args[4].parse().map_err(|_| "finalized-height must be an unsigned integer")?;
+            let action_id = registry
+                .admit(
+                    &action,
+                    policy.asset_id(),
+                    policy.commitment().map_err(|_| "policy encoding failed")?,
+                    policy.authority_set(),
+                    height,
+                )
+                .map_err(|_| "corporate action dry-run rejected")?;
+            Ok(format!(
+                "{}:{}",
+                hex_bytes(action_id.as_bytes()),
+                hex_bytes(
+                    &encode_envelope(&registry)
+                        .map_err(|_| "corporate action registry encoding failed")?
+                )
+            ))
         }
         Some("nft-series") if args.len() == 6 => {
             let series = NonFungibleSeriesV1::new(
@@ -474,6 +499,62 @@ mod tests {
         let mut wrong_economics = args;
         wrong_economics[11] = "1".into();
         assert!(run(&wrong_economics).is_err());
+    }
+
+    #[test]
+    fn corporate_action_dry_run_is_exact_once_and_policy_bound() {
+        let asset = AssetId::new(hex_digest(&d()).unwrap());
+        let issuer = PrincipalId::new(Digest384::new([0x22; 48]));
+        let authority = Digest384::new([0x33; 48]);
+        let policy = FungibleAssetPolicyV1::new(
+            asset,
+            issuer,
+            Digest384::ZERO,
+            Digest384::ZERO,
+            Digest384::ZERO,
+            authority,
+            1_000,
+            100,
+            FungibleAssetLifecycle::Registered,
+        )
+        .unwrap();
+        let action = FungibleCorporateActionV1::new(
+            asset,
+            issuer,
+            policy.commitment().unwrap(),
+            authority,
+            Digest384::new([0x44; 48]),
+            Digest384::new([0x55; 48]),
+            FungibleCorporateActionKind::Distribution,
+            10,
+            20,
+            30,
+            5,
+            1,
+            1,
+        )
+        .unwrap();
+        let empty = FungibleCorporateActionRegistryV1::default();
+        let args = vec![
+            "dry-run-corporate-action".into(),
+            hex_bytes(&encode_envelope(&policy).unwrap()),
+            hex_bytes(&encode_envelope(&empty).unwrap()),
+            hex_bytes(&encode_envelope(&action).unwrap()),
+            "20".into(),
+        ];
+        let output = run(&args).unwrap();
+        let (action_id, registry_hex) = output.split_once(':').unwrap();
+        assert_eq!(action_id, hex_bytes(action.action_id().unwrap().as_bytes()));
+        let registry: FungibleCorporateActionRegistryV1 =
+            envelope(registry_hex, "corporate action registry").unwrap();
+        assert_eq!(registry.action_ids(), &[action.action_id().unwrap()]);
+
+        let mut replay = args.clone();
+        replay[2] = registry_hex.into();
+        assert_eq!(run(&replay), Err("corporate action dry-run rejected".into()));
+        let mut stale = args;
+        stale[4] = "30".into();
+        assert_eq!(run(&stale), Err("corporate action dry-run rejected".into()));
     }
 
     fn policy_and_approval(
