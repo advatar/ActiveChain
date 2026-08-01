@@ -230,3 +230,5 @@
 0x0161	1	CashPaymasterRequestV1	crates/cash-kernel/src/economics.rs
 0x0162	1	PaymentRefundRequestV1	crates/payment-types/src/lib.rs
 0x0163	1	PaymentRefundStateV1	crates/payment-types/src/lib.rs
+0x0164	1	PaymentDisputeRequestV1	crates/payment-types/src/lib.rs
+0x0165	1	PaymentDisputeRecordV1	crates/payment-types/src/lib.rs
