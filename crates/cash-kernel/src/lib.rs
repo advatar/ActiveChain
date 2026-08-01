@@ -41,7 +41,7 @@ pub use economics::{
     DutyAssignment, DutyReceipt, EconomicsError, FeeMarket, FeeQuote, ObjectiveFault,
     RewardRedemption, RewardReplayWitness, RewardSettlement, SecurityPoolAllocation, SlashSplit,
     VerifierRole, assign_challenge, challenge_commitment, register_assignment, resolve_challenge,
-    settle_duty,
+    select_auditor, settle_duty,
 };
 pub use partitioned::{
     MAX_CASH_PARTITIONS, PartitionedCashPlan, PartitionedCashReceipt, cash_partition_for,

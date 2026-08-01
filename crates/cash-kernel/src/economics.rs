@@ -283,6 +283,44 @@ pub const PUBLIC_GOODS_POOL_BPS: u16 = 500;
 pub const USER_SLASH_BPS: u16 = 4_000;
 pub const SECURITY_SLASH_BPS: u16 = 4_000;
 pub const CHALLENGER_SLASH_BPS: u16 = 2_000;
+pub const MAX_AUDIT_VERIFIERS: usize = 4_096;
+
+/// Selects one auditor without modulo bias. Candidate ordering is part of the
+/// consensus input and must already be canonical; callers cannot gain an
+/// advantage by permuting or duplicating identities.
+pub fn select_auditor(
+    finalized_randomness: Digest384,
+    target: Digest384,
+    eligible: &[PrincipalId],
+) -> Result<PrincipalId, EconomicsError> {
+    if finalized_randomness == Digest384::ZERO
+        || target == Digest384::ZERO
+        || eligible.is_empty()
+        || eligible.len() > MAX_AUDIT_VERIFIERS
+        || eligible.iter().any(|candidate| candidate.digest() == &Digest384::ZERO)
+        || eligible.windows(2).any(|pair| pair[0] >= pair[1])
+    {
+        return Err(EconomicsError::InvalidAuditSet);
+    }
+    let count = u64::try_from(eligible.len()).map_err(|_| EconomicsError::InvalidAuditSet)?;
+    let acceptance_zone = u64::MAX - (u64::MAX % count);
+    for counter in 0..=u64::MAX {
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-RANDOM-AUDIT-ASSIGNMENT-V1");
+        hasher.update(finalized_randomness.as_bytes());
+        hasher.update(target.as_bytes());
+        hasher.update(&counter.to_be_bytes());
+        let mut sample = [0_u8; 8];
+        hasher.finalize_xof().read(&mut sample);
+        let sample = u64::from_be_bytes(sample);
+        if sample < acceptance_zone {
+            let index =
+                usize::try_from(sample % count).map_err(|_| EconomicsError::InvalidAuditSet)?;
+            return Ok(eligible[index]);
+        }
+    }
+    Err(EconomicsError::InvalidAuditSet)
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SecurityPoolAllocation {
@@ -548,6 +586,7 @@ pub enum EconomicsError {
     InvalidSlash,
     InvalidChallenge,
     InvalidChallengeReveal,
+    InvalidAuditSet,
     InvalidCapacityReservation,
     CapacityExceeded,
 }
@@ -816,6 +855,40 @@ mod tests {
         )
         .unwrap();
         assert_eq!(copied.reveal(evidence, nonce, 20), Err(EconomicsError::InvalidChallengeReveal));
+    }
+
+    #[test]
+    fn audit_selection_is_deterministic_and_target_bound() {
+        let eligible = vec![principal(10), principal(20), principal(30), principal(40)];
+        let first = select_auditor(id(50), id(51), &eligible).unwrap();
+        assert_eq!(select_auditor(id(50), id(51), &eligible), Ok(first));
+        assert_ne!(
+            (0_u8..32)
+                .map(|offset| select_auditor(id(50), id(60 + offset), &eligible).unwrap())
+                .collect::<Vec<_>>(),
+            vec![first; 32]
+        );
+    }
+
+    #[test]
+    fn audit_selection_rejects_noncanonical_or_zero_inputs() {
+        assert_eq!(select_auditor(id(50), id(51), &[]), Err(EconomicsError::InvalidAuditSet));
+        assert_eq!(
+            select_auditor(id(50), id(51), &[principal(20), principal(10)]),
+            Err(EconomicsError::InvalidAuditSet)
+        );
+        assert_eq!(
+            select_auditor(id(50), id(51), &[principal(10), principal(10)]),
+            Err(EconomicsError::InvalidAuditSet)
+        );
+        assert_eq!(
+            select_auditor(Digest384::ZERO, id(51), &[principal(10)]),
+            Err(EconomicsError::InvalidAuditSet)
+        );
+        assert_eq!(
+            select_auditor(id(50), Digest384::ZERO, &[principal(10)]),
+            Err(EconomicsError::InvalidAuditSet)
+        );
     }
 
     #[test]
