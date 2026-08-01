@@ -13,6 +13,18 @@ Tracked by [GitHub issue #430](https://github.com/advatar/ActiveChain/issues/430
   `main` and confirm both landing and parent revisions are reachable from their respective
   `origin/main` branches.
 
+## Independent-client budget gate repair
+
+Tracked by [GitHub issue #401](https://github.com/advatar/ActiveChain/issues/401).
+
+- [x] Reconcile the published per-version active canonical identity counts with the registry after
+  merged protocol additions, without changing the approved staffing ranges or release gates.
+- [x] Reconcile the Apple compatibility manifest and C/Swift consumers with wallet ABI revision 3.
+- [x] Give each authorization-chain lemma a bounded 15-minute proof window so normal ARM64 runner
+  variance cannot kill a valid source-saturation proof at the old 10-minute limit.
+- [x] Pass the deterministic-kernel gate and merge the repair to `main`; merge commit `28fab4a` is
+  reachable from `origin/main`.
+
 ## Active landing-page rebrand — Actum
 
 Tracked by [GitHub issue #391](https://github.com/advatar/ActiveChain/issues/391).
