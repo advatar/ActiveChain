@@ -56,6 +56,27 @@ normative and measurement slice in [#398](https://github.com/advatar/ActiveChain
     - [x] Qualify interrupted activation, corruption, archive loss, and pruning fail-closed behavior.
     - [x] Record a production-like local run with measured peak and final physical usage.
 
+## Active bounded-storage landing publication
+
+Tracked by [GitHub issue #430](https://github.com/advatar/ActiveChain/issues/430).
+
+- [x] Publish accurately qualified bounded validator storage and decentralized archive functionality
+  to `activechain-display/main`, with dedicated claim regression coverage, lint, production build,
+  and route smoke verification.
+- [x] Advance the parent landing-page submodule pointer to landing merge `b419a12`; merge it to
+  `main` as `589da93` and confirm both landing and parent revisions are reachable from their
+  respective `origin/main` branches.
+
+## Non-interactive Docker authentication isolation
+
+Tracked by [GitHub issue #433](https://github.com/advatar/ActiveChain/issues/433).
+
+- [x] Keep every deterministic-kernel Docker and nested RISC0 BuildKit invocation on an explicit,
+  anonymous configuration that cannot fall back to the macOS login-keychain credential helper.
+- [x] Add a fail-closed regression check for the effective Docker configuration.
+- [x] Pass the complete deterministic-kernel gate, merge to `main`, and verify reachability; merge
+  commit `1c278e7` is reachable from `origin/main`.
+
 ## Independent-client budget gate repair
 
 Tracked by [GitHub issue #401](https://github.com/advatar/ActiveChain/issues/401).
