@@ -1824,6 +1824,8 @@ Tracked by [GitHub issue #9](https://github.com/advatar/ActiveChain/issues/9).
 - [x] Add front-running-resistant commit/reveal admission for objective verifier challenges.
 - [x] Add unbiased deterministic audit assignment from finalized randomness and a canonical
   eligible-verifier set.
+- [x] Add canonical paymaster policy authorization with exact fee, epoch-budget, nonce, expiry,
+  sender, transfer, and policy-revision binding.
 
 Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 

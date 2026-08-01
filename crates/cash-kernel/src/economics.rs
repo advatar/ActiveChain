@@ -284,6 +284,7 @@ pub const USER_SLASH_BPS: u16 = 4_000;
 pub const SECURITY_SLASH_BPS: u16 = 4_000;
 pub const CHALLENGER_SLASH_BPS: u16 = 2_000;
 pub const MAX_AUDIT_VERIFIERS: usize = 4_096;
+pub const MAX_PAYMASTER_SENDERS: usize = 64;
 
 /// Selects one auditor without modulo bias. Candidate ordering is part of the
 /// consensus input and must already be canonical; callers cannot gain an
@@ -320,6 +321,246 @@ pub fn select_auditor(
         }
     }
     Err(EconomicsError::InvalidAuditSet)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CashPaymasterPolicyV1 {
+    sponsor: PrincipalId,
+    allowed_senders: Vec<PrincipalId>,
+    maximum_fee: u128,
+    epoch_budget: u128,
+    spent: u128,
+    epoch: u64,
+    next_nonce: u64,
+    expires_height: u64,
+}
+
+impl CashPaymasterPolicyV1 {
+    pub const TYPE_TAG: u16 = 0x0160;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        sponsor: PrincipalId,
+        allowed_senders: Vec<PrincipalId>,
+        maximum_fee: u128,
+        epoch_budget: u128,
+        spent: u128,
+        epoch: u64,
+        next_nonce: u64,
+        expires_height: u64,
+    ) -> Result<Self, EconomicsError> {
+        if sponsor.digest() == &Digest384::ZERO
+            || allowed_senders.is_empty()
+            || allowed_senders.len() > MAX_PAYMASTER_SENDERS
+            || allowed_senders.iter().any(|sender| sender.digest() == &Digest384::ZERO)
+            || allowed_senders.windows(2).any(|pair| pair[0] >= pair[1])
+            || maximum_fee == 0
+            || epoch_budget == 0
+            || spent > epoch_budget
+            || expires_height == 0
+        {
+            return Err(EconomicsError::InvalidPaymasterPolicy);
+        }
+        Ok(Self {
+            sponsor,
+            allowed_senders,
+            maximum_fee,
+            epoch_budget,
+            spent,
+            epoch,
+            next_nonce,
+            expires_height,
+        })
+    }
+
+    pub fn commitment(&self) -> Result<Digest384, EconomicsError> {
+        let bytes = activechain_canonical_codec::encode_envelope(self)
+            .map_err(|_| EconomicsError::InvalidPaymasterPolicy)?;
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-CASH-PAYMASTER-POLICY-V1");
+        hasher.update(&bytes);
+        let mut output = [0_u8; 48];
+        hasher.finalize_xof().read(&mut output);
+        Ok(Digest384::new(output))
+    }
+
+    pub const fn spent(&self) -> u128 {
+        self.spent
+    }
+
+    pub const fn next_nonce(&self) -> u64 {
+        self.next_nonce
+    }
+
+    pub fn authorize(
+        &self,
+        request: &CashPaymasterRequestV1,
+        transfer: Digest384,
+        fee: u128,
+        height: u64,
+    ) -> Result<Self, EconomicsError> {
+        if request.sponsor != self.sponsor
+            || self.allowed_senders.binary_search(&request.sender).is_err()
+            || request.policy_commitment != self.commitment()?
+            || request.transfer != transfer
+            || request.fee != fee
+            || request.epoch != self.epoch
+            || request.expected_spent != self.spent
+            || request.nonce != self.next_nonce
+            || request.fee == 0
+            || request.fee > self.maximum_fee
+            || height > request.expires_height
+            || request.expires_height > self.expires_height
+        {
+            return Err(EconomicsError::PaymasterUnauthorized);
+        }
+        let spent =
+            self.spent.checked_add(request.fee).ok_or(EconomicsError::PaymasterBudgetExceeded)?;
+        if spent > self.epoch_budget {
+            return Err(EconomicsError::PaymasterBudgetExceeded);
+        }
+        let next_nonce =
+            self.next_nonce.checked_add(1).ok_or(EconomicsError::PaymasterUnauthorized)?;
+        Ok(Self { spent, next_nonce, ..self.clone() })
+    }
+}
+
+impl CanonicalEncode for CashPaymasterPolicyV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.sponsor.encode(encoder)?;
+        encoder.write_length(self.allowed_senders.len(), MAX_PAYMASTER_SENDERS)?;
+        for sender in &self.allowed_senders {
+            sender.encode(encoder)?;
+        }
+        self.maximum_fee.encode(encoder)?;
+        self.epoch_budget.encode(encoder)?;
+        self.spent.encode(encoder)?;
+        self.epoch.encode(encoder)?;
+        self.next_nonce.encode(encoder)?;
+        self.expires_height.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for CashPaymasterPolicyV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let sponsor = PrincipalId::decode(decoder)?;
+        let count = decoder.read_length(MAX_PAYMASTER_SENDERS)?;
+        let mut senders = Vec::with_capacity(count);
+        for _ in 0..count {
+            senders.push(PrincipalId::decode(decoder)?);
+        }
+        Self::new(
+            sponsor,
+            senders,
+            u128::decode(decoder)?,
+            u128::decode(decoder)?,
+            u128::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid cash paymaster policy"))
+    }
+}
+
+impl CanonicalType for CashPaymasterPolicyV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 + 2 + MAX_PAYMASTER_SENDERS * 48 + 16 * 3 + 8 * 3;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CashPaymasterRequestV1 {
+    sponsor: PrincipalId,
+    sender: PrincipalId,
+    transfer: Digest384,
+    policy_commitment: Digest384,
+    approval_commitment: Digest384,
+    fee: u128,
+    expected_spent: u128,
+    epoch: u64,
+    nonce: u64,
+    expires_height: u64,
+}
+
+impl CashPaymasterRequestV1 {
+    pub const TYPE_TAG: u16 = 0x0161;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        sponsor: PrincipalId,
+        sender: PrincipalId,
+        transfer: Digest384,
+        policy_commitment: Digest384,
+        approval_commitment: Digest384,
+        fee: u128,
+        expected_spent: u128,
+        epoch: u64,
+        nonce: u64,
+        expires_height: u64,
+    ) -> Result<Self, EconomicsError> {
+        if sponsor.digest() == &Digest384::ZERO
+            || sender.digest() == &Digest384::ZERO
+            || transfer == Digest384::ZERO
+            || policy_commitment == Digest384::ZERO
+            || approval_commitment == Digest384::ZERO
+            || fee == 0
+            || expires_height == 0
+        {
+            return Err(EconomicsError::InvalidPaymasterRequest);
+        }
+        Ok(Self {
+            sponsor,
+            sender,
+            transfer,
+            policy_commitment,
+            approval_commitment,
+            fee,
+            expected_spent,
+            epoch,
+            nonce,
+            expires_height,
+        })
+    }
+}
+
+impl CanonicalEncode for CashPaymasterRequestV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.sponsor.encode(encoder)?;
+        self.sender.encode(encoder)?;
+        self.transfer.encode(encoder)?;
+        self.policy_commitment.encode(encoder)?;
+        self.approval_commitment.encode(encoder)?;
+        self.fee.encode(encoder)?;
+        self.expected_spent.encode(encoder)?;
+        self.epoch.encode(encoder)?;
+        self.nonce.encode(encoder)?;
+        self.expires_height.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for CashPaymasterRequestV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            PrincipalId::decode(decoder)?,
+            PrincipalId::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            u128::decode(decoder)?,
+            u128::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid cash paymaster request"))
+    }
+}
+
+impl CanonicalType for CashPaymasterRequestV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 * 5 + 16 * 2 + 8 * 3;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -587,6 +828,10 @@ pub enum EconomicsError {
     InvalidChallenge,
     InvalidChallengeReveal,
     InvalidAuditSet,
+    InvalidPaymasterPolicy,
+    InvalidPaymasterRequest,
+    PaymasterUnauthorized,
+    PaymasterBudgetExceeded,
     InvalidCapacityReservation,
     CapacityExceeded,
 }
@@ -888,6 +1133,137 @@ mod tests {
         assert_eq!(
             select_auditor(id(50), Digest384::ZERO, &[principal(10)]),
             Err(EconomicsError::InvalidAuditSet)
+        );
+    }
+
+    fn paymaster_policy() -> CashPaymasterPolicyV1 {
+        CashPaymasterPolicyV1::new(
+            principal(60),
+            vec![principal(61), principal(62)],
+            10,
+            100,
+            20,
+            7,
+            4,
+            1_000,
+        )
+        .unwrap()
+    }
+
+    fn paymaster_request(policy: &CashPaymasterPolicyV1) -> CashPaymasterRequestV1 {
+        CashPaymasterRequestV1::new(
+            principal(60),
+            principal(61),
+            id(63),
+            policy.commitment().unwrap(),
+            id(64),
+            9,
+            20,
+            7,
+            4,
+            900,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn paymaster_authorization_advances_exact_budget_and_nonce() {
+        let policy = paymaster_policy();
+        assert_eq!(
+            decode_envelope::<CashPaymasterPolicyV1>(&encode_envelope(&policy).unwrap()),
+            Ok(policy.clone())
+        );
+        let request = paymaster_request(&policy);
+        assert_eq!(
+            decode_envelope::<CashPaymasterRequestV1>(&encode_envelope(&request).unwrap()),
+            Ok(request)
+        );
+        let next = policy.authorize(&request, id(63), 9, 800).unwrap();
+        assert_eq!(next.spent(), 29);
+        assert_eq!(next.next_nonce(), 5);
+        assert_eq!(
+            next.authorize(&request, id(63), 9, 800),
+            Err(EconomicsError::PaymasterUnauthorized)
+        );
+    }
+
+    #[test]
+    fn paymaster_rejects_substitution_expiry_fee_and_budget_violations() {
+        let policy = paymaster_policy();
+        let request = paymaster_request(&policy);
+        assert_eq!(
+            policy.authorize(&request, id(63), 9, 901),
+            Err(EconomicsError::PaymasterUnauthorized)
+        );
+        let wrong_sender = CashPaymasterRequestV1::new(
+            principal(60),
+            principal(70),
+            id(63),
+            policy.commitment().unwrap(),
+            id(64),
+            9,
+            20,
+            7,
+            4,
+            900,
+        )
+        .unwrap();
+        assert_eq!(
+            policy.authorize(&wrong_sender, id(63), 9, 800),
+            Err(EconomicsError::PaymasterUnauthorized)
+        );
+        let excessive_fee = CashPaymasterRequestV1::new(
+            principal(60),
+            principal(61),
+            id(63),
+            policy.commitment().unwrap(),
+            id(64),
+            11,
+            20,
+            7,
+            4,
+            900,
+        )
+        .unwrap();
+        assert_eq!(
+            policy.authorize(&excessive_fee, id(63), 11, 800),
+            Err(EconomicsError::PaymasterUnauthorized)
+        );
+        let nearly_spent = CashPaymasterPolicyV1::new(
+            principal(60),
+            vec![principal(61)],
+            10,
+            100,
+            95,
+            7,
+            4,
+            1_000,
+        )
+        .unwrap();
+        let over_budget = CashPaymasterRequestV1::new(
+            principal(60),
+            principal(61),
+            id(63),
+            nearly_spent.commitment().unwrap(),
+            id(64),
+            9,
+            95,
+            7,
+            4,
+            900,
+        )
+        .unwrap();
+        assert_eq!(
+            nearly_spent.authorize(&over_budget, id(63), 9, 800),
+            Err(EconomicsError::PaymasterBudgetExceeded)
+        );
+        assert_eq!(
+            policy.authorize(&request, id(72), 9, 800),
+            Err(EconomicsError::PaymasterUnauthorized)
+        );
+        assert_eq!(
+            policy.authorize(&request, id(63), 8, 800),
+            Err(EconomicsError::PaymasterUnauthorized)
         );
     }
 
