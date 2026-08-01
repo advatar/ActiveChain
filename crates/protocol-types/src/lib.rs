@@ -20,6 +20,7 @@ mod credential;
 mod crypto;
 mod did;
 mod external_identity;
+mod external_status;
 mod migration;
 mod object;
 mod package;
@@ -103,6 +104,11 @@ pub use external_identity::{
     ExternalIssuerProfileV1, ExternalIssuerRegistryV1, MAX_EXTERNAL_ISSUER_BINDINGS,
     MAX_EXTERNAL_ISSUER_PROFILES, MAX_EXTERNAL_PROFILE_IDENTIFIER_BYTES,
     MAX_EXTERNAL_SCHEMA_MAPPINGS, derive_external_credential_schema_id,
+};
+pub use external_status::{
+    ExternalCredentialStatusRegistryV1, ExternalCredentialStatusSnapshotV1, ExternalStatusError,
+    ExternalStatusPublisherSetV1, ExternalStatusSnapshotStateV1, MAX_EXTERNAL_STATUS_PUBLISHERS,
+    MAX_EXTERNAL_STATUS_SNAPSHOTS,
 };
 pub use migration::{CryptoMigrationError, CryptoMigrationWindow};
 pub use object::{
