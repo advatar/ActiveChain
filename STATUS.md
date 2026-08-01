@@ -1189,6 +1189,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   restoring replay protection fail-closed across restart, corruption, and failed writes.
 - [x] Join threshold-approved fungible minting to one authoritative successor containing both the
   deterministic new Coin Cell and the exact advanced policy supply state.
+- [x] Join threshold-approved fungible burns to one authoritative successor containing both exact
+  input removal and the identically reduced policy supply state.
 - [x] Publish deterministic issuer-registration vectors for activation boundaries and malformed
   authority/policy bindings.
 - [x] Keep the workspace lockfile synchronized with the canonical payment-types cryptographic
