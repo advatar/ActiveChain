@@ -1296,6 +1296,8 @@ Tracked by [GitHub issue #31](https://github.com/advatar/ActiveChain/issues/31).
 - [x] Publish qualified formal-verification evidence and third-party-audit-pending status on an
   isolated landing-page branch and draft PR.
 - [x] Pass all repository gates, commit, push, and open an isolated stacked draft PR.
+- [x] Restore the pinned guest lockfile and targeted PQ-ZK/private-billboard unit-test reproducibility
+  after workspace dependency updates.
 
 ## Active communication — why ActiveChain is a new L1
 
