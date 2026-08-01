@@ -965,8 +965,23 @@ impl VcIssuerPresentationV1 {
     pub const fn predicate(&self) -> CredentialPredicateV1 {
         self.predicate
     }
+    pub const fn issuer(&self) -> PrincipalId {
+        self.issuer
+    }
     pub const fn format(&self) -> VcIssuerFormatV1 {
         self.format
+    }
+    pub const fn assurance(&self) -> CredentialAssuranceClassV1 {
+        self.assurance
+    }
+    pub const fn verified_at_height(&self) -> Height {
+        self.verified_at_height
+    }
+    pub const fn status_commitment(&self) -> Digest384 {
+        self.status_commitment
+    }
+    pub const fn issuer_authorization_commitment(&self) -> Digest384 {
+        self.issuer_authorization_commitment
     }
 }
 

@@ -131,6 +131,13 @@ AND atomic obligation settlement
 
 No upstream component may insert an unverified fact into `PolicyRequestV1`.
 
+External credential admission contributes only its accepted canonical schema commitment through
+`inject_external_schema_facts`. That operation preserves rather than manufactures authenticated
+actor, capability, approval, resource, value, lifecycle, and purpose facts. Consequently an age,
+PID, residency, EAA, or role fact cannot grant spending, administration, delegation, or any other
+authority unless the same policy request independently contains every capability and approval fact
+required by the matching permit rule.
+
 ## 11. Errors and abort behavior
 
 Construction and canonical decoding return typed validation failures and no partial policy, request, or decision. Evaluation itself is total for validated inputs and has no error path. Allocation failure and host failure are outside the protocol result and MUST NOT be reinterpreted as Permit.

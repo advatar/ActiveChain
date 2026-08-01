@@ -1,6 +1,6 @@
 //! Closed ISO mdoc/COSE verification profile for VCIssuer-issued credentials.
 
-use crate::{commitment, verify_es256_with_jwk};
+use crate::{VerifiedExternalPresentation, commitment, verify_es256_with_jwk};
 use activechain_protocol_types::{
     ChainId, CredentialAssuranceClassV1, CredentialPredicateKind, CredentialPredicateV1, Digest384,
     ExternalCredentialStatusSnapshotV1, ExternalIssuerBindingV1, PrincipalId, TransactionId,
@@ -77,7 +77,7 @@ pub struct MdocVerificationContext<'a> {
 
 pub fn verify_mdoc(
     context: &MdocVerificationContext<'_>,
-) -> Result<VcIssuerPresentationV1, MdocRejection> {
+) -> Result<VerifiedExternalPresentation, MdocRejection> {
     if context.issuer_signed.len() > MAX_MDOC_BYTES.saturating_mul(2) {
         return Err(MdocRejection::Oversize);
     }
@@ -169,7 +169,7 @@ pub fn verify_mdoc(
         commitment(b"ACTIVECHAIN-MDOC-PREDICATE-VALUE-V1", &value_bytes),
     )
     .map_err(|_| MdocRejection::InvalidOutput)?;
-    VcIssuerPresentationV1::new(
+    let presentation = VcIssuerPresentationV1::new(
         context.issuer_binding.issuer(),
         VcIssuerFormatV1::Mdoc,
         credential_commitment,
@@ -182,7 +182,22 @@ pub fn verify_mdoc(
         context.audience,
         context.action,
     )
-    .map_err(|_| MdocRejection::InvalidOutput)
+    .map_err(|_| MdocRejection::InvalidOutput)?;
+    Ok(VerifiedExternalPresentation {
+        presentation,
+        configuration_commitment: context.configuration_commitment,
+        subject_binding: holder_binding,
+        purpose_commitment: commitment(
+            b"ACTIVECHAIN-OPENID4VP-PURPOSE-V1",
+            context.expected_purpose.as_bytes(),
+        ),
+        status_anchor_height: context.status_snapshot.anchor_height(),
+        status_age: context.verified_height.saturating_sub(context.status_snapshot.anchor_height()),
+        has_issuance_log: context.issuance_log_root.is_some(),
+        verifier_version: 1,
+        proof_version: 1,
+        replay_nullifier: commitment(b"ACTIVECHAIN-MDOC-OPENID4VP-REPLAY-V1", &bytes),
+    })
 }
 
 fn verify_issuer_auth(value: &Value, jwk: &JsonValue) -> Result<Value, MdocRejection> {
@@ -610,8 +625,8 @@ mod tests {
     fn vcissuer_mdoc_emits_action_bound_evidence() {
         let f = fixture();
         let verified = verify_mdoc(&context(&f)).unwrap();
-        assert_eq!(verified.format(), VcIssuerFormatV1::Mdoc);
-        assert!(verified.predicate().binds_action(
+        assert_eq!(verified.presentation().format(), VcIssuerFormatV1::Mdoc);
+        assert!(verified.presentation().predicate().binds_action(
             ChainId::new(d(1)),
             principal(8),
             TransactionId::new(d(9))
