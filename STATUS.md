@@ -13,6 +13,16 @@ Tracked by [GitHub issue #430](https://github.com/advatar/ActiveChain/issues/430
   `main` and confirm both landing and parent revisions are reachable from their respective
   `origin/main` branches.
 
+## Non-interactive Docker authentication isolation
+
+Tracked by [GitHub issue #433](https://github.com/advatar/ActiveChain/issues/433).
+
+- [x] Keep every deterministic-kernel Docker and nested RISC0 BuildKit invocation on an explicit,
+  anonymous configuration that cannot fall back to the macOS login-keychain credential helper.
+- [x] Add a fail-closed regression check for the effective Docker configuration.
+- [x] Pass the complete deterministic-kernel gate, merge to `main`, and verify reachability; merge
+  commit `1c278e7` is reachable from `origin/main`.
+
 ## Independent-client budget gate repair
 
 Tracked by [GitHub issue #401](https://github.com/advatar/ActiveChain/issues/401).
