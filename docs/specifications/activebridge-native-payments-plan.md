@@ -336,6 +336,14 @@ mutation. Expired records remain binding until an explicit atomic prune succeeds
 implicit timeout race from assigning one caller/key pair to two operations. Corrupt restart data
 and failed persistence fail closed.
 
+Create-intent admission uses the stronger `PaymentRequestStateV1` crash-consistency unit. It joins
+each immutable intent, its exact merchant-scoped idempotency binding to the domain-separated
+canonical intent commitment, and its current lifecycle record. The three collections must contain
+the same unique intent identities on creation and restart. `DurablePaymentRequestState` persists
+the joined successor once before returning the intent; an exact retry reconstructs and returns the
+original intent without rewriting, while merchant, key, body, expiry, partial-state, or intent-ID
+substitution fails before memory or storage advances.
+
 ### 6.3 Status and receipt rules
 
 Status responses identify:

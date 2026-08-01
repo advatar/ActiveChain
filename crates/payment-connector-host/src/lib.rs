@@ -10,8 +10,8 @@ use activechain_crypto_provider::verify_ml_dsa44;
 use activechain_payment_types::{
     ConnectorId, IdempotencyBindingV1, PaymentApiAuthorizationV1, PaymentApiReplayStateV1,
     PaymentApiSignedAuthorizationV1, PaymentDisputeRecordV1, PaymentDisputeRequestV1,
-    PaymentIntentId, PaymentLifecycleRecordV1, PaymentRefundRequestV1, PaymentRefundStateV1,
-    PaymentValidationError, PaymentWebhookCursorV1, PaymentWebhookEventV1,
+    PaymentIntentId, PaymentIntentV1, PaymentLifecycleRecordV1, PaymentRefundRequestV1,
+    PaymentRefundStateV1, PaymentValidationError, PaymentWebhookCursorV1, PaymentWebhookEventV1,
     PaymentWebhookSignedEventV1, ProviderObservationV1, RailId, TreasuryDebitPolicyV1,
     TreasuryDebitRequestV1,
 };
@@ -41,6 +41,7 @@ const MAX_DISPUTES: usize = 65_535;
 const MAX_TREASURIES: usize = 65_535;
 const MAX_IDEMPOTENCY_BINDINGS: usize = 65_535;
 const MAX_PAYMENT_LIFECYCLES: usize = 65_535;
+const MAX_PAYMENT_INTENTS: usize = 65_535;
 const SNAPSHOT_TAG_LENGTH: usize = 48;
 const SNAPSHOT_DOMAIN: &[u8] = b"ACTIVECHAIN-ACTIVEBRIDGE-JOURNAL-V1";
 const MAX_CONNECTOR_ORIGINS: usize = 16;
@@ -1128,6 +1129,186 @@ impl CanonicalType for PaymentLifecycleJournalV1 {
         3 + MAX_PAYMENT_LIFECYCLES * PaymentLifecycleRecordV1::MAX_ENCODED_LEN;
 }
 
+/// Atomic request state joining each intent to one create binding and one lifecycle record.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct PaymentRequestStateV1 {
+    intents: Vec<PaymentIntentV1>,
+    idempotency: IdempotencyJournalV1,
+    lifecycles: PaymentLifecycleJournalV1,
+}
+
+impl PaymentRequestStateV1 {
+    pub const TYPE_TAG: u16 = 0x0187;
+
+    pub fn new(
+        intents: Vec<PaymentIntentV1>,
+        idempotency: IdempotencyJournalV1,
+        lifecycles: PaymentLifecycleJournalV1,
+    ) -> Result<Self, JournalError> {
+        if intents.len() > MAX_PAYMENT_INTENTS
+            || intents.windows(2).any(|pair| pair[0].intent() >= pair[1].intent())
+            || intents.len() != idempotency.bindings().len()
+            || intents.len() != lifecycles.records().len()
+        {
+            return Err(JournalError::InvalidLifecycle);
+        }
+        for (intent, lifecycle) in intents.iter().zip(lifecycles.records()) {
+            if intent.intent() != lifecycle.intent() {
+                return Err(JournalError::InvalidLifecycle);
+            }
+        }
+        let mut binding_intents =
+            idempotency.bindings().iter().map(IdempotencyBindingV1::intent).collect::<Vec<_>>();
+        binding_intents.sort_unstable();
+        if binding_intents.windows(2).any(|pair| pair[0] >= pair[1])
+            || !binding_intents.iter().copied().eq(intents.iter().map(PaymentIntentV1::intent))
+        {
+            return Err(JournalError::InvalidIdempotency);
+        }
+        for binding in idempotency.bindings() {
+            let index = intents
+                .binary_search_by_key(&binding.intent(), PaymentIntentV1::intent)
+                .map_err(|_| JournalError::InvalidIdempotency)?;
+            let intent = &intents[index];
+            if binding.caller() != intent.merchant()
+                || binding.idempotency_key() != intent.idempotency_key()
+                || binding.request_body_commitment()
+                    != intent.commitment().map_err(|_| JournalError::InvalidIdempotency)?
+            {
+                return Err(JournalError::InvalidIdempotency);
+            }
+        }
+        Ok(Self { intents, idempotency, lifecycles })
+    }
+
+    #[must_use]
+    pub fn intents(&self) -> &[PaymentIntentV1] {
+        &self.intents
+    }
+
+    pub const fn idempotency(&self) -> &IdempotencyJournalV1 {
+        &self.idempotency
+    }
+
+    pub const fn lifecycles(&self) -> &PaymentLifecycleJournalV1 {
+        &self.lifecycles
+    }
+}
+
+impl CanonicalEncode for PaymentRequestStateV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        encoder.write_length(self.intents.len(), MAX_PAYMENT_INTENTS)?;
+        for intent in &self.intents {
+            intent.encode(encoder)?;
+        }
+        self.idempotency.encode(encoder)?;
+        self.lifecycles.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for PaymentRequestStateV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let count = decoder.read_length(MAX_PAYMENT_INTENTS)?;
+        let mut intents = Vec::with_capacity(count);
+        for _ in 0..count {
+            intents.push(PaymentIntentV1::decode(decoder)?);
+        }
+        Self::new(
+            intents,
+            IdempotencyJournalV1::decode(decoder)?,
+            PaymentLifecycleJournalV1::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid payment request state"))
+    }
+}
+
+impl CanonicalType for PaymentRequestStateV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 3
+        + MAX_PAYMENT_INTENTS * PaymentIntentV1::MAX_ENCODED_LEN
+        + IdempotencyJournalV1::MAX_ENCODED_LEN
+        + PaymentLifecycleJournalV1::MAX_ENCODED_LEN;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DurablePaymentRequestState {
+    path: std::path::PathBuf,
+    snapshot: PaymentRequestStateV1,
+}
+
+impl DurablePaymentRequestState {
+    pub fn open(path: impl AsRef<Path>) -> Result<Self, JournalError> {
+        let path = path.as_ref().to_path_buf();
+        let snapshot = match std::fs::metadata(&path) {
+            Ok(_) => PaymentRequestStateV1::load(&path)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                PaymentRequestStateV1::default()
+            }
+            Err(_) => return Err(JournalError::Persistence),
+        };
+        Ok(Self { path, snapshot })
+    }
+
+    pub const fn snapshot(&self) -> &PaymentRequestStateV1 {
+        &self.snapshot
+    }
+
+    pub fn create_intent(
+        &mut self,
+        intent: PaymentIntentV1,
+        binding: IdempotencyBindingV1,
+        observation_commitment: Digest384,
+        timestamp: u64,
+    ) -> Result<PaymentIntentId, JournalError> {
+        if !intent.active_at(timestamp)
+            || binding.intent() != intent.intent()
+            || binding.caller() != intent.merchant()
+            || binding.idempotency_key() != intent.idempotency_key()
+            || binding.request_body_commitment()
+                != intent.commitment().map_err(|_| JournalError::InvalidIdempotency)?
+        {
+            return Err(JournalError::InvalidIdempotency);
+        }
+        let mut next = self.snapshot.clone();
+        let (bound_intent, changed) = next.idempotency.bind(binding, timestamp)?;
+        if !changed {
+            let index = next
+                .intents
+                .binary_search_by_key(&bound_intent, PaymentIntentV1::intent)
+                .map_err(|_| JournalError::InvalidIdempotency)?;
+            if next.intents[index] != intent {
+                return Err(JournalError::InvalidIdempotency);
+            }
+            return Ok(bound_intent);
+        }
+        let index = next
+            .intents
+            .binary_search_by_key(&intent.intent(), PaymentIntentV1::intent)
+            .map_or_else(|index| index, |_| usize::MAX);
+        if index == usize::MAX {
+            return Err(JournalError::InvalidIdempotency);
+        }
+        let intent_id = intent.intent();
+        next.intents.insert(index, intent);
+        next.lifecycles.create(intent_id, observation_commitment)?;
+        let next = PaymentRequestStateV1::new(next.intents, next.idempotency, next.lifecycles)?;
+        next.save_atomic(&self.path)?;
+        self.snapshot = next;
+        Ok(intent_id)
+    }
+}
+
+impl PaymentRequestStateV1 {
+    fn save_atomic(&self, path: &Path) -> Result<(), JournalError> {
+        save_snapshot(self, path)
+    }
+
+    fn load(path: &Path) -> Result<Self, JournalError> {
+        load_snapshot(path)
+    }
+}
+
 fn map_validation(_: PaymentValidationError) -> JournalError {
     JournalError::InvalidObservation
 }
@@ -2133,6 +2314,144 @@ mod tests {
         let _ = std::fs::remove_file(&corrupt);
         std::fs::write(&corrupt, b"not canonical").unwrap();
         assert_eq!(PaymentLifecycleJournalV1::load(&corrupt), Err(JournalError::Persistence));
+        std::fs::remove_file(corrupt).unwrap();
+    }
+
+    fn payment_intent(intent: u8, merchant: u8, key: u8, metadata: u8) -> PaymentIntentV1 {
+        PaymentIntentV1::new(
+            ChainId::new(digest(120)),
+            PaymentIntentId::new(digest(intent)).unwrap(),
+            PrincipalId::new(digest(merchant)),
+            TreasuryId::new(digest(121)).unwrap(),
+            digest(122),
+            digest(123),
+            AssetAmountV1::new(AssetId::new(digest(124)), 100).unwrap(),
+            AssetAmountV1::new(AssetId::new(digest(124)), 90).unwrap(),
+            500,
+            digest(key),
+            digest(125),
+            digest(126),
+            digest(127),
+            digest(metadata),
+        )
+        .unwrap()
+    }
+
+    fn intent_binding(intent: &PaymentIntentV1) -> IdempotencyBindingV1 {
+        IdempotencyBindingV1::new(
+            intent.merchant(),
+            intent.idempotency_key(),
+            intent.commitment().unwrap(),
+            intent.intent(),
+            100,
+            600,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn intent_binding_and_created_lifecycle_persist_atomically_and_retry_exactly() {
+        let path = path("request-state-restart");
+        let _ = std::fs::remove_file(&path);
+        let intent = payment_intent(10, 11, 12, 13);
+        let binding = intent_binding(&intent);
+        let mut durable = DurablePaymentRequestState::open(&path).unwrap();
+        assert_eq!(
+            durable.create_intent(intent.clone(), binding.clone(), digest(14), 150),
+            Ok(intent.intent())
+        );
+        assert_eq!(durable.snapshot().intents(), &[intent.clone()]);
+        assert_eq!(durable.snapshot().idempotency().bindings(), &[binding.clone()]);
+        assert_eq!(durable.snapshot().lifecycles().records()[0].state(), PaymentState::Created);
+        let restarted = DurablePaymentRequestState::open(&path).unwrap();
+        assert_eq!(restarted.snapshot(), durable.snapshot());
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(
+            durable.create_intent(intent.clone(), binding, digest(14), 150),
+            Ok(intent.intent())
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn intent_creation_rejects_substitution_expiry_and_partial_state() {
+        let path = path("request-state-invalid");
+        let _ = std::fs::remove_file(&path);
+        let intent = payment_intent(10, 11, 12, 13);
+        let mut durable = DurablePaymentRequestState::open(&path).unwrap();
+        assert_eq!(
+            durable.create_intent(
+                intent.clone(),
+                IdempotencyBindingV1::new(
+                    PrincipalId::new(digest(99)),
+                    intent.idempotency_key(),
+                    intent.commitment().unwrap(),
+                    intent.intent(),
+                    100,
+                    600,
+                )
+                .unwrap(),
+                digest(14),
+                150,
+            ),
+            Err(JournalError::InvalidIdempotency)
+        );
+        assert_eq!(
+            durable.create_intent(intent.clone(), intent_binding(&intent), digest(14), 500),
+            Err(JournalError::InvalidIdempotency)
+        );
+        assert!(durable.snapshot().intents().is_empty());
+        assert_eq!(
+            PaymentRequestStateV1::new(
+                vec![intent],
+                IdempotencyJournalV1::default(),
+                PaymentLifecycleJournalV1::default(),
+            ),
+            Err(JournalError::InvalidLifecycle)
+        );
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn conflicting_retry_and_failed_request_state_write_do_not_advance() {
+        let directory = path("request-state-directory");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let intent = payment_intent(10, 11, 12, 13);
+        let mut failed = DurablePaymentRequestState {
+            path: directory.clone(),
+            snapshot: PaymentRequestStateV1::default(),
+        };
+        assert_eq!(
+            failed.create_intent(intent.clone(), intent_binding(&intent), digest(14), 150),
+            Err(JournalError::Persistence)
+        );
+        assert!(failed.snapshot().intents().is_empty());
+        std::fs::remove_dir_all(&directory).unwrap();
+
+        let state_path = path("request-state-conflict");
+        let _ = std::fs::remove_file(&state_path);
+        let mut durable = DurablePaymentRequestState::open(&state_path).unwrap();
+        durable.create_intent(intent.clone(), intent_binding(&intent), digest(14), 150).unwrap();
+        let before = durable.snapshot().clone();
+        let substituted = payment_intent(10, 11, 12, 15);
+        assert_eq!(
+            durable.create_intent(
+                substituted.clone(),
+                intent_binding(&substituted),
+                digest(14),
+                150,
+            ),
+            Err(JournalError::InvalidIdempotency)
+        );
+        assert_eq!(durable.snapshot(), &before);
+        std::fs::remove_file(state_path).unwrap();
+
+        let corrupt = path("request-state-corrupt");
+        let _ = std::fs::remove_file(&corrupt);
+        std::fs::write(&corrupt, b"not canonical").unwrap();
+        assert_eq!(DurablePaymentRequestState::open(&corrupt), Err(JournalError::Persistence));
         std::fs::remove_file(corrupt).unwrap();
     }
 }
