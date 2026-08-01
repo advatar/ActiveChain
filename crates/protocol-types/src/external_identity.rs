@@ -353,6 +353,9 @@ impl ExternalIssuerBindingV1 {
     pub const fn external_issuer_identity(&self) -> Digest384 {
         self.external_issuer_identity
     }
+    pub const fn trust_identity_commitment(&self) -> Digest384 {
+        self.trust_identity_commitment
+    }
     pub const fn status(&self) -> ExternalIssuerBindingStatusV1 {
         self.status
     }
