@@ -24,10 +24,13 @@ use activechain_canonical_codec::{
 };
 use activechain_cash_kernel::{
     CoinCellMembershipProof, CoinCellRecord, CoinCellSet, FungibleCoinCellMembershipProof,
-    FungibleCoinCellRecord, prove_coin_cell_membership,
+    FungibleCoinCellRecord, FungibleSettlementReceiptV1, prove_coin_cell_membership,
 };
 use activechain_finality_types::commit_parts;
-use activechain_protocol_types::{AssetId, ChainId, Digest384, Object, PrincipalId, TransactionId};
+use activechain_protocol_types::{
+    AssetId, ChainId, Digest384, FungibleAssetDefinition, FungibleCorporateActionV1,
+    FungibleIssuerRegistrationV1, FungibleSupplyAttestationV1, Object, PrincipalId, TransactionId,
+};
 use activechain_rpc_types::{
     ActionSetProof, Health, MAX_SUPPORTED_PROOFS, ProofKind, QueryKind, QueryPage, QueryRecord,
     RpcAccessRequest, RpcAccessResponse, RpcError, RpcRequest, RpcResponse, RpcStatus,
@@ -302,8 +305,69 @@ fn verify_query_record_with_finality(
             }
             Ok(())
         }
+        QueryKind::AssetDefinition
+        | QueryKind::AssetIssuerRegistration
+        | QueryKind::AssetSupplyAttestation
+        | QueryKind::AssetCorporateAction
+        | QueryKind::AssetSettlementReceipt => verify_native_asset_state_record(record, &finality),
         QueryKind::NonFungibleCoinCell => Err(RpcProofError::Unsupported),
     }
+}
+
+fn verify_native_asset_state_record(
+    record: &QueryRecord,
+    finality: &activechain_finality_types::FinalityCertificateBundle,
+) -> Result<(), RpcProofError> {
+    let object = decode_envelope::<Object>(record.value()).map_err(|_| RpcProofError::Malformed)?;
+    if object.object_id().into_digest() != record.key() {
+        return Err(RpcProofError::Key);
+    }
+    let public_value = object.public_value().ok_or(RpcProofError::Malformed)?;
+    let type_tag = match record.kind() {
+        QueryKind::AssetDefinition => {
+            decode_envelope::<FungibleAssetDefinition>(public_value)
+                .map_err(|_| RpcProofError::Malformed)?;
+            FungibleAssetDefinition::TYPE_TAG
+        }
+        QueryKind::AssetIssuerRegistration => {
+            decode_envelope::<FungibleIssuerRegistrationV1>(public_value)
+                .map_err(|_| RpcProofError::Malformed)?;
+            FungibleIssuerRegistrationV1::TYPE_TAG
+        }
+        QueryKind::AssetSupplyAttestation => {
+            let attestation = decode_envelope::<FungibleSupplyAttestationV1>(public_value)
+                .map_err(|_| RpcProofError::Malformed)?;
+            if attestation.finalized_height() != record.finalized_height() {
+                return Err(RpcProofError::Height);
+            }
+            FungibleSupplyAttestationV1::TYPE_TAG
+        }
+        QueryKind::AssetCorporateAction => {
+            decode_envelope::<FungibleCorporateActionV1>(public_value)
+                .map_err(|_| RpcProofError::Malformed)?;
+            FungibleCorporateActionV1::TYPE_TAG
+        }
+        QueryKind::AssetSettlementReceipt => {
+            let receipt = decode_envelope::<FungibleSettlementReceiptV1>(public_value)
+                .map_err(|_| RpcProofError::Malformed)?;
+            if receipt.finalized_height() != record.finalized_height() {
+                return Err(RpcProofError::Height);
+            }
+            FungibleSettlementReceiptV1::TYPE_TAG
+        }
+        _ => return Err(RpcProofError::WrongKind),
+    };
+    let kind = [record.kind() as u8];
+    let tag = type_tag.to_be_bytes();
+    let expected_type = commit_parts(b"ACTIVECHAIN-NATIVE-ASSET-RPC-TYPE-V1", &[&kind, &tag]);
+    let expected_value = commit_parts(b"ACTIVECHAIN-NATIVE-ASSET-RPC-VALUE-V1", &[public_value]);
+    if object.type_id() != expected_type || object.value_root() != expected_value {
+        return Err(RpcProofError::Relation);
+    }
+    let commitment = encode_envelope(&finality.header().inputs.post_state)
+        .map_err(|_| RpcProofError::Malformed)?;
+    activechain_verifier_api::verify_state_membership(&commitment, record.value(), record.proof())
+        .map_err(|_| RpcProofError::Relation)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1228,10 +1292,10 @@ mod tests {
     use activechain_protocol_commitment::{DomainTag, commit};
     use activechain_protocol_types::{
         AccessManifest, AccessManifestFields, AuthenticatorDescriptor, AuthenticatorId,
-        AuthenticatorPurpose, ConsensusVoteContext, CryptoSuiteId, FreezeState, JobId,
-        ObjectFields, ObjectFlags, ObjectId, ObjectOwner, ObjectVersionRef, Principal, PrincipalId,
-        PrincipalKind, ProtocolSignature, QuorumCertificate, TransactionId, ValidatorGenesis,
-        ValidatorGenesisEntry, ValidatorVote,
+        AuthenticatorPurpose, ConsensusVoteContext, CryptoSuiteId, FreezeState,
+        FungibleAssetDefinition, JobId, ObjectFields, ObjectFlags, ObjectId, ObjectOwner,
+        ObjectVersionRef, Principal, PrincipalId, PrincipalKind, ProtocolSignature,
+        QuorumCertificate, TransactionId, ValidatorGenesis, ValidatorGenesisEntry, ValidatorVote,
     };
     use activechain_rpc_types::{
         ActionSetProof, AuthorizedFaucetRequestV1, FaucetRequestV1, MAX_RPC_PAGE_SIZE,
@@ -2520,6 +2584,67 @@ mod tests {
         )
         .unwrap();
         assert_eq!(verify_query_record(&substituted), Err(RpcProofError::Key));
+    }
+
+    #[test]
+    fn native_asset_definition_record_is_typed_value_and_state_proof_bound() {
+        let definition = FungibleAssetDefinition::new(
+            AssetId::new(digest(40)),
+            PrincipalId::new(digest(41)),
+            b"TEUR".to_vec(),
+            2,
+            1_000_000,
+            digest(42),
+        )
+        .unwrap();
+        let public_value = encode_envelope(&definition).unwrap();
+        let kind = [QueryKind::AssetDefinition as u8];
+        let type_tag = FungibleAssetDefinition::TYPE_TAG.to_be_bytes();
+        let object = Object::new(ObjectFields {
+            object_id: ObjectId::new(digest(43)),
+            object_version: 1,
+            type_id: commit_parts(b"ACTIVECHAIN-NATIVE-ASSET-RPC-TYPE-V1", &[&kind, &type_tag]),
+            owner: ObjectOwner::Immutable,
+            control_policy_hash: digest(44),
+            use_policy_hash: digest(45),
+            disclosure_policy_hash: digest(46),
+            upgrade_policy_hash: digest(47),
+            package_id: None,
+            value_root: commit_parts(b"ACTIVECHAIN-NATIVE-ASSET-RPC-VALUE-V1", &[&public_value]),
+            public_value: Some(public_value),
+            lease_expiry_epoch: 10,
+            storage_deposit: 5,
+            flags: ObjectFlags::NONE,
+        })
+        .unwrap();
+        let objects = vec![object.clone()];
+        let post_state = commit_objects(&objects).unwrap();
+        let proof = prove_object(&objects, object.object_id()).unwrap();
+        let inputs = ProofPublicInputs {
+            post_state,
+            ..public_inputs(commit_objects(&[]).unwrap(), post_state)
+        };
+        let record = QueryRecord::new(
+            QueryKind::AssetDefinition,
+            object.object_id().into_digest(),
+            7,
+            encode_envelope(&object).unwrap(),
+            encode_envelope(&proof).unwrap(),
+            signed_finality(42, inputs),
+        )
+        .unwrap();
+        assert_eq!(verify_query_record(&record), Ok(()));
+
+        let wrong_kind = QueryRecord::new(
+            QueryKind::AssetSupplyAttestation,
+            record.key(),
+            7,
+            record.value().to_vec(),
+            record.proof().to_vec(),
+            record.finality().to_vec(),
+        )
+        .unwrap();
+        assert_eq!(verify_query_record(&wrong_kind), Err(RpcProofError::Malformed));
     }
 
     #[test]
