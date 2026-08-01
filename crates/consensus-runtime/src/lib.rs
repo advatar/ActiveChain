@@ -48,6 +48,11 @@ mod pq_session;
 pub use pq_session::{PqPeerSession, PqSessionContext, PqSessionStore, SESSION_TTL_SECS};
 mod proof_pipeline;
 pub use proof_pipeline::{DurableFinalizedState, DurableProofPipeline, ProofPipelineError};
+mod proof_liveness;
+pub use proof_liveness::{
+    MAX_PROOF_DEADLINE_ROUNDS, MAX_PROOF_GRACE_DEPTH, ProofEvidence, ProofLivenessDecision,
+    ProofLivenessError, ProofLivenessInput, ProofLivenessProfile,
+};
 
 /// Canonical wallet transaction admission owned by the validator runtime.
 /// Authenticated network handlers can delegate here after peer/session checks.

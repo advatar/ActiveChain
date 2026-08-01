@@ -45,6 +45,29 @@
 
 #define ACTIVECHAIN_VERIFY_DETAIL_TRAILING_DATA 8
 
+#define ACTIVECHAIN_ANCHOR_RESPONSE_SUBMISSION 1
+
+#define ACTIVECHAIN_ANCHOR_RESPONSE_RECORD 2
+
+#define ACTIVECHAIN_ANCHOR_RESPONSE_RPC_ERROR 3
+
+#define ACTIVECHAIN_ANCHOR_STATUS_NONE 0
+
+#define ACTIVECHAIN_ANCHOR_STATUS_PENDING 1
+
+#define ACTIVECHAIN_ANCHOR_STATUS_FINALIZED 2
+
+#define ACTIVECHAIN_ANCHOR_STATUS_REJECTED 3
+
+typedef struct ActivechainAnchorResult {
+  uint32_t code;
+  uint32_t response_kind;
+  uint32_t anchor_status;
+  uint32_t rpc_error;
+  uint32_t required_output_length;
+  uint8_t reference[48];
+} ActivechainAnchorResult;
+
 typedef struct ActivechainVerifierResult {
   uint32_t code;
   uint32_t detail;
@@ -58,6 +81,63 @@ typedef struct ActivechainVerifierResult {
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+/**
+ * Constructs a canonical digest-anchor statement and its deterministic 48-byte reference.
+ *
+ * A null `output` with zero capacity performs a size query. No pointer is retained.
+ *
+ * # Safety
+ * The domain and digest must be readable for their declared fixed/bounded lengths, `reference`
+ * and `required_output_length` must be writable, and non-null output must be writable for its
+ * declared capacity. Input and output regions must not overlap.
+ */
+uint32_t activechain_anchor_statement_v1(const uint8_t *application_domain,
+                                         uint32_t application_domain_len,
+                                         const uint8_t *digest,
+                                         uint8_t *output,
+                                         uint32_t output_capacity,
+                                         uint32_t *required_output_length,
+                                         uint8_t *reference);
+
+/**
+ * Encodes a canonical submit-anchor RPC request from an already canonical statement envelope.
+ *
+ * # Safety
+ * The statement must be readable, and output/result pointers follow the size-query contract of
+ * `activechain_anchor_statement_v1`. No pointer is retained.
+ */
+uint32_t activechain_anchor_submit_request_v1(const uint8_t *statement,
+                                              uint32_t statement_len,
+                                              uint8_t *output,
+                                              uint32_t output_capacity,
+                                              uint32_t *required_output_length);
+
+/**
+ * Encodes a canonical resolve-anchor RPC request for an exact 48-byte reference.
+ *
+ * # Safety
+ * `reference` must be readable for 48 bytes; output/result pointers follow the size-query
+ * contract of `activechain_anchor_statement_v1`. No pointer is retained.
+ */
+uint32_t activechain_anchor_resolve_request_v1(const uint8_t *reference,
+                                               uint8_t *output,
+                                               uint32_t output_capacity,
+                                               uint32_t *required_output_length);
+
+/**
+ * Decodes a bounded canonical RPC response. For finalized records, output is the canonical
+ * `AnchorFinalizedEvidenceV1` envelope; pending/rejected/submission/error responses have no output.
+ *
+ * # Safety
+ * The response must be readable. `result` must be writable, and output follows the size-query
+ * contract above. No pointer is retained.
+ */
+uint32_t activechain_anchor_decode_response_v1(const uint8_t *response,
+                                               uint32_t response_len,
+                                               uint8_t *output,
+                                               uint32_t output_capacity,
+                                               struct ActivechainAnchorResult *result);
 
 uint32_t activechain_verifier_abi_revision(void);
 

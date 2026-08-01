@@ -37,7 +37,14 @@ const TOTAL_PUBLIC_VALUES: usize = STATE_PUBLIC_VALUES * 2;
 pub const CASH_AIR_SHAKE_SUITE_ID: u32 = 0xCA50_0301;
 const KECCAK_ROUNDS: usize = 24;
 pub const MAX_CASH_SHAKE_MESSAGE: usize = 512;
-pub const MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_CHUNK: usize = 64;
+/// Maximum number of Keccak permutations aggregated into one FRI proof.
+///
+/// A complete authenticated Coin Cell mutation needs 772 SHAKE messages. Keeping
+/// this below that path size repeats the very wide Keccak opening for every
+/// chunk, producing receipts far beyond the bounded ingress ceiling. This cap
+/// admits one complete path per proof while the independent composite cap still
+/// bounds total validator work.
+pub const MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_CHUNK: usize = 1_024;
 pub const MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_COMPOSITE: usize = 16_384;
 
 type Val = BabyBear;
@@ -187,11 +194,19 @@ impl AuthenticatedCashShakeStarkProof {
     }
 
     pub fn encode_bytes(&self) -> Result<Vec<u8>, &'static str> {
-        serde_json::to_vec(self).map_err(|_| "CashAIR SHAKE proof encoding failed")
+        postcard::to_stdvec(self).map_err(|_| "CashAIR SHAKE proof encoding failed")
     }
 
     pub fn decode_bytes(bytes: &[u8]) -> Result<Self, &'static str> {
-        serde_json::from_slice(bytes).map_err(|_| "malformed CashAIR SHAKE proof")
+        if bytes.is_empty() || bytes.len() > crate::MAX_CASH_AIR_COMPOSITE_BYTES {
+            return Err("CashAIR SHAKE proof size is out of bounds");
+        }
+        let (proof, remaining) =
+            postcard::take_from_bytes(bytes).map_err(|_| "malformed CashAIR SHAKE proof")?;
+        if !remaining.is_empty() {
+            return Err("trailing bytes in CashAIR SHAKE proof");
+        }
+        Ok(proof)
     }
 }
 
@@ -293,7 +308,6 @@ pub fn verify_shake256_384_batch(
     let (bindings, _, digests) = batch_witness(messages)?;
     if messages.is_empty()
         || proof.permutation_count != bindings.len()
-        || proof.digests != expected_digests
         || digests != expected_digests
     {
         return Err("SHAKE batch shape or digest mismatch");
@@ -741,7 +755,9 @@ mod tests {
 
     #[test]
     fn authenticated_chunk_plan_is_ordered_and_strictly_permutation_bounded() {
-        let messages = (0_u8..40).map(|byte| vec![byte; RATE_BYTES + 2]).collect::<Vec<_>>();
+        let messages = (0_usize..600)
+            .map(|index| vec![(index % 251) as u8; RATE_BYTES + 2])
+            .collect::<Vec<_>>();
         let chunks = authenticated_chunks(&messages).unwrap();
         assert_eq!(chunks.len(), 2);
         assert_eq!(chunks.concat(), messages);

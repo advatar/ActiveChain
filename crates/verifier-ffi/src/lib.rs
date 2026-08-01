@@ -1,6 +1,9 @@
 #![allow(unsafe_code)]
 
+use activechain_application_primitives::{AnchorStatus, DigestAnchorStatementV1};
+use activechain_canonical_codec::{decode_envelope, encode_envelope};
 use activechain_protocol_types::Digest384;
+use activechain_rpc_types::{RpcError, RpcRequest, RpcResponse};
 
 pub const ACTIVECHAIN_VERIFY_OK: u32 = 0;
 pub const ACTIVECHAIN_VERIFY_TOO_LARGE: u32 = 1;
@@ -20,6 +23,13 @@ pub const ACTIVECHAIN_VERIFY_DETAIL_INVALID_BOOLEAN: u32 = 5;
 pub const ACTIVECHAIN_VERIFY_DETAIL_INVALID_ENUM: u32 = 6;
 pub const ACTIVECHAIN_VERIFY_DETAIL_INVALID_VALUE: u32 = 7;
 pub const ACTIVECHAIN_VERIFY_DETAIL_TRAILING_DATA: u32 = 8;
+pub const ACTIVECHAIN_ANCHOR_RESPONSE_SUBMISSION: u32 = 1;
+pub const ACTIVECHAIN_ANCHOR_RESPONSE_RECORD: u32 = 2;
+pub const ACTIVECHAIN_ANCHOR_RESPONSE_RPC_ERROR: u32 = 3;
+pub const ACTIVECHAIN_ANCHOR_STATUS_NONE: u32 = 0;
+pub const ACTIVECHAIN_ANCHOR_STATUS_PENDING: u32 = 1;
+pub const ACTIVECHAIN_ANCHOR_STATUS_FINALIZED: u32 = 2;
+pub const ACTIVECHAIN_ANCHOR_STATUS_REJECTED: u32 = 3;
 const TOO_LARGE: u32 = ACTIVECHAIN_VERIFY_TOO_LARGE;
 const NULL_POINTER: u32 = ACTIVECHAIN_VERIFY_NULL_POINTER;
 const MAX_ENVELOPE_LENGTH: u32 = activechain_verifier_api::MAX_ENVELOPE_LENGTH as u32;
@@ -48,6 +58,286 @@ impl Default for ActivechainVerifierResult {
             canonical_value_commitment: [0; 48],
         }
     }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ActivechainAnchorResult {
+    pub code: u32,
+    pub response_kind: u32,
+    pub anchor_status: u32,
+    pub rpc_error: u32,
+    pub required_output_length: u32,
+    pub reference: [u8; 48],
+}
+
+impl Default for ActivechainAnchorResult {
+    fn default() -> Self {
+        Self {
+            code: 0,
+            response_kind: 0,
+            anchor_status: 0,
+            rpc_error: 0,
+            required_output_length: 0,
+            reference: [0; 48],
+        }
+    }
+}
+
+unsafe fn write_bounded_output(
+    bytes: &[u8],
+    output: *mut u8,
+    output_capacity: u32,
+    required: *mut u32,
+) -> u32 {
+    if required.is_null() || (output.is_null() && output_capacity != 0) {
+        return NULL_POINTER;
+    }
+    let Ok(length) = u32::try_from(bytes.len()) else {
+        return TOO_LARGE;
+    };
+    unsafe { required.write(length) };
+    if output_capacity < length {
+        return ACTIVECHAIN_VERIFY_BUFFER_TOO_SMALL;
+    }
+    if length != 0 {
+        unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), output, bytes.len()) };
+    }
+    ACTIVECHAIN_VERIFY_OK
+}
+
+#[unsafe(no_mangle)]
+/// Constructs a canonical digest-anchor statement and its deterministic 48-byte reference.
+///
+/// A null `output` with zero capacity performs a size query. No pointer is retained.
+///
+/// # Safety
+/// The domain and digest must be readable for their declared fixed/bounded lengths, `reference`
+/// and `required_output_length` must be writable, and non-null output must be writable for its
+/// declared capacity. Input and output regions must not overlap.
+pub unsafe extern "C" fn activechain_anchor_statement_v1(
+    application_domain: *const u8,
+    application_domain_len: u32,
+    digest: *const u8,
+    output: *mut u8,
+    output_capacity: u32,
+    required_output_length: *mut u32,
+    reference: *mut u8,
+) -> u32 {
+    if application_domain.is_null()
+        || digest.is_null()
+        || reference.is_null()
+        || required_output_length.is_null()
+        || (output.is_null() && output_capacity != 0)
+    {
+        return NULL_POINTER;
+    }
+    if application_domain_len as usize
+        > activechain_application_primitives::MAX_ANCHOR_APPLICATION_DOMAIN_LENGTH
+    {
+        return ACTIVECHAIN_VERIFY_DECODE_ERROR;
+    }
+    let domain =
+        unsafe { core::slice::from_raw_parts(application_domain, application_domain_len as usize) };
+    let mut digest_bytes = [0_u8; 32];
+    digest_bytes.copy_from_slice(unsafe { core::slice::from_raw_parts(digest, 32) });
+    let Ok(statement) = DigestAnchorStatementV1::new(domain.to_vec(), digest_bytes) else {
+        return ACTIVECHAIN_VERIFY_DECODE_ERROR;
+    };
+    let Ok(encoded) = encode_envelope(&statement) else {
+        return ACTIVECHAIN_VERIFY_DECODE_ERROR;
+    };
+    let Ok(submission_reference) = statement.submission_reference() else {
+        return ACTIVECHAIN_VERIFY_DECODE_ERROR;
+    };
+    unsafe {
+        core::ptr::copy_nonoverlapping(submission_reference.as_bytes().as_ptr(), reference, 48)
+    };
+    unsafe { write_bounded_output(&encoded, output, output_capacity, required_output_length) }
+}
+
+unsafe fn encode_anchor_request(
+    request: &RpcRequest,
+    output: *mut u8,
+    output_capacity: u32,
+    required_output_length: *mut u32,
+) -> u32 {
+    let Ok(encoded) = encode_envelope(request) else {
+        return ACTIVECHAIN_VERIFY_DECODE_ERROR;
+    };
+    unsafe { write_bounded_output(&encoded, output, output_capacity, required_output_length) }
+}
+
+#[unsafe(no_mangle)]
+/// Encodes a canonical submit-anchor RPC request from an already canonical statement envelope.
+///
+/// # Safety
+/// The statement must be readable, and output/result pointers follow the size-query contract of
+/// `activechain_anchor_statement_v1`. No pointer is retained.
+pub unsafe extern "C" fn activechain_anchor_submit_request_v1(
+    statement: *const u8,
+    statement_len: u32,
+    output: *mut u8,
+    output_capacity: u32,
+    required_output_length: *mut u32,
+) -> u32 {
+    if (statement.is_null() && statement_len != 0)
+        || statement_len > MAX_ENVELOPE_LENGTH
+        || required_output_length.is_null()
+        || (output.is_null() && output_capacity != 0)
+    {
+        return NULL_POINTER;
+    }
+    let statement = if statement_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(statement, statement_len as usize) }
+    };
+    if decode_envelope::<DigestAnchorStatementV1>(statement).is_err() {
+        return ACTIVECHAIN_VERIFY_DECODE_ERROR;
+    }
+    unsafe {
+        encode_anchor_request(
+            &RpcRequest::SubmitAnchor { statement: statement.to_vec() },
+            output,
+            output_capacity,
+            required_output_length,
+        )
+    }
+}
+
+#[unsafe(no_mangle)]
+/// Encodes a canonical resolve-anchor RPC request for an exact 48-byte reference.
+///
+/// # Safety
+/// `reference` must be readable for 48 bytes; output/result pointers follow the size-query
+/// contract of `activechain_anchor_statement_v1`. No pointer is retained.
+pub unsafe extern "C" fn activechain_anchor_resolve_request_v1(
+    reference: *const u8,
+    output: *mut u8,
+    output_capacity: u32,
+    required_output_length: *mut u32,
+) -> u32 {
+    if reference.is_null() {
+        return NULL_POINTER;
+    }
+    let mut bytes = [0_u8; 48];
+    bytes.copy_from_slice(unsafe { core::slice::from_raw_parts(reference, 48) });
+    unsafe {
+        encode_anchor_request(
+            &RpcRequest::ResolveAnchor { reference: Digest384::new(bytes) },
+            output,
+            output_capacity,
+            required_output_length,
+        )
+    }
+}
+
+#[unsafe(no_mangle)]
+/// Decodes a bounded canonical RPC response. For finalized records, output is the canonical
+/// `AnchorFinalizedEvidenceV1` envelope; pending/rejected/submission/error responses have no output.
+///
+/// # Safety
+/// The response must be readable. `result` must be writable, and output follows the size-query
+/// contract above. No pointer is retained.
+pub unsafe extern "C" fn activechain_anchor_decode_response_v1(
+    response: *const u8,
+    response_len: u32,
+    output: *mut u8,
+    output_capacity: u32,
+    result: *mut ActivechainAnchorResult,
+) -> u32 {
+    if result.is_null()
+        || (response.is_null() && response_len != 0)
+        || (output.is_null() && output_capacity != 0)
+    {
+        return NULL_POINTER;
+    }
+    let mut report = ActivechainAnchorResult::default();
+    if response_len > MAX_ENVELOPE_LENGTH {
+        report.code = TOO_LARGE;
+        unsafe { result.write(report) };
+        return report.code;
+    }
+    let response = if response_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(response, response_len as usize) }
+    };
+    let Ok(response) = decode_envelope::<RpcResponse>(response) else {
+        report.code = ACTIVECHAIN_VERIFY_DECODE_ERROR;
+        unsafe { result.write(report) };
+        return report.code;
+    };
+    let payload = match response {
+        RpcResponse::AnchorSubmission(reference) => {
+            report.response_kind = ACTIVECHAIN_ANCHOR_RESPONSE_SUBMISSION;
+            report.reference = *reference.as_bytes();
+            Vec::new()
+        }
+        RpcResponse::AnchorRecord(record) => {
+            let Ok(record) =
+                decode_envelope::<activechain_application_primitives::AnchorRecord>(&record)
+            else {
+                report.code = ACTIVECHAIN_VERIFY_DECODE_ERROR;
+                unsafe { result.write(report) };
+                return report.code;
+            };
+            report.response_kind = ACTIVECHAIN_ANCHOR_RESPONSE_RECORD;
+            report.reference = match record.statement().submission_reference() {
+                Ok(reference) => *reference.as_bytes(),
+                Err(_) => {
+                    report.code = ACTIVECHAIN_VERIFY_DECODE_ERROR;
+                    unsafe { result.write(report) };
+                    return report.code;
+                }
+            };
+            report.anchor_status = match record.status() {
+                AnchorStatus::Pending => ACTIVECHAIN_ANCHOR_STATUS_PENDING,
+                AnchorStatus::Finalized => ACTIVECHAIN_ANCHOR_STATUS_FINALIZED,
+                AnchorStatus::Rejected => ACTIVECHAIN_ANCHOR_STATUS_REJECTED,
+            };
+            match record.evidence() {
+                Some(evidence) => match encode_envelope(evidence) {
+                    Ok(evidence) => evidence,
+                    Err(_) => {
+                        report.code = ACTIVECHAIN_VERIFY_DECODE_ERROR;
+                        unsafe { result.write(report) };
+                        return report.code;
+                    }
+                },
+                None => Vec::new(),
+            }
+        }
+        RpcResponse::Error(error) => {
+            report.response_kind = ACTIVECHAIN_ANCHOR_RESPONSE_RPC_ERROR;
+            report.rpc_error = match error {
+                RpcError::NotFound => 1,
+                RpcError::Stale => 2,
+                RpcError::UnsupportedProof => 3,
+                RpcError::InvalidRequest => 4,
+                RpcError::DeadlineExceeded => 5,
+                RpcError::Internal => 6,
+            };
+            Vec::new()
+        }
+        _ => {
+            report.code = ACTIVECHAIN_VERIFY_TYPE_MISMATCH;
+            unsafe { result.write(report) };
+            return report.code;
+        }
+    };
+    report.required_output_length = u32::try_from(payload.len()).unwrap_or(u32::MAX);
+    if output_capacity < report.required_output_length {
+        report.code = ACTIVECHAIN_VERIFY_BUFFER_TOO_SMALL;
+    } else {
+        if !payload.is_empty() {
+            unsafe { core::ptr::copy_nonoverlapping(payload.as_ptr(), output, payload.len()) };
+        }
+        report.code = ACTIVECHAIN_VERIFY_OK;
+    }
+    unsafe { result.write(report) };
+    report.code
 }
 
 #[unsafe(no_mangle)]
@@ -1207,6 +1497,228 @@ mod tests {
                 )
             },
             5
+        );
+    }
+
+    fn decode_hex(value: &str) -> Vec<u8> {
+        value
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|pair| {
+                let digit = |byte| match byte {
+                    b'0'..=b'9' => byte - b'0',
+                    b'a'..=b'f' => byte - b'a' + 10,
+                    _ => panic!("invalid test hex"),
+                };
+                digit(pair[0]) << 4 | digit(pair[1])
+            })
+            .collect()
+    }
+
+    #[test]
+    fn apple_anchor_boundary_matches_canonical_vector_and_rpc_types() {
+        let domain = b"mademark.external-anchor.statement.v1";
+        let digest = [0x11_u8; 32];
+        let mut required = 0_u32;
+        let mut reference = [0_u8; 48];
+        assert_eq!(
+            unsafe {
+                activechain_anchor_statement_v1(
+                    domain.as_ptr(),
+                    domain.len() as u32,
+                    digest.as_ptr(),
+                    core::ptr::null_mut(),
+                    0,
+                    &mut required,
+                    reference.as_mut_ptr(),
+                )
+            },
+            ACTIVECHAIN_VERIFY_BUFFER_TOO_SMALL
+        );
+        let mut statement = vec![0_u8; required as usize];
+        assert_eq!(
+            unsafe {
+                activechain_anchor_statement_v1(
+                    domain.as_ptr(),
+                    domain.len() as u32,
+                    digest.as_ptr(),
+                    statement.as_mut_ptr(),
+                    statement.len() as u32,
+                    &mut required,
+                    reference.as_mut_ptr(),
+                )
+            },
+            ACTIVECHAIN_VERIFY_OK
+        );
+        assert_eq!(
+            statement,
+            decode_hex(
+                "00c6000146256d6164656d61726b2e65787465726e616c2d616e63686f722e73746174656d656e742e76311111111111111111111111111111111111111111111111111111111111111111"
+            )
+        );
+        assert_eq!(
+            reference.to_vec(),
+            decode_hex(
+                "28a93d59175490cae50f5bb2dfaaee27084b6bb27ffb92df4bfa8683b213af7ffabdd29156f6e7ab3d55e90d4bb31a8c"
+            )
+        );
+
+        required = 0;
+        assert_eq!(
+            unsafe {
+                activechain_anchor_submit_request_v1(
+                    statement.as_ptr(),
+                    statement.len() as u32,
+                    core::ptr::null_mut(),
+                    0,
+                    &mut required,
+                )
+            },
+            ACTIVECHAIN_VERIFY_BUFFER_TOO_SMALL
+        );
+        let mut request = vec![0_u8; required as usize];
+        assert_eq!(
+            unsafe {
+                activechain_anchor_submit_request_v1(
+                    statement.as_ptr(),
+                    statement.len() as u32,
+                    request.as_mut_ptr(),
+                    request.len() as u32,
+                    &mut required,
+                )
+            },
+            ACTIVECHAIN_VERIFY_OK
+        );
+        assert_eq!(
+            decode_envelope::<RpcRequest>(&request),
+            Ok(RpcRequest::SubmitAnchor { statement: statement.clone() })
+        );
+        assert_eq!(
+            request,
+            decode_hex(
+                "010700014d034b00c6000146256d6164656d61726b2e65787465726e616c2d616e63686f722e73746174656d656e742e76311111111111111111111111111111111111111111111111111111111111111111"
+            )
+        );
+
+        required = 0;
+        assert_eq!(
+            unsafe {
+                activechain_anchor_resolve_request_v1(
+                    reference.as_ptr(),
+                    core::ptr::null_mut(),
+                    0,
+                    &mut required,
+                )
+            },
+            ACTIVECHAIN_VERIFY_BUFFER_TOO_SMALL
+        );
+        let mut request = vec![0_u8; required as usize];
+        assert_eq!(
+            unsafe {
+                activechain_anchor_resolve_request_v1(
+                    reference.as_ptr(),
+                    request.as_mut_ptr(),
+                    request.len() as u32,
+                    &mut required,
+                )
+            },
+            ACTIVECHAIN_VERIFY_OK
+        );
+        assert_eq!(
+            decode_envelope::<RpcRequest>(&request),
+            Ok(RpcRequest::ResolveAnchor { reference: Digest384::new(reference) })
+        );
+        assert_eq!(
+            request,
+            decode_hex(
+                "01070001310428a93d59175490cae50f5bb2dfaaee27084b6bb27ffb92df4bfa8683b213af7ffabdd29156f6e7ab3d55e90d4bb31a8c"
+            )
+        );
+    }
+
+    #[test]
+    fn apple_anchor_response_decoder_validates_variants_and_records() {
+        let statement =
+            DigestAnchorStatementV1::new(b"swiftledger.audit.v1".to_vec(), [7; 32]).unwrap();
+        let reference = statement.submission_reference().unwrap();
+        let submission = encode_envelope(&RpcResponse::AnchorSubmission(reference)).unwrap();
+        let mut result = ActivechainAnchorResult::default();
+        assert_eq!(
+            unsafe {
+                activechain_anchor_decode_response_v1(
+                    submission.as_ptr(),
+                    submission.len() as u32,
+                    core::ptr::null_mut(),
+                    0,
+                    &mut result,
+                )
+            },
+            ACTIVECHAIN_VERIFY_OK
+        );
+        assert_eq!(result.response_kind, ACTIVECHAIN_ANCHOR_RESPONSE_SUBMISSION);
+        assert_eq!(result.reference, *reference.as_bytes());
+
+        let mut registry = activechain_application_primitives::AnchorRegistry::default();
+        registry.submit(statement).unwrap();
+        let record = encode_envelope(registry.resolve(reference).unwrap()).unwrap();
+        let response = encode_envelope(&RpcResponse::AnchorRecord(record)).unwrap();
+        assert_eq!(
+            unsafe {
+                activechain_anchor_decode_response_v1(
+                    response.as_ptr(),
+                    response.len() as u32,
+                    core::ptr::null_mut(),
+                    0,
+                    &mut result,
+                )
+            },
+            ACTIVECHAIN_VERIFY_OK
+        );
+        assert_eq!(result.response_kind, ACTIVECHAIN_ANCHOR_RESPONSE_RECORD);
+        assert_eq!(result.anchor_status, ACTIVECHAIN_ANCHOR_STATUS_PENDING);
+        assert_eq!(result.required_output_length, 0);
+
+        let response = encode_envelope(&RpcResponse::Error(RpcError::NotFound)).unwrap();
+        assert_eq!(
+            unsafe {
+                activechain_anchor_decode_response_v1(
+                    response.as_ptr(),
+                    response.len() as u32,
+                    core::ptr::null_mut(),
+                    0,
+                    &mut result,
+                )
+            },
+            ACTIVECHAIN_VERIFY_OK
+        );
+        assert_eq!(result.response_kind, ACTIVECHAIN_ANCHOR_RESPONSE_RPC_ERROR);
+        assert_eq!(result.rpc_error, 1);
+
+        let unrelated = encode_envelope(&RpcResponse::Status(
+            activechain_rpc_types::RpcStatus::new(
+                activechain_protocol_types::ChainId::new(digest(1)),
+                digest(2),
+                1,
+                0,
+                1,
+                1,
+                1,
+                vec![activechain_rpc_types::ProofKind::FinalityCertificate],
+            )
+            .unwrap(),
+        ))
+        .unwrap();
+        assert_eq!(
+            unsafe {
+                activechain_anchor_decode_response_v1(
+                    unrelated.as_ptr(),
+                    unrelated.len() as u32,
+                    core::ptr::null_mut(),
+                    0,
+                    &mut result,
+                )
+            },
+            ACTIVECHAIN_VERIFY_TYPE_MISMATCH
         );
     }
 }

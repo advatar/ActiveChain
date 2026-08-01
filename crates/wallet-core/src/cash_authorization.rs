@@ -513,7 +513,7 @@ pub struct OperatorFaucetAuthorizationV1 {
 }
 
 impl OperatorFaucetAuthorizationV1 {
-    pub const TYPE_TAG: u16 = 0x0149;
+    pub const TYPE_TAG: u16 = 0x0151;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize =
         AuthorizedCashSessionGrantV1::MAX_ENCODED_LEN + AuthorizedCashTransferV1::MAX_ENCODED_LEN;

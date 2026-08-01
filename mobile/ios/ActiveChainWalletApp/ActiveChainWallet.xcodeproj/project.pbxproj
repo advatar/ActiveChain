@@ -13,15 +13,18 @@
 		20ED92D62FC73117F71FDA7F /* AgentWallet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D41DFF27117CF804DD5B4301 /* AgentWallet.swift */; };
 		2C8CCD588629BA72F529AA84 /* RustAgentRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A908638375B69C4796EE249 /* RustAgentRegistry.swift */; };
 		374576FBA140D49B79CE92CC /* ReceiveRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A496EE1DE3CAA8472B124CAF /* ReceiveRequest.swift */; };
+		390C635B1BF6FA4A56A98D67 /* RustCanonicalApproval.swift in Sources */ = {isa = PBXBuildFile; fileRef = D74A7CE5AE43E03F00D7B9F9 /* RustCanonicalApproval.swift */; };
 		3B3483FAF6831A3070025F64 /* AgentAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8A918D07F4706D86D226023 /* AgentAppIntents.swift */; };
 		409D9AE4558B50CB086A4AC5 /* OpenWalletAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9A7B68A6BF40EC2B257B49E /* OpenWalletAdapter.swift */; };
 		4B184C9D875F0C99BDDA7439 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5BC3A913C310FA56AB7A75B0 /* Assets.xcassets */; };
 		51FF834F5BBC5DD2BDDF7458 /* ActiveChainWallet.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = FE57D7E81DE8386DD91EE7F6 /* ActiveChainWallet.xcframework */; };
 		54C17C1DB2671699FD7333A0 /* ActiveChainWalletApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00F60C541C50E0093CD8C615 /* ActiveChainWalletApp.swift */; };
 		654D7699CA37C0AEB8C01FD5 /* ActiveChainWalletTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF53AD2EFD667B91B6C0E2A2 /* ActiveChainWalletTests.swift */; };
+		681BD3D9D0213D6D54F91D6E /* McpProposalApproval.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94B4EAFAD4ADAA28A7F1AADB /* McpProposalApproval.swift */; };
+		6F511419F638665160AC7FF2 /* CanonicalApproval.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A413B7566FFCF99636E760 /* CanonicalApproval.swift */; };
+		6FC270EB9653605CB9529C82 /* RustCanonicalApproval.swift in Sources */ = {isa = PBXBuildFile; fileRef = D74A7CE5AE43E03F00D7B9F9 /* RustCanonicalApproval.swift */; };
 		70EB9560531E88DAF4876107 /* SharedKeychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA6F3F4E02BBBE0DE60990C5 /* SharedKeychain.swift */; };
 		8F340B6575254D29F91B96E8 /* ActiveChainWalletTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF53AD2EFD667B91B6C0E2A2 /* ActiveChainWalletTests.swift */; };
-		A070E61E9AC1FAECF5367D2D /* WalletBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0157C828F4D0C1CCC8EDEAD /* WalletBridge.swift */; };
 		A238900342B0AD7AF8819CE2 /* ActiveChainWalletApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00F60C541C50E0093CD8C615 /* ActiveChainWalletApp.swift */; };
 		A255F0544F1A5B6B4D343181 /* NetworkSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50EF838DF6F51C698FEE9C6F /* NetworkSelection.swift */; };
 		A955F5A4F6398043E6F147B7 /* OpenWalletAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9A7B68A6BF40EC2B257B49E /* OpenWalletAdapter.swift */; };
@@ -33,9 +36,10 @@
 		D0A75F0688EB6CCE64C6EF16 /* ReceiveRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A496EE1DE3CAA8472B124CAF /* ReceiveRequest.swift */; };
 		DD514FDF4C74A5F91E657DF5 /* RustAgentRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A908638375B69C4796EE249 /* RustAgentRegistry.swift */; };
 		DFA6CA854511D128103146C2 /* AgentEnrollment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8314E013FB77F1EBBD1BDE46 /* AgentEnrollment.swift */; };
-		E1D024C4F4D90A2B11F8F524 /* WalletBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0157C828F4D0C1CCC8EDEAD /* WalletBridge.swift */; };
 		E8468724E720CCEBF55A5100 /* WalletLiveState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D0CAF5609EE5137D2B9241C /* WalletLiveState.swift */; };
+		E88F607E1F44F4D3B1B9F54E /* McpProposalApproval.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94B4EAFAD4ADAA28A7F1AADB /* McpProposalApproval.swift */; };
 		F0B673E2E0E1DD9303685E76 /* AgentWallet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D41DFF27117CF804DD5B4301 /* AgentWallet.swift */; };
+		F8804379117C44DC8BD4CFAA /* CanonicalApproval.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A413B7566FFCF99636E760 /* CanonicalApproval.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -66,12 +70,14 @@
 		7A908638375B69C4796EE249 /* RustAgentRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RustAgentRegistry.swift; sourceTree = "<group>"; };
 		82AF43EE862E7362F5827841 /* ActiveChainWalletMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ActiveChainWalletMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8314E013FB77F1EBBD1BDE46 /* AgentEnrollment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentEnrollment.swift; sourceTree = "<group>"; };
-		A0157C828F4D0C1CCC8EDEAD /* WalletBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletBridge.swift; sourceTree = "<group>"; };
+		94B4EAFAD4ADAA28A7F1AADB /* McpProposalApproval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = McpProposalApproval.swift; sourceTree = "<group>"; };
 		A496EE1DE3CAA8472B124CAF /* ReceiveRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiveRequest.swift; sourceTree = "<group>"; };
 		A967749B3E6D962AAA26E424 /* ActiveChainWalletMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ActiveChainWalletMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C0A413B7566FFCF99636E760 /* CanonicalApproval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanonicalApproval.swift; sourceTree = "<group>"; };
 		C8A918D07F4706D86D226023 /* AgentAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentAppIntents.swift; sourceTree = "<group>"; };
 		CA6F3F4E02BBBE0DE60990C5 /* SharedKeychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedKeychain.swift; sourceTree = "<group>"; };
 		D41DFF27117CF804DD5B4301 /* AgentWallet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentWallet.swift; sourceTree = "<group>"; };
+		D74A7CE5AE43E03F00D7B9F9 /* RustCanonicalApproval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RustCanonicalApproval.swift; sourceTree = "<group>"; };
 		D9A7B68A6BF40EC2B257B49E /* OpenWalletAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenWalletAdapter.swift; sourceTree = "<group>"; };
 		FE57D7E81DE8386DD91EE7F6 /* ActiveChainWallet.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = ActiveChainWallet.xcframework; path = ../../../dist/apple/current/ActiveChainWallet.xcframework; sourceTree = "<group>"; };
 		FF53AD2EFD667B91B6C0E2A2 /* ActiveChainWalletTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveChainWalletTests.swift; sourceTree = "<group>"; };
@@ -125,6 +131,7 @@
 				A496EE1DE3CAA8472B124CAF /* ReceiveRequest.swift */,
 				4B5C193E2E9CC1B91B0DFB62 /* ReceiveRequestView.swift */,
 				7A908638375B69C4796EE249 /* RustAgentRegistry.swift */,
+				D74A7CE5AE43E03F00D7B9F9 /* RustCanonicalApproval.swift */,
 				CA6F3F4E02BBBE0DE60990C5 /* SharedKeychain.swift */,
 				2D0CAF5609EE5137D2B9241C /* WalletLiveState.swift */,
 			);
@@ -145,7 +152,8 @@
 		8FFD750E9DA0C36FF3E40877 /* ActiveChainWallet */ = {
 			isa = PBXGroup;
 			children = (
-				A0157C828F4D0C1CCC8EDEAD /* WalletBridge.swift */,
+				C0A413B7566FFCF99636E760 /* CanonicalApproval.swift */,
+				94B4EAFAD4ADAA28A7F1AADB /* McpProposalApproval.swift */,
 			);
 			name = ActiveChainWallet;
 			path = ../ActiveChainWallet/Sources/ActiveChainWallet;
@@ -314,13 +322,15 @@
 				BEAC359D40E3322CD06C36BC /* AgentAppIntents.swift in Sources */,
 				0203D15FB843A76A4366DB52 /* AgentEnrollment.swift in Sources */,
 				20ED92D62FC73117F71FDA7F /* AgentWallet.swift in Sources */,
+				F8804379117C44DC8BD4CFAA /* CanonicalApproval.swift in Sources */,
+				E88F607E1F44F4D3B1B9F54E /* McpProposalApproval.swift in Sources */,
 				AD9C8CBA51E6E5123B86F339 /* NetworkSelection.swift in Sources */,
 				409D9AE4558B50CB086A4AC5 /* OpenWalletAdapter.swift in Sources */,
 				374576FBA140D49B79CE92CC /* ReceiveRequest.swift in Sources */,
 				BA3657EA83D7DC0D110A102F /* ReceiveRequestView.swift in Sources */,
 				2C8CCD588629BA72F529AA84 /* RustAgentRegistry.swift in Sources */,
+				390C635B1BF6FA4A56A98D67 /* RustCanonicalApproval.swift in Sources */,
 				70EB9560531E88DAF4876107 /* SharedKeychain.swift in Sources */,
-				A070E61E9AC1FAECF5367D2D /* WalletBridge.swift in Sources */,
 				E8468724E720CCEBF55A5100 /* WalletLiveState.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -333,13 +343,15 @@
 				3B3483FAF6831A3070025F64 /* AgentAppIntents.swift in Sources */,
 				DFA6CA854511D128103146C2 /* AgentEnrollment.swift in Sources */,
 				F0B673E2E0E1DD9303685E76 /* AgentWallet.swift in Sources */,
+				6F511419F638665160AC7FF2 /* CanonicalApproval.swift in Sources */,
+				681BD3D9D0213D6D54F91D6E /* McpProposalApproval.swift in Sources */,
 				A255F0544F1A5B6B4D343181 /* NetworkSelection.swift in Sources */,
 				A955F5A4F6398043E6F147B7 /* OpenWalletAdapter.swift in Sources */,
 				D0A75F0688EB6CCE64C6EF16 /* ReceiveRequest.swift in Sources */,
 				C06B788A960EB0FFE93FBE3F /* ReceiveRequestView.swift in Sources */,
 				DD514FDF4C74A5F91E657DF5 /* RustAgentRegistry.swift in Sources */,
+				6FC270EB9653605CB9529C82 /* RustCanonicalApproval.swift in Sources */,
 				BF90236E9505812EAB94A3E1 /* SharedKeychain.swift in Sources */,
-				E1D024C4F4D90A2B11F8F524 /* WalletBridge.swift in Sources */,
 				07334189D34A9B6C4A160EAA /* WalletLiveState.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -404,6 +416,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -420,6 +433,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -437,6 +451,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -663,6 +678,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

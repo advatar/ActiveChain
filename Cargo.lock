@@ -3,6 +3,17 @@
 version = 4
 
 [[package]]
+name = "activechain-a2ui-renderer"
+version = "0.1.0"
+dependencies = [
+ "activechain-agent-interfaces",
+ "activechain-proposal-gateway",
+ "activechain-protocol-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "activechain-action-kernel"
 version = "0.1.0"
 dependencies = [
@@ -109,8 +120,8 @@ dependencies = [
  "p3-sha256",
  "p3-symmetric",
  "p3-uni-stark",
+ "postcard",
  "serde",
- "serde_json",
  "sha3 0.10.9",
  "winterfell",
 ]
@@ -240,6 +251,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-mcp-rehearsal"
+version = "0.1.0"
+dependencies = [
+ "activechain-agent-interfaces",
+ "activechain-application-primitives",
+ "activechain-canonical-codec",
+ "activechain-finality-types",
+ "activechain-mcp-server",
+ "activechain-proposal-gateway",
+ "activechain-protocol-types",
+ "activechain-rpc-server",
+ "activechain-rpc-types",
+ "activechain-state-tree",
+ "activechain-wallet-ffi",
+ "ml-dsa",
+ "serde_json",
+ "sha3 0.10.9",
+]
+
+[[package]]
+name = "activechain-mcp-server"
+version = "0.1.0"
+dependencies = [
+ "activechain-agent-interfaces",
+ "activechain-canonical-codec",
+ "activechain-proposal-gateway",
+ "activechain-protocol-types",
+ "activechain-rpc-server",
+ "activechain-rpc-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "activechain-object"
 version = "0.1.0"
 dependencies = [
@@ -345,6 +390,19 @@ dependencies = [
  "activechain-protocol-commitment",
  "activechain-protocol-types",
  "proptest",
+ "sha3 0.10.9",
+]
+
+[[package]]
+name = "activechain-proposal-gateway"
+version = "0.1.0"
+dependencies = [
+ "activechain-agent-interfaces",
+ "activechain-application-primitives",
+ "activechain-canonical-codec",
+ "activechain-protocol-types",
+ "serde",
+ "serde_json",
  "sha3 0.10.9",
 ]
 
@@ -488,12 +546,14 @@ dependencies = [
 name = "activechain-verifier-ffi"
 version = "0.1.0"
 dependencies = [
+ "activechain-application-primitives",
  "activechain-canonical-codec",
  "activechain-devnet-kernel",
  "activechain-finality-types",
  "activechain-policy-kernel",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
+ "activechain-rpc-types",
  "activechain-state-tree",
  "activechain-verifier-api",
  "ml-dsa",
@@ -520,6 +580,7 @@ version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
  "activechain-cash-kernel",
+ "activechain-proposal-gateway",
  "activechain-protocol-types",
  "activechain-verifier-api",
  "activechain-wallet-core",
