@@ -191,7 +191,7 @@ impl Default for ActivechainWalletAgentSummary {
 /// Returns the ABI revision consumed by native wallet shells.
 #[unsafe(no_mangle)]
 pub extern "C" fn activechain_wallet_ffi_revision() -> u32 {
-    3
+    4
 }
 
 /// Derives the canonical ML-DSA-44 public key for one transient 32-byte seed.
@@ -858,6 +858,62 @@ pub unsafe extern "C" fn activechain_wallet_verify_owner_coin_cell_record(
         read_buffer(proof, proof_len),
         read_buffer(finality, finality_len),
         PrincipalId::new(unsafe { read_digest(owner) }),
+        unsafe { read_digest(trusted_genesis) },
+    );
+    if code == activechain_verifier_api::VERIFY_OK { WALLET_OK } else { WALLET_INVALID_PROOF }
+}
+
+/// Verifies a proof-bearing NFT series or minted-token registry against trusted finality.
+///
+/// # Safety
+/// Fixed identifiers must point to readable 48-byte values. Canonical value, proof, and finality
+/// buffers must be readable for their declared lengths. No pointer is retained.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn activechain_wallet_verify_nft_state_record(
+    query_kind: u32,
+    key: *const u8,
+    finalized_height: u64,
+    value: *const u8,
+    value_len: u32,
+    proof: *const u8,
+    proof_len: u32,
+    finality: *const u8,
+    finality_len: u32,
+    trusted_genesis: *const u8,
+) -> u32 {
+    if key.is_null()
+        || trusted_genesis.is_null()
+        || (value.is_null() && value_len != 0)
+        || (proof.is_null() && proof_len != 0)
+        || (finality.is_null() && finality_len != 0)
+    {
+        return WALLET_NULL_POINTER;
+    }
+    if value_len
+        .checked_add(proof_len)
+        .and_then(|length| length.checked_add(finality_len))
+        .is_none_or(|length| length > MAX_WALLET_INPUT)
+    {
+        return WALLET_TOO_LARGE;
+    }
+    let Ok(query_kind) = u8::try_from(query_kind) else {
+        return WALLET_INVALID_PROOF;
+    };
+    let read_buffer = |pointer: *const u8, length: u32| {
+        if length == 0 {
+            &[]
+        } else {
+            unsafe { core::slice::from_raw_parts(pointer, length as usize) }
+        }
+    };
+    let code = activechain_verifier_api::verify_nft_state_record_code(
+        query_kind,
+        unsafe { read_digest(key) },
+        finalized_height,
+        read_buffer(value, value_len),
+        read_buffer(proof, proof_len),
+        read_buffer(finality, finality_len),
         unsafe { read_digest(trusted_genesis) },
     );
     if code == activechain_verifier_api::VERIFY_OK { WALLET_OK } else { WALLET_INVALID_PROOF }
@@ -1908,7 +1964,7 @@ mod tests {
 
     #[test]
     fn revision_is_stable() {
-        assert_eq!(activechain_wallet_ffi_revision(), 3);
+        assert_eq!(activechain_wallet_ffi_revision(), 4);
     }
 
     #[test]
@@ -2015,6 +2071,53 @@ mod tests {
                     malformed.as_ptr(),
                     malformed.len() as u32,
                     owner.as_ptr(),
+                    genesis.as_ptr(),
+                )
+            },
+            WALLET_NULL_POINTER
+        );
+    }
+
+    #[test]
+    fn nft_state_verifier_abi_rejects_unknown_kind_null_and_malformed_evidence() {
+        let key = [1_u8; 48];
+        let genesis = [3_u8; 48];
+        let malformed = [4_u8];
+        for kind in [
+            u32::from(activechain_verifier_api::NFT_SERIES_QUERY_KIND),
+            u32::from(activechain_verifier_api::NFT_TOKEN_REGISTRY_QUERY_KIND),
+            999,
+        ] {
+            assert_eq!(
+                unsafe {
+                    activechain_wallet_verify_nft_state_record(
+                        kind,
+                        key.as_ptr(),
+                        1,
+                        malformed.as_ptr(),
+                        malformed.len() as u32,
+                        malformed.as_ptr(),
+                        malformed.len() as u32,
+                        malformed.as_ptr(),
+                        malformed.len() as u32,
+                        genesis.as_ptr(),
+                    )
+                },
+                WALLET_INVALID_PROOF
+            );
+        }
+        assert_eq!(
+            unsafe {
+                activechain_wallet_verify_nft_state_record(
+                    u32::from(activechain_verifier_api::NFT_SERIES_QUERY_KIND),
+                    core::ptr::null(),
+                    1,
+                    malformed.as_ptr(),
+                    malformed.len() as u32,
+                    malformed.as_ptr(),
+                    malformed.len() as u32,
+                    malformed.as_ptr(),
+                    malformed.len() as u32,
                     genesis.as_ptr(),
                 )
             },
