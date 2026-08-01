@@ -352,6 +352,11 @@ Webhook envelopes include:
 
 Consumers acknowledge at least once and deduplicate by event identifier. Ordering is guaranteed
 only per operation. A webhook is a notification to query canonical status, not settlement proof.
+The canonical delivery envelope commits its ML-DSA-44 transport signer and signs a
+domain-separated encoding of the complete event. The connector host verifies that signature before
+atomically persisting the exact next per-subscription cursor; forged, substituted, replayed, or
+out-of-order events cannot advance acknowledgement state. Transport authentication does not change
+the embedded evidence class or confer ActiveChain finality.
 
 ## 7. Connector contract
 
@@ -979,4 +984,3 @@ ActiveBridge v1 is done only when:
 - Kanalen pilot qualification and independent review are complete;
 - production operation is gated by explicit issuer, provider, regulatory, reserve, security, and
   release approvals.
-

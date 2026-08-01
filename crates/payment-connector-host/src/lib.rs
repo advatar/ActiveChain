@@ -10,7 +10,7 @@ use activechain_crypto_provider::verify_ml_dsa44;
 use activechain_payment_types::{
     ConnectorId, PaymentApiAuthorizationV1, PaymentApiReplayStateV1,
     PaymentApiSignedAuthorizationV1, PaymentValidationError, PaymentWebhookCursorV1,
-    PaymentWebhookEventV1, ProviderObservationV1, RailId,
+    PaymentWebhookEventV1, PaymentWebhookSignedEventV1, ProviderObservationV1, RailId,
 };
 use activechain_protocol_types::{AssetId, Digest384};
 use sha3::{
@@ -387,6 +387,19 @@ impl WebhookDeliveryJournalV1 {
         Ok(())
     }
 
+    pub fn deliver_signed_durable(
+        &mut self,
+        signed: &PaymentWebhookSignedEventV1,
+        timestamp: u64,
+        path: &Path,
+    ) -> Result<(), JournalError> {
+        let event = signed.event();
+        let payload = event.signing_payload().map_err(|_| JournalError::InvalidDelivery)?;
+        verify_ml_dsa44(signed.public_key(), &payload, signed.signature().as_bytes())
+            .map_err(|_| JournalError::InvalidDelivery)?;
+        self.deliver_durable(event, timestamp, path)
+    }
+
     pub fn save_atomic(&self, path: &Path) -> Result<(), JournalError> {
         save_snapshot(self, path)
     }
@@ -594,8 +607,9 @@ mod tests {
     use activechain_payment_types::{
         AssetAmountV1, ConnectorId, EvidenceClass, PaymentApiOperation, PaymentAttemptId,
         PaymentIntentId, PaymentLifecycleRecordV1, PaymentState, PaymentWebhookEventId,
-        PaymentWebhookEventV1, PaymentWebhookSubscriptionId, ProviderOperationState, RailId,
-        payment_api_authenticator_commitment,
+        PaymentWebhookEventV1, PaymentWebhookSignedEventV1, PaymentWebhookSubscriptionId,
+        ProviderOperationState, RailId, payment_api_authenticator_commitment,
+        payment_webhook_signer_commitment,
     };
     use activechain_protocol_types::{
         AssetId, ChainId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature,
@@ -690,6 +704,45 @@ mod tests {
         let signature = signing_key.sign(&authorization.signing_payload().unwrap());
         PaymentApiSignedAuthorizationV1::new(
             authorization,
+            public_key,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec()).unwrap(),
+        )
+        .unwrap()
+    }
+
+    fn signed_webhook_event(
+        seed: u8,
+        event_byte: u8,
+        sequence: u64,
+    ) -> PaymentWebhookSignedEventV1 {
+        let signing_key = SigningKey::<MlDsa44>::from_seed(&Seed::from([seed; 32]));
+        let public_key = signing_key.verifying_key().encode().to_vec();
+        let state =
+            if sequence == 1 { PaymentState::Created } else { PaymentState::ProviderPending };
+        let event = PaymentWebhookEventV1::new(
+            PaymentWebhookSubscriptionId::new(digest(50)).unwrap(),
+            PaymentWebhookEventId::new(digest(event_byte)).unwrap(),
+            PaymentLifecycleRecordV1::new(
+                PaymentIntentId::new(digest(4)).unwrap(),
+                sequence,
+                state,
+                EvidenceClass::ConnectorAuthenticated,
+                digest(70 + sequence as u8),
+                None,
+                0,
+                None,
+                0,
+            )
+            .unwrap(),
+            digest(80),
+            payment_webhook_signer_commitment(&public_key),
+            100,
+            200,
+        )
+        .unwrap();
+        let signature = signing_key.sign(&event.signing_payload().unwrap());
+        PaymentWebhookSignedEventV1::new(
+            event,
             public_key,
             ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec()).unwrap(),
         )
@@ -990,6 +1043,39 @@ mod tests {
             Err(JournalError::InvalidAuthorization)
         );
         assert!(journal.states().is_empty());
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn signed_webhook_verifies_before_durable_cursor_advance() {
+        let path = path("signed-webhook");
+        let _ = std::fs::remove_file(&path);
+        let mut journal = WebhookDeliveryJournalV1::default();
+        let signed = signed_webhook_event(1, 51, 1);
+        journal.deliver_signed_durable(&signed, 150, &path).unwrap();
+        assert_eq!(journal.cursors()[0].next_sequence(), 2);
+        assert_eq!(WebhookDeliveryJournalV1::load(&path).unwrap(), journal);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn forged_or_substituted_webhook_never_advances_cursor() {
+        let path = path("invalid-signed-webhook");
+        let _ = std::fs::remove_file(&path);
+        let valid = signed_webhook_event(1, 51, 1);
+        let substituted = signed_webhook_event(1, 52, 1);
+        let forged = PaymentWebhookSignedEventV1::new(
+            substituted.event().clone(),
+            valid.public_key().to_vec(),
+            valid.signature().clone(),
+        )
+        .unwrap();
+        let mut journal = WebhookDeliveryJournalV1::default();
+        assert_eq!(
+            journal.deliver_signed_durable(&forged, 150, &path),
+            Err(JournalError::InvalidDelivery)
+        );
+        assert!(journal.cursors().is_empty());
         assert!(!path.exists());
     }
 }

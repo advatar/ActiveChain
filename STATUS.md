@@ -1019,6 +1019,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
   acknowledgement, rejecting corrupt snapshots without advancing memory.
 - [x] Verify canonical API authorization envelopes with committed ML-DSA-44 caller keys before
   consuming replay state, including negative proofs that invalid signatures cannot advance it.
+- [x] Verify canonical webhook envelopes with their committed ML-DSA-44 subscriber keys before
+  durably advancing delivery cursors, without promoting provider evidence to chain finality.
 
 ## Active EUDI/TLSNotary/ZK qualification
 
