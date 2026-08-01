@@ -656,6 +656,20 @@ impl PaymentIntentV1 {
         self.minimum_settlement
     }
 
+    /// Returns the requested settlement upper bound.
+    #[must_use]
+    pub const fn requested_settlement(&self) -> AssetAmountV1 {
+        self.requested_settlement
+    }
+
+    /// Checks the exact native asset and negotiated settlement range.
+    #[must_use]
+    pub fn accepts_settlement(&self, amount: AssetAmountV1) -> bool {
+        amount.asset().digest() == self.requested_settlement.asset().digest()
+            && amount.atomic_units() >= self.minimum_settlement.atomic_units()
+            && amount.atomic_units() <= self.requested_settlement.atomic_units()
+    }
+
     /// Returns whether the intent remains eligible for initial admission.
     #[must_use]
     pub const fn active_at(&self, timestamp: u64) -> bool {
@@ -917,6 +931,12 @@ impl PaymentLifecycleRecordV1 {
         if !self.state.permits(next.state) {
             return Err(PaymentValidationError::InvalidTransition);
         }
+        if self.state == PaymentState::ChainSubmitted
+            && next.state == PaymentState::Finalized
+            && self.transaction != next.transaction
+        {
+            return Err(PaymentValidationError::InvalidBinding);
+        }
         Ok(())
     }
 
@@ -980,6 +1000,119 @@ impl CanonicalType for PaymentLifecycleRecordV1 {
     const TYPE_TAG: u16 = 0x013f;
     const SCHEMA_VERSION: u16 = PAYMENT_SCHEMA_REVISION;
     const MAX_ENCODED_LEN: usize = 264;
+}
+
+/// Exact proof-bearing native settlement facts used to construct a finalized lifecycle successor.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PaymentFinalizedSettlementV1 {
+    intent: PaymentIntentId,
+    transaction: TransactionId,
+    settled_amount: AssetAmountV1,
+    finalized_height: u64,
+    finalized_block: Digest384,
+    receipt_commitment: Digest384,
+    proof_commitment: Digest384,
+}
+
+impl PaymentFinalizedSettlementV1 {
+    pub const TYPE_TAG: u16 = 0x0188;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        intent: PaymentIntentId,
+        transaction: TransactionId,
+        settled_amount: AssetAmountV1,
+        finalized_height: u64,
+        finalized_block: Digest384,
+        receipt_commitment: Digest384,
+        proof_commitment: Digest384,
+    ) -> Result<Self, PaymentValidationError> {
+        if transaction.digest() == &Digest384::ZERO
+            || finalized_height == 0
+            || finalized_block == Digest384::ZERO
+            || receipt_commitment == Digest384::ZERO
+            || proof_commitment == Digest384::ZERO
+        {
+            return Err(PaymentValidationError::InvalidEvidence);
+        }
+        Ok(Self {
+            intent,
+            transaction,
+            settled_amount,
+            finalized_height,
+            finalized_block,
+            receipt_commitment,
+            proof_commitment,
+        })
+    }
+
+    pub const fn intent(&self) -> PaymentIntentId {
+        self.intent
+    }
+
+    pub const fn settled_amount(&self) -> AssetAmountV1 {
+        self.settled_amount
+    }
+
+    pub fn commitment(&self) -> Result<Digest384, PaymentValidationError> {
+        let bytes = encode_envelope(self).map_err(|_| PaymentValidationError::InvalidEvidence)?;
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-PAYMENT-FINALIZED-SETTLEMENT-V1");
+        hasher.update(&bytes);
+        let mut output = [0_u8; 48];
+        hasher.finalize_xof().read(&mut output);
+        Ok(Digest384::new(output))
+    }
+
+    pub fn finalized_record(
+        &self,
+        sequence: u64,
+    ) -> Result<PaymentLifecycleRecordV1, PaymentValidationError> {
+        PaymentLifecycleRecordV1::new(
+            self.intent,
+            sequence,
+            PaymentState::Finalized,
+            EvidenceClass::ActiveChainFinalized,
+            self.commitment()?,
+            Some(self.transaction),
+            self.finalized_height,
+            Some(self.finalized_block),
+            0,
+        )
+    }
+}
+
+impl CanonicalEncode for PaymentFinalizedSettlementV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.intent.encode(encoder)?;
+        self.transaction.encode(encoder)?;
+        self.settled_amount.encode(encoder)?;
+        self.finalized_height.encode(encoder)?;
+        self.finalized_block.encode(encoder)?;
+        self.receipt_commitment.encode(encoder)?;
+        self.proof_commitment.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for PaymentFinalizedSettlementV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            PaymentIntentId::decode(decoder)?,
+            TransactionId::decode(decoder)?,
+            AssetAmountV1::decode(decoder)?,
+            u64::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid finalized payment settlement"))
+    }
+}
+
+impl CanonicalType for PaymentFinalizedSettlementV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = PAYMENT_SCHEMA_REVISION;
+    const MAX_ENCODED_LEN: usize = 48 * 6 + 16 + 8;
 }
 
 /// One bounded delivery of an exact lifecycle record to an authenticated subscriber.
@@ -2728,6 +2861,69 @@ mod tests {
                 0,
             ),
             Err(PaymentValidationError::InvalidEvidence)
+        );
+    }
+
+    #[test]
+    fn finalized_settlement_binds_exact_economics_transaction_and_proof_evidence() {
+        let transaction = TransactionId::new(digest(30));
+        let settlement = PaymentFinalizedSettlementV1::new(
+            intent_id(),
+            transaction,
+            amount(12, 95),
+            50,
+            digest(31),
+            digest(32),
+            digest(33),
+        )
+        .unwrap();
+        let record = settlement.finalized_record(6).unwrap();
+        assert_eq!(record.state(), PaymentState::Finalized);
+        assert_eq!(record.evidence_class(), EvidenceClass::ActiveChainFinalized);
+        assert_ne!(settlement.commitment().unwrap(), Digest384::ZERO);
+        let encoded = encode_envelope(&settlement).unwrap();
+        assert_eq!(decode_envelope::<PaymentFinalizedSettlementV1>(&encoded).unwrap(), settlement);
+
+        let submitted = PaymentLifecycleRecordV1::new(
+            intent_id(),
+            5,
+            PaymentState::ChainSubmitted,
+            EvidenceClass::ConnectorAuthenticated,
+            digest(34),
+            Some(transaction),
+            0,
+            None,
+            0,
+        )
+        .unwrap();
+        assert_eq!(submitted.validate_successor(&record), Ok(()));
+        let substituted = PaymentFinalizedSettlementV1::new(
+            intent_id(),
+            TransactionId::new(digest(35)),
+            amount(12, 95),
+            50,
+            digest(31),
+            digest(32),
+            digest(33),
+        )
+        .unwrap()
+        .finalized_record(6)
+        .unwrap();
+        assert_eq!(
+            submitted.validate_successor(&substituted),
+            Err(PaymentValidationError::InvalidBinding)
+        );
+        assert!(
+            PaymentFinalizedSettlementV1::new(
+                intent_id(),
+                transaction,
+                amount(12, 95),
+                0,
+                digest(31),
+                digest(32),
+                digest(33),
+            )
+            .is_err()
         );
     }
 

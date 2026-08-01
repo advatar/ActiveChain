@@ -1010,6 +1010,9 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
   reconciliation mappings without partnership or regulated-asset claims.
 - [ ] Integrate finalized native settlement, refunds/disputes, fee sponsorship, treasury controls,
   authenticated APIs/SDKs/webhooks, formal refinement, operations drills, and staged pilots.
+  - [x] Bind each finalized payment successor to one canonical intent, exact native asset/amount,
+    transaction, finalized height/block, receipt commitment, and proof commitment, and persist it
+    through the joined request-state boundary.
 - [x] Add canonical exact-once partial-refund requests and cumulative settlement-bound accounting.
   - [x] Persist a bounded per-intent refund-state journal atomically across settlement registration
     and every accepted partial refund, rejecting replay and corrupt restart state.

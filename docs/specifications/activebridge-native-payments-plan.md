@@ -350,6 +350,14 @@ the whole joined snapshot is atomically replaced before live memory changes. A r
 cannot observe a newer lifecycle with an absent intent or create binding, or an older lifecycle
 after an acknowledged successor.
 
+Finalized advancement additionally requires `PaymentFinalizedSettlementV1`, binding the exact
+intent, negotiated native asset/amount, transaction, finalized height and block, receipt
+commitment, and proof commitment. The joined request state checks the intent's settlement range,
+requires the finalized transaction to equal the immediately preceding chain-submitted transaction,
+derives the lifecycle observation commitment from the canonical evidence, and persists the whole
+successor atomically. This object records proof-bearing facts but does not itself verify the proof:
+callers must first verify the receipt and finality proof against the trusted ActiveChain checkpoint.
+
 ### 6.3 Status and receipt rules
 
 Status responses identify:

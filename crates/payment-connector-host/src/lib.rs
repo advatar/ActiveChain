@@ -10,10 +10,10 @@ use activechain_crypto_provider::verify_ml_dsa44;
 use activechain_payment_types::{
     ConnectorId, IdempotencyBindingV1, PaymentApiAuthorizationV1, PaymentApiReplayStateV1,
     PaymentApiSignedAuthorizationV1, PaymentDisputeRecordV1, PaymentDisputeRequestV1,
-    PaymentIntentId, PaymentIntentV1, PaymentLifecycleRecordV1, PaymentRefundRequestV1,
-    PaymentRefundStateV1, PaymentValidationError, PaymentWebhookCursorV1, PaymentWebhookEventV1,
-    PaymentWebhookSignedEventV1, ProviderObservationV1, RailId, TreasuryDebitPolicyV1,
-    TreasuryDebitRequestV1,
+    PaymentFinalizedSettlementV1, PaymentIntentId, PaymentIntentV1, PaymentLifecycleRecordV1,
+    PaymentRefundRequestV1, PaymentRefundStateV1, PaymentValidationError, PaymentWebhookCursorV1,
+    PaymentWebhookEventV1, PaymentWebhookSignedEventV1, ProviderObservationV1, RailId,
+    TreasuryDebitPolicyV1, TreasuryDebitRequestV1,
 };
 use activechain_protocol_types::{AssetId, Digest384};
 use sha3::{
@@ -1309,6 +1309,31 @@ impl DurablePaymentRequestState {
         self.snapshot = next;
         Ok(())
     }
+
+    /// Persists a finalized successor structurally bound to exact native settlement evidence.
+    /// The caller must cryptographically verify the committed receipt/proof before invoking this.
+    pub fn finalize_settlement(
+        &mut self,
+        settlement: &PaymentFinalizedSettlementV1,
+    ) -> Result<Digest384, JournalError> {
+        let index = self
+            .snapshot
+            .intents
+            .binary_search_by_key(&settlement.intent(), PaymentIntentV1::intent)
+            .map_err(|_| JournalError::InvalidLifecycle)?;
+        if !self.snapshot.intents[index].accepts_settlement(settlement.settled_amount()) {
+            return Err(JournalError::InvalidLifecycle);
+        }
+        let sequence = self.snapshot.lifecycles.records()[index]
+            .sequence()
+            .checked_add(1)
+            .ok_or(JournalError::InvalidLifecycle)?;
+        let record =
+            settlement.finalized_record(sequence).map_err(|_| JournalError::InvalidLifecycle)?;
+        let commitment = settlement.commitment().map_err(|_| JournalError::InvalidLifecycle)?;
+        self.advance_lifecycle(record)?;
+        Ok(commitment)
+    }
 }
 
 impl PaymentRequestStateV1 {
@@ -2498,6 +2523,91 @@ mod tests {
         std::fs::create_dir(&path).unwrap();
         assert_eq!(
             durable.advance_lifecycle(lifecycle_successor(10, 2, PaymentState::AwaitingPayer,)),
+            Err(JournalError::Persistence)
+        );
+        assert_eq!(durable.snapshot(), &before);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    fn chain_submitted_request_state(path: &Path) -> DurablePaymentRequestState {
+        let intent = payment_intent(10, 11, 12, 13);
+        let mut durable = DurablePaymentRequestState::open(path).unwrap();
+        durable.create_intent(intent.clone(), intent_binding(&intent), digest(14), 150).unwrap();
+        for (sequence, state) in [
+            PaymentState::AwaitingPayer,
+            PaymentState::ProviderPending,
+            PaymentState::ExternallyConfirmed,
+            PaymentState::ChainSubmitted,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            durable.advance_lifecycle(lifecycle_successor(10, sequence as u64 + 2, state)).unwrap();
+        }
+        durable
+    }
+
+    fn finalized_settlement(
+        asset: u8,
+        amount: u128,
+        transaction: u8,
+    ) -> PaymentFinalizedSettlementV1 {
+        PaymentFinalizedSettlementV1::new(
+            PaymentIntentId::new(digest(10)).unwrap(),
+            TransactionId::new(digest(transaction)),
+            AssetAmountV1::new(AssetId::new(digest(asset)), amount).unwrap(),
+            50,
+            digest(130),
+            digest(131),
+            digest(132),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn finalized_settlement_advances_joined_state_and_survives_restart() {
+        let path = path("finalized-settlement-restart");
+        let _ = std::fs::remove_file(&path);
+        let mut durable = chain_submitted_request_state(&path);
+        let settlement = finalized_settlement(124, 95, 110);
+        assert_eq!(
+            durable.finalize_settlement(&settlement),
+            settlement.commitment().map_err(|_| JournalError::InvalidLifecycle)
+        );
+        assert_eq!(durable.snapshot().lifecycles().records()[0].state(), PaymentState::Finalized);
+        assert_eq!(DurablePaymentRequestState::open(&path).unwrap().snapshot(), durable.snapshot());
+        let before = durable.snapshot().clone();
+        assert_eq!(durable.finalize_settlement(&settlement), Err(JournalError::InvalidLifecycle));
+        assert_eq!(durable.snapshot(), &before);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn finalized_settlement_rejects_economic_transaction_and_write_substitution() {
+        let directory = path("finalized-settlement-directory");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("request-state.bin");
+        let mut durable = chain_submitted_request_state(&path);
+        let before = durable.snapshot().clone();
+        assert_eq!(
+            durable.finalize_settlement(&finalized_settlement(125, 95, 110)),
+            Err(JournalError::InvalidLifecycle)
+        );
+        assert_eq!(
+            durable.finalize_settlement(&finalized_settlement(124, 89, 110)),
+            Err(JournalError::InvalidLifecycle)
+        );
+        assert_eq!(
+            durable.finalize_settlement(&finalized_settlement(124, 95, 111)),
+            Err(JournalError::InvalidLifecycle)
+        );
+        assert_eq!(durable.snapshot(), &before);
+
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        assert_eq!(
+            durable.finalize_settlement(&finalized_settlement(124, 95, 110)),
             Err(JournalError::Persistence)
         );
         assert_eq!(durable.snapshot(), &before);
