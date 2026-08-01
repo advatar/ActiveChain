@@ -2,6 +2,15 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Non-interactive Docker authentication isolation
+
+Tracked by [GitHub issue #433](https://github.com/advatar/ActiveChain/issues/433).
+
+- [x] Keep every deterministic-kernel Docker and nested RISC0 BuildKit invocation on an explicit,
+  anonymous configuration that cannot fall back to the macOS login-keychain credential helper.
+- [x] Add a fail-closed regression check for the effective Docker configuration.
+- [ ] Pass the complete deterministic-kernel gate, merge to `main`, and verify reachability.
+
 ## Independent-client budget gate repair
 
 Tracked by [GitHub issue #401](https://github.com/advatar/ActiveChain/issues/401).
