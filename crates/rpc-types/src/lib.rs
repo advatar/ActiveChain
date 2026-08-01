@@ -7,6 +7,7 @@ extern crate alloc;
 
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
+    encode_envelope,
 };
 use activechain_protocol_types::{
     AssetId, ChainId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature, TransactionId,
@@ -473,6 +474,17 @@ impl FaucetRequestV1 {
     }
     pub fn challenge_evidence(&self) -> &[u8] {
         &self.challenge_evidence
+    }
+    /// Client-computable settlement reference covered by the faucet cash authorization.
+    pub fn settlement_reference(&self) -> Result<Digest384, EncodeError> {
+        let bytes = encode_envelope(self)?;
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-TESTNET-FAUCET-REFERENCE-V2");
+        hasher.update(&(bytes.len() as u64).to_be_bytes());
+        hasher.update(&bytes);
+        let mut output = [0; 48];
+        hasher.finalize_xof().read(&mut output);
+        Ok(Digest384::new(output))
     }
 }
 impl CanonicalEncode for FaucetRequestV1 {
@@ -1889,6 +1901,20 @@ mod tests {
         .unwrap();
         let wire = encode_envelope(&request).unwrap();
         assert_eq!(decode_envelope::<FaucetRequestV1>(&wire), Ok(request.clone()));
+        let reference = request.settlement_reference().unwrap();
+        assert_ne!(reference, Digest384::ZERO);
+        assert_eq!(request.settlement_reference(), Ok(reference));
+        let substituted = FaucetRequestV1::new(
+            request.chain_id(),
+            request.genesis_commitment(),
+            request.recipient(),
+            digest(40),
+            request.source_commitment(),
+            request.challenge_nonce(),
+            request.challenge_evidence().to_vec(),
+        )
+        .unwrap();
+        assert_ne!(substituted.settlement_reference().unwrap(), reference);
 
         let pending = FaucetReceiptV1::new(
             digest(7),

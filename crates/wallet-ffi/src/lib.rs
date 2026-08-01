@@ -1100,6 +1100,100 @@ pub unsafe extern "C" fn activechain_wallet_build_cash_intent(
     WALLET_OK
 }
 
+/// Builds a cash authorization whose signature binds an exact faucet settlement reference.
+///
+/// # Safety
+///
+/// All identifier inputs, including `settlement_reference`, must point to readable 48-byte
+/// buffers. Output pointer requirements match [`activechain_wallet_build_cash_intent`].
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn activechain_wallet_build_faucet_cash_intent(
+    chain_id: *const u8,
+    signer: *const u8,
+    recipient: *const u8,
+    input: *const u8,
+    fee_reserve: *const u8,
+    nonce: u64,
+    session_id: *const u8,
+    session_expires_at: u64,
+    settlement_reference: *const u8,
+    amount_high: u64,
+    amount_low: u64,
+    fee_high: u64,
+    fee_low: u64,
+    valid_until: u64,
+    output: *mut u8,
+    output_capacity: u32,
+    required_len: *mut u32,
+    intent_out: *mut u8,
+) -> u32 {
+    if chain_id.is_null()
+        || signer.is_null()
+        || recipient.is_null()
+        || input.is_null()
+        || fee_reserve.is_null()
+        || session_id.is_null()
+        || settlement_reference.is_null()
+        || required_len.is_null()
+        || intent_out.is_null()
+        || (output.is_null() && output_capacity != 0)
+    {
+        return WALLET_NULL_POINTER;
+    }
+    let signer = PrincipalId::new(unsafe { read_digest(signer) });
+    let transfer = match CoinTransfer::new(
+        signer,
+        PrincipalId::new(unsafe { read_digest(recipient) }),
+        vec![CoinCellId::new(unsafe { read_digest(input) })],
+        CoinCellId::new(unsafe { read_digest(fee_reserve) }),
+        join_u128(amount_high, amount_low),
+        join_u128(fee_high, fee_low),
+        valid_until,
+    ) {
+        Ok(transfer) => transfer,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    let request = match CashAuthorizationRequestV1::new_with_settlement_reference(
+        ChainId::new(unsafe { read_digest(chain_id) }),
+        signer,
+        nonce,
+        unsafe { read_digest(session_id) },
+        session_expires_at,
+        Some(unsafe { read_digest(settlement_reference) }),
+        transfer,
+    ) {
+        Ok(request) => request,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    let encoded = match encode_envelope(&request) {
+        Ok(encoded) => encoded,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    let Ok(length) = u32::try_from(encoded.len()) else {
+        return WALLET_TOO_LARGE;
+    };
+    unsafe {
+        *required_len = length;
+    }
+    if output_capacity < length {
+        return WALLET_BUFFER_TOO_SMALL;
+    }
+    if length != 0 {
+        unsafe {
+            core::ptr::copy_nonoverlapping(encoded.as_ptr(), output, encoded.len());
+        }
+    }
+    let intent = match request.intent_id() {
+        Ok(intent) => intent,
+        Err(_) => return WALLET_MALFORMED,
+    };
+    unsafe {
+        core::ptr::copy_nonoverlapping(intent.as_bytes().as_ptr(), intent_out, 48);
+    }
+    WALLET_OK
+}
+
 /// Decodes the exact canonical cash request into fixed human-review fields.
 ///
 /// # Safety
@@ -2654,6 +2748,67 @@ mod tests {
             },
             WALLET_MALFORMED
         );
+    }
+
+    #[test]
+    fn faucet_intent_builder_binds_settlement_reference() {
+        let values = [digest(1), digest(2), digest(3), digest(4), digest(5), digest(6), digest(7)];
+        let mut required = 0;
+        let mut intent = [0; 48];
+        assert_eq!(
+            unsafe {
+                activechain_wallet_build_faucet_cash_intent(
+                    values[0].as_bytes().as_ptr(),
+                    values[1].as_bytes().as_ptr(),
+                    values[2].as_bytes().as_ptr(),
+                    values[3].as_bytes().as_ptr(),
+                    values[4].as_bytes().as_ptr(),
+                    7,
+                    values[5].as_bytes().as_ptr(),
+                    9,
+                    values[6].as_bytes().as_ptr(),
+                    0,
+                    50,
+                    0,
+                    2,
+                    10,
+                    core::ptr::null_mut(),
+                    0,
+                    &mut required,
+                    intent.as_mut_ptr(),
+                )
+            },
+            WALLET_BUFFER_TOO_SMALL
+        );
+        let mut output = vec![0; required as usize];
+        assert_eq!(
+            unsafe {
+                activechain_wallet_build_faucet_cash_intent(
+                    values[0].as_bytes().as_ptr(),
+                    values[1].as_bytes().as_ptr(),
+                    values[2].as_bytes().as_ptr(),
+                    values[3].as_bytes().as_ptr(),
+                    values[4].as_bytes().as_ptr(),
+                    7,
+                    values[5].as_bytes().as_ptr(),
+                    9,
+                    values[6].as_bytes().as_ptr(),
+                    0,
+                    50,
+                    0,
+                    2,
+                    10,
+                    output.as_mut_ptr(),
+                    required,
+                    &mut required,
+                    intent.as_mut_ptr(),
+                )
+            },
+            WALLET_OK
+        );
+        let decoded = decode_envelope::<CashAuthorizationRequestV1>(&output).unwrap();
+        assert_eq!(decoded.settlement_reference(), Some(values[6]));
+        assert_eq!(decoded.intent_id().unwrap().as_bytes(), &intent);
     }
 
     unsafe extern "C" fn sign_callback(

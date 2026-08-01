@@ -330,21 +330,21 @@ fn verify_manifest(
 
 fn supported_schemas() -> Vec<SchemaRevision> {
     [
-        ("Principal", "0x0020"),
-        ("CapabilityGrant", "0x0030"),
-        ("PolicyDecision", "0x0042"),
-        ("StateProof", "0x0055"),
-        ("StateCommitment", "0x0056"),
-        ("BlockReceipt", "0x0074"),
-        ("FinalityCertificateBundle", "0x007a"),
-        ("CashAuthorizationRequestV1", "0x008a"),
-        ("AuthorizedCashTransferV1", "0x008b"),
+        ("Principal", "0x0020", 1),
+        ("CapabilityGrant", "0x0030", 1),
+        ("PolicyDecision", "0x0042", 1),
+        ("StateProof", "0x0055", 1),
+        ("StateCommitment", "0x0056", 1),
+        ("BlockReceipt", "0x0074", 1),
+        ("FinalityCertificateBundle", "0x007a", 1),
+        ("CashAuthorizationRequestV1", "0x008a", 2),
+        ("AuthorizedCashTransferV1", "0x008b", 2),
     ]
     .into_iter()
-    .map(|(name, type_tag)| SchemaRevision {
+    .map(|(name, type_tag, schema_revision)| SchemaRevision {
         name: name.to_owned(),
         type_tag: type_tag.to_owned(),
-        schema_revision: 1,
+        schema_revision,
     })
     .collect()
 }

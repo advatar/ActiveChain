@@ -1,6 +1,7 @@
 import ActiveChainWallet
 import Foundation
 import Network
+import Security
 import SwiftUI
 
 enum WalletKanalen {
@@ -62,11 +63,39 @@ enum WalletNetworkState: Equatable, Sendable {
     }
 }
 
+enum WalletFundingState: Equatable, Sendable {
+    case unavailable(reason: String)
+    case ready
+    case requesting
+    case pending(reference: String)
+    case finalized(reference: String, height: UInt64)
+    case rejected(reference: String?, reason: String)
+
+    var title: String {
+        switch self {
+        case .unavailable: "Funding unavailable"
+        case .ready: "Request testnet ACT"
+        case .requesting: "Submitting signed request"
+        case .pending: "Funding pending"
+        case .finalized: "Funding finalized"
+        case .rejected: "Funding rejected"
+        }
+    }
+
+    var creditsBalance: Bool {
+        if case .finalized = self { return true }
+        return false
+    }
+}
+
 @MainActor
 final class WalletLiveState: ObservableObject {
     @Published private(set) var networkState: WalletNetworkState = .checking
     @Published private(set) var deviceProfile: WalletDeviceProfile?
     @Published private(set) var verifiedOwnerPage: WalletOwnerCoinPage?
+    @Published private(set) var fundingState: WalletFundingState = .unavailable(
+        reason: "Load a finalized wallet profile and secure cash key first."
+    )
     private let rpc = WalletRPCClient()
     private let verifier: any WalletOwnerCoinProofVerifier = RustWalletOwnerCoinProofVerifier()
 
@@ -99,6 +128,60 @@ final class WalletLiveState: ObservableObject {
         } catch {
             verifiedOwnerPage = nil
         }
+        updateFundingAvailability()
+    }
+
+    func requestTestnetFunding() async {
+        guard case .healthy = networkState else {
+            fundingState = .unavailable(reason: "A healthy finalized Kanalen checkpoint is required.")
+            return
+        }
+        guard deviceProfile != nil else {
+            fundingState = .unavailable(reason: "Create or restore the wallet profile first.")
+            return
+        }
+        guard let profile = deviceProfile else { return }
+        fundingState = .requesting
+        do {
+            let terms = try await rpc.faucetTerms()
+            guard terms.chainID == WalletKanalen.chainID,
+                  terms.genesis == WalletKanalen.genesis,
+                  terms.challengeKind == 0 else {
+                fundingState = .unavailable(reason: "The faucet policy is incompatible with this wallet build.")
+                return
+            }
+            let receipt = try await rpc.requestFaucet(owner: profile.owner)
+            let reference = receipt.reference.map { String(format: "%02x", $0) }.joined()
+            switch receipt.state {
+            case 0: fundingState = .pending(reference: reference)
+            case 1:
+                guard let height = receipt.finalizedHeight else {
+                    throw WalletRPCError.malformedResponse
+                }
+                let finalized = WalletFundingState.finalized(reference: reference, height: height)
+                fundingState = finalized
+                await refresh()
+                fundingState = finalized
+            case 2: fundingState = .rejected(reference: reference, reason: "The faucet rejected this request.")
+            default: throw WalletRPCError.malformedResponse
+            }
+        } catch {
+            fundingState = .rejected(reference: nil, reason: "Funding request failed without changing balance.")
+        }
+    }
+
+    private func updateFundingAvailability() {
+        guard case .healthy = networkState else {
+            fundingState = .unavailable(reason: "A healthy finalized Kanalen checkpoint is required.")
+            return
+        }
+        guard deviceProfile != nil else {
+            fundingState = .unavailable(reason: "Create or restore the wallet profile first.")
+            return
+        }
+        if case .pending = fundingState { return }
+        if case .finalized = fundingState { return }
+        fundingState = .ready
     }
 
     func refreshVerifiedOwnerPage(verifier: any WalletOwnerCoinProofVerifier) async {
@@ -176,6 +259,18 @@ struct WalletRPCStatus: Equatable, Sendable {
         case .stale, .degraded: return .stale(finalizedHeight: finalizedHeight)
         }
     }
+}
+
+struct WalletFaucetTerms: Equatable, Sendable {
+    let chainID: Data
+    let genesis: Data
+    let challengeKind: UInt8
+}
+
+struct WalletFaucetReceipt: Equatable, Sendable {
+    let reference: Data
+    let state: UInt8
+    let finalizedHeight: UInt64?
 }
 
 struct WalletOwnerCoinRecord: Equatable, Sendable {
@@ -274,6 +369,118 @@ enum WalletRPCCodec {
         0x00, 0x00, 0x00, 0x06,
         0x00, 0xa0, 0x00, 0x01, 0x01, 0x00
     ])
+
+    static let framedFaucetTermsRequest = framedRequest(body: Data([7]))
+
+    static func framedFaucetRequest(
+        owner: Data,
+        idempotencyKey: Data,
+        sourceCommitment: Data
+    ) throws -> Data {
+        guard owner.count == 48,
+              idempotencyKey.count == 48,
+              sourceCommitment.count == 48,
+              owner.contains(where: { $0 != 0 }),
+              idempotencyKey.contains(where: { $0 != 0 }),
+              sourceCommitment.contains(where: { $0 != 0 }) else {
+            throw WalletRPCError.unexpectedResponse
+        }
+        var body = Data([5])
+        body.append(WalletKanalen.chainID)
+        body.append(WalletKanalen.genesis)
+        body.append(owner)
+        body.append(idempotencyKey)
+        body.append(sourceCommitment)
+        body.append(contentsOf: UInt64.zero.bigEndianBytes)
+        body.append(0) // empty bounded challenge evidence
+        return framedRequest(body: body)
+    }
+
+    static func decodeFaucetTerms(_ envelope: Data) throws -> WalletFaucetTerms {
+        var decoder = try responseBody(envelope, variant: 7)
+        let chain = try decoder.read(count: 48)
+        let genesis = try decoder.read(count: 48)
+        _ = try decoder.readUInt64() // policy revision
+        _ = try decoder.readUInt64() // valid until
+        _ = try decoder.read(count: 16) // grant amount
+        _ = try decoder.readUInt64() // recipient cooldown
+        _ = try decoder.readUInt16() // recipient lifetime
+        _ = try decoder.readUInt64() // source window
+        _ = try decoder.readUInt16() // source limit
+        _ = try decoder.readUInt64() // global window
+        _ = try decoder.readUInt32() // global limit
+        let challenge = try decoder.readUInt8()
+        let difficulty = try decoder.readUInt8()
+        guard decoder.remaining == 0,
+              chain.contains(where: { $0 != 0 }),
+              genesis.contains(where: { $0 != 0 }),
+              challenge <= 1,
+              (challenge == 0) == (difficulty == 0) else {
+            throw WalletRPCError.malformedResponse
+        }
+        return WalletFaucetTerms(chainID: chain, genesis: genesis, challengeKind: challenge)
+    }
+
+    static func decodeFaucetReceipt(_ envelope: Data) throws -> WalletFaucetReceipt {
+        var decoder = try responseBody(envelope, variant: 6)
+        let reference = try decoder.read(count: 48)
+        _ = try decoder.read(count: 48) // recipient
+        _ = try decoder.read(count: 16) // amount
+        let state = try decoder.readUInt8()
+        let hasTransaction = try decoder.readUInt8()
+        guard hasTransaction <= 1 else { throw WalletRPCError.malformedResponse }
+        if hasTransaction == 1 { _ = try decoder.read(count: 48) }
+        let hasHeight = try decoder.readUInt8()
+        guard hasHeight <= 1 else { throw WalletRPCError.malformedResponse }
+        let height = hasHeight == 1 ? try decoder.readUInt64() : nil
+        let hasBlock = try decoder.readUInt8()
+        guard hasBlock <= 1 else { throw WalletRPCError.malformedResponse }
+        if hasBlock == 1 { _ = try decoder.read(count: 48) }
+        let proof = try decoder.readBlob(maximum: maximumBlobLength)
+        guard reference.contains(where: { $0 != 0 }),
+              state <= 2,
+              decoder.remaining == 0,
+              (state == 1) == (hasTransaction == 1 && height != nil && hasBlock == 1 && !proof.isEmpty),
+              state == 1 || (height == nil && hasBlock == 0 && proof.isEmpty) else {
+            throw WalletRPCError.malformedResponse
+        }
+        return WalletFaucetReceipt(reference: reference, state: state, finalizedHeight: height)
+    }
+
+    private static func responseBody(
+        _ envelope: Data,
+        variant: UInt8
+    ) throws -> WalletBinaryDecoder {
+        var decoder = WalletBinaryDecoder(data: envelope)
+        guard try decoder.readUInt16() == 0x00a1,
+              try decoder.readUInt16() == 1 else { throw WalletRPCError.unexpectedResponse }
+        let length = try decoder.readULEB128(maximum: maximumFrameLength)
+        guard length == decoder.remaining,
+              try decoder.readUInt8() == variant else { throw WalletRPCError.unexpectedResponse }
+        return decoder
+    }
+
+    private static func framedRequest(body: Data) -> Data {
+        var envelope = Data([0x00, 0xa0, 0x00, 0x01])
+        envelope.append(contentsOf: uleb128(body.count))
+        envelope.append(body)
+        var frame = Data()
+        frame.append(contentsOf: UInt32(envelope.count).bigEndianBytes)
+        frame.append(envelope)
+        return frame
+    }
+
+    private static func uleb128(_ input: Int) -> [UInt8] {
+        var value = input
+        var bytes: [UInt8] = []
+        repeat {
+            var byte = UInt8(value & 0x7f)
+            value >>= 7
+            if value != 0 { byte |= 0x80 }
+            bytes.append(byte)
+        } while value != 0
+        return bytes
+    }
 
     /// Canonical envelope for RpcRequest::ListOwnerCoinCells. The owner is a
     /// 48-byte PrincipalId digest; pagination is deliberately bounded by the
@@ -443,28 +650,23 @@ final class WalletRPCClient: @unchecked Sendable {
     private let queue = DispatchQueue(label: "dev.activechain.wallet.rpc")
 
     func status() async throws -> WalletRPCStatus {
-        let connection = NWConnection(
-            host: WalletKanalen.host,
-            port: WalletKanalen.port,
-            using: .tls
+        try WalletRPCCodec.decodeStatus(await roundTrip(WalletRPCCodec.framedStatusRequest))
+    }
+
+    func faucetTerms() async throws -> WalletFaucetTerms {
+        try WalletRPCCodec.decodeFaucetTerms(await roundTrip(WalletRPCCodec.framedFaucetTermsRequest))
+    }
+
+    func requestFaucet(owner: Data) async throws -> WalletFaucetReceipt {
+        try WalletRPCCodec.decodeFaucetReceipt(
+            await roundTrip(
+                try WalletRPCCodec.framedFaucetRequest(
+                    owner: owner,
+                    idempotencyKey: try randomDigest(),
+                    sourceCommitment: try randomDigest()
+                )
+            )
         )
-        let timeout = DispatchSource.makeTimerSource(queue: queue)
-        timeout.schedule(deadline: .now() + 8)
-        timeout.setEventHandler { connection.cancel() }
-        timeout.resume()
-        defer {
-            timeout.cancel()
-            connection.cancel()
-        }
-        try await waitUntilReady(connection)
-        try await send(WalletRPCCodec.framedStatusRequest, over: connection)
-        let prefix = try await receiveExactly(4, over: connection)
-        let length = prefix.reduce(0) { ($0 << 8) | Int($1) }
-        guard length > 0 else { throw WalletRPCError.malformedResponse }
-        guard length <= WalletRPCCodec.maximumFrameLength else {
-            throw WalletRPCError.responseTooLarge
-        }
-        return try WalletRPCCodec.decodeStatus(try await receiveExactly(length, over: connection))
     }
 
     func ownerCoinCells(owner: Data, limit: UInt16 = 4) async throws -> WalletOwnerCoinPage {
@@ -526,6 +728,35 @@ final class WalletRPCClient: @unchecked Sendable {
         }
     }
 
+    private func roundTrip(_ request: Data) async throws -> Data {
+        let connection = NWConnection(host: WalletKanalen.host, port: WalletKanalen.port, using: .tls)
+        let timeout = DispatchSource.makeTimerSource(queue: queue)
+        timeout.schedule(deadline: .now() + 8)
+        timeout.setEventHandler { connection.cancel() }
+        timeout.resume()
+        defer { timeout.cancel(); connection.cancel() }
+        try await waitUntilReady(connection)
+        try await send(request, over: connection)
+        let prefix = try await receiveExactly(4, over: connection)
+        let length = prefix.reduce(0) { ($0 << 8) | Int($1) }
+        guard length > 0, length <= WalletRPCCodec.maximumFrameLength else {
+            throw length > WalletRPCCodec.maximumFrameLength
+                ? WalletRPCError.responseTooLarge : WalletRPCError.malformedResponse
+        }
+        return try await receiveExactly(length, over: connection)
+    }
+
+    private func randomDigest() throws -> Data {
+        var bytes = Data(count: 48)
+        let status = bytes.withUnsafeMutableBytes {
+            SecRandomCopyBytes(kSecRandomDefault, 48, $0.baseAddress!)
+        }
+        guard status == errSecSuccess, bytes.contains(where: { $0 != 0 }) else {
+            throw WalletRPCError.transport
+        }
+        return bytes
+    }
+
     private func send(_ data: Data, over connection: NWConnection) async throws {
         try await withCheckedThrowingContinuation { continuation in
             connection.send(content: data, completion: .contentProcessed { error in
@@ -570,5 +801,11 @@ private final class WalletContinuationGate: @unchecked Sendable {
         guard !resumed else { return }
         resumed = true
         action()
+    }
+}
+
+private extension FixedWidthInteger {
+    var bigEndianBytes: [UInt8] {
+        withUnsafeBytes(of: bigEndian) { Array($0) }
     }
 }

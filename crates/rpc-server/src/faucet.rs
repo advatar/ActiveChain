@@ -436,7 +436,8 @@ impl DurableFaucet {
             return Err(FaucetError::Capacity);
         }
 
-        let reference = faucet_reference(request, abuse_identity);
+        let reference =
+            request.settlement_reference().map_err(|_| FaucetError::InvalidTransition)?;
         let reservation = FaucetReceiptV1::new(
             reference,
             request.recipient(),
@@ -773,19 +774,6 @@ mod kani_proofs {
             assert!(after != Admission::Accept);
         }
     }
-}
-
-fn faucet_reference(request: &FaucetRequestV1, source: Digest384) -> Digest384 {
-    let mut hasher = Shake256::default();
-    hasher.update(b"ACTIVECHAIN-TESTNET-FAUCET-REFERENCE-V1");
-    hasher.update(request.chain_id().into_digest().as_bytes());
-    hasher.update(request.genesis_commitment().as_bytes());
-    hasher.update(request.recipient().into_digest().as_bytes());
-    hasher.update(request.idempotency_key().as_bytes());
-    hasher.update(source.as_bytes());
-    let mut output = [0; 48];
-    XofReader::read(&mut hasher.finalize_xof(), &mut output);
-    Digest384::new(output)
 }
 
 fn faucet_request_commitment(request: &FaucetRequestV1) -> Result<Digest384, FaucetError> {
@@ -1191,7 +1179,7 @@ mod tests {
     fn legacy_settled_records_migrate_without_authorizing_transcript_free_retries() {
         let path = path("legacy-v1");
         let request = request(3, 4);
-        let reference = faucet_reference(&request, digest(9));
+        let reference = request.settlement_reference().unwrap();
         let receipt = FaucetReceiptV1::new(
             reference,
             request.recipient(),

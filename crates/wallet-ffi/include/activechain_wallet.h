@@ -432,6 +432,33 @@ uint32_t activechain_wallet_build_cash_intent(const uint8_t *chain_id,
                                               uint8_t *intent_out);
 
 /**
+ * Builds a cash authorization whose signature binds an exact faucet settlement reference.
+ *
+ * # Safety
+ *
+ * All identifier inputs, including `settlement_reference`, must point to readable 48-byte
+ * buffers. Output pointer requirements match [`activechain_wallet_build_cash_intent`].
+ */
+uint32_t activechain_wallet_build_faucet_cash_intent(const uint8_t *chain_id,
+                                                     const uint8_t *signer,
+                                                     const uint8_t *recipient,
+                                                     const uint8_t *input,
+                                                     const uint8_t *fee_reserve,
+                                                     uint64_t nonce,
+                                                     const uint8_t *session_id,
+                                                     uint64_t session_expires_at,
+                                                     const uint8_t *settlement_reference,
+                                                     uint64_t amount_high,
+                                                     uint64_t amount_low,
+                                                     uint64_t fee_high,
+                                                     uint64_t fee_low,
+                                                     uint64_t valid_until,
+                                                     uint8_t *output,
+                                                     uint32_t output_capacity,
+                                                     uint32_t *required_len,
+                                                     uint8_t *intent_out);
+
+/**
  * Decodes the exact canonical cash request into fixed human-review fields.
  *
  * # Safety

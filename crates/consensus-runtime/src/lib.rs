@@ -108,7 +108,7 @@ impl WalletTransactionGateway {
     pub fn submit_faucet_authorized_envelope(
         &mut self,
         envelope: &[u8],
-        _faucet_reference: Digest384,
+        faucet_reference: Digest384,
         recipient: PrincipalId,
         amount: u128,
         height: u64,
@@ -122,6 +122,7 @@ impl WalletTransactionGateway {
             .map_err(|_| activechain_wallet_core::WalletError::MalformedAuthorization)?;
         if request.transfer().recipient() != recipient
             || request.transfer().amount() != amount
+            || request.settlement_reference() != Some(faucet_reference)
             || height > request.transfer().valid_until()
         {
             return Err(activechain_wallet_core::WalletError::PolicyDenied);
@@ -4698,15 +4699,17 @@ mod tests {
             10,
         )
         .unwrap();
-        let request = activechain_wallet_core::CashAuthorizationRequestV1::new(
-            ChainId::new(digest(1)),
-            owner,
-            0,
-            digest(12),
-            10,
-            transfer,
-        )
-        .unwrap();
+        let request =
+            activechain_wallet_core::CashAuthorizationRequestV1::new_with_settlement_reference(
+                ChainId::new(digest(1)),
+                owner,
+                0,
+                digest(12),
+                10,
+                Some(digest(30)),
+                transfer,
+            )
+            .unwrap();
         let grant = activechain_wallet_core::CashSessionGrantV1::new(
             ChainId::new(digest(1)),
             owner,
@@ -4735,8 +4738,65 @@ mod tests {
         )
         .unwrap();
         let envelope = encode_envelope(&authorized).unwrap();
-        gateway.submit_envelope(&envelope, 1).unwrap();
-        assert!(gateway.submit_envelope(&envelope, 1).is_err());
+        assert_eq!(
+            gateway.submit_faucet_authorized_envelope(
+                &envelope,
+                digest(31),
+                PrincipalId::new(digest(11)),
+                10,
+                1,
+            ),
+            Err(activechain_wallet_core::WalletError::PolicyDenied)
+        );
+        assert_eq!(
+            gateway.submit_faucet_authorized_envelope(
+                &envelope,
+                digest(30),
+                PrincipalId::new(digest(12)),
+                10,
+                1,
+            ),
+            Err(activechain_wallet_core::WalletError::PolicyDenied)
+        );
+        assert_eq!(
+            gateway.submit_faucet_authorized_envelope(
+                &envelope,
+                digest(30),
+                PrincipalId::new(digest(11)),
+                11,
+                1,
+            ),
+            Err(activechain_wallet_core::WalletError::PolicyDenied)
+        );
+        assert_eq!(
+            gateway.submit_faucet_authorized_envelope(
+                &envelope,
+                digest(30),
+                PrincipalId::new(digest(11)),
+                10,
+                11,
+            ),
+            Err(activechain_wallet_core::WalletError::PolicyDenied)
+        );
+        let transaction = gateway
+            .submit_faucet_authorized_envelope(
+                &envelope,
+                digest(30),
+                PrincipalId::new(digest(11)),
+                10,
+                1,
+            )
+            .unwrap();
+        assert_eq!(
+            gateway.submit_faucet_authorized_envelope(
+                &envelope,
+                digest(30),
+                PrincipalId::new(digest(11)),
+                10,
+                1,
+            ),
+            Ok(transaction)
+        );
         let restored =
             WalletTransactionGateway::load_snapshot(&snapshot_path, ChainId::new(digest(1)))
                 .unwrap();
