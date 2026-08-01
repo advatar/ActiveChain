@@ -95,7 +95,7 @@ mod tests {
     use activechain_privacy_kernel::{
         NullifierWitness, ShieldIntent, UnshieldIntent, VerifiedPrivacyProof,
     };
-    use activechain_protocol_commitment::{DomainTag, commit};
+    use activechain_protocol_commitment::{DomainTag, cash_transition_id, commit};
     use activechain_protocol_types::{
         AssetId, ChainId, CoinCellId, Digest384, PrincipalId, TransactionId,
     };
@@ -103,9 +103,10 @@ mod tests {
     use proptest::prelude::*;
 
     use super::{
-        CashLedger, CashTransferV1, CashTransitionError, CoinBurnTransition, CoinMintTransition,
-        CoinTransfer, EpochEconomicsTransition, FungibleCoinCell, GenesisAllocation,
-        GenesisEconomy, NativeAssetDefinition, NativeMoneyError, NativeSupply, NonFungibleCoinCell,
+        CashLedger, CashPaymasterPolicyV1, CashPaymasterRequestV1, CashTransferV1,
+        CashTransitionError, CoinBurnTransition, CoinMintTransition, CoinTransfer,
+        EpochEconomicsTransition, FungibleCoinCell, GenesisAllocation, GenesisEconomy,
+        NativeAssetDefinition, NativeMoneyError, NativeSupply, NonFungibleCoinCell,
         NonFungibleCoinCellRecord, PartitionedCashPlan, RewardRedemption, RewardReplayWitness,
         RewardSettlement,
     };
@@ -818,6 +819,120 @@ mod tests {
             ledger.apply_transfer(&transfer, 1),
             Err(CashTransitionError::Invalid(NativeMoneyError::MissingCell))
         );
+    }
+
+    #[test]
+    fn sponsored_transfer_separates_value_and_fee_change_atomically() {
+        let mut ledger = CashLedger::from_genesis(&economy()).unwrap();
+        let sender_input = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .find(|record| record.cell().owner() == principal(10))
+            .unwrap()
+            .id();
+        let sponsor_reserve = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .find(|record| record.cell().owner() == principal(12))
+            .unwrap()
+            .id();
+        let transfer = CoinTransfer::new(
+            principal(10),
+            principal(20),
+            vec![sender_input],
+            sponsor_reserve,
+            500,
+            7,
+            100,
+        )
+        .unwrap();
+        let mut policy =
+            CashPaymasterPolicyV1::new(principal(12), vec![principal(10)], 10, 100, 0, 1, 0, 100)
+                .unwrap();
+        let transfer_id = cash_transition_id(&transfer).unwrap();
+        let request = CashPaymasterRequestV1::new(
+            principal(12),
+            principal(10),
+            *transfer_id.digest(),
+            policy.commitment().unwrap(),
+            digest(90),
+            7,
+            0,
+            1,
+            0,
+            100,
+        )
+        .unwrap();
+        ledger.apply_sponsored_transfer(&mut policy, &request, &transfer, 10).unwrap();
+        assert_eq!(policy.spent(), 7);
+        assert_eq!(policy.next_nonce(), 1);
+        assert_eq!(ledger.supply().security_reserve_balance(), 100_007);
+        assert!(ledger.cells().as_slice().iter().any(|record| {
+            record.cell().owner() == principal(20) && record.cell().amount() == 500
+        }));
+        assert!(ledger.cells().as_slice().iter().any(|record| {
+            record.cell().owner() == principal(10) && record.cell().amount() == 699_500
+        }));
+        assert!(ledger.cells().as_slice().iter().any(|record| {
+            record.cell().owner() == principal(12) && record.cell().amount() == 99_993
+        }));
+        ledger.verify_invariants().unwrap();
+    }
+
+    #[test]
+    fn failed_sponsorship_mutates_neither_ledger_nor_paymaster() {
+        let mut ledger = CashLedger::from_genesis(&economy()).unwrap();
+        let before = ledger.clone();
+        let sender_input = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .find(|record| record.cell().owner() == principal(10))
+            .unwrap()
+            .id();
+        let wrong_reserve = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .find(|record| record.cell().owner() == principal(12))
+            .unwrap()
+            .id();
+        let transfer = CoinTransfer::new(
+            principal(10),
+            principal(20),
+            vec![sender_input],
+            wrong_reserve,
+            500,
+            7,
+            100,
+        )
+        .unwrap();
+        let mut policy =
+            CashPaymasterPolicyV1::new(principal(10), vec![principal(10)], 10, 100, 0, 1, 0, 100)
+                .unwrap();
+        let policy_before = policy.clone();
+        let transfer_id = cash_transition_id(&transfer).unwrap();
+        let request = CashPaymasterRequestV1::new(
+            principal(10),
+            principal(10),
+            *transfer_id.digest(),
+            policy.commitment().unwrap(),
+            digest(90),
+            7,
+            0,
+            1,
+            0,
+            100,
+        )
+        .unwrap();
+        assert_eq!(
+            ledger.apply_sponsored_transfer(&mut policy, &request, &transfer, 10),
+            Err(CashTransitionError::Invalid(NativeMoneyError::WrongOwner))
+        );
+        assert_eq!(ledger, before);
+        assert_eq!(policy, policy_before);
     }
 
     #[test]

@@ -1826,6 +1826,8 @@ Tracked by [GitHub issue #9](https://github.com/advatar/ActiveChain/issues/9).
   eligible-verifier set.
 - [x] Add canonical paymaster policy authorization with exact fee, epoch-budget, nonce, expiry,
   sender, transfer, and policy-revision binding.
+- [x] Apply sponsored cash transfers atomically with separate sender value and paymaster fee
+  reserves, exact change, and paymaster budget/nonce advancement.
 
 Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 
