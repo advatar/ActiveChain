@@ -1124,6 +1124,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   policy commitment, operation, amount, pre-state, and activation height.
 - [x] Require a nonzero authority-set commitment when constructing fungible asset policy state;
   unbound policy state cannot enter lifecycle or supply transitions.
+- [x] Add replay-safe controller rotation that binds the exact policy/controller pre-state,
+  current and replacement authority sets, monotonic revision, approval, and execution window.
 - [x] Expose proof-bearing asset, supply, owner, action, receipt, and attestation RPC contracts.
 - [x] Specify the proof-bearing native-asset RPC families and fail-closed empty/unsupported
   semantics in `docs/NATIVE_ASSET_RPC_V1.md`; authenticated server wiring remains a gate.

@@ -1176,6 +1176,198 @@ impl CanonicalType for FungibleAssetPolicyV1 {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
+/// Replay-safe controller revision tracked alongside one mutable asset policy.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FungibleControllerStateV1 {
+    asset_id: AssetId,
+    issuer: PrincipalId,
+    policy_commitment: Digest384,
+    authority_set: Digest384,
+    revision: u64,
+}
+impl FungibleControllerStateV1 {
+    pub const TYPE_TAG: u16 = 0x016E;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 4 + 8;
+    pub fn from_policy(
+        policy: &FungibleAssetPolicyV1,
+        revision: u64,
+    ) -> Result<Self, AssetDefinitionError> {
+        Ok(Self {
+            asset_id: policy.asset_id,
+            issuer: policy.issuer,
+            policy_commitment: policy
+                .commitment()
+                .map_err(|_| AssetDefinitionError::InvalidSupplyTransition)?,
+            authority_set: policy.authority_set,
+            revision,
+        })
+    }
+    pub fn commitment(&self) -> Result<Digest384, EncodeError> {
+        let bytes = activechain_canonical_codec::encode_envelope(self)?;
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-FUNGIBLE-CONTROLLER-STATE-V1");
+        hasher.update(&bytes);
+        let mut digest = [0_u8; 48];
+        hasher.finalize_xof().read(&mut digest);
+        Ok(Digest384::new(digest))
+    }
+    pub const fn revision(&self) -> u64 {
+        self.revision
+    }
+    pub fn apply_rotation(
+        &self,
+        policy: &FungibleAssetPolicyV1,
+        rotation: &FungibleControllerRotationV1,
+        height: u64,
+    ) -> Result<(FungibleAssetPolicyV1, Self), AssetDefinitionError> {
+        if self.asset_id != policy.asset_id
+            || self.issuer != policy.issuer
+            || self.authority_set != policy.authority_set
+            || self.policy_commitment
+                != policy.commitment().map_err(|_| AssetDefinitionError::InvalidSupplyTransition)?
+            || rotation.asset_id != self.asset_id
+            || rotation.issuer != self.issuer
+            || rotation.controller_state_commitment
+                != self.commitment().map_err(|_| AssetDefinitionError::InvalidSupplyTransition)?
+            || rotation.current_authority_set != self.authority_set
+            || rotation.expected_revision != self.revision
+            || !rotation.active_at(height)
+        {
+            return Err(AssetDefinitionError::InvalidSupplyTransition);
+        }
+        let revision =
+            self.revision.checked_add(1).ok_or(AssetDefinitionError::InvalidSupplyTransition)?;
+        let next_policy =
+            FungibleAssetPolicyV1 { authority_set: rotation.replacement_authority_set, ..*policy };
+        let next_state = Self::from_policy(&next_policy, revision)?;
+        Ok((next_policy, next_state))
+    }
+}
+impl CanonicalEncode for FungibleControllerStateV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.asset_id.encode(e)?;
+        self.issuer.encode(e)?;
+        self.policy_commitment.encode(e)?;
+        self.authority_set.encode(e)?;
+        self.revision.encode(e)
+    }
+}
+impl CanonicalDecode for FungibleControllerStateV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let value = Self {
+            asset_id: AssetId::decode(d)?,
+            issuer: PrincipalId::decode(d)?,
+            policy_commitment: Digest384::decode(d)?,
+            authority_set: Digest384::decode(d)?,
+            revision: u64::decode(d)?,
+        };
+        if value.asset_id.digest() == &Digest384::ZERO
+            || value.issuer.digest() == &Digest384::ZERO
+            || value.policy_commitment == Digest384::ZERO
+            || value.authority_set == Digest384::ZERO
+        {
+            return Err(DecodeError::InvalidValue("invalid fungible controller state"));
+        }
+        Ok(value)
+    }
+}
+impl CanonicalType for FungibleControllerStateV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FungibleControllerRotationV1 {
+    asset_id: AssetId,
+    issuer: PrincipalId,
+    controller_state_commitment: Digest384,
+    current_authority_set: Digest384,
+    replacement_authority_set: Digest384,
+    approval_commitment: Digest384,
+    expected_revision: u64,
+    effective_height: u64,
+    expires_height: u64,
+}
+impl FungibleControllerRotationV1 {
+    pub const TYPE_TAG: u16 = 0x016F;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 6 + 8 * 3;
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        asset_id: AssetId,
+        issuer: PrincipalId,
+        controller_state_commitment: Digest384,
+        current_authority_set: Digest384,
+        replacement_authority_set: Digest384,
+        approval_commitment: Digest384,
+        expected_revision: u64,
+        effective_height: u64,
+        expires_height: u64,
+    ) -> Result<Self, AssetDefinitionError> {
+        if asset_id.digest() == &Digest384::ZERO
+            || issuer.digest() == &Digest384::ZERO
+            || controller_state_commitment == Digest384::ZERO
+            || current_authority_set == Digest384::ZERO
+            || replacement_authority_set == Digest384::ZERO
+            || current_authority_set == replacement_authority_set
+            || approval_commitment == Digest384::ZERO
+            || effective_height >= expires_height
+        {
+            return Err(AssetDefinitionError::InvalidSupplyTransition);
+        }
+        Ok(Self {
+            asset_id,
+            issuer,
+            controller_state_commitment,
+            current_authority_set,
+            replacement_authority_set,
+            approval_commitment,
+            expected_revision,
+            effective_height,
+            expires_height,
+        })
+    }
+    pub const fn active_at(&self, height: u64) -> bool {
+        height >= self.effective_height && height < self.expires_height
+    }
+}
+impl CanonicalEncode for FungibleControllerRotationV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.asset_id.encode(e)?;
+        self.issuer.encode(e)?;
+        self.controller_state_commitment.encode(e)?;
+        self.current_authority_set.encode(e)?;
+        self.replacement_authority_set.encode(e)?;
+        self.approval_commitment.encode(e)?;
+        self.expected_revision.encode(e)?;
+        self.effective_height.encode(e)?;
+        self.expires_height.encode(e)
+    }
+}
+impl CanonicalDecode for FungibleControllerRotationV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            AssetId::decode(d)?,
+            PrincipalId::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid fungible controller rotation"))
+    }
+}
+impl CanonicalType for FungibleControllerRotationV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 /// Deterministically ordered finalized policy registry.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FungibleAssetPolicyRegistry(Vec<FungibleAssetPolicyV1>);
@@ -2472,6 +2664,73 @@ mod tests {
         assert_eq!(
             registry.apply_action(&wrong_policy, 10),
             Err(AssetDefinitionError::InvalidLifecycleTransition)
+        );
+    }
+
+    #[test]
+    fn controller_rotation_is_exact_revision_bound_and_replay_safe() {
+        let policy = FungibleAssetPolicyV1::new(
+            id(1),
+            principal(2),
+            Digest384::new([3; 48]),
+            Digest384::new([4; 48]),
+            Digest384::new([5; 48]),
+            Digest384::new([6; 48]),
+            1_000,
+            100,
+            FungibleAssetLifecycle::Registered,
+        )
+        .unwrap();
+        let state = FungibleControllerStateV1::from_policy(&policy, 7).unwrap();
+        let rotation = FungibleControllerRotationV1::new(
+            policy.asset_id(),
+            policy.issuer(),
+            state.commitment().unwrap(),
+            policy.authority_set(),
+            Digest384::new([8; 48]),
+            Digest384::new([9; 48]),
+            state.revision(),
+            10,
+            20,
+        )
+        .unwrap();
+        assert_eq!(
+            decode_envelope::<FungibleControllerStateV1>(&encode_envelope(&state).unwrap()),
+            Ok(state)
+        );
+        assert_eq!(
+            decode_envelope::<FungibleControllerRotationV1>(&encode_envelope(&rotation).unwrap()),
+            Ok(rotation)
+        );
+        let (next_policy, next_state) = state.apply_rotation(&policy, &rotation, 10).unwrap();
+        assert_eq!(next_policy.authority_set(), Digest384::new([8; 48]));
+        assert_eq!(next_state.revision(), 8);
+        assert_eq!(
+            next_state.apply_rotation(&next_policy, &rotation, 11),
+            Err(AssetDefinitionError::InvalidSupplyTransition)
+        );
+        assert_eq!(
+            state.apply_rotation(&policy, &rotation, 20),
+            Err(AssetDefinitionError::InvalidSupplyTransition)
+        );
+        let changed_policy = FungibleAssetPolicyV1 { supply_issued: 101, ..policy };
+        assert_eq!(
+            state.apply_rotation(&changed_policy, &rotation, 11),
+            Err(AssetDefinitionError::InvalidSupplyTransition)
+        );
+        assert!(
+            FungibleControllerRotationV1::new(
+                policy.asset_id(),
+                policy.issuer(),
+                state.commitment().unwrap(),
+                policy.authority_set(),
+                policy.authority_set(),
+                Digest384::new([9; 48]),
+                state.revision(),
+                10,
+                20,
+            )
+            .is_err()
         );
     }
 

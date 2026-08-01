@@ -240,3 +240,5 @@
 0x016B	1	NonFungibleIssuerApprovalV1	crates/protocol-types/src/asset.rs
 0x016C	1	NonFungibleMintManifestV1	crates/protocol-types/src/asset.rs
 0x016D	1	NonFungibleTokenRegistryV1	crates/protocol-types/src/asset.rs
+0x016E	1	FungibleControllerStateV1	crates/protocol-types/src/asset.rs
+0x016F	1	FungibleControllerRotationV1	crates/protocol-types/src/asset.rs
