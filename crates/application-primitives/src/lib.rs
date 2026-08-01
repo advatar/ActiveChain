@@ -14,6 +14,8 @@ mod compute;
 #[cfg(feature = "std")]
 mod corporate_action;
 #[cfg(feature = "std")]
+mod fungible_transfer;
+#[cfg(feature = "std")]
 mod holder_control;
 #[cfg(feature = "std")]
 mod receipt_nullifier;
@@ -42,6 +44,8 @@ pub use compute::{
 };
 #[cfg(feature = "std")]
 pub use corporate_action::{CorporateActionPersistenceError, DurableCorporateActionRegistry};
+#[cfg(feature = "std")]
+pub use fungible_transfer::{DurableFungibleTransferLedger, FungibleTransferPersistenceError};
 #[cfg(feature = "std")]
 pub use holder_control::{
     ClawbackStateSnapshotV1, DurableClawbackState, DurableFungibleClawbackLedger,

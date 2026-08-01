@@ -1185,6 +1185,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   clawback snapshot, preserving the target record identity and all unrelated cells.
 - [x] Execute canonical fungible transfers against the authoritative set by consuming exact
   origin-derived input records and creating one deterministic policy- and freeze-gated output.
+- [x] Persist the authoritative fungible set successor before acknowledging an ordinary transfer,
+  restoring replay protection fail-closed across restart, corruption, and failed writes.
 - [x] Publish deterministic issuer-registration vectors for activation boundaries and malformed
   authority/policy bindings.
 - [x] Keep the workspace lockfile synchronized with the canonical payment-types cryptographic
