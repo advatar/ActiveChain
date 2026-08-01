@@ -878,6 +878,12 @@ stablecoin paymaster interface
 merchant fee sponsorship
 ```
 
+Sponsored execution persists the canonical `CashLedger` and `CashPaymasterPolicyV1` as one
+crash-consistency unit. The exact transfer first advances a clone through the pure cash kernel;
+the combined successor is written, synchronized, and atomically renamed before live memory or an
+acknowledgement advances. A replayed or stale request, malformed restart snapshot, or failed write
+therefore cannot debit value independently of the sponsor budget and nonce (or vice versa).
+
 ## Tranche H — benchmark harness
 
 Implement one command such as:
