@@ -44,7 +44,8 @@ pub use compute::{
 pub use corporate_action::{CorporateActionPersistenceError, DurableCorporateActionRegistry};
 #[cfg(feature = "std")]
 pub use holder_control::{
-    DurableHolderControlRegistry, HolderControlPersistenceError, HolderControlRegistryV1,
+    ClawbackStateSnapshotV1, DurableClawbackState, DurableHolderControlRegistry,
+    HolderControlPersistenceError, HolderControlRegistryV1,
 };
 #[cfg(feature = "std")]
 pub use receipt_nullifier::{CredentialReceiptJournalError, DurableCredentialReceiptJournal};

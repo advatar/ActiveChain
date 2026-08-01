@@ -1179,6 +1179,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   including holder, destination, amount, revision, freeze state, approval, reason, and window.
 - [x] Persist canonically sorted per-holder freeze/unfreeze revisions before acknowledgement,
   rejecting replay, cross-binding, corrupt restart state, and state-only clawback execution.
+- [x] Persist an exact clawback Coin Cell and its matching holder-control revision as one atomic
+  snapshot, preserving value and identity while rejecting replay and partial failure.
 - [x] Publish deterministic issuer-registration vectors for activation boundaries and malformed
   authority/policy bindings.
 - [x] Keep the workspace lockfile synchronized with the canonical payment-types cryptographic

@@ -46,9 +46,11 @@ exact Coin Cell and may change only its owner; origin, asset identity, amount, a
 are conserved. Freeze/unfreeze revisions are stored in a bounded registry canonically ordered
 by exact asset and holder, and the successor registry is synchronized and atomically replaced
 before acknowledgement. Replay, cross-binding, corrupt restart state, capacity, and failed writes
-fail closed. This state-only boundary rejects clawback: a production clawback must persist its
-Coin Cell mutation and holder-control revision as one combined atomic state transition. These
-primitives establish protocol mechanics, not the legal authority to exercise them.
+fail closed. This state-only boundary rejects clawback. `DurableClawbackState` instead validates
+and persists the exact Coin Cell and matching holder-control revision as one combined snapshot;
+it preserves origin, asset, amount, and creation height while changing only ownership and revision,
+and advances memory only after the synchronized atomic replacement succeeds. These primitives
+establish protocol mechanics, not the legal authority to exercise them.
 
 The native issuer CLI exposes `control-policy`, `holder-control-state`, `control-action`, and
 `dry-run-control`. Freeze and unfreeze preflight return the exact post-state. Clawback additionally
