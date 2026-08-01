@@ -8,6 +8,9 @@ use activechain_agent_interfaces::{
     A2UI_VERSION, A2uiActionV1, A2uiComponentV1, A2uiSurfaceV1, BindingV1, INTERFACE_VERSION,
 };
 use activechain_proposal_gateway::{ActionIntentV1, ActionKindV1};
+use activechain_protocol_types::{
+    FungibleAssetPolicyV1, FungibleIssuerApprovalV1, FungibleIssuerOperation,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -109,6 +112,61 @@ pub struct JobProofFacts {
     pub proof_commitment: String,
     pub status: String,
     pub finalized_height: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IssuerOperationFacts {
+    pub approval_commitment: String,
+    pub asset: String,
+    pub operation: String,
+    pub amount: String,
+    pub supply_before: String,
+    pub supply_after: String,
+    pub authority_set: String,
+    pub policy_before: String,
+    pub policy_after: String,
+    pub effective_height: u64,
+    pub expires_height: u64,
+}
+
+impl IssuerOperationFacts {
+    pub fn from_approved_supply_operation(
+        policy: &FungibleAssetPolicyV1,
+        approval: &FungibleIssuerApprovalV1,
+        finalized_height: u64,
+    ) -> Result<Self, RenderError> {
+        let next = match approval.operation() {
+            FungibleIssuerOperation::Mint => {
+                policy.apply_approved_mint(policy.issuer(), approval, finalized_height)
+            }
+            operation @ (FungibleIssuerOperation::Burn | FungibleIssuerOperation::Redemption) => {
+                policy.apply_approved_burn(approval, operation, finalized_height)
+            }
+        }
+        .map_err(|_| RenderError::InvalidCanonicalFacts)?;
+        let operation = match approval.operation() {
+            FungibleIssuerOperation::Mint => "Mint",
+            FungibleIssuerOperation::Burn => "Burn",
+            FungibleIssuerOperation::Redemption => "Redemption",
+        };
+        Ok(Self {
+            approval_commitment: lower_hex(approval.approval_commitment().as_bytes()),
+            asset: lower_hex(approval.asset_id().digest().as_bytes()),
+            operation: operation.into(),
+            amount: approval.amount().to_string(),
+            supply_before: approval.supply_before().to_string(),
+            supply_after: next.supply_issued().to_string(),
+            authority_set: lower_hex(approval.authority_set().as_bytes()),
+            policy_before: lower_hex(
+                policy.commitment().map_err(|_| RenderError::InvalidCanonicalFacts)?.as_bytes(),
+            ),
+            policy_after: lower_hex(
+                next.commitment().map_err(|_| RenderError::InvalidCanonicalFacts)?.as_bytes(),
+            ),
+            effective_height: approval.effective_height(),
+            expires_height: approval.expires_height(),
+        })
+    }
 }
 
 pub trait NativeWalletApprovalDispatch {
@@ -345,6 +403,47 @@ pub fn render_job_proof_status(facts: &JobProofFacts) -> Result<RenderedApproval
         ],
         None,
         false,
+    )
+}
+
+pub fn render_issuer_operation(
+    facts: &IssuerOperationFacts,
+    explanation: &str,
+) -> Result<RenderedApproval, RenderError> {
+    for digest in [
+        &facts.approval_commitment,
+        &facts.asset,
+        &facts.authority_set,
+        &facts.policy_before,
+        &facts.policy_after,
+    ] {
+        require_digest_text(digest)?;
+    }
+    if facts.effective_height >= facts.expires_height
+        || facts.amount.parse::<u128>().is_err()
+        || facts.supply_before.parse::<u128>().is_err()
+        || facts.supply_after.parse::<u128>().is_err()
+    {
+        return Err(RenderError::InvalidCanonicalFacts);
+    }
+    render_fact_surface(
+        "activechain.issuer_operation.v1",
+        "Review issuer operation",
+        &facts.approval_commitment,
+        &[
+            ("Asset ID".into(), facts.asset.clone()),
+            ("Operation".into(), facts.operation.clone()),
+            ("Amount".into(), facts.amount.clone()),
+            ("Supply before".into(), facts.supply_before.clone()),
+            ("Supply after".into(), facts.supply_after.clone()),
+            ("Authority set".into(), facts.authority_set.clone()),
+            ("Policy before".into(), facts.policy_before.clone()),
+            ("Policy after".into(), facts.policy_after.clone()),
+            ("Effective height".into(), facts.effective_height.to_string()),
+            ("Expiry height".into(), facts.expires_height.to_string()),
+        ],
+        Some(explanation),
+        true,
     )
 }
 
@@ -645,7 +744,7 @@ fn button(id: &str, child: &str, action_name: &str, commitment: &str) -> A2uiCom
 #[cfg(test)]
 mod tests {
     use super::*;
-    use activechain_protocol_types::Digest384;
+    use activechain_protocol_types::{AssetId, Digest384, FungibleAssetLifecycle, PrincipalId};
 
     fn facts() -> TransferApprovalFacts {
         TransferApprovalFacts {
@@ -883,5 +982,86 @@ mod tests {
         assert!(native.rejected.is_empty());
         assert!(authorize_action(&surface, &"00".repeat(48), "activechain.approve").is_err());
         assert_eq!(native.approved.len(), 1);
+    }
+
+    fn issuer_policy() -> FungibleAssetPolicyV1 {
+        FungibleAssetPolicyV1::new(
+            AssetId::new(Digest384::new([81; 48])),
+            PrincipalId::new(Digest384::new([82; 48])),
+            Digest384::ZERO,
+            Digest384::ZERO,
+            Digest384::ZERO,
+            Digest384::new([83; 48]),
+            1_000,
+            100,
+            FungibleAssetLifecycle::Registered,
+        )
+        .unwrap()
+    }
+
+    fn issuer_approval(
+        policy: &FungibleAssetPolicyV1,
+        operation: FungibleIssuerOperation,
+    ) -> FungibleIssuerApprovalV1 {
+        FungibleIssuerApprovalV1::new(
+            policy.asset_id(),
+            policy.commitment().unwrap(),
+            policy.authority_set(),
+            Digest384::new([84; 48]),
+            operation,
+            25,
+            100,
+            10,
+            20,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn issuer_review_is_derived_from_exact_approved_transition() {
+        let policy = issuer_policy();
+        let approval = issuer_approval(&policy, FungibleIssuerOperation::Mint);
+        let facts =
+            IssuerOperationFacts::from_approved_supply_operation(&policy, &approval, 15).unwrap();
+        assert_eq!(facts.operation, "Mint");
+        assert_eq!(facts.supply_before, "100");
+        assert_eq!(facts.supply_after, "125");
+        let rendered =
+            render_issuer_operation(&facts, "Issue the approved treasury tranche").unwrap();
+        let surface = rendered.surface.unwrap();
+        assert_eq!(surface.surface_id, "activechain.issuer_operation.v1");
+        assert_eq!(surface.intent_commitment, "54".repeat(48));
+        assert!(surface.components.iter().any(|component| {
+            component.action.as_ref().is_some_and(|action| {
+                action.name == "activechain.approve"
+                    && action.context.get("intent_commitment") == Some(&"54".repeat(48))
+            })
+        }));
+    }
+
+    #[test]
+    fn issuer_review_rejects_stale_or_substituted_approval() {
+        let policy = issuer_policy();
+        let approval = issuer_approval(&policy, FungibleIssuerOperation::Redemption);
+        assert_eq!(
+            IssuerOperationFacts::from_approved_supply_operation(&policy, &approval, 20),
+            Err(RenderError::InvalidCanonicalFacts)
+        );
+        let changed = FungibleAssetPolicyV1::new(
+            policy.asset_id(),
+            policy.issuer(),
+            Digest384::ZERO,
+            Digest384::ZERO,
+            Digest384::ZERO,
+            policy.authority_set(),
+            policy.supply_cap(),
+            99,
+            policy.lifecycle(),
+        )
+        .unwrap();
+        assert_eq!(
+            IssuerOperationFacts::from_approved_supply_operation(&changed, &approval, 15),
+            Err(RenderError::InvalidCanonicalFacts)
+        );
     }
 }
