@@ -56,6 +56,18 @@ normative and measurement slice in [#398](https://github.com/advatar/ActiveChain
     - [x] Qualify interrupted activation, corruption, archive loss, and pruning fail-closed behavior.
     - [x] Record a production-like local run with measured peak and final physical usage.
 
+## Independent-client budget gate repair
+
+Tracked by [GitHub issue #401](https://github.com/advatar/ActiveChain/issues/401).
+
+- [x] Reconcile the published per-version active canonical identity counts with the registry after
+  merged protocol additions, without changing the approved staffing ranges or release gates.
+- [x] Reconcile the Apple compatibility manifest and C/Swift consumers with wallet ABI revision 3.
+- [x] Give each authorization-chain lemma a bounded 15-minute proof window so normal ARM64 runner
+  variance cannot kill a valid source-saturation proof at the old 10-minute limit.
+- [x] Pass the deterministic-kernel gate and merge the repair to `main`; merge commit `28fab4a` is
+  reachable from `origin/main`.
+
 ## Active landing-page rebrand — Actum
 
 Tracked by [GitHub issue #391](https://github.com/advatar/ActiveChain/issues/391).
