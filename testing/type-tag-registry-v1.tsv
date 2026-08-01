@@ -226,3 +226,5 @@
 0x015D	1	CapacityReservationV1	crates/cash-kernel/src/economics.rs
 0x015E	1	CapacitySettlementV1	crates/cash-kernel/src/economics.rs
 0x015F	1	ChallengeCommitmentV1	crates/cash-kernel/src/economics.rs
+0x0160	1	CashPaymasterPolicyV1	crates/cash-kernel/src/economics.rs
+0x0161	1	CashPaymasterRequestV1	crates/cash-kernel/src/economics.rs
