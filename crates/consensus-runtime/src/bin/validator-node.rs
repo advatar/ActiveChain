@@ -1,15 +1,100 @@
+use activechain_canonical_codec::encode_envelope;
+use activechain_cash_kernel::CoinCellSet;
 use activechain_consensus_runtime::{
-    PeerIngressMetricsSnapshot, PeerIngressMonitor, PeerListener, ValidatorService, load_genesis,
-    load_snapshot, load_snapshot_chain_genesis_commitment, save_snapshot,
+    FinalizedCashSnapshot, PeerIngressMetricsSnapshot, PeerIngressMonitor, PeerListener,
+    ValidatorService, load_genesis, load_snapshot, load_snapshot_chain_genesis_commitment,
+    save_snapshot,
 };
-use activechain_protocol_types::ConsensusState;
-use activechain_protocol_types::Digest384;
+use activechain_finality_types::{
+    FinalityCertificateBundle, FinalizedBlockHeader, ProofPublicInputs,
+};
+use activechain_protocol_types::{ChainId, ConsensusState, Digest384, ValidatorGenesis};
+use activechain_state_tree::StateCommitment;
 use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
 };
 use std::env;
 use std::path::Path;
+
+fn digest_parts(domain: &[u8], parts: &[&[u8]]) -> Digest384 {
+    let mut output = [0_u8; 48];
+    let mut hasher = Shake256::default();
+    hasher.update(domain);
+    for part in parts {
+        hasher.update(&(part.len() as u64).to_be_bytes());
+        hasher.update(part);
+    }
+    hasher.finalize_xof().read(&mut output);
+    Digest384::new(output)
+}
+
+fn parse_chain_id(value: &str) -> Result<ChainId, &'static str> {
+    if value.len() != 96 {
+        return Err("chain ID must be exactly 48 bytes of hexadecimal");
+    }
+    let mut bytes = [0_u8; 48];
+    for (index, byte) in bytes.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)
+            .map_err(|_| "chain ID contains non-hexadecimal input")?;
+    }
+    Ok(ChainId::new(Digest384::new(bytes)))
+}
+
+fn kanalen_finalized_header(
+    genesis: &ValidatorGenesis,
+    chain_id: ChainId,
+    height: u64,
+    cash_cell_root: Digest384,
+) -> FinalizedBlockHeader {
+    let height_bytes = height.to_be_bytes();
+    let parent_block_id = digest_parts(b"ACTIVECHAIN-KANALEN-PARENT-V1", &[&height_bytes]);
+    let pre_root = digest_parts(b"ACTIVECHAIN-KANALEN-PRE-STATE-V1", &[&height_bytes]);
+    let post_root = digest_parts(b"ACTIVECHAIN-KANALEN-POST-STATE-V1", &[&height_bytes]);
+    let inputs = ProofPublicInputs {
+        chain_id,
+        epoch: genesis.epoch(),
+        height,
+        protocol_revision: genesis.protocol_revision(),
+        validator_set_root: genesis.validator_set_root(),
+        parent_block_id,
+        pre_state: StateCommitment::new(pre_root, height.saturating_sub(1)),
+        authorization_root: digest_parts(b"ACTIVECHAIN-KANALEN-AUTHORIZATIONS-V1", &[]),
+        action_root: digest_parts(b"ACTIVECHAIN-KANALEN-ACTIONS-V1", &[]),
+        execution_order_root: digest_parts(b"ACTIVECHAIN-KANALEN-EXECUTION-ORDER-V1", &[]),
+        total_fees: 0,
+        pre_supply: 0,
+        issuance: 0,
+        burn: 0,
+        post_supply: 0,
+        cash_cell_root,
+        post_state: StateCommitment::new(post_root, height),
+        receipt_root: digest_parts(b"ACTIVECHAIN-KANALEN-RECEIPTS-V1", &[]),
+        data_availability_commitment: digest_parts(b"ACTIVECHAIN-KANALEN-DA-V1", &[]),
+    };
+    FinalizedBlockHeader {
+        inputs,
+        proof_statement_commitment: digest_parts(
+            b"ACTIVECHAIN-KANALEN-EMPTY-EXECUTION-PROOF-V1",
+            &[cash_cell_root.as_bytes(), &height_bytes],
+        ),
+    }
+}
+
+fn publish_finalized_cash(
+    cash_path: &Path,
+    finality_path: &Path,
+    snapshot: &FinalizedCashSnapshot,
+    bundle: &FinalityCertificateBundle,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let finality = encode_envelope(bundle)
+        .map_err(|_| std::io::Error::other("finality bundle encoding failed"))?;
+    snapshot.save_with_finality(cash_path, &finality)?;
+    let temporary = finality_path.with_extension("tmp");
+    std::fs::write(&temporary, &finality)?;
+    std::fs::rename(temporary, finality_path)?;
+    Ok(())
+}
 
 fn log_ingress_metrics(validator_id: u16, metrics: PeerIngressMetricsSnapshot) {
     eprintln!(
@@ -54,6 +139,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .transpose()?
         .unwrap_or(0_u64);
     let key_file = extras.iter().find_map(|value| value.strip_prefix("--key-file="));
+    let chain_id = extras
+        .iter()
+        .find_map(|value| value.strip_prefix("--chain-id-hex="))
+        .map(parse_chain_id)
+        .transpose()?;
+    let finalized_cash_out =
+        extras.iter().find_map(|value| value.strip_prefix("--finalized-cash-out="));
+    let finality_out = extras.iter().find_map(|value| value.strip_prefix("--finality-out="));
+    if finalized_cash_out.is_some() != finality_out.is_some()
+        || finalized_cash_out.is_some() != chain_id.is_some()
+    {
+        return Err(
+            "--chain-id-hex, --finalized-cash-out, and --finality-out must be supplied together"
+                .into(),
+        );
+    }
     let peer_specs: Vec<&str> =
         extras.iter().filter_map(|value| value.strip_prefix("--peer=")).collect();
     let genesis = genesis_path.as_deref().map(Path::new).map(load_genesis).transpose()?;
@@ -209,18 +310,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     std::thread::sleep(std::time::Duration::from_millis(25));
                 }
             }
-            let block_digest = {
-                let mut digest = [0_u8; 48];
-                let mut hasher = Shake256::default();
-                hasher.update(b"ACTIVECHAIN-TESTNET-NETWORK-ROUND-V2");
-                hasher.update(genesis.validator_set_root().as_bytes());
-                hasher.update(&next_height.to_be_bytes());
-                hasher.update(&next_round.to_be_bytes());
-                hasher.finalize_xof().read(&mut digest);
-                Digest384::new(digest)
+            let cash_snapshot = FinalizedCashSnapshot::new(
+                genesis.genesis_commitment(),
+                next_height,
+                CoinCellSet::new(Vec::new())
+                    .map_err(|_| "empty finalized cash state is invalid")?,
+            )?;
+            let publication_header = chain_id.map(|chain_id| {
+                kanalen_finalized_header(
+                    genesis,
+                    chain_id,
+                    next_height,
+                    cash_snapshot.cash_cell_root,
+                )
+            });
+            let block_digest = match publication_header {
+                Some(header) => {
+                    header.digest().map_err(|_| "Kanalen finalized header encoding failed")?
+                }
+                None => digest_parts(
+                    b"ACTIVECHAIN-TESTNET-NETWORK-ROUND-V2",
+                    &[
+                        genesis.validator_set_root().as_bytes(),
+                        &next_height.to_be_bytes(),
+                        &next_round.to_be_bytes(),
+                    ],
+                ),
             };
-            let state = service
-                .propose_round_collect_votes(
+            let (state, certified) = service
+                .propose_round_collect_votes_with_certificate(
                     &signer,
                     next_height,
                     next_round,
@@ -230,6 +348,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &peer_ids,
                 )
                 .map_err(|error| format!("network round failed: {error:?}"))?;
+            if let (Some(header), Some(cash_path), Some(finality_path)) =
+                (publication_header, finalized_cash_out, finality_out)
+            {
+                let certified = certified.ok_or("network round did not produce a certificate")?;
+                let bundle = FinalityCertificateBundle::new(
+                    header,
+                    genesis.clone(),
+                    certified.certificate().clone(),
+                    certified.votes().to_vec(),
+                )
+                .map_err(|_| "certified Kanalen finality bundle is invalid")?;
+                publish_finalized_cash(
+                    Path::new(cash_path),
+                    Path::new(finality_path),
+                    &cash_snapshot,
+                    &bundle,
+                )?;
+            }
             println!("completed network round: finalized_height={}", state.finalized_height());
             let metrics = service.metrics();
             println!(
@@ -324,4 +460,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use activechain_protocol_types::{PrincipalId, ValidatorGenesisEntry};
+
+    fn genesis() -> ValidatorGenesis {
+        ValidatorGenesis::new(
+            1,
+            1,
+            vec![
+                ValidatorGenesisEntry::new(
+                    PrincipalId::new(Digest384::new([2; 48])),
+                    1,
+                    [3; activechain_protocol_types::ML_DSA44_PUBLIC_KEY_LENGTH],
+                )
+                .unwrap(),
+            ],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn publication_header_binds_chain_height_and_cash_root() {
+        let chain = parse_chain_id(&"11".repeat(48)).unwrap();
+        let cash_root = Digest384::new([7; 48]);
+        let header = kanalen_finalized_header(&genesis(), chain, 9, cash_root);
+        assert_eq!(header.inputs.chain_id, chain);
+        assert_eq!(header.inputs.height, 9);
+        assert_eq!(header.inputs.cash_cell_root, cash_root);
+        assert_ne!(header.digest().unwrap(), Digest384::ZERO);
+    }
+
+    #[test]
+    fn publication_chain_id_is_exact_and_canonical() {
+        assert!(parse_chain_id(&"ab".repeat(48)).is_ok());
+        assert!(parse_chain_id("00").is_err());
+        assert!(parse_chain_id(&"zz".repeat(48)).is_err());
+    }
 }

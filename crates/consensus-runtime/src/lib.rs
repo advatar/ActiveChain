@@ -4229,6 +4229,32 @@ impl ValidatorService {
         peers: &mut PeerDirectory,
         peer_ids: &[u16],
     ) -> Result<ConsensusState, ValidatorServiceError> {
+        self.propose_round_collect_votes_with_certificate(
+            signer,
+            height,
+            round,
+            block_digest,
+            sequence,
+            peers,
+            peer_ids,
+        )
+        .map(|(state, _)| state)
+    }
+
+    /// Proposes a round and returns the exact certified block used to advance
+    /// finality. Deployment publishers use this variant to construct a
+    /// verifier-consumable finality bundle without scraping internal state.
+    #[allow(clippy::too_many_arguments)]
+    pub fn propose_round_collect_votes_with_certificate(
+        &self,
+        signer: &ValidatorSigner,
+        height: u64,
+        round: u64,
+        block_digest: Digest384,
+        sequence: u64,
+        peers: &mut PeerDirectory,
+        peer_ids: &[u16],
+    ) -> Result<(ConsensusState, Option<CertifiedBlock>), ValidatorServiceError> {
         let (proposal, own_vote) =
             self.propose_round(signer, height, round, block_digest, sequence)?;
         peers.broadcast_message(&proposal).map_err(ValidatorServiceError::Io)?;
@@ -4246,18 +4272,22 @@ impl ValidatorService {
                 certificate = Some(proof);
             }
         }
-        if let Some(proof) = certificate {
+        if let Some(proof) = certificate.as_ref() {
             let sender = self.sender_for(signer)?;
             let certificate_sequence = sequence
                 .checked_add(2)
                 .ok_or(ValidatorServiceError::Engine(ValidatorEngineError::SequenceOverflow))?;
             self.reserve_sequence_range(sender, certificate_sequence, 1)?;
             let message = signer
-                .sign_envelope(sender, certificate_sequence, ConsensusMessage::Certificate(proof))
+                .sign_envelope(
+                    sender,
+                    certificate_sequence,
+                    ConsensusMessage::Certificate(proof.clone()),
+                )
                 .map_err(ValidatorServiceError::Engine)?;
             peers.broadcast_message(&message).map_err(ValidatorServiceError::Io)?;
         }
-        self.state()
+        self.state().map(|state| (state, certificate))
     }
     fn sender_for(&self, signer: &ValidatorSigner) -> Result<u16, ValidatorServiceError> {
         let public_key = signer.public_key();

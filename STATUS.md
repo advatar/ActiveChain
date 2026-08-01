@@ -645,6 +645,8 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
 - [x] Enable the Kanalen ingestion runner to publish finalized cash snapshots when validator
   output and its matching finality bundle are available; retain metadata-only ingestion until
   then.
+- [x] Make the Kanalen proposer certify the exact finalized cash root and emit the verifier-ready
+  cash snapshot plus quorum finality bundle consumed by the fail-closed ingestion runner.
 - [x] Load a real device wallet profile and remove the hard-coded unavailable dashboard path;
   balances remain fail-closed until the linked verifier accepts finalized owner proofs.
 - [ ] Extend Kanalen ingestion/rehearsal, add adversarial tests, deploy, and verify the public RPC.
