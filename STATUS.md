@@ -1093,6 +1093,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   reservation accounting; issuer authorization remains enforced by the action layer.
 - [x] Bind every NFT series mint reservation to the exact issuer, authority set, pre-state series
   commitment, minted count, quantity, approval commitment, and finalized execution window.
+- [x] Bind approved NFT minting to a bounded canonical manifest of exact token IDs, recipients,
+  and metadata commitments, then derive the reserved series state and token records atomically.
 - [x] Reject NFT token and series definitions with zero asset, issuer, or owner identities before
   metadata and supply admission.
 - [x] Add an immutable-identity NFT Coin Cell carrying asset/token/metadata commitments and
