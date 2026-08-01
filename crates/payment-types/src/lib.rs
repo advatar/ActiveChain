@@ -1604,6 +1604,10 @@ impl PaymentRefundRequestV1 {
         self.refund
     }
 
+    pub const fn intent(&self) -> PaymentIntentId {
+        self.intent
+    }
+
     pub const fn amount(&self) -> AssetAmountV1 {
         self.amount
     }
@@ -1688,6 +1692,14 @@ impl PaymentRefundStateV1 {
 
     pub const fn refunded_units(&self) -> u128 {
         self.refunded_units
+    }
+
+    pub const fn intent(&self) -> PaymentIntentId {
+        self.intent
+    }
+
+    pub const fn settled_amount(&self) -> AssetAmountV1 {
+        self.settled_amount
     }
 
     pub const fn next_sequence(&self) -> u64 {

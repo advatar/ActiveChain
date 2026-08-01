@@ -1009,6 +1009,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
 - [ ] Integrate finalized native settlement, refunds/disputes, fee sponsorship, treasury controls,
   authenticated APIs/SDKs/webhooks, formal refinement, operations drills, and staged pilots.
 - [x] Add canonical exact-once partial-refund requests and cumulative settlement-bound accounting.
+  - [x] Persist a bounded per-intent refund-state journal atomically across settlement registration
+    and every accepted partial refund, rejecting replay and corrupt restart state.
 - [x] Add a canonical dispute request and monotonic lifecycle that keeps external resolution
   strictly distinct from ActiveChain-finalized settlement.
 - [x] Add canonical treasury debit policy and exact-once payout/conversion/refund/fee/settlement
