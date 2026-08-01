@@ -66,6 +66,13 @@ atomically replaces the complete successor set before memory or acknowledgement 
 therefore restores both the new root and replay rejection; corrupt storage and failed writes fail
 closed without changing the live authoritative root.
 
+Approved fungible minting likewise has one pure authoritative successor. The exact mint, finalized
+policy, and threshold approval must agree on asset, issuer, operation, authority set, amount,
+supply pre-state, policy commitment, and half-open execution height. The transition returns both
+the policy with advanced issued supply and one deterministic recipient Coin Cell derived from the
+canonical mint. Stale or replayed supply, cap overflow, paused policy, substituted approval,
+capacity, and output collision return neither successor.
+
 The native issuer CLI exposes `control-policy`, `holder-control-state`, `control-action`, and
 `dry-run-control`. Freeze and unfreeze preflight return the exact post-state. Clawback additionally
 requires a canonical input Coin Cell and returns both the conserved post-cell and revisioned
