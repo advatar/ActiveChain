@@ -1,4 +1,4 @@
-use activechain_canonical_codec::encode_envelope;
+use activechain_canonical_codec::{CanonicalType, decode_envelope, encode_envelope};
 use activechain_protocol_types::{
     AssetId, Digest384, FungibleAssetDefinition, FungibleAssetLifecycle,
     FungibleAssetLifecycleAction, FungibleAssetLifecycleActionV1, FungibleAssetPolicyV1,
@@ -60,11 +60,22 @@ fn corporate_action(value: &str) -> Result<FungibleCorporateActionKind, String> 
 }
 
 fn usage() -> &'static str {
-    "usage:\n  activechain-issuer definition <asset> <issuer> <symbol> <decimals> <supply-cap> <policy>\n  activechain-issuer policy <asset> <issuer> <authority-set> <cap> <issued>\n  activechain-issuer approval <asset> <policy> <authority-set> <approval> <operation> <amount> <supply-before> <effective-height> <expires-height>\n  activechain-issuer attestation <asset> <policy> <issuer> <supply> <finalized-height> <approval>\n  activechain-issuer registration <asset> <issuer> <authority-set> <policy> <effective-height> <expires-height>\n  activechain-issuer lifecycle <asset> <policy> <authority-set> <approval> <reason> <pause|resume|retire> <effective-height> <expires-height>\n  activechain-issuer corporate-action <asset> <issuer> <policy> <authority-set> <approval> <terms> <kind> <record-height> <effective-height> <expires-height> <amount-per-unit> <ratio-numerator> <ratio-denominator>"
+    "usage:\n  activechain-issuer definition <asset> <issuer> <symbol> <decimals> <supply-cap> <policy>\n  activechain-issuer policy <asset> <issuer> <authority-set> <cap> <issued>\n  activechain-issuer approval <asset> <policy> <authority-set> <approval> <operation> <amount> <supply-before> <effective-height> <expires-height>\n  activechain-issuer attestation <asset> <policy> <issuer> <supply> <finalized-height> <approval>\n  activechain-issuer registration <asset> <issuer> <authority-set> <policy> <effective-height> <expires-height>\n  activechain-issuer lifecycle <asset> <policy> <authority-set> <approval> <reason> <pause|resume|retire> <effective-height> <expires-height>\n  activechain-issuer corporate-action <asset> <issuer> <policy> <authority-set> <approval> <terms> <kind> <record-height> <effective-height> <expires-height> <amount-per-unit> <ratio-numerator> <ratio-denominator>\n  activechain-issuer dry-run-supply <policy-envelope> <approval-envelope> <finalized-height>"
 }
 
 fn hex_bytes(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn envelope<T: CanonicalType>(value: &str, name: &str) -> Result<T, String> {
+    if value.len() % 2 != 0 {
+        return Err(format!("{name} envelope must contain an even number of hex characters"));
+    }
+    let mut bytes = Vec::with_capacity(value.len() / 2);
+    for pair in value.as_bytes().chunks_exact(2) {
+        bytes.push((hex_digit(pair[0])? << 4) | hex_digit(pair[1])?);
+    }
+    decode_envelope(&bytes).map_err(|_| format!("invalid canonical {name} envelope"))
 }
 
 fn run(args: &[String]) -> Result<String, String> {
@@ -180,6 +191,23 @@ fn run(args: &[String]) -> Result<String, String> {
             Ok(hex_bytes(
                 &encode_envelope(&action).map_err(|_| "corporate action encoding failed")?,
             ))
+        }
+        Some("dry-run-supply") if args.len() == 4 => {
+            let policy: FungibleAssetPolicyV1 = envelope(&args[1], "policy")?;
+            let approval: FungibleIssuerApprovalV1 = envelope(&args[2], "approval")?;
+            let height =
+                args[3].parse().map_err(|_| "finalized-height must be an unsigned integer")?;
+            let next = match approval.operation() {
+                FungibleIssuerOperation::Mint => {
+                    policy.apply_approved_mint(policy.issuer(), &approval, height)
+                }
+                operation @ (FungibleIssuerOperation::Burn
+                | FungibleIssuerOperation::Redemption) => {
+                    policy.apply_approved_burn(&approval, operation, height)
+                }
+            }
+            .map_err(|_| "issuer supply dry-run rejected")?;
+            Ok(hex_bytes(&encode_envelope(&next).map_err(|_| "next policy encoding failed")?))
         }
         _ => Err(usage().into()),
     }
@@ -302,5 +330,92 @@ mod tests {
         let mut wrong_economics = args;
         wrong_economics[11] = "1".into();
         assert!(run(&wrong_economics).is_err());
+    }
+
+    fn policy_and_approval(
+        operation: FungibleIssuerOperation,
+        amount: u128,
+    ) -> (FungibleAssetPolicyV1, FungibleIssuerApprovalV1) {
+        let asset = AssetId::new(hex_digest(&d()).unwrap());
+        let issuer = PrincipalId::new(Digest384::new([0x22; 48]));
+        let authority = Digest384::new([0x33; 48]);
+        let policy = FungibleAssetPolicyV1::new(
+            asset,
+            issuer,
+            Digest384::ZERO,
+            Digest384::ZERO,
+            Digest384::ZERO,
+            authority,
+            1_000,
+            100,
+            FungibleAssetLifecycle::Registered,
+        )
+        .unwrap();
+        let approval = FungibleIssuerApprovalV1::new(
+            asset,
+            policy.commitment().unwrap(),
+            authority,
+            Digest384::new([0x44; 48]),
+            operation,
+            amount,
+            100,
+            10,
+            20,
+        )
+        .unwrap();
+        (policy, approval)
+    }
+
+    #[test]
+    fn dry_run_supply_applies_exact_approval_without_mutating_input() {
+        let (policy, approval) = policy_and_approval(FungibleIssuerOperation::Mint, 25);
+        let policy_hex = hex_bytes(&encode_envelope(&policy).unwrap());
+        let args = vec![
+            "dry-run-supply".into(),
+            policy_hex.clone(),
+            hex_bytes(&encode_envelope(&approval).unwrap()),
+            "15".into(),
+        ];
+        let next: FungibleAssetPolicyV1 = envelope(&run(&args).unwrap(), "policy").unwrap();
+        assert_eq!(next.supply_issued(), 125);
+        assert_eq!(policy.supply_issued(), 100);
+        assert_eq!(args[1], policy_hex);
+    }
+
+    #[test]
+    fn dry_run_supply_rejects_stale_changed_and_malformed_inputs() {
+        let (policy, approval) = policy_and_approval(FungibleIssuerOperation::Redemption, 25);
+        let valid = vec![
+            "dry-run-supply".into(),
+            hex_bytes(&encode_envelope(&policy).unwrap()),
+            hex_bytes(&encode_envelope(&approval).unwrap()),
+            "15".into(),
+        ];
+        let next: FungibleAssetPolicyV1 = envelope(&run(&valid).unwrap(), "policy").unwrap();
+        assert_eq!(next.supply_issued(), 75);
+
+        let mut stale = valid.clone();
+        stale[3] = "20".into();
+        assert_eq!(run(&stale), Err("issuer supply dry-run rejected".into()));
+
+        let changed_policy = FungibleAssetPolicyV1::new(
+            policy.asset_id(),
+            policy.issuer(),
+            Digest384::ZERO,
+            Digest384::ZERO,
+            Digest384::ZERO,
+            policy.authority_set(),
+            policy.supply_cap(),
+            99,
+            policy.lifecycle(),
+        )
+        .unwrap();
+        let mut changed = valid.clone();
+        changed[1] = hex_bytes(&encode_envelope(&changed_policy).unwrap());
+        assert_eq!(run(&changed), Err("issuer supply dry-run rejected".into()));
+
+        let mut malformed = valid;
+        malformed[2] = "abc".into();
+        assert!(run(&malformed).unwrap_err().contains("even number"));
     }
 }

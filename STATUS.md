@@ -1015,6 +1015,9 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
 
 ## Active native issuer operations
 
+- [x] Add deterministic offline inspection and dry-run for canonical threshold-approved issuer
+  supply operations before submission.
+
 Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164).
 
 - [x] Define issuer registration, threshold-controlled mint/burn, redemption, pause/recovery,
