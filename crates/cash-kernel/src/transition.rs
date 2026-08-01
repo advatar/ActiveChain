@@ -1,5 +1,8 @@
 use alloc::vec::Vec;
 
+use activechain_accumulator::{
+    AccumulatorDomain, NonMembershipWitness, ReferenceSet, SetCommitment,
+};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
@@ -29,10 +32,11 @@ pub struct CashLedger {
     supply: NativeSupply,
     cells: CoinCellSet,
     shielded: ShieldedCashState,
-    redeemed_rewards: Vec<activechain_protocol_types::Digest384>,
+    redeemed_reward_root: activechain_protocol_types::Digest384,
+    redeemed_reward_count: u64,
 }
 
-pub const MAX_REDEEMED_REWARDS: usize = 4_096;
+pub const LEGACY_MAX_REDEEMED_REWARDS: usize = 4_096;
 
 impl CashLedger {
     pub fn redeem_reward(
@@ -40,17 +44,30 @@ impl CashLedger {
         settlement: &RewardSettlement,
         redemption: &RewardRedemption,
     ) -> Result<(), CashTransitionError> {
-        if redemption.settlement != settlement.assignment || settlement.reward == 0 {
+        if redemption.settlement != settlement.assignment
+            || redemption.replay_witness.assignment() != settlement.assignment
+            || settlement.reward == 0
+        {
             return Err(CashTransitionError::Invalid(NativeMoneyError::ZeroAmount));
         }
-        if self.redeemed_rewards.binary_search(&settlement.assignment).is_ok() {
-            return Err(CashTransitionError::Invalid(NativeMoneyError::RewardAlreadyRedeemed));
-        }
-        if self.redeemed_rewards.len() >= MAX_REDEEMED_REWARDS {
-            return Err(CashTransitionError::Invalid(
-                NativeMoneyError::RewardRedemptionCapacityExceeded,
-            ));
-        }
+        let commitment = SetCommitment {
+            domain: AccumulatorDomain::SpentInput,
+            root: self.redeemed_reward_root.into_bytes(),
+            count: self.redeemed_reward_count,
+        };
+        let witness = NonMembershipWitness {
+            key: settlement.assignment.into_bytes(),
+            siblings: redemption
+                .replay_witness
+                .siblings()
+                .iter()
+                .map(|sibling| sibling.into_bytes())
+                .collect(),
+        };
+        let next_commitment =
+            commitment.insert(settlement.assignment.into_bytes(), &witness).map_err(|_| {
+                CashTransitionError::Invalid(NativeMoneyError::InvalidRewardReplayWitness)
+            })?;
         let transfer = CoinTransfer::new(
             redemption.pool_owner,
             settlement.verifier,
@@ -63,11 +80,9 @@ impl CashLedger {
         .map_err(CashTransitionError::Invalid)?;
         let mut next = self.clone();
         next.apply_transfer_inner(&transfer, redemption.height)?;
-        let position = next
-            .redeemed_rewards
-            .binary_search(&settlement.assignment)
-            .unwrap_or_else(|position| position);
-        next.redeemed_rewards.insert(position, settlement.assignment);
+        next.redeemed_reward_root =
+            activechain_protocol_types::Digest384::new(next_commitment.root);
+        next.redeemed_reward_count = next_commitment.count;
         next.verify_invariants()?;
         *self = next;
         Ok(())
@@ -108,7 +123,10 @@ impl CashLedger {
             supply,
             cells,
             shielded: ShieldedCashState::default(),
-            redeemed_rewards: Vec::new(),
+            redeemed_reward_root: activechain_protocol_types::Digest384::new(
+                SetCommitment::empty(AccumulatorDomain::SpentInput).root,
+            ),
+            redeemed_reward_count: 0,
         };
         ledger.verify_invariants()?;
         Ok(ledger)
@@ -131,8 +149,12 @@ impl CashLedger {
         &self.shielded
     }
     #[must_use]
-    pub fn redeemed_rewards(&self) -> &[activechain_protocol_types::Digest384] {
-        &self.redeemed_rewards
+    pub const fn redeemed_reward_root(&self) -> activechain_protocol_types::Digest384 {
+        self.redeemed_reward_root
+    }
+    #[must_use]
+    pub const fn redeemed_reward_count(&self) -> u64 {
+        self.redeemed_reward_count
     }
 
     /// Atomically consumes public Coin Cells and credits the shielded native-value partition.
@@ -255,7 +277,7 @@ impl CashLedger {
             .checked_add(intent.fee())
             .ok_or(CashTransitionError::Invalid(NativeMoneyError::AmountOverflow))?;
         self.shielded
-            .debit(debit, intent.nullifiers(), proof_commitment)
+            .debit(debit, intent.nullifiers(), intent.nullifier_witnesses(), proof_commitment)
             .map_err(CashTransitionError::Privacy)?;
         let transition_id = cash_transition_id(intent).map_err(CashTransitionError::Encoding)?;
         let cell = CoinCell::new(
@@ -690,11 +712,9 @@ impl CashLedger {
     }
 
     pub fn verify_invariants(&self) -> Result<(), CashTransitionError> {
-        if self.redeemed_rewards.len() > MAX_REDEEMED_REWARDS
-            || self.redeemed_rewards.windows(2).any(|pair| pair[0] >= pair[1])
-        {
+        if self.redeemed_reward_root == activechain_protocol_types::Digest384::ZERO {
             return Err(CashTransitionError::Invariant(
-                NativeMoneyError::RewardRedemptionCapacityExceeded,
+                NativeMoneyError::InvalidRewardReplayWitness,
             ));
         }
         let mut cell_total = 0_u128;
@@ -768,11 +788,8 @@ impl CanonicalEncode for CashLedger {
         self.supply.encode(e)?;
         self.cells.encode(e)?;
         self.shielded.encode(e)?;
-        e.write_length(self.redeemed_rewards.len(), MAX_REDEEMED_REWARDS)?;
-        for settlement in &self.redeemed_rewards {
-            settlement.encode(e)?;
-        }
-        Ok(())
+        self.redeemed_reward_root.encode(e)?;
+        self.redeemed_reward_count.encode(e)
     }
 }
 
@@ -782,21 +799,23 @@ impl CanonicalDecode for CashLedger {
         let supply = NativeSupply::decode(d)?;
         let cells = CoinCellSet::decode(d)?;
         let shielded = ShieldedCashState::decode(d)?;
-        let count = d.read_length(MAX_REDEEMED_REWARDS)?;
-        let mut redeemed_rewards = Vec::with_capacity(count);
-        for _ in 0..count {
-            redeemed_rewards.push(activechain_protocol_types::Digest384::decode(d)?);
-        }
-        let ledger = Self { definition, supply, cells, shielded, redeemed_rewards };
+        let redeemed_reward_root = activechain_protocol_types::Digest384::decode(d)?;
+        let redeemed_reward_count = u64::decode(d)?;
+        let ledger = Self {
+            definition,
+            supply,
+            cells,
+            shielded,
+            redeemed_reward_root,
+            redeemed_reward_count,
+        };
         ledger.verify_invariants().map_err(|_| DecodeError::InvalidValue("invalid cash ledger"))?;
         Ok(ledger)
     }
 }
 
 impl CashLedger {
-    /// Encodes the schema-v1 body for explicit bounded snapshot migration tooling.
-    #[doc(hidden)]
-    pub fn encode_legacy_v1(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+    fn encode_legacy_v1_fields(&self, e: &mut Encoder) -> Result<(), EncodeError> {
         self.definition.encode(e)?;
         self.supply.genesis_supply().encode(e)?;
         self.supply.cumulative_security_issuance().encode(e)?;
@@ -808,10 +827,32 @@ impl CashLedger {
         self.supply.security_reserve_balance().encode(e)?;
         self.supply.last_settled_epoch().encode(e)?;
         self.cells.encode(e)?;
-        self.shielded.encode(e)?;
-        e.write_length(self.redeemed_rewards.len(), MAX_REDEEMED_REWARDS)?;
-        for settlement in &self.redeemed_rewards {
-            settlement.encode(e)?;
+        self.shielded.encode_legacy_v1(e)
+    }
+
+    /// Encodes the schema-v1 body for explicit bounded snapshot migration tooling.
+    #[doc(hidden)]
+    pub fn encode_legacy_v1(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.encode_legacy_v1_fields(e)?;
+        if self.redeemed_reward_count != 0 {
+            return Err(EncodeError::LengthLimitExceeded {
+                length: usize::try_from(self.redeemed_reward_count).unwrap_or(usize::MAX),
+                maximum: 0,
+            });
+        }
+        e.write_length(0, LEGACY_MAX_REDEEMED_REWARDS)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn encode_legacy_v1_with_rewards_for_test(
+        &self,
+        e: &mut Encoder,
+        assignments: &[activechain_protocol_types::Digest384],
+    ) -> Result<(), EncodeError> {
+        self.encode_legacy_v1_fields(e)?;
+        e.write_length(assignments.len(), LEGACY_MAX_REDEEMED_REWARDS)?;
+        for assignment in assignments {
+            assignment.encode(e)?;
         }
         Ok(())
     }
@@ -822,13 +863,51 @@ impl CashLedger {
         let supply =
             NativeSupply::decode_legacy_v1(d, definition.maximum_ordinary_annual_issuance_bps())?;
         let cells = CoinCellSet::decode(d)?;
-        let shielded = ShieldedCashState::decode(d)?;
-        let count = d.read_length(MAX_REDEEMED_REWARDS)?;
-        let mut redeemed_rewards = Vec::with_capacity(count);
-        for _ in 0..count {
-            redeemed_rewards.push(activechain_protocol_types::Digest384::decode(d)?);
+        let shielded = ShieldedCashState::decode_legacy_v1(d)?;
+        let commitment = decode_legacy_reward_commitment(d)?;
+        let ledger = Self {
+            definition,
+            supply,
+            cells,
+            shielded,
+            redeemed_reward_root: activechain_protocol_types::Digest384::new(commitment.root),
+            redeemed_reward_count: commitment.count,
+        };
+        ledger
+            .verify_invariants()
+            .map_err(|_| DecodeError::InvalidValue("invalid legacy cash ledger"))?;
+        Ok(ledger)
+    }
+
+    #[doc(hidden)]
+    pub fn encode_legacy_v2(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        if self.redeemed_reward_count != 0 {
+            return Err(EncodeError::LengthLimitExceeded {
+                length: usize::try_from(self.redeemed_reward_count).unwrap_or(usize::MAX),
+                maximum: 0,
+            });
         }
-        let ledger = Self { definition, supply, cells, shielded, redeemed_rewards };
+        self.definition.encode(e)?;
+        self.supply.encode(e)?;
+        self.cells.encode(e)?;
+        self.shielded.encode_legacy_v1(e)?;
+        e.write_length(0, LEGACY_MAX_REDEEMED_REWARDS)
+    }
+
+    pub fn decode_legacy_v2(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let definition = NativeAssetDefinition::decode(d)?;
+        let supply = NativeSupply::decode(d)?;
+        let cells = CoinCellSet::decode(d)?;
+        let shielded = ShieldedCashState::decode_legacy_v1(d)?;
+        let commitment = decode_legacy_reward_commitment(d)?;
+        let ledger = Self {
+            definition,
+            supply,
+            cells,
+            shielded,
+            redeemed_reward_root: activechain_protocol_types::Digest384::new(commitment.root),
+            redeemed_reward_count: commitment.count,
+        };
         ledger
             .verify_invariants()
             .map_err(|_| DecodeError::InvalidValue("invalid legacy cash ledger"))?;
@@ -836,15 +915,34 @@ impl CashLedger {
     }
 }
 
+fn decode_legacy_reward_commitment(d: &mut Decoder<'_>) -> Result<SetCommitment, DecodeError> {
+    let count = d.read_length(LEGACY_MAX_REDEEMED_REWARDS)?;
+    let mut reference = ReferenceSet::new(AccumulatorDomain::SpentInput);
+    let mut previous = None;
+    for _ in 0..count {
+        let assignment = activechain_protocol_types::Digest384::decode(d)?;
+        if previous.is_some_and(|prior| prior >= assignment) {
+            return Err(DecodeError::InvalidValue(
+                "legacy reward replay set is not strictly ordered",
+            ));
+        }
+        reference
+            .insert(assignment.into_bytes())
+            .map_err(|_| DecodeError::InvalidValue("invalid legacy reward replay set"))?;
+        previous = Some(assignment);
+    }
+    Ok(reference.commitment())
+}
+
 impl CanonicalType for CashLedger {
     const TYPE_TAG: u16 = 0x0102;
-    const SCHEMA_VERSION: u16 = 2;
+    const SCHEMA_VERSION: u16 = 3;
     const MAX_ENCODED_LEN: usize = NativeAssetDefinition::MAX_ENCODED_LEN
         + NativeSupply::MAX_ENCODED_LEN
         + CoinCellSet::MAX_ENCODED_LEN
         + ShieldedCashState::MAX_ENCODED_LEN
-        + 2
-        + MAX_REDEEMED_REWARDS * 48;
+        + 48
+        + 8;
 }
 
 fn economy_root_digest(

@@ -1662,7 +1662,25 @@ mod tests {
     }
 
     #[test]
-    fn legacy_cash_snapshot_migrates_once_and_rewrites_as_v3() {
+    fn prior_v3_cash_snapshot_migrates_once_and_rewrites_as_v4() {
+        let (ingress, _key, _owner, _input, _reserve) = setup_authorized_ingress(48);
+        let legacy = ingress.encode_legacy_v3_for_test().unwrap();
+        let path = std::env::temp_dir()
+            .join(format!("activechain-cash-ingress-v3-{}.bin", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        std::fs::write(&path, legacy).unwrap();
+
+        let migrated = TransactionIngress::load(&path, ChainId::new(digest(1))).unwrap();
+        assert_eq!(migrated, ingress);
+        migrated.save_atomic(&path).unwrap();
+        let rewritten = std::fs::read(&path).unwrap();
+        assert_eq!(u16::from_be_bytes([rewritten[2], rewritten[3]]), 4);
+        assert_eq!(TransactionIngress::load(&path, ChainId::new(digest(1))).unwrap(), migrated);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn legacy_cash_snapshot_migrates_once_and_rewrites_as_v4() {
         let (ingress, _key, _owner, _input, _reserve) = setup_authorized_ingress(49);
         let legacy = ingress.encode_legacy_v2_for_test().unwrap();
         let path = std::env::temp_dir()
@@ -1676,7 +1694,7 @@ mod tests {
         assert_eq!(migrated.ledger().supply().issuance_in_window(), 0);
         migrated.save_atomic(&path).unwrap();
         let rewritten = std::fs::read(&path).unwrap();
-        assert_eq!(u16::from_be_bytes([rewritten[2], rewritten[3]]), 3);
+        assert_eq!(u16::from_be_bytes([rewritten[2], rewritten[3]]), 4);
         assert_eq!(TransactionIngress::load(&path, ChainId::new(digest(1))).unwrap(), migrated);
         std::fs::remove_file(path).unwrap();
     }

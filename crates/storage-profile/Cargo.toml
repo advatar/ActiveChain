@@ -1,0 +1,11 @@
+[package]
+name = "activechain-storage-profile"
+description = "Deterministic validator storage accounting and qualification profiles for ActiveChain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true

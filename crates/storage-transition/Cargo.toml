@@ -1,0 +1,19 @@
+[package]
+name = "activechain-storage-transition"
+description = "Proof-authenticated lease, hibernation, and restoration transitions for ActiveChain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+activechain-archive.workspace = true
+activechain-canonical-codec.workspace = true
+activechain-protocol-types.workspace = true
+activechain-state-tree.workspace = true
+activechain-storage-profile.workspace = true
+activechain-storage-rent.workspace = true
+
+[lints]
+workspace = true

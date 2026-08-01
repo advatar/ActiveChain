@@ -11,6 +11,7 @@ publish = false
 path = "../../../cash-kernel/src/lib.rs"
 
 [dependencies]
+activechain-accumulator.workspace = true
 activechain-canonical-codec.workspace = true
 activechain-privacy-kernel.workspace = true
 activechain-protocol-commitment.workspace = true
