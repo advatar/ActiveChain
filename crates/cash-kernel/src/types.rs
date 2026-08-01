@@ -805,6 +805,40 @@ impl FungibleCoinCellSet {
         records.sort_by_key(|record| record.id());
         Self::new(records)
     }
+
+    /// Atomically joins exact approved supply issuance to one authoritative output cell.
+    pub fn apply_mint(
+        &self,
+        mint: &FungibleMintV1,
+        policy: &FungibleAssetPolicyV1,
+        approval: &FungibleIssuerApprovalV1,
+        height: Height,
+    ) -> Result<(Self, FungibleAssetPolicyV1), NativeMoneyError> {
+        mint.validate_against_policy_and_approval(policy, approval, height)?;
+        let next_policy = policy
+            .apply_approved_mint(mint.issuer(), approval, height)
+            .map_err(|_| NativeMoneyError::MintAuthorityMismatch)?;
+        if next_policy.supply_issued() != mint.supply_after() || self.0.len() == MAX_COIN_CELLS {
+            return Err(NativeMoneyError::IssuanceCapExceeded);
+        }
+        let transition = cash_transition_id(mint).map_err(|_| NativeMoneyError::InvalidInputs)?;
+        let output = FungibleCoinCell::new(
+            CoinCellOrigin::new(transition, 0),
+            mint.asset_id(),
+            mint.recipient(),
+            mint.amount(),
+            height,
+        )?;
+        let output_id =
+            coin_cell_id(&output.origin()).map_err(|_| NativeMoneyError::InvalidInputs)?;
+        if self.0.binary_search_by_key(&output_id, |record| record.id()).is_ok() {
+            return Err(NativeMoneyError::OutputCollision);
+        }
+        let mut records = self.0.clone();
+        records.push(FungibleCoinCellRecord::new(output_id, output));
+        records.sort_by_key(|record| record.id());
+        Ok((Self::new(records)?, next_policy))
+    }
 }
 impl CanonicalEncode for FungibleCoinCellSet {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
@@ -1714,6 +1748,68 @@ mod fungible_cell_tests {
             mint.validate_against_policy(&paused),
             Err(NativeMoneyError::MintAuthorityMismatch)
         );
+    }
+
+    #[test]
+    fn authoritative_mint_advances_supply_and_cell_set_together() {
+        let asset = AssetId::new(Digest384::new([2; 48]));
+        let issuer = PrincipalId::new(Digest384::new([3; 48]));
+        let recipient = PrincipalId::new(Digest384::new([5; 48]));
+        let policy = FungibleAssetPolicyV1::new(
+            asset,
+            issuer,
+            Digest384::new([6; 48]),
+            Digest384::new([7; 48]),
+            Digest384::new([8; 48]),
+            Digest384::new([9; 48]),
+            100,
+            90,
+            FungibleAssetLifecycle::Registered,
+        )
+        .unwrap();
+        let mint = FungibleMintV1::new(asset, issuer, recipient, 10, 90, 100).unwrap();
+        let approval = FungibleIssuerApprovalV1::new(
+            asset,
+            policy.commitment().unwrap(),
+            policy.authority_set(),
+            Digest384::new([10; 48]),
+            FungibleIssuerOperation::Mint,
+            10,
+            90,
+            5,
+            10,
+        )
+        .unwrap();
+        let set = FungibleCoinCellSet::new(vec![]).unwrap();
+        let (after, next_policy) = set.apply_mint(&mint, &policy, &approval, 5).unwrap();
+        assert_eq!(next_policy.supply_issued(), 100);
+        assert_eq!(after.as_slice().len(), 1);
+        let output = after.as_slice()[0].cell();
+        assert_eq!(output.asset_id(), asset);
+        assert_eq!(output.owner(), recipient);
+        assert_eq!(output.amount(), 10);
+        assert_eq!(output.creation_height(), 5);
+        assert_eq!(
+            after.apply_mint(&mint, &next_policy, &approval, 5),
+            Err(NativeMoneyError::MintAuthorityMismatch)
+        );
+        let wrong_operation = FungibleIssuerApprovalV1::new(
+            asset,
+            policy.commitment().unwrap(),
+            policy.authority_set(),
+            Digest384::new([10; 48]),
+            FungibleIssuerOperation::Burn,
+            10,
+            90,
+            5,
+            10,
+        )
+        .unwrap();
+        assert_eq!(
+            set.apply_mint(&mint, &policy, &wrong_operation, 5),
+            Err(NativeMoneyError::MintAuthorityMismatch)
+        );
+        assert!(set.as_slice().is_empty());
     }
 
     #[test]
