@@ -1015,6 +1015,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
   optional intent, sequence, validity, and authenticator commitments with replay-safe client state.
 - [x] Persist authenticated API replay state atomically per caller and audience before request
   acknowledgement, rejecting corrupt snapshots without advancing memory.
+- [x] Verify canonical API authorization envelopes with committed ML-DSA-44 caller keys before
+  consuming replay state, including negative proofs that invalid signatures cannot advance it.
 
 ## Active EUDI/TLSNotary/ZK qualification
 

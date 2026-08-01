@@ -6,9 +6,11 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     decode_envelope, encode_envelope,
 };
+use activechain_crypto_provider::verify_ml_dsa44;
 use activechain_payment_types::{
-    ConnectorId, PaymentApiAuthorizationV1, PaymentApiReplayStateV1, PaymentValidationError,
-    PaymentWebhookCursorV1, PaymentWebhookEventV1, ProviderObservationV1, RailId,
+    ConnectorId, PaymentApiAuthorizationV1, PaymentApiReplayStateV1,
+    PaymentApiSignedAuthorizationV1, PaymentValidationError, PaymentWebhookCursorV1,
+    PaymentWebhookEventV1, ProviderObservationV1, RailId,
 };
 use activechain_protocol_types::{AssetId, Digest384};
 use sha3::{
@@ -479,6 +481,19 @@ impl ApiAuthorizationJournalV1 {
         *self = next;
         Ok(())
     }
+    pub fn authorize_signed_durable(
+        &mut self,
+        signed: &PaymentApiSignedAuthorizationV1,
+        timestamp: u64,
+        path: &Path,
+    ) -> Result<(), JournalError> {
+        let authorization = signed.authorization();
+        let payload =
+            authorization.signing_payload().map_err(|_| JournalError::InvalidAuthorization)?;
+        verify_ml_dsa44(signed.public_key(), &payload, signed.signature().as_bytes())
+            .map_err(|_| JournalError::InvalidAuthorization)?;
+        self.authorize_durable(authorization, timestamp, path)
+    }
     pub fn save_atomic(&self, path: &Path) -> Result<(), JournalError> {
         save_snapshot(self, path)
     }
@@ -580,8 +595,12 @@ mod tests {
         AssetAmountV1, ConnectorId, EvidenceClass, PaymentApiOperation, PaymentAttemptId,
         PaymentIntentId, PaymentLifecycleRecordV1, PaymentState, PaymentWebhookEventId,
         PaymentWebhookEventV1, PaymentWebhookSubscriptionId, ProviderOperationState, RailId,
+        payment_api_authenticator_commitment,
     };
-    use activechain_protocol_types::{AssetId, ChainId, Digest384, PrincipalId};
+    use activechain_protocol_types::{
+        AssetId, ChainId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature,
+    };
+    use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
     use std::path::PathBuf;
 
     fn digest(byte: u8) -> Digest384 {
@@ -645,6 +664,34 @@ mod tests {
             100,
             200,
             digest(72 + sequence as u8),
+        )
+        .unwrap()
+    }
+
+    fn signed_api_authorization(
+        seed: u8,
+        operation: PaymentApiOperation,
+    ) -> PaymentApiSignedAuthorizationV1 {
+        let signing_key = SigningKey::<MlDsa44>::from_seed(&Seed::from([seed; 32]));
+        let public_key = signing_key.verifying_key().encode().to_vec();
+        let authorization = PaymentApiAuthorizationV1::new(
+            PrincipalId::new(digest(50)),
+            digest(60),
+            operation,
+            digest(70),
+            digest(71),
+            Some(PaymentIntentId::new(digest(4)).unwrap()),
+            1,
+            100,
+            200,
+            payment_api_authenticator_commitment(&public_key),
+        )
+        .unwrap();
+        let signature = signing_key.sign(&authorization.signing_payload().unwrap());
+        PaymentApiSignedAuthorizationV1::new(
+            authorization,
+            public_key,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec()).unwrap(),
         )
         .unwrap()
     }
@@ -911,5 +958,38 @@ mod tests {
         );
         assert!(journal.states().is_empty());
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn signed_api_authorization_verifies_before_replay_state_advances() {
+        let path = path("signed-api-auth");
+        let _ = std::fs::remove_file(&path);
+        let mut journal = ApiAuthorizationJournalV1::default();
+        let signed = signed_api_authorization(1, PaymentApiOperation::CreateIntent);
+        journal.authorize_signed_durable(&signed, 150, &path).unwrap();
+        assert_eq!(journal.states()[0].next_sequence(), 2);
+        assert_eq!(ApiAuthorizationJournalV1::load(&path).unwrap(), journal);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn invalid_or_substituted_api_signature_never_advances_replay_state() {
+        let path = path("invalid-signed-api-auth");
+        let _ = std::fs::remove_file(&path);
+        let valid = signed_api_authorization(1, PaymentApiOperation::CreateIntent);
+        let substituted = signed_api_authorization(1, PaymentApiOperation::Refund);
+        let forged = PaymentApiSignedAuthorizationV1::new(
+            *substituted.authorization(),
+            valid.public_key().to_vec(),
+            valid.signature().clone(),
+        )
+        .unwrap();
+        let mut journal = ApiAuthorizationJournalV1::default();
+        assert_eq!(
+            journal.authorize_signed_durable(&forged, 150, &path),
+            Err(JournalError::InvalidAuthorization)
+        );
+        assert!(journal.states().is_empty());
+        assert!(!path.exists());
     }
 }
