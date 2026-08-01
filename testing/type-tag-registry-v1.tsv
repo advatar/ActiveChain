@@ -216,3 +216,6 @@
 0x0153	1	ExternalIssuerBindingV1	crates/protocol-types/src/external_identity.rs
 0x0154	1	ExternalIssuerRegistryV1	crates/protocol-types/src/external_identity.rs
 0x0155	1	ExternalSubjectBindingV1	crates/protocol-types/src/subject_binding.rs
+0x0156	1	ExternalStatusPublisherSetV1	crates/protocol-types/src/external_status.rs
+0x0157	1	ExternalCredentialStatusSnapshotV1	crates/protocol-types/src/external_status.rs
+0x0158	1	ExternalCredentialStatusRegistryV1	crates/protocol-types/src/external_status.rs

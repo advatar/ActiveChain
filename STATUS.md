@@ -1918,6 +1918,9 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [x] Implement account-bound, pairwise, private-proof, and device-bound external subject
   association profiles with wallet authorization, scoped derivation, rotation/recovery, and replay
   rejection (#440).
+- [x] Implement governed mirrored external status and issuance-transparency snapshots with
+  monotonic anchoring, bounded freshness, source migration, publisher authorization, and offline
+  lookup evidence (#444).
 - [ ] Complete wallet OpenID4VP transport, consent UX, live trust/status adapters, cross-repository
   vectors, device qualification, and independent interoperability review.
 
