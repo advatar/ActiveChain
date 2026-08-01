@@ -29,7 +29,8 @@ use activechain_cash_kernel::{
 use activechain_finality_types::commit_parts;
 use activechain_protocol_types::{
     AssetId, ChainId, Digest384, FungibleAssetDefinition, FungibleCorporateActionV1,
-    FungibleIssuerRegistrationV1, FungibleSupplyAttestationV1, Object, PrincipalId, TransactionId,
+    FungibleIssuerRegistrationV1, FungibleSupplyAttestationV1, NonFungibleSeriesV1,
+    NonFungibleTokenRegistryV1, Object, PrincipalId, TransactionId,
 };
 use activechain_rpc_types::{
     ActionSetProof, Health, MAX_SUPPORTED_PROOFS, ProofKind, QueryKind, QueryPage, QueryRecord,
@@ -309,7 +310,9 @@ fn verify_query_record_with_finality(
         | QueryKind::AssetIssuerRegistration
         | QueryKind::AssetSupplyAttestation
         | QueryKind::AssetCorporateAction
-        | QueryKind::AssetSettlementReceipt => verify_native_asset_state_record(record, &finality),
+        | QueryKind::AssetSettlementReceipt
+        | QueryKind::AssetNftSeries
+        | QueryKind::AssetNftTokenRegistry => verify_native_asset_state_record(record, &finality),
         QueryKind::NonFungibleCoinCell => Err(RpcProofError::Unsupported),
     }
 }
@@ -354,6 +357,16 @@ fn verify_native_asset_state_record(
                 return Err(RpcProofError::Height);
             }
             FungibleSettlementReceiptV1::TYPE_TAG
+        }
+        QueryKind::AssetNftSeries => {
+            decode_envelope::<NonFungibleSeriesV1>(public_value)
+                .map_err(|_| RpcProofError::Malformed)?;
+            NonFungibleSeriesV1::TYPE_TAG
+        }
+        QueryKind::AssetNftTokenRegistry => {
+            decode_envelope::<NonFungibleTokenRegistryV1>(public_value)
+                .map_err(|_| RpcProofError::Malformed)?;
+            NonFungibleTokenRegistryV1::TYPE_TAG
         }
         _ => return Err(RpcProofError::WrongKind),
     };
@@ -2645,6 +2658,84 @@ mod tests {
         )
         .unwrap();
         assert_eq!(verify_query_record(&wrong_kind), Err(RpcProofError::Malformed));
+    }
+
+    #[test]
+    fn nft_series_and_registry_records_are_exact_type_and_state_proof_bound() {
+        let asset = AssetId::new(digest(50));
+        let series =
+            NonFungibleSeriesV1::new(asset, PrincipalId::new(digest(51)), 10, 1, digest(52))
+                .unwrap();
+        let registry = NonFungibleTokenRegistryV1::new(asset, vec![digest(53)]).unwrap();
+        let cases = [
+            (
+                QueryKind::AssetNftSeries,
+                NonFungibleSeriesV1::TYPE_TAG,
+                encode_envelope(&series).unwrap(),
+            ),
+            (
+                QueryKind::AssetNftTokenRegistry,
+                NonFungibleTokenRegistryV1::TYPE_TAG,
+                encode_envelope(&registry).unwrap(),
+            ),
+        ];
+        for (index, (kind, type_tag, public_value)) in cases.into_iter().enumerate() {
+            let kind_byte = [kind as u8];
+            let tag = type_tag.to_be_bytes();
+            let object = Object::new(ObjectFields {
+                object_id: ObjectId::new(digest(60 + index as u8)),
+                object_version: 1,
+                type_id: commit_parts(b"ACTIVECHAIN-NATIVE-ASSET-RPC-TYPE-V1", &[&kind_byte, &tag]),
+                owner: ObjectOwner::Immutable,
+                control_policy_hash: digest(62),
+                use_policy_hash: digest(63),
+                disclosure_policy_hash: digest(64),
+                upgrade_policy_hash: digest(65),
+                package_id: None,
+                value_root: commit_parts(
+                    b"ACTIVECHAIN-NATIVE-ASSET-RPC-VALUE-V1",
+                    &[&public_value],
+                ),
+                public_value: Some(public_value),
+                lease_expiry_epoch: 10,
+                storage_deposit: 5,
+                flags: ObjectFlags::NONE,
+            })
+            .unwrap();
+            let objects = vec![object.clone()];
+            let post_state = commit_objects(&objects).unwrap();
+            let proof = prove_object(&objects, object.object_id()).unwrap();
+            let inputs = ProofPublicInputs {
+                post_state,
+                ..public_inputs(commit_objects(&[]).unwrap(), post_state)
+            };
+            let record = QueryRecord::new(
+                kind,
+                object.object_id().into_digest(),
+                7,
+                encode_envelope(&object).unwrap(),
+                encode_envelope(&proof).unwrap(),
+                signed_finality(42, inputs),
+            )
+            .unwrap();
+            assert_eq!(verify_query_record(&record), Ok(()));
+
+            let wrong_kind = if kind == QueryKind::AssetNftSeries {
+                QueryKind::AssetNftTokenRegistry
+            } else {
+                QueryKind::AssetNftSeries
+            };
+            let substituted = QueryRecord::new(
+                wrong_kind,
+                record.key(),
+                7,
+                record.value().to_vec(),
+                record.proof().to_vec(),
+                record.finality().to_vec(),
+            )
+            .unwrap();
+            assert_eq!(verify_query_record(&substituted), Err(RpcProofError::Malformed));
+        }
     }
 
     #[test]

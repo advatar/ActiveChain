@@ -1129,6 +1129,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   semantics in `docs/NATIVE_ASSET_RPC_V1.md`; authenticated server wiring remains a gate.
   - [x] Wire finalized state-proof verification for asset definitions, issuer registrations,
     supply attestations, corporate actions, and settlement receipts.
+  - [x] Expose NFT series supply and minted-token registries as exact-type, finalized
+    object-membership RPC records while keeping unsupported NFT Coin Cell proofs fail closed.
 - [ ] Ship native issuer CLI and console workflows with threshold approval and recovery.
 - [x] Ship a deterministic issuer CLI for policy commitments and threshold-approval envelopes;
   malformed hex, operations, amounts, and validity windows fail closed.

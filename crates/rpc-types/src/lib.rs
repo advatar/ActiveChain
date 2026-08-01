@@ -247,6 +247,8 @@ pub enum QueryKind {
     AssetSupplyAttestation = 9,
     AssetCorporateAction = 10,
     AssetSettlementReceipt = 11,
+    AssetNftSeries = 12,
+    AssetNftTokenRegistry = 13,
 }
 
 impl CanonicalEncode for QueryKind {
@@ -269,6 +271,8 @@ impl CanonicalDecode for QueryKind {
             9 => Ok(Self::AssetSupplyAttestation),
             10 => Ok(Self::AssetCorporateAction),
             11 => Ok(Self::AssetSettlementReceipt),
+            12 => Ok(Self::AssetNftSeries),
+            13 => Ok(Self::AssetNftTokenRegistry),
             tag => Err(DecodeError::InvalidEnumTag { type_name: "QueryKind", tag }),
         }
     }
@@ -1865,6 +1869,8 @@ mod tests {
             QueryKind::AssetSupplyAttestation,
             QueryKind::AssetCorporateAction,
             QueryKind::AssetSettlementReceipt,
+            QueryKind::AssetNftSeries,
+            QueryKind::AssetNftTokenRegistry,
         ] {
             let request = RpcRequest::Get { kind, key: digest(7) };
             assert_eq!(
