@@ -13,6 +13,7 @@ pub const MAX_ASSET_SYMBOL_LENGTH: usize = 12;
 pub const MAX_FUNGIBLE_ASSETS: usize = 1024;
 pub const MAX_CORPORATE_ACTIONS: usize = 4096;
 pub const MAX_NFT_MINT_ITEMS: usize = 1024;
+pub const MAX_NFT_TOKENS_PER_SERIES: usize = 65_535;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AssetDefinitionError {
@@ -28,6 +29,7 @@ pub enum AssetDefinitionError {
     IssuerMismatch,
     SupplyCapExceeded,
     InvalidNftMetadata,
+    DuplicateNftToken,
     NftOwnerMismatch,
     SeriesSupplyExceeded,
     InvalidSupplyAttestation,
@@ -518,6 +520,101 @@ impl CanonicalDecode for NonFungibleMintManifestV1 {
     }
 }
 impl CanonicalType for NonFungibleMintManifestV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
+/// Canonically ordered token identities already admitted for one NFT series.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NonFungibleTokenRegistryV1 {
+    asset_id: AssetId,
+    token_ids: Vec<Digest384>,
+}
+impl NonFungibleTokenRegistryV1 {
+    pub const TYPE_TAG: u16 = 0x016D;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 + 3 + MAX_NFT_TOKENS_PER_SERIES * 48;
+    pub fn new(asset_id: AssetId, token_ids: Vec<Digest384>) -> Result<Self, AssetDefinitionError> {
+        if asset_id.digest() == &Digest384::ZERO {
+            return Err(AssetDefinitionError::InvalidAssetIdentity);
+        }
+        if token_ids.len() > MAX_NFT_TOKENS_PER_SERIES
+            || token_ids.iter().any(|token| *token == Digest384::ZERO)
+            || token_ids.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err(AssetDefinitionError::DuplicateNftToken);
+        }
+        Ok(Self { asset_id, token_ids })
+    }
+    pub fn apply_approved_mint(
+        &self,
+        series: &NonFungibleSeriesV1,
+        issuer: PrincipalId,
+        authority_set: Digest384,
+        approval: &NonFungibleIssuerApprovalV1,
+        manifest: &NonFungibleMintManifestV1,
+        height: u64,
+    ) -> Result<(NonFungibleSeriesV1, Self, Vec<NonFungibleTokenV1>), AssetDefinitionError> {
+        if self.asset_id != series.asset_id()
+            || usize::try_from(series.minted()).ok() != Some(self.token_ids.len())
+        {
+            return Err(AssetDefinitionError::InvalidSupplyTransition);
+        }
+        let (next_series, tokens) =
+            series.mint_approved_manifest(issuer, authority_set, approval, manifest, height)?;
+        let mut token_ids = Vec::with_capacity(self.token_ids.len() + manifest.items.len());
+        let (mut existing, mut incoming) = (0, 0);
+        while existing < self.token_ids.len() || incoming < manifest.items.len() {
+            match (self.token_ids.get(existing), manifest.items.get(incoming)) {
+                (Some(left), Some(right)) if left < &right.token_id => {
+                    token_ids.push(*left);
+                    existing += 1;
+                }
+                (Some(left), Some(right)) if left == &right.token_id => {
+                    return Err(AssetDefinitionError::DuplicateNftToken);
+                }
+                (_, Some(right)) => {
+                    token_ids.push(right.token_id);
+                    incoming += 1;
+                }
+                (Some(left), None) => {
+                    token_ids.push(*left);
+                    existing += 1;
+                }
+                (None, None) => break,
+            }
+        }
+        let next = Self::new(self.asset_id, token_ids)?;
+        if usize::try_from(next_series.minted()).ok() != Some(next.token_ids.len()) {
+            return Err(AssetDefinitionError::InvalidSupplyTransition);
+        }
+        Ok((next_series, next, tokens))
+    }
+}
+impl CanonicalEncode for NonFungibleTokenRegistryV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.asset_id.encode(e)?;
+        e.write_length(self.token_ids.len(), MAX_NFT_TOKENS_PER_SERIES)?;
+        for token in &self.token_ids {
+            token.encode(e)?;
+        }
+        Ok(())
+    }
+}
+impl CanonicalDecode for NonFungibleTokenRegistryV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let asset_id = AssetId::decode(d)?;
+        let count = d.read_length(MAX_NFT_TOKENS_PER_SERIES)?;
+        let mut token_ids = Vec::with_capacity(count);
+        for _ in 0..count {
+            token_ids.push(Digest384::decode(d)?);
+        }
+        Self::new(asset_id, token_ids)
+            .map_err(|_| DecodeError::InvalidValue("invalid non-fungible token registry"))
+    }
+}
+impl CanonicalType for NonFungibleTokenRegistryV1 {
     const TYPE_TAG: u16 = Self::TYPE_TAG;
     const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
@@ -1869,6 +1966,19 @@ mod tests {
         assert_eq!(next.minted(), 3);
         assert_eq!(tokens.len(), 2);
         assert_eq!(tokens[0].owner(), principal(3));
+        let registry =
+            NonFungibleTokenRegistryV1::new(series.asset_id(), vec![Digest384::new([9; 48])])
+                .unwrap();
+        let (registered_series, registry, registered_tokens) = registry
+            .apply_approved_mint(&series, issuer, authority_set, &approval, &manifest, 10)
+            .unwrap();
+        assert_eq!(registered_series, next);
+        assert_eq!(registered_tokens, tokens);
+        assert_eq!(registry.token_ids.len(), 3);
+        assert_eq!(
+            decode_envelope::<NonFungibleTokenRegistryV1>(&encode_envelope(&registry).unwrap()),
+            Ok(registry.clone())
+        );
         assert_eq!(
             next.mint_approved_manifest(issuer, authority_set, &approval, &manifest, 11),
             Err(AssetDefinitionError::IssuerMismatch)
@@ -1908,6 +2018,56 @@ mod tests {
         assert_eq!(
             series.mint_approved_manifest(issuer, authority_set, &approval, &substituted, 11),
             Err(AssetDefinitionError::IssuerMismatch)
+        );
+        let replay_manifest = NonFungibleMintManifestV1::new(
+            series.asset_id(),
+            issuer,
+            vec![
+                manifest.items[1],
+                NonFungibleMintItemV1::new(
+                    Digest384::new([12; 48]),
+                    principal(5),
+                    Digest384::new([22; 48]),
+                )
+                .unwrap(),
+            ],
+        )
+        .unwrap();
+        let replay_approval = NonFungibleIssuerApprovalV1::new(
+            next.asset_id(),
+            issuer,
+            authority_set,
+            next.commitment().unwrap(),
+            Digest384::new([9; 48]),
+            replay_manifest.commitment().unwrap(),
+            2,
+            next.minted(),
+            11,
+            20,
+        )
+        .unwrap();
+        assert_eq!(
+            registry.apply_approved_mint(
+                &next,
+                issuer,
+                authority_set,
+                &replay_approval,
+                &replay_manifest,
+                11,
+            ),
+            Err(AssetDefinitionError::DuplicateNftToken)
+        );
+        let inconsistent = NonFungibleTokenRegistryV1::new(series.asset_id(), vec![]).unwrap();
+        assert_eq!(
+            inconsistent.apply_approved_mint(
+                &series,
+                issuer,
+                authority_set,
+                &approval,
+                &manifest,
+                10,
+            ),
+            Err(AssetDefinitionError::InvalidSupplyTransition)
         );
     }
 
