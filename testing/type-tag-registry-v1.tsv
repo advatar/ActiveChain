@@ -223,3 +223,5 @@
 0x015A	1	ProofOfFundsPredicateV1	crates/protocol-types/src/credential.rs
 0x015B	1	FungibleCorporateActionRegistryV1	crates/protocol-types/src/asset.rs
 0x015C	1	ConnectorHostPolicyV1	crates/payment-connector-host/src/lib.rs
+0x015D	1	CapacityReservationV1	crates/cash-kernel/src/economics.rs
+0x015E	1	CapacitySettlementV1	crates/cash-kernel/src/economics.rs
