@@ -1,8 +1,9 @@
 use activechain_canonical_codec::encode_envelope;
 use activechain_protocol_types::{
-    AssetId, Digest384, FungibleAssetLifecycle, FungibleAssetPolicyV1, FungibleIssuerApprovalV1,
-    FungibleIssuerOperation, FungibleIssuerRegistrationV1, FungibleSupplyAttestationV1,
-    PrincipalId,
+    AssetId, Digest384, FungibleAssetDefinition, FungibleAssetLifecycle,
+    FungibleAssetLifecycleAction, FungibleAssetLifecycleActionV1, FungibleAssetPolicyV1,
+    FungibleIssuerApprovalV1, FungibleIssuerOperation, FungibleIssuerRegistrationV1,
+    FungibleSupplyAttestationV1, PrincipalId,
 };
 
 fn hex_digest(value: &str) -> Result<Digest384, String> {
@@ -35,8 +36,17 @@ fn operation(value: &str) -> Result<FungibleIssuerOperation, String> {
     }
 }
 
+fn lifecycle_action(value: &str) -> Result<FungibleAssetLifecycleAction, String> {
+    match value {
+        "pause" => Ok(FungibleAssetLifecycleAction::Pause),
+        "resume" => Ok(FungibleAssetLifecycleAction::Resume),
+        "retire" => Ok(FungibleAssetLifecycleAction::Retire),
+        _ => Err("lifecycle action must be pause, resume, or retire".into()),
+    }
+}
+
 fn usage() -> &'static str {
-    "usage:\n  activechain-issuer policy <asset> <issuer> <authority-set> <cap> <issued>\n  activechain-issuer approval <asset> <policy> <authority-set> <approval> <operation> <amount> <supply-before> <effective-height> <expires-height>\n  activechain-issuer attestation <asset> <policy> <issuer> <supply> <finalized-height> <approval>\n  activechain-issuer registration <asset> <issuer> <authority-set> <policy> <effective-height> <expires-height>"
+    "usage:\n  activechain-issuer definition <asset> <issuer> <symbol> <decimals> <supply-cap> <policy>\n  activechain-issuer policy <asset> <issuer> <authority-set> <cap> <issued>\n  activechain-issuer approval <asset> <policy> <authority-set> <approval> <operation> <amount> <supply-before> <effective-height> <expires-height>\n  activechain-issuer attestation <asset> <policy> <issuer> <supply> <finalized-height> <approval>\n  activechain-issuer registration <asset> <issuer> <authority-set> <policy> <effective-height> <expires-height>\n  activechain-issuer lifecycle <asset> <policy> <authority-set> <approval> <reason> <pause|resume|retire> <effective-height> <expires-height>"
 }
 
 fn hex_bytes(bytes: &[u8]) -> String {
@@ -45,6 +55,20 @@ fn hex_bytes(bytes: &[u8]) -> String {
 
 fn run(args: &[String]) -> Result<String, String> {
     match args.first().map(String::as_str) {
+        Some("definition") if args.len() == 7 => {
+            let definition = FungibleAssetDefinition::new(
+                AssetId::new(hex_digest(&args[1])?),
+                PrincipalId::new(hex_digest(&args[2])?),
+                args[3].as_bytes().to_vec(),
+                args[4].parse().map_err(|_| "decimals must be an unsigned integer")?,
+                args[5].parse().map_err(|_| "supply-cap must be an unsigned integer")?,
+                hex_digest(&args[6])?,
+            )
+            .map_err(|_| "invalid asset definition values")?;
+            Ok(hex_bytes(
+                &encode_envelope(&definition).map_err(|_| "asset definition encoding failed")?,
+            ))
+        }
         Some("policy") if args.len() == 6 => {
             let asset = AssetId::new(hex_digest(&args[1])?);
             let issuer = PrincipalId::new(hex_digest(&args[2])?);
@@ -106,6 +130,22 @@ fn run(args: &[String]) -> Result<String, String> {
                 &encode_envelope(&registration).map_err(|_| "registration encoding failed")?,
             ))
         }
+        Some("lifecycle") if args.len() == 9 => {
+            let action = FungibleAssetLifecycleActionV1::new(
+                AssetId::new(hex_digest(&args[1])?),
+                hex_digest(&args[2])?,
+                hex_digest(&args[3])?,
+                hex_digest(&args[4])?,
+                hex_digest(&args[5])?,
+                lifecycle_action(&args[6])?,
+                args[7].parse().map_err(|_| "effective-height must be an unsigned integer")?,
+                args[8].parse().map_err(|_| "expires-height must be an unsigned integer")?,
+            )
+            .map_err(|_| "invalid lifecycle action values")?;
+            Ok(hex_bytes(
+                &encode_envelope(&action).map_err(|_| "lifecycle action encoding failed")?,
+            ))
+        }
         _ => Err(usage().into()),
     }
 }
@@ -139,6 +179,16 @@ mod tests {
     }
 
     #[test]
+    fn definition_command_is_deterministic_and_rejects_untrusted_symbol_shape() {
+        let args =
+            vec!["definition".into(), d(), d(), "TEUR".into(), "2".into(), "1000000".into(), d()];
+        assert_eq!(run(&args).unwrap(), run(&args).unwrap());
+        let mut malformed = args;
+        malformed[3] = "tEUR".into();
+        assert!(run(&malformed).is_err());
+    }
+
+    #[test]
     fn approval_command_rejects_expired_window() {
         let args = vec![
             "approval".into(),
@@ -168,5 +218,27 @@ mod tests {
     fn registration_command_rejects_inverted_window() {
         let args = vec!["registration".into(), d(), d(), d(), d(), "10".into(), "10".into()];
         assert!(run(&args).is_err());
+    }
+
+    #[test]
+    fn lifecycle_command_binds_action_and_rejects_unknown_or_expired_values() {
+        let args = vec![
+            "lifecycle".into(),
+            d(),
+            d(),
+            d(),
+            d(),
+            d(),
+            "pause".into(),
+            "10".into(),
+            "20".into(),
+        ];
+        assert_eq!(run(&args).unwrap(), run(&args).unwrap());
+        let mut unknown = args.clone();
+        unknown[6] = "freeze".into();
+        assert!(run(&unknown).is_err());
+        let mut expired = args;
+        expired[8] = "10".into();
+        assert!(run(&expired).is_err());
     }
 }
