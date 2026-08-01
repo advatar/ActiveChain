@@ -60,6 +60,7 @@ payment_identifier!(ConnectorId, "An operator-registered connector identifier.")
 payment_identifier!(RailId, "An operator-registered collection or payout rail.");
 payment_identifier!(TreasuryId, "A native merchant treasury object identifier.");
 payment_identifier!(PaymentRefundId, "One exact refund request under a finalized payment.");
+payment_identifier!(PaymentDisputeId, "One exact dispute under a finalized payment.");
 
 /// A validation failure for a canonical payment value or lifecycle transition.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1174,6 +1175,333 @@ impl CanonicalType for PaymentRefundStateV1 {
     const MAX_ENCODED_LEN: usize = 233;
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PaymentDisputeRequestV1 {
+    dispute: PaymentDisputeId,
+    intent: PaymentIntentId,
+    claimant: PrincipalId,
+    settlement_commitment: Digest384,
+    amount: AssetAmountV1,
+    reason_commitment: Digest384,
+    evidence_commitment: Digest384,
+    idempotency_commitment: Digest384,
+    opened_at: u64,
+    expires_at: u64,
+}
+
+impl PaymentDisputeRequestV1 {
+    pub const TYPE_TAG: u16 = 0x0164;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        dispute: PaymentDisputeId,
+        intent: PaymentIntentId,
+        claimant: PrincipalId,
+        settlement_commitment: Digest384,
+        amount: AssetAmountV1,
+        reason_commitment: Digest384,
+        evidence_commitment: Digest384,
+        idempotency_commitment: Digest384,
+        opened_at: u64,
+        expires_at: u64,
+    ) -> Result<Self, PaymentValidationError> {
+        if claimant.digest() == &Digest384::ZERO
+            || settlement_commitment == Digest384::ZERO
+            || reason_commitment == Digest384::ZERO
+            || evidence_commitment == Digest384::ZERO
+            || idempotency_commitment == Digest384::ZERO
+        {
+            return Err(PaymentValidationError::InvalidBinding);
+        }
+        if opened_at == 0 || opened_at >= expires_at {
+            return Err(PaymentValidationError::InvalidValidity);
+        }
+        Ok(Self {
+            dispute,
+            intent,
+            claimant,
+            settlement_commitment,
+            amount,
+            reason_commitment,
+            evidence_commitment,
+            idempotency_commitment,
+            opened_at,
+            expires_at,
+        })
+    }
+
+    pub const fn dispute(&self) -> PaymentDisputeId {
+        self.dispute
+    }
+
+    pub const fn intent(&self) -> PaymentIntentId {
+        self.intent
+    }
+
+    pub const fn active_at(&self, timestamp: u64) -> bool {
+        timestamp >= self.opened_at && timestamp < self.expires_at
+    }
+}
+
+impl CanonicalEncode for PaymentDisputeRequestV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.dispute.encode(encoder)?;
+        self.intent.encode(encoder)?;
+        self.claimant.encode(encoder)?;
+        self.settlement_commitment.encode(encoder)?;
+        self.amount.encode(encoder)?;
+        self.reason_commitment.encode(encoder)?;
+        self.evidence_commitment.encode(encoder)?;
+        self.idempotency_commitment.encode(encoder)?;
+        self.opened_at.encode(encoder)?;
+        self.expires_at.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for PaymentDisputeRequestV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            PaymentDisputeId::decode(decoder)?,
+            PaymentIntentId::decode(decoder)?,
+            PrincipalId::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            AssetAmountV1::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid payment dispute request"))
+    }
+}
+
+impl CanonicalType for PaymentDisputeRequestV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = PAYMENT_SCHEMA_REVISION;
+    const MAX_ENCODED_LEN: usize = 416;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum PaymentDisputeState {
+    Open = 0,
+    EvidenceSubmitted = 1,
+    ExternallyResolved = 2,
+    ChainSubmitted = 3,
+    Finalized = 4,
+    Rejected = 5,
+    Cancelled = 6,
+    ManualReview = 7,
+}
+
+impl PaymentDisputeState {
+    fn permits(self, next: Self) -> bool {
+        match self {
+            Self::Open => matches!(
+                next,
+                Self::EvidenceSubmitted | Self::Rejected | Self::Cancelled | Self::ManualReview
+            ),
+            Self::EvidenceSubmitted => matches!(
+                next,
+                Self::ExternallyResolved | Self::Rejected | Self::Cancelled | Self::ManualReview
+            ),
+            Self::ExternallyResolved => {
+                matches!(next, Self::ChainSubmitted | Self::Rejected | Self::ManualReview)
+            }
+            Self::ChainSubmitted => {
+                matches!(next, Self::Finalized | Self::Rejected | Self::ManualReview)
+            }
+            Self::ManualReview => matches!(
+                next,
+                Self::EvidenceSubmitted
+                    | Self::ExternallyResolved
+                    | Self::ChainSubmitted
+                    | Self::Rejected
+                    | Self::Cancelled
+            ),
+            Self::Finalized | Self::Rejected | Self::Cancelled => false,
+        }
+    }
+}
+
+impl CanonicalEncode for PaymentDisputeState {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(encoder)
+    }
+}
+
+impl CanonicalDecode for PaymentDisputeState {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(decoder)? {
+            0 => Ok(Self::Open),
+            1 => Ok(Self::EvidenceSubmitted),
+            2 => Ok(Self::ExternallyResolved),
+            3 => Ok(Self::ChainSubmitted),
+            4 => Ok(Self::Finalized),
+            5 => Ok(Self::Rejected),
+            6 => Ok(Self::Cancelled),
+            7 => Ok(Self::ManualReview),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "PaymentDisputeState", tag }),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PaymentDisputeRecordV1 {
+    dispute: PaymentDisputeId,
+    intent: PaymentIntentId,
+    sequence: u64,
+    state: PaymentDisputeState,
+    evidence_class: EvidenceClass,
+    observation_commitment: Digest384,
+    transaction: Option<TransactionId>,
+    finalized_height: u64,
+    finalized_block: Option<Digest384>,
+    reason_code: u16,
+}
+
+impl PaymentDisputeRecordV1 {
+    pub const TYPE_TAG: u16 = 0x0165;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        dispute: PaymentDisputeId,
+        intent: PaymentIntentId,
+        sequence: u64,
+        state: PaymentDisputeState,
+        evidence_class: EvidenceClass,
+        observation_commitment: Digest384,
+        transaction: Option<TransactionId>,
+        finalized_height: u64,
+        finalized_block: Option<Digest384>,
+        reason_code: u16,
+    ) -> Result<Self, PaymentValidationError> {
+        if sequence == 0 || observation_commitment == Digest384::ZERO {
+            return Err(PaymentValidationError::InvalidEvidence);
+        }
+        let finalized = state == PaymentDisputeState::Finalized;
+        if finalized {
+            if evidence_class != EvidenceClass::ActiveChainFinalized
+                || transaction.is_none()
+                || finalized_height == 0
+                || finalized_block.is_none()
+            {
+                return Err(PaymentValidationError::InvalidEvidence);
+            }
+        } else if evidence_class == EvidenceClass::ActiveChainFinalized
+            || finalized_height != 0
+            || finalized_block.is_some()
+            || (state == PaymentDisputeState::ChainSubmitted) != transaction.is_some()
+        {
+            return Err(PaymentValidationError::InvalidEvidence);
+        }
+        if state == PaymentDisputeState::ExternallyResolved
+            && evidence_class < EvidenceClass::ConnectorAuthenticated
+        {
+            return Err(PaymentValidationError::InvalidEvidence);
+        }
+        if transaction.is_some_and(|value| value.digest() == &Digest384::ZERO)
+            || finalized_block == Some(Digest384::ZERO)
+        {
+            return Err(PaymentValidationError::InvalidEvidence);
+        }
+        Ok(Self {
+            dispute,
+            intent,
+            sequence,
+            state,
+            evidence_class,
+            observation_commitment,
+            transaction,
+            finalized_height,
+            finalized_block,
+            reason_code,
+        })
+    }
+
+    pub fn opened(
+        request: &PaymentDisputeRequestV1,
+        timestamp: u64,
+    ) -> Result<Self, PaymentValidationError> {
+        if !request.active_at(timestamp) {
+            return Err(PaymentValidationError::InvalidValidity);
+        }
+        Self::new(
+            request.dispute,
+            request.intent,
+            1,
+            PaymentDisputeState::Open,
+            EvidenceClass::UntrustedClientReport,
+            request.evidence_commitment,
+            None,
+            0,
+            None,
+            0,
+        )
+    }
+
+    pub fn validate_successor(&self, next: &Self) -> Result<(), PaymentValidationError> {
+        if self.dispute != next.dispute || self.intent != next.intent {
+            return Err(PaymentValidationError::InvalidBinding);
+        }
+        if self.sequence.checked_add(1) != Some(next.sequence) {
+            return Err(PaymentValidationError::InvalidSequence);
+        }
+        if !self.state.permits(next.state) {
+            return Err(PaymentValidationError::InvalidTransition);
+        }
+        Ok(())
+    }
+
+    pub const fn sequence(&self) -> u64 {
+        self.sequence
+    }
+
+    pub const fn state(&self) -> PaymentDisputeState {
+        self.state
+    }
+}
+
+impl CanonicalEncode for PaymentDisputeRecordV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.dispute.encode(encoder)?;
+        self.intent.encode(encoder)?;
+        self.sequence.encode(encoder)?;
+        self.state.encode(encoder)?;
+        self.evidence_class.encode(encoder)?;
+        self.observation_commitment.encode(encoder)?;
+        self.transaction.encode(encoder)?;
+        self.finalized_height.encode(encoder)?;
+        self.finalized_block.encode(encoder)?;
+        self.reason_code.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for PaymentDisputeRecordV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            PaymentDisputeId::decode(decoder)?,
+            PaymentIntentId::decode(decoder)?,
+            u64::decode(decoder)?,
+            PaymentDisputeState::decode(decoder)?,
+            EvidenceClass::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Option::<TransactionId>::decode(decoder)?,
+            u64::decode(decoder)?,
+            Option::<Digest384>::decode(decoder)?,
+            u16::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid payment dispute record"))
+    }
+}
+
+impl CanonicalType for PaymentDisputeRecordV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = PAYMENT_SCHEMA_REVISION;
+    const MAX_ENCODED_LEN: usize = 312;
+}
+
 /// Durable binding from a caller's idempotency key to one exact request and operation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IdempotencyBindingV1 {
@@ -1647,6 +1975,150 @@ mod tests {
         )
         .unwrap();
         assert_eq!(advanced.apply(&wrong_asset, 150), Err(PaymentValidationError::InvalidBinding));
+    }
+
+    fn dispute_request() -> PaymentDisputeRequestV1 {
+        PaymentDisputeRequestV1::new(
+            PaymentDisputeId::new(digest(60)).unwrap(),
+            intent_id(),
+            principal(2),
+            digest(61),
+            amount(12, 40),
+            digest(62),
+            digest(63),
+            digest(64),
+            100,
+            200,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn dispute_lifecycle_separates_external_resolution_from_chain_finality() {
+        let request = dispute_request();
+        assert_eq!(
+            decode_envelope::<PaymentDisputeRequestV1>(&encode_envelope(&request).unwrap()),
+            Ok(request.clone())
+        );
+        let opened = PaymentDisputeRecordV1::opened(&request, 100).unwrap();
+        let evidence = PaymentDisputeRecordV1::new(
+            request.dispute(),
+            request.intent(),
+            2,
+            PaymentDisputeState::EvidenceSubmitted,
+            EvidenceClass::ConnectorAuthenticated,
+            digest(65),
+            None,
+            0,
+            None,
+            0,
+        )
+        .unwrap();
+        opened.validate_successor(&evidence).unwrap();
+        let external = PaymentDisputeRecordV1::new(
+            request.dispute(),
+            request.intent(),
+            3,
+            PaymentDisputeState::ExternallyResolved,
+            EvidenceClass::ProviderSigned,
+            digest(66),
+            None,
+            0,
+            None,
+            0,
+        )
+        .unwrap();
+        evidence.validate_successor(&external).unwrap();
+        let submitted = PaymentDisputeRecordV1::new(
+            request.dispute(),
+            request.intent(),
+            4,
+            PaymentDisputeState::ChainSubmitted,
+            EvidenceClass::ProviderSigned,
+            digest(67),
+            Some(transaction()),
+            0,
+            None,
+            0,
+        )
+        .unwrap();
+        external.validate_successor(&submitted).unwrap();
+        let finalized = PaymentDisputeRecordV1::new(
+            request.dispute(),
+            request.intent(),
+            5,
+            PaymentDisputeState::Finalized,
+            EvidenceClass::ActiveChainFinalized,
+            digest(68),
+            Some(transaction()),
+            900,
+            Some(digest(69)),
+            0,
+        )
+        .unwrap();
+        submitted.validate_successor(&finalized).unwrap();
+        assert_eq!(finalized.state(), PaymentDisputeState::Finalized);
+        assert_eq!(
+            decode_envelope::<PaymentDisputeRecordV1>(&encode_envelope(&finalized).unwrap()),
+            Ok(finalized)
+        );
+    }
+
+    #[test]
+    fn dispute_rejects_false_finality_invalid_edges_and_expired_opening() {
+        let request = dispute_request();
+        assert_eq!(
+            PaymentDisputeRecordV1::opened(&request, 200),
+            Err(PaymentValidationError::InvalidValidity)
+        );
+        assert_eq!(
+            PaymentDisputeRecordV1::new(
+                request.dispute(),
+                request.intent(),
+                2,
+                PaymentDisputeState::ExternallyResolved,
+                EvidenceClass::UntrustedClientReport,
+                digest(66),
+                None,
+                0,
+                None,
+                0,
+            ),
+            Err(PaymentValidationError::InvalidEvidence)
+        );
+        assert_eq!(
+            PaymentDisputeRecordV1::new(
+                request.dispute(),
+                request.intent(),
+                2,
+                PaymentDisputeState::ExternallyResolved,
+                EvidenceClass::ActiveChainFinalized,
+                digest(66),
+                Some(transaction()),
+                10,
+                Some(digest(69)),
+                0,
+            ),
+            Err(PaymentValidationError::InvalidEvidence)
+        );
+        let opened = PaymentDisputeRecordV1::opened(&request, 150).unwrap();
+        let finalized = PaymentDisputeRecordV1::new(
+            request.dispute(),
+            request.intent(),
+            2,
+            PaymentDisputeState::Finalized,
+            EvidenceClass::ActiveChainFinalized,
+            digest(68),
+            Some(transaction()),
+            900,
+            Some(digest(69)),
+            0,
+        )
+        .unwrap();
+        assert_eq!(
+            opened.validate_successor(&finalized),
+            Err(PaymentValidationError::InvalidTransition)
+        );
     }
 
     #[test]
