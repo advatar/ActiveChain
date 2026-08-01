@@ -261,3 +261,4 @@
 0x0180	1	MultiAssetLedgerSnapshotV1	crates/application-primitives/src/fungible_transfer.rs
 0x0181	1	ControllerLedgerSnapshotV1	crates/application-primitives/src/controller_rotation.rs
 0x0182	1	RefundJournalV1	crates/payment-connector-host/src/lib.rs
+0x0183	1	DisputeJournalV1	crates/payment-connector-host/src/lib.rs
