@@ -1819,6 +1819,9 @@ Tracked by [GitHub issue #9](https://github.com/advatar/ActiveChain/issues/9).
 
 ## Active milestone — native PQ cash plane and accountable verifier economy
 
+- [x] Add exact-once refundable cash-capacity reservations with bounded resource prepayment and
+  deterministic unused-balance refunds.
+
 Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 
 - [x] Implement canonical native-asset, genesis-allocation, Coin Cell, transfer, mint, burn, and supply schemas.

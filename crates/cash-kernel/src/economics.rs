@@ -211,6 +211,195 @@ impl FeeMarket {
     }
 }
 
+/// A prepaid resource-capacity reservation. The deposit is exactly the maximum
+/// fee implied by the quote, so unused capacity can be refunded without an
+/// operator-selected accounting rule.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CapacityReservationV1 {
+    id: Digest384,
+    payer: PrincipalId,
+    quote: FeeQuote,
+    deposit: u128,
+    expires_height: u64,
+    settled: bool,
+}
+
+impl CapacityReservationV1 {
+    pub const TYPE_TAG: u16 = 0x015D;
+
+    pub fn new(
+        id: Digest384,
+        payer: PrincipalId,
+        quote: FeeQuote,
+        deposit: u128,
+        expires_height: u64,
+    ) -> Result<Self, EconomicsError> {
+        let required = quote.total().ok_or(EconomicsError::InvalidCapacityReservation)?;
+        if id == Digest384::ZERO
+            || payer.digest() == &Digest384::ZERO
+            || quote.resource_units == 0
+            || quote.resource_price == 0
+            || required == 0
+            || deposit != required
+            || expires_height == 0
+        {
+            return Err(EconomicsError::InvalidCapacityReservation);
+        }
+        Ok(Self { id, payer, quote, deposit, expires_height, settled: false })
+    }
+
+    pub const fn id(&self) -> Digest384 {
+        self.id
+    }
+
+    pub const fn deposit(&self) -> u128 {
+        self.deposit
+    }
+
+    pub const fn settled(&self) -> bool {
+        self.settled
+    }
+
+    pub fn settle(
+        &mut self,
+        used_units: u64,
+        height: u64,
+    ) -> Result<CapacitySettlementV1, EconomicsError> {
+        if self.settled {
+            return Err(EconomicsError::AlreadySettled);
+        }
+        if height > self.expires_height {
+            return Err(EconomicsError::Expired);
+        }
+        if used_units > self.quote.resource_units {
+            return Err(EconomicsError::CapacityExceeded);
+        }
+        let charged = fee_total(
+            self.quote.base,
+            used_units,
+            self.quote.resource_price,
+            self.quote.congestion_price,
+        )
+        .ok_or(EconomicsError::InvalidCapacityReservation)?;
+        let refund =
+            self.deposit.checked_sub(charged).ok_or(EconomicsError::InvalidCapacityReservation)?;
+        self.settled = true;
+        Ok(CapacitySettlementV1 {
+            reservation: self.id,
+            payer: self.payer,
+            used_units,
+            deposit: self.deposit,
+            charged,
+            refund,
+            settled_height: height,
+        })
+    }
+}
+
+impl CanonicalEncode for CapacityReservationV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.id.encode(encoder)?;
+        self.payer.encode(encoder)?;
+        self.quote.base.encode(encoder)?;
+        self.quote.resource_units.encode(encoder)?;
+        self.quote.resource_price.encode(encoder)?;
+        self.quote.congestion_price.encode(encoder)?;
+        self.deposit.encode(encoder)?;
+        self.expires_height.encode(encoder)?;
+        self.settled.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for CapacityReservationV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let id = Digest384::decode(decoder)?;
+        let payer = PrincipalId::decode(decoder)?;
+        let quote = FeeQuote {
+            base: u128::decode(decoder)?,
+            resource_units: u64::decode(decoder)?,
+            resource_price: u128::decode(decoder)?,
+            congestion_price: u128::decode(decoder)?,
+        };
+        let deposit = u128::decode(decoder)?;
+        let expires_height = u64::decode(decoder)?;
+        let settled = bool::decode(decoder)?;
+        let mut reservation = Self::new(id, payer, quote, deposit, expires_height)
+            .map_err(|_| DecodeError::InvalidValue("invalid capacity reservation"))?;
+        reservation.settled = settled;
+        Ok(reservation)
+    }
+}
+
+impl CanonicalType for CapacityReservationV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 * 2 + 16 * 4 + 8 * 2 + 1;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CapacitySettlementV1 {
+    reservation: Digest384,
+    payer: PrincipalId,
+    used_units: u64,
+    deposit: u128,
+    charged: u128,
+    refund: u128,
+    settled_height: u64,
+}
+
+impl CapacitySettlementV1 {
+    pub const TYPE_TAG: u16 = 0x015E;
+
+    pub const fn charged(self) -> u128 {
+        self.charged
+    }
+
+    pub const fn refund(self) -> u128 {
+        self.refund
+    }
+}
+
+impl CanonicalEncode for CapacitySettlementV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.reservation.encode(encoder)?;
+        self.payer.encode(encoder)?;
+        self.used_units.encode(encoder)?;
+        self.deposit.encode(encoder)?;
+        self.charged.encode(encoder)?;
+        self.refund.encode(encoder)?;
+        self.settled_height.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for CapacitySettlementV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let value = Self {
+            reservation: Digest384::decode(decoder)?,
+            payer: PrincipalId::decode(decoder)?,
+            used_units: u64::decode(decoder)?,
+            deposit: u128::decode(decoder)?,
+            charged: u128::decode(decoder)?,
+            refund: u128::decode(decoder)?,
+            settled_height: u64::decode(decoder)?,
+        };
+        if value.reservation == Digest384::ZERO
+            || value.payer.digest() == &Digest384::ZERO
+            || value.deposit == 0
+            || value.settled_height == 0
+            || value.charged.checked_add(value.refund) != Some(value.deposit)
+        {
+            return Err(DecodeError::InvalidValue("invalid capacity settlement"));
+        }
+        Ok(value)
+    }
+}
+
+impl CanonicalType for CapacitySettlementV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 * 2 + 8 * 2 + 16 * 3;
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EconomicsError {
     DuplicateAssignment,
@@ -221,6 +410,8 @@ pub enum EconomicsError {
     EmptyEvidence,
     InvalidSlash,
     InvalidChallenge,
+    InvalidCapacityReservation,
+    CapacityExceeded,
 }
 
 pub fn assign_challenge(
@@ -317,6 +508,7 @@ pub fn register_assignment(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use activechain_canonical_codec::{decode_envelope, encode_envelope};
     use alloc::vec;
     fn id(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
@@ -429,5 +621,58 @@ mod tests {
         let market = FeeMarket::new(100, 10, 1_000).unwrap();
         assert!(market.next(20).unwrap().base_fee > market.base_fee);
         assert!(market.next(1).unwrap().base_fee < market.base_fee);
+    }
+
+    #[test]
+    fn unused_capacity_is_refunded_exactly_and_settlement_is_one_shot() {
+        let quote =
+            FeeQuote { base: 10, resource_units: 100, resource_price: 2, congestion_price: 5 };
+        let mut reservation =
+            CapacityReservationV1::new(id(20), principal(21), quote, 215, 50).unwrap();
+        assert_eq!(
+            decode_envelope::<CapacityReservationV1>(&encode_envelope(&reservation).unwrap()),
+            Ok(reservation)
+        );
+        let settlement = reservation.settle(40, 49).unwrap();
+        assert_eq!(settlement.charged(), 95);
+        assert_eq!(settlement.refund(), 120);
+        assert_eq!(settlement.charged() + settlement.refund(), reservation.deposit());
+        assert_eq!(
+            decode_envelope::<CapacitySettlementV1>(&encode_envelope(&settlement).unwrap()),
+            Ok(settlement)
+        );
+        assert!(reservation.settled());
+        assert_eq!(reservation.settle(40, 49), Err(EconomicsError::AlreadySettled));
+    }
+
+    #[test]
+    fn capacity_reservation_rejects_underfunding_overflow_expiry_and_overuse() {
+        let quote =
+            FeeQuote { base: 10, resource_units: 100, resource_price: 2, congestion_price: 5 };
+        assert_eq!(
+            CapacityReservationV1::new(id(20), principal(21), quote, 214, 50),
+            Err(EconomicsError::InvalidCapacityReservation)
+        );
+        assert_eq!(
+            CapacityReservationV1::new(
+                id(20),
+                principal(21),
+                FeeQuote {
+                    base: u128::MAX,
+                    resource_units: 2,
+                    resource_price: u128::MAX,
+                    congestion_price: 1,
+                },
+                u128::MAX,
+                50,
+            ),
+            Err(EconomicsError::InvalidCapacityReservation)
+        );
+        let mut expired =
+            CapacityReservationV1::new(id(20), principal(21), quote, 215, 50).unwrap();
+        assert_eq!(expired.settle(1, 51), Err(EconomicsError::Expired));
+        assert!(!expired.settled());
+        assert_eq!(expired.settle(101, 50), Err(EconomicsError::CapacityExceeded));
+        assert!(!expired.settled());
     }
 }
