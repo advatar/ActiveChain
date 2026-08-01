@@ -57,12 +57,15 @@ test ! -e "$workdir/missing.snapshot"
 
 deployment="$workdir/deployment"
 cargo_target_dir=${CARGO_TARGET_DIR:-target}
+cargo build --quiet -p activechain-consensus-runtime --bin cash-genesis-tool
 mkdir -p "$deployment/current/bin" "$deployment/current/scripts" "$deployment/chain" \
   "$deployment/rpc"
 cp "$cargo_target_dir/debug/genesis-tool" "$deployment/current/bin/"
+cp "$cargo_target_dir/debug/cash-genesis-tool" "$deployment/current/bin/"
 cp deploy/kanalen/network.env "$deployment/current/"
 cp deploy/kanalen/scripts/reset-kanalen-state.sh "$deployment/current/scripts/"
 ACTIVECHAIN_KANALEN_ROOT="$deployment" \
+  ACTIVECHAIN_CASH_GENESIS_OWNER_HEX="$(printf '11%.0s' {1..48})" \
   "$deployment/current/scripts/reset-kanalen-state.sh" --confirm
 runtime_commitment=$(sed -n 's/^ACTIVECHAIN_GENESIS_COMMITMENT_HEX=//p' \
   "$deployment/network.env")
@@ -71,6 +74,7 @@ runtime_commitment=$(sed -n 's/^ACTIVECHAIN_GENESIS_COMMITMENT_HEX=//p' \
   exit 1
 }
 test "$(stat -f '%Lp' "$deployment/chain/keys")" = 700
+test -s "$deployment/chain/cash-ledger.snapshot"
 for key in "$deployment"/chain/keys/validator-*.key; do
   test "$(stat -f '%Lp' "$key")" = 600
 done
