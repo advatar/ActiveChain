@@ -2,6 +2,7 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     decode_envelope, encode_envelope,
 };
+use activechain_cash_kernel::FungibleCoinCell;
 use activechain_protocol_types::{
     FungibleAssetDefinition, FungibleExceptionalControlActionV1, FungibleExceptionalControlKind,
     FungibleExceptionalControlPolicyV1, FungibleHolderControlStateV1,
@@ -104,6 +105,115 @@ impl CanonicalType for HolderControlRegistryV1 {
         3 + MAX_HOLDER_CONTROL_STATES * FungibleHolderControlStateV1::MAX_ENCODED_LEN;
 }
 
+/// One exact clawback cell and the revision state that authorizes its ownership transition.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ClawbackStateSnapshotV1 {
+    cell: FungibleCoinCell,
+    holder_state: FungibleHolderControlStateV1,
+}
+
+impl ClawbackStateSnapshotV1 {
+    pub const TYPE_TAG: u16 = 0x017c;
+
+    pub fn new(
+        cell: FungibleCoinCell,
+        holder_state: FungibleHolderControlStateV1,
+    ) -> Result<Self, HolderControlPersistenceError> {
+        if cell.asset_id() != holder_state.asset_id()
+            || (holder_state.revision() == 0 && cell.owner() != holder_state.holder())
+        {
+            return Err(HolderControlPersistenceError::InvalidAction);
+        }
+        Ok(Self { cell, holder_state })
+    }
+
+    pub const fn cell(&self) -> FungibleCoinCell {
+        self.cell
+    }
+
+    pub const fn holder_state(&self) -> FungibleHolderControlStateV1 {
+        self.holder_state
+    }
+}
+
+impl CanonicalEncode for ClawbackStateSnapshotV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.cell.encode(encoder)?;
+        self.holder_state.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for ClawbackStateSnapshotV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            FungibleCoinCell::decode(decoder)?,
+            FungibleHolderControlStateV1::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid clawback state snapshot"))
+    }
+}
+
+impl CanonicalType for ClawbackStateSnapshotV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize =
+        FungibleCoinCell::MAX_ENCODED_LEN + FungibleHolderControlStateV1::MAX_ENCODED_LEN;
+}
+
+/// Write-before-acknowledgement exact-cell clawback state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DurableClawbackState {
+    path: PathBuf,
+    snapshot: ClawbackStateSnapshotV1,
+}
+
+impl DurableClawbackState {
+    pub fn create(
+        path: impl AsRef<Path>,
+        snapshot: ClawbackStateSnapshotV1,
+    ) -> Result<Self, HolderControlPersistenceError> {
+        let path = path.as_ref().to_path_buf();
+        save_clawback_atomic(&snapshot, &path)?;
+        Ok(Self { path, snapshot })
+    }
+
+    pub fn open(path: impl AsRef<Path>) -> Result<Self, HolderControlPersistenceError> {
+        let path = path.as_ref().to_path_buf();
+        let bytes = std::fs::read(&path).map_err(|_| HolderControlPersistenceError::Persistence)?;
+        let snapshot =
+            decode_envelope(&bytes).map_err(|_| HolderControlPersistenceError::Persistence)?;
+        Ok(Self { path, snapshot })
+    }
+
+    pub const fn snapshot(&self) -> &ClawbackStateSnapshotV1 {
+        &self.snapshot
+    }
+
+    pub fn apply(
+        &mut self,
+        definition: &FungibleAssetDefinition,
+        policy: &FungibleExceptionalControlPolicyV1,
+        action: &FungibleExceptionalControlActionV1,
+        height: u64,
+    ) -> Result<ClawbackStateSnapshotV1, HolderControlPersistenceError> {
+        let (cell, holder_state) = self
+            .snapshot
+            .cell
+            .apply_declared_clawback(
+                definition,
+                policy,
+                &self.snapshot.holder_state,
+                action,
+                height,
+            )
+            .map_err(|_| HolderControlPersistenceError::InvalidAction)?;
+        let next = ClawbackStateSnapshotV1::new(cell, holder_state)?;
+        save_clawback_atomic(&next, &self.path)?;
+        self.snapshot = next;
+        Ok(next)
+    }
+}
+
 /// Write-before-acknowledgement freeze/unfreeze registry.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DurableHolderControlRegistry {
@@ -161,10 +271,27 @@ fn save_atomic(
     std::fs::rename(temporary, path).map_err(|_| HolderControlPersistenceError::Persistence)
 }
 
+fn save_clawback_atomic(
+    snapshot: &ClawbackStateSnapshotV1,
+    path: &Path,
+) -> Result<(), HolderControlPersistenceError> {
+    let bytes =
+        encode_envelope(snapshot).map_err(|_| HolderControlPersistenceError::Persistence)?;
+    let parent = path.parent().ok_or(HolderControlPersistenceError::Persistence)?;
+    std::fs::create_dir_all(parent).map_err(|_| HolderControlPersistenceError::Persistence)?;
+    let temporary = path.with_extension("tmp");
+    let mut file = std::fs::File::create(&temporary)
+        .map_err(|_| HolderControlPersistenceError::Persistence)?;
+    file.write_all(&bytes).map_err(|_| HolderControlPersistenceError::Persistence)?;
+    file.sync_all().map_err(|_| HolderControlPersistenceError::Persistence)?;
+    std::fs::rename(temporary, path).map_err(|_| HolderControlPersistenceError::Persistence)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use activechain_protocol_types::{AssetId, Digest384, PrincipalId};
+    use activechain_cash_kernel::CoinCellOrigin;
+    use activechain_protocol_types::{AssetId, Digest384, PrincipalId, TransactionId};
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
@@ -273,5 +400,63 @@ mod tests {
             Err(HolderControlPersistenceError::Persistence)
         );
         assert!(durable.registry().states().is_empty());
+    }
+
+    fn clawback_fixture() -> (
+        FungibleAssetDefinition,
+        FungibleExceptionalControlPolicyV1,
+        FungibleExceptionalControlActionV1,
+        ClawbackStateSnapshotV1,
+    ) {
+        let (definition, policy, action) = fixture(4, FungibleExceptionalControlKind::Clawback, 0);
+        let state = FungibleHolderControlStateV1::new(action.asset_id(), action.holder()).unwrap();
+        let cell = FungibleCoinCell::new(
+            CoinCellOrigin::new(TransactionId::new(digest(20)), 0),
+            action.asset_id(),
+            action.holder(),
+            action.amount(),
+            7,
+        )
+        .unwrap();
+        (definition, policy, action, ClawbackStateSnapshotV1::new(cell, state).unwrap())
+    }
+
+    #[test]
+    fn clawback_cell_and_revision_survive_restart_atomically() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("clawback.bin");
+        let (definition, policy, action, snapshot) = clawback_fixture();
+        let before = snapshot.cell();
+        let mut durable = DurableClawbackState::create(&path, snapshot).unwrap();
+        let after = durable.apply(&definition, &policy, &action, 10).unwrap();
+        assert_eq!(after.cell().owner(), action.recipient());
+        assert_eq!(after.cell().origin(), before.origin());
+        assert_eq!(after.cell().asset_id(), before.asset_id());
+        assert_eq!(after.cell().amount(), before.amount());
+        assert_eq!(after.cell().creation_height(), before.creation_height());
+        assert_eq!(after.holder_state().revision(), 1);
+        let mut restarted = DurableClawbackState::open(&path).unwrap();
+        assert_eq!(restarted.snapshot(), durable.snapshot());
+        assert_eq!(
+            restarted.apply(&definition, &policy, &action, 10),
+            Err(HolderControlPersistenceError::InvalidAction)
+        );
+        assert_eq!(restarted.snapshot(), durable.snapshot());
+    }
+
+    #[test]
+    fn failed_clawback_persistence_changes_neither_cell_nor_revision() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("clawback.bin");
+        let (definition, policy, action, snapshot) = clawback_fixture();
+        let mut durable = DurableClawbackState::create(&path, snapshot).unwrap();
+        let before = *durable.snapshot();
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        assert_eq!(
+            durable.apply(&definition, &policy, &action, 10),
+            Err(HolderControlPersistenceError::Persistence)
+        );
+        assert_eq!(durable.snapshot(), &before);
     }
 }
