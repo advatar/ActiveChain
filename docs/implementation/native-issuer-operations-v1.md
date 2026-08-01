@@ -85,6 +85,14 @@ payout finalized: separately verified `FungibleSettlementReceiptV1` evidence mus
 reference, asset, and amount. Replay, input or approval substitution, stale supply, missing cells,
 inactive policy, and underflow return neither successor.
 
+`FungibleAssetLedgerSnapshotV1` is the production crash-consistency unit for those transitions. It
+contains the complete multi-asset fungible Coin Cell set and one governed asset policy, and on every
+create or decode independently computes the checked sum of cells for that asset and requires exact
+equality with `supply_issued`. `DurableFungibleAssetLedger` runs transfer, mint, burn, and redemption
+through the pure successors, then synchronizes and atomically replaces both set and policy before
+memory or acknowledgement advances. Inconsistent supply, corrupt restart state, replay, and failed
+writes fail closed without a partial root or supply change.
+
 The native issuer CLI exposes `control-policy`, `holder-control-state`, `control-action`, and
 `dry-run-control`. Freeze and unfreeze preflight return the exact post-state. Clawback additionally
 requires a canonical input Coin Cell and returns both the conserved post-cell and revisioned

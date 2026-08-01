@@ -1193,6 +1193,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   input removal and the identically reduced policy supply state.
 - [x] Join threshold-approved redemptions to exact authoritative input removal and supply reduction
   while retaining the external settlement reference for separately finalized receipt evidence.
+- [x] Persist fungible policy supply and the complete authoritative Coin Cell set as one canonical
+  ledger, requiring exact checked supply equality on create, restart, and every transition.
 - [x] Publish deterministic issuer-registration vectors for activation boundaries and malformed
   authority/policy bindings.
 - [x] Keep the workspace lockfile synchronized with the canonical payment-types cryptographic

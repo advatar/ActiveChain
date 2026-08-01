@@ -45,7 +45,10 @@ pub use compute::{
 #[cfg(feature = "std")]
 pub use corporate_action::{CorporateActionPersistenceError, DurableCorporateActionRegistry};
 #[cfg(feature = "std")]
-pub use fungible_transfer::{DurableFungibleTransferLedger, FungibleTransferPersistenceError};
+pub use fungible_transfer::{
+    DurableFungibleAssetLedger, DurableFungibleTransferLedger, FungibleAssetLedgerSnapshotV1,
+    FungibleTransferPersistenceError,
+};
 #[cfg(feature = "std")]
 pub use holder_control::{
     ClawbackStateSnapshotV1, DurableClawbackState, DurableFungibleClawbackLedger,
