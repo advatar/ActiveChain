@@ -15,6 +15,11 @@ test -f "$network_env" || {
   echo "runtime network manifest is missing: $network_env" >&2
   exit 1
 }
+chain_id=$(sed -n 's/^ACTIVECHAIN_CHAIN_ID_HEX=//p' "$network_env")
+test -n "$chain_id" || {
+  echo "network.env does not define ACTIVECHAIN_CHAIN_ID_HEX" >&2
+  exit 1
+}
 
 mkdir "$lock" 2>/dev/null || exit 0
 trap 'rmdir "$lock"' EXIT
@@ -36,6 +41,9 @@ max_attempts=3
 while ! "$binary_root/validator-node" \
   49150 "$state_root/validator-0.snapshot" "$state_root/genesis.bin" 0 0 --once \
   --key-file="$state_root/keys/validator-0.key" \
+  --chain-id-hex="$chain_id" \
+  --finalized-cash-out="$cash_snapshot" \
+  --finality-out="$finality_bundle" \
   --peer=2@127.0.0.1:49154 --peer=3@127.0.0.1:49155; do
   if test "$attempt" -ge "$max_attempts"; then
     echo "validator round failed after $max_attempts attempts" >&2
@@ -46,11 +54,6 @@ while ! "$binary_root/validator-node" \
   sleep 1
 done
 if test ! -f "$rpc_snapshot"; then
-  chain_id=$(sed -n 's/^ACTIVECHAIN_CHAIN_ID_HEX=//p' "$network_env")
-  test -n "$chain_id" || {
-    echo "network.env does not define ACTIVECHAIN_CHAIN_ID_HEX" >&2
-    exit 1
-  }
   "$binary_root/activechain-rpc-bootstrap" \
     "$state_root/genesis.bin" "$chain_id" "$rpc_snapshot"
 fi
