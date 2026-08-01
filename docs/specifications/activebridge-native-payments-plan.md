@@ -502,6 +502,14 @@ Multi-venue routing follows only after deterministic quote comparison, failure i
 formal conservation/refund properties exist. “Atomic” must not be claimed across an external venue
 unless the external leg is cryptographically atomic under a reviewed protocol.
 
+Refund execution maintains one bounded, canonically ordered state per finalized payment intent.
+`RefundJournalV1` atomically persists both settlement registration and every cumulative partial-
+refund successor before acknowledgement. Each request must bind the exact settlement, asset,
+expected refunded total, next sequence, and active window; unknown intents, duplicate registration,
+replay, over-refund, corrupt restart state, and failed writes do not advance live accounting. This
+durability proves refund replay safety only—it does not promote an external payout observation to
+finalized ActiveChain settlement.
+
 ### 8.5 Gas sponsorship
 
 Reuse Cash Plane paymasters:

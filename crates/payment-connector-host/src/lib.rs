@@ -9,8 +9,9 @@ use activechain_canonical_codec::{
 use activechain_crypto_provider::verify_ml_dsa44;
 use activechain_payment_types::{
     ConnectorId, PaymentApiAuthorizationV1, PaymentApiReplayStateV1,
-    PaymentApiSignedAuthorizationV1, PaymentValidationError, PaymentWebhookCursorV1,
-    PaymentWebhookEventV1, PaymentWebhookSignedEventV1, ProviderObservationV1, RailId,
+    PaymentApiSignedAuthorizationV1, PaymentRefundRequestV1, PaymentRefundStateV1,
+    PaymentValidationError, PaymentWebhookCursorV1, PaymentWebhookEventV1,
+    PaymentWebhookSignedEventV1, ProviderObservationV1, RailId,
 };
 use activechain_protocol_types::{AssetId, Digest384};
 use sha3::{
@@ -33,6 +34,7 @@ pub use simulator::{
 const MAX_OBSERVATIONS: usize = 65_535;
 const MAX_WEBHOOK_CURSORS: usize = 65_535;
 const MAX_API_CLIENTS: usize = 65_535;
+const MAX_REFUND_STATES: usize = 65_535;
 const SNAPSHOT_TAG_LENGTH: usize = 48;
 const SNAPSHOT_DOMAIN: &[u8] = b"ACTIVECHAIN-ACTIVEBRIDGE-JOURNAL-V1";
 const MAX_CONNECTOR_ORIGINS: usize = 16;
@@ -228,6 +230,7 @@ pub enum JournalError {
     InvalidObservation,
     InvalidDelivery,
     InvalidAuthorization,
+    InvalidRefund,
     Capacity,
     Persistence,
 }
@@ -548,6 +551,114 @@ impl CanonicalType for ApiAuthorizationJournalV1 {
     const MAX_ENCODED_LEN: usize = 3 + MAX_API_CLIENTS * PaymentApiReplayStateV1::MAX_ENCODED_LEN;
 }
 
+/// Crash-safe cumulative refund accounting for finalized settlements, ordered by intent.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct RefundJournalV1 {
+    states: Vec<PaymentRefundStateV1>,
+}
+
+impl RefundJournalV1 {
+    pub const TYPE_TAG: u16 = 0x0182;
+
+    #[must_use]
+    pub fn states(&self) -> &[PaymentRefundStateV1] {
+        &self.states
+    }
+
+    pub fn register(&mut self, state: PaymentRefundStateV1) -> Result<(), JournalError> {
+        match self.states.binary_search_by_key(&state.intent(), PaymentRefundStateV1::intent) {
+            Ok(_) => Err(JournalError::InvalidRefund),
+            Err(_) if self.states.len() == MAX_REFUND_STATES => Err(JournalError::Capacity),
+            Err(index) => {
+                self.states.insert(index, state);
+                Ok(())
+            }
+        }
+    }
+
+    pub fn register_durable(
+        &mut self,
+        state: PaymentRefundStateV1,
+        path: &Path,
+    ) -> Result<(), JournalError> {
+        let mut next = self.clone();
+        next.register(state)?;
+        next.save_atomic(path)?;
+        *self = next;
+        Ok(())
+    }
+
+    pub fn apply(
+        &mut self,
+        request: &PaymentRefundRequestV1,
+        timestamp: u64,
+    ) -> Result<(), JournalError> {
+        let index = self
+            .states
+            .binary_search_by_key(&request.intent(), PaymentRefundStateV1::intent)
+            .map_err(|_| JournalError::InvalidRefund)?;
+        self.states[index] = self.states[index]
+            .apply(request, timestamp)
+            .map_err(|_| JournalError::InvalidRefund)?;
+        Ok(())
+    }
+
+    pub fn apply_durable(
+        &mut self,
+        request: &PaymentRefundRequestV1,
+        timestamp: u64,
+        path: &Path,
+    ) -> Result<(), JournalError> {
+        let mut next = self.clone();
+        next.apply(request, timestamp)?;
+        next.save_atomic(path)?;
+        *self = next;
+        Ok(())
+    }
+
+    pub fn save_atomic(&self, path: &Path) -> Result<(), JournalError> {
+        save_snapshot(self, path)
+    }
+
+    pub fn load(path: &Path) -> Result<Self, JournalError> {
+        load_snapshot(path)
+    }
+}
+
+impl CanonicalEncode for RefundJournalV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        encoder.write_length(self.states.len(), MAX_REFUND_STATES)?;
+        for state in &self.states {
+            state.encode(encoder)?;
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for RefundJournalV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let count = decoder.read_length(MAX_REFUND_STATES)?;
+        let mut states = Vec::with_capacity(count);
+        for _ in 0..count {
+            let state = PaymentRefundStateV1::decode(decoder)?;
+            if states
+                .last()
+                .is_some_and(|previous: &PaymentRefundStateV1| previous.intent() >= state.intent())
+            {
+                return Err(DecodeError::InvalidValue("refund states are not canonically ordered"));
+            }
+            states.push(state);
+        }
+        Ok(Self { states })
+    }
+}
+
+impl CanonicalType for RefundJournalV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 3 + MAX_REFUND_STATES * PaymentRefundStateV1::MAX_ENCODED_LEN;
+}
+
 fn map_validation(_: PaymentValidationError) -> JournalError {
     JournalError::InvalidObservation
 }
@@ -606,10 +717,10 @@ mod tests {
     use super::*;
     use activechain_payment_types::{
         AssetAmountV1, ConnectorId, EvidenceClass, PaymentApiOperation, PaymentAttemptId,
-        PaymentIntentId, PaymentLifecycleRecordV1, PaymentState, PaymentWebhookEventId,
-        PaymentWebhookEventV1, PaymentWebhookSignedEventV1, PaymentWebhookSubscriptionId,
-        ProviderOperationState, RailId, payment_api_authenticator_commitment,
-        payment_webhook_signer_commitment,
+        PaymentIntentId, PaymentLifecycleRecordV1, PaymentRefundId, PaymentRefundRequestV1,
+        PaymentRefundStateV1, PaymentState, PaymentWebhookEventId, PaymentWebhookEventV1,
+        PaymentWebhookSignedEventV1, PaymentWebhookSubscriptionId, ProviderOperationState, RailId,
+        payment_api_authenticator_commitment, payment_webhook_signer_commitment,
     };
     use activechain_protocol_types::{
         AssetId, ChainId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature,
@@ -1077,5 +1188,92 @@ mod tests {
         );
         assert!(journal.cursors().is_empty());
         assert!(!path.exists());
+    }
+
+    fn refund_state(intent: u8) -> PaymentRefundStateV1 {
+        PaymentRefundStateV1::new(
+            PaymentIntentId::new(digest(intent)).unwrap(),
+            digest(80),
+            AssetAmountV1::new(AssetId::new(digest(81)), 100).unwrap(),
+        )
+        .unwrap()
+    }
+
+    fn refund_request(
+        intent: u8,
+        refund: u8,
+        amount: u128,
+        sequence: u64,
+        expected: u128,
+    ) -> PaymentRefundRequestV1 {
+        PaymentRefundRequestV1::new(
+            PaymentRefundId::new(digest(refund)).unwrap(),
+            PaymentIntentId::new(digest(intent)).unwrap(),
+            PrincipalId::new(digest(82)),
+            digest(80),
+            AssetAmountV1::new(AssetId::new(digest(81)), amount).unwrap(),
+            digest(83),
+            digest(84),
+            sequence,
+            expected,
+            100,
+            200,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn refund_accounting_survives_restart_and_replay_fails_closed() {
+        let path = path("refund-restart");
+        let _ = std::fs::remove_file(&path);
+        let mut journal = RefundJournalV1::default();
+        journal.register_durable(refund_state(10), &path).unwrap();
+        let request = refund_request(10, 11, 40, 1, 0);
+        journal.apply_durable(&request, 150, &path).unwrap();
+        assert_eq!(journal.states()[0].refunded_units(), 40);
+        assert_eq!(journal.states()[0].next_sequence(), 2);
+        assert_eq!(RefundJournalV1::load(&path).unwrap(), journal);
+        let before = journal.clone();
+        assert_eq!(journal.apply_durable(&request, 150, &path), Err(JournalError::InvalidRefund));
+        assert_eq!(journal, before);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn refund_journal_orders_intents_and_rejects_duplicate_unknown_and_over_refund() {
+        let mut journal = RefundJournalV1::default();
+        journal.register(refund_state(20)).unwrap();
+        journal.register(refund_state(10)).unwrap();
+        assert!(journal.states()[0].intent() < journal.states()[1].intent());
+        assert_eq!(journal.register(refund_state(10)), Err(JournalError::InvalidRefund));
+        assert_eq!(
+            journal.apply(&refund_request(30, 31, 1, 1, 0), 150),
+            Err(JournalError::InvalidRefund)
+        );
+        assert_eq!(
+            journal.apply(&refund_request(10, 12, 101, 1, 0), 150),
+            Err(JournalError::InvalidRefund)
+        );
+        assert_eq!(journal.states()[0].refunded_units(), 0);
+    }
+
+    #[test]
+    fn failed_refund_persistence_and_corrupt_restart_do_not_advance() {
+        let directory = path("refund-directory");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let mut journal = RefundJournalV1::default();
+        assert_eq!(
+            journal.register_durable(refund_state(10), &directory),
+            Err(JournalError::Persistence)
+        );
+        assert!(journal.states().is_empty());
+        std::fs::remove_dir_all(&directory).unwrap();
+
+        let corrupt = path("refund-corrupt");
+        let _ = std::fs::remove_file(&corrupt);
+        std::fs::write(&corrupt, b"not canonical").unwrap();
+        assert_eq!(RefundJournalV1::load(&corrupt), Err(JournalError::Persistence));
+        std::fs::remove_file(corrupt).unwrap();
     }
 }
