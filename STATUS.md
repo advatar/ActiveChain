@@ -1930,6 +1930,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
   derive only bounded schema facts for P-023, with non-leaking context-bound receipts (#443).
 - [x] Implement wallet-owned external presentation display, explicit consent/user presence,
   minimal disclosure, cancellation, replay-safe audit, and rollback-aware recovery (#445).
+- [x] Publish and consume a digest-locked synthetic identity bridge corpus across ActiveChain,
+  VCIssuer, and EUWallet with positive and named-boundary negative vectors (#446).
 - [ ] Complete wallet OpenID4VP transport, consent UX, live trust/status adapters, cross-repository
   vectors, device qualification, and independent interoperability review.
 
