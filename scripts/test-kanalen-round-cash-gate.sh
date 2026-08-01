@@ -14,6 +14,7 @@ mkdir -p "$binary_root" "$state_root/keys" "$rpc_root" "$fake_path"
 printf 'ACTIVECHAIN_CHAIN_ID_HEX=%096d\n' 0 > "$deployment_root/network.env"
 : > "$state_root/genesis.bin"
 : > "$state_root/keys/validator-0.key"
+: > "$state_root/cash-ledger.snapshot"
 : > "$rpc_root/rpc-index.snapshot"
 
 cp "$repo_root/deploy/kanalen/scripts/run-kanalen-round.sh" "$test_root/run-kanalen-round.sh"
@@ -87,5 +88,6 @@ test "$(wc -l < "$test_root/ingest-arguments" | tr -d ' ')" = 4
 grep -q '^--chain-id-hex=000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000$' "$test_root/validator-arguments"
 grep -q "^--finalized-cash-out=$state_root/finalized-cash.snapshot$" "$test_root/validator-arguments"
 grep -q "^--finality-out=$state_root/finality.bundle$" "$test_root/validator-arguments"
+grep -q "^--cash-ledger=$state_root/cash-ledger.snapshot$" "$test_root/validator-arguments"
 
 echo "Kanalen finalized-cash publication gate passed"

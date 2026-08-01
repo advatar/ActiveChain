@@ -1,5 +1,5 @@
-use activechain_canonical_codec::encode_envelope;
-use activechain_cash_kernel::CoinCellSet;
+use activechain_canonical_codec::{decode_envelope, encode_envelope};
+use activechain_cash_kernel::CashLedger;
 use activechain_consensus_runtime::{
     FinalizedCashSnapshot, PeerIngressMetricsSnapshot, PeerIngressMonitor, PeerListener,
     ValidatorService, load_genesis, load_snapshot, load_snapshot_chain_genesis_commitment,
@@ -39,6 +39,22 @@ fn parse_chain_id(value: &str) -> Result<ChainId, &'static str> {
             .map_err(|_| "chain ID contains non-hexadecimal input")?;
     }
     Ok(ChainId::new(Digest384::new(bytes)))
+}
+
+fn load_authoritative_cash_ledger(
+    path: &Path,
+    chain_id: ChainId,
+) -> Result<CashLedger, Box<dyn std::error::Error>> {
+    let bytes = std::fs::read(path)?;
+    let ledger: CashLedger = decode_envelope(&bytes)
+        .map_err(|_| std::io::Error::other("cash ledger snapshot is not canonical"))?;
+    ledger
+        .verify_invariants()
+        .map_err(|_| std::io::Error::other("cash ledger invariants failed"))?;
+    if ledger.definition().chain_id() != chain_id {
+        return Err(std::io::Error::other("cash ledger belongs to another chain").into());
+    }
+    Ok(ledger)
 }
 
 fn kanalen_finalized_header(
@@ -147,14 +163,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let finalized_cash_out =
         extras.iter().find_map(|value| value.strip_prefix("--finalized-cash-out="));
     let finality_out = extras.iter().find_map(|value| value.strip_prefix("--finality-out="));
+    let cash_ledger = extras.iter().find_map(|value| value.strip_prefix("--cash-ledger="));
     if finalized_cash_out.is_some() != finality_out.is_some()
         || finalized_cash_out.is_some() != chain_id.is_some()
+        || finalized_cash_out.is_some() != cash_ledger.is_some()
     {
         return Err(
-            "--chain-id-hex, --finalized-cash-out, and --finality-out must be supplied together"
-                .into(),
+            "--chain-id-hex, --cash-ledger, --finalized-cash-out, and --finality-out must be supplied together".into(),
         );
     }
+    let authoritative_cash = cash_ledger
+        .map(Path::new)
+        .zip(chain_id)
+        .map(|(path, chain)| load_authoritative_cash_ledger(path, chain))
+        .transpose()?;
     let peer_specs: Vec<&str> =
         extras.iter().filter_map(|value| value.strip_prefix("--peer=")).collect();
     let genesis = genesis_path.as_deref().map(Path::new).map(load_genesis).transpose()?;
@@ -310,20 +332,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     std::thread::sleep(std::time::Duration::from_millis(25));
                 }
             }
-            let cash_snapshot = FinalizedCashSnapshot::new(
-                genesis.genesis_commitment(),
-                next_height,
-                CoinCellSet::new(Vec::new())
-                    .map_err(|_| "empty finalized cash state is invalid")?,
-            )?;
-            let publication_header = chain_id.map(|chain_id| {
-                kanalen_finalized_header(
-                    genesis,
-                    chain_id,
+            let cash_snapshot = if chain_id.is_some() {
+                Some(FinalizedCashSnapshot::new(
+                    genesis.genesis_commitment(),
                     next_height,
-                    cash_snapshot.cash_cell_root,
-                )
-            });
+                    authoritative_cash
+                        .as_ref()
+                        .ok_or("authoritative cash ledger is required for a published round")?
+                        .cells()
+                        .clone(),
+                )?)
+            } else {
+                None
+            };
+            let publication_header =
+                chain_id.zip(cash_snapshot.as_ref()).map(|(chain_id, cash)| {
+                    kanalen_finalized_header(genesis, chain_id, next_height, cash.cash_cell_root)
+                });
             let block_digest = match publication_header {
                 Some(header) => {
                     header.digest().map_err(|_| "Kanalen finalized header encoding failed")?
@@ -362,7 +387,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 publish_finalized_cash(
                     Path::new(cash_path),
                     Path::new(finality_path),
-                    &cash_snapshot,
+                    cash_snapshot
+                        .as_ref()
+                        .ok_or("authoritative cash snapshot was not materialized")?,
                     &bundle,
                 )?;
             }
@@ -465,6 +492,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use activechain_cash_kernel::{GenesisAllocation, GenesisEconomy, NativeAssetDefinition};
     use activechain_protocol_types::{PrincipalId, ValidatorGenesisEntry};
 
     fn genesis() -> ValidatorGenesis {
@@ -499,5 +527,49 @@ mod tests {
         assert!(parse_chain_id(&"ab".repeat(48)).is_ok());
         assert!(parse_chain_id("00").is_err());
         assert!(parse_chain_id(&"zz".repeat(48)).is_err());
+    }
+
+    fn cash_ledger(chain: ChainId) -> CashLedger {
+        let definition = NativeAssetDefinition::new(
+            chain,
+            b"ACT".to_vec(),
+            18,
+            1_000,
+            150,
+            Digest384::new([70; 48]),
+            Digest384::new([71; 48]),
+            Digest384::new([72; 48]),
+        )
+        .unwrap();
+        CashLedger::from_genesis(
+            &GenesisEconomy::new(
+                definition,
+                vec![
+                    GenesisAllocation::new(PrincipalId::new(Digest384::new([73; 48])), 900, 0)
+                        .unwrap(),
+                ],
+                100,
+            )
+            .unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn authoritative_cash_loader_rejects_cross_chain_and_noncanonical_state() {
+        let chain = ChainId::new(Digest384::new([80; 48]));
+        let path = std::env::temp_dir()
+            .join(format!("activechain-authoritative-cash-{}.snapshot", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        std::fs::write(&path, encode_envelope(&cash_ledger(chain)).unwrap()).unwrap();
+        let loaded = load_authoritative_cash_ledger(&path, chain).unwrap();
+        assert_eq!(loaded.definition().chain_id(), chain);
+        assert!(!loaded.cells().as_slice().is_empty());
+        assert!(
+            load_authoritative_cash_ledger(&path, ChainId::new(Digest384::new([81; 48]))).is_err()
+        );
+        std::fs::write(&path, b"not canonical").unwrap();
+        assert!(load_authoritative_cash_ledger(&path, chain).is_err());
+        std::fs::remove_file(path).unwrap();
     }
 }

@@ -10,6 +10,7 @@ network_env="$deployment_root/network.env"
 lock="$state_root/round.lock"
 cash_snapshot="$state_root/finalized-cash.snapshot"
 finality_bundle="$state_root/finality.bundle"
+cash_ledger="$state_root/cash-ledger.snapshot"
 
 test -f "$network_env" || {
   echo "runtime network manifest is missing: $network_env" >&2
@@ -18,6 +19,10 @@ test -f "$network_env" || {
 chain_id=$(sed -n 's/^ACTIVECHAIN_CHAIN_ID_HEX=//p' "$network_env")
 test -n "$chain_id" || {
   echo "network.env does not define ACTIVECHAIN_CHAIN_ID_HEX" >&2
+  exit 1
+}
+test -f "$cash_ledger" || {
+  echo "authoritative cash ledger is missing: $cash_ledger" >&2
   exit 1
 }
 
@@ -42,6 +47,7 @@ while ! "$binary_root/validator-node" \
   49150 "$state_root/validator-0.snapshot" "$state_root/genesis.bin" 0 0 --once \
   --key-file="$state_root/keys/validator-0.key" \
   --chain-id-hex="$chain_id" \
+  --cash-ledger="$cash_ledger" \
   --finalized-cash-out="$cash_snapshot" \
   --finality-out="$finality_bundle" \
   --peer=2@127.0.0.1:49154 --peer=3@127.0.0.1:49155; do
