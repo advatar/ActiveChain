@@ -1133,6 +1133,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   record-date vote, and redemption-offer generation.
 - [x] Publish deterministic issuer-registration vectors for activation boundaries and malformed
   authority/policy bindings.
+- [x] Keep the workspace lockfile synchronized with the canonical payment-types cryptographic
+  dependencies so targeted issuer/payment tests leave a reproducible clean checkout.
 - [ ] Complete wallet, compatibility, adversarial-test, migration, and independent-audit gates.
 
 ## Active design — privacy-preserving tokenization identity
