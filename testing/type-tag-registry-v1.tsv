@@ -255,3 +255,4 @@
 0x017A	1	SponsoredCashReceiptV1	crates/application-primitives/src/sponsored_cash.rs
 0x017B	1	HolderControlRegistryV1	crates/application-primitives/src/holder_control.rs
 0x017C	1	ClawbackStateSnapshotV1	crates/application-primitives/src/holder_control.rs
+0x017D	1	FungibleClawbackLedgerSnapshotV1	crates/application-primitives/src/holder_control.rs
