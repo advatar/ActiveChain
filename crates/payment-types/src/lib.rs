@@ -1148,6 +1148,222 @@ impl CanonicalType for PaymentWebhookCursorV1 {
     const MAX_ENCODED_LEN: usize = 48 * 2 + 8 + 1 + 48;
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum PaymentApiOperation {
+    Quote = 0,
+    CreateIntent = 1,
+    Status = 2,
+    Refund = 3,
+    Dispute = 4,
+    TreasuryDebit = 5,
+    WebhookAdmin = 6,
+}
+impl CanonicalEncode for PaymentApiOperation {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(encoder)
+    }
+}
+impl CanonicalDecode for PaymentApiOperation {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(decoder)? {
+            0 => Ok(Self::Quote),
+            1 => Ok(Self::CreateIntent),
+            2 => Ok(Self::Status),
+            3 => Ok(Self::Refund),
+            4 => Ok(Self::Dispute),
+            5 => Ok(Self::TreasuryDebit),
+            6 => Ok(Self::WebhookAdmin),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "PaymentApiOperation", tag }),
+        }
+    }
+}
+
+/// Authenticator-bound API transcript. Authentication never promotes payment evidence or finality.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PaymentApiAuthorizationV1 {
+    caller: PrincipalId,
+    audience: Digest384,
+    operation: PaymentApiOperation,
+    request_commitment: Digest384,
+    idempotency_commitment: Digest384,
+    intent: Option<PaymentIntentId>,
+    sequence: u64,
+    issued_at: u64,
+    expires_at: u64,
+    authenticator_commitment: Digest384,
+}
+impl PaymentApiAuthorizationV1 {
+    pub const TYPE_TAG: u16 = 0x0170;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        caller: PrincipalId,
+        audience: Digest384,
+        operation: PaymentApiOperation,
+        request_commitment: Digest384,
+        idempotency_commitment: Digest384,
+        intent: Option<PaymentIntentId>,
+        sequence: u64,
+        issued_at: u64,
+        expires_at: u64,
+        authenticator_commitment: Digest384,
+    ) -> Result<Self, PaymentValidationError> {
+        if caller.digest() == &Digest384::ZERO
+            || audience == Digest384::ZERO
+            || request_commitment == Digest384::ZERO
+            || idempotency_commitment == Digest384::ZERO
+            || authenticator_commitment == Digest384::ZERO
+        {
+            return Err(PaymentValidationError::InvalidBinding);
+        }
+        if sequence == 0 {
+            return Err(PaymentValidationError::InvalidSequence);
+        }
+        if issued_at >= expires_at {
+            return Err(PaymentValidationError::InvalidValidity);
+        }
+        Ok(Self {
+            caller,
+            audience,
+            operation,
+            request_commitment,
+            idempotency_commitment,
+            intent,
+            sequence,
+            issued_at,
+            expires_at,
+            authenticator_commitment,
+        })
+    }
+    pub const fn caller(&self) -> PrincipalId {
+        self.caller
+    }
+    pub const fn audience(&self) -> Digest384 {
+        self.audience
+    }
+    pub const fn operation(&self) -> PaymentApiOperation {
+        self.operation
+    }
+    pub const fn sequence(&self) -> u64 {
+        self.sequence
+    }
+    pub const fn active_at(&self, timestamp: u64) -> bool {
+        timestamp >= self.issued_at && timestamp < self.expires_at
+    }
+}
+impl CanonicalEncode for PaymentApiAuthorizationV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.caller.encode(encoder)?;
+        self.audience.encode(encoder)?;
+        self.operation.encode(encoder)?;
+        self.request_commitment.encode(encoder)?;
+        self.idempotency_commitment.encode(encoder)?;
+        self.intent.encode(encoder)?;
+        self.sequence.encode(encoder)?;
+        self.issued_at.encode(encoder)?;
+        self.expires_at.encode(encoder)?;
+        self.authenticator_commitment.encode(encoder)
+    }
+}
+impl CanonicalDecode for PaymentApiAuthorizationV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            PrincipalId::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            PaymentApiOperation::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Option::<PaymentIntentId>::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+            Digest384::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid payment API authorization"))
+    }
+}
+impl CanonicalType for PaymentApiAuthorizationV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = PAYMENT_SCHEMA_REVISION;
+    const MAX_ENCODED_LEN: usize = 48 * 5 + 1 + 1 + 48 + 8 * 3;
+}
+
+/// Exact next API sequence for one caller and audience.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PaymentApiReplayStateV1 {
+    caller: PrincipalId,
+    audience: Digest384,
+    next_sequence: u64,
+    last_authenticator: Option<Digest384>,
+}
+impl PaymentApiReplayStateV1 {
+    pub const TYPE_TAG: u16 = 0x0171;
+    pub fn new(caller: PrincipalId, audience: Digest384) -> Result<Self, PaymentValidationError> {
+        if caller.digest() == &Digest384::ZERO || audience == Digest384::ZERO {
+            return Err(PaymentValidationError::InvalidBinding);
+        }
+        Ok(Self { caller, audience, next_sequence: 1, last_authenticator: None })
+    }
+    pub const fn next_sequence(&self) -> u64 {
+        self.next_sequence
+    }
+    pub fn authorize(
+        &self,
+        authorization: &PaymentApiAuthorizationV1,
+        timestamp: u64,
+    ) -> Result<Self, PaymentValidationError> {
+        if authorization.caller != self.caller || authorization.audience != self.audience {
+            return Err(PaymentValidationError::InvalidBinding);
+        }
+        if authorization.sequence != self.next_sequence {
+            return Err(PaymentValidationError::InvalidSequence);
+        }
+        if !authorization.active_at(timestamp) {
+            return Err(PaymentValidationError::InvalidValidity);
+        }
+        Ok(Self {
+            next_sequence: self
+                .next_sequence
+                .checked_add(1)
+                .ok_or(PaymentValidationError::InvalidSequence)?,
+            last_authenticator: Some(authorization.authenticator_commitment),
+            ..*self
+        })
+    }
+}
+impl CanonicalEncode for PaymentApiReplayStateV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.caller.encode(encoder)?;
+        self.audience.encode(encoder)?;
+        self.next_sequence.encode(encoder)?;
+        self.last_authenticator.encode(encoder)
+    }
+}
+impl CanonicalDecode for PaymentApiReplayStateV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let caller = PrincipalId::decode(decoder)?;
+        let audience = Digest384::decode(decoder)?;
+        let next_sequence = u64::decode(decoder)?;
+        let last_authenticator = Option::<Digest384>::decode(decoder)?;
+        if caller.digest() == &Digest384::ZERO
+            || audience == Digest384::ZERO
+            || next_sequence == 0
+            || last_authenticator == Some(Digest384::ZERO)
+            || (next_sequence == 1 && last_authenticator.is_some())
+            || (next_sequence > 1 && last_authenticator.is_none())
+        {
+            return Err(DecodeError::InvalidValue("invalid payment API replay state"));
+        }
+        Ok(Self { caller, audience, next_sequence, last_authenticator })
+    }
+}
+impl CanonicalType for PaymentApiReplayStateV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = PAYMENT_SCHEMA_REVISION;
+    const MAX_ENCODED_LEN: usize = 48 * 2 + 8 + 1 + 48;
+}
+
 /// One bounded refund request against an exact finalized payment settlement.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PaymentRefundRequestV1 {
@@ -2420,6 +2636,94 @@ mod tests {
             build(digest(60), digest(61), 200, 200),
             Err(PaymentValidationError::InvalidValidity)
         );
+    }
+
+    fn api_authorization(
+        caller_byte: u8,
+        audience_byte: u8,
+        sequence: u64,
+        operation: PaymentApiOperation,
+    ) -> PaymentApiAuthorizationV1 {
+        PaymentApiAuthorizationV1::new(
+            principal(caller_byte),
+            digest(audience_byte),
+            operation,
+            digest(70),
+            digest(71),
+            Some(intent_id()),
+            sequence,
+            100,
+            200,
+            digest(72),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn api_authorization_round_trips_and_advances_exact_client_sequence() {
+        let authorization = api_authorization(2, 60, 1, PaymentApiOperation::CreateIntent);
+        assert_eq!(
+            decode_envelope::<PaymentApiAuthorizationV1>(&encode_envelope(&authorization).unwrap()),
+            Ok(authorization)
+        );
+        let state = PaymentApiReplayStateV1::new(principal(2), digest(60)).unwrap();
+        let state = state.authorize(&authorization, 100).unwrap();
+        assert_eq!(state.next_sequence(), 2);
+        assert_eq!(
+            decode_envelope::<PaymentApiReplayStateV1>(&encode_envelope(&state).unwrap()),
+            Ok(state)
+        );
+        let next = api_authorization(2, 60, 2, PaymentApiOperation::Status);
+        assert_eq!(state.authorize(&next, 150).unwrap().next_sequence(), 3);
+    }
+
+    #[test]
+    fn api_replay_state_rejects_replay_gap_cross_binding_and_expiry() {
+        let first = api_authorization(2, 60, 1, PaymentApiOperation::Quote);
+        let state = PaymentApiReplayStateV1::new(principal(2), digest(60)).unwrap();
+        let advanced = state.authorize(&first, 150).unwrap();
+        assert_eq!(advanced.authorize(&first, 150), Err(PaymentValidationError::InvalidSequence));
+        assert_eq!(
+            advanced.authorize(&api_authorization(2, 60, 3, PaymentApiOperation::Status), 150,),
+            Err(PaymentValidationError::InvalidSequence)
+        );
+        assert_eq!(
+            state.authorize(&api_authorization(3, 60, 1, PaymentApiOperation::Quote), 150,),
+            Err(PaymentValidationError::InvalidBinding)
+        );
+        assert_eq!(
+            state.authorize(&api_authorization(2, 61, 1, PaymentApiOperation::Quote), 150,),
+            Err(PaymentValidationError::InvalidBinding)
+        );
+        assert_eq!(state.authorize(&first, 200), Err(PaymentValidationError::InvalidValidity));
+        assert_ne!(
+            api_authorization(2, 60, 1, PaymentApiOperation::Quote),
+            api_authorization(2, 60, 1, PaymentApiOperation::Refund)
+        );
+    }
+
+    #[test]
+    fn api_authorization_rejects_zero_commitments_sequences_and_windows() {
+        let build = |audience, request, idempotency, sequence, issued_at, expires_at, auth| {
+            PaymentApiAuthorizationV1::new(
+                principal(2),
+                audience,
+                PaymentApiOperation::Quote,
+                request,
+                idempotency,
+                None,
+                sequence,
+                issued_at,
+                expires_at,
+                auth,
+            )
+        };
+        assert!(build(Digest384::ZERO, digest(2), digest(3), 1, 10, 20, digest(4)).is_err());
+        assert!(build(digest(1), Digest384::ZERO, digest(3), 1, 10, 20, digest(4)).is_err());
+        assert!(build(digest(1), digest(2), Digest384::ZERO, 1, 10, 20, digest(4)).is_err());
+        assert!(build(digest(1), digest(2), digest(3), 0, 10, 20, digest(4)).is_err());
+        assert!(build(digest(1), digest(2), digest(3), 1, 20, 20, digest(4)).is_err());
+        assert!(build(digest(1), digest(2), digest(3), 1, 10, 20, Digest384::ZERO).is_err());
     }
 
     #[test]
