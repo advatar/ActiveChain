@@ -4,7 +4,8 @@ use activechain_protocol_types::{
     FungibleAssetLifecycleAction, FungibleAssetLifecycleActionV1, FungibleAssetPolicyV1,
     FungibleCorporateActionKind, FungibleCorporateActionV1, FungibleIssuerApprovalV1,
     FungibleIssuerOperation, FungibleIssuerRegistrationV1, FungibleSupplyAttestationV1,
-    PrincipalId,
+    NonFungibleIssuerApprovalV1, NonFungibleMintItemV1, NonFungibleMintManifestV1,
+    NonFungibleSeriesV1, NonFungibleTokenRegistryV1, PrincipalId,
 };
 
 fn hex_digest(value: &str) -> Result<Digest384, String> {
@@ -60,7 +61,7 @@ fn corporate_action(value: &str) -> Result<FungibleCorporateActionKind, String> 
 }
 
 fn usage() -> &'static str {
-    "usage:\n  activechain-issuer definition <asset> <issuer> <symbol> <decimals> <supply-cap> <policy>\n  activechain-issuer policy <asset> <issuer> <authority-set> <cap> <issued>\n  activechain-issuer approval <asset> <policy> <authority-set> <approval> <operation> <amount> <supply-before> <effective-height> <expires-height>\n  activechain-issuer attestation <asset> <policy> <issuer> <supply> <finalized-height> <approval>\n  activechain-issuer registration <asset> <issuer> <authority-set> <policy> <effective-height> <expires-height>\n  activechain-issuer lifecycle <asset> <policy> <authority-set> <approval> <reason> <pause|resume|retire> <effective-height> <expires-height>\n  activechain-issuer corporate-action <asset> <issuer> <policy> <authority-set> <approval> <terms> <kind> <record-height> <effective-height> <expires-height> <amount-per-unit> <ratio-numerator> <ratio-denominator>\n  activechain-issuer dry-run-supply <policy-envelope> <approval-envelope> <finalized-height>"
+    "usage:\n  activechain-issuer definition <asset> <issuer> <symbol> <decimals> <supply-cap> <policy>\n  activechain-issuer policy <asset> <issuer> <authority-set> <cap> <issued>\n  activechain-issuer approval <asset> <policy> <authority-set> <approval> <operation> <amount> <supply-before> <effective-height> <expires-height>\n  activechain-issuer attestation <asset> <policy> <issuer> <supply> <finalized-height> <approval>\n  activechain-issuer registration <asset> <issuer> <authority-set> <policy> <effective-height> <expires-height>\n  activechain-issuer lifecycle <asset> <policy> <authority-set> <approval> <reason> <pause|resume|retire> <effective-height> <expires-height>\n  activechain-issuer corporate-action <asset> <issuer> <policy> <authority-set> <approval> <terms> <kind> <record-height> <effective-height> <expires-height> <amount-per-unit> <ratio-numerator> <ratio-denominator>\n  activechain-issuer dry-run-supply <policy-envelope> <approval-envelope> <finalized-height>\n  activechain-issuer nft-series <asset> <issuer> <max-supply> <minted> <metadata-schema>\n  activechain-issuer nft-registry <asset> [token-id ...]\n  activechain-issuer nft-manifest <asset> <issuer> (<token-id> <owner> <metadata>)+\n  activechain-issuer nft-approval <series-envelope> <authority-set> <approval> <manifest-envelope> <effective-height> <expires-height>\n  activechain-issuer dry-run-nft <series-envelope> <registry-envelope> <authority-set> <approval-envelope> <manifest-envelope> <finalized-height>"
 }
 
 fn hex_bytes(bytes: &[u8]) -> String {
@@ -209,6 +210,93 @@ fn run(args: &[String]) -> Result<String, String> {
             .map_err(|_| "issuer supply dry-run rejected")?;
             Ok(hex_bytes(&encode_envelope(&next).map_err(|_| "next policy encoding failed")?))
         }
+        Some("nft-series") if args.len() == 6 => {
+            let series = NonFungibleSeriesV1::new(
+                AssetId::new(hex_digest(&args[1])?),
+                PrincipalId::new(hex_digest(&args[2])?),
+                args[3].parse().map_err(|_| "max-supply must be an unsigned integer")?,
+                args[4].parse().map_err(|_| "minted must be an unsigned integer")?,
+                hex_digest(&args[5])?,
+            )
+            .map_err(|_| "invalid NFT series values")?;
+            Ok(hex_bytes(&encode_envelope(&series).map_err(|_| "NFT series encoding failed")?))
+        }
+        Some("nft-registry") if args.len() >= 2 => {
+            let token_ids =
+                args[2..].iter().map(|value| hex_digest(value)).collect::<Result<Vec<_>, _>>()?;
+            let registry =
+                NonFungibleTokenRegistryV1::new(AssetId::new(hex_digest(&args[1])?), token_ids)
+                    .map_err(|_| "invalid NFT registry values")?;
+            Ok(hex_bytes(&encode_envelope(&registry).map_err(|_| "NFT registry encoding failed")?))
+        }
+        Some("nft-manifest") if args.len() >= 6 && (args.len() - 3) % 3 == 0 => {
+            let mut items = Vec::with_capacity((args.len() - 3) / 3);
+            for values in args[3..].chunks_exact(3) {
+                items.push(
+                    NonFungibleMintItemV1::new(
+                        hex_digest(&values[0])?,
+                        PrincipalId::new(hex_digest(&values[1])?),
+                        hex_digest(&values[2])?,
+                    )
+                    .map_err(|_| "invalid NFT mint item")?,
+                );
+            }
+            let manifest = NonFungibleMintManifestV1::new(
+                AssetId::new(hex_digest(&args[1])?),
+                PrincipalId::new(hex_digest(&args[2])?),
+                items,
+            )
+            .map_err(|_| "invalid NFT mint manifest")?;
+            Ok(hex_bytes(&encode_envelope(&manifest).map_err(|_| "NFT manifest encoding failed")?))
+        }
+        Some("nft-approval") if args.len() == 7 => {
+            let series: NonFungibleSeriesV1 = envelope(&args[1], "NFT series")?;
+            let manifest: NonFungibleMintManifestV1 = envelope(&args[4], "NFT manifest")?;
+            let approval = NonFungibleIssuerApprovalV1::new(
+                series.asset_id(),
+                series.issuer(),
+                hex_digest(&args[2])?,
+                series.commitment().map_err(|_| "NFT series encoding failed")?,
+                hex_digest(&args[3])?,
+                manifest.commitment().map_err(|_| "NFT manifest encoding failed")?,
+                u64::try_from(manifest.item_count())
+                    .map_err(|_| "NFT manifest count is too large")?,
+                series.minted(),
+                args[5].parse().map_err(|_| "effective-height must be an unsigned integer")?,
+                args[6].parse().map_err(|_| "expires-height must be an unsigned integer")?,
+            )
+            .map_err(|_| "invalid NFT approval values")?;
+            Ok(hex_bytes(&encode_envelope(&approval).map_err(|_| "NFT approval encoding failed")?))
+        }
+        Some("dry-run-nft") if args.len() == 7 => {
+            let series: NonFungibleSeriesV1 = envelope(&args[1], "NFT series")?;
+            let registry: NonFungibleTokenRegistryV1 = envelope(&args[2], "NFT registry")?;
+            let approval: NonFungibleIssuerApprovalV1 = envelope(&args[4], "NFT approval")?;
+            let manifest: NonFungibleMintManifestV1 = envelope(&args[5], "NFT manifest")?;
+            let height =
+                args[6].parse().map_err(|_| "finalized-height must be an unsigned integer")?;
+            let (next_series, next_registry, _) = registry
+                .apply_approved_mint(
+                    &series,
+                    series.issuer(),
+                    hex_digest(&args[3])?,
+                    &approval,
+                    &manifest,
+                    height,
+                )
+                .map_err(|_| "issuer NFT dry-run rejected")?;
+            Ok(format!(
+                "{}:{}",
+                hex_bytes(
+                    &encode_envelope(&next_series)
+                        .map_err(|_| "next NFT series encoding failed")?
+                ),
+                hex_bytes(
+                    &encode_envelope(&next_registry)
+                        .map_err(|_| "next NFT registry encoding failed")?
+                )
+            ))
+        }
         _ => Err(usage().into()),
     }
 }
@@ -230,6 +318,10 @@ mod tests {
 
     fn d() -> String {
         "11".repeat(48)
+    }
+
+    fn h(byte: u8) -> String {
+        format!("{byte:02x}").repeat(48)
     }
 
     #[test]
@@ -417,5 +509,73 @@ mod tests {
         let mut malformed = valid;
         malformed[2] = "abc".into();
         assert!(run(&malformed).unwrap_err().contains("even number"));
+    }
+
+    #[test]
+    fn nft_cli_builds_and_dry_runs_exact_manifest() {
+        let asset = h(1);
+        let issuer = h(2);
+        let authority = h(3);
+        let series_hex = run(&[
+            "nft-series".into(),
+            asset.clone(),
+            issuer.clone(),
+            "5".into(),
+            "0".into(),
+            h(4),
+        ])
+        .unwrap();
+        let registry_hex = run(&["nft-registry".into(), asset.clone()]).unwrap();
+        let manifest_hex =
+            run(&["nft-manifest".into(), asset, issuer, h(10), h(20), h(30), h(11), h(21), h(31)])
+                .unwrap();
+        let approval_hex = run(&[
+            "nft-approval".into(),
+            series_hex.clone(),
+            authority.clone(),
+            h(40),
+            manifest_hex.clone(),
+            "10".into(),
+            "20".into(),
+        ])
+        .unwrap();
+        let output = run(&[
+            "dry-run-nft".into(),
+            series_hex,
+            registry_hex,
+            authority,
+            approval_hex,
+            manifest_hex,
+            "10".into(),
+        ])
+        .unwrap();
+        let (series, registry) = output.split_once(':').unwrap();
+        assert_eq!(envelope::<NonFungibleSeriesV1>(series, "series").unwrap().minted(), 2);
+        assert!(envelope::<NonFungibleTokenRegistryV1>(registry, "registry").is_ok());
+    }
+
+    #[test]
+    fn nft_cli_rejects_duplicate_ids_and_stale_dry_run() {
+        let duplicate =
+            vec!["nft-manifest".into(), h(1), h(2), h(10), h(20), h(30), h(10), h(21), h(31)];
+        assert_eq!(run(&duplicate), Err("invalid NFT mint manifest".into()));
+
+        let series = run(&["nft-series".into(), h(1), h(2), "1".into(), "0".into(), h(4)]).unwrap();
+        let registry = run(&["nft-registry".into(), h(1)]).unwrap();
+        let manifest = run(&["nft-manifest".into(), h(1), h(2), h(10), h(20), h(30)]).unwrap();
+        let approval = run(&[
+            "nft-approval".into(),
+            series.clone(),
+            h(3),
+            h(40),
+            manifest.clone(),
+            "10".into(),
+            "20".into(),
+        ])
+        .unwrap();
+        assert_eq!(
+            run(&["dry-run-nft".into(), series, registry, h(3), approval, manifest, "20".into(),]),
+            Err("issuer NFT dry-run rejected".into())
+        );
     }
 }
