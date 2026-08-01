@@ -89,7 +89,7 @@ pub use credential::{
     CREDENTIAL_FORMAT_VERSION, Credential, CredentialAcceptancePolicy, CredentialAssuranceClassV1,
     CredentialPredicateKind, CredentialPredicateV1, CredentialStatement, CredentialStatusRegistry,
     CredentialValidationError, MAX_ACCEPTED_CREDENTIAL_ISSUERS, MAX_ACCEPTED_CREDENTIAL_SCHEMAS,
-    TlsCredentialEvidenceV1, VcIssuerFormatV1, VcIssuerPresentationV1,
+    ProofOfFundsPredicateV1, TlsCredentialEvidenceV1, VcIssuerFormatV1, VcIssuerPresentationV1,
 };
 pub use crypto::{
     AuthenticatorDescriptor, AuthenticatorPurpose, AuthenticatorValidationError, CryptoFamily,
