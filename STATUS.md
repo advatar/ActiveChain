@@ -1098,14 +1098,16 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
 
 Tracked by [GitHub issue #165](https://github.com/advatar/ActiveChain/issues/165).
 
-- [ ] Accept EUDI Wallet/OpenID4VP and supported VC presentations through a versioned verifier.
+- [x] Accept bounded OpenID4VP-derived SD-JWT VC and mdoc presentations through separate,
+  versioned external verifier adapters with a closed format/profile allowlist.
 - [x] Reject credential-status registries with zero registry, issuer, schema, root, or sequence
   identities before status/freshness admission.
-- [ ] Bind minimal selective-disclosure and ZK attribute proofs to asset, action, audience, nonce,
+- [x] Bind minimal selective-disclosure and ZK attribute proofs to asset, action, audience, nonce,
   policy revision, holder key, expiry, and finalized credential-status evidence.
-- [ ] Compose asset-specific identity policies with APL and authorization without global KYC.
-- [ ] Add consent/disclosure UX, issuer policy tooling, interoperability vectors, privacy analysis,
-  replay/correlation tests, and independent audit gates.
+- [x] Compose asset-specific identity policies with APL and authorization without global KYC.
+- [x] Add wallet consent/disclosure controls, pinned issuer/profile policy tooling,
+  cross-repository interoperability vectors, privacy analysis, and replay/correlation tests.
+- [ ] Complete independent interoperability, privacy, and security review gates.
 
 ## Active integration — TLS evidence, wallet credentials, and ZK predicates
 
