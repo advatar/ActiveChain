@@ -69,6 +69,8 @@ payment_identifier!(RailId, "An operator-registered collection or payout rail.")
 payment_identifier!(TreasuryId, "A native merchant treasury object identifier.");
 payment_identifier!(PaymentRefundId, "One exact refund request under a finalized payment.");
 payment_identifier!(PaymentDisputeId, "One exact dispute under a finalized payment.");
+payment_identifier!(PaymentWebhookSubscriptionId, "One authenticated webhook subscription.");
+payment_identifier!(PaymentWebhookEventId, "One immutable webhook delivery event.");
 
 /// A validation failure for a canonical payment value or lifecycle transition.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -951,6 +953,189 @@ impl CanonicalType for PaymentLifecycleRecordV1 {
     const TYPE_TAG: u16 = 0x013f;
     const SCHEMA_VERSION: u16 = PAYMENT_SCHEMA_REVISION;
     const MAX_ENCODED_LEN: usize = 264;
+}
+
+/// One bounded delivery of an exact lifecycle record to an authenticated subscriber.
+///
+/// The signing transcript authenticates transport delivery only. It never changes the embedded
+/// record's evidence class or promotes external evidence to ActiveChain finality.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PaymentWebhookEventV1 {
+    subscription: PaymentWebhookSubscriptionId,
+    event: PaymentWebhookEventId,
+    record: PaymentLifecycleRecordV1,
+    payload_commitment: Digest384,
+    signing_transcript_commitment: Digest384,
+    emitted_at: u64,
+    expires_at: u64,
+}
+
+impl PaymentWebhookEventV1 {
+    pub const TYPE_TAG: u16 = 0x0168;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        subscription: PaymentWebhookSubscriptionId,
+        event: PaymentWebhookEventId,
+        record: PaymentLifecycleRecordV1,
+        payload_commitment: Digest384,
+        signing_transcript_commitment: Digest384,
+        emitted_at: u64,
+        expires_at: u64,
+    ) -> Result<Self, PaymentValidationError> {
+        if payload_commitment == Digest384::ZERO || signing_transcript_commitment == Digest384::ZERO
+        {
+            return Err(PaymentValidationError::InvalidBinding);
+        }
+        if emitted_at >= expires_at {
+            return Err(PaymentValidationError::InvalidValidity);
+        }
+        Ok(Self {
+            subscription,
+            event,
+            record,
+            payload_commitment,
+            signing_transcript_commitment,
+            emitted_at,
+            expires_at,
+        })
+    }
+
+    #[must_use]
+    pub const fn subscription(&self) -> PaymentWebhookSubscriptionId {
+        self.subscription
+    }
+
+    #[must_use]
+    pub const fn event(&self) -> PaymentWebhookEventId {
+        self.event
+    }
+
+    #[must_use]
+    pub const fn intent(&self) -> PaymentIntentId {
+        self.record.intent()
+    }
+
+    #[must_use]
+    pub const fn sequence(&self) -> u64 {
+        self.record.sequence()
+    }
+
+    #[must_use]
+    pub const fn evidence_class(&self) -> EvidenceClass {
+        self.record.evidence_class()
+    }
+
+    #[must_use]
+    pub const fn active_at(&self, timestamp: u64) -> bool {
+        timestamp >= self.emitted_at && timestamp < self.expires_at
+    }
+}
+
+impl CanonicalEncode for PaymentWebhookEventV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.subscription.encode(encoder)?;
+        self.event.encode(encoder)?;
+        self.record.encode(encoder)?;
+        self.payload_commitment.encode(encoder)?;
+        self.signing_transcript_commitment.encode(encoder)?;
+        self.emitted_at.encode(encoder)?;
+        self.expires_at.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for PaymentWebhookEventV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            PaymentWebhookSubscriptionId::decode(decoder)?,
+            PaymentWebhookEventId::decode(decoder)?,
+            PaymentLifecycleRecordV1::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid payment webhook event"))
+    }
+}
+
+impl CanonicalType for PaymentWebhookEventV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = PAYMENT_SCHEMA_REVISION;
+    const MAX_ENCODED_LEN: usize = 48 * 4 + PaymentLifecycleRecordV1::MAX_ENCODED_LEN + 8 * 2;
+}
+
+/// Durable subscriber progress requiring each lifecycle sequence exactly once and in order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PaymentWebhookCursorV1 {
+    subscription: PaymentWebhookSubscriptionId,
+    intent: PaymentIntentId,
+    next_sequence: u64,
+    last_event: Option<PaymentWebhookEventId>,
+}
+
+impl PaymentWebhookCursorV1 {
+    pub const TYPE_TAG: u16 = 0x0169;
+
+    #[must_use]
+    pub const fn new(subscription: PaymentWebhookSubscriptionId, intent: PaymentIntentId) -> Self {
+        Self { subscription, intent, next_sequence: 1, last_event: None }
+    }
+
+    #[must_use]
+    pub const fn next_sequence(&self) -> u64 {
+        self.next_sequence
+    }
+
+    pub fn advance(
+        &self,
+        event: &PaymentWebhookEventV1,
+        timestamp: u64,
+    ) -> Result<Self, PaymentValidationError> {
+        if event.subscription() != self.subscription || event.intent() != self.intent {
+            return Err(PaymentValidationError::InvalidBinding);
+        }
+        if event.sequence() != self.next_sequence {
+            return Err(PaymentValidationError::InvalidSequence);
+        }
+        if !event.active_at(timestamp) {
+            return Err(PaymentValidationError::InvalidValidity);
+        }
+        let next_sequence =
+            self.next_sequence.checked_add(1).ok_or(PaymentValidationError::InvalidSequence)?;
+        Ok(Self { next_sequence, last_event: Some(event.event()), ..self.clone() })
+    }
+}
+
+impl CanonicalEncode for PaymentWebhookCursorV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.subscription.encode(encoder)?;
+        self.intent.encode(encoder)?;
+        self.next_sequence.encode(encoder)?;
+        self.last_event.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for PaymentWebhookCursorV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let subscription = PaymentWebhookSubscriptionId::decode(decoder)?;
+        let intent = PaymentIntentId::decode(decoder)?;
+        let next_sequence = u64::decode(decoder)?;
+        let last_event = Option::<PaymentWebhookEventId>::decode(decoder)?;
+        if next_sequence == 0
+            || (next_sequence == 1 && last_event.is_some())
+            || (next_sequence > 1 && last_event.is_none())
+        {
+            return Err(DecodeError::InvalidValue("invalid payment webhook cursor"));
+        }
+        Ok(Self { subscription, intent, next_sequence, last_event })
+    }
+}
+
+impl CanonicalType for PaymentWebhookCursorV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = PAYMENT_SCHEMA_REVISION;
+    const MAX_ENCODED_LEN: usize = 48 * 2 + 8 + 1 + 48;
 }
 
 /// One bounded refund request against an exact finalized payment settlement.
@@ -2098,6 +2283,132 @@ mod tests {
         assert_eq!(
             created.validate_successor(&retry),
             Err(PaymentValidationError::InvalidSequence)
+        );
+    }
+
+    fn webhook_event(
+        subscription_byte: u8,
+        event_byte: u8,
+        record: PaymentLifecycleRecordV1,
+        emitted_at: u64,
+        expires_at: u64,
+    ) -> PaymentWebhookEventV1 {
+        PaymentWebhookEventV1::new(
+            PaymentWebhookSubscriptionId::new(digest(subscription_byte)).unwrap(),
+            PaymentWebhookEventId::new(digest(event_byte)).unwrap(),
+            record,
+            digest(60),
+            digest(61),
+            emitted_at,
+            expires_at,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn webhook_cursor_round_trips_and_advances_exact_sequences() {
+        let subscription = PaymentWebhookSubscriptionId::new(digest(50)).unwrap();
+        let cursor = PaymentWebhookCursorV1::new(subscription, intent_id());
+        let created = PaymentLifecycleRecordV1::created(intent_id(), digest(19)).unwrap();
+        let first = webhook_event(50, 51, created, 100, 200);
+        assert_eq!(first.evidence_class(), EvidenceClass::UntrustedClientReport);
+        assert_eq!(
+            decode_envelope::<PaymentWebhookEventV1>(&encode_envelope(&first).unwrap()).unwrap(),
+            first
+        );
+
+        let cursor = cursor.advance(&first, 100).unwrap();
+        assert_eq!(cursor.next_sequence(), 2);
+        assert_eq!(
+            decode_envelope::<PaymentWebhookCursorV1>(&encode_envelope(&cursor).unwrap()).unwrap(),
+            cursor
+        );
+
+        let pending = PaymentLifecycleRecordV1::new(
+            intent_id(),
+            2,
+            PaymentState::AwaitingPayer,
+            EvidenceClass::ConnectorAuthenticated,
+            digest(20),
+            None,
+            0,
+            None,
+            0,
+        )
+        .unwrap();
+        let second = webhook_event(50, 52, pending, 110, 210);
+        assert_eq!(cursor.advance(&second, 150).unwrap().next_sequence(), 3);
+    }
+
+    #[test]
+    fn webhook_cursor_rejects_replay_gaps_cross_binding_and_expiry() {
+        let subscription = PaymentWebhookSubscriptionId::new(digest(50)).unwrap();
+        let cursor = PaymentWebhookCursorV1::new(subscription, intent_id());
+        let first = webhook_event(
+            50,
+            51,
+            PaymentLifecycleRecordV1::created(intent_id(), digest(19)).unwrap(),
+            100,
+            200,
+        );
+        let advanced = cursor.advance(&first, 150).unwrap();
+        assert_eq!(advanced.advance(&first, 150), Err(PaymentValidationError::InvalidSequence));
+        assert_eq!(cursor.advance(&first, 200), Err(PaymentValidationError::InvalidValidity));
+
+        let gap = PaymentLifecycleRecordV1::new(
+            intent_id(),
+            3,
+            PaymentState::ProviderPending,
+            EvidenceClass::ProviderSigned,
+            digest(21),
+            None,
+            0,
+            None,
+            0,
+        )
+        .unwrap();
+        assert_eq!(
+            advanced.advance(&webhook_event(50, 53, gap, 100, 200), 150),
+            Err(PaymentValidationError::InvalidSequence)
+        );
+        assert_eq!(
+            cursor.advance(&webhook_event(49, 54, first.record.clone(), 100, 200), 150),
+            Err(PaymentValidationError::InvalidBinding)
+        );
+
+        let other_intent = PaymentIntentId::new(digest(11)).unwrap();
+        let other_record = PaymentLifecycleRecordV1::created(other_intent, digest(22)).unwrap();
+        assert_eq!(
+            cursor.advance(&webhook_event(50, 55, other_record, 100, 200), 150),
+            Err(PaymentValidationError::InvalidBinding)
+        );
+    }
+
+    #[test]
+    fn webhook_event_rejects_empty_commitments_and_invalid_windows() {
+        let record = PaymentLifecycleRecordV1::created(intent_id(), digest(19)).unwrap();
+        let build = |payload, transcript, emitted_at, expires_at| {
+            PaymentWebhookEventV1::new(
+                PaymentWebhookSubscriptionId::new(digest(50)).unwrap(),
+                PaymentWebhookEventId::new(digest(51)).unwrap(),
+                record.clone(),
+                payload,
+                transcript,
+                emitted_at,
+                expires_at,
+            )
+        };
+        assert_eq!(
+            build(Digest384::ZERO, digest(61), 100, 200),
+            Err(PaymentValidationError::InvalidBinding)
+        );
+        assert_eq!(
+            build(digest(60), Digest384::ZERO, 100, 200),
+            Err(PaymentValidationError::InvalidBinding)
+        );
+        assert_eq!(
+            build(digest(60), digest(61), 200, 200),
+            Err(PaymentValidationError::InvalidValidity)
         );
     }
 

@@ -1007,6 +1007,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
   strictly distinct from ActiveChain-finalized settlement.
 - [x] Add canonical treasury debit policy and exact-once payout/conversion/refund/fee/settlement
   authorization with operator, asset, ceiling, period-budget, nonce, and expiry controls.
+- [x] Add canonical webhook events and exact-sequence subscriber cursors that reject duplicate,
+  skipped, cross-subscription, cross-intent, and expired delivery without promoting evidence.
 
 ## Active EUDI/TLSNotary/ZK qualification
 
