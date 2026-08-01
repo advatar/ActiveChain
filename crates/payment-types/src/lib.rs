@@ -7,10 +7,18 @@
 //! mutation, or consensus integration. It freezes the canonical values shared by those later
 //! layers and keeps external observations distinct from finalized ActiveChain evidence.
 
+extern crate alloc;
+
+use alloc::vec::Vec;
+
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
 use activechain_protocol_types::{AssetId, ChainId, Digest384, PrincipalId, TransactionId};
+use sha3::{
+    Shake256,
+    digest::{ExtendableOutput, Update, XofReader},
+};
 
 /// ActiveBridge schema revision implemented by this crate.
 pub const PAYMENT_SCHEMA_REVISION: u16 = 1;
@@ -1502,6 +1510,296 @@ impl CanonicalType for PaymentDisputeRecordV1 {
     const MAX_ENCODED_LEN: usize = 312;
 }
 
+pub const MAX_TREASURY_OPERATORS: usize = 64;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum TreasuryDebitKind {
+    Payout = 0,
+    Conversion = 1,
+    Refund = 2,
+    Fee = 3,
+    Settlement = 4,
+}
+
+impl CanonicalEncode for TreasuryDebitKind {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(encoder)
+    }
+}
+
+impl CanonicalDecode for TreasuryDebitKind {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(decoder)? {
+            0 => Ok(Self::Payout),
+            1 => Ok(Self::Conversion),
+            2 => Ok(Self::Refund),
+            3 => Ok(Self::Fee),
+            4 => Ok(Self::Settlement),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "TreasuryDebitKind", tag }),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TreasuryDebitPolicyV1 {
+    treasury: TreasuryId,
+    owner: PrincipalId,
+    operators: Vec<PrincipalId>,
+    asset: AssetId,
+    maximum_operation_units: u128,
+    period_budget_units: u128,
+    spent_units: u128,
+    period: u64,
+    next_nonce: u64,
+    expires_at: u64,
+}
+
+impl TreasuryDebitPolicyV1 {
+    pub const TYPE_TAG: u16 = 0x0166;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        treasury: TreasuryId,
+        owner: PrincipalId,
+        operators: Vec<PrincipalId>,
+        asset: AssetId,
+        maximum_operation_units: u128,
+        period_budget_units: u128,
+        spent_units: u128,
+        period: u64,
+        next_nonce: u64,
+        expires_at: u64,
+    ) -> Result<Self, PaymentValidationError> {
+        if owner.digest() == &Digest384::ZERO
+            || asset.digest() == &Digest384::ZERO
+            || operators.is_empty()
+            || operators.len() > MAX_TREASURY_OPERATORS
+            || operators.iter().any(|operator| operator.digest() == &Digest384::ZERO)
+            || operators.windows(2).any(|pair| pair[0] >= pair[1])
+            || maximum_operation_units == 0
+            || period_budget_units == 0
+            || spent_units > period_budget_units
+            || expires_at == 0
+        {
+            return Err(PaymentValidationError::InvalidBinding);
+        }
+        Ok(Self {
+            treasury,
+            owner,
+            operators,
+            asset,
+            maximum_operation_units,
+            period_budget_units,
+            spent_units,
+            period,
+            next_nonce,
+            expires_at,
+        })
+    }
+
+    pub fn commitment(&self) -> Result<Digest384, PaymentValidationError> {
+        let bytes = activechain_canonical_codec::encode_envelope(self)
+            .map_err(|_| PaymentValidationError::InvalidBinding)?;
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-ACTIVEBRIDGE-TREASURY-POLICY-V1");
+        hasher.update(&bytes);
+        let mut output = [0_u8; 48];
+        hasher.finalize_xof().read(&mut output);
+        Ok(Digest384::new(output))
+    }
+
+    pub const fn spent_units(&self) -> u128 {
+        self.spent_units
+    }
+
+    pub const fn next_nonce(&self) -> u64 {
+        self.next_nonce
+    }
+
+    pub fn authorize(
+        &self,
+        request: &TreasuryDebitRequestV1,
+        timestamp: u64,
+    ) -> Result<Self, PaymentValidationError> {
+        if request.treasury != self.treasury
+            || self.operators.binary_search(&request.operator).is_err()
+            || request.amount.asset() != self.asset
+            || request.amount.atomic_units() > self.maximum_operation_units
+            || request.policy_commitment != self.commitment()?
+            || request.expected_spent_units != self.spent_units
+            || request.period != self.period
+            || request.nonce != self.next_nonce
+            || timestamp >= request.expires_at
+            || request.expires_at > self.expires_at
+        {
+            return Err(PaymentValidationError::InvalidBinding);
+        }
+        let spent_units = self
+            .spent_units
+            .checked_add(request.amount.atomic_units())
+            .ok_or(PaymentValidationError::InvalidAmountBound)?;
+        if spent_units > self.period_budget_units {
+            return Err(PaymentValidationError::InvalidAmountBound);
+        }
+        let next_nonce =
+            self.next_nonce.checked_add(1).ok_or(PaymentValidationError::InvalidSequence)?;
+        Ok(Self { spent_units, next_nonce, ..self.clone() })
+    }
+}
+
+impl CanonicalEncode for TreasuryDebitPolicyV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.treasury.encode(encoder)?;
+        self.owner.encode(encoder)?;
+        encoder.write_length(self.operators.len(), MAX_TREASURY_OPERATORS)?;
+        for operator in &self.operators {
+            operator.encode(encoder)?;
+        }
+        self.asset.encode(encoder)?;
+        self.maximum_operation_units.encode(encoder)?;
+        self.period_budget_units.encode(encoder)?;
+        self.spent_units.encode(encoder)?;
+        self.period.encode(encoder)?;
+        self.next_nonce.encode(encoder)?;
+        self.expires_at.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for TreasuryDebitPolicyV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let treasury = TreasuryId::decode(decoder)?;
+        let owner = PrincipalId::decode(decoder)?;
+        let count = decoder.read_length(MAX_TREASURY_OPERATORS)?;
+        let mut operators = Vec::with_capacity(count);
+        for _ in 0..count {
+            operators.push(PrincipalId::decode(decoder)?);
+        }
+        Self::new(
+            treasury,
+            owner,
+            operators,
+            AssetId::decode(decoder)?,
+            u128::decode(decoder)?,
+            u128::decode(decoder)?,
+            u128::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid treasury debit policy"))
+    }
+}
+
+impl CanonicalType for TreasuryDebitPolicyV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = PAYMENT_SCHEMA_REVISION;
+    const MAX_ENCODED_LEN: usize = 48 * 3 + 2 + MAX_TREASURY_OPERATORS * 48 + 16 * 3 + 8 * 3;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TreasuryDebitRequestV1 {
+    treasury: TreasuryId,
+    operator: PrincipalId,
+    kind: TreasuryDebitKind,
+    amount: AssetAmountV1,
+    destination_commitment: Digest384,
+    quote_context_commitment: Digest384,
+    approval_commitment: Digest384,
+    policy_commitment: Digest384,
+    expected_spent_units: u128,
+    period: u64,
+    nonce: u64,
+    expires_at: u64,
+}
+
+impl TreasuryDebitRequestV1 {
+    pub const TYPE_TAG: u16 = 0x0167;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        treasury: TreasuryId,
+        operator: PrincipalId,
+        kind: TreasuryDebitKind,
+        amount: AssetAmountV1,
+        destination_commitment: Digest384,
+        quote_context_commitment: Digest384,
+        approval_commitment: Digest384,
+        policy_commitment: Digest384,
+        expected_spent_units: u128,
+        period: u64,
+        nonce: u64,
+        expires_at: u64,
+    ) -> Result<Self, PaymentValidationError> {
+        if operator.digest() == &Digest384::ZERO
+            || destination_commitment == Digest384::ZERO
+            || quote_context_commitment == Digest384::ZERO
+            || approval_commitment == Digest384::ZERO
+            || policy_commitment == Digest384::ZERO
+            || expires_at == 0
+        {
+            return Err(PaymentValidationError::InvalidBinding);
+        }
+        Ok(Self {
+            treasury,
+            operator,
+            kind,
+            amount,
+            destination_commitment,
+            quote_context_commitment,
+            approval_commitment,
+            policy_commitment,
+            expected_spent_units,
+            period,
+            nonce,
+            expires_at,
+        })
+    }
+}
+
+impl CanonicalEncode for TreasuryDebitRequestV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.treasury.encode(encoder)?;
+        self.operator.encode(encoder)?;
+        self.kind.encode(encoder)?;
+        self.amount.encode(encoder)?;
+        self.destination_commitment.encode(encoder)?;
+        self.quote_context_commitment.encode(encoder)?;
+        self.approval_commitment.encode(encoder)?;
+        self.policy_commitment.encode(encoder)?;
+        self.expected_spent_units.encode(encoder)?;
+        self.period.encode(encoder)?;
+        self.nonce.encode(encoder)?;
+        self.expires_at.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for TreasuryDebitRequestV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            TreasuryId::decode(decoder)?,
+            PrincipalId::decode(decoder)?,
+            TreasuryDebitKind::decode(decoder)?,
+            AssetAmountV1::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            u128::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid treasury debit request"))
+    }
+}
+
+impl CanonicalType for TreasuryDebitRequestV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = PAYMENT_SCHEMA_REVISION;
+    const MAX_ENCODED_LEN: usize = 48 * 6 + 64 + 1 + 16 + 8 * 3;
+}
+
 /// Durable binding from a caller's idempotency key to one exact request and operation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IdempotencyBindingV1 {
@@ -1596,6 +1894,7 @@ mod tests {
 
     use super::*;
     use activechain_canonical_codec::{decode_envelope, encode_envelope};
+    use alloc::vec;
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
@@ -2118,6 +2417,103 @@ mod tests {
         assert_eq!(
             opened.validate_successor(&finalized),
             Err(PaymentValidationError::InvalidTransition)
+        );
+    }
+
+    fn treasury_policy(spent: u128) -> TreasuryDebitPolicyV1 {
+        TreasuryDebitPolicyV1::new(
+            TreasuryId::new(digest(70)).unwrap(),
+            principal(71),
+            vec![principal(72), principal(73)],
+            asset(12),
+            100,
+            1_000,
+            spent,
+            9,
+            4,
+            1_000,
+        )
+        .unwrap()
+    }
+
+    fn treasury_request(
+        policy: &TreasuryDebitPolicyV1,
+        operator: PrincipalId,
+        units: u128,
+    ) -> TreasuryDebitRequestV1 {
+        TreasuryDebitRequestV1::new(
+            TreasuryId::new(digest(70)).unwrap(),
+            operator,
+            TreasuryDebitKind::Payout,
+            amount(12, units),
+            digest(74),
+            digest(75),
+            digest(76),
+            policy.commitment().unwrap(),
+            policy.spent_units(),
+            9,
+            policy.next_nonce(),
+            900,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn treasury_debit_advances_exact_budget_and_nonce_canonically() {
+        let policy = treasury_policy(200);
+        assert_eq!(
+            decode_envelope::<TreasuryDebitPolicyV1>(&encode_envelope(&policy).unwrap()),
+            Ok(policy.clone())
+        );
+        let request = treasury_request(&policy, principal(72), 80);
+        assert_eq!(
+            decode_envelope::<TreasuryDebitRequestV1>(&encode_envelope(&request).unwrap()),
+            Ok(request.clone())
+        );
+        let next = policy.authorize(&request, 800).unwrap();
+        assert_eq!(next.spent_units(), 280);
+        assert_eq!(next.next_nonce(), 5);
+        assert_eq!(next.authorize(&request, 800), Err(PaymentValidationError::InvalidBinding));
+    }
+
+    #[test]
+    fn treasury_debit_rejects_operator_asset_ceiling_expiry_and_period_overrun() {
+        let policy = treasury_policy(200);
+        assert_eq!(
+            policy.authorize(&treasury_request(&policy, principal(74), 80), 800),
+            Err(PaymentValidationError::InvalidBinding)
+        );
+        assert_eq!(
+            policy.authorize(&treasury_request(&policy, principal(72), 101), 800),
+            Err(PaymentValidationError::InvalidBinding)
+        );
+        assert_eq!(
+            policy.authorize(&treasury_request(&policy, principal(72), 80), 901),
+            Err(PaymentValidationError::InvalidBinding)
+        );
+        let nearly_spent = treasury_policy(950);
+        assert_eq!(
+            nearly_spent.authorize(&treasury_request(&nearly_spent, principal(72), 80), 800),
+            Err(PaymentValidationError::InvalidAmountBound)
+        );
+        let wrong_asset = TreasuryDebitRequestV1::new(
+            TreasuryId::new(digest(70)).unwrap(),
+            principal(72),
+            TreasuryDebitKind::Conversion,
+            amount(13, 80),
+            digest(74),
+            digest(75),
+            digest(76),
+            policy.commitment().unwrap(),
+            policy.spent_units(),
+            9,
+            policy.next_nonce(),
+            900,
+        )
+        .unwrap();
+        assert_eq!(
+            policy.authorize(&wrong_asset, 800),
+            Err(PaymentValidationError::InvalidBinding)
         );
     }
 
