@@ -83,7 +83,7 @@ Tracked by [GitHub issue #401](https://github.com/advatar/ActiveChain/issues/401
 
 - [x] Reconcile the published per-version active canonical identity counts with the registry after
   merged protocol additions, without changing the approved staffing ranges or release gates.
-- [x] Reconcile the Apple compatibility manifest and C/Swift consumers with wallet ABI revision 3.
+- [x] Reconcile the Apple compatibility manifest and C/Swift consumers with wallet ABI revision 4.
 - [x] Give each authorization-chain lemma a bounded 15-minute proof window so normal ARM64 runner
   variance cannot kill a valid source-saturation proof at the old 10-minute limit.
 - [x] Pass the deterministic-kernel gate and merge the repair to `main`; merge commit `28fab4a` is
@@ -1131,6 +1131,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
     supply attestations, corporate actions, and settlement receipts.
   - [x] Expose NFT series supply and minted-token registries as exact-type, finalized
     object-membership RPC records while keeping unsupported NFT Coin Cell proofs fail closed.
+  - [x] Verify NFT series and token-registry records locally through the versioned wallet ABI,
+    binding exact query kind, canonical value, finalized membership, height, and trusted genesis.
 - [ ] Ship native issuer CLI and console workflows with threshold approval and recovery.
 - [x] Ship a deterministic issuer CLI for policy commitments and threshold-approval envelopes;
   malformed hex, operations, amounts, and validity windows fail closed.

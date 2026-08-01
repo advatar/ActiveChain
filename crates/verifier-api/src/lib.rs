@@ -10,11 +10,12 @@ use activechain_canonical_codec::{
 };
 use activechain_cash_kernel::{CoinCellMembershipProof, CoinCellRecord};
 use activechain_devnet_kernel::BlockReceipt;
-use activechain_finality_types::FinalityCertificateBundle;
+use activechain_finality_types::{FinalityCertificateBundle, commit_parts};
 use activechain_policy_kernel::PolicyDecision;
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
-    CapabilityGrant, Digest384, INITIAL_PROTOCOL_REVISION, Object, ObjectId, Principal, PrincipalId,
+    CapabilityGrant, Digest384, INITIAL_PROTOCOL_REVISION, NonFungibleSeriesV1,
+    NonFungibleTokenRegistryV1, Object, ObjectId, Principal, PrincipalId,
 };
 use activechain_state_tree::{
     StateCommitment, StateProof, verify_membership, verify_non_membership,
@@ -29,6 +30,8 @@ pub const MAX_ENVELOPE_LENGTH: usize = 256 * 1024;
 pub const VERIFIER_ABI_REVISION: u32 = 1;
 pub const VERIFIER_SCHEMA_REVISION: u32 = 1;
 pub const VERIFIER_PROTOCOL_REVISION: u64 = INITIAL_PROTOCOL_REVISION;
+pub const NFT_SERIES_QUERY_KIND: u8 = 12;
+pub const NFT_TOKEN_REGISTRY_QUERY_KIND: u8 = 13;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EnvelopeMetadata {
@@ -427,6 +430,84 @@ pub fn verify_owner_coin_cell_record(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn verify_nft_state_record_code(
+    query_kind: u8,
+    key: Digest384,
+    finalized_height: u64,
+    value: &[u8],
+    proof: &[u8],
+    finality: &[u8],
+    trusted_genesis: Digest384,
+) -> u32 {
+    verify_nft_state_record(
+        query_kind,
+        key,
+        finalized_height,
+        value,
+        proof,
+        finality,
+        trusted_genesis,
+    )
+    .map_or_else(|error| error.code(), |()| VERIFY_OK)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn verify_nft_state_record(
+    query_kind: u8,
+    key: Digest384,
+    finalized_height: u64,
+    value: &[u8],
+    proof: &[u8],
+    finality: &[u8],
+    trusted_genesis: Digest384,
+) -> Result<(), VerifyError> {
+    if value
+        .len()
+        .checked_add(proof.len())
+        .and_then(|length| length.checked_add(finality.len()))
+        .is_none_or(|length| length > MAX_ENVELOPE_LENGTH)
+    {
+        return Err(VerifyError::TooLarge);
+    }
+    let finality = verify_finality_bundle_with_chain_genesis(finality, trusted_genesis)?;
+    if finality.header().inputs.height != finalized_height {
+        return Err(VerifyError::RelationMismatch);
+    }
+    let object = decode_envelope::<Object>(value).map_err(VerifyError::Decode)?;
+    if object.object_id().into_digest() != key {
+        return Err(VerifyError::RelationMismatch);
+    }
+    let public_value = object.public_value().ok_or(VerifyError::RelationMismatch)?;
+    let type_tag = match query_kind {
+        NFT_SERIES_QUERY_KIND => {
+            decode_envelope::<NonFungibleSeriesV1>(public_value).map_err(VerifyError::Decode)?;
+            NonFungibleSeriesV1::TYPE_TAG
+        }
+        NFT_TOKEN_REGISTRY_QUERY_KIND => {
+            decode_envelope::<NonFungibleTokenRegistryV1>(public_value)
+                .map_err(VerifyError::Decode)?;
+            NonFungibleTokenRegistryV1::TYPE_TAG
+        }
+        _ => return Err(VerifyError::TypeMismatch),
+    };
+    let kind = [query_kind];
+    let tag = type_tag.to_be_bytes();
+    let expected_type = commit_parts(b"ACTIVECHAIN-NATIVE-ASSET-RPC-TYPE-V1", &[&kind, &tag]);
+    let expected_value = commit_parts(b"ACTIVECHAIN-NATIVE-ASSET-RPC-VALUE-V1", &[public_value]);
+    if object.type_id() != expected_type || object.value_root() != expected_value {
+        return Err(VerifyError::CommitmentMismatch);
+    }
+    let commitment =
+        activechain_canonical_codec::encode_envelope(&finality.header().inputs.post_state)
+            .map_err(|_| {
+                VerifyError::Decode(DecodeError::InvalidValue(
+                    "finalized state commitment could not be encoded",
+                ))
+            })?;
+    verify_state_membership(&commitment, value, proof)
+}
+
 fn verify_decoded_finality_bundle(
     bundle: FinalityCertificateBundle,
     expected_chain_genesis: Digest384,
@@ -640,10 +721,11 @@ mod tests {
     use activechain_devnet_kernel::{ActionOutcome, ActionReceipt};
     use activechain_policy_kernel::DecisionResult;
     use activechain_protocol_types::{
-        ActionId, BoundedActionSet, CapabilityGrantFields, CapabilityId, ConsensusVoteContext,
-        CryptoSuiteId, DataSelector, FreezeState, HolderBinding, ObjectFields, ObjectFlags,
-        ObjectOwner, PrincipalId, PrincipalKind, ProtocolSignature, QuorumCertificate,
-        ResourceSelector, TransactionId, ValidatorGenesis, ValidatorGenesisEntry, ValidatorVote,
+        ActionId, AssetId, BoundedActionSet, CapabilityGrantFields, CapabilityId,
+        ConsensusVoteContext, CryptoSuiteId, DataSelector, FreezeState, HolderBinding,
+        ObjectFields, ObjectFlags, ObjectOwner, PrincipalId, PrincipalKind, ProtocolSignature,
+        QuorumCertificate, ResourceSelector, TransactionId, ValidatorGenesis,
+        ValidatorGenesisEntry, ValidatorVote,
     };
     use activechain_state_tree::{commit_objects, prove_object};
     use alloc::{vec, vec::Vec};
@@ -1105,6 +1187,122 @@ mod tests {
             ),
         ] {
             assert_ne!(result, VERIFY_OK);
+        }
+    }
+
+    #[test]
+    fn nft_state_verifier_binds_kind_value_membership_height_and_genesis() {
+        let asset = AssetId::new(digest(70));
+        let series =
+            NonFungibleSeriesV1::new(asset, PrincipalId::new(digest(71)), 10, 1, digest(72))
+                .unwrap();
+        let registry = NonFungibleTokenRegistryV1::new(asset, vec![digest(73)]).unwrap();
+        for (index, (query_kind, type_tag, public_value)) in [
+            (
+                NFT_SERIES_QUERY_KIND,
+                NonFungibleSeriesV1::TYPE_TAG,
+                encode_envelope(&series).unwrap(),
+            ),
+            (
+                NFT_TOKEN_REGISTRY_QUERY_KIND,
+                NonFungibleTokenRegistryV1::TYPE_TAG,
+                encode_envelope(&registry).unwrap(),
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let kind = [query_kind];
+            let tag = type_tag.to_be_bytes();
+            let object = Object::new(ObjectFields {
+                object_id: ObjectId::new(digest(74 + index as u8)),
+                object_version: 1,
+                type_id: commit_parts(b"ACTIVECHAIN-NATIVE-ASSET-RPC-TYPE-V1", &[&kind, &tag]),
+                owner: ObjectOwner::Immutable,
+                control_policy_hash: digest(76),
+                use_policy_hash: digest(77),
+                disclosure_policy_hash: digest(78),
+                upgrade_policy_hash: digest(79),
+                package_id: None,
+                value_root: commit_parts(
+                    b"ACTIVECHAIN-NATIVE-ASSET-RPC-VALUE-V1",
+                    &[&public_value],
+                ),
+                public_value: Some(public_value),
+                lease_expiry_epoch: 10,
+                storage_deposit: 5,
+                flags: ObjectFlags::NONE,
+            })
+            .unwrap();
+            let objects = vec![object.clone()];
+            let post_state = commit_objects(&objects).unwrap();
+            let proof =
+                encode_envelope(&prove_object(&objects, object.object_id()).unwrap()).unwrap();
+            let bundle = finality_bundle_with_inputs(
+                digest(47),
+                StateCommitment::new(digest(42), 0),
+                post_state,
+                digest(50),
+            );
+            let trusted_genesis = bundle.validator_genesis().genesis_commitment();
+            let value = encode_envelope(&object).unwrap();
+            let finality = encode_envelope(&bundle).unwrap();
+            assert_eq!(
+                verify_nft_state_record_code(
+                    query_kind,
+                    object.object_id().into_digest(),
+                    9,
+                    &value,
+                    &proof,
+                    &finality,
+                    trusted_genesis,
+                ),
+                VERIFY_OK
+            );
+            for result in [
+                verify_nft_state_record_code(
+                    if query_kind == NFT_SERIES_QUERY_KIND {
+                        NFT_TOKEN_REGISTRY_QUERY_KIND
+                    } else {
+                        NFT_SERIES_QUERY_KIND
+                    },
+                    object.object_id().into_digest(),
+                    9,
+                    &value,
+                    &proof,
+                    &finality,
+                    trusted_genesis,
+                ),
+                verify_nft_state_record_code(
+                    query_kind,
+                    digest(80),
+                    9,
+                    &value,
+                    &proof,
+                    &finality,
+                    trusted_genesis,
+                ),
+                verify_nft_state_record_code(
+                    query_kind,
+                    object.object_id().into_digest(),
+                    10,
+                    &value,
+                    &proof,
+                    &finality,
+                    trusted_genesis,
+                ),
+                verify_nft_state_record_code(
+                    query_kind,
+                    object.object_id().into_digest(),
+                    9,
+                    &value,
+                    &proof,
+                    &finality,
+                    digest(81),
+                ),
+            ] {
+                assert_ne!(result, VERIFY_OK);
+            }
         }
     }
 
