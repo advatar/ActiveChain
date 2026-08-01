@@ -1005,6 +1005,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
 - [x] Add canonical exact-once partial-refund requests and cumulative settlement-bound accounting.
 - [x] Add a canonical dispute request and monotonic lifecycle that keeps external resolution
   strictly distinct from ActiveChain-finalized settlement.
+- [x] Add canonical treasury debit policy and exact-once payout/conversion/refund/fee/settlement
+  authorization with operator, asset, ceiling, period-budget, nonce, and expiry controls.
 
 ## Active EUDI/TLSNotary/ZK qualification
 
