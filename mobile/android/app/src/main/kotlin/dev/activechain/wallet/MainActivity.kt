@@ -1,6 +1,5 @@
 package dev.activechain.wallet
 
-import android.app.Activity
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -13,6 +12,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -37,7 +37,7 @@ private enum class WalletTab(val label: String, val glyph: String) {
     IDENTITY("Identity", "ID"),
 }
 
-class MainActivity : Activity() {
+class MainActivity : AppCompatActivity() {
     private lateinit var content: FrameLayout
     private lateinit var nav: LinearLayout
     private lateinit var agents: RustAgentRegistry

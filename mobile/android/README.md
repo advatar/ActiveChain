@@ -32,6 +32,9 @@ hardware-isolated TEE is the explicit fallback. The AES key never signs an Activ
 Rotation, revocation, finalized-height rollback protection, recovery metadata binding, wrong-key
 failure, and plaintext-buffer clearing have host unit coverage. The canonical approval session
 rechecks the Rust-owned human review, consumes authorization before signing, and sends only the
-Rust-derived payload into custody. Production transfers remain disabled until the real
-BiometricPrompt authorizer is connected and physical-device StrongBox/TEE/backup qualification
-passes; this app must not handle production keys or funds yet.
+Rust-derived payload into custody. `BiometricPromptAuthorizer` authenticates that exact Keystore
+cipher through an AndroidX `BiometricPrompt.CryptoObject` on a custody worker, maps cancellation,
+lockout, and unavailable hardware to fail-closed custody results, and permits only the first
+terminal callback to complete an attempt. Production transfers remain disabled until physical-
+device StrongBox/TEE/backup qualification and independent review pass; this app must not handle
+production keys or funds yet.

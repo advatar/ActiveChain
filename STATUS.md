@@ -161,6 +161,8 @@ Tracked by [GitHub issue #327](https://github.com/advatar/ActiveChain/issues/327
 - [x] Implement Android Keystore/StrongBox wrapping with user authentication and backup exclusion,
   keeping plaintext secret bytes transient inside the native provider and zeroizing them after
   signing.
+  - [x] Connect the Keystore wrapping cipher to a real AndroidX `BiometricPrompt.CryptoObject`,
+    with fail-closed cancellation, lockout, unavailable-hardware, and duplicate-callback handling.
 - [x] Keep secret key material behind opaque native handles across the Rust FFI, reverify every
   returned ML-DSA-44 signature, and add locked-device, cancelled-authentication, rollback, wrong-key,
   revoked-key, recovery, rotation, and migration-failure tests.

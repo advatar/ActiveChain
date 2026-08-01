@@ -71,6 +71,9 @@ and uses platform hardware only to wrap its seed under explicit user presence.
   transaction.
 - Android stores a versioned slot record under `noBackupFilesDir`. A per-use authenticated AES-GCM
   key in StrongBox, or hardware-isolated TEE fallback, only wraps the ML-DSA-44 seed.
+  AndroidX `BiometricPrompt` authenticates the exact Keystore cipher through its `CryptoObject`;
+  cancellation, lockout, unavailable hardware, timeout, cipher substitution, and duplicate or late
+  callbacks fail closed.
 - Both records bind the public key, monotonically increasing key version, finalized height,
   capability, and independently encrypted recovery envelope. Revoked records fail closed, and
   rotation persists the replacement before deleting the prior hardware key.
@@ -80,11 +83,10 @@ and uses platform hardware only to wrap its seed under explicit user presence.
 - UI displays the exact recipient, amount, fee reserve, validity height, and policy decision before
   approval.
 
-The Apple and Android custody state machines and canonical approval callbacks are implemented on
-issues #327 and #339. They are not production-complete until a reviewed, wire-compatible native
-ML-DSA-44 engine is connected on Apple, real BiometricPrompt integration is connected on Android,
-physical-device user-presence/backup/rollback rehearsals pass, and the external mobile/PQ review is
-complete.
+The Apple and Android custody state machines, canonical approval callbacks, wire-compatible Apple
+ML-DSA-44 engine, and Android BiometricPrompt adapter are implemented on issues #327 and #339. They
+are not production-complete until physical-device user-presence/backup/rollback rehearsals pass and
+the external mobile/PQ review is complete.
 
 ## Interoperability adapters
 
