@@ -1002,6 +1002,7 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
   reconciliation mappings without partnership or regulated-asset claims.
 - [ ] Integrate finalized native settlement, refunds/disputes, fee sponsorship, treasury controls,
   authenticated APIs/SDKs/webhooks, formal refinement, operations drills, and staged pilots.
+- [x] Add canonical exact-once partial-refund requests and cumulative settlement-bound accounting.
 
 ## Active EUDI/TLSNotary/ZK qualification
 
