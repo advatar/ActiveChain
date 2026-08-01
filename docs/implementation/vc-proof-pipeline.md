@@ -91,3 +91,13 @@ TLSNotary soundness, notary and issuer authorization, credential-status provenan
 soundness, trusted clocks, and device key protection remain explicit assumptions until separately
 refined or verified. Every assumption and unproved composition gap must remain machine-indexed and
 visible in release qualification.
+
+## Finalized predicate receipt
+
+`CredentialPredicateReceiptV1` is the transcript-free offline receipt for an admitted predicate.
+Its constructor recomputes the complete TLS evidence and predicate commitments, requires the same
+holder and schema, checks both freshness windows, and copies—not re-declares—the evidence assurance,
+status, and optional issuer authorization. It additionally binds the verifier, proof-system version,
+policy, nullifier, verification height, and non-regressing finalized height. The receipt contains no
+raw transcript, account identifier, full balance, or disclosed attribute. A canonical receipt is a
+binding artifact; consumers must still verify its finalized membership/finality evidence.

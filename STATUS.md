@@ -1225,6 +1225,8 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
   recovery, and audit with ActiveChain-bound audience/action/policy/nonce requests.
 - [ ] Verify only minimal commitments, predicates, status/freshness, assurance, and pairwise/nullifier
   replay controls on ActiveChain; keep transcripts, account identifiers, and full balances off-chain.
+  - [x] Add a canonical finalized predicate receipt preserving the exact evidence and assurance,
+    predicate, verifier/proof version, status, policy, nullifier, and finalized-height bindings.
 - [ ] Formally prove the evidence-to-claim-to-circuit-to-APL refinement, no provenance escalation,
   predicate soundness, action/audience binding, replay resistance, and declared unlinkability.
 - [ ] Pass cross-repository malformed/adversarial vectors, device-key integration, privacy review,

@@ -135,6 +135,12 @@ impl TlsCredentialEvidenceV1 {
     pub const fn schema_id(&self) -> Digest384 {
         self.schema_id
     }
+    pub const fn status_commitment(&self) -> Digest384 {
+        self.status_commitment
+    }
+    pub const fn issuer_authorization_commitment(&self) -> Option<Digest384> {
+        self.issuer_authorization_commitment
+    }
     pub const fn valid_at(&self, height: Height) -> bool {
         self.observed_height <= height && height < self.fresh_until_height
     }
@@ -876,6 +882,159 @@ impl CanonicalType for CredentialPredicateV1 {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
+/// Transcript-free finalized receipt for one admitted credential predicate.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CredentialPredicateReceiptV1 {
+    evidence_commitment: Digest384,
+    predicate_commitment: Digest384,
+    assurance: CredentialAssuranceClassV1,
+    verifier: PrincipalId,
+    proof_system_commitment: Digest384,
+    status_commitment: Digest384,
+    issuer_authorization_commitment: Option<Digest384>,
+    policy_commitment: Digest384,
+    nullifier: Digest384,
+    verified_height: Height,
+    finalized_height: Height,
+}
+impl CredentialPredicateReceiptV1 {
+    pub const TYPE_TAG: u16 = 0x0177;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 8 + 1 + 1 + 8 * 2;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_tls_evidence(
+        evidence: &TlsCredentialEvidenceV1,
+        predicate: &CredentialPredicateV1,
+        verifier: PrincipalId,
+        proof_system_commitment: Digest384,
+        policy_commitment: Digest384,
+        nullifier: Digest384,
+        verified_height: Height,
+        finalized_height: Height,
+    ) -> Result<Self, CredentialValidationError> {
+        let evidence_commitment = evidence
+            .commitment()
+            .map_err(|_| CredentialValidationError::InvalidPredicateBinding)?;
+        let predicate_commitment = predicate
+            .commitment()
+            .map_err(|_| CredentialValidationError::InvalidPredicateBinding)?;
+        if verifier.digest() == &Digest384::ZERO
+            || [proof_system_commitment, policy_commitment, nullifier]
+                .into_iter()
+                .any(|value| value == Digest384::ZERO)
+            || verified_height == 0
+            || finalized_height < verified_height
+            || !evidence.valid_at(verified_height)
+            || !predicate.valid_at(verified_height)
+            || evidence.schema_id != predicate.schema_id
+            || evidence.holder_binding != predicate.holder_binding
+            || evidence_commitment != predicate.claims_commitment
+        {
+            return Err(CredentialValidationError::InvalidPredicateBinding);
+        }
+        Ok(Self {
+            evidence_commitment,
+            predicate_commitment,
+            assurance: evidence.assurance,
+            verifier,
+            proof_system_commitment,
+            status_commitment: evidence.status_commitment,
+            issuer_authorization_commitment: evidence.issuer_authorization_commitment,
+            policy_commitment,
+            nullifier,
+            verified_height,
+            finalized_height,
+        })
+    }
+    pub const fn assurance(&self) -> CredentialAssuranceClassV1 {
+        self.assurance
+    }
+    pub const fn evidence_commitment(&self) -> Digest384 {
+        self.evidence_commitment
+    }
+    pub const fn predicate_commitment(&self) -> Digest384 {
+        self.predicate_commitment
+    }
+    pub const fn nullifier(&self) -> Digest384 {
+        self.nullifier
+    }
+    pub const fn finalized_height(&self) -> Height {
+        self.finalized_height
+    }
+    pub fn binds(
+        &self,
+        evidence: &TlsCredentialEvidenceV1,
+        predicate: &CredentialPredicateV1,
+    ) -> bool {
+        evidence.commitment().ok() == Some(self.evidence_commitment)
+            && predicate.commitment().ok() == Some(self.predicate_commitment)
+            && evidence.assurance == self.assurance
+            && evidence.status_commitment == self.status_commitment
+            && evidence.issuer_authorization_commitment == self.issuer_authorization_commitment
+            && evidence.schema_id == predicate.schema_id
+            && evidence.holder_binding == predicate.holder_binding
+            && self.evidence_commitment == predicate.claims_commitment
+    }
+}
+impl CanonicalEncode for CredentialPredicateReceiptV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.evidence_commitment.encode(e)?;
+        self.predicate_commitment.encode(e)?;
+        self.assurance.encode(e)?;
+        self.verifier.encode(e)?;
+        self.proof_system_commitment.encode(e)?;
+        self.status_commitment.encode(e)?;
+        self.issuer_authorization_commitment.encode(e)?;
+        self.policy_commitment.encode(e)?;
+        self.nullifier.encode(e)?;
+        self.verified_height.encode(e)?;
+        self.finalized_height.encode(e)
+    }
+}
+impl CanonicalDecode for CredentialPredicateReceiptV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let value = Self {
+            evidence_commitment: Digest384::decode(d)?,
+            predicate_commitment: Digest384::decode(d)?,
+            assurance: CredentialAssuranceClassV1::decode(d)?,
+            verifier: PrincipalId::decode(d)?,
+            proof_system_commitment: Digest384::decode(d)?,
+            status_commitment: Digest384::decode(d)?,
+            issuer_authorization_commitment: Option::<Digest384>::decode(d)?,
+            policy_commitment: Digest384::decode(d)?,
+            nullifier: Digest384::decode(d)?,
+            verified_height: Height::decode(d)?,
+            finalized_height: Height::decode(d)?,
+        };
+        if value.verifier.digest() == &Digest384::ZERO
+            || [
+                value.evidence_commitment,
+                value.predicate_commitment,
+                value.proof_system_commitment,
+                value.status_commitment,
+                value.policy_commitment,
+                value.nullifier,
+            ]
+            .into_iter()
+            .any(|commitment| commitment == Digest384::ZERO)
+            || value.issuer_authorization_commitment == Some(Digest384::ZERO)
+            || (value.assurance >= CredentialAssuranceClassV1::IssuerUpgraded)
+                != value.issuer_authorization_commitment.is_some()
+            || value.verified_height == 0
+            || value.finalized_height < value.verified_height
+        {
+            return Err(DecodeError::InvalidValue("invalid credential predicate receipt"));
+        }
+        Ok(value)
+    }
+}
+impl CanonicalType for CredentialPredicateReceiptV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 /// Public inputs for a privacy-preserving proof-of-funds statement.
 ///
 /// The full balance, account identifier, institution name, and source
@@ -1287,9 +1446,10 @@ mod tests {
 
     use super::{
         CREDENTIAL_FORMAT_VERSION, Credential, CredentialAcceptancePolicy,
-        CredentialAssuranceClassV1, CredentialPredicateKind, CredentialPredicateV1,
-        CredentialStatement, CredentialStatusRegistry, CredentialValidationError,
-        ProofOfFundsPredicateV1, TlsCredentialEvidenceV1, VcIssuerFormatV1, VcIssuerPresentationV1,
+        CredentialAssuranceClassV1, CredentialPredicateKind, CredentialPredicateReceiptV1,
+        CredentialPredicateV1, CredentialStatement, CredentialStatusRegistry,
+        CredentialValidationError, ProofOfFundsPredicateV1, TlsCredentialEvidenceV1,
+        VcIssuerFormatV1, VcIssuerPresentationV1,
     };
     use crate::{
         AssetId, ChainId, CryptoSuiteId, Digest384, ObjectId, PrincipalId, ProtocolSignature,
@@ -1675,6 +1835,127 @@ mod tests {
             )
             .is_ok()
         );
+    }
+
+    #[test]
+    fn finalized_predicate_receipt_preserves_exact_evidence_and_assurance() {
+        let holder = digest(5);
+        let schema = digest(6);
+        let evidence = TlsCredentialEvidenceV1::new(
+            digest(1),
+            digest(2),
+            digest(3),
+            digest(4),
+            holder,
+            schema,
+            10,
+            30,
+            digest(7),
+            CredentialAssuranceClassV1::HolderSelfIssued,
+            None,
+        )
+        .unwrap();
+        let predicate = CredentialPredicateV1::new(
+            schema,
+            evidence.commitment().unwrap(),
+            holder,
+            ChainId::new(digest(8)),
+            principal(9),
+            TransactionId::new(digest(10)),
+            digest(11),
+            2,
+            25,
+            CredentialPredicateKind::AssetAmountAtLeast,
+            digest(12),
+        )
+        .unwrap();
+        let receipt = CredentialPredicateReceiptV1::from_tls_evidence(
+            &evidence,
+            &predicate,
+            principal(13),
+            digest(14),
+            digest(15),
+            digest(16),
+            20,
+            21,
+        )
+        .unwrap();
+        assert_eq!(receipt.assurance(), CredentialAssuranceClassV1::HolderSelfIssued);
+        assert!(receipt.binds(&evidence, &predicate));
+        assert_eq!(receipt.finalized_height(), 21);
+        assert_eq!(
+            decode_envelope::<CredentialPredicateReceiptV1>(&encode_envelope(&receipt).unwrap()),
+            Ok(receipt)
+        );
+
+        let substituted = TlsCredentialEvidenceV1::new(
+            digest(1),
+            digest(2),
+            digest(99),
+            digest(4),
+            holder,
+            schema,
+            10,
+            30,
+            digest(7),
+            CredentialAssuranceClassV1::HolderSelfIssued,
+            None,
+        )
+        .unwrap();
+        assert!(!receipt.binds(&substituted, &predicate));
+        assert_eq!(
+            CredentialPredicateReceiptV1::from_tls_evidence(
+                &substituted,
+                &predicate,
+                principal(13),
+                digest(14),
+                digest(15),
+                digest(16),
+                20,
+                21,
+            ),
+            Err(CredentialValidationError::InvalidPredicateBinding)
+        );
+        assert_eq!(
+            CredentialPredicateReceiptV1::from_tls_evidence(
+                &evidence,
+                &predicate,
+                principal(13),
+                digest(14),
+                digest(15),
+                digest(16),
+                20,
+                19,
+            ),
+            Err(CredentialValidationError::InvalidPredicateBinding)
+        );
+    }
+
+    #[test]
+    fn predicate_receipt_vector_is_frozen() {
+        let vector = include_str!("../../../testing/vectors/credential-predicate-receipt-v1.tsv");
+        let mut rows = vector.lines();
+        assert_eq!(rows.next(), Some("case\tenvelope_hex\tmutation\texpected"));
+        let rows = rows.map(|row| row.split('\t').collect::<Vec<_>>()).collect::<Vec<_>>();
+        assert_eq!(rows.len(), 5);
+        assert!(rows.iter().all(|row| row.len() == 4));
+        assert_eq!(rows[0][1].len(), 720);
+        assert_eq!(rows[0][2], "none");
+        assert_eq!(rows[0][3], "accept");
+        let bytes = rows[0][1]
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|pair| {
+                let digit = |value: u8| match value {
+                    b'0'..=b'9' => value - b'0',
+                    b'a'..=b'f' => value - b'a' + 10,
+                    _ => panic!("invalid frozen vector hex"),
+                };
+                (digit(pair[0]) << 4) | digit(pair[1])
+            })
+            .collect::<Vec<_>>();
+        decode_envelope::<CredentialPredicateReceiptV1>(&bytes).unwrap();
+        assert!(rows[1..].iter().all(|row| row[3] == "reject"));
     }
 
     #[test]

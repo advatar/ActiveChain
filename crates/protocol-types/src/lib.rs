@@ -91,9 +91,10 @@ pub use consensus_state::{
 };
 pub use credential::{
     CREDENTIAL_FORMAT_VERSION, Credential, CredentialAcceptancePolicy, CredentialAssuranceClassV1,
-    CredentialPredicateKind, CredentialPredicateV1, CredentialStatement, CredentialStatusRegistry,
-    CredentialValidationError, MAX_ACCEPTED_CREDENTIAL_ISSUERS, MAX_ACCEPTED_CREDENTIAL_SCHEMAS,
-    ProofOfFundsPredicateV1, TlsCredentialEvidenceV1, VcIssuerFormatV1, VcIssuerPresentationV1,
+    CredentialPredicateKind, CredentialPredicateReceiptV1, CredentialPredicateV1,
+    CredentialStatement, CredentialStatusRegistry, CredentialValidationError,
+    MAX_ACCEPTED_CREDENTIAL_ISSUERS, MAX_ACCEPTED_CREDENTIAL_SCHEMAS, ProofOfFundsPredicateV1,
+    TlsCredentialEvidenceV1, VcIssuerFormatV1, VcIssuerPresentationV1,
 };
 pub use crypto::{
     AuthenticatorDescriptor, AuthenticatorPurpose, AuthenticatorValidationError, CryptoFamily,
