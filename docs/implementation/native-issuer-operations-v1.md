@@ -45,3 +45,8 @@ and half-open execution window. Freeze blocks the ordinary transfer path. Clawba
 exact Coin Cell and may change only its owner; origin, asset identity, amount, and creation height
 are conserved. These primitives establish protocol mechanics, not the legal authority to exercise
 them.
+
+The native issuer CLI exposes `control-policy`, `holder-control-state`, `control-action`, and
+`dry-run-control`. Freeze and unfreeze preflight return the exact post-state. Clawback additionally
+requires a canonical input Coin Cell and returns both the conserved post-cell and revisioned
+post-state; omission or substitution of that cell is rejected.

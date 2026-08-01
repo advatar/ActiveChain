@@ -1167,6 +1167,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   authority set, and half-open finalized execution window.
 - [x] Declare holder freeze and clawback powers immutably at asset creation, then enforce exact,
   revisioned, authority-approved exceptional controls without changing Coin Cell value or identity.
+- [x] Add deterministic issuer CLI workflows to declare, construct, and dry-run freeze, unfreeze,
+  and clawback actions against exact holder state and Coin Cell inputs.
 - [x] Publish deterministic issuer-registration vectors for activation boundaries and malformed
   authority/policy bindings.
 - [x] Keep the workspace lockfile synchronized with the canonical payment-types cryptographic
