@@ -10,6 +10,8 @@ use activechain_agent_interfaces::{
 use activechain_proposal_gateway::{ActionIntentV1, ActionKindV1};
 use activechain_protocol_types::{
     FungibleAssetPolicyV1, FungibleIssuerApprovalV1, FungibleIssuerOperation,
+    NonFungibleIssuerApprovalV1, NonFungibleMintManifestV1, NonFungibleSeriesV1,
+    NonFungibleTokenRegistryV1,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -162,6 +164,79 @@ impl IssuerOperationFacts {
             ),
             policy_after: lower_hex(
                 next.commitment().map_err(|_| RenderError::InvalidCanonicalFacts)?.as_bytes(),
+            ),
+            effective_height: approval.effective_height(),
+            expires_height: approval.expires_height(),
+        })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NftIssuerOperationFacts {
+    pub approval_commitment: String,
+    pub asset: String,
+    pub issuer: String,
+    pub authority_set: String,
+    pub manifest_commitment: String,
+    pub item_count: String,
+    pub supply_before: String,
+    pub supply_after: String,
+    pub series_before: String,
+    pub series_after: String,
+    pub registry_before: String,
+    pub registry_after: String,
+    pub effective_height: u64,
+    pub expires_height: u64,
+}
+
+impl NftIssuerOperationFacts {
+    pub fn from_approved_mint(
+        series: &NonFungibleSeriesV1,
+        registry: &NonFungibleTokenRegistryV1,
+        authority_set: activechain_protocol_types::Digest384,
+        approval: &NonFungibleIssuerApprovalV1,
+        manifest: &NonFungibleMintManifestV1,
+        finalized_height: u64,
+    ) -> Result<Self, RenderError> {
+        let (next_series, next_registry, tokens) = registry
+            .apply_approved_mint(
+                series,
+                series.issuer(),
+                authority_set,
+                approval,
+                manifest,
+                finalized_height,
+            )
+            .map_err(|_| RenderError::InvalidCanonicalFacts)?;
+        if tokens.len() != manifest.item_count() {
+            return Err(RenderError::InvalidCanonicalFacts);
+        }
+        Ok(Self {
+            approval_commitment: lower_hex(approval.approval_commitment().as_bytes()),
+            asset: lower_hex(approval.asset_id().digest().as_bytes()),
+            issuer: lower_hex(approval.issuer().digest().as_bytes()),
+            authority_set: lower_hex(approval.authority_set().as_bytes()),
+            manifest_commitment: lower_hex(approval.manifest_commitment().as_bytes()),
+            item_count: manifest.item_count().to_string(),
+            supply_before: approval.minted_before().to_string(),
+            supply_after: next_series.minted().to_string(),
+            series_before: lower_hex(
+                series.commitment().map_err(|_| RenderError::InvalidCanonicalFacts)?.as_bytes(),
+            ),
+            series_after: lower_hex(
+                next_series
+                    .commitment()
+                    .map_err(|_| RenderError::InvalidCanonicalFacts)?
+                    .as_bytes(),
+            ),
+            registry_before: lower_hex(
+                registry.commitment().map_err(|_| RenderError::InvalidCanonicalFacts)?.as_bytes(),
+            ),
+            registry_after: lower_hex(
+                next_registry
+                    .commitment()
+                    .map_err(|_| RenderError::InvalidCanonicalFacts)?
+                    .as_bytes(),
             ),
             effective_height: approval.effective_height(),
             expires_height: approval.expires_height(),
@@ -439,6 +514,54 @@ pub fn render_issuer_operation(
             ("Authority set".into(), facts.authority_set.clone()),
             ("Policy before".into(), facts.policy_before.clone()),
             ("Policy after".into(), facts.policy_after.clone()),
+            ("Effective height".into(), facts.effective_height.to_string()),
+            ("Expiry height".into(), facts.expires_height.to_string()),
+        ],
+        Some(explanation),
+        true,
+    )
+}
+
+pub fn render_nft_issuer_operation(
+    facts: &NftIssuerOperationFacts,
+    explanation: &str,
+) -> Result<RenderedApproval, RenderError> {
+    for digest in [
+        &facts.approval_commitment,
+        &facts.asset,
+        &facts.issuer,
+        &facts.authority_set,
+        &facts.manifest_commitment,
+        &facts.series_before,
+        &facts.series_after,
+        &facts.registry_before,
+        &facts.registry_after,
+    ] {
+        require_digest_text(digest)?;
+    }
+    if facts.effective_height >= facts.expires_height
+        || facts.item_count.parse::<u64>().ok().filter(|count| *count > 0).is_none()
+        || facts.supply_before.parse::<u64>().is_err()
+        || facts.supply_after.parse::<u64>().is_err()
+    {
+        return Err(RenderError::InvalidCanonicalFacts);
+    }
+    render_fact_surface(
+        "activechain.nft_issuer_operation.v1",
+        "Review NFT mint operation",
+        &facts.approval_commitment,
+        &[
+            ("Asset ID".into(), facts.asset.clone()),
+            ("Issuer".into(), facts.issuer.clone()),
+            ("Authority set".into(), facts.authority_set.clone()),
+            ("Manifest".into(), facts.manifest_commitment.clone()),
+            ("Token count".into(), facts.item_count.clone()),
+            ("Supply before".into(), facts.supply_before.clone()),
+            ("Supply after".into(), facts.supply_after.clone()),
+            ("Series before".into(), facts.series_before.clone()),
+            ("Series after".into(), facts.series_after.clone()),
+            ("Registry before".into(), facts.registry_before.clone()),
+            ("Registry after".into(), facts.registry_after.clone()),
             ("Effective height".into(), facts.effective_height.to_string()),
             ("Expiry height".into(), facts.expires_height.to_string()),
         ],
@@ -744,7 +867,9 @@ fn button(id: &str, child: &str, action_name: &str, commitment: &str) -> A2uiCom
 #[cfg(test)]
 mod tests {
     use super::*;
-    use activechain_protocol_types::{AssetId, Digest384, FungibleAssetLifecycle, PrincipalId};
+    use activechain_protocol_types::{
+        AssetId, Digest384, FungibleAssetLifecycle, NonFungibleMintItemV1, PrincipalId,
+    };
 
     fn facts() -> TransferApprovalFacts {
         TransferApprovalFacts {
@@ -1061,6 +1186,95 @@ mod tests {
         .unwrap();
         assert_eq!(
             IssuerOperationFacts::from_approved_supply_operation(&changed, &approval, 15),
+            Err(RenderError::InvalidCanonicalFacts)
+        );
+    }
+
+    fn nft_review_inputs() -> (
+        NonFungibleSeriesV1,
+        NonFungibleTokenRegistryV1,
+        Digest384,
+        NonFungibleIssuerApprovalV1,
+        NonFungibleMintManifestV1,
+    ) {
+        let asset = AssetId::new(Digest384::new([90; 48]));
+        let issuer = PrincipalId::new(Digest384::new([91; 48]));
+        let authority = Digest384::new([92; 48]);
+        let series =
+            NonFungibleSeriesV1::new(asset, issuer, 10, 0, Digest384::new([93; 48])).unwrap();
+        let registry = NonFungibleTokenRegistryV1::new(asset, vec![]).unwrap();
+        let manifest = NonFungibleMintManifestV1::new(
+            asset,
+            issuer,
+            vec![
+                NonFungibleMintItemV1::new(
+                    Digest384::new([94; 48]),
+                    PrincipalId::new(Digest384::new([95; 48])),
+                    Digest384::new([96; 48]),
+                )
+                .unwrap(),
+                NonFungibleMintItemV1::new(
+                    Digest384::new([97; 48]),
+                    PrincipalId::new(Digest384::new([98; 48])),
+                    Digest384::new([99; 48]),
+                )
+                .unwrap(),
+            ],
+        )
+        .unwrap();
+        let approval = NonFungibleIssuerApprovalV1::new(
+            asset,
+            issuer,
+            authority,
+            series.commitment().unwrap(),
+            Digest384::new([100; 48]),
+            manifest.commitment().unwrap(),
+            2,
+            0,
+            10,
+            20,
+        )
+        .unwrap();
+        (series, registry, authority, approval, manifest)
+    }
+
+    #[test]
+    fn nft_issuer_review_is_derived_from_exact_transition() {
+        let (series, registry, authority, approval, manifest) = nft_review_inputs();
+        let facts = NftIssuerOperationFacts::from_approved_mint(
+            &series, &registry, authority, &approval, &manifest, 15,
+        )
+        .unwrap();
+        assert_eq!(facts.item_count, "2");
+        assert_eq!(facts.supply_before, "0");
+        assert_eq!(facts.supply_after, "2");
+        let rendered = render_nft_issuer_operation(&facts, "Mint the approved NFT batch").unwrap();
+        let surface = rendered.surface.unwrap();
+        assert_eq!(surface.surface_id, "activechain.nft_issuer_operation.v1");
+        assert_eq!(surface.intent_commitment, "64".repeat(48));
+    }
+
+    #[test]
+    fn nft_issuer_review_rejects_stale_or_substituted_state() {
+        let (series, registry, authority, approval, manifest) = nft_review_inputs();
+        assert_eq!(
+            NftIssuerOperationFacts::from_approved_mint(
+                &series, &registry, authority, &approval, &manifest, 20,
+            ),
+            Err(RenderError::InvalidCanonicalFacts)
+        );
+        let changed_registry =
+            NonFungibleTokenRegistryV1::new(series.asset_id(), vec![Digest384::new([1; 48])])
+                .unwrap();
+        assert_eq!(
+            NftIssuerOperationFacts::from_approved_mint(
+                &series,
+                &changed_registry,
+                authority,
+                &approval,
+                &manifest,
+                15,
+            ),
             Err(RenderError::InvalidCanonicalFacts)
         );
     }

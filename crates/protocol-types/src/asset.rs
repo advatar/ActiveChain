@@ -550,6 +550,18 @@ impl NonFungibleTokenRegistryV1 {
         }
         Ok(Self { asset_id, token_ids })
     }
+    pub fn commitment(&self) -> Result<Digest384, EncodeError> {
+        let bytes = activechain_canonical_codec::encode_envelope(self)?;
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-NON-FUNGIBLE-TOKEN-REGISTRY-V1");
+        hasher.update(&bytes);
+        let mut digest = [0_u8; 48];
+        hasher.finalize_xof().read(&mut digest);
+        Ok(Digest384::new(digest))
+    }
+    pub fn token_count(&self) -> usize {
+        self.token_ids.len()
+    }
     pub fn apply_approved_mint(
         &self,
         series: &NonFungibleSeriesV1,
@@ -681,6 +693,30 @@ impl NonFungibleIssuerApprovalV1 {
     }
     pub const fn quantity(&self) -> u64 {
         self.quantity
+    }
+    pub const fn asset_id(&self) -> AssetId {
+        self.asset_id
+    }
+    pub const fn issuer(&self) -> PrincipalId {
+        self.issuer
+    }
+    pub const fn authority_set(&self) -> Digest384 {
+        self.authority_set
+    }
+    pub const fn approval_commitment(&self) -> Digest384 {
+        self.approval_commitment
+    }
+    pub const fn manifest_commitment(&self) -> Digest384 {
+        self.manifest_commitment
+    }
+    pub const fn minted_before(&self) -> u64 {
+        self.minted_before
+    }
+    pub const fn effective_height(&self) -> u64 {
+        self.effective_height
+    }
+    pub const fn expires_height(&self) -> u64 {
+        self.expires_height
     }
     pub const fn active_at(&self, height: u64) -> bool {
         height >= self.effective_height && height < self.expires_height
