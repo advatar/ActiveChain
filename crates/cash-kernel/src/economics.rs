@@ -4,6 +4,10 @@ use activechain_canonical_codec::{
 };
 use activechain_protocol_types::{CoinCellId, Digest384, PrincipalId, fee_total, next_base_fee};
 use alloc::vec::Vec;
+use sha3::{
+    Shake256,
+    digest::{ExtendableOutput, Update, XofReader},
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum VerifierRole {
@@ -116,13 +120,146 @@ impl CanonicalType for RewardReplayWitness {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ChallengeAssignment {
-    pub id: Digest384,
-    pub duty: Digest384,
-    pub challenger: PrincipalId,
-    pub bond: CoinCellId,
-    pub reward: u128,
-    pub deadline: u64,
-    pub resolved: bool,
+    id: Digest384,
+    duty: Digest384,
+    challenger: PrincipalId,
+    bond: CoinCellId,
+    evidence: Digest384,
+    reward: u128,
+    deadline: u64,
+    resolved: bool,
+}
+
+/// Sealed challenge admission that prevents another participant from copying
+/// disclosed fault evidence before the original challenger is registered.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ChallengeCommitmentV1 {
+    id: Digest384,
+    duty: Digest384,
+    challenger: PrincipalId,
+    bond: CoinCellId,
+    reward: u128,
+    commitment: Digest384,
+    reveal_deadline: u64,
+    resolution_deadline: u64,
+}
+
+impl ChallengeCommitmentV1 {
+    pub const TYPE_TAG: u16 = 0x015F;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        id: Digest384,
+        duty: Digest384,
+        challenger: PrincipalId,
+        bond: CoinCellId,
+        reward: u128,
+        commitment: Digest384,
+        reveal_deadline: u64,
+        resolution_deadline: u64,
+    ) -> Result<Self, EconomicsError> {
+        if id == Digest384::ZERO
+            || duty == Digest384::ZERO
+            || challenger.digest() == &Digest384::ZERO
+            || bond.digest() == &Digest384::ZERO
+            || reward == 0
+            || commitment == Digest384::ZERO
+            || reveal_deadline == 0
+            || reveal_deadline >= resolution_deadline
+        {
+            return Err(EconomicsError::InvalidChallenge);
+        }
+        Ok(Self {
+            id,
+            duty,
+            challenger,
+            bond,
+            reward,
+            commitment,
+            reveal_deadline,
+            resolution_deadline,
+        })
+    }
+
+    pub fn reveal(
+        self,
+        evidence: Digest384,
+        nonce: Digest384,
+        height: u64,
+    ) -> Result<ChallengeAssignment, EconomicsError> {
+        if height > self.reveal_deadline
+            || evidence == Digest384::ZERO
+            || nonce == Digest384::ZERO
+            || challenge_commitment(self.id, self.duty, self.challenger, evidence, nonce)
+                != self.commitment
+        {
+            return Err(EconomicsError::InvalidChallengeReveal);
+        }
+        Ok(ChallengeAssignment {
+            id: self.id,
+            duty: self.duty,
+            challenger: self.challenger,
+            bond: self.bond,
+            evidence,
+            reward: self.reward,
+            deadline: self.resolution_deadline,
+            resolved: false,
+        })
+    }
+}
+
+impl CanonicalEncode for ChallengeCommitmentV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.id.encode(encoder)?;
+        self.duty.encode(encoder)?;
+        self.challenger.encode(encoder)?;
+        self.bond.encode(encoder)?;
+        self.reward.encode(encoder)?;
+        self.commitment.encode(encoder)?;
+        self.reveal_deadline.encode(encoder)?;
+        self.resolution_deadline.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for ChallengeCommitmentV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            PrincipalId::decode(decoder)?,
+            CoinCellId::decode(decoder)?,
+            u128::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid challenge commitment"))
+    }
+}
+
+impl CanonicalType for ChallengeCommitmentV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 * 5 + 16 + 8 * 2;
+}
+
+pub fn challenge_commitment(
+    id: Digest384,
+    duty: Digest384,
+    challenger: PrincipalId,
+    evidence: Digest384,
+    nonce: Digest384,
+) -> Digest384 {
+    let mut hasher = Shake256::default();
+    hasher.update(b"ACTIVECHAIN-VERIFIER-CHALLENGE-COMMITMENT-V1");
+    hasher.update(id.as_bytes());
+    hasher.update(duty.as_bytes());
+    hasher.update(challenger.digest().as_bytes());
+    hasher.update(evidence.as_bytes());
+    hasher.update(nonce.as_bytes());
+    let mut output = [0_u8; 48];
+    hasher.finalize_xof().read(&mut output);
+    Digest384::new(output)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -410,20 +547,19 @@ pub enum EconomicsError {
     EmptyEvidence,
     InvalidSlash,
     InvalidChallenge,
+    InvalidChallengeReveal,
     InvalidCapacityReservation,
     CapacityExceeded,
 }
 
 pub fn assign_challenge(
     challenges: &mut Vec<ChallengeAssignment>,
-    challenge: ChallengeAssignment,
+    commitment: ChallengeCommitmentV1,
+    evidence: Digest384,
+    nonce: Digest384,
+    height: u64,
 ) -> Result<(), EconomicsError> {
-    if challenge.reward == 0
-        || challenge.deadline == 0
-        || challenge.bond == CoinCellId::new(Digest384::new([0; 48]))
-    {
-        return Err(EconomicsError::InvalidChallenge);
-    }
+    let challenge = commitment.reveal(evidence, nonce, height)?;
     if challenges.iter().any(|c| c.id == challenge.id) {
         return Err(EconomicsError::DuplicateAssignment);
     }
@@ -597,16 +733,19 @@ mod tests {
     #[test]
     fn challenge_is_one_shot_and_fee_quote_is_checked() {
         let mut challenges = Vec::new();
-        let challenge = ChallengeAssignment {
-            id: id(5),
-            duty: id(1),
-            challenger: principal(8),
-            bond: CoinCellId::new(id(7)),
-            reward: 9,
-            deadline: 20,
-            resolved: false,
-        };
-        assign_challenge(&mut challenges, challenge).unwrap();
+        let nonce = id(10);
+        let challenge = ChallengeCommitmentV1::new(
+            id(5),
+            id(1),
+            principal(8),
+            CoinCellId::new(id(7)),
+            9,
+            challenge_commitment(id(5), id(1), principal(8), id(6), nonce),
+            10,
+            20,
+        )
+        .unwrap();
+        assign_challenge(&mut challenges, challenge, id(6), nonce, 10).unwrap();
         assert_eq!(resolve_challenge(&mut challenges, id(5), principal(8), 20), Ok(9));
         assert_eq!(
             resolve_challenge(&mut challenges, id(5), principal(8), 20),
@@ -621,6 +760,62 @@ mod tests {
         let market = FeeMarket::new(100, 10, 1_000).unwrap();
         assert!(market.next(20).unwrap().base_fee > market.base_fee);
         assert!(market.next(1).unwrap().base_fee < market.base_fee);
+    }
+
+    #[test]
+    fn challenge_reveal_binds_challenger_duty_evidence_and_nonce() {
+        let challenge_id = id(30);
+        let duty = id(31);
+        let challenger = principal(32);
+        let evidence = id(33);
+        let nonce = id(34);
+        let sealed = ChallengeCommitmentV1::new(
+            challenge_id,
+            duty,
+            challenger,
+            CoinCellId::new(id(35)),
+            9,
+            challenge_commitment(challenge_id, duty, challenger, evidence, nonce),
+            20,
+            30,
+        )
+        .unwrap();
+        assert_eq!(
+            decode_envelope::<ChallengeCommitmentV1>(&encode_envelope(&sealed).unwrap()),
+            Ok(sealed)
+        );
+        let revealed = sealed.reveal(evidence, nonce, 20).unwrap();
+        assert_eq!(revealed.evidence, evidence);
+        assert_eq!(revealed.deadline, 30);
+        assert!(!revealed.resolved);
+        assert_eq!(sealed.reveal(id(36), nonce, 20), Err(EconomicsError::InvalidChallengeReveal));
+        assert_eq!(
+            sealed.reveal(evidence, id(37), 20),
+            Err(EconomicsError::InvalidChallengeReveal)
+        );
+        assert_eq!(sealed.reveal(evidence, nonce, 21), Err(EconomicsError::InvalidChallengeReveal));
+    }
+
+    #[test]
+    fn copied_challenge_commitment_cannot_be_revealed_by_another_principal() {
+        let challenge_id = id(40);
+        let duty = id(41);
+        let original = principal(42);
+        let copier = principal(43);
+        let evidence = id(44);
+        let nonce = id(45);
+        let copied = ChallengeCommitmentV1::new(
+            challenge_id,
+            duty,
+            copier,
+            CoinCellId::new(id(46)),
+            7,
+            challenge_commitment(challenge_id, duty, original, evidence, nonce),
+            20,
+            30,
+        )
+        .unwrap();
+        assert_eq!(copied.reveal(evidence, nonce, 20), Err(EconomicsError::InvalidChallengeReveal));
     }
 
     #[test]

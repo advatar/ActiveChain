@@ -37,10 +37,11 @@ pub use authenticated::{
     verify_coin_cell_transition,
 };
 pub use economics::{
-    CapacityReservationV1, CapacitySettlementV1, ChallengeAssignment, DutyAssignment, DutyReceipt,
-    EconomicsError, FeeMarket, FeeQuote, ObjectiveFault, RewardRedemption, RewardReplayWitness,
-    RewardSettlement, SecurityPoolAllocation, SlashSplit, VerifierRole, assign_challenge,
-    register_assignment, resolve_challenge, settle_duty,
+    CapacityReservationV1, CapacitySettlementV1, ChallengeAssignment, ChallengeCommitmentV1,
+    DutyAssignment, DutyReceipt, EconomicsError, FeeMarket, FeeQuote, ObjectiveFault,
+    RewardRedemption, RewardReplayWitness, RewardSettlement, SecurityPoolAllocation, SlashSplit,
+    VerifierRole, assign_challenge, challenge_commitment, register_assignment, resolve_challenge,
+    settle_duty,
 };
 pub use partitioned::{
     MAX_CASH_PARTITIONS, PartitionedCashPlan, PartitionedCashReceipt, cash_partition_for,
