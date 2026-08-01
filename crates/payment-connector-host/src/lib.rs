@@ -17,8 +17,13 @@ use sha3::{
 };
 use std::{fs::File, io::Write, path::Path};
 
+mod ntzs_sandbox;
 mod simulator;
 
+pub use ntzs_sandbox::{
+    NtzsOperationKind, NtzsReconciliationEntry, NtzsSandboxConnector, NtzsSandboxError,
+    NtzsSandboxQuoteRequest,
+};
 pub use simulator::{
     ConnectorContract, ConnectorError, DeterministicConnector, SimulatorRequest, SimulatorScenario,
 };

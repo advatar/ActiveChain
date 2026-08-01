@@ -998,7 +998,7 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
 - [x] Add crash-safe provider observation journaling and deterministic connector simulation.
 - [x] Add a fail-closed operator connector-host policy for identity, HTTPS origins, opaque secrets,
   supported rail/asset pairs, amount ceilings, and request deadlines.
-- [ ] Implement the sandbox nTZS connector for quote, collection, payout, conversion, status, and
+- [x] Implement the sandbox nTZS connector for quote, collection, payout, conversion, status, and
   reconciliation mappings without partnership or regulated-asset claims.
 - [ ] Integrate finalized native settlement, refunds/disputes, fee sponsorship, treasury controls,
   authenticated APIs/SDKs/webhooks, formal refinement, operations drills, and staged pilots.
