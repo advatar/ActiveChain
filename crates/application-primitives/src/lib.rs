@@ -10,6 +10,7 @@ extern crate std;
 mod anchor;
 #[cfg(feature = "std")]
 mod compliance;
+mod compute;
 
 #[cfg(feature = "std")]
 pub use anchor::DurableAnchorRegistry;
@@ -22,8 +23,14 @@ pub use anchor::{
 pub use compliance::{
     ComplianceAdmissionError, ComplianceKeyRegistry, CompliancePersistenceError,
     CredentialPredicateAdmissionError, DurableComplianceReplayJournal, admit_credential_predicate,
-    admit_regulated_transfer, compliance_evidence_commitment, require_selected_profile,
-    verify_compliance_signature,
+    admit_regulated_transfer, admit_tls_credential_predicate, compliance_evidence_commitment,
+    require_selected_profile, verify_compliance_signature,
+};
+pub use compute::{
+    ComputeAssuranceAttestationV1, ComputeAssuranceClassV1, ComputeAssuranceStatementV1,
+    ComputeBoundaryError, ComputeEscrowV1, FutureComputeVerifier, FutureComputeVerifierLimits,
+    MAX_FUTURE_COMPUTE_PROOF_BYTES, MAX_FUTURE_COMPUTE_VERIFIER_UNITS,
+    verify_compute_assurance_signature,
 };
 
 use activechain_canonical_codec::{

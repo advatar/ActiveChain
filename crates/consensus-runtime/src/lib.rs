@@ -48,6 +48,11 @@ mod pq_session;
 pub use pq_session::{PqPeerSession, PqSessionContext, PqSessionStore, SESSION_TTL_SECS};
 mod proof_pipeline;
 pub use proof_pipeline::{DurableFinalizedState, DurableProofPipeline, ProofPipelineError};
+mod proof_liveness;
+pub use proof_liveness::{
+    MAX_PROOF_DEADLINE_ROUNDS, MAX_PROOF_GRACE_DEPTH, ProofEvidence, ProofLivenessDecision,
+    ProofLivenessError, ProofLivenessInput, ProofLivenessProfile,
+};
 
 /// Canonical wallet transaction admission owned by the validator runtime.
 /// Authenticated network handlers can delegate here after peer/session checks.
@@ -103,7 +108,7 @@ impl WalletTransactionGateway {
     pub fn submit_faucet_authorized_envelope(
         &mut self,
         envelope: &[u8],
-        _faucet_reference: Digest384,
+        faucet_reference: Digest384,
         recipient: PrincipalId,
         amount: u128,
         height: u64,
@@ -117,6 +122,7 @@ impl WalletTransactionGateway {
             .map_err(|_| activechain_wallet_core::WalletError::MalformedAuthorization)?;
         if request.transfer().recipient() != recipient
             || request.transfer().amount() != amount
+            || request.settlement_reference() != Some(faucet_reference)
             || height > request.transfer().valid_until()
         {
             return Err(activechain_wallet_core::WalletError::PolicyDenied);
@@ -4223,6 +4229,32 @@ impl ValidatorService {
         peers: &mut PeerDirectory,
         peer_ids: &[u16],
     ) -> Result<ConsensusState, ValidatorServiceError> {
+        self.propose_round_collect_votes_with_certificate(
+            signer,
+            height,
+            round,
+            block_digest,
+            sequence,
+            peers,
+            peer_ids,
+        )
+        .map(|(state, _)| state)
+    }
+
+    /// Proposes a round and returns the exact certified block used to advance
+    /// finality. Deployment publishers use this variant to construct a
+    /// verifier-consumable finality bundle without scraping internal state.
+    #[allow(clippy::too_many_arguments)]
+    pub fn propose_round_collect_votes_with_certificate(
+        &self,
+        signer: &ValidatorSigner,
+        height: u64,
+        round: u64,
+        block_digest: Digest384,
+        sequence: u64,
+        peers: &mut PeerDirectory,
+        peer_ids: &[u16],
+    ) -> Result<(ConsensusState, Option<CertifiedBlock>), ValidatorServiceError> {
         let (proposal, own_vote) =
             self.propose_round(signer, height, round, block_digest, sequence)?;
         peers.broadcast_message(&proposal).map_err(ValidatorServiceError::Io)?;
@@ -4240,18 +4272,22 @@ impl ValidatorService {
                 certificate = Some(proof);
             }
         }
-        if let Some(proof) = certificate {
+        if let Some(proof) = certificate.as_ref() {
             let sender = self.sender_for(signer)?;
             let certificate_sequence = sequence
                 .checked_add(2)
                 .ok_or(ValidatorServiceError::Engine(ValidatorEngineError::SequenceOverflow))?;
             self.reserve_sequence_range(sender, certificate_sequence, 1)?;
             let message = signer
-                .sign_envelope(sender, certificate_sequence, ConsensusMessage::Certificate(proof))
+                .sign_envelope(
+                    sender,
+                    certificate_sequence,
+                    ConsensusMessage::Certificate(proof.clone()),
+                )
                 .map_err(ValidatorServiceError::Engine)?;
             peers.broadcast_message(&message).map_err(ValidatorServiceError::Io)?;
         }
-        self.state()
+        self.state().map(|state| (state, certificate))
     }
     fn sender_for(&self, signer: &ValidatorSigner) -> Result<u16, ValidatorServiceError> {
         let public_key = signer.public_key();
@@ -4693,15 +4729,17 @@ mod tests {
             10,
         )
         .unwrap();
-        let request = activechain_wallet_core::CashAuthorizationRequestV1::new(
-            ChainId::new(digest(1)),
-            owner,
-            0,
-            digest(12),
-            10,
-            transfer,
-        )
-        .unwrap();
+        let request =
+            activechain_wallet_core::CashAuthorizationRequestV1::new_with_settlement_reference(
+                ChainId::new(digest(1)),
+                owner,
+                0,
+                digest(12),
+                10,
+                Some(digest(30)),
+                transfer,
+            )
+            .unwrap();
         let grant = activechain_wallet_core::CashSessionGrantV1::new(
             ChainId::new(digest(1)),
             owner,
@@ -4730,8 +4768,65 @@ mod tests {
         )
         .unwrap();
         let envelope = encode_envelope(&authorized).unwrap();
-        gateway.submit_envelope(&envelope, 1).unwrap();
-        assert!(gateway.submit_envelope(&envelope, 1).is_err());
+        assert_eq!(
+            gateway.submit_faucet_authorized_envelope(
+                &envelope,
+                digest(31),
+                PrincipalId::new(digest(11)),
+                10,
+                1,
+            ),
+            Err(activechain_wallet_core::WalletError::PolicyDenied)
+        );
+        assert_eq!(
+            gateway.submit_faucet_authorized_envelope(
+                &envelope,
+                digest(30),
+                PrincipalId::new(digest(12)),
+                10,
+                1,
+            ),
+            Err(activechain_wallet_core::WalletError::PolicyDenied)
+        );
+        assert_eq!(
+            gateway.submit_faucet_authorized_envelope(
+                &envelope,
+                digest(30),
+                PrincipalId::new(digest(11)),
+                11,
+                1,
+            ),
+            Err(activechain_wallet_core::WalletError::PolicyDenied)
+        );
+        assert_eq!(
+            gateway.submit_faucet_authorized_envelope(
+                &envelope,
+                digest(30),
+                PrincipalId::new(digest(11)),
+                10,
+                11,
+            ),
+            Err(activechain_wallet_core::WalletError::PolicyDenied)
+        );
+        let transaction = gateway
+            .submit_faucet_authorized_envelope(
+                &envelope,
+                digest(30),
+                PrincipalId::new(digest(11)),
+                10,
+                1,
+            )
+            .unwrap();
+        assert_eq!(
+            gateway.submit_faucet_authorized_envelope(
+                &envelope,
+                digest(30),
+                PrincipalId::new(digest(11)),
+                10,
+                1,
+            ),
+            Ok(transaction)
+        );
         let restored =
             WalletTransactionGateway::load_snapshot(&snapshot_path, ChainId::new(digest(1)))
                 .unwrap();

@@ -9,6 +9,8 @@ import ActiveChain.Credential
 import ActiveChain.DA
 import ActiveChain.Envelope
 import ActiveChain.EpochUpgrade
+import ActiveChain.ExternalIdentity
+import ActiveChain.Faucet
 import ActiveChain.Object
 import ActiveChain.ObjectVM
 import ActiveChain.Payments

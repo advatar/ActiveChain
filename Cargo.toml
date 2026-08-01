@@ -2,6 +2,7 @@
 members = [
     "crates/action-kernel",
     "crates/agent-interfaces",
+    "crates/a2ui-renderer",
     "crates/application-primitives",
     "crates/authorization-kernel",
     "crates/bytecode-verifier",
@@ -18,14 +19,18 @@ members = [
     "crates/verifier-ffi",
     "crates/wallet-ffi",
     "crates/credential",
+    "crates/external-credential-adapter",
+    "crates/external-credential-admission",
     "crates/devnet-kernel",
     "crates/finality-types",
     "crates/light-client",
     "crates/mcp-server",
+    "crates/mcp-rehearsal",
     "crates/object",
     "crates/object-vm",
     "crates/payment-types",
     "crates/payment-connector-host",
+    "crates/proposal-gateway",
     "connectors/ntzs",
     "crates/policy-kernel",
     "crates/principal",
@@ -39,6 +44,17 @@ members = [
     "crates/protocol-commitment",
     "crates/protocol-types",
     "crates/state-tree",
+    "crates/storage-profile",
+    "crates/storage-engine",
+    "crates/archive",
+    "crates/pruning",
+    "crates/storage-rent",
+    "crates/accumulator",
+    "crates/storage-sync",
+    "crates/storage-qualification",
+    "crates/storage-soak",
+    "crates/archive-settlement",
+    "crates/storage-transition",
     "crates/transition",
     "node/semantic-devnet",
     "tools/vector-generator",
@@ -55,6 +71,7 @@ repository = "https://github.com/advatar/ActiveChain"
 [workspace.dependencies]
 activechain-action-kernel = { path = "crates/action-kernel", version = "0.1.0" }
 activechain-agent-interfaces = { path = "crates/agent-interfaces", version = "0.1.0" }
+activechain-a2ui-renderer = { path = "crates/a2ui-renderer", version = "0.1.0" }
 activechain-application-primitives = { path = "crates/application-primitives", version = "0.1.0" }
 activechain-authorization-kernel = { path = "crates/authorization-kernel", version = "0.1.0" }
 activechain-bytecode-verifier = { path = "crates/bytecode-verifier", version = "0.1.0" }
@@ -71,23 +88,37 @@ activechain-wallet-ffi = { path = "crates/wallet-ffi", version = "0.1.0" }
 activechain-verifier-api = { path = "crates/verifier-api", version = "0.1.0" }
 activechain-verifier-ffi = { path = "crates/verifier-ffi", version = "0.1.0" }
 activechain-credential = { path = "crates/credential", version = "0.1.0" }
+activechain-external-credential-adapter = { path = "crates/external-credential-adapter", version = "0.1.0" }
 activechain-devnet-kernel = { path = "crates/devnet-kernel", version = "0.1.0" }
 activechain-finality-types = { path = "crates/finality-types", version = "0.1.0" }
 activechain-light-client = { path = "crates/light-client", version = "0.1.0" }
 activechain-mcp-server = { path = "crates/mcp-server", version = "0.1.0" }
 activechain-object = { path = "crates/object", version = "0.1.0" }
 activechain-object-vm = { path = "crates/object-vm", version = "0.1.0" }
+postcard = { version = "1.1.3", features = ["use-std"] }
 activechain-payment-types = { path = "crates/payment-types", version = "0.1.0" }
 activechain-payment-connector-host = { path = "crates/payment-connector-host", version = "0.1.0" }
+activechain-proposal-gateway = { path = "crates/proposal-gateway", version = "0.1.0" }
 activechain-policy-kernel = { path = "crates/policy-kernel", version = "0.1.0" }
 activechain-principal = { path = "crates/principal", version = "0.1.0" }
 activechain-privacy-kernel = { path = "crates/privacy-kernel", version = "0.1.0" }
+activechain-storage-soak = { path = "crates/storage-soak", version = "0.1.0" }
 activechain-private-billboard = { path = "crates/private-billboard", version = "0.1.0" }
 activechain-rpc-types = { path = "crates/rpc-types", version = "0.1.0" }
 activechain-rpc-server = { path = "crates/rpc-server", version = "0.1.0" }
 activechain-pq-zk = { path = "crates/pq-zk", version = "0.1.0" }
 activechain-protocol-types = { path = "crates/protocol-types", version = "0.1.0" }
 activechain-state-tree = { path = "crates/state-tree", version = "0.1.0" }
+activechain-storage-profile = { path = "crates/storage-profile", version = "0.1.0" }
+activechain-storage-engine = { path = "crates/storage-engine", version = "0.1.0" }
+activechain-archive = { path = "crates/archive", version = "0.1.0" }
+activechain-pruning = { path = "crates/pruning", version = "0.1.0" }
+activechain-storage-rent = { path = "crates/storage-rent", version = "0.1.0" }
+activechain-accumulator = { path = "crates/accumulator", version = "0.1.0" }
+activechain-storage-sync = { path = "crates/storage-sync", version = "0.1.0" }
+activechain-storage-qualification = { path = "crates/storage-qualification", version = "0.1.0" }
+activechain-archive-settlement = { path = "crates/archive-settlement", version = "0.1.0" }
+activechain-storage-transition = { path = "crates/storage-transition", version = "0.1.0" }
 activechain-transition = { path = "crates/transition", version = "0.1.0" }
 proptest = { version = "1.7.0", default-features = false, features = ["std"] }
 p3-air = "=0.6.2"
@@ -109,6 +140,10 @@ sha2 = { version = "0.10.9", default-features = false }
 hmac = { version = "0.12.1", default-features = false }
 serde_json = "1.0.149"
 serde = { version = "1.0.228", features = ["derive"] }
+base64 = "0.22.1"
+p256 = { version = "0.13.2", features = ["ecdsa"] }
+ciborium = "0.2.2"
+time = { version = "0.3.41", features = ["parsing"] }
 risc0-zkvm = { version = "=3.0.5", default-features = false }
 winterfell = "=0.13.1"
 

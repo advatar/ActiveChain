@@ -10,6 +10,7 @@ description = "Read-only proof-bearing MCP server for ActiveChain"
 activechain-agent-interfaces.workspace = true
 activechain-canonical-codec.workspace = true
 activechain-protocol-types.workspace = true
+activechain-proposal-gateway.workspace = true
 activechain-rpc-server.workspace = true
 activechain-rpc-types.workspace = true
 serde.workspace = true

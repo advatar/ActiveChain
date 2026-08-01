@@ -29,6 +29,8 @@
 
 #define ACTIVECHAIN_WALLET_INVALID_PROOF 9
 
+#define ACTIVECHAIN_WALLET_APPROVAL_MISMATCH 10
+
 #define ACTIVECHAIN_WALLET_OPENWALLET_OFFER 1
 
 #define ACTIVECHAIN_WALLET_OPENWALLET_PRESENTATION_REQUEST 2
@@ -61,6 +63,53 @@ typedef struct ActivechainWalletAgentSummary {
   uint64_t revocation_finalized_height;
 } ActivechainWalletAgentSummary;
 
+/**
+ * Fixed-layout human-review fields decoded from one canonical cash authorization request.
+ */
+typedef struct ActivechainWalletCashApproval {
+  uint8_t chain_id[48];
+  uint8_t signer[48];
+  uint8_t recipient[48];
+  uint8_t fee_reserve[48];
+  uint8_t session_id[48];
+  uint8_t intent_id[48];
+  uint64_t nonce;
+  uint64_t session_expires_at;
+  uint64_t amount_high;
+  uint64_t amount_low;
+  uint64_t fee_high;
+  uint64_t fee_low;
+  uint64_t valid_until;
+  uint32_t input_count;
+} ActivechainWalletCashApproval;
+
+/**
+ * Fixed-layout review fields decoded from one canonical MCP action intent.
+ */
+typedef struct ActivechainWalletProposalApproval {
+  uint8_t request_id[128];
+  uint32_t request_id_len;
+  uint8_t chain_id[128];
+  uint32_t chain_id_len;
+  uint8_t wallet_id[128];
+  uint32_t wallet_id_len;
+  uint8_t request_nonce[128];
+  uint32_t request_nonce_len;
+  uint8_t agent_principal[48];
+  uint8_t capability_id[48];
+  uint8_t resource[48];
+  uint8_t recipient[48];
+  uint8_t replay_domain[48];
+  uint8_t intent_commitment[48];
+  uint8_t proposal_id[48];
+  uint32_t action;
+  uint64_t amount_high;
+  uint64_t amount_low;
+  uint64_t maximum_fee_high;
+  uint64_t maximum_fee_low;
+  uint64_t expires_at_height;
+} ActivechainWalletProposalApproval;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -69,6 +118,36 @@ extern "C" {
  * Returns the ABI revision consumed by native wallet shells.
  */
 uint32_t activechain_wallet_ffi_revision(void);
+
+/**
+ * Derives the canonical ML-DSA-44 public key for one transient 32-byte seed.
+ *
+ * # Safety
+ *
+ * `seed` must point to 32 readable bytes and `public_key_out` to 1,312 writable bytes. Neither
+ * pointer is retained.
+ */
+uint32_t activechain_wallet_mldsa44_public_key(const uint8_t *seed,
+                                               uint32_t seed_len,
+                                               uint8_t *public_key_out,
+                                               uint32_t public_key_len);
+
+/**
+ * Signs one bounded payload with a transient ML-DSA-44 seed and verifies the signature before
+ * publishing it to the caller.
+ *
+ * # Safety
+ *
+ * `seed` must point to 32 readable bytes. A non-empty `payload` must be readable for
+ * `payload_len` bytes, and `signature_out` must point to 2,420 writable bytes. No pointer is
+ * retained.
+ */
+uint32_t activechain_wallet_mldsa44_sign(const uint8_t *seed,
+                                         uint32_t seed_len,
+                                         const uint8_t *payload,
+                                         uint32_t payload_len,
+                                         uint8_t *signature_out,
+                                         uint32_t signature_len);
 
 /**
  * Validates one canonical OpenWallet envelope and returns its protocol commitment.
@@ -353,6 +432,88 @@ uint32_t activechain_wallet_build_cash_intent(const uint8_t *chain_id,
                                               uint8_t *intent_out);
 
 /**
+ * Builds a cash authorization whose signature binds an exact faucet settlement reference.
+ *
+ * # Safety
+ *
+ * All identifier inputs, including `settlement_reference`, must point to readable 48-byte
+ * buffers. Output pointer requirements match [`activechain_wallet_build_cash_intent`].
+ */
+uint32_t activechain_wallet_build_faucet_cash_intent(const uint8_t *chain_id,
+                                                     const uint8_t *signer,
+                                                     const uint8_t *recipient,
+                                                     const uint8_t *input,
+                                                     const uint8_t *fee_reserve,
+                                                     uint64_t nonce,
+                                                     const uint8_t *session_id,
+                                                     uint64_t session_expires_at,
+                                                     const uint8_t *settlement_reference,
+                                                     uint64_t amount_high,
+                                                     uint64_t amount_low,
+                                                     uint64_t fee_high,
+                                                     uint64_t fee_low,
+                                                     uint64_t valid_until,
+                                                     uint8_t *output,
+                                                     uint32_t output_capacity,
+                                                     uint32_t *required_len,
+                                                     uint8_t *intent_out);
+
+/**
+ * Decodes the exact canonical cash request into fixed human-review fields.
+ *
+ * # Safety
+ * `request` must be readable for `request_len` bytes and `approval_out` must be writable. No
+ * pointer is retained and the output is published only after strict canonical decoding succeeds.
+ */
+uint32_t activechain_wallet_cash_approval(const uint8_t *request,
+                                          uint32_t request_len,
+                                          struct ActivechainWalletCashApproval *approval_out);
+
+/**
+ * Strictly decodes one canonical MCP action intent into fields suitable for native review.
+ *
+ * The current finalized height is checked here so a stale intent can never reach a platform
+ * authentication prompt. Display fields are reconstructed exclusively from canonical bytes.
+ *
+ * # Safety
+ * `intent` must be readable for `intent_len`; `approval_out` must be writable.
+ */
+uint32_t activechain_wallet_proposal_approval(const uint8_t *intent,
+                                              uint32_t intent_len,
+                                              uint64_t current_finalized_height,
+                                              struct ActivechainWalletProposalApproval *approval_out);
+
+/**
+ * Signs exactly one reviewed canonical MCP action intent through caller-owned native custody.
+ *
+ * # Safety
+ * Input pointers must be readable for their declared/fixed lengths; outputs must be writable.
+ * The callback is invoked only after strict decoding, expiry validation, and commitment matching.
+ */
+uint32_t activechain_wallet_sign_proposal_intent(const uint8_t *intent,
+                                                 uint32_t intent_len,
+                                                 uint64_t current_finalized_height,
+                                                 const uint8_t *approved_commitment,
+                                                 const uint8_t *public_key,
+                                                 activechain_wallet_sign_callback callback,
+                                                 void *callback_context,
+                                                 uint8_t *output,
+                                                 uint32_t output_capacity,
+                                                 uint32_t *required_len);
+
+/**
+ * Verifies and forwards one unexpired, exactly authorized MCP action envelope.
+ *
+ * # Safety
+ * `envelope` must be readable for `envelope_len`; the callback must obey its contract.
+ */
+uint32_t activechain_wallet_submit_authorized_proposal(const uint8_t *envelope,
+                                                       uint32_t envelope_len,
+                                                       uint64_t current_finalized_height,
+                                                       activechain_wallet_submit_callback callback,
+                                                       void *callback_context);
+
+/**
  * Builds a canonical asset-bound transfer envelope with size-query support.
  *
  * # Safety
@@ -377,12 +538,15 @@ uint32_t activechain_wallet_build_fungible_transfer(const uint8_t *cells,
  *
  * # Safety
  *
- * `request` and `public_key` must be readable for their fixed lengths. `callback` must obey its
- * declared contract for the duration of the call. `output` may be null only for a zero-capacity
- * size query; `required_len` must be writable. The callback is never retained.
+ * `request`, the 48-byte `approved_intent`, and `public_key` must be readable for their declared
+ * or fixed lengths. The approved intent must be the commitment returned with the human-reviewed
+ * summary. `callback` must obey its declared contract for the duration of the call. `output` may
+ * be null only for a zero-capacity size query; `required_len` must be writable. The callback is
+ * never retained.
  */
 uint32_t activechain_wallet_sign_cash_intent(const uint8_t *request,
                                              uint32_t request_len,
+                                             const uint8_t *approved_intent,
                                              const uint8_t *public_key,
                                              activechain_wallet_sign_callback callback,
                                              void *callback_context,

@@ -11,7 +11,7 @@ state_root="$deployment_root/chain"
 rpc_root="$deployment_root/rpc"
 fake_path="$test_root/bin"
 mkdir -p "$binary_root" "$state_root/keys" "$rpc_root" "$fake_path"
-printf 'ACTIVECHAIN_CHAIN_ID_HEX=00\n' > "$deployment_root/network.env"
+printf 'ACTIVECHAIN_CHAIN_ID_HEX=%096d\n' 0 > "$deployment_root/network.env"
 : > "$state_root/genesis.bin"
 : > "$state_root/keys/validator-0.key"
 : > "$rpc_root/rpc-index.snapshot"
@@ -19,11 +19,19 @@ printf 'ACTIVECHAIN_CHAIN_ID_HEX=00\n' > "$deployment_root/network.env"
 cp "$repo_root/deploy/kanalen/scripts/run-kanalen-round.sh" "$test_root/run-kanalen-round.sh"
 chmod +x "$test_root/run-kanalen-round.sh"
 
-for command in nc validator-node; do
-  printf '#!/bin/sh\nexit 0\n' > "$fake_path/$command"
-  chmod +x "$fake_path/$command"
+printf '#!/bin/sh\nexit 0\n' > "$fake_path/nc"
+chmod +x "$fake_path/nc"
+cat > "$binary_root/validator-node" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$@" > "$ACTIVECHAIN_VALIDATOR_ARGUMENTS"
+for argument in "$@"; do
+  case "$argument" in
+    --finalized-cash-out=*) : > "${argument#*=}" ;;
+    --finality-out=*) : > "${argument#*=}" ;;
+  esac
 done
-cp "$fake_path/validator-node" "$binary_root/validator-node"
+EOF
+chmod +x "$binary_root/validator-node"
 
 cat > "$binary_root/activechain-rpc-ingest" <<'EOF'
 #!/bin/sh
@@ -33,11 +41,18 @@ chmod +x "$binary_root/activechain-rpc-ingest"
 
 run_round() {
   ACTIVECHAIN_KANALEN_ROOT="$deployment_root" \
-    ACTIVECHAIN_INGEST_ARGUMENTS="$test_root/ingest-arguments" \
+  ACTIVECHAIN_INGEST_ARGUMENTS="$test_root/ingest-arguments" \
+    ACTIVECHAIN_VALIDATOR_ARGUMENTS="$test_root/validator-arguments" \
     PATH="$fake_path:$PATH" \
     "$test_root/run-kanalen-round.sh"
 }
 
+rm -f "$state_root/finalized-cash.snapshot" "$state_root/finality.bundle"
+cat > "$binary_root/validator-node" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod +x "$binary_root/validator-node"
 if run_round >"$test_root/missing-cash.out" 2>&1; then
   echo "round unexpectedly published metadata without finalized cash" >&2
   exit 1
@@ -52,11 +67,25 @@ fi
 grep -q 'refusing unauthenticated RPC publication' "$test_root/missing-finality.out"
 
 : > "$state_root/finality.bundle"
+cat > "$binary_root/validator-node" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$@" > "$ACTIVECHAIN_VALIDATOR_ARGUMENTS"
+for argument in "$@"; do
+  case "$argument" in
+    --finalized-cash-out=*) : > "${argument#*=}" ;;
+    --finality-out=*) : > "${argument#*=}" ;;
+  esac
+done
+EOF
+chmod +x "$binary_root/validator-node"
 run_round
 test "$(sed -n '1p' "$test_root/ingest-arguments")" = "$state_root/validator-0.snapshot"
 test "$(sed -n '2p' "$test_root/ingest-arguments")" = "$rpc_root/rpc-index.snapshot"
 test "$(sed -n '3p' "$test_root/ingest-arguments")" = "$state_root/finalized-cash.snapshot"
 test "$(sed -n '4p' "$test_root/ingest-arguments")" = "$state_root/finality.bundle"
 test "$(wc -l < "$test_root/ingest-arguments" | tr -d ' ')" = 4
+grep -q '^--chain-id-hex=000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000$' "$test_root/validator-arguments"
+grep -q "^--finalized-cash-out=$state_root/finalized-cash.snapshot$" "$test_root/validator-arguments"
+grep -q "^--finality-out=$state_root/finality.bundle$" "$test_root/validator-arguments"
 
 echo "Kanalen finalized-cash publication gate passed"

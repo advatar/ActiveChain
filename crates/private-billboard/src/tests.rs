@@ -1,11 +1,22 @@
 use super::*;
+use activechain_accumulator::{AccumulatorDomain, ReferenceSet};
 use activechain_cash_kernel::{
     CashLedger, GenesisAllocation, GenesisEconomy, NativeAssetDefinition,
 };
-use activechain_privacy_kernel::{ShieldIntent, UnshieldIntent};
+use activechain_privacy_kernel::{NullifierWitness, ShieldIntent, UnshieldIntent};
 
 fn digest(byte: u8) -> Digest384 {
     Digest384::new([byte; 48])
+}
+
+fn nullifier_witness(prior: &[Digest384], nullifier: Digest384) -> NullifierWitness {
+    let mut reference = ReferenceSet::new(AccumulatorDomain::Nullifier);
+    for spent in prior {
+        reference.insert(spent.into_bytes()).unwrap();
+    }
+    let witness = reference.non_membership_witness(nullifier.into_bytes()).unwrap();
+    NullifierWitness::new(nullifier, witness.siblings.into_iter().map(Digest384::new).collect())
+        .unwrap()
 }
 
 fn config() -> BillboardConfig {
@@ -206,6 +217,7 @@ fn native_cash_and_billboard_commit_atomically_through_the_full_lifecycle() {
         1,
         1,
         vec![nullifier],
+        vec![nullifier_witness(&[], nullifier)],
         vec![next.commitment().unwrap()],
         20,
     )
@@ -244,6 +256,7 @@ fn native_cash_and_billboard_commit_atomically_through_the_full_lifecycle() {
         withdrawal.amount,
         withdrawal.fee,
         vec![withdrawal_nullifier],
+        vec![nullifier_witness(&[nullifier], withdrawal_nullifier)],
         vec![],
         20,
     )

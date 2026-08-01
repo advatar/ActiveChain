@@ -67,3 +67,15 @@ authenticated parent proof and a row-aligned optional SHAKE proof: accepted muta
 one, rejected rows require none. Verification first matches the parent's complete public input
 vector to the canonical authenticated execution evidence, verifies the parent STARK, and then
 verifies every row-aligned SHAKE path proof. Missing, extra, or outcome-mismatched evidence fails.
+
+The parent trace now range-constrains each native input, output, and fee as 64 verifier-bound
+Boolean columns. The canonical execution evidence supplies the public `u64` amount for each active
+row; AIR boundary assertions bind all 64 bits and a transition constraint reconstructs the exact
+field value. A prover can no longer rely on the host trace builder's range check or substitute a
+field-modulus alias. Amount and bit-column substitutions invalidate verification.
+
+Ordinary debug tests preflight a one-accepted-row exact-spend composite fixture without performing
+the expensive SHAKE proof. The optimized test profile proves and verifies that same bounded
+composite in roughly one minute on the local ARM64 release runner. The two-accepted-row benchmark
+remains explicitly ignored outside release qualification. This keeps edit-time tests fast while
+ensuring the frozen release batch exercises a real accepted mutation end to end.

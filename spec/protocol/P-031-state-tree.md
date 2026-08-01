@@ -8,7 +8,7 @@
 
 This revision specifies the first canonical authenticated state commitment over P-030 objects and canonical single-key membership and non-membership witnesses. It deliberately uses a simple fixed-depth reference shape before production path compression and batch multiproofs are frozen.
 
-Database persistence, compact multiproofs, deltas, leases, hibernation, snapshots, state sync, and transition-witness application are separate refinements. Storage engines MUST NOT reinterpret the root or proof rules defined here.
+Database persistence, compact multiproofs, deltas, leases, hibernation, snapshots, state sync, and transition-witness application are separate refinements. P-070 defines the bounded-validator retention and qualification contract for those refinements. Storage engines MUST NOT reinterpret the root or proof rules defined here.
 
 ## 2. Key path and partitions
 

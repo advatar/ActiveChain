@@ -15,5 +15,8 @@ path = "../../src/lib.rs"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
+activechain-application-primitives.workspace = true
+activechain-canonical-codec.workspace = true
 activechain-protocol-types.workspace = true
+activechain-rpc-types.workspace = true
 activechain-verifier-api.workspace = true

@@ -7,6 +7,7 @@ extern crate alloc;
 
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
+    encode_envelope,
 };
 use activechain_protocol_types::{
     AssetId, ChainId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature, TransactionId,
@@ -241,6 +242,11 @@ pub enum QueryKind {
     CoinCell = 4,
     FungibleCoinCell = 5,
     NonFungibleCoinCell = 6,
+    AssetDefinition = 7,
+    AssetIssuerRegistration = 8,
+    AssetSupplyAttestation = 9,
+    AssetCorporateAction = 10,
+    AssetSettlementReceipt = 11,
 }
 
 impl CanonicalEncode for QueryKind {
@@ -258,6 +264,11 @@ impl CanonicalDecode for QueryKind {
             4 => Ok(Self::CoinCell),
             5 => Ok(Self::FungibleCoinCell),
             6 => Ok(Self::NonFungibleCoinCell),
+            7 => Ok(Self::AssetDefinition),
+            8 => Ok(Self::AssetIssuerRegistration),
+            9 => Ok(Self::AssetSupplyAttestation),
+            10 => Ok(Self::AssetCorporateAction),
+            11 => Ok(Self::AssetSettlementReceipt),
             tag => Err(DecodeError::InvalidEnumTag { type_name: "QueryKind", tag }),
         }
     }
@@ -473,6 +484,17 @@ impl FaucetRequestV1 {
     }
     pub fn challenge_evidence(&self) -> &[u8] {
         &self.challenge_evidence
+    }
+    /// Client-computable settlement reference covered by the faucet cash authorization.
+    pub fn settlement_reference(&self) -> Result<Digest384, EncodeError> {
+        let bytes = encode_envelope(self)?;
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-TESTNET-FAUCET-REFERENCE-V2");
+        hasher.update(&(bytes.len() as u64).to_be_bytes());
+        hasher.update(&bytes);
+        let mut output = [0; 48];
+        hasher.finalize_xof().read(&mut output);
+        Ok(Digest384::new(output))
     }
 }
 impl CanonicalEncode for FaucetRequestV1 {
@@ -1837,6 +1859,19 @@ mod tests {
             decode_envelope::<RpcRequest>(&encode_envelope(&nft_request).unwrap()),
             Ok(nft_request)
         );
+        for kind in [
+            QueryKind::AssetDefinition,
+            QueryKind::AssetIssuerRegistration,
+            QueryKind::AssetSupplyAttestation,
+            QueryKind::AssetCorporateAction,
+            QueryKind::AssetSettlementReceipt,
+        ] {
+            let request = RpcRequest::Get { kind, key: digest(7) };
+            assert_eq!(
+                decode_envelope::<RpcRequest>(&encode_envelope(&request).unwrap()),
+                Ok(request)
+            );
+        }
 
         let faucet = FaucetRequestV1::new(
             ChainId::new(digest(11)),
@@ -1889,6 +1924,20 @@ mod tests {
         .unwrap();
         let wire = encode_envelope(&request).unwrap();
         assert_eq!(decode_envelope::<FaucetRequestV1>(&wire), Ok(request.clone()));
+        let reference = request.settlement_reference().unwrap();
+        assert_ne!(reference, Digest384::ZERO);
+        assert_eq!(request.settlement_reference(), Ok(reference));
+        let substituted = FaucetRequestV1::new(
+            request.chain_id(),
+            request.genesis_commitment(),
+            request.recipient(),
+            digest(40),
+            request.source_commitment(),
+            request.challenge_nonce(),
+            request.challenge_evidence().to_vec(),
+        )
+        .unwrap();
+        assert_ne!(substituted.settlement_reference().unwrap(), reference);
 
         let pending = FaucetReceiptV1::new(
             digest(7),

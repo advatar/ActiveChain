@@ -1,0 +1,15 @@
+[package]
+name = "activechain-storage-sync"
+description = "Bounded checkpoint synchronization and light-client bindings for ActiveChain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+activechain-storage-engine.workspace = true
+sha3.workspace = true
+
+[lints]
+workspace = true

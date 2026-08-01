@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "accumulator",
     "action-kernel",
     "api",
     "application-primitives",
@@ -29,6 +30,7 @@ rust-version = "1.93.0"
 repository = "https://github.com/advatar/ActiveChain"
 
 [workspace.dependencies]
+activechain-accumulator = { path = "accumulator", version = "0.1.0" }
 activechain-action-kernel = { path = "action-kernel", version = "0.1.0" }
 activechain-application-primitives = { path = "application-primitives", version = "0.1.0" }
 activechain-canonical-codec = { path = "canonical-codec", version = "0.1.0" }

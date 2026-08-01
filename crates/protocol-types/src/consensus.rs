@@ -1,7 +1,10 @@
 //! PQ-bound consensus message types for the first testnet boundary.
 
 extern crate alloc;
-use crate::{CryptoSuiteId, Digest384, Epoch, PrincipalId, ProtocolSignature};
+use crate::{
+    CryptoSuiteId, Digest384, Epoch, PrincipalId, ProtocolSignature, ProtocolVersionProfile,
+    V1_0_PROTOCOL_REVISION,
+};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
@@ -53,7 +56,7 @@ impl ConsensusVoteContext {
     ) -> Result<Self, ValidatorVoteError> {
         if genesis_commitment == Digest384::ZERO
             || validator_set_root == Digest384::ZERO
-            || protocol_revision == 0
+            || ProtocolVersionProfile::new(protocol_revision).is_err()
         {
             return Err(ValidatorVoteError::UnboundConsensusDomain);
         }
@@ -73,7 +76,7 @@ impl ConsensusVoteContext {
     }
 }
 
-pub const INITIAL_PROTOCOL_REVISION: u64 = 1;
+pub const INITIAL_PROTOCOL_REVISION: u64 = V1_0_PROTOCOL_REVISION;
 
 impl ValidatorVote {
     pub const TYPE_TAG: u16 = 0x0064;
@@ -822,8 +825,10 @@ impl ConsensusUpgradeAuthorization {
         {
             return Err(ConsensusUpgradeAuthorizationError::ZeroValidatorSetRoot);
         }
-        if previous_protocol_revision == 0 || next_protocol_revision == 0 {
-            return Err(ConsensusUpgradeAuthorizationError::ZeroProtocolRevision);
+        if ProtocolVersionProfile::new(previous_protocol_revision).is_err()
+            || ProtocolVersionProfile::new(next_protocol_revision).is_err()
+        {
+            return Err(ConsensusUpgradeAuthorizationError::UnknownProtocolRevision);
         }
         let validator_set_changes = previous_validator_set_root != next_validator_set_root;
         if validator_set_changes {
@@ -835,6 +840,11 @@ impl ConsensusUpgradeAuthorization {
         }
         if next_protocol_revision < previous_protocol_revision {
             return Err(ConsensusUpgradeAuthorizationError::ProtocolRevisionDowngrade);
+        }
+        if next_protocol_revision != previous_protocol_revision
+            && previous_protocol_revision.checked_add(1) != Some(next_protocol_revision)
+        {
+            return Err(ConsensusUpgradeAuthorizationError::ProtocolRevisionSkip);
         }
         if !validator_set_changes && next_protocol_revision == previous_protocol_revision {
             return Err(ConsensusUpgradeAuthorizationError::NoChange);
@@ -902,9 +912,10 @@ impl ConsensusUpgradeAuthorization {
 pub enum ConsensusUpgradeAuthorizationError {
     AuthorizationNotPrior,
     ZeroValidatorSetRoot,
-    ZeroProtocolRevision,
+    UnknownProtocolRevision,
     InvalidEpochTransition,
     ProtocolRevisionDowngrade,
+    ProtocolRevisionSkip,
     NoChange,
 }
 
@@ -1343,8 +1354,8 @@ impl ValidatorGenesis {
         {
             return Err(ValidatorGenesisError::Bounds);
         }
-        if protocol_revision == 0 {
-            return Err(ValidatorGenesisError::ZeroProtocolRevision);
+        if ProtocolVersionProfile::new(protocol_revision).is_err() {
+            return Err(ValidatorGenesisError::UnknownProtocolRevision);
         }
         if entries.windows(2).any(|pair| pair[0].validator >= pair[1].validator) {
             return Err(ValidatorGenesisError::NotStrictlyOrdered);
@@ -1401,7 +1412,7 @@ impl ValidatorGenesis {
 pub enum ValidatorGenesisError {
     Bounds,
     ZeroStake,
-    ZeroProtocolRevision,
+    UnknownProtocolRevision,
     NotStrictlyOrdered,
 }
 impl CanonicalEncode for ValidatorGenesisEntry {
@@ -1535,6 +1546,13 @@ mod tests {
         assert_eq!(vote.validator_set_root(), digest(11));
         assert_eq!(vote.protocol_revision(), INITIAL_PROTOCOL_REVISION);
         assert_eq!(decode_envelope::<ValidatorVote>(&encode_envelope(&vote).unwrap()), Ok(vote));
+    }
+    #[test]
+    fn consensus_context_rejects_unknown_protocol_revision() {
+        assert_eq!(
+            ConsensusVoteContext::new_with_revision(digest(10), 3, digest(11), 7),
+            Err(ValidatorVoteError::UnboundConsensusDomain)
+        );
     }
     #[test]
     fn validator_vote_rejects_other_pq_signature_suites() {
@@ -1914,9 +1932,10 @@ mod tests {
         let envelope = encode_envelope(&authorization).unwrap();
         assert_eq!(decode_envelope::<ConsensusUpgradeAuthorization>(&envelope), Ok(authorization));
         assert_ne!(authorization.commitment(), Digest384::ZERO);
-        let different_revision =
-            ConsensusUpgradeAuthorization::new(9, 10, 4, 5, digest(8), digest(9), 2, 4).unwrap();
-        assert_ne!(authorization.commitment(), different_revision.commitment());
+        assert_eq!(
+            ConsensusUpgradeAuthorization::new(9, 10, 4, 5, digest(8), digest(9), 2, 4),
+            Err(ConsensusUpgradeAuthorizationError::ProtocolRevisionSkip)
+        );
         assert_eq!(
             ConsensusUpgradeAuthorization::new(9, 10, 4, 5, digest(8), digest(9), 3, 2,),
             Err(ConsensusUpgradeAuthorizationError::ProtocolRevisionDowngrade)
@@ -1924,6 +1943,10 @@ mod tests {
         assert_eq!(
             ConsensusUpgradeAuthorization::new(10, 10, 4, 5, digest(8), digest(9), 2, 3,),
             Err(ConsensusUpgradeAuthorizationError::AuthorizationNotPrior)
+        );
+        assert_eq!(
+            ConsensusUpgradeAuthorization::new(9, 10, 4, 5, digest(8), digest(9), 6, 7),
+            Err(ConsensusUpgradeAuthorizationError::UnknownProtocolRevision)
         );
     }
 
@@ -1942,6 +1965,10 @@ mod tests {
         )
         .unwrap();
         let genesis = ValidatorGenesis::new(3, 1, vec![first, second]).unwrap();
+        assert_eq!(
+            ValidatorGenesis::new_with_revision(3, 1, 7, genesis.entries().to_vec()),
+            Err(ValidatorGenesisError::UnknownProtocolRevision)
+        );
         let encoded = encode_envelope(&genesis).unwrap();
         assert_eq!(decode_envelope::<ValidatorGenesis>(&encoded), Ok(genesis.clone()));
         assert_eq!(genesis.validator_set().unwrap().total_stake(), 10);

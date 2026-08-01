@@ -16,5 +16,17 @@ Required invariants:
 - **Receipt binding:** a finalized receipt is accepted only when its transaction, owner, amount,
   asset, genesis, and finalized-height proof match the original grant.
 
+`formal/lean/ActiveChain/Faucet.lean` now machine-checks the pure transition core for testnet and
+genesis binding, the faucet-allocation bound, exact issued-counter advancement, durable reference
+consumption, replay rejection, and exact finalized-receipt binding. The executable runtime vectors
+live in `testing/vectors/faucet-invariants-v1.tsv`, `faucet-finalized-funding-v1.tsv`, and
+`faucet-funding-admission-v2.tsv`.
+
+The model deliberately does not equate an in-memory `State` with a durable filesystem image.
+Atomic replacement, checksum validation, restart recovery, and failpoint behavior remain runtime
+properties until a refinement from the journal codec and write protocol is proved. Likewise,
+`certificateVerified` represents the result of the separately qualified finality verifier rather
+than assuming that a caller-set Boolean is sufficient in production.
+
 Out of scope: availability, external identity uniqueness, challenge-provider honesty, and
 production-value claims. Those remain explicit operational assumptions and launch gates.

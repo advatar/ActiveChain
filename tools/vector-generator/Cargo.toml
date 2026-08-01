@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 activechain-action-kernel.workspace = true
+activechain-accumulator.workspace = true
 activechain-bytecode-verifier.workspace = true
 activechain-canonical-codec.workspace = true
 activechain-capability.workspace = true

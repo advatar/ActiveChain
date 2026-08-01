@@ -1,5 +1,14 @@
-case\tinput\texpected\treason
-reserved_v11_tag\ttag=0x00E0\treject\tv1.0 rejects deferred v1.1 tags
-reserved_v12_tag\ttag=0x00F0\treject\tv1.0 rejects deferred v1.2 tags
-known_v1_tag\ttag=0x0020\tdispatch\tknown v1 envelope remains available
-unknown_tag\ttag=0x0100\treject\tunknown tags never fall through
+case	revision	tag	registered	expected	reason
+core_v10	1	0x0020	true	accept	known core type remains active
+v11_marker_before_activation	1	0x00E0	true	reject-feature	v1.0 cannot require proof validity
+v11_marker_at_activation	2	0x00E0	true	accept	v1.1 activates proof validity
+unassigned_reserved_after_activation	3	0x00E1	true	reject-reserved	reserved ranges are not wildcards
+shielded_before_activation	2	0x00A0	true	reject-feature	v1.1 cannot admit shielded payments
+shielded_at_activation	3	0x00A0	true	accept	v1.2 activates shielded payments
+protected_before_activation	3	0x00AD	true	reject-feature	v1.2 cannot require protected ordering
+protected_at_activation	4	0x00AD	true	accept	v1.3 activates protected ordering
+compute_before_activation	4	0x00C5	true	reject-feature	v1.3 cannot admit compute jobs
+compute_at_activation	5	0x00C5	true	accept	v1.4 activates compute jobs
+unknown_extended	6	0x0100	false	reject-unknown	unknown registered status fails closed
+header_v10	1	proof-slot	true	advisory	v1.0 slot cannot replace re-execution
+header_v11	2	proof-slot	true	required	v1.1 requires proof validity

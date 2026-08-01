@@ -8,6 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+activechain-accumulator.workspace = true
 activechain-canonical-codec.workspace = true
 activechain-protocol-commitment.workspace = true
 activechain-protocol-types.workspace = true

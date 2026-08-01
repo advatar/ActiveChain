@@ -31,3 +31,10 @@ docker compose -f "$HOME/activechain-deploy/kanalen/gateway/compose.yml" up -d
 
 Rollback by stopping this compose project and restoring the existing Caddy `443:443` host
 mapping from its timestamped backup.
+
+The public funding method is carried on the TLS-fronted RPC service at `49151`; port `49152`
+is not a separate public faucet. Do not enable `ACTIVECHAIN_FAUCET_ENABLED` until the wallet-ingress
+snapshot, finalized treasury authorization lane, permission-restricted operator seed, settlement
+journal, limits, and expiry described in `docs/FAUCET_FUNDING_ADMISSION_V2.md` are provisioned.
+The public wallet submits `RequestFaucet`; it must never receive the treasury seed or be required
+to construct a treasury-signed cash transfer.

@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use activechain_accumulator::{AccumulatorDomain, ReferenceSet};
 use activechain_action_kernel::{
     ACTION_PROTOCOL_VERSION, ActionEnvelope, FeeTicket, NonceAdvanceError, NonceChannel,
     ResourcePrices, ResourceVector, ValidityInterval, action_id,
@@ -33,8 +34,9 @@ use activechain_principal::{
     create_principal,
 };
 use activechain_privacy_kernel::{
-    DomainPseudonymOpening, NullifierOpening, NullifierSet, PrivateCredentialPresentation,
-    ShieldedCashState, ShieldedNote, ShieldedTransferPublicInputs, VerifiedPrivacyProof,
+    DomainPseudonymOpening, NullifierOpening, NullifierSet, NullifierWitness,
+    PrivateCredentialPresentation, ShieldedCashState, ShieldedNote, ShieldedTransferPublicInputs,
+    VerifiedPrivacyProof,
 };
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
@@ -491,12 +493,22 @@ fn render_privacy_v1() -> String {
     let public_inputs_commitment = inputs.commitment().expect("privacy vector inputs commit");
     let proof = VerifiedPrivacyProof { public_inputs_commitment, verified: true };
     assert!(proof.verified);
-    let state = ShieldedCashState::new(
-        500,
-        public_inputs_commitment,
-        NullifierSet::new(vec![nullifier]).expect("privacy vector nullifier set is canonical"),
+    let mut reference = ReferenceSet::new(AccumulatorDomain::Nullifier);
+    let witness = reference
+        .non_membership_witness(nullifier.into_bytes())
+        .expect("privacy vector nullifier is absent");
+    let witness = NullifierWitness::new(
+        nullifier,
+        witness.siblings.into_iter().map(Digest384::new).collect(),
     )
-    .expect("privacy vector state is valid");
+    .expect("privacy vector witness is canonical");
+    let mut nullifiers = NullifierSet::default();
+    nullifiers
+        .consume_verified(&[nullifier], &[witness])
+        .expect("privacy vector nullifier update verifies");
+    reference.insert(nullifier.into_bytes()).expect("privacy vector nullifier inserts");
+    let state = ShieldedCashState::new(500, public_inputs_commitment, nullifiers)
+        .expect("privacy vector state is valid");
     let pseudonym =
         DomainPseudonymOpening::new(chain_id, repeated_digest(0xaa), repeated_digest(0xbb), 7)
             .expect("privacy vector pseudonym opening is valid")

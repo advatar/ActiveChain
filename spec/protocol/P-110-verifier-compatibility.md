@@ -75,6 +75,11 @@ A bare QC is certified evidence, not finality, and MUST NOT advance trusted stat
 changes require a committed authorization block and its retained certified child as the handoff
 anchor. Upgrades require an explicit version gate and retained historical rules.
 
+Under P-070 state sync, a verifier MUST bind a snapshot manifest to the selected chain genesis,
+finalized height, protocol revision, global state root, and ordered partition roots before applying
+certified deltas. Archived history is trusted only through content and checkpoint-accumulator
+proofs; an archive URI, provider receipt, or local database marker is never validity evidence.
+
 ### Epoch and revision activation
 
 Validator-set and protocol-revision changes MUST be represented by canonical

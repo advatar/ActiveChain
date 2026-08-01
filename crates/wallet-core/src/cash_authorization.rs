@@ -314,13 +314,15 @@ pub struct CashAuthorizationRequestV1 {
     session_id: Digest384,
     session_expires_at: u64,
     recipient_commitment: Digest384,
+    settlement_reference: Option<Digest384>,
     transfer: CoinTransfer,
 }
 
 impl CashAuthorizationRequestV1 {
     pub const TYPE_TAG: u16 = 0x008a;
-    pub const SCHEMA_VERSION: u16 = 1;
-    pub const MAX_ENCODED_LEN: usize = 48 + 48 + 8 + 48 + 8 + 48 + CoinTransfer::MAX_ENCODED_LEN;
+    pub const SCHEMA_VERSION: u16 = 2;
+    pub const MAX_ENCODED_LEN: usize =
+        48 + 48 + 8 + 48 + 8 + 48 + 1 + 48 + CoinTransfer::MAX_ENCODED_LEN;
 
     pub fn new(
         chain_id: ChainId,
@@ -330,8 +332,32 @@ impl CashAuthorizationRequestV1 {
         session_expires_at: u64,
         transfer: CoinTransfer,
     ) -> Result<Self, WalletError> {
+        Self::new_with_settlement_reference(
+            chain_id,
+            signer,
+            nonce,
+            session_id,
+            session_expires_at,
+            None,
+            transfer,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_settlement_reference(
+        chain_id: ChainId,
+        signer: PrincipalId,
+        nonce: u64,
+        session_id: Digest384,
+        session_expires_at: u64,
+        settlement_reference: Option<Digest384>,
+        transfer: CoinTransfer,
+    ) -> Result<Self, WalletError> {
         if session_expires_at == 0 || session_expires_at > transfer.valid_until() {
             return Err(WalletError::Expired);
+        }
+        if settlement_reference == Some(Digest384::ZERO) {
+            return Err(WalletError::MalformedAuthorization);
         }
         Ok(Self {
             chain_id,
@@ -340,6 +366,7 @@ impl CashAuthorizationRequestV1 {
             session_id,
             session_expires_at,
             recipient_commitment: recipient_commitment(transfer.recipient()),
+            settlement_reference,
             transfer,
         })
     }
@@ -372,6 +399,11 @@ impl CashAuthorizationRequestV1 {
     #[must_use]
     pub const fn recipient_commitment(&self) -> Digest384 {
         self.recipient_commitment
+    }
+
+    #[must_use]
+    pub const fn settlement_reference(&self) -> Option<Digest384> {
+        self.settlement_reference
     }
 
     #[must_use]
@@ -417,6 +449,7 @@ impl CanonicalEncode for CashAuthorizationRequestV1 {
         self.session_id.encode(encoder)?;
         self.session_expires_at.encode(encoder)?;
         self.recipient_commitment.encode(encoder)?;
+        self.settlement_reference.encode(encoder)?;
         self.transfer.encode(encoder)
     }
 }
@@ -429,6 +462,7 @@ impl CanonicalDecode for CashAuthorizationRequestV1 {
         let session_id = Digest384::decode(decoder)?;
         let session_expires_at = u64::decode(decoder)?;
         let claimed_recipient_commitment = Digest384::decode(decoder)?;
+        let settlement_reference = Option::<Digest384>::decode(decoder)?;
         let transfer = CoinTransfer::decode(decoder)?;
         if session_expires_at == 0 || session_expires_at > transfer.valid_until() {
             return Err(DecodeError::InvalidValue(
@@ -441,6 +475,9 @@ impl CanonicalDecode for CashAuthorizationRequestV1 {
                 "cash authorization recipient commitment mismatch",
             ));
         }
+        if settlement_reference == Some(Digest384::ZERO) {
+            return Err(DecodeError::InvalidValue("zero cash settlement reference"));
+        }
         Ok(Self {
             chain_id,
             signer,
@@ -448,6 +485,7 @@ impl CanonicalDecode for CashAuthorizationRequestV1 {
             session_id,
             session_expires_at,
             recipient_commitment: expected_recipient_commitment,
+            settlement_reference,
             transfer,
         })
     }
@@ -466,9 +504,69 @@ pub struct AuthorizedCashTransferV1 {
     signature: ProtocolSignature,
 }
 
+/// Operator-only faucet authorization bundle. The one-shot session grant and transfer are one
+/// canonical value so durable settlement cannot replay or publish only half of the authorization.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OperatorFaucetAuthorizationV1 {
+    session: AuthorizedCashSessionGrantV1,
+    transfer: AuthorizedCashTransferV1,
+}
+
+impl OperatorFaucetAuthorizationV1 {
+    pub const TYPE_TAG: u16 = 0x0151;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize =
+        AuthorizedCashSessionGrantV1::MAX_ENCODED_LEN + AuthorizedCashTransferV1::MAX_ENCODED_LEN;
+
+    pub fn new(
+        session: AuthorizedCashSessionGrantV1,
+        transfer: AuthorizedCashTransferV1,
+    ) -> Result<Self, WalletError> {
+        if session.grant().chain_id() != transfer.request().chain_id()
+            || session.grant().signer() != transfer.request().signer()
+            || session.grant().session_id() != transfer.request().session_id()
+            || session.grant().expires_at() < transfer.request().session_expires_at()
+        {
+            return Err(WalletError::MalformedAuthorization);
+        }
+        Ok(Self { session, transfer })
+    }
+
+    pub const fn session(&self) -> &AuthorizedCashSessionGrantV1 {
+        &self.session
+    }
+
+    pub const fn transfer(&self) -> &AuthorizedCashTransferV1 {
+        &self.transfer
+    }
+}
+
+impl CanonicalEncode for OperatorFaucetAuthorizationV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.session.encode(encoder)?;
+        self.transfer.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for OperatorFaucetAuthorizationV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            AuthorizedCashSessionGrantV1::decode(decoder)?,
+            AuthorizedCashTransferV1::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid operator faucet authorization"))
+    }
+}
+
+impl CanonicalType for OperatorFaucetAuthorizationV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 impl AuthorizedCashTransferV1 {
     pub const TYPE_TAG: u16 = 0x008b;
-    pub const SCHEMA_VERSION: u16 = 1;
+    pub const SCHEMA_VERSION: u16 = 2;
     pub const MAX_ENCODED_LEN: usize =
         CashAuthorizationRequestV1::MAX_ENCODED_LEN + ProtocolSignature::MAX_ENCODED_LEN;
 

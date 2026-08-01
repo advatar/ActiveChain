@@ -1,0 +1,16 @@
+[package]
+name = "activechain-accumulator"
+description = "Witnessed replay sets and archived header history commitments for ActiveChain"
+version.workspace = true
+edition.workspace = true
+# This crate is part of the protocol-types boundary compiled by the pinned
+# RISC Zero guest toolchain as well as the host workspace.
+rust-version = "1.93"
+repository.workspace = true
+publish = false
+
+[dependencies]
+sha3.workspace = true
+
+[lints]
+workspace = true

@@ -13,8 +13,8 @@ use sha3::{
 };
 
 use crate::{
-    ChainId, CryptoSuiteId, Digest384, Height, ObjectId, PrincipalId, ProtocolSignature, Timestamp,
-    TransactionId,
+    AssetId, ChainId, CryptoSuiteId, Digest384, Height, ObjectId, PrincipalId, ProtocolSignature,
+    Timestamp, TransactionId,
 };
 
 /// Initial canonical credential format.
@@ -23,6 +23,172 @@ pub const CREDENTIAL_FORMAT_VERSION: u16 = 1;
 pub const MAX_ACCEPTED_CREDENTIAL_ISSUERS: usize = 32;
 /// Maximum accepted schemas in one development policy.
 pub const MAX_ACCEPTED_CREDENTIAL_SCHEMAS: usize = 32;
+
+/// Provenance class retained from TLS evidence through credential and predicate verification.
+/// Ordering is intentional: a policy may require a minimum class, but adapters cannot construct a
+/// stronger class without the corresponding canonical authorization commitment.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[repr(u8)]
+pub enum CredentialAssuranceClassV1 {
+    TlsNotarizedEvidence = 0,
+    HolderSelfIssued = 1,
+    IssuerUpgraded = 2,
+    RegulatedAttestation = 3,
+}
+
+impl CanonicalEncode for CredentialAssuranceClassV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(encoder)
+    }
+}
+
+impl CanonicalDecode for CredentialAssuranceClassV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(decoder)? {
+            0 => Ok(Self::TlsNotarizedEvidence),
+            1 => Ok(Self::HolderSelfIssued),
+            2 => Ok(Self::IssuerUpgraded),
+            3 => Ok(Self::RegulatedAttestation),
+            tag => {
+                Err(DecodeError::InvalidEnumTag { type_name: "CredentialAssuranceClassV1", tag })
+            }
+        }
+    }
+}
+
+/// Transcript-free evidence boundary for credentials derived from holder-controlled TLSNotary
+/// sessions. Only commitments and provenance needed by a verifier are carried.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TlsCredentialEvidenceV1 {
+    notary_identity: Digest384,
+    server_identity: Digest384,
+    transcript_commitment: Digest384,
+    disclosed_fields_commitment: Digest384,
+    holder_binding: Digest384,
+    schema_id: Digest384,
+    observed_height: Height,
+    fresh_until_height: Height,
+    status_commitment: Digest384,
+    assurance: CredentialAssuranceClassV1,
+    issuer_authorization_commitment: Option<Digest384>,
+}
+
+impl TlsCredentialEvidenceV1 {
+    pub const TYPE_TAG: u16 = 0x014d;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 7 + 8 * 2 + 1 + 1 + 48;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        notary_identity: Digest384,
+        server_identity: Digest384,
+        transcript_commitment: Digest384,
+        disclosed_fields_commitment: Digest384,
+        holder_binding: Digest384,
+        schema_id: Digest384,
+        observed_height: Height,
+        fresh_until_height: Height,
+        status_commitment: Digest384,
+        assurance: CredentialAssuranceClassV1,
+        issuer_authorization_commitment: Option<Digest384>,
+    ) -> Result<Self, CredentialValidationError> {
+        if [
+            notary_identity,
+            server_identity,
+            transcript_commitment,
+            disclosed_fields_commitment,
+            holder_binding,
+            schema_id,
+            status_commitment,
+        ]
+        .into_iter()
+        .any(|value| value == Digest384::ZERO)
+            || observed_height == 0
+            || fresh_until_height <= observed_height
+            || issuer_authorization_commitment == Some(Digest384::ZERO)
+            || (assurance >= CredentialAssuranceClassV1::IssuerUpgraded)
+                != issuer_authorization_commitment.is_some()
+        {
+            return Err(CredentialValidationError::InvalidTlsEvidence);
+        }
+        Ok(Self {
+            notary_identity,
+            server_identity,
+            transcript_commitment,
+            disclosed_fields_commitment,
+            holder_binding,
+            schema_id,
+            observed_height,
+            fresh_until_height,
+            status_commitment,
+            assurance,
+            issuer_authorization_commitment,
+        })
+    }
+
+    pub const fn assurance(&self) -> CredentialAssuranceClassV1 {
+        self.assurance
+    }
+    pub const fn holder_binding(&self) -> Digest384 {
+        self.holder_binding
+    }
+    pub const fn schema_id(&self) -> Digest384 {
+        self.schema_id
+    }
+    pub const fn valid_at(&self, height: Height) -> bool {
+        self.observed_height <= height && height < self.fresh_until_height
+    }
+    pub fn commitment(&self) -> Result<Digest384, EncodeError> {
+        let bytes = activechain_canonical_codec::encode_envelope(self)?;
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-TLS-CREDENTIAL-EVIDENCE-V1");
+        hasher.update(&bytes);
+        let mut output = [0_u8; 48];
+        XofReader::read(&mut hasher.finalize_xof(), &mut output);
+        Ok(Digest384::new(output))
+    }
+}
+
+impl CanonicalEncode for TlsCredentialEvidenceV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.notary_identity.encode(encoder)?;
+        self.server_identity.encode(encoder)?;
+        self.transcript_commitment.encode(encoder)?;
+        self.disclosed_fields_commitment.encode(encoder)?;
+        self.holder_binding.encode(encoder)?;
+        self.schema_id.encode(encoder)?;
+        self.observed_height.encode(encoder)?;
+        self.fresh_until_height.encode(encoder)?;
+        self.status_commitment.encode(encoder)?;
+        self.assurance.encode(encoder)?;
+        self.issuer_authorization_commitment.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for TlsCredentialEvidenceV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Height::decode(decoder)?,
+            Height::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            CredentialAssuranceClassV1::decode(decoder)?,
+            Option::<Digest384>::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid TLS credential evidence"))
+    }
+}
+
+impl CanonicalType for TlsCredentialEvidenceV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
 
 /// Canonical unsigned statement committed by a credential issuer signature.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -638,6 +804,15 @@ impl CredentialPredicateV1 {
     pub const fn kind(&self) -> CredentialPredicateKind {
         self.kind
     }
+    pub const fn schema_id(&self) -> Digest384 {
+        self.schema_id
+    }
+    pub const fn claims_commitment(&self) -> Digest384 {
+        self.claims_commitment
+    }
+    pub const fn holder_binding(&self) -> Digest384 {
+        self.holder_binding
+    }
     pub const fn expires_height(&self) -> Height {
         self.expires_height
     }
@@ -701,6 +876,339 @@ impl CanonicalType for CredentialPredicateV1 {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
+/// Public inputs for a privacy-preserving proof-of-funds statement.
+///
+/// The full balance, account identifier, institution name, and source
+/// transcript remain outside this envelope. Their commitments are bound to
+/// exact units, range semantics, freshness and one authorization action.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProofOfFundsPredicateV1 {
+    evidence_commitment: Digest384,
+    schema_id: Digest384,
+    holder_binding: Digest384,
+    chain_id: ChainId,
+    audience: PrincipalId,
+    action: TransactionId,
+    nonce: Digest384,
+    currency_commitment: Digest384,
+    asset_id: Option<AssetId>,
+    decimals: u8,
+    minimum_amount: u128,
+    maximum_amount: Option<u128>,
+    institution_set_commitment: Digest384,
+    aggregation_rule_commitment: Digest384,
+    policy_revision: u64,
+    observed_from_height: Height,
+    observed_until_height: Height,
+    expires_height: Height,
+}
+impl ProofOfFundsPredicateV1 {
+    pub const TYPE_TAG: u16 = 0x015A;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 10 + 1 + 48 + 1 + 16 + 1 + 16 + 8 * 4;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        evidence_commitment: Digest384,
+        schema_id: Digest384,
+        holder_binding: Digest384,
+        chain_id: ChainId,
+        audience: PrincipalId,
+        action: TransactionId,
+        nonce: Digest384,
+        currency_commitment: Digest384,
+        asset_id: Option<AssetId>,
+        decimals: u8,
+        minimum_amount: u128,
+        maximum_amount: Option<u128>,
+        institution_set_commitment: Digest384,
+        aggregation_rule_commitment: Digest384,
+        policy_revision: u64,
+        observed_from_height: Height,
+        observed_until_height: Height,
+        expires_height: Height,
+    ) -> Result<Self, CredentialValidationError> {
+        let commitments = [
+            evidence_commitment,
+            schema_id,
+            holder_binding,
+            nonce,
+            currency_commitment,
+            institution_set_commitment,
+            aggregation_rule_commitment,
+        ];
+        if commitments.into_iter().any(|value| value == Digest384::ZERO)
+            || asset_id.is_some_and(|asset| asset.digest() == &Digest384::ZERO)
+            || decimals > 38
+            || minimum_amount == 0
+            || maximum_amount.is_some_and(|maximum| maximum < minimum_amount)
+            || policy_revision == 0
+            || observed_from_height == 0
+            || observed_from_height > observed_until_height
+            || observed_until_height >= expires_height
+        {
+            return Err(CredentialValidationError::InvalidPredicateBinding);
+        }
+        Ok(Self {
+            evidence_commitment,
+            schema_id,
+            holder_binding,
+            chain_id,
+            audience,
+            action,
+            nonce,
+            currency_commitment,
+            asset_id,
+            decimals,
+            minimum_amount,
+            maximum_amount,
+            institution_set_commitment,
+            aggregation_rule_commitment,
+            policy_revision,
+            observed_from_height,
+            observed_until_height,
+            expires_height,
+        })
+    }
+
+    pub const fn evidence_commitment(self) -> Digest384 {
+        self.evidence_commitment
+    }
+    pub const fn valid_at(self, height: Height) -> bool {
+        height >= self.observed_until_height && height < self.expires_height
+    }
+    pub fn binds_action(
+        self,
+        chain_id: ChainId,
+        audience: PrincipalId,
+        action: TransactionId,
+    ) -> bool {
+        self.chain_id == chain_id && self.audience == audience && self.action == action
+    }
+    pub fn commitment(&self) -> Result<Digest384, EncodeError> {
+        let bytes = activechain_canonical_codec::encode_envelope(self)?;
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-PROOF-OF-FUNDS-PREDICATE-V1");
+        hasher.update(&bytes);
+        let mut output = [0_u8; 48];
+        XofReader::read(&mut hasher.finalize_xof(), &mut output);
+        Ok(Digest384::new(output))
+    }
+}
+impl CanonicalEncode for ProofOfFundsPredicateV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.evidence_commitment.encode(e)?;
+        self.schema_id.encode(e)?;
+        self.holder_binding.encode(e)?;
+        self.chain_id.encode(e)?;
+        self.audience.encode(e)?;
+        self.action.encode(e)?;
+        self.nonce.encode(e)?;
+        self.currency_commitment.encode(e)?;
+        self.asset_id.encode(e)?;
+        self.decimals.encode(e)?;
+        self.minimum_amount.encode(e)?;
+        self.maximum_amount.encode(e)?;
+        self.institution_set_commitment.encode(e)?;
+        self.aggregation_rule_commitment.encode(e)?;
+        self.policy_revision.encode(e)?;
+        self.observed_from_height.encode(e)?;
+        self.observed_until_height.encode(e)?;
+        self.expires_height.encode(e)
+    }
+}
+impl CanonicalDecode for ProofOfFundsPredicateV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            ChainId::decode(d)?,
+            PrincipalId::decode(d)?,
+            TransactionId::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Option::<AssetId>::decode(d)?,
+            u8::decode(d)?,
+            u128::decode(d)?,
+            Option::<u128>::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid proof-of-funds predicate"))
+    }
+}
+impl CanonicalType for ProofOfFundsPredicateV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
+/// External credential formats accepted from a profiled issuer adapter.
+///
+/// The chain never interprets the source credential bytes. An adapter verifies the format and
+/// supplies only the bounded commitments and action-bound predicate below.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum VcIssuerFormatV1 {
+    SdJwtVc = 0,
+    Mdoc = 1,
+}
+
+impl CanonicalEncode for VcIssuerFormatV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(encoder)
+    }
+}
+
+impl CanonicalDecode for VcIssuerFormatV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(decoder)? {
+            0 => Ok(Self::SdJwtVc),
+            1 => Ok(Self::Mdoc),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "VcIssuerFormatV1", tag }),
+        }
+    }
+}
+
+/// Consensus-safe result of verifying a VCIssuer SD-JWT VC or mdoc presentation.
+///
+/// Raw credentials and disclosed attributes remain off-chain. The trusted adapter must verify the
+/// OpenID4VP presentation, issuer authorization, status, freshness and holder proof before it can
+/// construct this value. The embedded predicate then binds that result to one chain action.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VcIssuerPresentationV1 {
+    issuer: PrincipalId,
+    format: VcIssuerFormatV1,
+    credential_commitment: Digest384,
+    status_commitment: Digest384,
+    issuer_authorization_commitment: Digest384,
+    assurance: CredentialAssuranceClassV1,
+    predicate: CredentialPredicateV1,
+    verified_at_height: Height,
+}
+
+impl VcIssuerPresentationV1 {
+    pub const TYPE_TAG: u16 = 0x0152;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 4 + 1 + 1 + CredentialPredicateV1::MAX_ENCODED_LEN + 8;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        issuer: PrincipalId,
+        format: VcIssuerFormatV1,
+        credential_commitment: Digest384,
+        status_commitment: Digest384,
+        issuer_authorization_commitment: Digest384,
+        assurance: CredentialAssuranceClassV1,
+        predicate: CredentialPredicateV1,
+        verified_at_height: Height,
+        expected_chain: ChainId,
+        expected_audience: PrincipalId,
+        expected_action: TransactionId,
+    ) -> Result<Self, CredentialValidationError> {
+        if issuer == PrincipalId::new(Digest384::ZERO)
+            || [credential_commitment, status_commitment, issuer_authorization_commitment]
+                .into_iter()
+                .any(|value| value == Digest384::ZERO)
+            || assurance < CredentialAssuranceClassV1::IssuerUpgraded
+            || verified_at_height == 0
+            || !predicate.valid_at(verified_at_height)
+            || !predicate.binds_action(expected_chain, expected_audience, expected_action)
+        {
+            return Err(CredentialValidationError::InvalidVcIssuerPresentation);
+        }
+        Ok(Self {
+            issuer,
+            format,
+            credential_commitment,
+            status_commitment,
+            issuer_authorization_commitment,
+            assurance,
+            predicate,
+            verified_at_height,
+        })
+    }
+
+    pub const fn predicate(&self) -> CredentialPredicateV1 {
+        self.predicate
+    }
+    pub const fn issuer(&self) -> PrincipalId {
+        self.issuer
+    }
+    pub const fn format(&self) -> VcIssuerFormatV1 {
+        self.format
+    }
+    pub const fn assurance(&self) -> CredentialAssuranceClassV1 {
+        self.assurance
+    }
+    pub const fn verified_at_height(&self) -> Height {
+        self.verified_at_height
+    }
+    pub const fn status_commitment(&self) -> Digest384 {
+        self.status_commitment
+    }
+    pub const fn issuer_authorization_commitment(&self) -> Digest384 {
+        self.issuer_authorization_commitment
+    }
+}
+
+impl CanonicalEncode for VcIssuerPresentationV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.issuer.encode(e)?;
+        self.format.encode(e)?;
+        self.credential_commitment.encode(e)?;
+        self.status_commitment.encode(e)?;
+        self.issuer_authorization_commitment.encode(e)?;
+        self.assurance.encode(e)?;
+        self.predicate.encode(e)?;
+        self.verified_at_height.encode(e)
+    }
+}
+
+impl CanonicalDecode for VcIssuerPresentationV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let issuer = PrincipalId::decode(d)?;
+        let format = VcIssuerFormatV1::decode(d)?;
+        let credential_commitment = Digest384::decode(d)?;
+        let status_commitment = Digest384::decode(d)?;
+        let issuer_authorization_commitment = Digest384::decode(d)?;
+        let assurance = CredentialAssuranceClassV1::decode(d)?;
+        let predicate = CredentialPredicateV1::decode(d)?;
+        let verified_at_height = Height::decode(d)?;
+        if issuer == PrincipalId::new(Digest384::ZERO)
+            || [credential_commitment, status_commitment, issuer_authorization_commitment]
+                .into_iter()
+                .any(|value| value == Digest384::ZERO)
+            || assurance < CredentialAssuranceClassV1::IssuerUpgraded
+            || verified_at_height == 0
+            || !predicate.valid_at(verified_at_height)
+        {
+            return Err(DecodeError::InvalidValue("invalid VCIssuer presentation"));
+        }
+        Ok(Self {
+            issuer,
+            format,
+            credential_commitment,
+            status_commitment,
+            issuer_authorization_commitment,
+            assurance,
+            predicate,
+            verified_at_height,
+        })
+    }
+}
+
+impl CanonicalType for VcIssuerPresentationV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 /// Structural credential and acceptance-policy construction failures.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CredentialValidationError {
@@ -720,6 +1228,12 @@ pub enum CredentialValidationError {
     AcceptedSchemasNotStrictlyIncreasing,
     /// Predicate public inputs are zero, expired, or otherwise not action-bound.
     InvalidPredicateBinding,
+    /// TLS-derived evidence is zero, stale at construction, or claims an assurance class without
+    /// the authorization required for that class.
+    InvalidTlsEvidence,
+    /// A VCIssuer result lacks issuer/status evidence, regulated provenance, freshness, or exact
+    /// action binding.
+    InvalidVcIssuerPresentation,
 }
 
 fn strictly_increasing<T: Ord>(values: &[T]) -> bool {
@@ -752,11 +1266,19 @@ fn credential_decode_error(error: CredentialValidationError) -> DecodeError {
         CredentialValidationError::InvalidPredicateBinding => {
             DecodeError::InvalidValue("credential predicate binding is invalid")
         }
+        CredentialValidationError::InvalidTlsEvidence => {
+            DecodeError::InvalidValue("TLS credential evidence is invalid")
+        }
+        CredentialValidationError::InvalidVcIssuerPresentation => {
+            DecodeError::InvalidValue("VCIssuer presentation is invalid")
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec::Vec;
+
     extern crate alloc;
 
     use alloc::vec;
@@ -764,12 +1286,14 @@ mod tests {
     use activechain_canonical_codec::{decode_envelope, encode_body, encode_envelope};
 
     use super::{
-        CREDENTIAL_FORMAT_VERSION, Credential, CredentialAcceptancePolicy, CredentialPredicateKind,
-        CredentialPredicateV1, CredentialStatement, CredentialStatusRegistry,
-        CredentialValidationError,
+        CREDENTIAL_FORMAT_VERSION, Credential, CredentialAcceptancePolicy,
+        CredentialAssuranceClassV1, CredentialPredicateKind, CredentialPredicateV1,
+        CredentialStatement, CredentialStatusRegistry, CredentialValidationError,
+        ProofOfFundsPredicateV1, TlsCredentialEvidenceV1, VcIssuerFormatV1, VcIssuerPresentationV1,
     };
     use crate::{
-        ChainId, CryptoSuiteId, Digest384, ObjectId, PrincipalId, ProtocolSignature, TransactionId,
+        AssetId, ChainId, CryptoSuiteId, Digest384, ObjectId, PrincipalId, ProtocolSignature,
+        TransactionId,
     };
 
     fn digest(byte: u8) -> Digest384 {
@@ -1087,6 +1611,239 @@ mod tests {
                 100,
                 CredentialPredicateKind::AgeAtLeast,
                 digest(8),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn tls_evidence_preserves_assurance_and_never_carries_a_transcript() {
+        let holder = digest(5);
+        let schema = digest(6);
+        let self_issued = TlsCredentialEvidenceV1::new(
+            digest(1),
+            digest(2),
+            digest(3),
+            digest(4),
+            holder,
+            schema,
+            10,
+            20,
+            digest(7),
+            CredentialAssuranceClassV1::HolderSelfIssued,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            decode_envelope::<TlsCredentialEvidenceV1>(&encode_envelope(&self_issued).unwrap()),
+            Ok(self_issued)
+        );
+        assert!(self_issued.valid_at(10));
+        assert!(!self_issued.valid_at(20));
+        assert_eq!(self_issued.holder_binding(), holder);
+        assert_eq!(self_issued.schema_id(), schema);
+
+        assert_eq!(
+            TlsCredentialEvidenceV1::new(
+                digest(1),
+                digest(2),
+                digest(3),
+                digest(4),
+                holder,
+                schema,
+                10,
+                20,
+                digest(7),
+                CredentialAssuranceClassV1::IssuerUpgraded,
+                None,
+            ),
+            Err(CredentialValidationError::InvalidTlsEvidence)
+        );
+        assert!(
+            TlsCredentialEvidenceV1::new(
+                digest(1),
+                digest(2),
+                digest(3),
+                digest(4),
+                holder,
+                schema,
+                10,
+                20,
+                digest(7),
+                CredentialAssuranceClassV1::IssuerUpgraded,
+                Some(digest(8)),
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn portable_evidence_conformance_matrix_is_closed_and_consistent() {
+        let vector = include_str!("../../../testing/vectors/tls-portable-evidence-v1.tsv");
+        let mut lines = vector.lines();
+        assert_eq!(
+            lines.next(),
+            Some(
+                "case\tversion\tcommitments\tobserved\tfresh_until\tassurance\tissuer_authorization\texpected\treason"
+            )
+        );
+        let mut cases = 0;
+        for line in lines {
+            let columns = line.split('\t').collect::<Vec<_>>();
+            assert_eq!(columns.len(), 9, "malformed vector row: {line}");
+            let assurance_valid = matches!(
+                columns[5],
+                "tls_notarized_evidence"
+                    | "holder_self_issued"
+                    | "issuer_upgraded"
+                    | "regulated_attestation"
+            );
+            let elevated = matches!(columns[5], "issuer_upgraded" | "regulated_attestation");
+            let authorization_valid =
+                if elevated { columns[6] == "nonzero_digest384" } else { columns[6] == "absent" };
+            let accepted = columns[1] == "1"
+                && columns[2] == "nonzero_digest384"
+                && columns[3] == "past"
+                && columns[4] == "future"
+                && assurance_valid
+                && authorization_valid;
+            assert_eq!(accepted, columns[7] == "accept", "case {}", columns[0]);
+            cases += 1;
+        }
+        assert_eq!(cases, 17);
+    }
+
+    #[test]
+    fn vcissuer_presentation_is_bounded_action_bound_and_fail_closed() {
+        let chain = ChainId::new(digest(1));
+        let audience = principal(2);
+        let action = TransactionId::new(digest(3));
+        let predicate = CredentialPredicateV1::new(
+            digest(4),
+            digest(5),
+            digest(6),
+            chain,
+            audience,
+            action,
+            digest(7),
+            1,
+            20,
+            CredentialPredicateKind::AgeAtLeast,
+            digest(8),
+        )
+        .unwrap();
+        let presentation = VcIssuerPresentationV1::new(
+            principal(9),
+            VcIssuerFormatV1::SdJwtVc,
+            digest(10),
+            digest(11),
+            digest(12),
+            CredentialAssuranceClassV1::RegulatedAttestation,
+            predicate,
+            10,
+            chain,
+            audience,
+            action,
+        )
+        .unwrap();
+        let bytes = encode_envelope(&presentation).unwrap();
+        assert!(bytes.len() <= VcIssuerPresentationV1::MAX_ENCODED_LEN + 8);
+        assert_eq!(decode_envelope::<VcIssuerPresentationV1>(&bytes), Ok(presentation));
+        assert_eq!(presentation.format(), VcIssuerFormatV1::SdJwtVc);
+        assert_eq!(presentation.predicate(), predicate);
+
+        assert_eq!(
+            VcIssuerPresentationV1::new(
+                principal(9),
+                VcIssuerFormatV1::Mdoc,
+                digest(10),
+                digest(11),
+                digest(12),
+                CredentialAssuranceClassV1::HolderSelfIssued,
+                predicate,
+                10,
+                chain,
+                audience,
+                action,
+            ),
+            Err(CredentialValidationError::InvalidVcIssuerPresentation)
+        );
+        assert_eq!(
+            VcIssuerPresentationV1::new(
+                principal(9),
+                VcIssuerFormatV1::Mdoc,
+                digest(10),
+                digest(11),
+                digest(12),
+                CredentialAssuranceClassV1::IssuerUpgraded,
+                predicate,
+                10,
+                chain,
+                audience,
+                TransactionId::new(digest(99)),
+            ),
+            Err(CredentialValidationError::InvalidVcIssuerPresentation)
+        );
+        let mut malformed = bytes;
+        malformed.push(99);
+        assert!(decode_envelope::<VcIssuerPresentationV1>(&malformed).is_err());
+    }
+
+    #[test]
+    fn proof_of_funds_binds_units_range_institution_freshness_and_action() {
+        let chain = ChainId::new(digest(1));
+        let audience = principal(2);
+        let action = TransactionId::new(digest(3));
+        let predicate = ProofOfFundsPredicateV1::new(
+            digest(4),
+            digest(5),
+            digest(6),
+            chain,
+            audience,
+            action,
+            digest(7),
+            digest(8),
+            Some(AssetId::new(digest(9))),
+            2,
+            10_000,
+            Some(50_000),
+            digest(10),
+            digest(11),
+            3,
+            100,
+            110,
+            120,
+        )
+        .unwrap();
+        assert_eq!(
+            decode_envelope::<ProofOfFundsPredicateV1>(&encode_envelope(&predicate).unwrap()),
+            Ok(predicate)
+        );
+        assert!(predicate.valid_at(110));
+        assert!(!predicate.valid_at(120));
+        assert!(predicate.binds_action(chain, audience, action));
+        assert_ne!(predicate.commitment().unwrap(), Digest384::ZERO);
+
+        assert!(
+            ProofOfFundsPredicateV1::new(
+                digest(4),
+                digest(5),
+                digest(6),
+                chain,
+                audience,
+                action,
+                digest(7),
+                digest(8),
+                Some(AssetId::new(digest(9))),
+                2,
+                50_000,
+                Some(10_000),
+                digest(10),
+                digest(11),
+                3,
+                100,
+                110,
+                120,
             )
             .is_err()
         );

@@ -19,9 +19,13 @@ mod consensus_state;
 mod credential;
 mod crypto;
 mod did;
+mod external_identity;
+mod external_status;
 mod migration;
 mod object;
 mod package;
+mod subject_binding;
+mod version;
 
 /// Sparse allocation prevents deferred protocol versions from reinterpreting v1.0 bytes.
 pub const V1_TYPE_TAG_MIN: u16 = 0x0020;
@@ -47,9 +51,11 @@ pub use admission::{exact_frame_layout, fresh_sequence, length_prefixed_range};
 pub use asset::{
     AssetDefinitionError, FungibleAssetDefinition, FungibleAssetLifecycle,
     FungibleAssetLifecycleAction, FungibleAssetLifecycleActionV1, FungibleAssetPolicyRegistry,
-    FungibleAssetPolicyV1, FungibleAssetRegistry, FungibleIssuerApprovalV1,
+    FungibleAssetPolicyV1, FungibleAssetRegistry, FungibleCorporateActionKind,
+    FungibleCorporateActionRegistryV1, FungibleCorporateActionV1, FungibleIssuerApprovalV1,
     FungibleIssuerOperation, FungibleIssuerRegistrationV1, FungibleSupplyAttestationV1,
-    MAX_ASSET_SYMBOL_LENGTH, MAX_FUNGIBLE_ASSETS, NonFungibleSeriesV1, NonFungibleTokenV1,
+    MAX_ASSET_SYMBOL_LENGTH, MAX_CORPORATE_ACTIONS, MAX_FUNGIBLE_ASSETS, NonFungibleSeriesV1,
+    NonFungibleTokenV1,
 };
 pub use authority::{
     BoundedActionSet, BoundedActionSetError, CapabilityGrant, CapabilityGrantFields,
@@ -61,11 +67,11 @@ pub use checked_arithmetic::{
 };
 pub use compliance::{
     ComplianceError, ComplianceEvidenceBindingV1, ComplianceReplayKey, ComplianceReplaySet,
-    ComplianceSignatureEnvelopeV1, ComplianceSignatureEnvelopeV2, EvidenceDeletionMode,
-    EvidenceRetentionPolicyV1, JurisdictionProfileCandidate, KenyaControlSet,
-    KenyaRegulatedActivity, KenyaRegulatedProfileV1, ProfileSelection, ScreeningDecisionV1,
-    ScreeningOutcome, ScreeningOverrideV1, ScreeningPolicyV1, TravelRuleBindingV1,
-    select_jurisdiction_profiles,
+    ComplianceReplayWitness, ComplianceSignatureEnvelopeV1, ComplianceSignatureEnvelopeV2,
+    EvidenceDeletionMode, EvidenceRetentionPolicyV1, JurisdictionProfileCandidate, KenyaControlSet,
+    KenyaRegulatedActivity, KenyaRegulatedProfileV1, LEGACY_MAX_COMPLIANCE_REPLAY_KEYS,
+    ProfileSelection, ScreeningDecisionV1, ScreeningOutcome, ScreeningOverrideV1,
+    ScreeningPolicyV1, TravelRuleBindingV1, select_jurisdiction_profiles,
 };
 pub use consensus::{
     BlockProposal, BlockProposalError, ConsensusBlockRef, ConsensusUpgradeAuthorization,
@@ -81,9 +87,10 @@ pub use consensus_state::{
     MAX_RETIRED_VALIDATOR_SET_ROOTS,
 };
 pub use credential::{
-    CREDENTIAL_FORMAT_VERSION, Credential, CredentialAcceptancePolicy, CredentialPredicateKind,
-    CredentialPredicateV1, CredentialStatement, CredentialStatusRegistry,
+    CREDENTIAL_FORMAT_VERSION, Credential, CredentialAcceptancePolicy, CredentialAssuranceClassV1,
+    CredentialPredicateKind, CredentialPredicateV1, CredentialStatement, CredentialStatusRegistry,
     CredentialValidationError, MAX_ACCEPTED_CREDENTIAL_ISSUERS, MAX_ACCEPTED_CREDENTIAL_SCHEMAS,
+    ProofOfFundsPredicateV1, TlsCredentialEvidenceV1, VcIssuerFormatV1, VcIssuerPresentationV1,
 };
 pub use crypto::{
     AuthenticatorDescriptor, AuthenticatorPurpose, AuthenticatorValidationError, CryptoFamily,
@@ -92,6 +99,18 @@ pub use crypto::{
 pub use did::{
     DidControllerOperationV1, DidControllerRecordV1, DidOperationKind, DidRecordError,
     DidResolutionV1, derive_activechain_did,
+};
+pub use external_identity::{
+    ExternalCredentialSchemaMappingV1, ExternalCredentialSchemaRegistryV1,
+    ExternalIssuerBindingError, ExternalIssuerBindingStatusV1, ExternalIssuerBindingV1,
+    ExternalIssuerProfileV1, ExternalIssuerRegistryV1, MAX_EXTERNAL_ISSUER_BINDINGS,
+    MAX_EXTERNAL_ISSUER_PROFILES, MAX_EXTERNAL_PROFILE_IDENTIFIER_BYTES,
+    MAX_EXTERNAL_SCHEMA_MAPPINGS, derive_external_credential_schema_id,
+};
+pub use external_status::{
+    ExternalCredentialStatusRegistryV1, ExternalCredentialStatusSnapshotV1, ExternalStatusError,
+    ExternalStatusPublisherSetV1, ExternalStatusSnapshotStateV1, MAX_EXTERNAL_STATUS_PUBLISHERS,
+    MAX_EXTERNAL_STATUS_SNAPSHOTS,
 };
 pub use migration::{CryptoMigrationError, CryptoMigrationWindow};
 pub use object::{
@@ -103,6 +122,18 @@ pub use object::{
 pub use package::{
     MAX_PACKAGE_ENTRIES, MAX_PACKAGE_IMPORTS, PackageManifest, PackageManifestError,
     PackageUpgradeError, UpgradePolicy,
+};
+pub use subject_binding::{
+    ExternalSubjectBindingError, ExternalSubjectBindingKindV1, ExternalSubjectBindingV1,
+    ExternalSubjectScopeKindV1,
+};
+pub use version::{
+    HeaderSlotRule, ProtocolFeature, ProtocolVersionError, ProtocolVersionProfile,
+    TypeDispatchError, V1_0_PROTOCOL_REVISION, V1_1_EXECUTION_PROOF_ACTIVATION_TAG,
+    V1_1_PROTOCOL_REVISION, V1_2_PRIVATE_CREDENTIAL_ACTIVATION_TAG,
+    V1_2_PRIVATE_OBJECT_ACTIVATION_TAG, V1_2_PROTOCOL_REVISION,
+    V1_2_SHIELDED_PAYMENT_ACTIVATION_TAG, V1_2_VIEWING_CAPABILITY_ACTIVATION_TAG,
+    V1_3_PROTOCOL_REVISION, V1_4_PROTOCOL_REVISION, V2_PROTOCOL_REVISION,
 };
 
 /// The fixed size of every protocol digest and identifier.

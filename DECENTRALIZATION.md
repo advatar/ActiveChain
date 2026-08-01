@@ -34,9 +34,18 @@ Recent measurement work treats decentralization as a combination of Nakamoto coe
 
 For this system, I would measure ten distinct dimensions.
 
-## Proposed design scorecard
+## P-130 native-stake design scorecard
 
-These scores are an architectural assessment, not observed network data.
+These scores are an architectural assessment, not observed network data. They were recomputed
+after [P-130](spec/protocol/P-130-economics.md) selected native stake as the sole v1 consensus
+security asset. In particular, the consensus-control and distribution rows assume permissionless
+native-stake admission, equalized stake-backed seats, the stated genesis allocation constraints,
+and no stablecoin issuer with validator-set or quorum authority.
+
+The 9.0 independent-verification genesis value is a conditional target, not a current score. Until
+an implementation-independent Go verifier passes P-134 M2 differential replay, the project has one
+semantic implementation and receives no client-diversity or independent-verification credit for a
+second client. Parsing the published TSV inventory is M0 evidence only.
 
 | Dimension | Weight | Genesis target | Mature target | Principal risk |
 |---|---:|---:|---:|---|
@@ -44,13 +53,49 @@ These scores are an architectural assessment, not observed network data.
 | Independent verification | 15% | 9.0 | 9.5 | Proof-verifier defects |
 | Ordering and censorship resistance | 10% | 8.0 | 9.0 | Builder and validator cartels |
 | Data availability | 8% | 8.0 | 9.0 | Hosting and retention concentration |
-| Execution and proving | 8% | 5.5 | 8.0 | Specialized prover economies of scale |
+| Execution validity concentration | 4% | 5.5 | 8.0 | Proof-system and verifier defects |
+| Prover liveness concentration | 4% | 5.5 | 8.0 | Specialized prover economies of scale and outages |
 | Client diversity | 8% | 7.5 | 9.0 | One implementation becoming dominant |
 | Infrastructure accessibility | 8% | 6.5 | 8.0 | PQ bandwidth and DA load |
 | Governance decentralization | 8% | 8.0 | 8.5 | Informal developer or foundation control |
 | Token distribution and reward fairness | 10% | 5.5 | 8.0 | Wealth compounding and custodial staking |
 | Identity and trust pluralism | 5% | 7.0 | 8.5 | Credential-issuer oligopolies |
 | **Weighted result** | **100%** | **7.2** | **8.6** | |
+
+The weighted arithmetic is the sum of each score multiplied by its row weight:
+
+\[
+G = 0.20(6.5)+0.15(9.0)+0.10(8.0)+0.08(8.0)+0.08(5.5)
+  +0.08(7.5)+0.08(6.5)+0.08(8.0)+0.10(5.5)+0.05(7.0)=7.19
+\]
+
+\[
+M = 0.20(8.0)+0.15(9.5)+0.10(9.0)+0.08(9.0)+0.08(8.0)
+  +0.08(9.0)+0.08(8.0)+0.08(8.5)+0.10(8.0)+0.05(8.5)=8.585
+\]
+
+The displayed 7.2 and 8.6 values are those results rounded to one decimal place. They are targets,
+not measurements; the network remains unranked until the observation windows and launch metrics
+below exist.
+
+### Why stablecoin-secured validators were rejected
+
+The rejected branch would make finality liveness and slashing collateral depend on an off-chain
+issuer's solvency, custody, redemption, and freeze authority. It would also turn validator
+admission into an allowlist of acceptable issuers and collateral contracts. A counterfactual
+application of the same scorecard lowers consensus economic control from 6.5 to 4.0, governance
+from 8.0 to 7.0, and security-asset distribution/reward fairness from 5.5 to 4.5. Holding the other
+architectural rows constant gives:
+
+\[
+G_{\mathrm{stablecoin\ security}} = 6.51
+\]
+
+That comparison is deliberately generous because it does not additionally penalize correlated
+custodians, banking access, or jurisdictional concentration. Stablecoin-secured validation is
+therefore not a v1 configuration option. A future protocol proposing it would require a new
+genesis commitment and a fresh scorecard based on named issuers, custodians, jurisdictions, and
+freeze paths.
 
 The genesis score is deliberately lower. A new network begins with weak social decentralization, immature clients, concentrated expertise and a small prover market regardless of how good its protocol is.
 
@@ -183,7 +228,10 @@ At genesis, the likely situation is:
 - large economies of scale;
 - limited geographic diversity.
 
-This is why the architecture only receives **5.5/10 for proving at genesis**.
+This is why both execution-validity diversity and prover-liveness diversity receive **5.5/10 at
+genesis**. They are measured separately: proof soundness protects validity even under a prover
+monopoly, while supplier availability, proof latency, and the age of proof-pending history measure
+the distinct liveness risk.
 
 The mandatory mitigations are:
 

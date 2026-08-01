@@ -2,9 +2,108 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Bounded validator storage and decentralized archives
+
+Tracked by [GitHub issue #397](https://github.com/advatar/ActiveChain/issues/397), with the first
+normative and measurement slice in [#398](https://github.com/advatar/ActiveChain/issues/398).
+
+- [x] Fix the development storage contract at a qualified 1 TiB physical validator ceiling, a
+  deterministic charged-byte schedule, automatic pressure bands, 30-day assigned hot retention,
+  two certified snapshots, 8-of-12 archives, and renewable hibernation.
+- [x] Add overflow-safe executable storage accounting and a drift-checked machine-readable profile.
+- [x] Implement persistent partition state, immutable ledger segments, and certified snapshots
+  ([GitHub issue #403](https://github.com/advatar/ActiveChain/issues/403)).
+  - [x] Add sealed, chain-linked ledger segments and crash-safe two-generation partition manifests.
+  - [x] Persist content-addressed partition payloads and atomically activate only complete snapshots.
+  - [x] Bind snapshot certification to finalized state through the checkpoint verifier boundary.
+- [ ] Implement paid archive assignment, challenges, reconstruction, and crash-safe pruning
+  ([GitHub issue #405](https://github.com/advatar/ActiveChain/issues/405)).
+  - [x] Add permissionless 8-of-12 archive assignments, custody receipts, retrieval proofs, and
+    exact reconstruction with failure-domain bounds.
+  - [x] Add a monotonic, authenticated pruning watermark that requires complete retention,
+    snapshot, grace-period, checkpoint, and archive evidence before idempotent deletion
+    ([GitHub issue #407](https://github.com/advatar/ActiveChain/issues/407)).
+  - [ ] Integrate objective payment/slashing settlement and finalized certificate ingestion.
+    - [x] Add manifest-bound archive escrow, rewards, and objective missed-challenge slashing
+      ([GitHub issue #418](https://github.com/advatar/ActiveChain/issues/418)).
+    - [ ] Wire finalized settlement outputs into the native token ledger after #167/#180 land.
+- [ ] Implement prepaid leases, hibernation/restoration, and accumulator-backed replay history
+  ([GitHub issue #409](https://github.com/advatar/ActiveChain/issues/409)).
+  - [x] Add checked byte-epoch quotes, pressure admission, bounded endowments, archive-certified
+    hibernation, and owner-copy restoration.
+  - [x] Integrate rent and hibernation commands with authenticated global state transitions.
+    - [x] Add proof-authenticated canonical object renew, hibernate, and restore transitions
+      ([GitHub issue #420](https://github.com/advatar/ActiveChain/issues/420)).
+    - [ ] Route storage commands through finalized transaction ingress after #167/#180 land.
+  - [x] Add stateless witnessed sparse replay sets and append-only header history commitments
+    ([GitHub issue #411](https://github.com/advatar/ActiveChain/issues/411)).
+  - [ ] Migrate bounded production replay collections to the witnessed accumulator roots.
+    - [x] Replace the privacy kernel's stored nullifier vector with a constant-size witnessed root
+      and canonical non-membership updates
+      ([GitHub issue #424](https://github.com/advatar/ActiveChain/issues/424)).
+    - [x] Replace the cash ledger's redeemed-reward vector with a constant-size witnessed root
+      ([GitHub issue #426](https://github.com/advatar/ActiveChain/issues/426)).
+    - [x] Replace durable compliance replay vectors with constant-size witnessed roots
+      ([GitHub issue #428](https://github.com/advatar/ActiveChain/issues/428)).
+- [x] Qualify checkpoint snapshot sync, light clients, operator metrics, and sustained 1 TiB bounds.
+  - [x] Add bounded checkpoint sync and light-client checkpoint verification
+    ([GitHub issue #414](https://github.com/advatar/ActiveChain/issues/414)).
+  - [x] Add bounded operator telemetry and deterministic multi-year capacity qualification
+    ([GitHub issue #416](https://github.com/advatar/ActiveChain/issues/416)).
+  - [x] Run a production-like physical disk soak with crash/restart and archive-loss injection
+    ([GitHub issue #422](https://github.com/advatar/ActiveChain/issues/422)).
+    - [x] Add a configurable production-API filesystem soak harness and versioned report.
+    - [x] Qualify interrupted activation, corruption, archive loss, and pruning fail-closed behavior.
+    - [x] Record a production-like local run with measured peak and final physical usage.
+
+## Active bounded-storage landing publication
+
+Tracked by [GitHub issue #430](https://github.com/advatar/ActiveChain/issues/430).
+
+- [x] Publish accurately qualified bounded validator storage and decentralized archive functionality
+  to `activechain-display/main`, with dedicated claim regression coverage, lint, production build,
+  and route smoke verification.
+- [x] Advance the parent landing-page submodule pointer to landing merge `b419a12`; merge it to
+  `main` as `589da93` and confirm both landing and parent revisions are reachable from their
+  respective `origin/main` branches.
+
+## Non-interactive Docker authentication isolation
+
+Tracked by [GitHub issue #433](https://github.com/advatar/ActiveChain/issues/433).
+
+- [x] Keep every deterministic-kernel Docker and nested RISC0 BuildKit invocation on an explicit,
+  anonymous configuration that cannot fall back to the macOS login-keychain credential helper.
+- [x] Add a fail-closed regression check for the effective Docker configuration.
+- [x] Pass the complete deterministic-kernel gate, merge to `main`, and verify reachability; merge
+  commit `1c278e7` is reachable from `origin/main`.
+
+## Independent-client budget gate repair
+
+Tracked by [GitHub issue #401](https://github.com/advatar/ActiveChain/issues/401).
+
+- [x] Reconcile the published per-version active canonical identity counts with the registry after
+  merged protocol additions, without changing the approved staffing ranges or release gates.
+- [x] Reconcile the Apple compatibility manifest and C/Swift consumers with wallet ABI revision 3.
+- [x] Give each authorization-chain lemma a bounded 15-minute proof window so normal ARM64 runner
+  variance cannot kill a valid source-saturation proof at the old 10-minute limit.
+- [x] Pass the deterministic-kernel gate and merge the repair to `main`; merge commit `28fab4a` is
+  reachable from `origin/main`.
+
+## Active landing-page rebrand — Actum
+
+Tracked by [GitHub issue #391](https://github.com/advatar/ActiveChain/issues/391).
+
+- [x] Rebrand the public landing-page copy and metadata from ActiveChain to Actum while retaining
+  compatibility-sensitive protocol, repository, RPC, and network identifiers for a later phase.
+- [x] Add a regression check for the public brand surface and pass landing-page lint and production
+  build verification.
+- [x] Merge the unit-tested landing-page revision and parent submodule update into `main`.
+
 ## Landing-page information architecture
 
-GitHub issue creation pending restoration of the repository's `gh` authentication.
+Tracked by [GitHub issue #366](https://github.com/advatar/ActiveChain/issues/366), readiness
+cross-reference [#343](https://github.com/advatar/ActiveChain/issues/343), and native-assets
+readability issue [#191](https://github.com/advatar/ActiveChain/issues/191).
 
 - [x] Replace the single long-form landing route with a focused home page and dedicated content
   pages grouped under clear top-level categories and subcategories.
@@ -12,8 +111,9 @@ GitHub issue creation pending restoration of the repository's `gh` authenticatio
   direct links to every page.
 - [x] Preserve the existing visual language and substantive content while improving page-level
   hierarchy, orientation, and cross-page discovery.
-- [ ] Complete visual browser qualification and the final deterministic-kernel gate; merge the
-  parent-repository pointer to `main` and confirm reachability from `origin/main`.
+- [x] Pass the landing unit-test suite, publish the display revision, and merge the
+  parent-repository pointer to `main`; browser, CI, and full-build qualification were explicitly
+  skipped for this integration at operator request.
 
 ## Critical incident — deterministic validator key compromise
 
@@ -30,6 +130,46 @@ Tracked by [GitHub issue #326](https://github.com/advatar/ActiveChain/issues/326
   health, and record the new immutable chain identity without trusting prior certificates.
 - [x] Remove deterministic CLI wallet identities and track native platform key custody separately
   ([GitHub issue #327](https://github.com/advatar/ActiveChain/issues/327)).
+
+## Critical wallet approvals — one canonical signed request
+
+Tracked by [GitHub issue #339](https://github.com/advatar/ActiveChain/issues/339).
+
+- [x] Inventory and remove platform-local unsigned/defaulted approval encodings and developer
+  transaction bridges.
+- [x] Expose one bounded canonical approval transcript and human-readable fields from Rust through
+  the C/JNI boundaries, bound to the exact intent commitment.
+- [x] Require immediate platform authentication before native custody signs that exact transcript;
+  reject mutation, substitution, replay, and alternate encodings.
+- [x] Add shared cross-language vectors plus Rust, FFI, Apple, Android, and end-to-end submission
+  tests.
+- [x] Pass targeted Rust, Android, and Apple builds/tests, merge to `main`, and verify
+  reachability before closing #339. The exhaustive deterministic-kernel CI gate was explicitly
+  skipped during issue reconciliation in favor of the normal affected-platform test suites.
+
+## Critical wallet recovery — hardware-wrapped post-quantum custody
+
+Tracked by [GitHub issue #327](https://github.com/advatar/ActiveChain/issues/327).
+
+- [x] Define a versioned native custody contract with honest hardware capability reporting,
+  explicit user-presence policy, finalized-state rollback protection, rotation, revocation, and
+  independently encrypted recovery envelopes.
+- [x] Implement Apple Keychain/Secure Enclave wrapping for backup-excluded ML-DSA-44 slots, keeping
+  plaintext secret bytes transient inside the native provider and zeroizing them after signing.
+  - [x] Replace the Apple test-only ML-DSA engine with the wire-compatible Rust implementation,
+    deriving public keys and producing self-verified signatures from transient unwrapped seeds.
+- [x] Implement Android Keystore/StrongBox wrapping with user authentication and backup exclusion,
+  keeping plaintext secret bytes transient inside the native provider and zeroizing them after
+  signing.
+- [x] Keep secret key material behind opaque native handles across the Rust FFI, reverify every
+  returned ML-DSA-44 signature, and add locked-device, cancelled-authentication, rollback, wrong-key,
+  revoked-key, recovery, rotation, and migration-failure tests.
+- [ ] Correct mobile custody and recovery claims and complete the independent platform review gate.
+  Targeted Rust (13), macOS (26), and Android unit/build qualification passes on the merged
+  implementation candidate.
+- [x] Merge the implementation to `main` and verify reachability. The queued full deterministic
+  kernel run is skipped in favor of normal tests during issue reconciliation; #327 remains open
+  until independent platform review is complete.
 
 ## Critical consensus recovery — bounded views and leader rotation
 
@@ -246,32 +386,47 @@ Tracked by [GitHub issue #345](https://github.com/advatar/ActiveChain/issues/345
 
 - [x] Record the v1 native-staked-asset decision and reject stablecoin-secured validators as a
   consensus-security alternative in `spec/protocol/P-130-economics.md`.
-- [ ] Reconcile all legacy economics/decentralisation text and recompute the scorecard.
+- [x] Make `MINT.md`, `REWARDS.md`, and `CASH.md` explicitly subordinate to P-130 and remove any
+  implication that stablecoin collateral is a selectable v1 validator-security profile.
+- [x] Recompute the decentralisation scorecard for native-stake security, show the weighted
+  arithmetic and assumptions, and record the rejected branch's issuer capture penalty.
 
 ## Active protocol decision — P-131 version series
 
 - [x] Publish the ordered v1.0–v2 launch contract and reserve extension surfaces in
   `spec/protocol/P-131-version-series.md`.
-- [ ] Add concrete reserved-tag/header-slot vectors and wire the activation gates into the
-  version dispatcher.
+- [x] Add a bounded protocol-version profile that rejects unknown revisions and exposes explicit
+  feature activation/requirement gates for the complete v1.0–v2 series.
+- [x] Assign named deferred-feature tags inside the reserved v1.1/v1.2 ranges and reject every
+  unassigned reserved tag even after activation.
+- [x] Freeze executable reserved-tag/header-slot vectors and wire them into touched-crate tests.
 
 ## Active protocol decision — P-132 proof liveness
 
 - [x] Define validator re-execution fallback, bounded proof grace depth, proof-pending state, and
   recovery behavior in `spec/protocol/P-132-proof-liveness.md`.
-- [ ] Encode the proof deadline/grace profile and add liveness transition vectors.
+- [x] Encode a bounded proof deadline/grace profile and fail-closed liveness transition policy.
+- [x] Freeze executable normal, outage, recovery, and exhaustion vectors and split validity from
+  prover-liveness concentration in the decentralization scorecard.
 
 ## Active protocol decision — P-133 compute admission
 
 - [x] Demote general compute jobs and AI-result claims out of v1 consensus semantics; define the
   escrow/attestation boundary in `spec/protocol/P-133-compute-admission.md`.
-- [ ] Add canonical escrow/attestation vectors and reserve a future compute verifier interface.
+- [x] Add canonical application-layer compute escrow and assurance-attestation types and vectors.
+- [x] Reserve a future bounded compute verifier interface without activating compute semantics in
+  v1 consensus.
 
 ## Active protocol decision — P-134 independent client
 
 - [x] Publish a bounded v1.0 conformance surface and Go verifier milestones in
   `spec/protocol/P-134-independent-client.md`.
-- [ ] Freeze the language-neutral vectors and implement the independent verifier through M2.
+- [x] Publish a machine-counted per-version conformance budget, required staffing allocation, and
+  delivery estimate for the independent Go verifier.
+- [x] Correct the current TSV smoke reader to M0 status and qualify independent-verification
+  claims until semantic M2 differential replay passes.
+- [ ] Freeze the language-neutral semantic vectors and implement the independent verifier through
+  M2 without importing Rust implementation code.
 
 ## Active milestone — P-060 execution proof system
 
@@ -305,6 +460,26 @@ Tracked by [GitHub issue #345](https://github.com/advatar/ActiveChain/issues/345
   As of 2026-07-27, `cargo test -p activechain-cash-air --offline` passes 22 tests with one
   intentionally ignored full-depth timing gate; no FRI-parameter mismatch remains. The two
   outstanding items are implementation work, not release claims.
+  - [x] Constrain every native input, output, and fee trace value to an in-AIR 64-bit boolean
+    decomposition; host-side trace construction checks are defense in depth only.
+  - [x] Replace the ignored full composite proof with a bounded accepted-row fixture that runs in
+    ordinary CI and retains the separate full-depth benchmark gate.
+  - [ ] Pass focused CashAIR tests and clippy, then the frozen deterministic-kernel gate; merge and
+    verify the issue commits are reachable from `origin/main`.
+- [x] Redesign authenticated CashAIR receipt aggregation to fit the existing bounded ingress
+  ceiling instead of enlarging it; add compact accepted-row encode/decode/verify qualification
+  ([#379](https://github.com/advatar/ActiveChain/issues/379)).
+  - [x] Aggregate a full authenticated mutation path into bounded large batches so FRI query
+    openings are not repeated once per 64 permutations, while preserving the pinned security
+    parameters and ordered transcript binding.
+  - [x] Replace the JSON proof representation with strict bounded binary encoding and reject
+    trailing, truncated, oversized, and allocation-amplifying inputs before proof decoding.
+  - [x] Prove, canonically encode, decode, and verify the accepted-row release fixture below the
+    8 MiB ingress ceiling; record size, verification time, and peak-memory measurements.
+    The 2026-07-30 Apple M5 Max release run produced a 3,591,727-byte logical proof and a
+    3,750,254-byte receipt in four canonical segments, verified in 2,545 ms, and reported a
+    3,087,925,248-byte maximum resident set for the combined prove/verify process (54,526,624-byte
+    peak physical footprint). Two encoded receipts fit an 8 MiB byte-admission budget; three do not.
 - [x] Cover authenticated envelope round-trip and suite mutation rejection without running the
   full SHAKE proving benchmark.
 - [x] Make the reference package independently testable outside the root workspace.
@@ -475,6 +650,8 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
   finalized cash snapshot plus certificate bundle; metadata consensus alone is insufficient.
 - [ ] Make a fresh Kanalen reset provision the genesis cash state consumed by that execution path,
   then prove the first and restarted rounds publish matching cash/finality artifacts.
+- [x] Make the Kanalen proposer certify the exact finalized cash root and emit the verifier-ready
+  cash snapshot plus quorum finality bundle consumed by the fail-closed ingestion runner.
 - [x] Load a real device wallet profile and remove the hard-coded unavailable dashboard path;
   balances remain fail-closed until the linked verifier accepts finalized owner proofs.
 - [ ] Extend Kanalen ingestion/rehearsal, add adversarial tests, deploy, and verify the public RPC.
@@ -603,8 +780,9 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
 - [x] Qualify the current RPC/faucet boundary with 27 server tests covering finalized ingestion,
   owner scoping, cross-chain rejection, durable restart, faucet limits, malformed evidence, and
   typed adapter installation.
-- [ ] Bind validator-side faucet settlement admission to a pre-signed cash intent, requiring the
-  exact faucet reference, recipient, amount, and admission height before transaction ingress.
+- [x] Upgrade the canonical cash authorization to schema v2 with a signed optional settlement
+  reference, and require the exact faucet reference, recipient, amount, and admission height before
+  validator transaction ingress.
 - [x] Add a strict validator-RPC bridge entry point that decodes the signed envelope and checks its
   intent identifier, recipient, and amount before handing bytes to an authoritative backend.
 - [x] Add a typed production faucet settlement adapter boundary for validator-backed ingress.
@@ -620,8 +798,8 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
 - [x] Add optional `ACTIVECHAIN_WALLET_INGRESS_SNAPSHOT` and
   `ACTIVECHAIN_FINALIZED_HEIGHT` startup wiring to `activechain-rpc-node`; unset variables keep
   the node fail-closed and metadata-only.
-- [ ] Publish the end-to-end funding admission contract and adversarial vectors before public
-  faucet deployment.
+- [x] Publish the end-to-end funding admission contract and adversarial reference-substitution
+  vectors before public faucet deployment.
 - [x] Freeze the validator-bridge authorized-settlement request envelope with strict canonical
   round-trip, trailing-byte, empty, malformed, and intent/recipient/amount-binding vectors.
 - [x] Add bounded length-prefixed bridge framing for authorized settlement requests with strict
@@ -635,16 +813,16 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
 - [ ] Formally verify testnet-only validity, supply conservation, exactly-once issuance,
   rate-limit monotonicity, atomic restart equivalence, and receipt-to-finalized-transition binding;
   publish the proof scope and every remaining assumption or gap.
-- [ ] Freeze the faucet invariant model and executable conformance vectors before formal proof
+- [x] Freeze the faucet invariant model and executable conformance vectors before formal proof
   integration.
-- [ ] Add an iOS/macOS testnet funding flow that never credits optimistic or local-only balances.
+- [x] Add an iOS/macOS testnet funding flow that never credits optimistic or local-only balances.
 - [ ] Pass replay, concurrency, forged-chain, exhaustion, restart, privacy, and end-to-end tests.
 
 ## Active protocol design — multi-asset Coin Cells
 
 Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163).
 
-- [ ] Bind fungible Coin Cells and all transitions, authorizations, proofs, and receipts to `AssetId`.
+- [x] Bind fungible Coin Cells and all transitions, authorizations, proofs, and receipts to `AssetId`.
 - [x] Expose an explicit canonical asset-bound fungible transfer commitment for proof/receipt
   consumers; dedicated fungible AIR remains open.
 - [x] Freeze canonical fungible AIR public inputs with asset/registry bindings and per-asset
@@ -678,9 +856,12 @@ Tracked by [GitHub issue #163](https://github.com/advatar/ActiveChain/issues/163
 - [x] Add deterministic wallet selection over `FungibleCoinCellSet` with explicit asset identity.
 - [x] Qualify native, test-EUR, and test-USD assets with cross-asset adversarial vectors.
 
-## Active regulated-profile implementation — screening semantics
+## Regulated-profile assurance plan and screening semantics
 
-Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213).
+The dependency-ordered assurance implementation plan tracked by
+[GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213) is complete. Later operating
+evidence, jurisdiction activation, independent review, and regulated-deployment decisions remain
+separate release gates and are not implied by completing the plan.
 
 - [x] Qualify canonical protocol-type coverage: all 75 library tests pass across assets, issuer
   lifecycle, consensus/QC, credentials, DID, compliance evidence, travel-rule bindings, and
@@ -690,7 +871,7 @@ Tracked by [GitHub issue #213](https://github.com/advatar/ActiveChain/issues/213
   implementation: four focused application-primitive tests pass, including durable replay and
   malformed provider-key rejection.
 
-- [ ] Specify versioned sanctions/KYC screening inputs, freshness, matching, overrides, and
+- [x] Specify versioned sanctions/KYC screening inputs, freshness, matching, overrides, and
   privacy-preserving evidence handling with deterministic vectors.
 - [x] Freeze the commitment-only screening decision envelope, bounded validity, outcomes, and
   malformed vectors; private list matches and analyst evidence remain provider-held.
@@ -751,14 +932,28 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
   satisfy registry freshness admission.
 - [x] Reject malformed credential-status snapshots during canonical decoding, not only at
   downstream policy admission.
+- [x] Add a canonical TLS-derived credential evidence envelope that preserves notary/server,
+  holder, freshness/status, disclosure, and assurance provenance without source transcripts.
+- [x] Bind predicate admission to the exact evidence commitment and minimum assurance class so a
+  holder/self-issued credential can never be promoted to issuer-upgraded or regulated assurance.
+- [x] Publish positive and substitution vectors and qualify the ActiveChain boundary with 108
+  normal affected tests, strict Clippy, and the canonical registry check; merge commit `9f42789`
+  is reachable from `origin/main`.
+- [x] Add the cross-repository TLSNotary producer envelope and EUWallet authenticated-ingestion
+  boundary: `advatar/tlsn` PR #1 and `advatar/EUWallet` PR #76 are merged, preserve explicit
+  assurance, reject unauthorized promotion, and keep TLS-derived evidence outside PID namespaces.
+- [x] Publish and consume the byte-identical 17-case portable-evidence TSV across ActiveChain,
+  TLSNotary, and EUWallet, covering version, commitment, freshness, assurance, and issuer-upgrade
+  failures with a closed decision table.
+- [ ] Complete wallet consent/assurance UX, lifecycle and recovery coverage, physical-device key
+  tests, offline-proof conformance, and independent review.
 
 ## Active independent-client qualification
 
-- [x] Build the standard-library-only Go M2 vector verifier and publish the
-  v1.0 launch-gate complexity decision in P-134; full consensus reimplementation
-  remains the explicitly scoped M3 phase.
+- [x] Build the standard-library-only Go M0 vector reader and publish the v1.0 launch-gate
+  complexity decision in P-134; semantic verification remains required for M1/M2.
 
-- [ ] Publish a bounded conformance surface and second-client milestone for the selected launch
+- [x] Publish a bounded conformance surface and second-client milestone for the selected launch
   contract, with canonical vectors and no dependency on Rust implementation internals.
 - [x] Add a language-independent TSV conformance smoke client that verifies the published
   positive/malformed case matrix without importing Rust implementation crates.
@@ -790,6 +985,20 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 - [x] Define the v1 application settlement boundary for native payments, atomic swaps, merchant
   receipts, cross-network finality states, timeout refunds, and privacy-preserving commitments.
 
+## Active implementation — ActiveBridge connector and settlement platform
+
+Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189).
+
+- [x] Freeze canonical quotes, intents, provider observations, lifecycle records, evidence classes,
+  and idempotency bindings.
+- [x] Add crash-safe provider observation journaling and deterministic connector simulation.
+- [x] Add a fail-closed operator connector-host policy for identity, HTTPS origins, opaque secrets,
+  supported rail/asset pairs, amount ceilings, and request deadlines.
+- [ ] Implement the sandbox nTZS connector for quote, collection, payout, conversion, status, and
+  reconciliation mappings without partnership or regulated-asset claims.
+- [ ] Integrate finalized native settlement, refunds/disputes, fee sponsorship, treasury controls,
+  authenticated APIs/SDKs/webhooks, formal refinement, operations drills, and staged pilots.
+
 ## Active EUDI/TLSNotary/ZK qualification
 
 - [x] Freeze the off-chain evidence, selective-disclosure predicate, holder/action/policy binding,
@@ -811,9 +1020,12 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 
 ## Active native issuer operations
 
+- [x] Add deterministic offline inspection and dry-run for canonical threshold-approved issuer
+  supply operations before submission.
+
 Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164).
 
-- [ ] Define issuer registration, threshold-controlled mint/burn, redemption, pause/recovery,
+- [x] Define issuer registration, threshold-controlled mint/burn, redemption, pause/recovery,
   and supply-attestation lifecycle semantics with deterministic vectors.
 - [x] Add a canonical commitment-only fungible supply attestation binding asset, issuer, policy,
   exact issued supply, finalized height, and approval evidence.
@@ -829,7 +1041,7 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
 - [x] Bind lifecycle actions to a concrete threshold-approval commitment.
 - [x] Add canonical threshold-approval envelopes for mint, burn, and redemption with exact policy,
   authority, amount, pre-supply, operation, and validity bindings.
-- [ ] Specify confidential evidence retention, deletion, access, breach handling, and offline
+- [x] Specify confidential evidence retention, deletion, access, breach handling, and offline
   verification boundaries with deterministic vectors.
 - [x] Add a commitment-only retention policy for evidence class, jurisdiction, access, breach,
   deletion mode, retention deadline, and offline verifier; raw evidence remains off-chain.
@@ -857,7 +1069,7 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
 
 Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164).
 
-- [ ] Freeze native fungible, non-fungible, and series asset definitions and lifecycle actions.
+- [x] Freeze native fungible, non-fungible, and series asset definitions and lifecycle actions.
 - [x] Reject fungible definitions with zero asset, issuer, or policy identities before registry
   admission; malformed identity vectors are deterministic.
 - [x] Add a canonical native NFT token record with nonzero metadata commitment and owner-bound
@@ -880,6 +1092,10 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   proof rejection until the finalized root schema is extended.
 - [ ] Enforce issuer/controller authority, supply conservation, declared controls, and corporate
   actions in consensus, persistence, authorization, and formal proofs.
+- [x] Define canonical corporate-action envelopes for distributions, splits/consolidations,
+  coupons, maturity, record-date voting, and redemption offers.
+  - [x] Add bounded exact-once corporate-action admission bound to the finalized asset policy,
+    authority set, and half-open execution window.
 - [x] Add canonical mint and burn supply-state transitions with exact pre-state, issuer, lifecycle,
   cap, overflow, and conservation checks.
 - [x] Add bounded Kani proofs for mint cap/conservation and burn non-underflow invariants.
@@ -887,15 +1103,21 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   policy commitment, operation, amount, pre-state, and activation height.
 - [x] Require a nonzero authority-set commitment when constructing fungible asset policy state;
   unbound policy state cannot enter lifecycle or supply transitions.
-- [ ] Expose proof-bearing asset, supply, owner, action, receipt, and attestation RPC contracts.
+- [x] Expose proof-bearing asset, supply, owner, action, receipt, and attestation RPC contracts.
 - [x] Specify the proof-bearing native-asset RPC families and fail-closed empty/unsupported
   semantics in `docs/NATIVE_ASSET_RPC_V1.md`; authenticated server wiring remains a gate.
+  - [x] Wire finalized state-proof verification for asset definitions, issuer registrations,
+    supply attestations, corporate actions, and settlement receipts.
 - [ ] Ship native issuer CLI and console workflows with threshold approval and recovery.
 - [x] Ship a deterministic issuer CLI for policy commitments and threshold-approval envelopes;
   malformed hex, operations, amounts, and validity windows fail closed.
 - [x] Extend the issuer CLI with deterministic, strict supply-attestation envelope generation.
 - [x] Extend the issuer CLI with deterministic issuer-registration envelope generation and
   inverted-window rejection.
+- [x] Extend the issuer CLI with strict canonical asset-definition and pause/resume/retire
+  lifecycle-action generation.
+- [x] Extend the issuer CLI with canonical distribution, split/consolidation, coupon, maturity,
+  record-date vote, and redemption-offer generation.
 - [x] Publish deterministic issuer-registration vectors for activation boundaries and malformed
   authority/policy bindings.
 - [ ] Complete wallet, compatibility, adversarial-test, migration, and independent-audit gates.
@@ -904,14 +1126,16 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
 
 Tracked by [GitHub issue #165](https://github.com/advatar/ActiveChain/issues/165).
 
-- [ ] Accept EUDI Wallet/OpenID4VP and supported VC presentations through a versioned verifier.
+- [x] Accept bounded OpenID4VP-derived SD-JWT VC and mdoc presentations through separate,
+  versioned external verifier adapters with a closed format/profile allowlist.
 - [x] Reject credential-status registries with zero registry, issuer, schema, root, or sequence
   identities before status/freshness admission.
-- [ ] Bind minimal selective-disclosure and ZK attribute proofs to asset, action, audience, nonce,
+- [x] Bind minimal selective-disclosure and ZK attribute proofs to asset, action, audience, nonce,
   policy revision, holder key, expiry, and finalized credential-status evidence.
-- [ ] Compose asset-specific identity policies with APL and authorization without global KYC.
-- [ ] Add consent/disclosure UX, issuer policy tooling, interoperability vectors, privacy analysis,
-  replay/correlation tests, and independent audit gates.
+- [x] Compose asset-specific identity policies with APL and authorization without global KYC.
+- [x] Add wallet consent/disclosure controls, pinned issuer/profile policy tooling,
+  cross-repository interoperability vectors, privacy analysis, and replay/correlation tests.
+- [ ] Complete independent interoperability, privacy, and security review gates.
 
 ## Active integration — TLS evidence, wallet credentials, and ZK predicates
 
@@ -938,6 +1162,8 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
   self-issuance must never be silently promoted to EUDI PID, (Q)EAA, regulated KYC, or bank attestation.
 - [ ] Specify proof-of-funds predicates for currency/asset, threshold/range, institution membership,
   observation freshness, aggregation rules, units/decimals, and holder binding.
+  - [x] Add a canonical proof-of-funds public-input envelope binding currency/asset units,
+    threshold/range, institution set, observation window, holder, and exact action context.
 - [ ] Add privacy-preserving age/range and nationality/jurisdiction membership or non-membership
   predicates with canonical registry/set commitments and inference-risk consent warnings.
 - [ ] Integrate EUWallet custody, validation, provenance UI, consent, presentation, deletion,
@@ -1108,6 +1334,8 @@ Tracked by [GitHub issue #31](https://github.com/advatar/ActiveChain/issues/31).
 - [x] Publish qualified formal-verification evidence and third-party-audit-pending status on an
   isolated landing-page branch and draft PR.
 - [x] Pass all repository gates, commit, push, and open an isolated stacked draft PR.
+- [x] Restore the pinned guest lockfile and targeted PQ-ZK/private-billboard unit-test reproducibility
+  after workspace dependency updates.
 
 ## Active communication — why ActiveChain is a new L1
 
@@ -1596,6 +1824,16 @@ Tracked by [GitHub issue #9](https://github.com/advatar/ActiveChain/issues/9).
 
 ## Active milestone — native PQ cash plane and accountable verifier economy
 
+- [x] Add exact-once refundable cash-capacity reservations with bounded resource prepayment and
+  deterministic unused-balance refunds.
+- [x] Add front-running-resistant commit/reveal admission for objective verifier challenges.
+- [x] Add unbiased deterministic audit assignment from finalized randomness and a canonical
+  eligible-verifier set.
+- [x] Add canonical paymaster policy authorization with exact fee, epoch-budget, nonce, expiry,
+  sender, transfer, and policy-revision binding.
+- [x] Apply sponsored cash transfers atomically with separate sender value and paymaster fee
+  reserves, exact change, and paymaster budget/nonce advancement.
+
 Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 
 - [x] Implement canonical native-asset, genesis-allocation, Coin Cell, transfer, mint, burn, and supply schemas.
@@ -1720,7 +1958,34 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [x] Add domain-separated operation commitments for replay-safe DID lifecycle indexing.
 - [ ] Add ML-DSA rotation, ML-KEM agreement, SLH-DSA recovery, deactivation, and DID test vectors.
 - [ ] Add ENS alias records without treating ENS control as protocol authorization.
-- [ ] Add EUDI Wallet interoperability for OpenID4VCI/OpenID4VP and mdoc/VC presentations.
+- [x] Freeze the VCIssuer-to-ActiveChain handoff for OpenID4VCI-issued SD-JWT VC and mdoc
+  presentations as a bounded commitment-only, assurance-preserving, action-bound canonical value.
+- [x] Implement the governed `ExternalIssuerBindingV1` and finalized bounded registry: stable
+  issuer principals, explicit ordered profile allowlists, previous-bound lifecycle transitions,
+  collision rejection, finalized lookup, and cross-network/rollback failure are unit tested.
+- [x] Freeze EUDI/VCIssuer profile-to-schema derivation and consume byte-identical vectors in
+  ActiveChain and VCIssuer; arbitrary caller-provided schema identifiers must fail closed (#439).
+- [x] Implement account-bound, pairwise, private-proof, and device-bound external subject
+  association profiles with wallet authorization, scoped derivation, rotation/recovery, and replay
+  rejection (#440).
+- [x] Implement governed mirrored external status and issuance-transparency snapshots with
+  monotonic anchoring, bounded freshness, source migration, publisher authorization, and offline
+  lookup evidence (#444).
+- [x] Implement the bounded external SD-JWT VC/OpenID4VP verifier with pinned issuer, schema,
+  holder, request, trust, and status inputs plus typed fail-closed rejection behavior (#441).
+- [x] Implement the separately versioned bounded mdoc/COSE/OpenID4VP verifier with canonical CBOR,
+  issuer/device authentication, namespace digests, session binding, and typed rejection codes
+  (#442).
+- [x] Admit opaque outputs from registered external credential adapters through P-021 policy and
+  derive only bounded schema facts for P-023, with non-leaking context-bound receipts (#443).
+- [x] Implement wallet-owned external presentation display, explicit consent/user presence,
+  minimal disclosure, cancellation, replay-safe audit, and rollback-aware recovery (#445).
+- [x] Publish and consume a digest-locked synthetic identity bridge corpus across ActiveChain,
+  VCIssuer, and EUWallet with positive and named-boundary negative vectors (#446).
+- [x] Prove bounded external identity authenticity, schema/holder/status/context/replay safety,
+  authority separation, assurance monotonicity, minimization, and Rust/model parity (#447).
+- [ ] Complete wallet OpenID4VP transport, consent UX, live trust/status adapters, cross-repository
+  vectors, device qualification, and independent interoperability review.
 
 ## Active milestone — OpenWallet-aligned ActiveChain wallet
 
@@ -1778,6 +2043,20 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
       ([GitHub issue #176](https://github.com/advatar/ActiveChain/issues/176)).
 
 ## Active milestone — dBrowser verifier compatibility
+
+### Apple external digest-anchor client boundary
+
+Tracked by [GitHub issue #387](https://github.com/advatar/ActiveChain/issues/387).
+
+- [x] Construct bounded canonical `DigestAnchorStatementV1` envelopes and deterministic
+  submission references through the shipped Apple verifier ABI.
+- [x] Encode submit/resolve RPC request envelopes and decode bounded anchor RPC responses without
+  requiring Swift to reimplement the consensus codec.
+- [x] Publish generated C declarations, deterministic vectors, and Swift/URLSession integration
+  guidance while retaining explicit-trust finalized-evidence verification.
+- [x] Pass affected-crate and reproducible Apple distribution qualification; merge the
+  implementation and verify it is reachable from `origin/main`. The queued full deterministic
+  kernel run was explicitly skipped in favor of normal tests during issue reconciliation.
 
 - [x] Complete external digest anchor finalization and client verification
   ([GitHub issue #131](https://github.com/advatar/ActiveChain/issues/131)).
@@ -1954,33 +2233,78 @@ wallet and all testnets remain explicitly developmental until this milestone com
 
 ## Planned initiative — MCP interoperability and constrained A2UI approvals
 
-- [ ] Deliver MCP agent interoperability and constrained A2UI approval surfaces without making
+- [x] Deliver MCP agent interoperability and constrained A2UI approval surfaces without making
   either transport or presentation an authority boundary
   ([GitHub issue #355](https://github.com/advatar/ActiveChain/issues/355)).
-  - [ ] Freeze versioned schemas, trust boundaries, and the threat model
+  - [x] Freeze versioned schemas, trust boundaries, and the threat model
     ([GitHub issue #356](https://github.com/advatar/ActiveChain/issues/356)).
     - [x] Add a host-only bounded MCP/A2UI DTO crate outside the consensus trusted base.
     - [x] Publish machine-readable schemas, normative boundaries, threats, and conformance vectors.
-    - [ ] Pass the complete deterministic-kernel gate on the exact merge candidate and integrate it
-      into `origin/main`.
-  - [ ] Implement proof-bearing read-only MCP tools and resources
+    - [x] Integrate the verified implementation into `origin/main`; the exhaustive
+      deterministic-kernel gate was explicitly skipped during issue reconciliation.
+  - [x] Implement proof-bearing read-only MCP tools and resources
     ([GitHub issue #361](https://github.com/advatar/ActiveChain/issues/361)).
     - [x] Implement stable MCP lifecycle, deterministic tool discovery, bounded stdio framing, and
       typed proof-verifying RPC adapters on a branch stacked above #356.
     - [x] Pass touched-crate tests, strict Clippy, formatting, and canonical type-registry checks
       after integrating #356 and current `origin/main`.
-    - [ ] Pass the complete deterministic-kernel gate, then merge the exact candidate into
-      `origin/main`.
-  - [ ] Implement a proposal-only MCP intent and capability gateway
+    - [x] Merge the verified candidate into `origin/main`; the exhaustive deterministic-kernel
+      gate was explicitly skipped during issue reconciliation.
+  - [x] Implement a proposal-only MCP intent and capability gateway
     ([GitHub issue #357](https://github.com/advatar/ActiveChain/issues/357)).
-  - [ ] Route MCP proposals through canonical native wallet approval
+    - [x] Define a canonical, request-bound transfer `ActionIntent` and deterministic commitment.
+    - [x] Enforce exact agent/capability/chain/wallet/resource/recipient/expiry/budget bindings before
+      durable proposal admission.
+    - [x] Persist idempotency and lifecycle state atomically across restart and emit non-secret audit
+      events without exposing signing, submission, or arbitrary forwarding.
+    - [x] Add policy-specific anchor proposals using the canonical bounded statement envelope and
+      exact domain/reference binding. Normal touched-crate qualification replaces the queued full
+      deterministic-kernel run during issue reconciliation; integrate the candidate into
+      `origin/main`.
+  - [x] Route MCP proposals through canonical native wallet approval
     ([GitHub issue #358](https://github.com/advatar/ActiveChain/issues/358)).
-  - [ ] Render approvals and results through a constrained, fail-closed A2UI layer
+    - [x] Decode the canonical proposal intent at the shared wallet boundary and derive every
+      review field and the exact approval commitment without trusting MCP display labels.
+    - [x] Require the existing authenticated native signing callback to sign only the reviewed
+      proposal commitment, with expiry and substitution checks.
+    - [x] Expose equivalent Apple and Android proposal review paths and persist bounded lifecycle
+      transitions across restart, rejection, approval, submission, finality, expiry, and failure.
+    - [x] Add Rust and platform tests for equivalence, spoofing, substitution, stale/concurrent
+      review, replay, restart/background-resume recovery, and finality resolution. Normal affected
+      Rust, Android, Swift-package, and exact-head Apple distribution/macOS suites replace the
+      explicitly skipped exhaustive CI gate during issue reconciliation; integrate and verify the
+      candidate in `origin/main`.
+  - [x] Render approvals and results through a constrained, fail-closed A2UI layer
     ([GitHub issue #360](https://github.com/advatar/ActiveChain/issues/360)).
-  - [ ] Rehearse an end-to-end MCP transfer proposal, approval, finality, and verified receipt
+    - [x] Add a host-only renderer that reconstructs verified approval facts, separates untrusted
+      explanations, binds actions to the canonical intent, and emits a deterministic native fallback.
+    - [x] Add bounded A2UI component/data fixtures and adversarial tests for deceptive content,
+      action substitution, accessibility labels, and unsupported surfaces.
+    - [x] Add transfer receipt, capability grant, agent enrollment, credential disclosure, and
+      job/proof DTOs; reconstruct transfer facts directly from the canonical proposal intent and
+      allow commitment-bound actions only to begin #358's authenticated native-wallet flow or
+      persist rejection. Normal touched-crate tests and strict Clippy replace the explicitly
+      skipped exhaustive CI gate during issue reconciliation; integrate into `origin/main`.
+  - [x] Rehearse an end-to-end MCP transfer proposal, approval, finality, and verified receipt
     ([GitHub issue #362](https://github.com/advatar/ActiveChain/issues/362)).
-  - [ ] Complete adversarial security, compatibility, and operational qualification
+    - [x] Add a deterministic three-validator local rehearsal harness with bounded setup/teardown
+      and no persistent custody secrets.
+    - [x] Correlate the MCP request, canonical proposal, reviewed commitment, authorization,
+      transaction, finalized record, and independently verified receipt.
+    - [x] Exercise happy-path, denial, expiry, failure, and idempotent reconnect/retry lifecycle
+      outcomes without treating MCP transport or A2UI presentation as authority.
+    - [x] Document every trust boundary and developmental/unaudited status; normal affected
+      integration tests and strict Clippy are green, and merge commit `e8c3928` is reachable from
+      `origin/main`.
+  - [x] Complete adversarial security, compatibility, and operational qualification
     ([GitHub issue #359](https://github.com/advatar/ActiveChain/issues/359)).
-  - [ ] Announce the planned MCP and constrained A2UI interfaces on the public landing page
+    - [x] Consolidate prompt-injection, substitution, replay, lifecycle, malformed payload, and
+      deceptive A2UI cases into an automated qualification suite.
+    - [x] Publish the supported MCP/A2UI compatibility matrix and fail-closed version policy.
+    - [x] Add incident-disable, privacy/telemetry, audit-log, and resource-exhaustion operator
+      guidance plus an external security-audit scope update.
+    - [x] Normal affected tests and strict Clippy are green, merge commit `fed7927` is reachable
+      from `origin/main`, and the exhaustive deterministic-kernel gate was explicitly skipped.
+  - [x] Announce the planned MCP and constrained A2UI interfaces on the public landing page
     without presenting them as shipped or audited
     ([GitHub issue #364](https://github.com/advatar/ActiveChain/issues/364)).

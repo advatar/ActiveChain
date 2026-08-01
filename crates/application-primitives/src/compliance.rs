@@ -1,12 +1,13 @@
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
-    decode_envelope, encode_envelope,
+    decode_envelope, encode_envelope, inspect_canonical_envelope,
 };
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
     AssetId, ChainId, ComplianceError, ComplianceEvidenceBindingV1, ComplianceReplayKey,
-    ComplianceReplaySet, ComplianceSignatureEnvelopeV2, CredentialPredicateV1, Digest384,
-    ML_DSA44_PUBLIC_KEY_LENGTH, PrincipalId, ProfileSelection, TransactionId, TravelRuleBindingV1,
+    ComplianceReplaySet, ComplianceReplayWitness, ComplianceSignatureEnvelopeV2,
+    CredentialAssuranceClassV1, CredentialPredicateV1, Digest384, ML_DSA44_PUBLIC_KEY_LENGTH,
+    PrincipalId, ProfileSelection, TlsCredentialEvidenceV1, TransactionId, TravelRuleBindingV1,
 };
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -182,7 +183,44 @@ pub enum ComplianceAdmissionError {
 pub enum CredentialPredicateAdmissionError {
     Expired,
     ContextMismatch,
+    EvidenceMismatch,
+    InsufficientAssurance,
     InvalidValueProof,
+}
+
+/// Admits a TLS-derived credential predicate while preserving its exact provenance class.
+/// The evidence commitment occupies the predicate's claims-commitment slot, preventing an adapter
+/// from substituting a different transcript, disclosure, holder, schema, or assurance class.
+#[allow(clippy::too_many_arguments)]
+pub fn admit_tls_credential_predicate(
+    evidence: &TlsCredentialEvidenceV1,
+    predicate: &CredentialPredicateV1,
+    minimum_assurance: CredentialAssuranceClassV1,
+    chain_id: ChainId,
+    audience: PrincipalId,
+    action: TransactionId,
+    height: u64,
+    verify_value: impl FnOnce(&CredentialPredicateV1) -> bool,
+) -> Result<(), CredentialPredicateAdmissionError> {
+    if !evidence.valid_at(height) || !predicate.valid_at(height) {
+        return Err(CredentialPredicateAdmissionError::Expired);
+    }
+    if evidence.assurance() < minimum_assurance {
+        return Err(CredentialPredicateAdmissionError::InsufficientAssurance);
+    }
+    if evidence.schema_id() != predicate.schema_id()
+        || evidence.holder_binding() != predicate.holder_binding()
+        || evidence.commitment().ok() != Some(predicate.claims_commitment())
+    {
+        return Err(CredentialPredicateAdmissionError::EvidenceMismatch);
+    }
+    if !predicate.binds_action(chain_id, audience, action) {
+        return Err(CredentialPredicateAdmissionError::ContextMismatch);
+    }
+    if !verify_value(predicate) {
+        return Err(CredentialPredicateAdmissionError::InvalidValueProof);
+    }
+    Ok(())
 }
 
 /// Admits a selective-disclosure predicate without exposing credential claims.
@@ -245,6 +283,7 @@ pub fn compliance_evidence_commitment(
 #[allow(clippy::too_many_arguments)]
 pub fn admit_regulated_transfer(
     journal: &mut DurableComplianceReplayJournal,
+    replay_witness: &ComplianceReplayWitness,
     evidence: ComplianceEvidenceBindingV1,
     signature: &ComplianceSignatureEnvelopeV2,
     travel: Option<&TravelRuleBindingV1>,
@@ -296,7 +335,7 @@ pub fn admit_regulated_transfer(
         action,
         signature.nonce(),
     );
-    journal.insert(key).map_err(ComplianceAdmissionError::Replay)
+    journal.insert(key, replay_witness).map_err(ComplianceAdmissionError::Replay)
 }
 
 pub struct DurableComplianceReplayJournal {
@@ -307,25 +346,30 @@ impl DurableComplianceReplayJournal {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, CompliancePersistenceError> {
         let path = path.as_ref().to_path_buf();
         let set = match std::fs::read(&path) {
-            Ok(bytes) => {
-                decode_envelope(&bytes).map_err(|_| CompliancePersistenceError::Persistence)?
-            }
+            Ok(bytes) => decode_envelope(&bytes)
+                .or_else(|_| decode_legacy_compliance_replay_set(&bytes))
+                .map_err(|_| CompliancePersistenceError::Persistence)?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                ComplianceReplaySet::new(Vec::new())
-                    .map_err(|_| CompliancePersistenceError::Persistence)?
+                ComplianceReplaySet::empty()
             }
             Err(_) => return Err(CompliancePersistenceError::Persistence),
         };
         Ok(Self { path, set })
     }
-    pub fn contains(&self, key: ComplianceReplayKey) -> bool {
-        self.set.contains(key)
+    pub const fn root(&self) -> Digest384 {
+        self.set.root()
     }
-    pub fn insert(&mut self, key: ComplianceReplayKey) -> Result<(), CompliancePersistenceError> {
+    pub const fn count(&self) -> u64 {
+        self.set.count()
+    }
+    pub fn insert(
+        &mut self,
+        key: ComplianceReplayKey,
+        witness: &ComplianceReplayWitness,
+    ) -> Result<(), CompliancePersistenceError> {
         let mut next = self.set.clone();
-        next.insert(key).map_err(|e| match e {
+        next.insert(key, witness).map_err(|e| match e {
             ComplianceError::Replay => CompliancePersistenceError::Replay,
-            ComplianceError::TooManyEntries => CompliancePersistenceError::Capacity,
             _ => CompliancePersistenceError::Persistence,
         })?;
         let bytes = encode_envelope(&next).map_err(|_| CompliancePersistenceError::Persistence)?;
@@ -343,9 +387,24 @@ impl DurableComplianceReplayJournal {
     }
 }
 
+fn decode_legacy_compliance_replay_set(bytes: &[u8]) -> Result<ComplianceReplaySet, DecodeError> {
+    let envelope = inspect_canonical_envelope(
+        bytes,
+        ComplianceReplaySet::TYPE_TAG,
+        1,
+        2 + activechain_protocol_types::LEGACY_MAX_COMPLIANCE_REPLAY_KEYS
+            * ComplianceReplayKey::MAX_ENCODED_LEN,
+    )?;
+    let mut decoder = Decoder::new(envelope.body());
+    let set = ComplianceReplaySet::decode_legacy_v1(&mut decoder)?;
+    decoder.finish()?;
+    Ok(set)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use activechain_accumulator::{AccumulatorDomain, ReferenceSet};
     use activechain_protocol_types::{
         CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature, TransactionId,
     };
@@ -424,15 +483,71 @@ mod tests {
             Digest384::new([n; 48]),
         )
     }
+    fn replay_witness(
+        prior: &[ComplianceReplayKey],
+        candidate: ComplianceReplayKey,
+    ) -> ComplianceReplayWitness {
+        let mut reference = ReferenceSet::new(AccumulatorDomain::SpentInput);
+        for key in prior {
+            reference.insert(key.accumulator_key().into_bytes()).unwrap();
+        }
+        let candidate = candidate.accumulator_key();
+        let witness = reference.non_membership_witness(candidate.into_bytes()).unwrap();
+        ComplianceReplayWitness::new(
+            candidate,
+            witness.siblings.into_iter().map(Digest384::new).collect(),
+        )
+        .unwrap()
+    }
     #[test]
     fn journal_survives_restart_and_rejects_replay() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("replay.bin");
         let mut j = DurableComplianceReplayJournal::open(&path).unwrap();
-        j.insert(key(4)).unwrap();
-        assert!(matches!(j.insert(key(4)), Err(CompliancePersistenceError::Replay)));
+        let witness = replay_witness(&[], key(4));
+        j.insert(key(4), &witness).unwrap();
+        assert!(matches!(j.insert(key(4), &witness), Err(CompliancePersistenceError::Replay)));
         let j2 = DurableComplianceReplayJournal::open(&path).unwrap();
-        assert!(j2.contains(key(4)));
+        assert_eq!(j2.count(), 1);
+        assert_eq!(j2.root(), j.root());
+    }
+
+    #[test]
+    fn legacy_journal_migrates_and_accepts_an_archived_witness() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("legacy-replay.bin");
+        let prior = [key(4), key(5)];
+        let mut body = Encoder::new(2 + prior.len() * ComplianceReplayKey::MAX_ENCODED_LEN);
+        body.write_length(
+            prior.len(),
+            activechain_protocol_types::LEGACY_MAX_COMPLIANCE_REPLAY_KEYS,
+        )
+        .unwrap();
+        for key in prior {
+            key.encode(&mut body).unwrap();
+        }
+        let body = body.finish();
+        let mut envelope = Encoder::new(body.len() + 8);
+        envelope.write_u16(ComplianceReplaySet::TYPE_TAG).unwrap();
+        envelope.write_u16(1).unwrap();
+        envelope
+            .write_length(
+                body.len(),
+                2 + activechain_protocol_types::LEGACY_MAX_COMPLIANCE_REPLAY_KEYS
+                    * ComplianceReplayKey::MAX_ENCODED_LEN,
+            )
+            .unwrap();
+        envelope.write_raw(&body).unwrap();
+        std::fs::write(&path, envelope.finish()).unwrap();
+
+        let mut journal = DurableComplianceReplayJournal::open(&path).unwrap();
+        assert_eq!(journal.count(), 2);
+        let witness = replay_witness(&prior, key(6));
+        journal.insert(key(6), &witness).unwrap();
+        assert_eq!(journal.count(), 3);
+        let restarted = DurableComplianceReplayJournal::open(&path).unwrap();
+        assert_eq!(restarted.root(), journal.root());
+        assert_eq!(restarted.count(), 3);
     }
 
     #[test]
@@ -517,6 +632,13 @@ mod tests {
                 key.verifying_key().encode().to_vec(),
             )
             .unwrap();
+        let replay_key = ComplianceReplayKey::new(
+            evidence.profile(),
+            evidence.operator(),
+            evidence.action(),
+            signature.nonce(),
+        );
+        let replay_witness = replay_witness(&[], replay_key);
         let admit = |journal: &mut DurableComplianceReplayJournal,
                      candidate: ComplianceEvidenceBindingV1,
                      height,
@@ -524,6 +646,7 @@ mod tests {
                      revision| {
             admit_regulated_transfer(
                 journal,
+                &replay_witness,
                 candidate,
                 &signature,
                 None,
@@ -605,6 +728,99 @@ mod tests {
                 |_| true
             ),
             Err(CredentialPredicateAdmissionError::ContextMismatch)
+        );
+    }
+
+    #[test]
+    fn tls_predicate_admission_rejects_assurance_and_evidence_substitution() {
+        use activechain_protocol_types::{
+            CredentialAssuranceClassV1, CredentialPredicateKind, TlsCredentialEvidenceV1,
+        };
+
+        let chain = ChainId::new(Digest384::new([10; 48]));
+        let audience = PrincipalId::new(Digest384::new([11; 48]));
+        let action = TransactionId::new(Digest384::new([12; 48]));
+        let evidence = TlsCredentialEvidenceV1::new(
+            Digest384::new([1; 48]),
+            Digest384::new([2; 48]),
+            Digest384::new([3; 48]),
+            Digest384::new([4; 48]),
+            Digest384::new([5; 48]),
+            Digest384::new([6; 48]),
+            10,
+            100,
+            Digest384::new([7; 48]),
+            CredentialAssuranceClassV1::HolderSelfIssued,
+            None,
+        )
+        .unwrap();
+        let predicate = CredentialPredicateV1::new(
+            evidence.schema_id(),
+            evidence.commitment().unwrap(),
+            evidence.holder_binding(),
+            chain,
+            audience,
+            action,
+            Digest384::new([8; 48]),
+            1,
+            90,
+            CredentialPredicateKind::AssetAmountAtLeast,
+            Digest384::new([9; 48]),
+        )
+        .unwrap();
+        assert_eq!(
+            admit_tls_credential_predicate(
+                &evidence,
+                &predicate,
+                CredentialAssuranceClassV1::HolderSelfIssued,
+                chain,
+                audience,
+                action,
+                50,
+                |_| true,
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            admit_tls_credential_predicate(
+                &evidence,
+                &predicate,
+                CredentialAssuranceClassV1::IssuerUpgraded,
+                chain,
+                audience,
+                action,
+                50,
+                |_| true,
+            ),
+            Err(CredentialPredicateAdmissionError::InsufficientAssurance)
+        );
+
+        let substituted = TlsCredentialEvidenceV1::new(
+            Digest384::new([1; 48]),
+            Digest384::new([2; 48]),
+            Digest384::new([30; 48]),
+            Digest384::new([4; 48]),
+            Digest384::new([5; 48]),
+            Digest384::new([6; 48]),
+            10,
+            100,
+            Digest384::new([7; 48]),
+            CredentialAssuranceClassV1::HolderSelfIssued,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            admit_tls_credential_predicate(
+                &substituted,
+                &predicate,
+                CredentialAssuranceClassV1::TlsNotarizedEvidence,
+                chain,
+                audience,
+                action,
+                50,
+                |_| true,
+            ),
+            Err(CredentialPredicateAdmissionError::EvidenceMismatch)
         );
     }
 }
