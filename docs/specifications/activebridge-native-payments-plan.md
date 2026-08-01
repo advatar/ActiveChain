@@ -510,6 +510,13 @@ replay, over-refund, corrupt restart state, and failed writes do not advance liv
 durability proves refund replay safety only—it does not promote an external payout observation to
 finalized ActiveChain settlement.
 
+Disputes use a separate `DisputeJournalV1`, canonically ordered by immutable dispute identity. The
+journal atomically persists opening and each exact next-sequence lifecycle successor, and restart
+decoding retains the evidence class that distinguishes client reports, connector-authenticated
+external resolution, chain submission, and finalized ActiveChain evidence. Duplicate or unknown
+disputes, wrong-intent substitution, skipped sequences, illegal state edges, corruption, and failed
+writes do not advance the live record.
+
 ### 8.5 Gas sponsorship
 
 Reuse Cash Plane paymasters:

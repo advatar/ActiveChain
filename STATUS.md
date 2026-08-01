@@ -1013,6 +1013,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
     and every accepted partial refund, rejecting replay and corrupt restart state.
 - [x] Add a canonical dispute request and monotonic lifecycle that keeps external resolution
   strictly distinct from ActiveChain-finalized settlement.
+  - [x] Persist a bounded exact-dispute lifecycle journal atomically across opening and every
+    validated successor, retaining external-versus-finalized evidence semantics on restart.
 - [x] Add canonical treasury debit policy and exact-once payout/conversion/refund/fee/settlement
   authorization with operator, asset, ceiling, period-budget, nonce, and expiry controls.
 - [x] Add canonical webhook events and exact-sequence subscriber cursors that reject duplicate,

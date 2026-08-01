@@ -9,9 +9,9 @@ use activechain_canonical_codec::{
 use activechain_crypto_provider::verify_ml_dsa44;
 use activechain_payment_types::{
     ConnectorId, PaymentApiAuthorizationV1, PaymentApiReplayStateV1,
-    PaymentApiSignedAuthorizationV1, PaymentRefundRequestV1, PaymentRefundStateV1,
-    PaymentValidationError, PaymentWebhookCursorV1, PaymentWebhookEventV1,
-    PaymentWebhookSignedEventV1, ProviderObservationV1, RailId,
+    PaymentApiSignedAuthorizationV1, PaymentDisputeRecordV1, PaymentDisputeRequestV1,
+    PaymentRefundRequestV1, PaymentRefundStateV1, PaymentValidationError, PaymentWebhookCursorV1,
+    PaymentWebhookEventV1, PaymentWebhookSignedEventV1, ProviderObservationV1, RailId,
 };
 use activechain_protocol_types::{AssetId, Digest384};
 use sha3::{
@@ -35,6 +35,7 @@ const MAX_OBSERVATIONS: usize = 65_535;
 const MAX_WEBHOOK_CURSORS: usize = 65_535;
 const MAX_API_CLIENTS: usize = 65_535;
 const MAX_REFUND_STATES: usize = 65_535;
+const MAX_DISPUTES: usize = 65_535;
 const SNAPSHOT_TAG_LENGTH: usize = 48;
 const SNAPSHOT_DOMAIN: &[u8] = b"ACTIVECHAIN-ACTIVEBRIDGE-JOURNAL-V1";
 const MAX_CONNECTOR_ORIGINS: usize = 16;
@@ -231,6 +232,7 @@ pub enum JournalError {
     InvalidDelivery,
     InvalidAuthorization,
     InvalidRefund,
+    InvalidDispute,
     Capacity,
     Persistence,
 }
@@ -659,6 +661,117 @@ impl CanonicalType for RefundJournalV1 {
     const MAX_ENCODED_LEN: usize = 3 + MAX_REFUND_STATES * PaymentRefundStateV1::MAX_ENCODED_LEN;
 }
 
+/// Crash-safe monotonic dispute records ordered by immutable dispute identity.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct DisputeJournalV1 {
+    records: Vec<PaymentDisputeRecordV1>,
+}
+
+impl DisputeJournalV1 {
+    pub const TYPE_TAG: u16 = 0x0183;
+
+    #[must_use]
+    pub fn records(&self) -> &[PaymentDisputeRecordV1] {
+        &self.records
+    }
+
+    pub fn open(
+        &mut self,
+        request: &PaymentDisputeRequestV1,
+        timestamp: u64,
+    ) -> Result<(), JournalError> {
+        let record = PaymentDisputeRecordV1::opened(request, timestamp)
+            .map_err(|_| JournalError::InvalidDispute)?;
+        match self.records.binary_search_by_key(&record.dispute(), PaymentDisputeRecordV1::dispute)
+        {
+            Ok(_) => Err(JournalError::InvalidDispute),
+            Err(_) if self.records.len() == MAX_DISPUTES => Err(JournalError::Capacity),
+            Err(index) => {
+                self.records.insert(index, record);
+                Ok(())
+            }
+        }
+    }
+
+    pub fn open_durable(
+        &mut self,
+        request: &PaymentDisputeRequestV1,
+        timestamp: u64,
+        path: &Path,
+    ) -> Result<(), JournalError> {
+        let mut next = self.clone();
+        next.open(request, timestamp)?;
+        next.save_atomic(path)?;
+        *self = next;
+        Ok(())
+    }
+
+    pub fn advance(&mut self, next: PaymentDisputeRecordV1) -> Result<(), JournalError> {
+        let index = self
+            .records
+            .binary_search_by_key(&next.dispute(), PaymentDisputeRecordV1::dispute)
+            .map_err(|_| JournalError::InvalidDispute)?;
+        self.records[index].validate_successor(&next).map_err(|_| JournalError::InvalidDispute)?;
+        self.records[index] = next;
+        Ok(())
+    }
+
+    pub fn advance_durable(
+        &mut self,
+        next_record: PaymentDisputeRecordV1,
+        path: &Path,
+    ) -> Result<(), JournalError> {
+        let mut next = self.clone();
+        next.advance(next_record)?;
+        next.save_atomic(path)?;
+        *self = next;
+        Ok(())
+    }
+
+    pub fn save_atomic(&self, path: &Path) -> Result<(), JournalError> {
+        save_snapshot(self, path)
+    }
+
+    pub fn load(path: &Path) -> Result<Self, JournalError> {
+        load_snapshot(path)
+    }
+}
+
+impl CanonicalEncode for DisputeJournalV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        encoder.write_length(self.records.len(), MAX_DISPUTES)?;
+        for record in &self.records {
+            record.encode(encoder)?;
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for DisputeJournalV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let count = decoder.read_length(MAX_DISPUTES)?;
+        let mut records = Vec::with_capacity(count);
+        for _ in 0..count {
+            let record = PaymentDisputeRecordV1::decode(decoder)?;
+            if records.last().is_some_and(|previous: &PaymentDisputeRecordV1| {
+                previous.dispute() >= record.dispute()
+            }) {
+                return Err(DecodeError::InvalidValue(
+                    "dispute records are not canonically ordered",
+                ));
+            }
+            records.push(record);
+        }
+        Ok(Self { records })
+    }
+}
+
+impl CanonicalType for DisputeJournalV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 3 + MAX_DISPUTES * PaymentDisputeRecordV1::MAX_ENCODED_LEN;
+}
+
 fn map_validation(_: PaymentValidationError) -> JournalError {
     JournalError::InvalidObservation
 }
@@ -717,9 +830,10 @@ mod tests {
     use super::*;
     use activechain_payment_types::{
         AssetAmountV1, ConnectorId, EvidenceClass, PaymentApiOperation, PaymentAttemptId,
-        PaymentIntentId, PaymentLifecycleRecordV1, PaymentRefundId, PaymentRefundRequestV1,
-        PaymentRefundStateV1, PaymentState, PaymentWebhookEventId, PaymentWebhookEventV1,
-        PaymentWebhookSignedEventV1, PaymentWebhookSubscriptionId, ProviderOperationState, RailId,
+        PaymentDisputeId, PaymentDisputeState, PaymentIntentId, PaymentLifecycleRecordV1,
+        PaymentRefundId, PaymentRefundRequestV1, PaymentRefundStateV1, PaymentState,
+        PaymentWebhookEventId, PaymentWebhookEventV1, PaymentWebhookSignedEventV1,
+        PaymentWebhookSubscriptionId, ProviderOperationState, RailId,
         payment_api_authenticator_commitment, payment_webhook_signer_commitment,
     };
     use activechain_protocol_types::{
@@ -1274,6 +1388,98 @@ mod tests {
         let _ = std::fs::remove_file(&corrupt);
         std::fs::write(&corrupt, b"not canonical").unwrap();
         assert_eq!(RefundJournalV1::load(&corrupt), Err(JournalError::Persistence));
+        std::fs::remove_file(corrupt).unwrap();
+    }
+
+    fn dispute_request(dispute: u8, intent: u8) -> PaymentDisputeRequestV1 {
+        PaymentDisputeRequestV1::new(
+            PaymentDisputeId::new(digest(dispute)).unwrap(),
+            PaymentIntentId::new(digest(intent)).unwrap(),
+            PrincipalId::new(digest(90)),
+            digest(91),
+            AssetAmountV1::new(AssetId::new(digest(92)), 40).unwrap(),
+            digest(93),
+            digest(94),
+            digest(95),
+            100,
+            200,
+        )
+        .unwrap()
+    }
+
+    fn dispute_successor(
+        dispute: u8,
+        intent: u8,
+        sequence: u64,
+        state: PaymentDisputeState,
+    ) -> PaymentDisputeRecordV1 {
+        PaymentDisputeRecordV1::new(
+            PaymentDisputeId::new(digest(dispute)).unwrap(),
+            PaymentIntentId::new(digest(intent)).unwrap(),
+            sequence,
+            state,
+            EvidenceClass::UntrustedClientReport,
+            digest(96),
+            None,
+            0,
+            None,
+            0,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn dispute_lifecycle_survives_restart_and_replay_fails_closed() {
+        let path = path("dispute-restart");
+        let _ = std::fs::remove_file(&path);
+        let request = dispute_request(10, 20);
+        let mut journal = DisputeJournalV1::default();
+        journal.open_durable(&request, 150, &path).unwrap();
+        let evidence = dispute_successor(10, 20, 2, PaymentDisputeState::EvidenceSubmitted);
+        journal.advance_durable(evidence.clone(), &path).unwrap();
+        assert_eq!(journal.records()[0].sequence(), 2);
+        assert_eq!(DisputeJournalV1::load(&path).unwrap(), journal);
+        let before = journal.clone();
+        assert_eq!(journal.advance_durable(evidence, &path), Err(JournalError::InvalidDispute));
+        assert_eq!(journal, before);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn dispute_journal_orders_ids_and_rejects_duplicate_unknown_and_invalid_edges() {
+        let mut journal = DisputeJournalV1::default();
+        journal.open(&dispute_request(20, 30), 150).unwrap();
+        journal.open(&dispute_request(10, 20), 150).unwrap();
+        assert!(journal.records()[0].dispute() < journal.records()[1].dispute());
+        assert_eq!(journal.open(&dispute_request(10, 20), 150), Err(JournalError::InvalidDispute));
+        assert_eq!(
+            journal.advance(dispute_successor(40, 20, 2, PaymentDisputeState::EvidenceSubmitted,)),
+            Err(JournalError::InvalidDispute)
+        );
+        assert_eq!(
+            journal.advance(dispute_successor(10, 20, 3, PaymentDisputeState::EvidenceSubmitted,)),
+            Err(JournalError::InvalidDispute)
+        );
+        assert_eq!(journal.records()[0].sequence(), 1);
+    }
+
+    #[test]
+    fn failed_dispute_persistence_and_corrupt_restart_do_not_advance() {
+        let directory = path("dispute-directory");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let mut journal = DisputeJournalV1::default();
+        assert_eq!(
+            journal.open_durable(&dispute_request(10, 20), 150, &directory),
+            Err(JournalError::Persistence)
+        );
+        assert!(journal.records().is_empty());
+        std::fs::remove_dir_all(&directory).unwrap();
+
+        let corrupt = path("dispute-corrupt");
+        let _ = std::fs::remove_file(&corrupt);
+        std::fs::write(&corrupt, b"not canonical").unwrap();
+        assert_eq!(DisputeJournalV1::load(&corrupt), Err(JournalError::Persistence));
         std::fs::remove_file(corrupt).unwrap();
     }
 }

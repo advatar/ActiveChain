@@ -2066,6 +2066,14 @@ impl PaymentDisputeRecordV1 {
         self.sequence
     }
 
+    pub const fn dispute(&self) -> PaymentDisputeId {
+        self.dispute
+    }
+
+    pub const fn intent(&self) -> PaymentIntentId {
+        self.intent
+    }
+
     pub const fn state(&self) -> PaymentDisputeState {
         self.state
     }
