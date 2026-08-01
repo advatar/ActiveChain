@@ -1177,6 +1177,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   and clawback actions against exact holder state and Coin Cell inputs.
 - [x] Add an issuer-console review reconstructed from the accepted declared-control transition,
   including holder, destination, amount, revision, freeze state, approval, reason, and window.
+- [x] Persist canonically sorted per-holder freeze/unfreeze revisions before acknowledgement,
+  rejecting replay, cross-binding, corrupt restart state, and state-only clawback execution.
 - [x] Publish deterministic issuer-registration vectors for activation boundaries and malformed
   authority/policy bindings.
 - [x] Keep the workspace lockfile synchronized with the canonical payment-types cryptographic

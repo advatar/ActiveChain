@@ -253,3 +253,4 @@
 0x0178	1	PaymentWebhookSignedEventV1	crates/payment-types/src/lib.rs
 0x0179	1	SponsoredCashSnapshotV1	crates/application-primitives/src/sponsored_cash.rs
 0x017A	1	SponsoredCashReceiptV1	crates/application-primitives/src/sponsored_cash.rs
+0x017B	1	HolderControlRegistryV1	crates/application-primitives/src/holder_control.rs

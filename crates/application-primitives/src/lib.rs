@@ -14,6 +14,8 @@ mod compute;
 #[cfg(feature = "std")]
 mod corporate_action;
 #[cfg(feature = "std")]
+mod holder_control;
+#[cfg(feature = "std")]
 mod receipt_nullifier;
 #[cfg(feature = "std")]
 mod sponsored_cash;
@@ -40,6 +42,10 @@ pub use compute::{
 };
 #[cfg(feature = "std")]
 pub use corporate_action::{CorporateActionPersistenceError, DurableCorporateActionRegistry};
+#[cfg(feature = "std")]
+pub use holder_control::{
+    DurableHolderControlRegistry, HolderControlPersistenceError, HolderControlRegistryV1,
+};
 #[cfg(feature = "std")]
 pub use receipt_nullifier::{CredentialReceiptJournalError, DurableCredentialReceiptJournal};
 #[cfg(feature = "std")]
