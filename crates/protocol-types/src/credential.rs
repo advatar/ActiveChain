@@ -13,8 +13,8 @@ use sha3::{
 };
 
 use crate::{
-    ChainId, CryptoSuiteId, Digest384, Height, ObjectId, PrincipalId, ProtocolSignature, Timestamp,
-    TransactionId,
+    AssetId, ChainId, CryptoSuiteId, Digest384, Height, ObjectId, PrincipalId, ProtocolSignature,
+    Timestamp, TransactionId,
 };
 
 /// Initial canonical credential format.
@@ -876,6 +876,178 @@ impl CanonicalType for CredentialPredicateV1 {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
+/// Public inputs for a privacy-preserving proof-of-funds statement.
+///
+/// The full balance, account identifier, institution name, and source
+/// transcript remain outside this envelope. Their commitments are bound to
+/// exact units, range semantics, freshness and one authorization action.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProofOfFundsPredicateV1 {
+    evidence_commitment: Digest384,
+    schema_id: Digest384,
+    holder_binding: Digest384,
+    chain_id: ChainId,
+    audience: PrincipalId,
+    action: TransactionId,
+    nonce: Digest384,
+    currency_commitment: Digest384,
+    asset_id: Option<AssetId>,
+    decimals: u8,
+    minimum_amount: u128,
+    maximum_amount: Option<u128>,
+    institution_set_commitment: Digest384,
+    aggregation_rule_commitment: Digest384,
+    policy_revision: u64,
+    observed_from_height: Height,
+    observed_until_height: Height,
+    expires_height: Height,
+}
+impl ProofOfFundsPredicateV1 {
+    pub const TYPE_TAG: u16 = 0x015A;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 10 + 1 + 48 + 1 + 16 + 1 + 16 + 8 * 4;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        evidence_commitment: Digest384,
+        schema_id: Digest384,
+        holder_binding: Digest384,
+        chain_id: ChainId,
+        audience: PrincipalId,
+        action: TransactionId,
+        nonce: Digest384,
+        currency_commitment: Digest384,
+        asset_id: Option<AssetId>,
+        decimals: u8,
+        minimum_amount: u128,
+        maximum_amount: Option<u128>,
+        institution_set_commitment: Digest384,
+        aggregation_rule_commitment: Digest384,
+        policy_revision: u64,
+        observed_from_height: Height,
+        observed_until_height: Height,
+        expires_height: Height,
+    ) -> Result<Self, CredentialValidationError> {
+        let commitments = [
+            evidence_commitment,
+            schema_id,
+            holder_binding,
+            nonce,
+            currency_commitment,
+            institution_set_commitment,
+            aggregation_rule_commitment,
+        ];
+        if commitments.into_iter().any(|value| value == Digest384::ZERO)
+            || asset_id.is_some_and(|asset| asset.digest() == &Digest384::ZERO)
+            || decimals > 38
+            || minimum_amount == 0
+            || maximum_amount.is_some_and(|maximum| maximum < minimum_amount)
+            || policy_revision == 0
+            || observed_from_height == 0
+            || observed_from_height > observed_until_height
+            || observed_until_height >= expires_height
+        {
+            return Err(CredentialValidationError::InvalidPredicateBinding);
+        }
+        Ok(Self {
+            evidence_commitment,
+            schema_id,
+            holder_binding,
+            chain_id,
+            audience,
+            action,
+            nonce,
+            currency_commitment,
+            asset_id,
+            decimals,
+            minimum_amount,
+            maximum_amount,
+            institution_set_commitment,
+            aggregation_rule_commitment,
+            policy_revision,
+            observed_from_height,
+            observed_until_height,
+            expires_height,
+        })
+    }
+
+    pub const fn evidence_commitment(self) -> Digest384 {
+        self.evidence_commitment
+    }
+    pub const fn valid_at(self, height: Height) -> bool {
+        height >= self.observed_until_height && height < self.expires_height
+    }
+    pub fn binds_action(
+        self,
+        chain_id: ChainId,
+        audience: PrincipalId,
+        action: TransactionId,
+    ) -> bool {
+        self.chain_id == chain_id && self.audience == audience && self.action == action
+    }
+    pub fn commitment(&self) -> Result<Digest384, EncodeError> {
+        let bytes = activechain_canonical_codec::encode_envelope(self)?;
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-PROOF-OF-FUNDS-PREDICATE-V1");
+        hasher.update(&bytes);
+        let mut output = [0_u8; 48];
+        XofReader::read(&mut hasher.finalize_xof(), &mut output);
+        Ok(Digest384::new(output))
+    }
+}
+impl CanonicalEncode for ProofOfFundsPredicateV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.evidence_commitment.encode(e)?;
+        self.schema_id.encode(e)?;
+        self.holder_binding.encode(e)?;
+        self.chain_id.encode(e)?;
+        self.audience.encode(e)?;
+        self.action.encode(e)?;
+        self.nonce.encode(e)?;
+        self.currency_commitment.encode(e)?;
+        self.asset_id.encode(e)?;
+        self.decimals.encode(e)?;
+        self.minimum_amount.encode(e)?;
+        self.maximum_amount.encode(e)?;
+        self.institution_set_commitment.encode(e)?;
+        self.aggregation_rule_commitment.encode(e)?;
+        self.policy_revision.encode(e)?;
+        self.observed_from_height.encode(e)?;
+        self.observed_until_height.encode(e)?;
+        self.expires_height.encode(e)
+    }
+}
+impl CanonicalDecode for ProofOfFundsPredicateV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            ChainId::decode(d)?,
+            PrincipalId::decode(d)?,
+            TransactionId::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Option::<AssetId>::decode(d)?,
+            u8::decode(d)?,
+            u128::decode(d)?,
+            Option::<u128>::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid proof-of-funds predicate"))
+    }
+}
+impl CanonicalType for ProofOfFundsPredicateV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 /// External credential formats accepted from a profiled issuer adapter.
 ///
 /// The chain never interprets the source credential bytes. An adapter verifies the format and
@@ -1117,10 +1289,11 @@ mod tests {
         CREDENTIAL_FORMAT_VERSION, Credential, CredentialAcceptancePolicy,
         CredentialAssuranceClassV1, CredentialPredicateKind, CredentialPredicateV1,
         CredentialStatement, CredentialStatusRegistry, CredentialValidationError,
-        TlsCredentialEvidenceV1, VcIssuerFormatV1, VcIssuerPresentationV1,
+        ProofOfFundsPredicateV1, TlsCredentialEvidenceV1, VcIssuerFormatV1, VcIssuerPresentationV1,
     };
     use crate::{
-        ChainId, CryptoSuiteId, Digest384, ObjectId, PrincipalId, ProtocolSignature, TransactionId,
+        AssetId, ChainId, CryptoSuiteId, Digest384, ObjectId, PrincipalId, ProtocolSignature,
+        TransactionId,
     };
 
     fn digest(byte: u8) -> Digest384 {
@@ -1614,5 +1787,65 @@ mod tests {
         let mut malformed = bytes;
         malformed.push(99);
         assert!(decode_envelope::<VcIssuerPresentationV1>(&malformed).is_err());
+    }
+
+    #[test]
+    fn proof_of_funds_binds_units_range_institution_freshness_and_action() {
+        let chain = ChainId::new(digest(1));
+        let audience = principal(2);
+        let action = TransactionId::new(digest(3));
+        let predicate = ProofOfFundsPredicateV1::new(
+            digest(4),
+            digest(5),
+            digest(6),
+            chain,
+            audience,
+            action,
+            digest(7),
+            digest(8),
+            Some(AssetId::new(digest(9))),
+            2,
+            10_000,
+            Some(50_000),
+            digest(10),
+            digest(11),
+            3,
+            100,
+            110,
+            120,
+        )
+        .unwrap();
+        assert_eq!(
+            decode_envelope::<ProofOfFundsPredicateV1>(&encode_envelope(&predicate).unwrap()),
+            Ok(predicate)
+        );
+        assert!(predicate.valid_at(110));
+        assert!(!predicate.valid_at(120));
+        assert!(predicate.binds_action(chain, audience, action));
+        assert_ne!(predicate.commitment().unwrap(), Digest384::ZERO);
+
+        assert!(
+            ProofOfFundsPredicateV1::new(
+                digest(4),
+                digest(5),
+                digest(6),
+                chain,
+                audience,
+                action,
+                digest(7),
+                digest(8),
+                Some(AssetId::new(digest(9))),
+                2,
+                50_000,
+                Some(10_000),
+                digest(10),
+                digest(11),
+                3,
+                100,
+                110,
+                120,
+            )
+            .is_err()
+        );
     }
 }
