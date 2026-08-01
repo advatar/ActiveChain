@@ -9,8 +9,9 @@ Tracked by [GitHub issue #430](https://github.com/advatar/ActiveChain/issues/430
 - [x] Publish accurately qualified bounded validator storage and decentralized archive functionality
   to `activechain-display/main`, with dedicated claim regression coverage, lint, production build,
   and route smoke verification.
-- [ ] Advance the parent landing-page submodule pointer, merge it to `main`, and confirm both landing
-  and parent revisions are reachable from their respective `origin/main` branches.
+- [ ] Advance the parent landing-page submodule pointer to landing merge `b419a12`; merge it to
+  `main` and confirm both landing and parent revisions are reachable from their respective
+  `origin/main` branches.
 
 ## Active landing-page rebrand — Actum
 
