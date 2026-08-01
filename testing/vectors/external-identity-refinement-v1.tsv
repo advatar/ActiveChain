@@ -1,0 +1,13 @@
+case	admit	authorize
+valid	1	1
+issuer	0	0
+schema	0	0
+holder	0	0
+status	0	0
+context	0	0
+replay	0	0
+assurance	0	0
+minimization	0	0
+capability	1	0
+approval	1	0
+forbid	1	0

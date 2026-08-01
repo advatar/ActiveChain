@@ -1932,6 +1932,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
   minimal disclosure, cancellation, replay-safe audit, and rollback-aware recovery (#445).
 - [x] Publish and consume a digest-locked synthetic identity bridge corpus across ActiveChain,
   VCIssuer, and EUWallet with positive and named-boundary negative vectors (#446).
+- [x] Prove bounded external identity authenticity, schema/holder/status/context/replay safety,
+  authority separation, assurance monotonicity, minimization, and Rust/model parity (#447).
 - [ ] Complete wallet OpenID4VP transport, consent UX, live trust/status adapters, cross-repository
   vectors, device qualification, and independent interoperability review.
 

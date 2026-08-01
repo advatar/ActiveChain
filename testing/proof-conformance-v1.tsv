@@ -17,6 +17,7 @@ credential	formal/lean/ActiveChain/Credential.lean	testing/vectors/credential/cr
 data-availability	formal/lean/ActiveChain/DA.lean	testing/vectors/availability/availability-v1.txt	trace
 envelope	formal/lean/ActiveChain/Envelope.lean	testing/vectors/canonical/length-prefix-table.txt	differential
 epoch-upgrade	formal/lean/ActiveChain/EpochUpgrade.lean	testing/vectors/consensus/epoch-upgrade-model-table.txt	differential
+external-identity	formal/lean/ActiveChain/ExternalIdentity.lean	testing/vectors/external-identity-refinement-v1.tsv	differential
 identity	formal/tamarin/activechain_identity.spthy	testing/vectors/canonical/principal-v1.txt	trace
 kani-codec	formal/KANI_CODEC_PROOF_SCOPE.md	crates/canonical-codec/src/kani_proofs.rs	differential
 kani-faucet	formal/KANI_FAUCET_PROOF_SCOPE.md	crates/rpc-server/src/faucet.rs	differential
