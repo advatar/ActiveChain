@@ -12,6 +12,7 @@ use sha3::{
 pub const MAX_ASSET_SYMBOL_LENGTH: usize = 12;
 pub const MAX_FUNGIBLE_ASSETS: usize = 1024;
 pub const MAX_CORPORATE_ACTIONS: usize = 4096;
+pub const MAX_NFT_MINT_ITEMS: usize = 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AssetDefinitionError {
@@ -364,17 +365,34 @@ impl NonFungibleSeriesV1 {
         hasher.finalize_xof().read(&mut digest);
         Ok(Digest384::new(digest))
     }
-    pub fn reserve_approved_mint(
+    pub fn mint_approved_manifest(
         &self,
         issuer: PrincipalId,
         authority_set: Digest384,
         approval: &NonFungibleIssuerApprovalV1,
+        manifest: &NonFungibleMintManifestV1,
         height: u64,
-    ) -> Result<Self, AssetDefinitionError> {
-        if issuer != self.issuer || !approval.binds_context(self, issuer, authority_set, height) {
+    ) -> Result<(Self, Vec<NonFungibleTokenV1>), AssetDefinitionError> {
+        if issuer != self.issuer
+            || !approval.binds_context(self, issuer, authority_set, manifest, height)
+        {
             return Err(AssetDefinitionError::IssuerMismatch);
         }
-        self.reserve_mint(approval.quantity())
+        let next = self.reserve_mint(approval.quantity())?;
+        let tokens = manifest
+            .items
+            .iter()
+            .map(|item| {
+                NonFungibleTokenV1::new(
+                    self.asset_id,
+                    item.token_id,
+                    self.issuer,
+                    item.owner,
+                    item.metadata_commitment,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok((next, tokens))
     }
 }
 impl CanonicalEncode for NonFungibleSeriesV1 {
@@ -404,6 +422,107 @@ impl CanonicalType for NonFungibleSeriesV1 {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NonFungibleMintItemV1 {
+    token_id: Digest384,
+    owner: PrincipalId,
+    metadata_commitment: Digest384,
+}
+impl NonFungibleMintItemV1 {
+    pub fn new(
+        token_id: Digest384,
+        owner: PrincipalId,
+        metadata_commitment: Digest384,
+    ) -> Result<Self, AssetDefinitionError> {
+        if token_id == Digest384::ZERO || metadata_commitment == Digest384::ZERO {
+            return Err(AssetDefinitionError::InvalidNftMetadata);
+        }
+        if owner.digest() == &Digest384::ZERO {
+            return Err(AssetDefinitionError::InvalidAssetIdentity);
+        }
+        Ok(Self { token_id, owner, metadata_commitment })
+    }
+}
+impl CanonicalEncode for NonFungibleMintItemV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.token_id.encode(e)?;
+        self.owner.encode(e)?;
+        self.metadata_commitment.encode(e)
+    }
+}
+impl CanonicalDecode for NonFungibleMintItemV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(Digest384::decode(d)?, PrincipalId::decode(d)?, Digest384::decode(d)?)
+            .map_err(|_| DecodeError::InvalidValue("invalid non-fungible mint item"))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NonFungibleMintManifestV1 {
+    asset_id: AssetId,
+    issuer: PrincipalId,
+    items: Vec<NonFungibleMintItemV1>,
+}
+impl NonFungibleMintManifestV1 {
+    pub const TYPE_TAG: u16 = 0x016C;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 2 + 3 + MAX_NFT_MINT_ITEMS * 48 * 3;
+    pub fn new(
+        asset_id: AssetId,
+        issuer: PrincipalId,
+        items: Vec<NonFungibleMintItemV1>,
+    ) -> Result<Self, AssetDefinitionError> {
+        if asset_id.digest() == &Digest384::ZERO || issuer.digest() == &Digest384::ZERO {
+            return Err(AssetDefinitionError::InvalidAssetIdentity);
+        }
+        if items.is_empty()
+            || items.len() > MAX_NFT_MINT_ITEMS
+            || items.windows(2).any(|pair| pair[0].token_id >= pair[1].token_id)
+        {
+            return Err(AssetDefinitionError::InvalidSupplyTransition);
+        }
+        Ok(Self { asset_id, issuer, items })
+    }
+    pub fn commitment(&self) -> Result<Digest384, EncodeError> {
+        let bytes = activechain_canonical_codec::encode_envelope(self)?;
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-NON-FUNGIBLE-MINT-MANIFEST-V1");
+        hasher.update(&bytes);
+        let mut digest = [0_u8; 48];
+        hasher.finalize_xof().read(&mut digest);
+        Ok(Digest384::new(digest))
+    }
+}
+impl CanonicalEncode for NonFungibleMintManifestV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.asset_id.encode(e)?;
+        self.issuer.encode(e)?;
+        e.write_length(self.items.len(), MAX_NFT_MINT_ITEMS)?;
+        for item in &self.items {
+            item.encode(e)?;
+        }
+        Ok(())
+    }
+}
+impl CanonicalDecode for NonFungibleMintManifestV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let asset_id = AssetId::decode(d)?;
+        let issuer = PrincipalId::decode(d)?;
+        let count = d.read_length(MAX_NFT_MINT_ITEMS)?;
+        let mut items = Vec::with_capacity(count);
+        for _ in 0..count {
+            items.push(NonFungibleMintItemV1::decode(d)?);
+        }
+        Self::new(asset_id, issuer, items)
+            .map_err(|_| DecodeError::InvalidValue("invalid non-fungible mint manifest"))
+    }
+}
+impl CanonicalType for NonFungibleMintManifestV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 /// Threshold approval for one exact NFT series mint reservation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct NonFungibleIssuerApprovalV1 {
@@ -412,6 +531,7 @@ pub struct NonFungibleIssuerApprovalV1 {
     authority_set: Digest384,
     series_commitment: Digest384,
     approval_commitment: Digest384,
+    manifest_commitment: Digest384,
     quantity: u64,
     minted_before: u64,
     effective_height: u64,
@@ -420,7 +540,7 @@ pub struct NonFungibleIssuerApprovalV1 {
 impl NonFungibleIssuerApprovalV1 {
     pub const TYPE_TAG: u16 = 0x016B;
     pub const SCHEMA_VERSION: u16 = 1;
-    pub const MAX_ENCODED_LEN: usize = 48 * 5 + 8 * 4;
+    pub const MAX_ENCODED_LEN: usize = 48 * 6 + 8 * 4;
 
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -429,6 +549,7 @@ impl NonFungibleIssuerApprovalV1 {
         authority_set: Digest384,
         series_commitment: Digest384,
         approval_commitment: Digest384,
+        manifest_commitment: Digest384,
         quantity: u64,
         minted_before: u64,
         effective_height: u64,
@@ -439,6 +560,7 @@ impl NonFungibleIssuerApprovalV1 {
             || authority_set == Digest384::ZERO
             || series_commitment == Digest384::ZERO
             || approval_commitment == Digest384::ZERO
+            || manifest_commitment == Digest384::ZERO
             || quantity == 0
             || effective_height >= expires_height
         {
@@ -450,6 +572,7 @@ impl NonFungibleIssuerApprovalV1 {
             authority_set,
             series_commitment,
             approval_commitment,
+            manifest_commitment,
             quantity,
             minted_before,
             effective_height,
@@ -467,11 +590,16 @@ impl NonFungibleIssuerApprovalV1 {
         series: &NonFungibleSeriesV1,
         issuer: PrincipalId,
         authority_set: Digest384,
+        manifest: &NonFungibleMintManifestV1,
         height: u64,
     ) -> bool {
         self.asset_id == series.asset_id()
             && self.issuer == issuer
             && self.authority_set == authority_set
+            && manifest.asset_id == series.asset_id()
+            && manifest.issuer == issuer
+            && self.manifest_commitment == manifest.commitment().ok().unwrap_or(Digest384::ZERO)
+            && self.quantity as usize == manifest.items.len()
             && self.series_commitment == series.commitment().ok().unwrap_or(Digest384::ZERO)
             && self.minted_before == series.minted()
             && self.active_at(height)
@@ -484,6 +612,7 @@ impl CanonicalEncode for NonFungibleIssuerApprovalV1 {
         self.authority_set.encode(e)?;
         self.series_commitment.encode(e)?;
         self.approval_commitment.encode(e)?;
+        self.manifest_commitment.encode(e)?;
         self.quantity.encode(e)?;
         self.minted_before.encode(e)?;
         self.effective_height.encode(e)?;
@@ -495,6 +624,7 @@ impl CanonicalDecode for NonFungibleIssuerApprovalV1 {
         Self::new(
             AssetId::decode(d)?,
             PrincipalId::decode(d)?,
+            Digest384::decode(d)?,
             Digest384::decode(d)?,
             Digest384::decode(d)?,
             Digest384::decode(d)?,
@@ -1694,12 +1824,32 @@ mod tests {
         let authority_set = Digest384::new([7; 48]);
         let series =
             NonFungibleSeriesV1::new(id(1), issuer, 5, 1, Digest384::new([6; 48])).unwrap();
+        let manifest = NonFungibleMintManifestV1::new(
+            series.asset_id(),
+            issuer,
+            vec![
+                NonFungibleMintItemV1::new(
+                    Digest384::new([10; 48]),
+                    principal(3),
+                    Digest384::new([20; 48]),
+                )
+                .unwrap(),
+                NonFungibleMintItemV1::new(
+                    Digest384::new([11; 48]),
+                    principal(4),
+                    Digest384::new([21; 48]),
+                )
+                .unwrap(),
+            ],
+        )
+        .unwrap();
         let approval = NonFungibleIssuerApprovalV1::new(
             series.asset_id(),
             issuer,
             authority_set,
             series.commitment().unwrap(),
             Digest384::new([8; 48]),
+            manifest.commitment().unwrap(),
             2,
             series.minted(),
             10,
@@ -1710,22 +1860,53 @@ mod tests {
             decode_envelope::<NonFungibleIssuerApprovalV1>(&encode_envelope(&approval).unwrap()),
             Ok(approval)
         );
-        let next = series.reserve_approved_mint(issuer, authority_set, &approval, 10).unwrap();
+        assert_eq!(
+            decode_envelope::<NonFungibleMintManifestV1>(&encode_envelope(&manifest).unwrap()),
+            Ok(manifest.clone())
+        );
+        let (next, tokens) =
+            series.mint_approved_manifest(issuer, authority_set, &approval, &manifest, 10).unwrap();
         assert_eq!(next.minted(), 3);
+        assert_eq!(tokens.len(), 2);
+        assert_eq!(tokens[0].owner(), principal(3));
         assert_eq!(
-            next.reserve_approved_mint(issuer, authority_set, &approval, 11),
+            next.mint_approved_manifest(issuer, authority_set, &approval, &manifest, 11),
             Err(AssetDefinitionError::IssuerMismatch)
         );
         assert_eq!(
-            series.reserve_approved_mint(principal(9), authority_set, &approval, 11),
+            series.mint_approved_manifest(principal(9), authority_set, &approval, &manifest, 11),
             Err(AssetDefinitionError::IssuerMismatch)
         );
         assert_eq!(
-            series.reserve_approved_mint(issuer, Digest384::new([9; 48]), &approval, 11),
+            series.mint_approved_manifest(
+                issuer,
+                Digest384::new([9; 48]),
+                &approval,
+                &manifest,
+                11,
+            ),
             Err(AssetDefinitionError::IssuerMismatch)
         );
         assert_eq!(
-            series.reserve_approved_mint(issuer, authority_set, &approval, 20),
+            series.mint_approved_manifest(issuer, authority_set, &approval, &manifest, 20),
+            Err(AssetDefinitionError::IssuerMismatch)
+        );
+        let substituted = NonFungibleMintManifestV1::new(
+            series.asset_id(),
+            issuer,
+            vec![
+                NonFungibleMintItemV1::new(
+                    Digest384::new([10; 48]),
+                    principal(9),
+                    Digest384::new([20; 48]),
+                )
+                .unwrap(),
+                manifest.items[1],
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            series.mint_approved_manifest(issuer, authority_set, &approval, &substituted, 11),
             Err(AssetDefinitionError::IssuerMismatch)
         );
     }
@@ -1740,6 +1921,7 @@ mod tests {
                 authority_set,
                 series_commitment,
                 approval_commitment,
+                Digest384::new([6; 48]),
                 quantity,
                 0,
                 10,
@@ -1758,6 +1940,31 @@ mod tests {
         assert!(
             build(Digest384::new([3; 48]), Digest384::new([4; 48]), Digest384::new([5; 48]), 0)
                 .is_err()
+        );
+        assert!(
+            NonFungibleIssuerApprovalV1::new(
+                id(1),
+                issuer,
+                Digest384::new([3; 48]),
+                Digest384::new([4; 48]),
+                Digest384::new([5; 48]),
+                Digest384::ZERO,
+                1,
+                0,
+                10,
+                20,
+            )
+            .is_err()
+        );
+        let duplicate = NonFungibleMintItemV1::new(
+            Digest384::new([9; 48]),
+            principal(3),
+            Digest384::new([8; 48]),
+        )
+        .unwrap();
+        assert_eq!(
+            NonFungibleMintManifestV1::new(id(1), issuer, vec![duplicate, duplicate]),
+            Err(AssetDefinitionError::InvalidSupplyTransition)
         );
     }
 

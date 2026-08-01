@@ -238,3 +238,4 @@
 0x0169	1	PaymentWebhookCursorV1	crates/payment-types/src/lib.rs
 0x016A	1	WebhookDeliveryJournalV1	crates/payment-connector-host/src/lib.rs
 0x016B	1	NonFungibleIssuerApprovalV1	crates/protocol-types/src/asset.rs
+0x016C	1	NonFungibleMintManifestV1	crates/protocol-types/src/asset.rs
