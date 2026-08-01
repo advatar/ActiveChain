@@ -246,3 +246,6 @@
 0x0171	1	PaymentApiReplayStateV1	crates/payment-types/src/lib.rs
 0x0172	1	ApiAuthorizationJournalV1	crates/payment-connector-host/src/lib.rs
 0x0173	1	PaymentApiSignedAuthorizationV1	crates/payment-types/src/lib.rs
+0x0174	1	FungibleExceptionalControlPolicyV1	crates/protocol-types/src/asset.rs
+0x0175	1	FungibleHolderControlStateV1	crates/protocol-types/src/asset.rs
+0x0176	1	FungibleExceptionalControlActionV1	crates/protocol-types/src/asset.rs

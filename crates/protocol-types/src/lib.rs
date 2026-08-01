@@ -53,11 +53,12 @@ pub use asset::{
     FungibleAssetLifecycleAction, FungibleAssetLifecycleActionV1, FungibleAssetPolicyRegistry,
     FungibleAssetPolicyV1, FungibleAssetRegistry, FungibleControllerRotationV1,
     FungibleControllerStateV1, FungibleCorporateActionKind, FungibleCorporateActionRegistryV1,
-    FungibleCorporateActionV1, FungibleIssuerApprovalV1, FungibleIssuerOperation,
-    FungibleIssuerRegistrationV1, FungibleSupplyAttestationV1, MAX_ASSET_SYMBOL_LENGTH,
-    MAX_CORPORATE_ACTIONS, MAX_FUNGIBLE_ASSETS, MAX_NFT_MINT_ITEMS, MAX_NFT_TOKENS_PER_SERIES,
-    NonFungibleIssuerApprovalV1, NonFungibleMintItemV1, NonFungibleMintManifestV1,
-    NonFungibleSeriesV1, NonFungibleTokenRegistryV1, NonFungibleTokenV1,
+    FungibleCorporateActionV1, FungibleExceptionalControlActionV1, FungibleExceptionalControlKind,
+    FungibleExceptionalControlPolicyV1, FungibleHolderControlStateV1, FungibleIssuerApprovalV1,
+    FungibleIssuerOperation, FungibleIssuerRegistrationV1, FungibleSupplyAttestationV1,
+    MAX_ASSET_SYMBOL_LENGTH, MAX_CORPORATE_ACTIONS, MAX_FUNGIBLE_ASSETS, MAX_NFT_MINT_ITEMS,
+    MAX_NFT_TOKENS_PER_SERIES, NonFungibleIssuerApprovalV1, NonFungibleMintItemV1,
+    NonFungibleMintManifestV1, NonFungibleSeriesV1, NonFungibleTokenRegistryV1, NonFungibleTokenV1,
 };
 pub use authority::{
     BoundedActionSet, BoundedActionSetError, CapabilityGrant, CapabilityGrantFields,
