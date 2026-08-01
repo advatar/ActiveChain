@@ -259,3 +259,4 @@
 0x017E	1	CredentialReceiptLedgerV1	crates/application-primitives/src/receipt_nullifier.rs
 0x017F	1	FungibleAssetLedgerSnapshotV1	crates/application-primitives/src/fungible_transfer.rs
 0x0180	1	MultiAssetLedgerSnapshotV1	crates/application-primitives/src/fungible_transfer.rs
+0x0181	1	ControllerLedgerSnapshotV1	crates/application-primitives/src/controller_rotation.rs

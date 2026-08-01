@@ -24,6 +24,13 @@ attestations and KYC material remain off-chain; only their signed commitments an
 are public. A regulated profile can constrain operations without changing the asset identifier or
 granting universal chain-wide freeze authority.
 
+Controller rotation advances the exact mutable policy and its replay-protecting controller revision
+as one state transition. `ControllerLedgerSnapshotV1` reconstructs the expected controller state
+from the policy and revision on creation and restart, rejecting substituted policy commitments,
+issuers, assets, or authority sets. `DurableControllerLedger` applies the canonical half-open
+rotation transition, synchronizes and atomically replaces both successors, and advances memory only
+after persistence succeeds; stale replay, corrupt storage, and failed writes therefore fail closed.
+
 Before submitting a corporate action, operators use `dry-run-corporate-action` with the exact
 canonical policy, current exact-once registry, action envelope, and finalized height. Successful
 preflight returns the action identity and canonical post-registry. The issuer console reconstructs

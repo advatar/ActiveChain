@@ -1128,6 +1128,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   proof rejection until the finalized root schema is extended.
 - [ ] Enforce issuer/controller authority, supply conservation, declared controls, and corporate
   actions in consensus, persistence, authorization, and formal proofs.
+  - [x] Persist each accepted controller rotation as one atomic policy/controller-state successor,
+    revalidating exact commitments and revision bindings on restart.
 - [x] Define canonical corporate-action envelopes for distributions, splits/consolidations,
   coupons, maturity, record-date voting, and redemption offers.
   - [x] Add bounded exact-once corporate-action admission bound to the finalized asset policy,
