@@ -246,6 +246,13 @@ Every state can also enter an explicitly reasoned `expired`, `rejected`, `failed
 `manual_review` terminal/holding state where allowed. `externally_confirmed` is never displayed as
 `finalized`.
 
+`PaymentLifecycleJournalV1` stores one exact record per intent in canonical intent order. Initial
+creation and every permitted next-sequence edge are synchronized and atomically replaced before
+acknowledgement. Restart decoding preserves the record's evidence class, transaction, and finalized
+evidence as encoded; it cannot promote an externally confirmed record to chain-submitted or
+finalized. Duplicate or unknown intents, skipped sequences, illegal edges, corrupt storage, and
+failed writes do not advance the live lifecycle.
+
 Payout:
 
 ```text
