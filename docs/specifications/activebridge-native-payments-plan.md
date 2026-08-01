@@ -344,6 +344,12 @@ the joined successor once before returning the intent; an exact retry reconstruc
 original intent without rewriting, while merchant, key, body, expiry, partial-state, or intent-ID
 substitution fails before memory or storage advances.
 
+Every later lifecycle edge is also applied through `DurablePaymentRequestState`: the lifecycle
+journal advances in a clone, the complete intent/binding/lifecycle invariant is revalidated, and
+the whole joined snapshot is atomically replaced before live memory changes. A restart therefore
+cannot observe a newer lifecycle with an absent intent or create binding, or an older lifecycle
+after an acknowledged successor.
+
 ### 6.3 Status and receipt rules
 
 Status responses identify:
