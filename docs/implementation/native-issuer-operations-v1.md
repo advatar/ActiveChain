@@ -61,6 +61,10 @@ authoritative record byte-for-byte. The pure transition consumes all exact input
 unrelated record, and creates one recipient output whose origin and ID derive from the canonical
 transfer. Missing or substituted inputs, replay, wrong or inactive policy, frozen holders, output
 collision, and malformed ordering fail without returning a successor set.
+`DurableFungibleTransferLedger` applies that pure transition to a clone and synchronizes and
+atomically replaces the complete successor set before memory or acknowledgement advances. Restart
+therefore restores both the new root and replay rejection; corrupt storage and failed writes fail
+closed without changing the live authoritative root.
 
 The native issuer CLI exposes `control-policy`, `holder-control-state`, `control-action`, and
 `dry-run-control`. Freeze and unfreeze preflight return the exact post-state. Clawback additionally
