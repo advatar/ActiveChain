@@ -212,3 +212,4 @@
 0x014F	1	RewardReplayWitness	crates/cash-kernel/src/economics.rs
 0x0150	1	ComplianceReplayWitness	crates/protocol-types/src/compliance.rs
 0x0151	1	OperatorFaucetAuthorizationV1	crates/wallet-core/src/cash_authorization.rs
+0x0152	1	VcIssuerPresentationV1	crates/protocol-types/src/credential.rs

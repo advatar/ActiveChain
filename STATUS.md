@@ -1908,7 +1908,10 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [x] Add domain-separated operation commitments for replay-safe DID lifecycle indexing.
 - [ ] Add ML-DSA rotation, ML-KEM agreement, SLH-DSA recovery, deactivation, and DID test vectors.
 - [ ] Add ENS alias records without treating ENS control as protocol authorization.
-- [ ] Add EUDI Wallet interoperability for OpenID4VCI/OpenID4VP and mdoc/VC presentations.
+- [x] Freeze the VCIssuer-to-ActiveChain handoff for OpenID4VCI-issued SD-JWT VC and mdoc
+  presentations as a bounded commitment-only, assurance-preserving, action-bound canonical value.
+- [ ] Complete wallet OpenID4VP transport, consent UX, live trust/status adapters, cross-repository
+  vectors, device qualification, and independent interoperability review.
 
 ## Active milestone — OpenWallet-aligned ActiveChain wallet
 

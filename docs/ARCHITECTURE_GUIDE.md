@@ -157,6 +157,9 @@ and therefore not recoverable from ciphertext alone.
 
 EUWallet is the natural custody and consent surface for EUDI credentials and TLSNotary-derived
 credentials. ActiveChain consumes only versioned verifier results and proof public inputs.
+The concrete `../VCIssuer` handoff is specified in `docs/VCISSUER_INTEGRATION_V1.md`: OpenID4VCI,
+SD-JWT VC, and mdoc remain wallet/issuer formats, while `VcIssuerPresentationV1` is the bounded,
+commitment-only, action-bound result admitted to ActiveChain policy evaluation.
 
 Assurance must not be upgraded:
 

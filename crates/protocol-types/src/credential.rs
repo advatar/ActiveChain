@@ -876,6 +876,152 @@ impl CanonicalType for CredentialPredicateV1 {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
+/// External credential formats accepted from a profiled issuer adapter.
+///
+/// The chain never interprets the source credential bytes. An adapter verifies the format and
+/// supplies only the bounded commitments and action-bound predicate below.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum VcIssuerFormatV1 {
+    SdJwtVc = 0,
+    Mdoc = 1,
+}
+
+impl CanonicalEncode for VcIssuerFormatV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(encoder)
+    }
+}
+
+impl CanonicalDecode for VcIssuerFormatV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(decoder)? {
+            0 => Ok(Self::SdJwtVc),
+            1 => Ok(Self::Mdoc),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "VcIssuerFormatV1", tag }),
+        }
+    }
+}
+
+/// Consensus-safe result of verifying a VCIssuer SD-JWT VC or mdoc presentation.
+///
+/// Raw credentials and disclosed attributes remain off-chain. The trusted adapter must verify the
+/// OpenID4VP presentation, issuer authorization, status, freshness and holder proof before it can
+/// construct this value. The embedded predicate then binds that result to one chain action.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VcIssuerPresentationV1 {
+    issuer: PrincipalId,
+    format: VcIssuerFormatV1,
+    credential_commitment: Digest384,
+    status_commitment: Digest384,
+    issuer_authorization_commitment: Digest384,
+    assurance: CredentialAssuranceClassV1,
+    predicate: CredentialPredicateV1,
+    verified_at_height: Height,
+}
+
+impl VcIssuerPresentationV1 {
+    pub const TYPE_TAG: u16 = 0x0152;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 4 + 1 + 1 + CredentialPredicateV1::MAX_ENCODED_LEN + 8;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        issuer: PrincipalId,
+        format: VcIssuerFormatV1,
+        credential_commitment: Digest384,
+        status_commitment: Digest384,
+        issuer_authorization_commitment: Digest384,
+        assurance: CredentialAssuranceClassV1,
+        predicate: CredentialPredicateV1,
+        verified_at_height: Height,
+        expected_chain: ChainId,
+        expected_audience: PrincipalId,
+        expected_action: TransactionId,
+    ) -> Result<Self, CredentialValidationError> {
+        if issuer == PrincipalId::new(Digest384::ZERO)
+            || [credential_commitment, status_commitment, issuer_authorization_commitment]
+                .into_iter()
+                .any(|value| value == Digest384::ZERO)
+            || assurance < CredentialAssuranceClassV1::IssuerUpgraded
+            || verified_at_height == 0
+            || !predicate.valid_at(verified_at_height)
+            || !predicate.binds_action(expected_chain, expected_audience, expected_action)
+        {
+            return Err(CredentialValidationError::InvalidVcIssuerPresentation);
+        }
+        Ok(Self {
+            issuer,
+            format,
+            credential_commitment,
+            status_commitment,
+            issuer_authorization_commitment,
+            assurance,
+            predicate,
+            verified_at_height,
+        })
+    }
+
+    pub const fn predicate(&self) -> CredentialPredicateV1 {
+        self.predicate
+    }
+    pub const fn format(&self) -> VcIssuerFormatV1 {
+        self.format
+    }
+}
+
+impl CanonicalEncode for VcIssuerPresentationV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.issuer.encode(e)?;
+        self.format.encode(e)?;
+        self.credential_commitment.encode(e)?;
+        self.status_commitment.encode(e)?;
+        self.issuer_authorization_commitment.encode(e)?;
+        self.assurance.encode(e)?;
+        self.predicate.encode(e)?;
+        self.verified_at_height.encode(e)
+    }
+}
+
+impl CanonicalDecode for VcIssuerPresentationV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let issuer = PrincipalId::decode(d)?;
+        let format = VcIssuerFormatV1::decode(d)?;
+        let credential_commitment = Digest384::decode(d)?;
+        let status_commitment = Digest384::decode(d)?;
+        let issuer_authorization_commitment = Digest384::decode(d)?;
+        let assurance = CredentialAssuranceClassV1::decode(d)?;
+        let predicate = CredentialPredicateV1::decode(d)?;
+        let verified_at_height = Height::decode(d)?;
+        if issuer == PrincipalId::new(Digest384::ZERO)
+            || [credential_commitment, status_commitment, issuer_authorization_commitment]
+                .into_iter()
+                .any(|value| value == Digest384::ZERO)
+            || assurance < CredentialAssuranceClassV1::IssuerUpgraded
+            || verified_at_height == 0
+            || !predicate.valid_at(verified_at_height)
+        {
+            return Err(DecodeError::InvalidValue("invalid VCIssuer presentation"));
+        }
+        Ok(Self {
+            issuer,
+            format,
+            credential_commitment,
+            status_commitment,
+            issuer_authorization_commitment,
+            assurance,
+            predicate,
+            verified_at_height,
+        })
+    }
+}
+
+impl CanonicalType for VcIssuerPresentationV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 /// Structural credential and acceptance-policy construction failures.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CredentialValidationError {
@@ -898,6 +1044,9 @@ pub enum CredentialValidationError {
     /// TLS-derived evidence is zero, stale at construction, or claims an assurance class without
     /// the authorization required for that class.
     InvalidTlsEvidence,
+    /// A VCIssuer result lacks issuer/status evidence, regulated provenance, freshness, or exact
+    /// action binding.
+    InvalidVcIssuerPresentation,
 }
 
 fn strictly_increasing<T: Ord>(values: &[T]) -> bool {
@@ -933,6 +1082,9 @@ fn credential_decode_error(error: CredentialValidationError) -> DecodeError {
         CredentialValidationError::InvalidTlsEvidence => {
             DecodeError::InvalidValue("TLS credential evidence is invalid")
         }
+        CredentialValidationError::InvalidVcIssuerPresentation => {
+            DecodeError::InvalidValue("VCIssuer presentation is invalid")
+        }
     }
 }
 
@@ -950,7 +1102,7 @@ mod tests {
         CREDENTIAL_FORMAT_VERSION, Credential, CredentialAcceptancePolicy,
         CredentialAssuranceClassV1, CredentialPredicateKind, CredentialPredicateV1,
         CredentialStatement, CredentialStatusRegistry, CredentialValidationError,
-        TlsCredentialEvidenceV1,
+        TlsCredentialEvidenceV1, VcIssuerFormatV1, VcIssuerPresentationV1,
     };
     use crate::{
         ChainId, CryptoSuiteId, Digest384, ObjectId, PrincipalId, ProtocolSignature, TransactionId,
@@ -1371,5 +1523,81 @@ mod tests {
             cases += 1;
         }
         assert_eq!(cases, 17);
+    }
+
+    #[test]
+    fn vcissuer_presentation_is_bounded_action_bound_and_fail_closed() {
+        let chain = ChainId::new(digest(1));
+        let audience = principal(2);
+        let action = TransactionId::new(digest(3));
+        let predicate = CredentialPredicateV1::new(
+            digest(4),
+            digest(5),
+            digest(6),
+            chain,
+            audience,
+            action,
+            digest(7),
+            1,
+            20,
+            CredentialPredicateKind::AgeAtLeast,
+            digest(8),
+        )
+        .unwrap();
+        let presentation = VcIssuerPresentationV1::new(
+            principal(9),
+            VcIssuerFormatV1::SdJwtVc,
+            digest(10),
+            digest(11),
+            digest(12),
+            CredentialAssuranceClassV1::RegulatedAttestation,
+            predicate,
+            10,
+            chain,
+            audience,
+            action,
+        )
+        .unwrap();
+        let bytes = encode_envelope(&presentation).unwrap();
+        assert!(bytes.len() <= VcIssuerPresentationV1::MAX_ENCODED_LEN + 8);
+        assert_eq!(decode_envelope::<VcIssuerPresentationV1>(&bytes), Ok(presentation));
+        assert_eq!(presentation.format(), VcIssuerFormatV1::SdJwtVc);
+        assert_eq!(presentation.predicate(), predicate);
+
+        assert_eq!(
+            VcIssuerPresentationV1::new(
+                principal(9),
+                VcIssuerFormatV1::Mdoc,
+                digest(10),
+                digest(11),
+                digest(12),
+                CredentialAssuranceClassV1::HolderSelfIssued,
+                predicate,
+                10,
+                chain,
+                audience,
+                action,
+            ),
+            Err(CredentialValidationError::InvalidVcIssuerPresentation)
+        );
+        assert_eq!(
+            VcIssuerPresentationV1::new(
+                principal(9),
+                VcIssuerFormatV1::Mdoc,
+                digest(10),
+                digest(11),
+                digest(12),
+                CredentialAssuranceClassV1::IssuerUpgraded,
+                predicate,
+                10,
+                chain,
+                audience,
+                TransactionId::new(digest(99)),
+            ),
+            Err(CredentialValidationError::InvalidVcIssuerPresentation)
+        );
+        let mut malformed = bytes;
+        malformed.push(99);
+        assert!(decode_envelope::<VcIssuerPresentationV1>(&malformed).is_err());
     }
 }
