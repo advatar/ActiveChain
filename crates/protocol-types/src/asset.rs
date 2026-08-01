@@ -1706,6 +1706,9 @@ impl FungibleCorporateActionV1 {
     pub const fn asset_id(self) -> AssetId {
         self.asset_id
     }
+    pub const fn issuer(self) -> PrincipalId {
+        self.issuer
+    }
     pub const fn kind(self) -> FungibleCorporateActionKind {
         self.kind
     }
@@ -1714,6 +1717,30 @@ impl FungibleCorporateActionV1 {
     }
     pub const fn authority_set(self) -> Digest384 {
         self.authority_set
+    }
+    pub const fn approval_commitment(self) -> Digest384 {
+        self.approval_commitment
+    }
+    pub const fn terms_commitment(self) -> Digest384 {
+        self.terms_commitment
+    }
+    pub const fn record_height(self) -> u64 {
+        self.record_height
+    }
+    pub const fn effective_height(self) -> u64 {
+        self.effective_height
+    }
+    pub const fn expires_height(self) -> u64 {
+        self.expires_height
+    }
+    pub const fn amount_per_unit(self) -> u128 {
+        self.amount_per_unit
+    }
+    pub const fn ratio_numerator(self) -> u128 {
+        self.ratio_numerator
+    }
+    pub const fn ratio_denominator(self) -> u128 {
+        self.ratio_denominator
     }
     pub const fn active_at(self, height: u64) -> bool {
         height >= self.effective_height && height < self.expires_height
@@ -1791,6 +1818,16 @@ impl FungibleCorporateActionRegistryV1 {
     }
     pub fn action_ids(&self) -> &[Digest384] {
         &self.0
+    }
+    pub fn commitment(&self) -> Result<Digest384, EncodeError> {
+        let bytes = activechain_canonical_codec::encode_envelope(self)?;
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-FUNGIBLE-CORPORATE-ACTION-REGISTRY-V1");
+        hasher.update(&(bytes.len() as u64).to_be_bytes());
+        hasher.update(&bytes);
+        let mut output = [0_u8; 48];
+        hasher.finalize_xof().read(&mut output);
+        Ok(Digest384::new(output))
     }
     pub fn admit(
         &mut self,

@@ -10,6 +10,7 @@ use activechain_agent_interfaces::{
 use activechain_proposal_gateway::{ActionIntentV1, ActionKindV1};
 use activechain_protocol_types::{
     FungibleAssetPolicyV1, FungibleControllerRotationV1, FungibleControllerStateV1,
+    FungibleCorporateActionKind, FungibleCorporateActionRegistryV1, FungibleCorporateActionV1,
     FungibleIssuerApprovalV1, FungibleIssuerOperation, NonFungibleIssuerApprovalV1,
     NonFungibleMintManifestV1, NonFungibleSeriesV1, NonFungibleTokenRegistryV1,
 };
@@ -296,6 +297,73 @@ impl ControllerRotationFacts {
             revision_after: next_state.revision(),
             effective_height: rotation.effective_height(),
             expires_height: rotation.expires_height(),
+        })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CorporateActionFacts {
+    pub action_id: String,
+    pub asset: String,
+    pub issuer: String,
+    pub kind: String,
+    pub approval_commitment: String,
+    pub terms_commitment: String,
+    pub registry_before: String,
+    pub registry_after: String,
+    pub record_height: u64,
+    pub effective_height: u64,
+    pub expires_height: u64,
+    pub amount_per_unit: String,
+    pub ratio: String,
+}
+
+impl CorporateActionFacts {
+    pub fn from_approved_action(
+        policy: &FungibleAssetPolicyV1,
+        registry: &FungibleCorporateActionRegistryV1,
+        action: &FungibleCorporateActionV1,
+        finalized_height: u64,
+    ) -> Result<Self, RenderError> {
+        let registry_before = lower_hex(
+            registry.commitment().map_err(|_| RenderError::InvalidCanonicalFacts)?.as_bytes(),
+        );
+        let mut next_registry = registry.clone();
+        let action_id = next_registry
+            .admit(
+                action,
+                policy.asset_id(),
+                policy.commitment().map_err(|_| RenderError::InvalidCanonicalFacts)?,
+                policy.authority_set(),
+                finalized_height,
+            )
+            .map_err(|_| RenderError::InvalidCanonicalFacts)?;
+        let registry_after = lower_hex(
+            next_registry.commitment().map_err(|_| RenderError::InvalidCanonicalFacts)?.as_bytes(),
+        );
+        let kind = match action.kind() {
+            FungibleCorporateActionKind::Distribution => "Distribution",
+            FungibleCorporateActionKind::Split => "Split",
+            FungibleCorporateActionKind::Consolidation => "Consolidation",
+            FungibleCorporateActionKind::Coupon => "Coupon",
+            FungibleCorporateActionKind::Maturity => "Maturity",
+            FungibleCorporateActionKind::RecordDateVote => "Record-date vote",
+            FungibleCorporateActionKind::RedemptionOffer => "Redemption offer",
+        };
+        Ok(Self {
+            action_id: lower_hex(action_id.as_bytes()),
+            asset: lower_hex(action.asset_id().digest().as_bytes()),
+            issuer: lower_hex(action.issuer().digest().as_bytes()),
+            kind: kind.into(),
+            approval_commitment: lower_hex(action.approval_commitment().as_bytes()),
+            terms_commitment: lower_hex(action.terms_commitment().as_bytes()),
+            registry_before,
+            registry_after,
+            record_height: action.record_height(),
+            effective_height: action.effective_height(),
+            expires_height: action.expires_height(),
+            amount_per_unit: action.amount_per_unit().to_string(),
+            ratio: format!("{}:{}", action.ratio_numerator(), action.ratio_denominator()),
         })
     }
 }
@@ -666,6 +734,52 @@ pub fn render_controller_rotation(
             ("Revision after".into(), facts.revision_after.to_string()),
             ("Effective height".into(), facts.effective_height.to_string()),
             ("Expiry height".into(), facts.expires_height.to_string()),
+        ],
+        Some(explanation),
+        true,
+    )
+}
+
+pub fn render_corporate_action(
+    facts: &CorporateActionFacts,
+    explanation: &str,
+) -> Result<RenderedApproval, RenderError> {
+    for digest in [
+        &facts.action_id,
+        &facts.asset,
+        &facts.issuer,
+        &facts.approval_commitment,
+        &facts.terms_commitment,
+        &facts.registry_before,
+        &facts.registry_after,
+    ] {
+        require_digest_text(digest)?;
+    }
+    if facts.registry_before == facts.registry_after
+        || facts.record_height > facts.effective_height
+        || facts.effective_height >= facts.expires_height
+        || facts.amount_per_unit.parse::<u128>().is_err()
+        || !matches!(facts.ratio.split_once(':'), Some((left, right)) if left.parse::<u128>().is_ok() && right.parse::<u128>().is_ok())
+    {
+        return Err(RenderError::InvalidCanonicalFacts);
+    }
+    render_fact_surface(
+        "activechain.corporate_action.v1",
+        "Review corporate action",
+        &facts.action_id,
+        &[
+            ("Asset ID".into(), facts.asset.clone()),
+            ("Issuer".into(), facts.issuer.clone()),
+            ("Action".into(), facts.kind.clone()),
+            ("Approval".into(), facts.approval_commitment.clone()),
+            ("Terms".into(), facts.terms_commitment.clone()),
+            ("Registry before".into(), facts.registry_before.clone()),
+            ("Registry after".into(), facts.registry_after.clone()),
+            ("Record height".into(), facts.record_height.to_string()),
+            ("Effective height".into(), facts.effective_height.to_string()),
+            ("Expiry height".into(), facts.expires_height.to_string()),
+            ("Amount per unit".into(), facts.amount_per_unit.clone()),
+            ("Ratio".into(), facts.ratio.clone()),
         ],
         Some(explanation),
         true,
@@ -1452,6 +1566,65 @@ mod tests {
         .unwrap();
         assert_eq!(
             ControllerRotationFacts::from_approved_rotation(&changed, &state, &rotation, 15),
+            Err(RenderError::InvalidCanonicalFacts)
+        );
+    }
+
+    fn corporate_action(policy: &FungibleAssetPolicyV1) -> FungibleCorporateActionV1 {
+        FungibleCorporateActionV1::new(
+            policy.asset_id(),
+            policy.issuer(),
+            policy.commitment().unwrap(),
+            policy.authority_set(),
+            Digest384::new([87; 48]),
+            Digest384::new([88; 48]),
+            FungibleCorporateActionKind::Distribution,
+            10,
+            12,
+            20,
+            5,
+            1,
+            1,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn corporate_action_review_is_derived_from_exact_once_transition() {
+        let policy = issuer_policy();
+        let registry = FungibleCorporateActionRegistryV1::default();
+        let action = corporate_action(&policy);
+        let facts =
+            CorporateActionFacts::from_approved_action(&policy, &registry, &action, 12).unwrap();
+        assert_eq!(facts.kind, "Distribution");
+        assert_eq!(facts.amount_per_unit, "5");
+        assert_ne!(facts.registry_before, facts.registry_after);
+        let rendered = render_corporate_action(&facts, "Distribute the approved proceeds").unwrap();
+        let surface = rendered.surface.unwrap();
+        assert_eq!(surface.surface_id, "activechain.corporate_action.v1");
+        assert_eq!(surface.intent_commitment, facts.action_id);
+    }
+
+    #[test]
+    fn corporate_action_review_rejects_stale_and_replayed_actions() {
+        let policy = issuer_policy();
+        let mut registry = FungibleCorporateActionRegistryV1::default();
+        let action = corporate_action(&policy);
+        assert_eq!(
+            CorporateActionFacts::from_approved_action(&policy, &registry, &action, 20),
+            Err(RenderError::InvalidCanonicalFacts)
+        );
+        registry
+            .admit(
+                &action,
+                policy.asset_id(),
+                policy.commitment().unwrap(),
+                policy.authority_set(),
+                12,
+            )
+            .unwrap();
+        assert_eq!(
+            CorporateActionFacts::from_approved_action(&policy, &registry, &action, 12),
             Err(RenderError::InvalidCanonicalFacts)
         );
     }

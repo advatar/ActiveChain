@@ -1159,6 +1159,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   minted-token registry, authority, validity window, and replay-protected post-state transition.
 - [x] Extend the issuer CLI with canonical distribution, split/consolidation, coupon, maturity,
   record-date vote, and redemption-offer generation.
+- [x] Add exact-once corporate-action CLI preflight and an issuer-console review derived from the
+  accepted policy, action, and registry transition.
 - [x] Publish deterministic issuer-registration vectors for activation boundaries and malformed
   authority/policy bindings.
 - [x] Keep the workspace lockfile synchronized with the canonical payment-types cryptographic
