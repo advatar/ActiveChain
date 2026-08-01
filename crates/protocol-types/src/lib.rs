@@ -62,11 +62,11 @@ pub use checked_arithmetic::{
 };
 pub use compliance::{
     ComplianceError, ComplianceEvidenceBindingV1, ComplianceReplayKey, ComplianceReplaySet,
-    ComplianceSignatureEnvelopeV1, ComplianceSignatureEnvelopeV2, EvidenceDeletionMode,
-    EvidenceRetentionPolicyV1, JurisdictionProfileCandidate, KenyaControlSet,
-    KenyaRegulatedActivity, KenyaRegulatedProfileV1, ProfileSelection, ScreeningDecisionV1,
-    ScreeningOutcome, ScreeningOverrideV1, ScreeningPolicyV1, TravelRuleBindingV1,
-    select_jurisdiction_profiles,
+    ComplianceReplayWitness, ComplianceSignatureEnvelopeV1, ComplianceSignatureEnvelopeV2,
+    EvidenceDeletionMode, EvidenceRetentionPolicyV1, JurisdictionProfileCandidate, KenyaControlSet,
+    KenyaRegulatedActivity, KenyaRegulatedProfileV1, LEGACY_MAX_COMPLIANCE_REPLAY_KEYS,
+    ProfileSelection, ScreeningDecisionV1, ScreeningOutcome, ScreeningOverrideV1,
+    ScreeningPolicyV1, TravelRuleBindingV1, select_jurisdiction_profiles,
 };
 pub use consensus::{
     BlockProposal, BlockProposalError, ConsensusBlockRef, ConsensusUpgradeAuthorization,

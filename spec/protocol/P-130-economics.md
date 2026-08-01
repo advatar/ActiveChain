@@ -29,6 +29,18 @@ are based on fulfilled assigned duties, not delegated stake gathered by an opera
 lose rewards. Equivocation, false availability attestations, and signing an objectively invalid
 finalized result are slashable under the evidence rules.
 
+## Storage resources
+
+P-070 fixes deterministic charged-byte accounting, pressure bands, prepaid active leases, and paid
+renewable cold retention. Storage service payments go only to providers that satisfy assigned
+custody and retrieval duties. Scarcity rent is burned or transferred to the security reserve so a
+provider cannot capture the complete benefit of withholding its own capacity.
+
+At critical storage pressure the protocol rejects non-system net state expansion. Governance and
+operators cannot override that admission result by reporting different filesystem allocation.
+Changing the logical charge schedule or qualified physical ceiling requires a new protocol profile
+and fresh decentralisation qualification.
+
 ## Stablecoins and regulated profiles
 
 Stablecoins may provide application-level payment and collateral rails, subject to issuer policy

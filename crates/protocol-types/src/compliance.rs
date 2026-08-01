@@ -1,4 +1,7 @@
 use crate::{AssetId, ChainId, Digest384, Height, PrincipalId, ProtocolSignature, TransactionId};
+use activechain_accumulator::{
+    AccumulatorDomain, KEY_BITS, NonMembershipWitness, ReferenceSet, SetCommitment,
+};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
@@ -269,7 +272,7 @@ impl CanonicalType for KenyaRegulatedProfileV1 {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
-pub const MAX_COMPLIANCE_REPLAY_KEYS: usize = 4096;
+pub const LEGACY_MAX_COMPLIANCE_REPLAY_KEYS: usize = 4096;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct JurisdictionProfileCandidate {
@@ -879,60 +882,161 @@ impl CanonicalType for ComplianceReplayKey {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
+impl ComplianceReplayKey {
+    #[must_use]
+    pub fn accumulator_key(self) -> Digest384 {
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-COMPLIANCE-REPLAY-KEY-V1");
+        hasher.update(self.profile.as_bytes());
+        hasher.update(self.operator.into_digest().as_bytes());
+        hasher.update(self.action.into_digest().as_bytes());
+        hasher.update(self.nonce.as_bytes());
+        let mut reader = hasher.finalize_xof();
+        let mut key = [0; 48];
+        reader.read(&mut key);
+        Digest384::new(key)
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ComplianceReplaySet(Vec<ComplianceReplayKey>);
-impl ComplianceReplaySet {
-    pub fn new(keys: Vec<ComplianceReplayKey>) -> Result<Self, ComplianceError> {
-        if keys.len() > MAX_COMPLIANCE_REPLAY_KEYS {
-            return Err(ComplianceError::TooManyEntries);
+pub struct ComplianceReplayWitness {
+    key: Digest384,
+    siblings: Vec<Digest384>,
+}
+impl ComplianceReplayWitness {
+    pub const TYPE_TAG: u16 = 0x0150;
+
+    pub fn new(key: Digest384, siblings: Vec<Digest384>) -> Result<Self, ComplianceError> {
+        if key == Digest384::ZERO || siblings.len() != KEY_BITS {
+            return Err(ComplianceError::Mismatch);
         }
-        if keys.windows(2).any(|w| w[0] >= w[1]) {
-            return Err(ComplianceError::Unordered);
-        }
-        Ok(Self(keys))
+        Ok(Self { key, siblings })
     }
-    pub fn contains(&self, key: ComplianceReplayKey) -> bool {
-        self.0.binary_search(&key).is_ok()
+    #[must_use]
+    pub const fn key(&self) -> Digest384 {
+        self.key
     }
-    pub fn insert(&mut self, key: ComplianceReplayKey) -> Result<(), ComplianceError> {
-        if self.contains(key) {
-            return Err(ComplianceError::Replay);
+    fn accumulator_witness(&self) -> NonMembershipWitness {
+        NonMembershipWitness {
+            key: self.key.into_bytes(),
+            siblings: self.siblings.iter().map(|sibling| sibling.into_bytes()).collect(),
         }
-        if self.0.len() >= MAX_COMPLIANCE_REPLAY_KEYS {
-            return Err(ComplianceError::TooManyEntries);
+    }
+}
+impl CanonicalEncode for ComplianceReplayWitness {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.key.encode(e)?;
+        for sibling in &self.siblings {
+            sibling.encode(e)?;
         }
-        let i = self.0.binary_search(&key).unwrap_or_else(|i| i);
-        self.0.insert(i, key);
         Ok(())
     }
-    pub fn keys(&self) -> &[ComplianceReplayKey] {
-        &self.0
+}
+impl CanonicalDecode for ComplianceReplayWitness {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let key = Digest384::decode(d)?;
+        let mut siblings = Vec::with_capacity(KEY_BITS);
+        for _ in 0..KEY_BITS {
+            siblings.push(Digest384::decode(d)?);
+        }
+        Self::new(key, siblings)
+            .map_err(|_| DecodeError::InvalidValue("invalid compliance replay witness"))
+    }
+}
+impl CanonicalType for ComplianceReplayWitness {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 * (1 + KEY_BITS);
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComplianceReplaySet {
+    root: Digest384,
+    count: u64,
+}
+impl ComplianceReplaySet {
+    #[must_use]
+    pub fn empty() -> Self {
+        let commitment = SetCommitment::empty(AccumulatorDomain::SpentInput);
+        Self { root: Digest384::new(commitment.root), count: 0 }
+    }
+    pub fn new(root: Digest384, count: u64) -> Result<Self, ComplianceError> {
+        if root == Digest384::ZERO {
+            return Err(ComplianceError::ZeroCommitment);
+        }
+        Ok(Self { root, count })
+    }
+    #[must_use]
+    pub const fn root(&self) -> Digest384 {
+        self.root
+    }
+    #[must_use]
+    pub const fn count(&self) -> u64 {
+        self.count
+    }
+    pub fn insert(
+        &mut self,
+        replay_key: ComplianceReplayKey,
+        witness: &ComplianceReplayWitness,
+    ) -> Result<(), ComplianceError> {
+        let key = replay_key.accumulator_key();
+        if witness.key != key {
+            return Err(ComplianceError::Mismatch);
+        }
+        let commitment = SetCommitment {
+            domain: AccumulatorDomain::SpentInput,
+            root: self.root.into_bytes(),
+            count: self.count,
+        };
+        let next = commitment
+            .insert(key.into_bytes(), &witness.accumulator_witness())
+            .map_err(|_| ComplianceError::Replay)?;
+        self.root = Digest384::new(next.root);
+        self.count = next.count;
+        Ok(())
+    }
+
+    pub fn decode_legacy_v1(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let n = d.read_length(LEGACY_MAX_COMPLIANCE_REPLAY_KEYS)?;
+        let mut reference = ReferenceSet::new(AccumulatorDomain::SpentInput);
+        let mut previous = None;
+        for _ in 0..n {
+            let replay_key = ComplianceReplayKey::decode(d)?;
+            if previous.is_some_and(|prior| prior >= replay_key) {
+                return Err(DecodeError::InvalidValue(
+                    "legacy compliance replay set is not ordered",
+                ));
+            }
+            reference
+                .insert(replay_key.accumulator_key().into_bytes())
+                .map_err(|_| DecodeError::InvalidValue("invalid legacy compliance replay set"))?;
+            previous = Some(replay_key);
+        }
+        let commitment = reference.commitment();
+        Ok(Self { root: Digest384::new(commitment.root), count: commitment.count })
+    }
+}
+impl Default for ComplianceReplaySet {
+    fn default() -> Self {
+        Self::empty()
     }
 }
 impl CanonicalEncode for ComplianceReplaySet {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
-        e.write_length(self.0.len(), MAX_COMPLIANCE_REPLAY_KEYS)?;
-        for k in &self.0 {
-            k.encode(e)?;
-        }
-        Ok(())
+        self.root.encode(e)?;
+        self.count.encode(e)
     }
 }
 impl CanonicalDecode for ComplianceReplaySet {
     fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
-        let n = d.read_length(MAX_COMPLIANCE_REPLAY_KEYS)?;
-        let mut v = Vec::with_capacity(n);
-        for _ in 0..n {
-            v.push(ComplianceReplayKey::decode(d)?);
-        }
-        Self::new(v).map_err(|_| DecodeError::InvalidValue("invalid compliance replay set"))
+        Self::new(Digest384::decode(d)?, u64::decode(d)?)
+            .map_err(|_| DecodeError::InvalidValue("invalid compliance replay set"))
     }
 }
 impl CanonicalType for ComplianceReplaySet {
     const TYPE_TAG: u16 = 0x00D4;
-    const SCHEMA_VERSION: u16 = 1;
-    const MAX_ENCODED_LEN: usize =
-        2 + MAX_COMPLIANCE_REPLAY_KEYS * ComplianceReplayKey::MAX_ENCODED_LEN;
+    const SCHEMA_VERSION: u16 = 2;
+    const MAX_ENCODED_LEN: usize = 48 + 8;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1438,6 +1542,77 @@ mod tests {
     fn d(n: u8) -> Digest384 {
         Digest384::new([n; 48])
     }
+
+    fn replay_key(n: u8) -> ComplianceReplayKey {
+        ComplianceReplayKey::new(d(1), PrincipalId::new(d(2)), TransactionId::new(d(3)), d(n))
+    }
+
+    fn replay_witness(
+        prior: &[ComplianceReplayKey],
+        candidate: ComplianceReplayKey,
+    ) -> ComplianceReplayWitness {
+        let mut reference = ReferenceSet::new(AccumulatorDomain::SpentInput);
+        for key in prior {
+            reference.insert(key.accumulator_key().into_bytes()).unwrap();
+        }
+        let candidate = candidate.accumulator_key();
+        let witness = reference.non_membership_witness(candidate.into_bytes()).unwrap();
+        ComplianceReplayWitness::new(
+            candidate,
+            witness.siblings.into_iter().map(Digest384::new).collect(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn compliance_replay_root_is_constant_and_witnessed() {
+        let key = replay_key(4);
+        let witness = replay_witness(&[], key);
+        let mut set = ComplianceReplaySet::empty();
+        let empty = set.clone();
+        set.insert(key, &witness).unwrap();
+        assert_eq!(set.count(), 1);
+        assert_ne!(set.root(), empty.root());
+        let snapshot = set.clone();
+        assert_eq!(set.insert(key, &witness), Err(ComplianceError::Replay));
+        assert_eq!(set.insert(replay_key(5), &witness), Err(ComplianceError::Mismatch));
+        let stale = replay_witness(&[], replay_key(5));
+        assert_eq!(set.insert(replay_key(5), &stale), Err(ComplianceError::Replay));
+        assert_eq!(set, snapshot);
+        assert_eq!(
+            ComplianceReplayWitness::new(
+                replay_key(5).accumulator_key(),
+                vec![Digest384::ZERO; KEY_BITS - 1],
+            ),
+            Err(ComplianceError::Mismatch)
+        );
+        assert_eq!(
+            decode_envelope::<ComplianceReplaySet>(&encode_envelope(&set).unwrap()),
+            Ok(set)
+        );
+    }
+
+    #[test]
+    fn legacy_compliance_replay_history_migrates_to_the_same_root() {
+        let keys = [replay_key(4), replay_key(5)];
+        let mut encoder = Encoder::new(2 + keys.len() * ComplianceReplayKey::MAX_ENCODED_LEN);
+        encoder.write_length(keys.len(), LEGACY_MAX_COMPLIANCE_REPLAY_KEYS).unwrap();
+        for key in keys {
+            key.encode(&mut encoder).unwrap();
+        }
+        let body = encoder.finish();
+        let mut decoder = Decoder::new(&body);
+        let migrated = ComplianceReplaySet::decode_legacy_v1(&mut decoder).unwrap();
+        decoder.finish().unwrap();
+
+        let mut reference = ReferenceSet::new(AccumulatorDomain::SpentInput);
+        for key in keys {
+            reference.insert(key.accumulator_key().into_bytes()).unwrap();
+        }
+        assert_eq!(migrated.count(), 2);
+        assert_eq!(migrated.root().into_bytes(), reference.commitment().root);
+    }
+
     #[test]
     fn evidence_and_travel_rule_bindings_round_trip_and_expiry_fails_closed() {
         let evidence = ComplianceEvidenceBindingV1::new(

@@ -1,0 +1,19 @@
+[package]
+name = "activechain-storage-soak"
+description = "Physical filesystem crash, archive-loss, and pruning soak harness for ActiveChain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+activechain-archive.workspace = true
+activechain-pruning.workspace = true
+activechain-storage-engine.workspace = true
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+[lints]
+workspace = true

@@ -1,0 +1,6 @@
+fixture_version=1
+shard_bytes=2048
+epochs=30
+unit_price=3
+per_provider_reward=184320
+total_escrow=2211840

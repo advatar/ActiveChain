@@ -2,6 +2,93 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Bounded validator storage and decentralized archives
+
+Tracked by [GitHub issue #397](https://github.com/advatar/ActiveChain/issues/397), with the first
+normative and measurement slice in [#398](https://github.com/advatar/ActiveChain/issues/398).
+
+- [x] Fix the development storage contract at a qualified 1 TiB physical validator ceiling, a
+  deterministic charged-byte schedule, automatic pressure bands, 30-day assigned hot retention,
+  two certified snapshots, 8-of-12 archives, and renewable hibernation.
+- [x] Add overflow-safe executable storage accounting and a drift-checked machine-readable profile.
+- [x] Implement persistent partition state, immutable ledger segments, and certified snapshots
+  ([GitHub issue #403](https://github.com/advatar/ActiveChain/issues/403)).
+  - [x] Add sealed, chain-linked ledger segments and crash-safe two-generation partition manifests.
+  - [x] Persist content-addressed partition payloads and atomically activate only complete snapshots.
+  - [x] Bind snapshot certification to finalized state through the checkpoint verifier boundary.
+- [ ] Implement paid archive assignment, challenges, reconstruction, and crash-safe pruning
+  ([GitHub issue #405](https://github.com/advatar/ActiveChain/issues/405)).
+  - [x] Add permissionless 8-of-12 archive assignments, custody receipts, retrieval proofs, and
+    exact reconstruction with failure-domain bounds.
+  - [x] Add a monotonic, authenticated pruning watermark that requires complete retention,
+    snapshot, grace-period, checkpoint, and archive evidence before idempotent deletion
+    ([GitHub issue #407](https://github.com/advatar/ActiveChain/issues/407)).
+  - [ ] Integrate objective payment/slashing settlement and finalized certificate ingestion.
+    - [x] Add manifest-bound archive escrow, rewards, and objective missed-challenge slashing
+      ([GitHub issue #418](https://github.com/advatar/ActiveChain/issues/418)).
+    - [ ] Wire finalized settlement outputs into the native token ledger after #167/#180 land.
+- [ ] Implement prepaid leases, hibernation/restoration, and accumulator-backed replay history
+  ([GitHub issue #409](https://github.com/advatar/ActiveChain/issues/409)).
+  - [x] Add checked byte-epoch quotes, pressure admission, bounded endowments, archive-certified
+    hibernation, and owner-copy restoration.
+  - [x] Integrate rent and hibernation commands with authenticated global state transitions.
+    - [x] Add proof-authenticated canonical object renew, hibernate, and restore transitions
+      ([GitHub issue #420](https://github.com/advatar/ActiveChain/issues/420)).
+    - [ ] Route storage commands through finalized transaction ingress after #167/#180 land.
+  - [x] Add stateless witnessed sparse replay sets and append-only header history commitments
+    ([GitHub issue #411](https://github.com/advatar/ActiveChain/issues/411)).
+  - [ ] Migrate bounded production replay collections to the witnessed accumulator roots.
+    - [x] Replace the privacy kernel's stored nullifier vector with a constant-size witnessed root
+      and canonical non-membership updates
+      ([GitHub issue #424](https://github.com/advatar/ActiveChain/issues/424)).
+    - [x] Replace the cash ledger's redeemed-reward vector with a constant-size witnessed root
+      ([GitHub issue #426](https://github.com/advatar/ActiveChain/issues/426)).
+    - [x] Replace durable compliance replay vectors with constant-size witnessed roots
+      ([GitHub issue #428](https://github.com/advatar/ActiveChain/issues/428)).
+- [x] Qualify checkpoint snapshot sync, light clients, operator metrics, and sustained 1 TiB bounds.
+  - [x] Add bounded checkpoint sync and light-client checkpoint verification
+    ([GitHub issue #414](https://github.com/advatar/ActiveChain/issues/414)).
+  - [x] Add bounded operator telemetry and deterministic multi-year capacity qualification
+    ([GitHub issue #416](https://github.com/advatar/ActiveChain/issues/416)).
+  - [x] Run a production-like physical disk soak with crash/restart and archive-loss injection
+    ([GitHub issue #422](https://github.com/advatar/ActiveChain/issues/422)).
+    - [x] Add a configurable production-API filesystem soak harness and versioned report.
+    - [x] Qualify interrupted activation, corruption, archive loss, and pruning fail-closed behavior.
+    - [x] Record a production-like local run with measured peak and final physical usage.
+
+## Active bounded-storage landing publication
+
+Tracked by [GitHub issue #430](https://github.com/advatar/ActiveChain/issues/430).
+
+- [x] Publish accurately qualified bounded validator storage and decentralized archive functionality
+  to `activechain-display/main`, with dedicated claim regression coverage, lint, production build,
+  and route smoke verification.
+- [x] Advance the parent landing-page submodule pointer to landing merge `b419a12`; merge it to
+  `main` as `589da93` and confirm both landing and parent revisions are reachable from their
+  respective `origin/main` branches.
+
+## Non-interactive Docker authentication isolation
+
+Tracked by [GitHub issue #433](https://github.com/advatar/ActiveChain/issues/433).
+
+- [x] Keep every deterministic-kernel Docker and nested RISC0 BuildKit invocation on an explicit,
+  anonymous configuration that cannot fall back to the macOS login-keychain credential helper.
+- [x] Add a fail-closed regression check for the effective Docker configuration.
+- [x] Pass the complete deterministic-kernel gate, merge to `main`, and verify reachability; merge
+  commit `1c278e7` is reachable from `origin/main`.
+
+## Independent-client budget gate repair
+
+Tracked by [GitHub issue #401](https://github.com/advatar/ActiveChain/issues/401).
+
+- [x] Reconcile the published per-version active canonical identity counts with the registry after
+  merged protocol additions, without changing the approved staffing ranges or release gates.
+- [x] Reconcile the Apple compatibility manifest and C/Swift consumers with wallet ABI revision 3.
+- [x] Give each authorization-chain lemma a bounded 15-minute proof window so normal ARM64 runner
+  variance cannot kill a valid source-saturation proof at the old 10-minute limit.
+- [x] Pass the deterministic-kernel gate and merge the repair to `main`; merge commit `28fab4a` is
+  reachable from `origin/main`.
+
 ## Active landing-page rebrand — Actum
 
 Tracked by [GitHub issue #391](https://github.com/advatar/ActiveChain/issues/391).

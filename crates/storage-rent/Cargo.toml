@@ -1,0 +1,15 @@
+[package]
+name = "activechain-storage-rent"
+description = "Deterministic prepaid leases and renewable hibernation for ActiveChain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+activechain-archive.workspace = true
+activechain-storage-profile.workspace = true
+
+[lints]
+workspace = true

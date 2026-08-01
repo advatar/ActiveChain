@@ -29,6 +29,9 @@ pub use protected::{
     ProtectedEnvelope, ProtectedOrdering,
 };
 
+use activechain_accumulator::{
+    AccumulatorDomain, KEY_BITS, NonMembershipWitness, ReferenceSet, SetCommitment,
+};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
@@ -38,8 +41,8 @@ use alloc::vec::Vec;
 
 /// Maximum inputs or outputs in one shielded transfer.
 pub const MAX_SHIELDED_ITEMS: usize = 16;
-/// Maximum nullifiers retained by this bounded reference state.
-pub const MAX_SPENT_NULLIFIERS: usize = 4_096;
+/// Historical schema-v1 nullifier bound, retained only for snapshot migration.
+pub const LEGACY_MAX_SPENT_NULLIFIERS: usize = 4_096;
 /// Maximum explicitly disclosed field identifiers in one capability.
 pub const MAX_DISCLOSED_FIELDS: usize = 64;
 
@@ -54,7 +57,7 @@ pub enum PrivacyError {
     NonCanonicalOrder,
     DuplicateNullifier,
     NullifierAlreadySpent,
-    NullifierCapacityExceeded,
+    InvalidNullifierWitness,
     WrongChain,
     WrongAnchor,
     Expired,
@@ -1010,6 +1013,7 @@ pub struct UnshieldIntent {
     amount: u128,
     fee: u128,
     nullifiers: Vec<Digest384>,
+    nullifier_witnesses: Vec<NullifierWitness>,
     change_commitments: Vec<Digest384>,
     valid_until: u64,
 }
@@ -1026,6 +1030,7 @@ impl UnshieldIntent {
         amount: u128,
         fee: u128,
         nullifiers: Vec<Digest384>,
+        nullifier_witnesses: Vec<NullifierWitness>,
         change_commitments: Vec<Digest384>,
         valid_until: u64,
     ) -> Result<Self, PrivacyError> {
@@ -1034,12 +1039,20 @@ impl UnshieldIntent {
         }
         if nullifiers.is_empty()
             || nullifiers.len() > MAX_SHIELDED_ITEMS
+            || nullifier_witnesses.len() != nullifiers.len()
             || change_commitments.len() > MAX_SHIELDED_ITEMS
         {
             return Err(PrivacyError::TooManyItems);
         }
         if !strictly_sorted(&nullifiers) || !strictly_sorted(&change_commitments) {
             return Err(PrivacyError::NonCanonicalOrder);
+        }
+        if nullifiers
+            .iter()
+            .zip(&nullifier_witnesses)
+            .any(|(nullifier, witness)| *nullifier != witness.nullifier)
+        {
+            return Err(PrivacyError::InvalidNullifierWitness);
         }
         Ok(Self {
             chain_id,
@@ -1049,6 +1062,7 @@ impl UnshieldIntent {
             amount,
             fee,
             nullifiers,
+            nullifier_witnesses,
             change_commitments,
             valid_until,
         })
@@ -1083,6 +1097,10 @@ impl UnshieldIntent {
         &self.nullifiers
     }
     #[must_use]
+    pub fn nullifier_witnesses(&self) -> &[NullifierWitness] {
+        &self.nullifier_witnesses
+    }
+    #[must_use]
     pub fn change_commitments(&self) -> &[Digest384] {
         &self.change_commitments
     }
@@ -1103,6 +1121,9 @@ impl CanonicalEncode for UnshieldIntent {
         e.write_length(self.nullifiers.len(), MAX_SHIELDED_ITEMS)?;
         for value in &self.nullifiers {
             value.encode(e)?;
+        }
+        for witness in &self.nullifier_witnesses {
+            witness.encode(e)?;
         }
         e.write_length(self.change_commitments.len(), MAX_SHIELDED_ITEMS)?;
         for value in &self.change_commitments {
@@ -1125,6 +1146,10 @@ impl CanonicalDecode for UnshieldIntent {
         for _ in 0..count {
             nullifiers.push(Digest384::decode(d)?);
         }
+        let mut witnesses = Vec::with_capacity(count);
+        for _ in 0..count {
+            witnesses.push(NullifierWitness::decode(d)?);
+        }
         let count = d.read_length(MAX_SHIELDED_ITEMS)?;
         let mut changes = Vec::with_capacity(count);
         for _ in 0..count {
@@ -1138,6 +1163,7 @@ impl CanonicalDecode for UnshieldIntent {
             amount,
             fee,
             nullifiers,
+            witnesses,
             changes,
             u64::decode(d)?,
         ))
@@ -1146,32 +1172,138 @@ impl CanonicalDecode for UnshieldIntent {
 
 impl CanonicalType for UnshieldIntent {
     const TYPE_TAG: u16 = Self::TYPE_TAG;
-    const SCHEMA_VERSION: u16 = 1;
-    const MAX_ENCODED_LEN: usize = 48 * (4 + MAX_SHIELDED_ITEMS * 2) + 2 + 16 * 2 + 8;
+    const SCHEMA_VERSION: u16 = 2;
+    const MAX_ENCODED_LEN: usize = 48 * (4 + MAX_SHIELDED_ITEMS * 2)
+        + NullifierWitness::MAX_ENCODED_LEN * MAX_SHIELDED_ITEMS
+        + 2
+        + 16 * 2
+        + 8;
 }
 
-/// Bounded reference spent-nullifier state.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+/// Canonical non-membership evidence for one nullifier accumulator update.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NullifierWitness {
+    nullifier: Digest384,
+    siblings: Vec<Digest384>,
+}
+
+impl NullifierWitness {
+    pub const TYPE_TAG: u16 = 0x014e;
+
+    pub fn new(nullifier: Digest384, siblings: Vec<Digest384>) -> Result<Self, PrivacyError> {
+        if nullifier == Digest384::ZERO || siblings.len() != KEY_BITS {
+            return Err(PrivacyError::InvalidNullifierWitness);
+        }
+        Ok(Self { nullifier, siblings })
+    }
+
+    #[must_use]
+    pub const fn nullifier(&self) -> Digest384 {
+        self.nullifier
+    }
+
+    fn accumulator_witness(&self) -> NonMembershipWitness {
+        NonMembershipWitness {
+            key: self.nullifier.into_bytes(),
+            siblings: self.siblings.iter().map(|sibling| sibling.into_bytes()).collect(),
+        }
+    }
+}
+
+impl CanonicalEncode for NullifierWitness {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.nullifier.encode(e)?;
+        for sibling in &self.siblings {
+            sibling.encode(e)?;
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for NullifierWitness {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let nullifier = Digest384::decode(d)?;
+        let mut siblings = Vec::with_capacity(KEY_BITS);
+        for _ in 0..KEY_BITS {
+            siblings.push(Digest384::decode(d)?);
+        }
+        map_decode(Self::new(nullifier, siblings))
+    }
+}
+
+impl CanonicalType for NullifierWitness {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 * (1 + KEY_BITS);
+}
+
+/// Constant-size consensus commitment to all spent nullifiers.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NullifierSet {
-    spent: Vec<Digest384>,
+    root: Digest384,
+    count: u64,
+}
+
+impl Default for NullifierSet {
+    fn default() -> Self {
+        Self::empty()
+    }
 }
 
 impl NullifierSet {
     pub const TYPE_TAG: u16 = 0x00a4;
 
-    pub fn new(spent: Vec<Digest384>) -> Result<Self, PrivacyError> {
-        if spent.len() > MAX_SPENT_NULLIFIERS {
-            return Err(PrivacyError::NullifierCapacityExceeded);
+    #[must_use]
+    pub fn empty() -> Self {
+        Self::from_commitment(SetCommitment::empty(AccumulatorDomain::Nullifier))
+    }
+
+    pub fn new(root: Digest384, count: u64) -> Result<Self, PrivacyError> {
+        if root == Digest384::ZERO {
+            return Err(PrivacyError::InvalidNullifierWitness);
         }
-        if !strictly_sorted(&spent) {
-            return Err(PrivacyError::NonCanonicalOrder);
-        }
-        Ok(Self { spent })
+        Ok(Self { root, count })
     }
 
     #[must_use]
-    pub fn as_slice(&self) -> &[Digest384] {
-        &self.spent
+    pub const fn root(&self) -> Digest384 {
+        self.root
+    }
+
+    #[must_use]
+    pub const fn count(&self) -> u64 {
+        self.count
+    }
+
+    fn from_commitment(commitment: SetCommitment) -> Self {
+        Self { root: Digest384::new(commitment.root), count: commitment.count }
+    }
+
+    fn commitment(&self) -> SetCommitment {
+        SetCommitment {
+            domain: AccumulatorDomain::Nullifier,
+            root: self.root.into_bytes(),
+            count: self.count,
+        }
+    }
+
+    pub fn decode_legacy_v1(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let length = d.read_length(LEGACY_MAX_SPENT_NULLIFIERS)?;
+        let mut reference = ReferenceSet::new(AccumulatorDomain::Nullifier);
+        let mut previous = None;
+        for _ in 0..length {
+            let nullifier = Digest384::decode(d)?;
+            if previous.is_some_and(|prior| prior >= nullifier) {
+                return Err(DecodeError::InvalidValue(
+                    "legacy nullifiers are not strictly ordered",
+                ));
+            }
+            reference
+                .insert(nullifier.into_bytes())
+                .map_err(|_| DecodeError::InvalidValue("invalid legacy nullifier set"))?;
+            previous = Some(nullifier);
+        }
+        Ok(Self::from_commitment(reference.commitment()))
     }
 
     /// Validates all conditions before changing state, so every rejection is atomic.
@@ -1182,6 +1314,7 @@ impl NullifierSet {
         expected_chain: ChainId,
         expected_anchor: Digest384,
         current_height: u64,
+        witnesses: &[NullifierWitness],
     ) -> Result<(), PrivacyError> {
         if inputs.chain_id != expected_chain {
             return Err(PrivacyError::WrongChain);
@@ -1198,63 +1331,55 @@ impl NullifierSet {
         if proof.public_inputs_commitment != inputs.commitment()? {
             return Err(PrivacyError::PublicInputMismatch);
         }
-        self.consume_verified(&inputs.nullifiers)
+        self.consume_verified(&inputs.nullifiers, witnesses)
     }
 
     /// Consumes already proof-verified, strictly ordered nullifiers atomically.
-    pub fn consume_verified(&mut self, nullifiers: &[Digest384]) -> Result<(), PrivacyError> {
+    pub fn consume_verified(
+        &mut self,
+        nullifiers: &[Digest384],
+        witnesses: &[NullifierWitness],
+    ) -> Result<(), PrivacyError> {
         if nullifiers.is_empty() || nullifiers.len() > MAX_SHIELDED_ITEMS {
             return Err(PrivacyError::EmptyTransfer);
         }
         if !strictly_sorted(nullifiers) {
             return Err(PrivacyError::NonCanonicalOrder);
         }
-        if self
-            .spent
-            .len()
-            .checked_add(nullifiers.len())
-            .is_none_or(|length| length > MAX_SPENT_NULLIFIERS)
-        {
-            return Err(PrivacyError::NullifierCapacityExceeded);
+        if witnesses.len() != nullifiers.len() {
+            return Err(PrivacyError::InvalidNullifierWitness);
         }
-        if nullifiers.iter().any(|nullifier| self.spent.binary_search(nullifier).is_ok()) {
-            return Err(PrivacyError::NullifierAlreadySpent);
+        let mut next = self.commitment();
+        for (nullifier, witness) in nullifiers.iter().zip(witnesses) {
+            if witness.nullifier != *nullifier {
+                return Err(PrivacyError::InvalidNullifierWitness);
+            }
+            next = next
+                .insert(nullifier.into_bytes(), &witness.accumulator_witness())
+                .map_err(|_| PrivacyError::InvalidNullifierWitness)?;
         }
-        let mut next = self.spent.clone();
-        for nullifier in nullifiers {
-            let position = next.binary_search(nullifier).unwrap_or_else(|index| index);
-            next.insert(position, *nullifier);
-        }
-        self.spent = next;
+        *self = Self::from_commitment(next);
         Ok(())
     }
 }
 
 impl CanonicalEncode for NullifierSet {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
-        e.write_length(self.spent.len(), MAX_SPENT_NULLIFIERS)?;
-        for nullifier in &self.spent {
-            nullifier.encode(e)?;
-        }
-        Ok(())
+        self.root.encode(e)?;
+        self.count.encode(e)
     }
 }
 
 impl CanonicalDecode for NullifierSet {
     fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
-        let length = d.read_length(MAX_SPENT_NULLIFIERS)?;
-        let mut spent = Vec::with_capacity(length);
-        for _ in 0..length {
-            spent.push(Digest384::decode(d)?);
-        }
-        map_decode(Self::new(spent))
+        map_decode(Self::new(Digest384::decode(d)?, u64::decode(d)?))
     }
 }
 
 impl CanonicalType for NullifierSet {
     const TYPE_TAG: u16 = Self::TYPE_TAG;
-    const SCHEMA_VERSION: u16 = 1;
-    const MAX_ENCODED_LEN: usize = 2 + MAX_SPENT_NULLIFIERS * 48;
+    const SCHEMA_VERSION: u16 = 2;
+    const MAX_ENCODED_LEN: usize = 48 + 8;
 }
 
 /// Persistable shielded native-value partition and replay state.
@@ -1267,7 +1392,7 @@ pub struct ShieldedCashState {
 
 impl Default for ShieldedCashState {
     fn default() -> Self {
-        Self { pool_balance: 0, anchor: Digest384::ZERO, nullifiers: NullifierSet::default() }
+        Self { pool_balance: 0, anchor: Digest384::ZERO, nullifiers: NullifierSet::empty() }
     }
 }
 
@@ -1313,17 +1438,39 @@ impl ShieldedCashState {
         &mut self,
         amount: u128,
         nullifiers: &[Digest384],
+        witnesses: &[NullifierWitness],
         next_anchor: Digest384,
     ) -> Result<(), PrivacyError> {
         if amount == 0 || amount > self.pool_balance || next_anchor == Digest384::ZERO {
             return Err(PrivacyError::ZeroValue);
         }
         let mut next_nullifiers = self.nullifiers.clone();
-        next_nullifiers.consume_verified(nullifiers)?;
+        next_nullifiers.consume_verified(nullifiers, witnesses)?;
         self.pool_balance -= amount;
         self.nullifiers = next_nullifiers;
         self.anchor = if self.pool_balance == 0 { Digest384::ZERO } else { next_anchor };
         Ok(())
+    }
+
+    #[doc(hidden)]
+    pub fn encode_legacy_v1(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        if self.nullifiers.count != 0 {
+            return Err(EncodeError::LengthLimitExceeded {
+                length: usize::try_from(self.nullifiers.count).unwrap_or(usize::MAX),
+                maximum: 0,
+            });
+        }
+        self.pool_balance.encode(e)?;
+        self.anchor.encode(e)?;
+        e.write_length(0, LEGACY_MAX_SPENT_NULLIFIERS)
+    }
+
+    pub fn decode_legacy_v1(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        map_decode(Self::new(
+            u128::decode(d)?,
+            Digest384::decode(d)?,
+            NullifierSet::decode_legacy_v1(d)?,
+        ))
     }
 }
 
@@ -1343,7 +1490,7 @@ impl CanonicalDecode for ShieldedCashState {
 
 impl CanonicalType for ShieldedCashState {
     const TYPE_TAG: u16 = Self::TYPE_TAG;
-    const SCHEMA_VERSION: u16 = 1;
+    const SCHEMA_VERSION: u16 = 2;
     const MAX_ENCODED_LEN: usize = 16 + 48 + NullifierSet::MAX_ENCODED_LEN;
 }
 

@@ -3,6 +3,13 @@
 version = 4
 
 [[package]]
+name = "activechain-accumulator"
+version = "0.1.0"
+dependencies = [
+ "sha3 0.10.9",
+]
+
+[[package]]
 name = "activechain-action-kernel"
 version = "0.1.0"
 dependencies = [
@@ -40,6 +47,7 @@ dependencies = [
 name = "activechain-cash-kernel"
 version = "0.1.0"
 dependencies = [
+ "activechain-accumulator",
  "activechain-canonical-codec",
  "activechain-privacy-kernel",
  "activechain-protocol-commitment",
@@ -108,6 +116,7 @@ dependencies = [
 name = "activechain-privacy-kernel"
 version = "0.1.0"
 dependencies = [
+ "activechain-accumulator",
  "activechain-canonical-codec",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
@@ -126,6 +135,7 @@ dependencies = [
 name = "activechain-protocol-types"
 version = "0.1.0"
 dependencies = [
+ "activechain-accumulator",
  "activechain-canonical-codec",
  "sha3 0.10.9",
 ]

@@ -2395,6 +2395,5 @@ pub enum NativeMoneyError {
     OutputCollision,
     InvalidEconomicsTransition,
     IssuanceFormulaMismatch,
-    RewardAlreadyRedeemed,
-    RewardRedemptionCapacityExceeded,
+    InvalidRewardReplayWitness,
 }
