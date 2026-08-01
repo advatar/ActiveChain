@@ -252,3 +252,4 @@
 0x0177	1	CredentialPredicateReceiptV1	crates/protocol-types/src/credential.rs
 0x0178	1	PaymentWebhookSignedEventV1	crates/payment-types/src/lib.rs
 0x0179	1	SponsoredCashSnapshotV1	crates/application-primitives/src/sponsored_cash.rs
+0x017A	1	SponsoredCashReceiptV1	crates/application-primitives/src/sponsored_cash.rs

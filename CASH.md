@@ -883,6 +883,10 @@ crash-consistency unit. The exact transfer first advances a clone through the pu
 the combined successor is written, synchronized, and atomically renamed before live memory or an
 acknowledgement advances. A replayed or stale request, malformed restart snapshot, or failed write
 therefore cannot debit value independently of the sponsor budget and nonce (or vice versa).
+Only after that durable replacement succeeds does the boundary return a canonical receipt binding
+the exact transfer, sponsor, sender, fee, execution height, and domain-separated commitments to
+both combined pre-state and post-state. Receipt consumers can reconstruct those commitments
+offline; no receipt is emitted for a rejected transition or failed persistence attempt.
 
 ## Tranche H — benchmark harness
 

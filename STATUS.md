@@ -1898,6 +1898,8 @@ Tracked by [GitHub issue #9](https://github.com/advatar/ActiveChain/issues/9).
   reserves, exact change, and paymaster budget/nonce advancement.
 - [x] Persist the combined CashLedger and paymaster budget/nonce state atomically before
   acknowledging sponsored execution, with fail-closed restart and write-failure behavior.
+- [x] Emit a canonical sponsored-execution receipt only after persistence, binding the exact
+  transfer, sponsor, sender, fee, height, and combined pre/post state commitments.
 
 Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 

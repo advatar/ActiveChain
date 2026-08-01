@@ -5,7 +5,9 @@ use activechain_canonical_codec::{
 use activechain_cash_kernel::{
     CashLedger, CashPaymasterPolicyV1, CashPaymasterRequestV1, CoinTransfer,
 };
-use activechain_protocol_types::Height;
+use activechain_protocol_commitment::cash_transition_id;
+use activechain_protocol_types::{Digest384, Height, PrincipalId, TransactionId};
+use sha2::{Digest, Sha384};
 use std::{
     io::Write,
     path::{Path, PathBuf},
@@ -43,6 +45,17 @@ impl SponsoredCashSnapshotV1 {
     pub const fn paymaster(&self) -> &CashPaymasterPolicyV1 {
         &self.paymaster
     }
+
+    pub fn commitment(&self) -> Result<Digest384, SponsoredCashPersistenceError> {
+        let bytes =
+            encode_envelope(self).map_err(|_| SponsoredCashPersistenceError::InvalidState)?;
+        let mut hasher = Sha384::new();
+        hasher.update(b"ACTIVECHAIN-SPONSORED-CASH-SNAPSHOT-V1");
+        hasher.update((bytes.len() as u64).to_be_bytes());
+        hasher.update(&bytes);
+        let output: [u8; 48] = hasher.finalize().into();
+        Ok(Digest384::new(output))
+    }
 }
 
 impl CanonicalEncode for SponsoredCashSnapshotV1 {
@@ -64,6 +77,108 @@ impl CanonicalType for SponsoredCashSnapshotV1 {
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize =
         CashLedger::MAX_ENCODED_LEN + CashPaymasterPolicyV1::MAX_ENCODED_LEN;
+}
+
+/// Offline-verifiable result emitted only after durable sponsored execution.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SponsoredCashReceiptV1 {
+    transfer: TransactionId,
+    sponsor: PrincipalId,
+    sender: PrincipalId,
+    fee: u128,
+    height: Height,
+    pre_state: Digest384,
+    post_state: Digest384,
+}
+
+impl SponsoredCashReceiptV1 {
+    pub const TYPE_TAG: u16 = 0x017a;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        transfer: TransactionId,
+        sponsor: PrincipalId,
+        sender: PrincipalId,
+        fee: u128,
+        height: Height,
+        pre_state: Digest384,
+        post_state: Digest384,
+    ) -> Result<Self, SponsoredCashPersistenceError> {
+        if transfer.digest() == &Digest384::ZERO
+            || sponsor.digest() == &Digest384::ZERO
+            || sender.digest() == &Digest384::ZERO
+            || fee == 0
+            || pre_state == Digest384::ZERO
+            || post_state == Digest384::ZERO
+            || pre_state == post_state
+        {
+            return Err(SponsoredCashPersistenceError::InvalidState);
+        }
+        Ok(Self { transfer, sponsor, sender, fee, height, pre_state, post_state })
+    }
+
+    pub const fn transfer(&self) -> TransactionId {
+        self.transfer
+    }
+
+    pub const fn pre_state(&self) -> Digest384 {
+        self.pre_state
+    }
+
+    pub const fn post_state(&self) -> Digest384 {
+        self.post_state
+    }
+
+    pub fn binds(
+        &self,
+        before: &SponsoredCashSnapshotV1,
+        after: &SponsoredCashSnapshotV1,
+        transfer: &CoinTransfer,
+        request: &CashPaymasterRequestV1,
+        height: Height,
+    ) -> bool {
+        cash_transition_id(transfer).is_ok_and(|id| id == self.transfer)
+            && request.transfer() == *self.transfer.digest()
+            && request.sponsor() == self.sponsor
+            && request.sender() == self.sender
+            && request.fee() == self.fee
+            && height == self.height
+            && before.commitment().is_ok_and(|value| value == self.pre_state)
+            && after.commitment().is_ok_and(|value| value == self.post_state)
+    }
+}
+
+impl CanonicalEncode for SponsoredCashReceiptV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.transfer.encode(encoder)?;
+        self.sponsor.encode(encoder)?;
+        self.sender.encode(encoder)?;
+        self.fee.encode(encoder)?;
+        self.height.encode(encoder)?;
+        self.pre_state.encode(encoder)?;
+        self.post_state.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for SponsoredCashReceiptV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            TransactionId::decode(decoder)?,
+            PrincipalId::decode(decoder)?,
+            PrincipalId::decode(decoder)?,
+            u128::decode(decoder)?,
+            Height::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid sponsored cash receipt"))
+    }
+}
+
+impl CanonicalType for SponsoredCashReceiptV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 * 5 + 16 + 8;
 }
 
 /// Write-before-acknowledgement sponsored cash state.
@@ -100,14 +215,26 @@ impl DurableSponsoredCash {
         request: &CashPaymasterRequestV1,
         transfer: &CoinTransfer,
         height: Height,
-    ) -> Result<(), SponsoredCashPersistenceError> {
+    ) -> Result<SponsoredCashReceiptV1, SponsoredCashPersistenceError> {
+        let pre_state = self.snapshot.commitment()?;
         let mut next = self.snapshot.clone();
         next.ledger
             .apply_sponsored_transfer(&mut next.paymaster, request, transfer, height)
             .map_err(|_| SponsoredCashPersistenceError::InvalidTransfer)?;
+        let post_state = next.commitment()?;
+        let receipt = SponsoredCashReceiptV1::new(
+            cash_transition_id(transfer)
+                .map_err(|_| SponsoredCashPersistenceError::InvalidTransfer)?,
+            request.sponsor(),
+            request.sender(),
+            request.fee(),
+            height,
+            pre_state,
+            post_state,
+        )?;
         save_atomic(&next, &self.path)?;
         self.snapshot = next;
-        Ok(())
+        Ok(receipt)
     }
 }
 
@@ -213,8 +340,15 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("sponsored-cash.bin");
         let (snapshot, request, transfer) = fixture();
+        let before = snapshot.clone();
         let mut durable = DurableSponsoredCash::create(&path, snapshot).unwrap();
-        durable.execute(&request, &transfer, 10).unwrap();
+        let receipt = durable.execute(&request, &transfer, 10).unwrap();
+        assert!(receipt.binds(&before, durable.snapshot(), &transfer, &request, 10));
+        assert!(!receipt.binds(&before, durable.snapshot(), &transfer, &request, 11));
+        assert_eq!(
+            decode_envelope::<SponsoredCashReceiptV1>(&encode_envelope(&receipt).unwrap()).unwrap(),
+            receipt
+        );
         assert_eq!(durable.snapshot().paymaster().spent(), 7);
         assert_eq!(durable.snapshot().paymaster().next_nonce(), 1);
         let mut restarted = DurableSponsoredCash::open(&path).unwrap();
