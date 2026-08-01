@@ -242,6 +242,11 @@ pub enum QueryKind {
     CoinCell = 4,
     FungibleCoinCell = 5,
     NonFungibleCoinCell = 6,
+    AssetDefinition = 7,
+    AssetIssuerRegistration = 8,
+    AssetSupplyAttestation = 9,
+    AssetCorporateAction = 10,
+    AssetSettlementReceipt = 11,
 }
 
 impl CanonicalEncode for QueryKind {
@@ -259,6 +264,11 @@ impl CanonicalDecode for QueryKind {
             4 => Ok(Self::CoinCell),
             5 => Ok(Self::FungibleCoinCell),
             6 => Ok(Self::NonFungibleCoinCell),
+            7 => Ok(Self::AssetDefinition),
+            8 => Ok(Self::AssetIssuerRegistration),
+            9 => Ok(Self::AssetSupplyAttestation),
+            10 => Ok(Self::AssetCorporateAction),
+            11 => Ok(Self::AssetSettlementReceipt),
             tag => Err(DecodeError::InvalidEnumTag { type_name: "QueryKind", tag }),
         }
     }
@@ -1849,6 +1859,19 @@ mod tests {
             decode_envelope::<RpcRequest>(&encode_envelope(&nft_request).unwrap()),
             Ok(nft_request)
         );
+        for kind in [
+            QueryKind::AssetDefinition,
+            QueryKind::AssetIssuerRegistration,
+            QueryKind::AssetSupplyAttestation,
+            QueryKind::AssetCorporateAction,
+            QueryKind::AssetSettlementReceipt,
+        ] {
+            let request = RpcRequest::Get { kind, key: digest(7) };
+            assert_eq!(
+                decode_envelope::<RpcRequest>(&encode_envelope(&request).unwrap()),
+                Ok(request)
+            );
+        }
 
         let faucet = FaucetRequestV1::new(
             ChainId::new(digest(11)),
