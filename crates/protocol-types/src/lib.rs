@@ -51,9 +51,10 @@ pub use admission::{exact_frame_layout, fresh_sequence, length_prefixed_range};
 pub use asset::{
     AssetDefinitionError, FungibleAssetDefinition, FungibleAssetLifecycle,
     FungibleAssetLifecycleAction, FungibleAssetLifecycleActionV1, FungibleAssetPolicyRegistry,
-    FungibleAssetPolicyV1, FungibleAssetRegistry, FungibleIssuerApprovalV1,
-    FungibleIssuerOperation, FungibleIssuerRegistrationV1, FungibleSupplyAttestationV1,
-    MAX_ASSET_SYMBOL_LENGTH, MAX_FUNGIBLE_ASSETS, NonFungibleSeriesV1, NonFungibleTokenV1,
+    FungibleAssetPolicyV1, FungibleAssetRegistry, FungibleCorporateActionKind,
+    FungibleCorporateActionV1, FungibleIssuerApprovalV1, FungibleIssuerOperation,
+    FungibleIssuerRegistrationV1, FungibleSupplyAttestationV1, MAX_ASSET_SYMBOL_LENGTH,
+    MAX_FUNGIBLE_ASSETS, NonFungibleSeriesV1, NonFungibleTokenV1,
 };
 pub use authority::{
     BoundedActionSet, BoundedActionSetError, CapabilityGrant, CapabilityGrantFields,
