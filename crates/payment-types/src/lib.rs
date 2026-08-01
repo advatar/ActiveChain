@@ -638,6 +638,12 @@ impl PaymentIntentV1 {
         self.intent
     }
 
+    /// Returns the merchant that owns this request and its idempotency namespace.
+    #[must_use]
+    pub const fn merchant(&self) -> PrincipalId {
+        self.merchant
+    }
+
     /// Returns the caller-chosen idempotency key.
     #[must_use]
     pub const fn idempotency_key(&self) -> Digest384 {
@@ -648,6 +654,23 @@ impl PaymentIntentV1 {
     #[must_use]
     pub const fn minimum_settlement(&self) -> AssetAmountV1 {
         self.minimum_settlement
+    }
+
+    /// Returns whether the intent remains eligible for initial admission.
+    #[must_use]
+    pub const fn active_at(&self, timestamp: u64) -> bool {
+        timestamp < self.expires_at
+    }
+
+    /// Commits to the exact canonical intent body for durable idempotency binding.
+    pub fn commitment(&self) -> Result<Digest384, PaymentValidationError> {
+        let bytes = encode_envelope(self).map_err(|_| PaymentValidationError::InvalidBinding)?;
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-PAYMENT-INTENT-V1");
+        hasher.update(&bytes);
+        let mut output = [0_u8; 48];
+        hasher.finalize_xof().read(&mut output);
+        Ok(Digest384::new(output))
     }
 }
 
@@ -2642,8 +2665,13 @@ mod tests {
             Err(PaymentValidationError::AssetMismatch)
         );
         let intent = build(amount(12, 100), amount(12, 90)).unwrap();
+        assert!(intent.active_at(199));
+        assert!(!intent.active_at(200));
+        assert_ne!(intent.commitment().unwrap(), Digest384::ZERO);
         let encoded = encode_envelope(&intent).unwrap();
-        assert_eq!(decode_envelope::<PaymentIntentV1>(&encoded).unwrap(), intent);
+        let decoded = decode_envelope::<PaymentIntentV1>(&encoded).unwrap();
+        assert_eq!(decoded, intent);
+        assert_eq!(decoded.commitment(), intent.commitment());
     }
 
     #[test]

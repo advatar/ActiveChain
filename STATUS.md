@@ -1031,6 +1031,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
     intent for identical retries and rejecting conflicting reuse across restart.
 - [x] Persist authenticated API replay state atomically per caller and audience before request
   acknowledgement, rejecting corrupt snapshots without advancing memory.
+  - [x] Persist create-intent idempotency binding, immutable canonical intent, and initial/current
+    lifecycle as one atomic request-state snapshot with exact-retry reconstruction.
 - [x] Verify canonical API authorization envelopes with committed ML-DSA-44 caller keys before
   consuming replay state, including negative proofs that invalid signatures cannot advance it.
 - [x] Verify canonical webhook envelopes with their committed ML-DSA-44 subscriber keys before
