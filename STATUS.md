@@ -1070,6 +1070,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   proof rejection until the finalized root schema is extended.
 - [ ] Enforce issuer/controller authority, supply conservation, declared controls, and corporate
   actions in consensus, persistence, authorization, and formal proofs.
+- [x] Define canonical corporate-action envelopes for distributions, splits/consolidations,
+  coupons, maturity, record-date voting, and redemption offers.
 - [x] Add canonical mint and burn supply-state transitions with exact pre-state, issuer, lifecycle,
   cap, overflow, and conservation checks.
 - [x] Add bounded Kani proofs for mint cap/conservation and burn non-underflow invariants.

@@ -977,6 +977,180 @@ impl CanonicalType for FungibleAssetLifecycleActionV1 {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
+/// Native corporate actions share one canonical envelope so wallets and
+/// validators never infer economics from an issuer-controlled display label.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum FungibleCorporateActionKind {
+    Distribution = 0,
+    Split = 1,
+    Consolidation = 2,
+    Coupon = 3,
+    Maturity = 4,
+    RecordDateVote = 5,
+    RedemptionOffer = 6,
+}
+impl CanonicalEncode for FungibleCorporateActionKind {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(e)
+    }
+}
+impl CanonicalDecode for FungibleCorporateActionKind {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(d)? {
+            0 => Ok(Self::Distribution),
+            1 => Ok(Self::Split),
+            2 => Ok(Self::Consolidation),
+            3 => Ok(Self::Coupon),
+            4 => Ok(Self::Maturity),
+            5 => Ok(Self::RecordDateVote),
+            6 => Ok(Self::RedemptionOffer),
+            tag => {
+                Err(DecodeError::InvalidEnumTag { type_name: "FungibleCorporateActionKind", tag })
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FungibleCorporateActionV1 {
+    asset_id: AssetId,
+    issuer: PrincipalId,
+    policy_commitment: Digest384,
+    authority_set: Digest384,
+    approval_commitment: Digest384,
+    terms_commitment: Digest384,
+    kind: FungibleCorporateActionKind,
+    record_height: u64,
+    effective_height: u64,
+    expires_height: u64,
+    amount_per_unit: u128,
+    ratio_numerator: u128,
+    ratio_denominator: u128,
+}
+impl FungibleCorporateActionV1 {
+    pub const TYPE_TAG: u16 = 0x0159;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 6 + 1 + 8 * 3 + 16 * 3;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        asset_id: AssetId,
+        issuer: PrincipalId,
+        policy_commitment: Digest384,
+        authority_set: Digest384,
+        approval_commitment: Digest384,
+        terms_commitment: Digest384,
+        kind: FungibleCorporateActionKind,
+        record_height: u64,
+        effective_height: u64,
+        expires_height: u64,
+        amount_per_unit: u128,
+        ratio_numerator: u128,
+        ratio_denominator: u128,
+    ) -> Result<Self, AssetDefinitionError> {
+        let identity_bound = asset_id.digest() != &Digest384::ZERO
+            && issuer.digest() != &Digest384::ZERO
+            && policy_commitment != Digest384::ZERO
+            && authority_set != Digest384::ZERO
+            && approval_commitment != Digest384::ZERO
+            && terms_commitment != Digest384::ZERO;
+        let window_bound = record_height > 0
+            && record_height <= effective_height
+            && effective_height < expires_height;
+        let economics_bound = match kind {
+            FungibleCorporateActionKind::Split | FungibleCorporateActionKind::Consolidation => {
+                amount_per_unit == 0 && ratio_numerator > 0 && ratio_denominator > 0
+            }
+            FungibleCorporateActionKind::Distribution
+            | FungibleCorporateActionKind::Coupon
+            | FungibleCorporateActionKind::RedemptionOffer => {
+                amount_per_unit > 0 && ratio_numerator == 1 && ratio_denominator == 1
+            }
+            FungibleCorporateActionKind::Maturity | FungibleCorporateActionKind::RecordDateVote => {
+                amount_per_unit == 0 && ratio_numerator == 1 && ratio_denominator == 1
+            }
+        };
+        if !identity_bound || !window_bound || !economics_bound {
+            return Err(AssetDefinitionError::InvalidLifecycleTransition);
+        }
+        Ok(Self {
+            asset_id,
+            issuer,
+            policy_commitment,
+            authority_set,
+            approval_commitment,
+            terms_commitment,
+            kind,
+            record_height,
+            effective_height,
+            expires_height,
+            amount_per_unit,
+            ratio_numerator,
+            ratio_denominator,
+        })
+    }
+
+    pub const fn asset_id(self) -> AssetId {
+        self.asset_id
+    }
+    pub const fn kind(self) -> FungibleCorporateActionKind {
+        self.kind
+    }
+    pub fn action_id(&self) -> Result<Digest384, EncodeError> {
+        let bytes = activechain_canonical_codec::encode_envelope(self)?;
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-FUNGIBLE-CORPORATE-ACTION-V1");
+        hasher.update(&(bytes.len() as u64).to_be_bytes());
+        hasher.update(&bytes);
+        let mut output = [0_u8; 48];
+        hasher.finalize_xof().read(&mut output);
+        Ok(Digest384::new(output))
+    }
+}
+impl CanonicalEncode for FungibleCorporateActionV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.asset_id.encode(e)?;
+        self.issuer.encode(e)?;
+        self.policy_commitment.encode(e)?;
+        self.authority_set.encode(e)?;
+        self.approval_commitment.encode(e)?;
+        self.terms_commitment.encode(e)?;
+        self.kind.encode(e)?;
+        self.record_height.encode(e)?;
+        self.effective_height.encode(e)?;
+        self.expires_height.encode(e)?;
+        self.amount_per_unit.encode(e)?;
+        self.ratio_numerator.encode(e)?;
+        self.ratio_denominator.encode(e)
+    }
+}
+impl CanonicalDecode for FungibleCorporateActionV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            AssetId::decode(d)?,
+            PrincipalId::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            Digest384::decode(d)?,
+            FungibleCorporateActionKind::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            u64::decode(d)?,
+            u128::decode(d)?,
+            u128::decode(d)?,
+            u128::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid fungible corporate action"))
+    }
+}
+impl CanonicalType for FungibleCorporateActionV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum FungibleIssuerOperation {
@@ -1729,5 +1903,64 @@ mod tests {
                 .apply_approved_burn(&wrong_burn_authority, FungibleIssuerOperation::Redemption, 20)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn corporate_actions_round_trip_and_bind_exact_economics() {
+        let split = FungibleCorporateActionV1::new(
+            id(1),
+            PrincipalId::new(Digest384::new([2; 48])),
+            Digest384::new([3; 48]),
+            Digest384::new([4; 48]),
+            Digest384::new([5; 48]),
+            Digest384::new([6; 48]),
+            FungibleCorporateActionKind::Split,
+            10,
+            20,
+            30,
+            0,
+            2,
+            1,
+        )
+        .unwrap();
+        assert_eq!(
+            decode_envelope::<FungibleCorporateActionV1>(&encode_envelope(&split).unwrap()),
+            Ok(split)
+        );
+        assert_ne!(split.action_id().unwrap(), Digest384::ZERO);
+
+        let invalid_split = FungibleCorporateActionV1::new(
+            id(1),
+            PrincipalId::new(Digest384::new([2; 48])),
+            Digest384::new([3; 48]),
+            Digest384::new([4; 48]),
+            Digest384::new([5; 48]),
+            Digest384::new([6; 48]),
+            FungibleCorporateActionKind::Split,
+            10,
+            20,
+            30,
+            1,
+            2,
+            1,
+        );
+        assert!(invalid_split.is_err());
+
+        let invalid_window = FungibleCorporateActionV1::new(
+            id(1),
+            PrincipalId::new(Digest384::new([2; 48])),
+            Digest384::new([3; 48]),
+            Digest384::new([4; 48]),
+            Digest384::new([5; 48]),
+            Digest384::new([6; 48]),
+            FungibleCorporateActionKind::Distribution,
+            20,
+            10,
+            30,
+            1,
+            1,
+            1,
+        );
+        assert!(invalid_window.is_err());
     }
 }
