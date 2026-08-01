@@ -11,6 +11,7 @@ mod agent_management;
 mod cash_authorization;
 mod cash_persistence;
 mod openwallet;
+mod subject_association;
 
 pub use agent_authenticator::{
     AgentAuthenticatorRecordV1, AgentAuthenticatorRegistryV1, AgentAuthenticatorVersionV1,
@@ -38,6 +39,9 @@ pub use openwallet::{
     CredentialFormat, IssuanceSessionState, OpenWalletAdapterV1, OpenWalletConsentV1,
     OpenWalletCredentialOfferV1, OpenWalletCredentialRefV1, OpenWalletPresentationRequestV1,
     OpenWalletSessionV1, PresentationResponseMode, RequestedCredentialV1,
+};
+pub use subject_association::{
+    ExternalSubjectAssociationStoreV1, MAX_EXTERNAL_SUBJECT_ASSOCIATIONS,
 };
 
 use activechain_canonical_codec::decode_envelope;
