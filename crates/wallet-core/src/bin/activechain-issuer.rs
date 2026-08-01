@@ -2,10 +2,11 @@ use activechain_canonical_codec::{CanonicalType, decode_envelope, encode_envelop
 use activechain_protocol_types::{
     AssetId, Digest384, FungibleAssetDefinition, FungibleAssetLifecycle,
     FungibleAssetLifecycleAction, FungibleAssetLifecycleActionV1, FungibleAssetPolicyV1,
-    FungibleCorporateActionKind, FungibleCorporateActionV1, FungibleIssuerApprovalV1,
-    FungibleIssuerOperation, FungibleIssuerRegistrationV1, FungibleSupplyAttestationV1,
-    NonFungibleIssuerApprovalV1, NonFungibleMintItemV1, NonFungibleMintManifestV1,
-    NonFungibleSeriesV1, NonFungibleTokenRegistryV1, PrincipalId,
+    FungibleControllerRotationV1, FungibleControllerStateV1, FungibleCorporateActionKind,
+    FungibleCorporateActionV1, FungibleIssuerApprovalV1, FungibleIssuerOperation,
+    FungibleIssuerRegistrationV1, FungibleSupplyAttestationV1, NonFungibleIssuerApprovalV1,
+    NonFungibleMintItemV1, NonFungibleMintManifestV1, NonFungibleSeriesV1,
+    NonFungibleTokenRegistryV1, PrincipalId,
 };
 
 fn hex_digest(value: &str) -> Result<Digest384, String> {
@@ -61,7 +62,7 @@ fn corporate_action(value: &str) -> Result<FungibleCorporateActionKind, String> 
 }
 
 fn usage() -> &'static str {
-    "usage:\n  activechain-issuer definition <asset> <issuer> <symbol> <decimals> <supply-cap> <policy>\n  activechain-issuer policy <asset> <issuer> <authority-set> <cap> <issued>\n  activechain-issuer approval <asset> <policy> <authority-set> <approval> <operation> <amount> <supply-before> <effective-height> <expires-height>\n  activechain-issuer attestation <asset> <policy> <issuer> <supply> <finalized-height> <approval>\n  activechain-issuer registration <asset> <issuer> <authority-set> <policy> <effective-height> <expires-height>\n  activechain-issuer lifecycle <asset> <policy> <authority-set> <approval> <reason> <pause|resume|retire> <effective-height> <expires-height>\n  activechain-issuer corporate-action <asset> <issuer> <policy> <authority-set> <approval> <terms> <kind> <record-height> <effective-height> <expires-height> <amount-per-unit> <ratio-numerator> <ratio-denominator>\n  activechain-issuer dry-run-supply <policy-envelope> <approval-envelope> <finalized-height>\n  activechain-issuer nft-series <asset> <issuer> <max-supply> <minted> <metadata-schema>\n  activechain-issuer nft-registry <asset> [token-id ...]\n  activechain-issuer nft-manifest <asset> <issuer> (<token-id> <owner> <metadata>)+\n  activechain-issuer nft-approval <series-envelope> <authority-set> <approval> <manifest-envelope> <effective-height> <expires-height>\n  activechain-issuer dry-run-nft <series-envelope> <registry-envelope> <authority-set> <approval-envelope> <manifest-envelope> <finalized-height>"
+    "usage:\n  activechain-issuer definition <asset> <issuer> <symbol> <decimals> <supply-cap> <policy>\n  activechain-issuer policy <asset> <issuer> <authority-set> <cap> <issued>\n  activechain-issuer approval <asset> <policy> <authority-set> <approval> <operation> <amount> <supply-before> <effective-height> <expires-height>\n  activechain-issuer attestation <asset> <policy> <issuer> <supply> <finalized-height> <approval>\n  activechain-issuer registration <asset> <issuer> <authority-set> <policy> <effective-height> <expires-height>\n  activechain-issuer lifecycle <asset> <policy> <authority-set> <approval> <reason> <pause|resume|retire> <effective-height> <expires-height>\n  activechain-issuer corporate-action <asset> <issuer> <policy> <authority-set> <approval> <terms> <kind> <record-height> <effective-height> <expires-height> <amount-per-unit> <ratio-numerator> <ratio-denominator>\n  activechain-issuer dry-run-supply <policy-envelope> <approval-envelope> <finalized-height>\n  activechain-issuer nft-series <asset> <issuer> <max-supply> <minted> <metadata-schema>\n  activechain-issuer nft-registry <asset> [token-id ...]\n  activechain-issuer nft-manifest <asset> <issuer> (<token-id> <owner> <metadata>)+\n  activechain-issuer nft-approval <series-envelope> <authority-set> <approval> <manifest-envelope> <effective-height> <expires-height>\n  activechain-issuer dry-run-nft <series-envelope> <registry-envelope> <authority-set> <approval-envelope> <manifest-envelope> <finalized-height>\n  activechain-issuer controller-state <policy-envelope> <revision>\n  activechain-issuer controller-rotation <policy-envelope> <state-envelope> <replacement-authority> <approval> <effective-height> <expires-height>\n  activechain-issuer dry-run-controller-rotation <policy-envelope> <state-envelope> <rotation-envelope> <finalized-height>"
 }
 
 fn hex_bytes(bytes: &[u8]) -> String {
@@ -294,6 +295,57 @@ fn run(args: &[String]) -> Result<String, String> {
                 hex_bytes(
                     &encode_envelope(&next_registry)
                         .map_err(|_| "next NFT registry encoding failed")?
+                )
+            ))
+        }
+        Some("controller-state") if args.len() == 3 => {
+            let policy: FungibleAssetPolicyV1 = envelope(&args[1], "policy")?;
+            let revision = args[2].parse().map_err(|_| "revision must be an unsigned integer")?;
+            let state = FungibleControllerStateV1::from_policy(&policy, revision)
+                .map_err(|_| "invalid controller state")?;
+            Ok(hex_bytes(&encode_envelope(&state).map_err(|_| "controller state encoding failed")?))
+        }
+        Some("controller-rotation") if args.len() == 7 => {
+            let policy: FungibleAssetPolicyV1 = envelope(&args[1], "policy")?;
+            let state: FungibleControllerStateV1 = envelope(&args[2], "controller state")?;
+            let effective_height =
+                args[5].parse().map_err(|_| "effective-height must be an unsigned integer")?;
+            let rotation = FungibleControllerRotationV1::new(
+                policy.asset_id(),
+                policy.issuer(),
+                state.commitment().map_err(|_| "controller state encoding failed")?,
+                policy.authority_set(),
+                hex_digest(&args[3])?,
+                hex_digest(&args[4])?,
+                state.revision(),
+                effective_height,
+                args[6].parse().map_err(|_| "expires-height must be an unsigned integer")?,
+            )
+            .map_err(|_| "invalid controller rotation")?;
+            state
+                .apply_rotation(&policy, &rotation, effective_height)
+                .map_err(|_| "controller rotation does not bind policy state")?;
+            Ok(hex_bytes(
+                &encode_envelope(&rotation).map_err(|_| "controller rotation encoding failed")?,
+            ))
+        }
+        Some("dry-run-controller-rotation") if args.len() == 5 => {
+            let policy: FungibleAssetPolicyV1 = envelope(&args[1], "policy")?;
+            let state: FungibleControllerStateV1 = envelope(&args[2], "controller state")?;
+            let rotation: FungibleControllerRotationV1 = envelope(&args[3], "controller rotation")?;
+            let height =
+                args[4].parse().map_err(|_| "finalized-height must be an unsigned integer")?;
+            let (next_policy, next_state) = state
+                .apply_rotation(&policy, &rotation, height)
+                .map_err(|_| "controller rotation dry-run rejected")?;
+            Ok(format!(
+                "{}:{}",
+                hex_bytes(
+                    &encode_envelope(&next_policy).map_err(|_| "next policy encoding failed")?
+                ),
+                hex_bytes(
+                    &encode_envelope(&next_state)
+                        .map_err(|_| "next controller state encoding failed")?
                 )
             ))
         }
@@ -576,6 +628,86 @@ mod tests {
         assert_eq!(
             run(&["dry-run-nft".into(), series, registry, h(3), approval, manifest, "20".into(),]),
             Err("issuer NFT dry-run rejected".into())
+        );
+    }
+
+    #[test]
+    fn controller_rotation_cli_builds_and_dry_runs_exact_revision() {
+        let (policy, _) = policy_and_approval(FungibleIssuerOperation::Mint, 1);
+        let policy_hex = hex_bytes(&encode_envelope(&policy).unwrap());
+        let state_hex = run(&["controller-state".into(), policy_hex.clone(), "7".into()]).unwrap();
+        let rotation_hex = run(&[
+            "controller-rotation".into(),
+            policy_hex.clone(),
+            state_hex.clone(),
+            h(55),
+            h(56),
+            "10".into(),
+            "20".into(),
+        ])
+        .unwrap();
+        let output = run(&[
+            "dry-run-controller-rotation".into(),
+            policy_hex,
+            state_hex,
+            rotation_hex.clone(),
+            "15".into(),
+        ])
+        .unwrap();
+        let (next_policy_hex, next_state_hex) = output.split_once(':').unwrap();
+        let next_policy: FungibleAssetPolicyV1 = envelope(next_policy_hex, "policy").unwrap();
+        let next_state: FungibleControllerStateV1 =
+            envelope(next_state_hex, "controller state").unwrap();
+        assert_eq!(next_policy.authority_set(), Digest384::new([55; 48]));
+        assert_eq!(next_state.revision(), 8);
+        assert_eq!(
+            run(&[
+                "dry-run-controller-rotation".into(),
+                next_policy_hex.into(),
+                next_state_hex.into(),
+                rotation_hex,
+                "15".into(),
+            ]),
+            Err("controller rotation dry-run rejected".into())
+        );
+    }
+
+    #[test]
+    fn controller_rotation_cli_rejects_unchanged_authority_and_expiry() {
+        let (policy, _) = policy_and_approval(FungibleIssuerOperation::Mint, 1);
+        let policy_hex = hex_bytes(&encode_envelope(&policy).unwrap());
+        let state_hex = run(&["controller-state".into(), policy_hex.clone(), "0".into()]).unwrap();
+        assert_eq!(
+            run(&[
+                "controller-rotation".into(),
+                policy_hex.clone(),
+                state_hex.clone(),
+                hex_bytes(policy.authority_set().as_bytes()),
+                h(56),
+                "10".into(),
+                "20".into(),
+            ]),
+            Err("invalid controller rotation".into())
+        );
+        let rotation = run(&[
+            "controller-rotation".into(),
+            policy_hex.clone(),
+            state_hex.clone(),
+            h(55),
+            h(56),
+            "10".into(),
+            "20".into(),
+        ])
+        .unwrap();
+        assert_eq!(
+            run(&[
+                "dry-run-controller-rotation".into(),
+                policy_hex,
+                state_hex,
+                rotation,
+                "20".into(),
+            ]),
+            Err("controller rotation dry-run rejected".into())
         );
     }
 }
