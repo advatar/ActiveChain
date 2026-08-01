@@ -1928,6 +1928,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
   (#442).
 - [x] Admit opaque outputs from registered external credential adapters through P-021 policy and
   derive only bounded schema facts for P-023, with non-leaking context-bound receipts (#443).
+- [x] Implement wallet-owned external presentation display, explicit consent/user presence,
+  minimal disclosure, cancellation, replay-safe audit, and rollback-aware recovery (#445).
 - [ ] Complete wallet OpenID4VP transport, consent UX, live trust/status adapters, cross-repository
   vectors, device qualification, and independent interoperability review.
 
