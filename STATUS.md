@@ -2,6 +2,17 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Active bounded-storage landing publication
+
+Tracked by [GitHub issue #430](https://github.com/advatar/ActiveChain/issues/430).
+
+- [x] Publish accurately qualified bounded validator storage and decentralized archive functionality
+  to `activechain-display/main`, with dedicated claim regression coverage, lint, production build,
+  and route smoke verification.
+- [ ] Advance the parent landing-page submodule pointer to landing merge `b419a12`; merge it to
+  `main` and confirm both landing and parent revisions are reachable from their respective
+  `origin/main` branches.
+
 ## Non-interactive Docker authentication isolation
 
 Tracked by [GitHub issue #433](https://github.com/advatar/ActiveChain/issues/433).
@@ -9,7 +20,8 @@ Tracked by [GitHub issue #433](https://github.com/advatar/ActiveChain/issues/433
 - [x] Keep every deterministic-kernel Docker and nested RISC0 BuildKit invocation on an explicit,
   anonymous configuration that cannot fall back to the macOS login-keychain credential helper.
 - [x] Add a fail-closed regression check for the effective Docker configuration.
-- [ ] Pass the complete deterministic-kernel gate, merge to `main`, and verify reachability.
+- [x] Pass the complete deterministic-kernel gate, merge to `main`, and verify reachability; merge
+  commit `1c278e7` is reachable from `origin/main`.
 
 ## Independent-client budget gate repair
 
@@ -20,7 +32,8 @@ Tracked by [GitHub issue #401](https://github.com/advatar/ActiveChain/issues/401
 - [x] Reconcile the Apple compatibility manifest and C/Swift consumers with wallet ABI revision 3.
 - [x] Give each authorization-chain lemma a bounded 15-minute proof window so normal ARM64 runner
   variance cannot kill a valid source-saturation proof at the old 10-minute limit.
-- [ ] Pass the deterministic-kernel gate and merge the repair to `main`.
+- [x] Pass the deterministic-kernel gate and merge the repair to `main`; merge commit `28fab4a` is
+  reachable from `origin/main`.
 
 ## Active landing-page rebrand — Actum
 
