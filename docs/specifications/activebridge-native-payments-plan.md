@@ -322,6 +322,13 @@ The same idempotency key with the same body returns the same operation. Reuse wi
 is rejected. Idempotency records survive restart and are retained beyond all provider retry and
 webhook windows.
 
+`IdempotencyJournalV1` stores those bindings in canonical `(caller, idempotency_key)` order. A new
+binding is synchronized and atomically replaced before its intent is returned; an identical retry
+returns the original intent without rewriting state, while a different body fails without
+mutation. Expired records remain binding until an explicit atomic prune succeeds, preventing an
+implicit timeout race from assigning one caller/key pair to two operations. Corrupt restart data
+and failed persistence fail closed.
+
 ### 6.3 Status and receipt rules
 
 Status responses identify:

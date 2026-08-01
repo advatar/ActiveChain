@@ -1025,6 +1025,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
   survives restart and failed or corrupt storage cannot advance in-memory state.
 - [x] Bind authenticated API calls to exact caller, audience, operation, request, idempotency,
   optional intent, sequence, validity, and authenticator commitments with replay-safe client state.
+  - [x] Persist exact caller/idempotency-key request bindings atomically, returning the original
+    intent for identical retries and rejecting conflicting reuse across restart.
 - [x] Persist authenticated API replay state atomically per caller and audience before request
   acknowledgement, rejecting corrupt snapshots without advancing memory.
 - [x] Verify canonical API authorization envelopes with committed ML-DSA-44 caller keys before

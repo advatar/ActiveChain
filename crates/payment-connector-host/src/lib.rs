@@ -8,7 +8,7 @@ use activechain_canonical_codec::{
 };
 use activechain_crypto_provider::verify_ml_dsa44;
 use activechain_payment_types::{
-    ConnectorId, PaymentApiAuthorizationV1, PaymentApiReplayStateV1,
+    ConnectorId, IdempotencyBindingV1, PaymentApiAuthorizationV1, PaymentApiReplayStateV1,
     PaymentApiSignedAuthorizationV1, PaymentDisputeRecordV1, PaymentDisputeRequestV1,
     PaymentRefundRequestV1, PaymentRefundStateV1, PaymentValidationError, PaymentWebhookCursorV1,
     PaymentWebhookEventV1, PaymentWebhookSignedEventV1, ProviderObservationV1, RailId,
@@ -38,6 +38,7 @@ const MAX_API_CLIENTS: usize = 65_535;
 const MAX_REFUND_STATES: usize = 65_535;
 const MAX_DISPUTES: usize = 65_535;
 const MAX_TREASURIES: usize = 65_535;
+const MAX_IDEMPOTENCY_BINDINGS: usize = 65_535;
 const SNAPSHOT_TAG_LENGTH: usize = 48;
 const SNAPSHOT_DOMAIN: &[u8] = b"ACTIVECHAIN-ACTIVEBRIDGE-JOURNAL-V1";
 const MAX_CONNECTOR_ORIGINS: usize = 16;
@@ -236,6 +237,7 @@ pub enum JournalError {
     InvalidRefund,
     InvalidDispute,
     InvalidTreasury,
+    InvalidIdempotency,
     Capacity,
     Persistence,
 }
@@ -885,6 +887,129 @@ impl CanonicalType for TreasuryJournalV1 {
     const TYPE_TAG: u16 = Self::TYPE_TAG;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 3 + MAX_TREASURIES * TreasuryDebitPolicyV1::MAX_ENCODED_LEN;
+}
+
+/// Crash-safe caller-scoped idempotency bindings ordered by caller and key.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct IdempotencyJournalV1 {
+    bindings: Vec<IdempotencyBindingV1>,
+}
+
+impl IdempotencyJournalV1 {
+    pub const TYPE_TAG: u16 = 0x0185;
+
+    #[must_use]
+    pub fn bindings(&self) -> &[IdempotencyBindingV1] {
+        &self.bindings
+    }
+
+    fn bind(
+        &mut self,
+        binding: IdempotencyBindingV1,
+        timestamp: u64,
+    ) -> Result<(activechain_payment_types::PaymentIntentId, bool), JournalError> {
+        if !binding.active_at(timestamp) {
+            return Err(JournalError::InvalidIdempotency);
+        }
+        let key = (binding.caller(), binding.idempotency_key());
+        match self
+            .bindings
+            .binary_search_by_key(&key, |existing| (existing.caller(), existing.idempotency_key()))
+        {
+            Ok(index) => self.bindings[index]
+                .validate_reuse(
+                    binding.caller(),
+                    binding.idempotency_key(),
+                    binding.request_body_commitment(),
+                )
+                .map(|intent| (intent, false))
+                .map_err(|_| JournalError::InvalidIdempotency),
+            Err(_) if self.bindings.len() == MAX_IDEMPOTENCY_BINDINGS => {
+                Err(JournalError::Capacity)
+            }
+            Err(index) => {
+                let intent = binding.intent();
+                self.bindings.insert(index, binding);
+                Ok((intent, true))
+            }
+        }
+    }
+
+    pub fn bind_durable(
+        &mut self,
+        binding: IdempotencyBindingV1,
+        timestamp: u64,
+        path: &Path,
+    ) -> Result<activechain_payment_types::PaymentIntentId, JournalError> {
+        let mut next = self.clone();
+        let (intent, changed) = next.bind(binding, timestamp)?;
+        if changed {
+            next.save_atomic(path)?;
+            *self = next;
+        }
+        Ok(intent)
+    }
+
+    pub fn prune_expired_durable(
+        &mut self,
+        timestamp: u64,
+        path: &Path,
+    ) -> Result<usize, JournalError> {
+        let mut next = self.clone();
+        let before = next.bindings.len();
+        next.bindings.retain(|binding| binding.retain_until() > timestamp);
+        let removed = before - next.bindings.len();
+        if removed != 0 {
+            next.save_atomic(path)?;
+            *self = next;
+        }
+        Ok(removed)
+    }
+
+    pub fn save_atomic(&self, path: &Path) -> Result<(), JournalError> {
+        save_snapshot(self, path)
+    }
+
+    pub fn load(path: &Path) -> Result<Self, JournalError> {
+        load_snapshot(path)
+    }
+}
+
+impl CanonicalEncode for IdempotencyJournalV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        encoder.write_length(self.bindings.len(), MAX_IDEMPOTENCY_BINDINGS)?;
+        for binding in &self.bindings {
+            binding.encode(encoder)?;
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for IdempotencyJournalV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let count = decoder.read_length(MAX_IDEMPOTENCY_BINDINGS)?;
+        let mut bindings = Vec::with_capacity(count);
+        for _ in 0..count {
+            let binding = IdempotencyBindingV1::decode(decoder)?;
+            let key = (binding.caller(), binding.idempotency_key());
+            if bindings.last().is_some_and(|previous: &IdempotencyBindingV1| {
+                (previous.caller(), previous.idempotency_key()) >= key
+            }) {
+                return Err(DecodeError::InvalidValue(
+                    "idempotency bindings are not canonically ordered",
+                ));
+            }
+            bindings.push(binding);
+        }
+        Ok(Self { bindings })
+    }
+}
+
+impl CanonicalType for IdempotencyJournalV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize =
+        3 + MAX_IDEMPOTENCY_BINDINGS * IdempotencyBindingV1::MAX_ENCODED_LEN;
 }
 
 fn map_validation(_: PaymentValidationError) -> JournalError {
@@ -1697,6 +1822,87 @@ mod tests {
         let _ = std::fs::remove_file(&corrupt);
         std::fs::write(&corrupt, b"not canonical").unwrap();
         assert_eq!(TreasuryJournalV1::load(&corrupt), Err(JournalError::Persistence));
+        std::fs::remove_file(corrupt).unwrap();
+    }
+
+    fn idempotency_binding(
+        caller: u8,
+        key: u8,
+        body: u8,
+        intent: u8,
+        created_at: u64,
+        retain_until: u64,
+    ) -> IdempotencyBindingV1 {
+        IdempotencyBindingV1::new(
+            PrincipalId::new(digest(caller)),
+            digest(key),
+            digest(body),
+            PaymentIntentId::new(digest(intent)).unwrap(),
+            created_at,
+            retain_until,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn idempotency_binding_survives_restart_and_exact_retry_returns_original_intent() {
+        let path = path("idempotency-restart");
+        let _ = std::fs::remove_file(&path);
+        let binding = idempotency_binding(10, 11, 12, 13, 100, 200);
+        let mut journal = IdempotencyJournalV1::default();
+        assert_eq!(journal.bind_durable(binding.clone(), 150, &path), Ok(binding.intent()));
+        assert_eq!(IdempotencyJournalV1::load(&path).unwrap(), journal);
+        let restarted_bytes = std::fs::read(&path).unwrap();
+        assert_eq!(journal.bind_durable(binding.clone(), 150, &path), Ok(binding.intent()));
+        assert_eq!(std::fs::read(&path).unwrap(), restarted_bytes);
+        let before = journal.clone();
+        assert_eq!(
+            journal.bind_durable(idempotency_binding(10, 11, 14, 15, 100, 200), 150, &path),
+            Err(JournalError::InvalidIdempotency)
+        );
+        assert_eq!(journal, before);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn idempotency_journal_orders_keys_and_requires_explicit_durable_pruning() {
+        let path = path("idempotency-prune");
+        let _ = std::fs::remove_file(&path);
+        let mut journal = IdempotencyJournalV1::default();
+        journal.bind_durable(idempotency_binding(20, 21, 22, 23, 100, 200), 150, &path).unwrap();
+        journal.bind_durable(idempotency_binding(10, 11, 12, 13, 100, 300), 150, &path).unwrap();
+        assert!(
+            (journal.bindings()[0].caller(), journal.bindings()[0].idempotency_key())
+                < (journal.bindings()[1].caller(), journal.bindings()[1].idempotency_key())
+        );
+        assert_eq!(
+            journal.bind_durable(idempotency_binding(30, 31, 32, 33, 100, 200), 200, &path),
+            Err(JournalError::InvalidIdempotency)
+        );
+        assert_eq!(journal.prune_expired_durable(200, &path), Ok(1));
+        assert_eq!(journal.bindings().len(), 1);
+        journal.bind_durable(idempotency_binding(20, 21, 24, 25, 200, 400), 200, &path).unwrap();
+        assert_eq!(IdempotencyJournalV1::load(&path).unwrap(), journal);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn failed_idempotency_persistence_and_corrupt_restart_do_not_advance() {
+        let directory = path("idempotency-directory");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let mut journal = IdempotencyJournalV1::default();
+        assert_eq!(
+            journal.bind_durable(idempotency_binding(10, 11, 12, 13, 100, 200), 150, &directory,),
+            Err(JournalError::Persistence)
+        );
+        assert!(journal.bindings().is_empty());
+        std::fs::remove_dir_all(&directory).unwrap();
+
+        let corrupt = path("idempotency-corrupt");
+        let _ = std::fs::remove_file(&corrupt);
+        std::fs::write(&corrupt, b"not canonical").unwrap();
+        assert_eq!(IdempotencyJournalV1::load(&corrupt), Err(JournalError::Persistence));
         std::fs::remove_file(corrupt).unwrap();
     }
 }
