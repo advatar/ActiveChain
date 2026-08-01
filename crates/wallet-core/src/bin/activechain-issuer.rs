@@ -1,9 +1,12 @@
 use activechain_canonical_codec::{CanonicalType, decode_envelope, encode_envelope};
+use activechain_cash_kernel::FungibleCoinCell;
 use activechain_protocol_types::{
     AssetId, Digest384, FungibleAssetDefinition, FungibleAssetLifecycle,
     FungibleAssetLifecycleAction, FungibleAssetLifecycleActionV1, FungibleAssetPolicyV1,
     FungibleControllerRotationV1, FungibleControllerStateV1, FungibleCorporateActionKind,
-    FungibleCorporateActionRegistryV1, FungibleCorporateActionV1, FungibleIssuerApprovalV1,
+    FungibleCorporateActionRegistryV1, FungibleCorporateActionV1,
+    FungibleExceptionalControlActionV1, FungibleExceptionalControlKind,
+    FungibleExceptionalControlPolicyV1, FungibleHolderControlStateV1, FungibleIssuerApprovalV1,
     FungibleIssuerOperation, FungibleIssuerRegistrationV1, FungibleSupplyAttestationV1,
     NonFungibleIssuerApprovalV1, NonFungibleMintItemV1, NonFungibleMintManifestV1,
     NonFungibleSeriesV1, NonFungibleTokenRegistryV1, PrincipalId,
@@ -61,8 +64,29 @@ fn corporate_action(value: &str) -> Result<FungibleCorporateActionKind, String> 
     }
 }
 
+fn declared(value: &str) -> Result<bool, String> {
+    match value {
+        "declared" => Ok(true),
+        "absent" => Ok(false),
+        _ => Err("control declaration must be declared or absent".into()),
+    }
+}
+
+fn exceptional_control(value: &str) -> Result<FungibleExceptionalControlKind, String> {
+    match value {
+        "freeze" => Ok(FungibleExceptionalControlKind::Freeze),
+        "unfreeze" => Ok(FungibleExceptionalControlKind::Unfreeze),
+        "clawback" => Ok(FungibleExceptionalControlKind::Clawback),
+        _ => Err("exceptional control must be freeze, unfreeze, or clawback".into()),
+    }
+}
+
 fn usage() -> &'static str {
     "usage:\n  activechain-issuer definition <asset> <issuer> <symbol> <decimals> <supply-cap> <policy>\n  activechain-issuer policy <asset> <issuer> <authority-set> <cap> <issued>\n  activechain-issuer approval <asset> <policy> <authority-set> <approval> <operation> <amount> <supply-before> <effective-height> <expires-height>\n  activechain-issuer attestation <asset> <policy> <issuer> <supply> <finalized-height> <approval>\n  activechain-issuer registration <asset> <issuer> <authority-set> <policy> <effective-height> <expires-height>\n  activechain-issuer lifecycle <asset> <policy> <authority-set> <approval> <reason> <pause|resume|retire> <effective-height> <expires-height>\n  activechain-issuer corporate-action <asset> <issuer> <policy> <authority-set> <approval> <terms> <kind> <record-height> <effective-height> <expires-height> <amount-per-unit> <ratio-numerator> <ratio-denominator>\n  activechain-issuer dry-run-supply <policy-envelope> <approval-envelope> <finalized-height>\n  activechain-issuer dry-run-corporate-action <policy-envelope> <registry-envelope> <action-envelope> <finalized-height>\n  activechain-issuer nft-series <asset> <issuer> <max-supply> <minted> <metadata-schema>\n  activechain-issuer nft-registry <asset> [token-id ...]\n  activechain-issuer nft-manifest <asset> <issuer> (<token-id> <owner> <metadata>)+\n  activechain-issuer nft-approval <series-envelope> <authority-set> <approval> <manifest-envelope> <effective-height> <expires-height>\n  activechain-issuer dry-run-nft <series-envelope> <registry-envelope> <authority-set> <approval-envelope> <manifest-envelope> <finalized-height>\n  activechain-issuer controller-state <policy-envelope> <revision>\n  activechain-issuer controller-rotation <policy-envelope> <state-envelope> <replacement-authority> <approval> <effective-height> <expires-height>\n  activechain-issuer dry-run-controller-rotation <policy-envelope> <state-envelope> <rotation-envelope> <finalized-height>"
+}
+
+fn control_usage() -> &'static str {
+    "  activechain-issuer control-policy <asset> <issuer> <authority-set> <declared|absent freeze> <declared|absent clawback>\n  activechain-issuer holder-control-state <asset> <holder>\n  activechain-issuer control-action <policy-envelope> <state-envelope> <recipient> <approval> <reason> <freeze|unfreeze|clawback> <amount> <effective-height> <expires-height>\n  activechain-issuer dry-run-control <definition-envelope> <policy-envelope> <state-envelope> <action-envelope> <finalized-height> [coin-cell-envelope]"
 }
 
 fn hex_bytes(bytes: &[u8]) -> String {
@@ -374,7 +398,92 @@ fn run(args: &[String]) -> Result<String, String> {
                 )
             ))
         }
-        _ => Err(usage().into()),
+        Some("control-policy") if args.len() == 6 => {
+            let policy = FungibleExceptionalControlPolicyV1::new(
+                AssetId::new(hex_digest(&args[1])?),
+                PrincipalId::new(hex_digest(&args[2])?),
+                hex_digest(&args[3])?,
+                declared(&args[4])?,
+                declared(&args[5])?,
+            )
+            .map_err(|_| "invalid exceptional control policy")?;
+            Ok(hex_bytes(&encode_envelope(&policy).map_err(|_| "control policy encoding failed")?))
+        }
+        Some("holder-control-state") if args.len() == 3 => {
+            let state = FungibleHolderControlStateV1::new(
+                AssetId::new(hex_digest(&args[1])?),
+                PrincipalId::new(hex_digest(&args[2])?),
+            )
+            .map_err(|_| "invalid holder control state")?;
+            Ok(hex_bytes(
+                &encode_envelope(&state).map_err(|_| "holder control state encoding failed")?,
+            ))
+        }
+        Some("control-action") if args.len() == 10 => {
+            let policy: FungibleExceptionalControlPolicyV1 =
+                envelope(&args[1], "exceptional control policy")?;
+            let state: FungibleHolderControlStateV1 = envelope(&args[2], "holder control state")?;
+            if policy.asset_id() != state.asset_id() {
+                return Err("control policy and holder state use different assets".into());
+            }
+            let action = FungibleExceptionalControlActionV1::new(
+                policy.asset_id(),
+                state.holder(),
+                PrincipalId::new(hex_digest(&args[3])?),
+                policy.commitment().map_err(|_| "control policy encoding failed")?,
+                policy.authority_set(),
+                hex_digest(&args[4])?,
+                hex_digest(&args[5])?,
+                exceptional_control(&args[6])?,
+                args[7].parse().map_err(|_| "amount must be an unsigned integer")?,
+                state.revision(),
+                args[8].parse().map_err(|_| "effective-height must be an unsigned integer")?,
+                args[9].parse().map_err(|_| "expires-height must be an unsigned integer")?,
+            )
+            .map_err(|_| "invalid exceptional control action")?;
+            Ok(hex_bytes(&encode_envelope(&action).map_err(|_| "control action encoding failed")?))
+        }
+        Some("dry-run-control") if args.len() == 6 || args.len() == 7 => {
+            let definition: FungibleAssetDefinition = envelope(&args[1], "asset definition")?;
+            let policy: FungibleExceptionalControlPolicyV1 =
+                envelope(&args[2], "exceptional control policy")?;
+            let state: FungibleHolderControlStateV1 = envelope(&args[3], "holder control state")?;
+            let action: FungibleExceptionalControlActionV1 =
+                envelope(&args[4], "exceptional control action")?;
+            let height =
+                args[5].parse().map_err(|_| "finalized-height must be an unsigned integer")?;
+            if action.kind() == FungibleExceptionalControlKind::Clawback {
+                if args.len() != 7 {
+                    return Err("clawback dry-run requires one canonical Coin Cell".into());
+                }
+                let cell: FungibleCoinCell = envelope(&args[6], "fungible Coin Cell")?;
+                let (next_cell, next_state) = cell
+                    .apply_declared_clawback(&definition, &policy, &state, &action, height)
+                    .map_err(|_| "exceptional control dry-run rejected")?;
+                Ok(format!(
+                    "{}:{}",
+                    hex_bytes(
+                        &encode_envelope(&next_cell).map_err(|_| "Coin Cell encoding failed")?
+                    ),
+                    hex_bytes(
+                        &encode_envelope(&next_state)
+                            .map_err(|_| "holder control state encoding failed")?
+                    )
+                ))
+            } else {
+                if args.len() != 6 {
+                    return Err("freeze or unfreeze dry-run does not accept a Coin Cell".into());
+                }
+                let next_state = state
+                    .apply(&definition, &policy, &action, height)
+                    .map_err(|_| "exceptional control dry-run rejected")?;
+                Ok(hex_bytes(
+                    &encode_envelope(&next_state)
+                        .map_err(|_| "holder control state encoding failed")?,
+                ))
+            }
+        }
+        _ => Err(format!("{}\n{}", usage(), control_usage())),
     }
 }
 
@@ -392,6 +501,8 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use activechain_cash_kernel::CoinCellOrigin;
+    use activechain_protocol_types::TransactionId;
 
     fn d() -> String {
         "11".repeat(48)
@@ -555,6 +666,123 @@ mod tests {
         let mut stale = args;
         stale[4] = "30".into();
         assert_eq!(run(&stale), Err("corporate action dry-run rejected".into()));
+    }
+
+    #[test]
+    fn declared_holder_control_cli_builds_and_dry_runs_exact_actions() {
+        let asset = h(0x21);
+        let issuer = h(0x22);
+        let authority = h(0x23);
+        let holder = h(0x24);
+        let recipient = h(0x25);
+        let policy_hex = run(&[
+            "control-policy".into(),
+            asset.clone(),
+            issuer.clone(),
+            authority,
+            "declared".into(),
+            "declared".into(),
+        ])
+        .unwrap();
+        let policy: FungibleExceptionalControlPolicyV1 =
+            envelope(&policy_hex, "exceptional control policy").unwrap();
+        let definition = FungibleAssetDefinition::new(
+            AssetId::new(hex_digest(&asset).unwrap()),
+            PrincipalId::new(hex_digest(&issuer).unwrap()),
+            b"TEST".to_vec(),
+            2,
+            1_000,
+            policy.commitment().unwrap(),
+        )
+        .unwrap();
+        let definition_hex = hex_bytes(&encode_envelope(&definition).unwrap());
+        let state_hex =
+            run(&["holder-control-state".into(), asset.clone(), holder.clone()]).unwrap();
+        let freeze_hex = run(&[
+            "control-action".into(),
+            policy_hex.clone(),
+            state_hex.clone(),
+            holder.clone(),
+            h(0x26),
+            h(0x27),
+            "freeze".into(),
+            "0".into(),
+            "10".into(),
+            "20".into(),
+        ])
+        .unwrap();
+        let frozen_hex = run(&[
+            "dry-run-control".into(),
+            definition_hex.clone(),
+            policy_hex.clone(),
+            state_hex.clone(),
+            freeze_hex,
+            "10".into(),
+        ])
+        .unwrap();
+        let frozen: FungibleHolderControlStateV1 =
+            envelope(&frozen_hex, "holder control state").unwrap();
+        assert!(frozen.frozen());
+        assert_eq!(frozen.revision(), 1);
+
+        let clawback_hex = run(&[
+            "control-action".into(),
+            policy_hex.clone(),
+            state_hex.clone(),
+            recipient.clone(),
+            h(0x28),
+            h(0x29),
+            "clawback".into(),
+            "42".into(),
+            "10".into(),
+            "20".into(),
+        ])
+        .unwrap();
+        assert_eq!(
+            run(&[
+                "dry-run-control".into(),
+                definition_hex.clone(),
+                policy_hex.clone(),
+                state_hex.clone(),
+                clawback_hex.clone(),
+                "10".into(),
+            ]),
+            Err("clawback dry-run requires one canonical Coin Cell".into())
+        );
+        let cell = FungibleCoinCell::new(
+            CoinCellOrigin::new(TransactionId::new(Digest384::new([0x30; 48])), 0),
+            policy.asset_id(),
+            PrincipalId::new(hex_digest(&holder).unwrap()),
+            42,
+            7,
+        )
+        .unwrap();
+        let output = run(&[
+            "dry-run-control".into(),
+            definition_hex,
+            policy_hex,
+            state_hex,
+            clawback_hex,
+            "10".into(),
+            hex_bytes(&encode_envelope(&cell).unwrap()),
+        ])
+        .unwrap();
+        let (cell_hex, state_hex) = output.split_once(':').unwrap();
+        let next_cell: FungibleCoinCell = envelope(cell_hex, "fungible Coin Cell").unwrap();
+        let next_state: FungibleHolderControlStateV1 =
+            envelope(state_hex, "holder control state").unwrap();
+        assert_eq!(next_cell.owner().digest(), &hex_digest(&recipient).unwrap());
+        assert_eq!(next_cell.amount(), 42);
+        assert_eq!(next_state.revision(), 1);
+    }
+
+    #[test]
+    fn holder_control_cli_rejects_undeclared_and_malformed_controls() {
+        assert!(
+            run(&["control-policy".into(), d(), d(), d(), "maybe".into(), "absent".into(),])
+                .is_err()
+        );
+        assert!(exceptional_control("seize").is_err());
     }
 
     fn policy_and_approval(
