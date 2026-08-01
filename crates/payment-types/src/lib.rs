@@ -1087,6 +1087,16 @@ impl PaymentWebhookCursorV1 {
         self.next_sequence
     }
 
+    #[must_use]
+    pub const fn subscription(&self) -> PaymentWebhookSubscriptionId {
+        self.subscription
+    }
+
+    #[must_use]
+    pub const fn intent(&self) -> PaymentIntentId {
+        self.intent
+    }
+
     pub fn advance(
         &self,
         event: &PaymentWebhookEventV1,
