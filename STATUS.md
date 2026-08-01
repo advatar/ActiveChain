@@ -4,7 +4,7 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 ## Landing-page information architecture
 
-GitHub issue creation pending restoration of the repository's `gh` authentication.
+Tracked by [GitHub issue #366](https://github.com/advatar/ActiveChain/issues/366).
 
 - [x] Replace the single long-form landing route with a focused home page and dedicated content
   pages grouped under clear top-level categories and subcategories.
