@@ -264,3 +264,4 @@
 0x0183	1	DisputeJournalV1	crates/payment-connector-host/src/lib.rs
 0x0184	1	TreasuryJournalV1	crates/payment-connector-host/src/lib.rs
 0x0185	1	IdempotencyJournalV1	crates/payment-connector-host/src/lib.rs
+0x0186	1	PaymentLifecycleJournalV1	crates/payment-connector-host/src/lib.rs

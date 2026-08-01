@@ -1001,6 +1001,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
 
 - [x] Freeze canonical quotes, intents, provider observations, lifecycle records, evidence classes,
   and idempotency bindings.
+  - [x] Persist a bounded per-intent lifecycle journal atomically across creation and every exact
+    successor, retaining external, submitted, and finalized evidence semantics on restart.
 - [x] Add crash-safe provider observation journaling and deterministic connector simulation.
 - [x] Add a fail-closed operator connector-host policy for identity, HTTPS origins, opaque secrets,
   supported rail/asset pairs, amount ceilings, and request deadlines.

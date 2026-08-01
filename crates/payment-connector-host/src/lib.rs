@@ -10,9 +10,10 @@ use activechain_crypto_provider::verify_ml_dsa44;
 use activechain_payment_types::{
     ConnectorId, IdempotencyBindingV1, PaymentApiAuthorizationV1, PaymentApiReplayStateV1,
     PaymentApiSignedAuthorizationV1, PaymentDisputeRecordV1, PaymentDisputeRequestV1,
-    PaymentRefundRequestV1, PaymentRefundStateV1, PaymentValidationError, PaymentWebhookCursorV1,
-    PaymentWebhookEventV1, PaymentWebhookSignedEventV1, ProviderObservationV1, RailId,
-    TreasuryDebitPolicyV1, TreasuryDebitRequestV1,
+    PaymentIntentId, PaymentLifecycleRecordV1, PaymentRefundRequestV1, PaymentRefundStateV1,
+    PaymentValidationError, PaymentWebhookCursorV1, PaymentWebhookEventV1,
+    PaymentWebhookSignedEventV1, ProviderObservationV1, RailId, TreasuryDebitPolicyV1,
+    TreasuryDebitRequestV1,
 };
 use activechain_protocol_types::{AssetId, Digest384};
 use sha3::{
@@ -39,6 +40,7 @@ const MAX_REFUND_STATES: usize = 65_535;
 const MAX_DISPUTES: usize = 65_535;
 const MAX_TREASURIES: usize = 65_535;
 const MAX_IDEMPOTENCY_BINDINGS: usize = 65_535;
+const MAX_PAYMENT_LIFECYCLES: usize = 65_535;
 const SNAPSHOT_TAG_LENGTH: usize = 48;
 const SNAPSHOT_DOMAIN: &[u8] = b"ACTIVECHAIN-ACTIVEBRIDGE-JOURNAL-V1";
 const MAX_CONNECTOR_ORIGINS: usize = 16;
@@ -238,6 +240,7 @@ pub enum JournalError {
     InvalidDispute,
     InvalidTreasury,
     InvalidIdempotency,
+    InvalidLifecycle,
     Capacity,
     Persistence,
 }
@@ -1012,6 +1015,119 @@ impl CanonicalType for IdempotencyJournalV1 {
         3 + MAX_IDEMPOTENCY_BINDINGS * IdempotencyBindingV1::MAX_ENCODED_LEN;
 }
 
+/// Crash-safe payment lifecycle records ordered by immutable payment intent.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct PaymentLifecycleJournalV1 {
+    records: Vec<PaymentLifecycleRecordV1>,
+}
+
+impl PaymentLifecycleJournalV1 {
+    pub const TYPE_TAG: u16 = 0x0186;
+
+    #[must_use]
+    pub fn records(&self) -> &[PaymentLifecycleRecordV1] {
+        &self.records
+    }
+
+    pub fn create(
+        &mut self,
+        intent: PaymentIntentId,
+        observation_commitment: Digest384,
+    ) -> Result<(), JournalError> {
+        let record = PaymentLifecycleRecordV1::created(intent, observation_commitment)
+            .map_err(|_| JournalError::InvalidLifecycle)?;
+        match self.records.binary_search_by_key(&intent, PaymentLifecycleRecordV1::intent) {
+            Ok(_) => Err(JournalError::InvalidLifecycle),
+            Err(_) if self.records.len() == MAX_PAYMENT_LIFECYCLES => Err(JournalError::Capacity),
+            Err(index) => {
+                self.records.insert(index, record);
+                Ok(())
+            }
+        }
+    }
+
+    pub fn create_durable(
+        &mut self,
+        intent: PaymentIntentId,
+        observation_commitment: Digest384,
+        path: &Path,
+    ) -> Result<(), JournalError> {
+        let mut next = self.clone();
+        next.create(intent, observation_commitment)?;
+        next.save_atomic(path)?;
+        *self = next;
+        Ok(())
+    }
+
+    pub fn advance(&mut self, next: PaymentLifecycleRecordV1) -> Result<(), JournalError> {
+        let index = self
+            .records
+            .binary_search_by_key(&next.intent(), PaymentLifecycleRecordV1::intent)
+            .map_err(|_| JournalError::InvalidLifecycle)?;
+        self.records[index]
+            .validate_successor(&next)
+            .map_err(|_| JournalError::InvalidLifecycle)?;
+        self.records[index] = next;
+        Ok(())
+    }
+
+    pub fn advance_durable(
+        &mut self,
+        next_record: PaymentLifecycleRecordV1,
+        path: &Path,
+    ) -> Result<(), JournalError> {
+        let mut next = self.clone();
+        next.advance(next_record)?;
+        next.save_atomic(path)?;
+        *self = next;
+        Ok(())
+    }
+
+    pub fn save_atomic(&self, path: &Path) -> Result<(), JournalError> {
+        save_snapshot(self, path)
+    }
+
+    pub fn load(path: &Path) -> Result<Self, JournalError> {
+        load_snapshot(path)
+    }
+}
+
+impl CanonicalEncode for PaymentLifecycleJournalV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        encoder.write_length(self.records.len(), MAX_PAYMENT_LIFECYCLES)?;
+        for record in &self.records {
+            record.encode(encoder)?;
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for PaymentLifecycleJournalV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let count = decoder.read_length(MAX_PAYMENT_LIFECYCLES)?;
+        let mut records = Vec::with_capacity(count);
+        for _ in 0..count {
+            let record = PaymentLifecycleRecordV1::decode(decoder)?;
+            if records.last().is_some_and(|previous: &PaymentLifecycleRecordV1| {
+                previous.intent() >= record.intent()
+            }) {
+                return Err(DecodeError::InvalidValue(
+                    "payment lifecycle records are not canonically ordered",
+                ));
+            }
+            records.push(record);
+        }
+        Ok(Self { records })
+    }
+}
+
+impl CanonicalType for PaymentLifecycleJournalV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize =
+        3 + MAX_PAYMENT_LIFECYCLES * PaymentLifecycleRecordV1::MAX_ENCODED_LEN;
+}
+
 fn map_validation(_: PaymentValidationError) -> JournalError {
     JournalError::InvalidObservation
 }
@@ -1078,7 +1194,7 @@ mod tests {
         payment_webhook_signer_commitment,
     };
     use activechain_protocol_types::{
-        AssetId, ChainId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature,
+        AssetId, ChainId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature, TransactionId,
     };
     use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
     use std::path::PathBuf;
@@ -1903,6 +2019,120 @@ mod tests {
         let _ = std::fs::remove_file(&corrupt);
         std::fs::write(&corrupt, b"not canonical").unwrap();
         assert_eq!(IdempotencyJournalV1::load(&corrupt), Err(JournalError::Persistence));
+        std::fs::remove_file(corrupt).unwrap();
+    }
+
+    fn lifecycle_successor(
+        intent: u8,
+        sequence: u64,
+        state: PaymentState,
+    ) -> PaymentLifecycleRecordV1 {
+        let transaction = matches!(state, PaymentState::ChainSubmitted | PaymentState::Finalized)
+            .then(|| TransactionId::new(digest(110)));
+        let finalized = state == PaymentState::Finalized;
+        PaymentLifecycleRecordV1::new(
+            PaymentIntentId::new(digest(intent)).unwrap(),
+            sequence,
+            state,
+            if finalized {
+                EvidenceClass::ActiveChainFinalized
+            } else if matches!(
+                state,
+                PaymentState::ProviderPending | PaymentState::ExternallyConfirmed
+            ) {
+                EvidenceClass::ConnectorAuthenticated
+            } else {
+                EvidenceClass::UntrustedClientReport
+            },
+            digest(111 + sequence as u8),
+            transaction,
+            if finalized { 50 } else { 0 },
+            finalized.then(|| digest(112)),
+            0,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn payment_lifecycle_survives_restart_without_evidence_promotion() {
+        let path = path("lifecycle-restart");
+        let _ = std::fs::remove_file(&path);
+        let intent = PaymentIntentId::new(digest(10)).unwrap();
+        let mut journal = PaymentLifecycleJournalV1::default();
+        journal.create_durable(intent, digest(20), &path).unwrap();
+        for (sequence, state) in [
+            PaymentState::AwaitingPayer,
+            PaymentState::ProviderPending,
+            PaymentState::ExternallyConfirmed,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            journal
+                .advance_durable(lifecycle_successor(10, sequence as u64 + 2, state), &path)
+                .unwrap();
+        }
+        assert_eq!(journal.records()[0].state(), PaymentState::ExternallyConfirmed);
+        assert_eq!(journal.records()[0].evidence_class(), EvidenceClass::ConnectorAuthenticated);
+        assert_eq!(PaymentLifecycleJournalV1::load(&path).unwrap(), journal);
+        journal
+            .advance_durable(lifecycle_successor(10, 5, PaymentState::ChainSubmitted), &path)
+            .unwrap();
+        journal
+            .advance_durable(lifecycle_successor(10, 6, PaymentState::Finalized), &path)
+            .unwrap();
+        assert_eq!(journal.records()[0].evidence_class(), EvidenceClass::ActiveChainFinalized);
+        let before = journal.clone();
+        assert_eq!(
+            journal.advance_durable(lifecycle_successor(10, 6, PaymentState::Finalized), &path,),
+            Err(JournalError::InvalidLifecycle)
+        );
+        assert_eq!(journal, before);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn lifecycle_journal_orders_intents_and_rejects_duplicate_unknown_and_invalid_edges() {
+        let mut journal = PaymentLifecycleJournalV1::default();
+        journal.create(PaymentIntentId::new(digest(20)).unwrap(), digest(21)).unwrap();
+        journal.create(PaymentIntentId::new(digest(10)).unwrap(), digest(11)).unwrap();
+        assert!(journal.records()[0].intent() < journal.records()[1].intent());
+        assert_eq!(
+            journal.create(PaymentIntentId::new(digest(10)).unwrap(), digest(12)),
+            Err(JournalError::InvalidLifecycle)
+        );
+        assert_eq!(
+            journal.advance(lifecycle_successor(30, 2, PaymentState::AwaitingPayer)),
+            Err(JournalError::InvalidLifecycle)
+        );
+        assert_eq!(
+            journal.advance(lifecycle_successor(10, 3, PaymentState::ProviderPending)),
+            Err(JournalError::InvalidLifecycle)
+        );
+        assert_eq!(journal.records()[0].sequence(), 1);
+    }
+
+    #[test]
+    fn failed_lifecycle_persistence_and_corrupt_restart_do_not_advance() {
+        let directory = path("lifecycle-directory");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let mut journal = PaymentLifecycleJournalV1::default();
+        assert_eq!(
+            journal.create_durable(
+                PaymentIntentId::new(digest(10)).unwrap(),
+                digest(20),
+                &directory,
+            ),
+            Err(JournalError::Persistence)
+        );
+        assert!(journal.records().is_empty());
+        std::fs::remove_dir_all(&directory).unwrap();
+
+        let corrupt = path("lifecycle-corrupt");
+        let _ = std::fs::remove_file(&corrupt);
+        std::fs::write(&corrupt, b"not canonical").unwrap();
+        assert_eq!(PaymentLifecycleJournalV1::load(&corrupt), Err(JournalError::Persistence));
         std::fs::remove_file(corrupt).unwrap();
     }
 }
