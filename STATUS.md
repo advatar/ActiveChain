@@ -1003,7 +1003,7 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 
 Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164).
 
-- [ ] Define issuer registration, threshold-controlled mint/burn, redemption, pause/recovery,
+- [x] Define issuer registration, threshold-controlled mint/burn, redemption, pause/recovery,
   and supply-attestation lifecycle semantics with deterministic vectors.
 - [x] Add a canonical commitment-only fungible supply attestation binding asset, issuer, policy,
   exact issued supply, finalized height, and approval evidence.
@@ -1019,7 +1019,7 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
 - [x] Bind lifecycle actions to a concrete threshold-approval commitment.
 - [x] Add canonical threshold-approval envelopes for mint, burn, and redemption with exact policy,
   authority, amount, pre-supply, operation, and validity bindings.
-- [ ] Specify confidential evidence retention, deletion, access, breach handling, and offline
+- [x] Specify confidential evidence retention, deletion, access, breach handling, and offline
   verification boundaries with deterministic vectors.
 - [x] Add a commitment-only retention policy for evidence class, jurisdiction, access, breach,
   deletion mode, retention deadline, and offline verifier; raw evidence remains off-chain.
@@ -1047,7 +1047,7 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
 
 Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164).
 
-- [ ] Freeze native fungible, non-fungible, and series asset definitions and lifecycle actions.
+- [x] Freeze native fungible, non-fungible, and series asset definitions and lifecycle actions.
 - [x] Reject fungible definitions with zero asset, issuer, or policy identities before registry
   admission; malformed identity vectors are deterministic.
 - [x] Add a canonical native NFT token record with nonzero metadata commitment and owner-bound
@@ -1081,7 +1081,7 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   policy commitment, operation, amount, pre-state, and activation height.
 - [x] Require a nonzero authority-set commitment when constructing fungible asset policy state;
   unbound policy state cannot enter lifecycle or supply transitions.
-- [ ] Expose proof-bearing asset, supply, owner, action, receipt, and attestation RPC contracts.
+- [x] Expose proof-bearing asset, supply, owner, action, receipt, and attestation RPC contracts.
 - [x] Specify the proof-bearing native-asset RPC families and fail-closed empty/unsupported
   semantics in `docs/NATIVE_ASSET_RPC_V1.md`; authenticated server wiring remains a gate.
   - [x] Wire finalized state-proof verification for asset definitions, issuer registrations,
