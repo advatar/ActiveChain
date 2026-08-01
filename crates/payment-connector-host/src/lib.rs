@@ -6,7 +6,10 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     decode_envelope, encode_envelope,
 };
-use activechain_payment_types::{PaymentValidationError, ProviderObservationV1};
+use activechain_payment_types::{
+    ConnectorId, PaymentValidationError, ProviderObservationV1, RailId,
+};
+use activechain_protocol_types::{AssetId, Digest384};
 use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
@@ -22,6 +25,193 @@ pub use simulator::{
 const MAX_OBSERVATIONS: usize = 65_535;
 const SNAPSHOT_TAG_LENGTH: usize = 48;
 const SNAPSHOT_DOMAIN: &[u8] = b"ACTIVECHAIN-ACTIVEBRIDGE-JOURNAL-V1";
+const MAX_CONNECTOR_ORIGINS: usize = 16;
+const MAX_CONNECTOR_ORIGIN_BYTES: usize = 255;
+const MAX_CONNECTOR_ROUTES: usize = 64;
+const MAX_CONNECTOR_TIMEOUT_MS: u32 = 60_000;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConnectorPolicyError {
+    InvalidIdentity,
+    InvalidOrigin,
+    InvalidRoute,
+    InvalidTimeout,
+    Unauthorized,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct ConnectorRouteV1 {
+    rail: RailId,
+    asset: AssetId,
+    maximum_atomic_units: u128,
+}
+impl ConnectorRouteV1 {
+    pub fn new(
+        rail: RailId,
+        asset: AssetId,
+        maximum_atomic_units: u128,
+    ) -> Result<Self, ConnectorPolicyError> {
+        if asset.digest() == &Digest384::ZERO || maximum_atomic_units == 0 {
+            return Err(ConnectorPolicyError::InvalidRoute);
+        }
+        Ok(Self { rail, asset, maximum_atomic_units })
+    }
+}
+impl CanonicalEncode for ConnectorRouteV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.rail.encode(encoder)?;
+        self.asset.encode(encoder)?;
+        self.maximum_atomic_units.encode(encoder)
+    }
+}
+impl CanonicalDecode for ConnectorRouteV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(RailId::decode(decoder)?, AssetId::decode(decoder)?, u128::decode(decoder)?)
+            .map_err(|_| DecodeError::InvalidValue("invalid connector route"))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConnectorHostPolicyV1 {
+    connector: ConnectorId,
+    allowed_https_origins: Vec<Vec<u8>>,
+    secret_handle: Digest384,
+    routes: Vec<ConnectorRouteV1>,
+    connect_timeout_ms: u32,
+    request_timeout_ms: u32,
+}
+impl ConnectorHostPolicyV1 {
+    pub const TYPE_TAG: u16 = 0x015C;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48
+        + 2
+        + MAX_CONNECTOR_ORIGINS * (2 + MAX_CONNECTOR_ORIGIN_BYTES)
+        + 48
+        + 2
+        + MAX_CONNECTOR_ROUTES * (48 + 48 + 16)
+        + 4
+        + 4;
+
+    pub fn new(
+        connector: ConnectorId,
+        allowed_https_origins: Vec<Vec<u8>>,
+        secret_handle: Digest384,
+        routes: Vec<ConnectorRouteV1>,
+        connect_timeout_ms: u32,
+        request_timeout_ms: u32,
+    ) -> Result<Self, ConnectorPolicyError> {
+        if connector.digest() == Digest384::ZERO || secret_handle == Digest384::ZERO {
+            return Err(ConnectorPolicyError::InvalidIdentity);
+        }
+        if allowed_https_origins.is_empty()
+            || allowed_https_origins.len() > MAX_CONNECTOR_ORIGINS
+            || allowed_https_origins.windows(2).any(|pair| pair[0] >= pair[1])
+            || allowed_https_origins.iter().any(|origin| {
+                origin.len() <= b"https://".len()
+                    || origin.len() > MAX_CONNECTOR_ORIGIN_BYTES
+                    || !origin.starts_with(b"https://")
+                    || origin.iter().any(|byte| !byte.is_ascii_graphic())
+                    || origin.ends_with(b"/")
+            })
+        {
+            return Err(ConnectorPolicyError::InvalidOrigin);
+        }
+        if routes.is_empty()
+            || routes.len() > MAX_CONNECTOR_ROUTES
+            || routes.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err(ConnectorPolicyError::InvalidRoute);
+        }
+        if connect_timeout_ms == 0
+            || request_timeout_ms == 0
+            || connect_timeout_ms > MAX_CONNECTOR_TIMEOUT_MS
+            || request_timeout_ms > MAX_CONNECTOR_TIMEOUT_MS
+            || connect_timeout_ms > request_timeout_ms
+        {
+            return Err(ConnectorPolicyError::InvalidTimeout);
+        }
+        Ok(Self {
+            connector,
+            allowed_https_origins,
+            secret_handle,
+            routes,
+            connect_timeout_ms,
+            request_timeout_ms,
+        })
+    }
+
+    pub fn authorize(
+        &self,
+        connector: ConnectorId,
+        origin: &[u8],
+        rail: RailId,
+        asset: AssetId,
+        atomic_units: u128,
+    ) -> Result<(), ConnectorPolicyError> {
+        let route = ConnectorRouteV1::new(rail, asset, atomic_units)?;
+        if connector != self.connector
+            || self
+                .allowed_https_origins
+                .binary_search_by(|candidate| candidate.as_slice().cmp(origin))
+                .is_err()
+            || self
+                .routes
+                .binary_search_by(|candidate| (candidate.rail, candidate.asset).cmp(&(rail, asset)))
+                .ok()
+                .is_none_or(|index| atomic_units > self.routes[index].maximum_atomic_units)
+            || route.maximum_atomic_units == 0
+        {
+            return Err(ConnectorPolicyError::Unauthorized);
+        }
+        Ok(())
+    }
+}
+impl CanonicalEncode for ConnectorHostPolicyV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.connector.encode(encoder)?;
+        encoder.write_length(self.allowed_https_origins.len(), MAX_CONNECTOR_ORIGINS)?;
+        for origin in &self.allowed_https_origins {
+            encoder.write_bytes(origin, MAX_CONNECTOR_ORIGIN_BYTES)?;
+        }
+        self.secret_handle.encode(encoder)?;
+        encoder.write_length(self.routes.len(), MAX_CONNECTOR_ROUTES)?;
+        for route in &self.routes {
+            route.encode(encoder)?;
+        }
+        self.connect_timeout_ms.encode(encoder)?;
+        self.request_timeout_ms.encode(encoder)
+    }
+}
+impl CanonicalDecode for ConnectorHostPolicyV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let connector = ConnectorId::decode(decoder)?;
+        let origin_count = decoder.read_length(MAX_CONNECTOR_ORIGINS)?;
+        let mut origins = Vec::with_capacity(origin_count);
+        for _ in 0..origin_count {
+            origins.push(decoder.read_bytes(MAX_CONNECTOR_ORIGIN_BYTES)?.to_vec());
+        }
+        let secret_handle = Digest384::decode(decoder)?;
+        let route_count = decoder.read_length(MAX_CONNECTOR_ROUTES)?;
+        let mut routes = Vec::with_capacity(route_count);
+        for _ in 0..route_count {
+            routes.push(ConnectorRouteV1::decode(decoder)?);
+        }
+        Self::new(
+            connector,
+            origins,
+            secret_handle,
+            routes,
+            u32::decode(decoder)?,
+            u32::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid connector host policy"))
+    }
+}
+impl CanonicalType for ConnectorHostPolicyV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum JournalError {
@@ -177,7 +367,7 @@ mod tests {
     use super::*;
     use activechain_payment_types::{
         AssetAmountV1, ConnectorId, EvidenceClass, PaymentAttemptId, PaymentIntentId,
-        ProviderOperationState,
+        ProviderOperationState, RailId,
     };
     use activechain_protocol_types::{AssetId, ChainId, Digest384};
     use std::path::PathBuf;
@@ -211,6 +401,122 @@ mod tests {
             std::process::id(),
             std::thread::current().name().unwrap_or("test")
         ))
+    }
+
+    fn host_policy() -> ConnectorHostPolicyV1 {
+        ConnectorHostPolicyV1::new(
+            ConnectorId::new(digest(30)).unwrap(),
+            vec![b"https://sandbox.example".to_vec()],
+            digest(31),
+            vec![
+                ConnectorRouteV1::new(
+                    RailId::new(digest(32)).unwrap(),
+                    AssetId::new(digest(33)),
+                    10_000,
+                )
+                .unwrap(),
+            ],
+            1_000,
+            5_000,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn connector_policy_round_trips_and_authorizes_exact_route() {
+        let policy = host_policy();
+        let bytes = encode_envelope(&policy).unwrap();
+        assert_eq!(decode_envelope::<ConnectorHostPolicyV1>(&bytes).unwrap(), policy);
+        assert_eq!(
+            policy.authorize(
+                ConnectorId::new(digest(30)).unwrap(),
+                b"https://sandbox.example",
+                RailId::new(digest(32)).unwrap(),
+                AssetId::new(digest(33)),
+                10_000,
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn connector_policy_fails_closed() {
+        let policy = host_policy();
+        let connector = ConnectorId::new(digest(30)).unwrap();
+        let rail = RailId::new(digest(32)).unwrap();
+        let asset = AssetId::new(digest(33));
+        assert_eq!(
+            policy.authorize(connector, b"http://sandbox.example", rail, asset, 1),
+            Err(ConnectorPolicyError::Unauthorized)
+        );
+        assert_eq!(
+            policy.authorize(connector, b"https://sandbox.example", rail, asset, 10_001),
+            Err(ConnectorPolicyError::Unauthorized)
+        );
+        assert_eq!(
+            policy.authorize(
+                ConnectorId::new(digest(40)).unwrap(),
+                b"https://sandbox.example",
+                rail,
+                asset,
+                1,
+            ),
+            Err(ConnectorPolicyError::Unauthorized)
+        );
+        assert_eq!(
+            policy.authorize(
+                connector,
+                b"https://sandbox.example",
+                RailId::new(digest(41)).unwrap(),
+                asset,
+                1,
+            ),
+            Err(ConnectorPolicyError::Unauthorized)
+        );
+    }
+
+    #[test]
+    fn connector_policy_rejects_ambiguous_or_unsafe_configuration() {
+        let route = ConnectorRouteV1::new(
+            RailId::new(digest(32)).unwrap(),
+            AssetId::new(digest(33)),
+            10_000,
+        )
+        .unwrap();
+        let connector = ConnectorId::new(digest(30)).unwrap();
+        assert_eq!(
+            ConnectorHostPolicyV1::new(
+                connector,
+                vec![b"http://sandbox.example".to_vec()],
+                digest(31),
+                vec![route],
+                1_000,
+                5_000,
+            ),
+            Err(ConnectorPolicyError::InvalidOrigin)
+        );
+        assert_eq!(
+            ConnectorHostPolicyV1::new(
+                connector,
+                vec![b"https://sandbox.example".to_vec()],
+                digest(31),
+                vec![route, route],
+                1_000,
+                5_000,
+            ),
+            Err(ConnectorPolicyError::InvalidRoute)
+        );
+        assert_eq!(
+            ConnectorHostPolicyV1::new(
+                connector,
+                vec![b"https://sandbox.example".to_vec()],
+                digest(31),
+                vec![route],
+                6_000,
+                5_000,
+            ),
+            Err(ConnectorPolicyError::InvalidTimeout)
+        );
     }
 
     #[test]
