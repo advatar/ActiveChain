@@ -2,8 +2,9 @@ use activechain_canonical_codec::encode_envelope;
 use activechain_protocol_types::{
     AssetId, Digest384, FungibleAssetDefinition, FungibleAssetLifecycle,
     FungibleAssetLifecycleAction, FungibleAssetLifecycleActionV1, FungibleAssetPolicyV1,
-    FungibleIssuerApprovalV1, FungibleIssuerOperation, FungibleIssuerRegistrationV1,
-    FungibleSupplyAttestationV1, PrincipalId,
+    FungibleCorporateActionKind, FungibleCorporateActionV1, FungibleIssuerApprovalV1,
+    FungibleIssuerOperation, FungibleIssuerRegistrationV1, FungibleSupplyAttestationV1,
+    PrincipalId,
 };
 
 fn hex_digest(value: &str) -> Result<Digest384, String> {
@@ -45,8 +46,21 @@ fn lifecycle_action(value: &str) -> Result<FungibleAssetLifecycleAction, String>
     }
 }
 
+fn corporate_action(value: &str) -> Result<FungibleCorporateActionKind, String> {
+    match value {
+        "distribution" => Ok(FungibleCorporateActionKind::Distribution),
+        "split" => Ok(FungibleCorporateActionKind::Split),
+        "consolidation" => Ok(FungibleCorporateActionKind::Consolidation),
+        "coupon" => Ok(FungibleCorporateActionKind::Coupon),
+        "maturity" => Ok(FungibleCorporateActionKind::Maturity),
+        "record-date-vote" => Ok(FungibleCorporateActionKind::RecordDateVote),
+        "redemption-offer" => Ok(FungibleCorporateActionKind::RedemptionOffer),
+        _ => Err("corporate action must be distribution, split, consolidation, coupon, maturity, record-date-vote, or redemption-offer".into()),
+    }
+}
+
 fn usage() -> &'static str {
-    "usage:\n  activechain-issuer definition <asset> <issuer> <symbol> <decimals> <supply-cap> <policy>\n  activechain-issuer policy <asset> <issuer> <authority-set> <cap> <issued>\n  activechain-issuer approval <asset> <policy> <authority-set> <approval> <operation> <amount> <supply-before> <effective-height> <expires-height>\n  activechain-issuer attestation <asset> <policy> <issuer> <supply> <finalized-height> <approval>\n  activechain-issuer registration <asset> <issuer> <authority-set> <policy> <effective-height> <expires-height>\n  activechain-issuer lifecycle <asset> <policy> <authority-set> <approval> <reason> <pause|resume|retire> <effective-height> <expires-height>"
+    "usage:\n  activechain-issuer definition <asset> <issuer> <symbol> <decimals> <supply-cap> <policy>\n  activechain-issuer policy <asset> <issuer> <authority-set> <cap> <issued>\n  activechain-issuer approval <asset> <policy> <authority-set> <approval> <operation> <amount> <supply-before> <effective-height> <expires-height>\n  activechain-issuer attestation <asset> <policy> <issuer> <supply> <finalized-height> <approval>\n  activechain-issuer registration <asset> <issuer> <authority-set> <policy> <effective-height> <expires-height>\n  activechain-issuer lifecycle <asset> <policy> <authority-set> <approval> <reason> <pause|resume|retire> <effective-height> <expires-height>\n  activechain-issuer corporate-action <asset> <issuer> <policy> <authority-set> <approval> <terms> <kind> <record-height> <effective-height> <expires-height> <amount-per-unit> <ratio-numerator> <ratio-denominator>"
 }
 
 fn hex_bytes(bytes: &[u8]) -> String {
@@ -146,6 +160,27 @@ fn run(args: &[String]) -> Result<String, String> {
                 &encode_envelope(&action).map_err(|_| "lifecycle action encoding failed")?,
             ))
         }
+        Some("corporate-action") if args.len() == 14 => {
+            let action = FungibleCorporateActionV1::new(
+                AssetId::new(hex_digest(&args[1])?),
+                PrincipalId::new(hex_digest(&args[2])?),
+                hex_digest(&args[3])?,
+                hex_digest(&args[4])?,
+                hex_digest(&args[5])?,
+                hex_digest(&args[6])?,
+                corporate_action(&args[7])?,
+                args[8].parse().map_err(|_| "record-height must be an unsigned integer")?,
+                args[9].parse().map_err(|_| "effective-height must be an unsigned integer")?,
+                args[10].parse().map_err(|_| "expires-height must be an unsigned integer")?,
+                args[11].parse().map_err(|_| "amount-per-unit must be an unsigned integer")?,
+                args[12].parse().map_err(|_| "ratio-numerator must be an unsigned integer")?,
+                args[13].parse().map_err(|_| "ratio-denominator must be an unsigned integer")?,
+            )
+            .map_err(|_| "invalid corporate action values")?;
+            Ok(hex_bytes(
+                &encode_envelope(&action).map_err(|_| "corporate action encoding failed")?,
+            ))
+        }
         _ => Err(usage().into()),
     }
 }
@@ -240,5 +275,32 @@ mod tests {
         let mut expired = args;
         expired[8] = "10".into();
         assert!(run(&expired).is_err());
+    }
+
+    #[test]
+    fn corporate_action_command_is_deterministic_and_kind_strict() {
+        let args = vec![
+            "corporate-action".into(),
+            d(),
+            d(),
+            d(),
+            d(),
+            d(),
+            d(),
+            "split".into(),
+            "10".into(),
+            "20".into(),
+            "30".into(),
+            "0".into(),
+            "2".into(),
+            "1".into(),
+        ];
+        assert_eq!(run(&args).unwrap(), run(&args).unwrap());
+        let mut wrong_kind = args.clone();
+        wrong_kind[7] = "dividend-ish".into();
+        assert!(run(&wrong_kind).is_err());
+        let mut wrong_economics = args;
+        wrong_economics[11] = "1".into();
+        assert!(run(&wrong_economics).is_err());
     }
 }
