@@ -1745,6 +1745,18 @@ impl FungibleCorporateActionV1 {
     pub const fn active_at(self, height: u64) -> bool {
         height >= self.effective_height && height < self.expires_height
     }
+    fn binds_admission(
+        self,
+        asset_id: AssetId,
+        policy_commitment: Digest384,
+        authority_set: Digest384,
+        finalized_height: u64,
+    ) -> bool {
+        self.asset_id == asset_id
+            && self.policy_commitment == policy_commitment
+            && self.authority_set == authority_set
+            && self.active_at(finalized_height)
+    }
     pub fn action_id(&self) -> Result<Digest384, EncodeError> {
         let bytes = activechain_canonical_codec::encode_envelope(self)?;
         let mut hasher = Shake256::default();
@@ -1837,11 +1849,7 @@ impl FungibleCorporateActionRegistryV1 {
         authority_set: Digest384,
         finalized_height: u64,
     ) -> Result<Digest384, AssetDefinitionError> {
-        if action.asset_id() != asset_id
-            || action.policy_commitment() != policy_commitment
-            || action.authority_set() != authority_set
-            || !action.active_at(finalized_height)
-        {
+        if !action.binds_admission(asset_id, policy_commitment, authority_set, finalized_height) {
             return Err(AssetDefinitionError::InvalidLifecycleTransition);
         }
         let action_id =
@@ -2107,6 +2115,47 @@ mod kani_proofs {
         assert!(!attestation.binds_policy_fields(&current, Digest384::new([9; 48])));
         assert_eq!(attestation.supply_issued(), current.supply_issued());
         assert_eq!(attestation.asset_id(), current.asset_id());
+    }
+
+    #[kani::proof]
+    fn corporate_action_admission_is_exact_and_half_open() {
+        let height: u64 = kani::any();
+        let substitute_asset: bool = kani::any();
+        let substitute_policy: bool = kani::any();
+        let substitute_authority: bool = kani::any();
+        let action = FungibleCorporateActionV1::new(
+            AssetId::new(Digest384::new([1; 48])),
+            PrincipalId::new(Digest384::new([2; 48])),
+            Digest384::new([3; 48]),
+            Digest384::new([4; 48]),
+            Digest384::new([5; 48]),
+            Digest384::new([6; 48]),
+            FungibleCorporateActionKind::Distribution,
+            1,
+            10,
+            20,
+            1,
+            1,
+            1,
+        )
+        .unwrap();
+        let asset = if substitute_asset {
+            AssetId::new(Digest384::new([7; 48]))
+        } else {
+            action.asset_id()
+        };
+        let policy =
+            if substitute_policy { Digest384::new([8; 48]) } else { action.policy_commitment() };
+        let authority =
+            if substitute_authority { Digest384::new([9; 48]) } else { action.authority_set() };
+        assert_eq!(
+            action.binds_admission(asset, policy, authority, height),
+            !substitute_asset
+                && !substitute_policy
+                && !substitute_authority
+                && height >= 10
+                && height < 20
+        );
     }
 }
 
