@@ -241,6 +241,26 @@ pub fn inject_external_schema_facts(
     PolicyRequest::new(fields).map_err(|_| ExternalAdmissionError::MalformedPolicy)
 }
 
+/// Complete authorization intersection: a credential fact is necessary only when policy asks for
+/// it and never substitutes for authentication, capability, approval, APL, forbids or obligations.
+pub fn external_authorization_intersection(
+    fact: Option<&VerifiedExternalCredentialFact>,
+    authenticated_actor: bool,
+    capability_valid: bool,
+    approvals_valid: bool,
+    apl_permit: bool,
+    protocol_forbid: bool,
+    obligations_atomic: bool,
+) -> bool {
+    fact.is_some()
+        && authenticated_actor
+        && capability_valid
+        && approvals_valid
+        && apl_permit
+        && !protocol_forbid
+        && obligations_atomic
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -457,5 +477,30 @@ mod tests {
         assert_eq!((positive, negative), (7, 23));
         assert!(!matrix.contains("Erika"));
         assert!(!matrix.contains("Mustermann"));
+    }
+    #[test]
+    fn rust_authorization_intersection_matches_the_lean_refinement_table() {
+        let vector = include_str!("../../../testing/vectors/external-identity-refinement-v1.tsv");
+        let (fact, _) = admit_external_presentation(verified(), &policy(), d(5)).unwrap();
+        for line in vector.lines().skip(1) {
+            let fields: Vec<_> = line.split('\t').collect();
+            let name = fields[0];
+            let admitted = fields[1] == "1";
+            let expected = fields[2] == "1";
+            let fact_input = admitted.then_some(&fact);
+            let (capability, approval, forbid) = match name {
+                "capability" => (false, true, false),
+                "approval" => (true, false, false),
+                "forbid" => (true, true, true),
+                _ => (true, true, false),
+            };
+            assert_eq!(
+                external_authorization_intersection(
+                    fact_input, true, capability, approval, true, forbid, true
+                ),
+                expected,
+                "{name}"
+            );
+        }
     }
 }
