@@ -1323,11 +1323,20 @@ impl FungibleIssuerApprovalV1 {
     pub const fn operation(&self) -> FungibleIssuerOperation {
         self.operation
     }
+    pub const fn approval_commitment(&self) -> Digest384 {
+        self.approval_commitment
+    }
     pub const fn amount(&self) -> u128 {
         self.amount
     }
     pub const fn supply_before(&self) -> u128 {
         self.supply_before
+    }
+    pub const fn effective_height(&self) -> u64 {
+        self.effective_height
+    }
+    pub const fn expires_height(&self) -> u64 {
+        self.expires_height
     }
     pub const fn active_at(&self, height: u64) -> bool {
         height >= self.effective_height && height < self.expires_height

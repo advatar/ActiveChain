@@ -1026,6 +1026,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
 
 - [x] Add deterministic offline inspection and dry-run for canonical threshold-approved issuer
   supply operations before submission.
+- [x] Add an issuer-console review surface derived from canonical policy and approval envelopes,
+  including exact supply pre/post-state and approval-window binding.
 
 Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164).
 
