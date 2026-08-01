@@ -1923,6 +1923,9 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
   lookup evidence (#444).
 - [x] Implement the bounded external SD-JWT VC/OpenID4VP verifier with pinned issuer, schema,
   holder, request, trust, and status inputs plus typed fail-closed rejection behavior (#441).
+- [x] Implement the separately versioned bounded mdoc/COSE/OpenID4VP verifier with canonical CBOR,
+  issuer/device authentication, namespace digests, session binding, and typed rejection codes
+  (#442).
 - [ ] Complete wallet OpenID4VP transport, consent UX, live trust/status adapters, cross-repository
   vectors, device qualification, and independent interoperability review.
 
