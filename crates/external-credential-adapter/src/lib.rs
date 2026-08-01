@@ -1,5 +1,7 @@
 //! Bounded, network-isolated verification of VCIssuer SD-JWT VC presentations.
 
+pub mod mdoc;
+
 use activechain_protocol_types::{
     ChainId, CredentialAssuranceClassV1, CredentialPredicateKind, CredentialPredicateV1, Digest384,
     ExternalCredentialStatusSnapshotV1, ExternalIssuerBindingV1, PrincipalId, TransactionId,
@@ -347,7 +349,7 @@ fn validate_times(value: &Value, now: u64, skew: u64) -> Result<(), SdJwtRejecti
     }
     Ok(())
 }
-fn verify_es256_with_jwk(
+pub(crate) fn verify_es256_with_jwk(
     jwk: &Value,
     input: &[u8],
     signature: &[u8],
@@ -380,7 +382,7 @@ fn predicate_satisfied(kind: CredentialPredicateKind, value: &Value) -> bool {
         CredentialPredicateKind::AssetAmountAtLeast => value.as_u64().is_some_and(|v| v > 0),
     }
 }
-fn commitment(domain: &[u8], bytes: &[u8]) -> Digest384 {
+pub(crate) fn commitment(domain: &[u8], bytes: &[u8]) -> Digest384 {
     let mut h = Shake256::default();
     Update::update(&mut h, domain);
     Update::update(&mut h, bytes);
