@@ -1821,6 +1821,7 @@ Tracked by [GitHub issue #9](https://github.com/advatar/ActiveChain/issues/9).
 
 - [x] Add exact-once refundable cash-capacity reservations with bounded resource prepayment and
   deterministic unused-balance refunds.
+- [x] Add front-running-resistant commit/reveal admission for objective verifier challenges.
 
 Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 

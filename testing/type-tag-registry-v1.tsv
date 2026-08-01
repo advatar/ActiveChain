@@ -225,3 +225,4 @@
 0x015C	1	ConnectorHostPolicyV1	crates/payment-connector-host/src/lib.rs
 0x015D	1	CapacityReservationV1	crates/cash-kernel/src/economics.rs
 0x015E	1	CapacitySettlementV1	crates/cash-kernel/src/economics.rs
+0x015F	1	ChallengeCommitmentV1	crates/cash-kernel/src/economics.rs
