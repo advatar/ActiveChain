@@ -44,7 +44,8 @@ pub use corporate_action::{CorporateActionPersistenceError, DurableCorporateActi
 pub use receipt_nullifier::{CredentialReceiptJournalError, DurableCredentialReceiptJournal};
 #[cfg(feature = "std")]
 pub use sponsored_cash::{
-    DurableSponsoredCash, SponsoredCashPersistenceError, SponsoredCashSnapshotV1,
+    DurableSponsoredCash, SponsoredCashPersistenceError, SponsoredCashReceiptV1,
+    SponsoredCashSnapshotV1,
 };
 
 use activechain_canonical_codec::{
