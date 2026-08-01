@@ -2471,6 +2471,30 @@ impl IdempotencyBindingV1 {
         }
         Ok(self.intent)
     }
+
+    pub const fn caller(&self) -> PrincipalId {
+        self.caller
+    }
+
+    pub const fn idempotency_key(&self) -> Digest384 {
+        self.idempotency_key
+    }
+
+    pub const fn request_body_commitment(&self) -> Digest384 {
+        self.request_body_commitment
+    }
+
+    pub const fn intent(&self) -> PaymentIntentId {
+        self.intent
+    }
+
+    pub const fn active_at(&self, timestamp: u64) -> bool {
+        timestamp >= self.created_at && timestamp < self.retain_until
+    }
+
+    pub const fn retain_until(&self) -> u64 {
+        self.retain_until
+    }
 }
 
 impl CanonicalEncode for IdempotencyBindingV1 {
