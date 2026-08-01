@@ -1,7 +1,7 @@
 revision	version	active_type_identities	newly_active_identities	incremental_engineer_months	gate
-1	v1.0	171	171	20-30	M2 public-testnet launch gate
-2	v1.1	171	0	6-10	mandatory-proof semantic extension
-3	v1.2	183	12	12-18	private credential and payment extension
-4	v1.3	197	14	8-12	protected-ordering extension
-5	v1.4	200	3	6-10	compute-verification extension
-6	v2	200	0	12-24	provisional stateless-validator and bridge extension
+1	v1.0	176	176	20-30	M2 public-testnet launch gate
+2	v1.1	176	0	6-10	mandatory-proof semantic extension
+3	v1.2	188	12	12-18	private credential and payment extension
+4	v1.3	202	14	8-12	protected-ordering extension
+5	v1.4	205	3	6-10	compute-verification extension
+6	v2	205	0	12-24	provisional stateless-validator and bridge extension
