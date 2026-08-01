@@ -876,6 +876,45 @@ impl FungibleCoinCellSet {
             .collect::<Vec<_>>();
         Ok((Self::new(records)?, next_policy))
     }
+
+    /// Atomically joins approved redemption input consumption to issued-supply reduction.
+    pub fn apply_redemption(
+        &self,
+        redemption: &FungibleRedemptionV1,
+        policy: &FungibleAssetPolicyV1,
+        approval: &FungibleIssuerApprovalV1,
+        height: Height,
+    ) -> Result<(Self, FungibleAssetPolicyV1), NativeMoneyError> {
+        redemption.validate_against_policy_and_approval(policy, approval, height)?;
+        let next_policy = policy
+            .apply_approved_burn(approval, FungibleIssuerOperation::Redemption, height)
+            .map_err(|_| NativeMoneyError::InvalidInputs)?;
+        if next_policy.supply_issued().checked_add(redemption.amount())
+            != Some(policy.supply_issued())
+        {
+            return Err(NativeMoneyError::InvalidInputs);
+        }
+        let mut spent = Vec::with_capacity(redemption.inputs().len());
+        for input in redemption.inputs() {
+            let id = coin_cell_id(&input.origin()).map_err(|_| NativeMoneyError::InvalidInputs)?;
+            let index = self
+                .0
+                .binary_search_by_key(&id, |record| record.id())
+                .map_err(|_| NativeMoneyError::MissingCell)?;
+            if self.0[index].cell() != *input {
+                return Err(NativeMoneyError::InvalidInputs);
+            }
+            spent.push(id);
+        }
+        spent.sort_unstable();
+        let records = self
+            .0
+            .iter()
+            .copied()
+            .filter(|record| spent.binary_search(&record.id()).is_err())
+            .collect::<Vec<_>>();
+        Ok((Self::new(records)?, next_policy))
+    }
 }
 impl CanonicalEncode for FungibleCoinCellSet {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
@@ -1903,6 +1942,66 @@ mod fungible_cell_tests {
             Err(NativeMoneyError::InvalidInputs)
         );
         assert_eq!(set.as_slice().len(), 2);
+    }
+
+    #[test]
+    fn authoritative_redemption_consumes_supply_and_retains_settlement_binding() {
+        let asset = AssetId::new(Digest384::new([2; 48]));
+        let issuer = PrincipalId::new(Digest384::new([3; 48]));
+        let origin = CoinCellOrigin::new(TransactionId::new(Digest384::new([20; 48])), 0);
+        let input = FungibleCoinCell::new(origin, asset, issuer, 10, 4).unwrap();
+        let set = FungibleCoinCellSet::new(vec![FungibleCoinCellRecord::new(
+            coin_cell_id(&origin).unwrap(),
+            input,
+        )])
+        .unwrap();
+        let policy = FungibleAssetPolicyV1::new(
+            asset,
+            issuer,
+            Digest384::new([6; 48]),
+            Digest384::new([7; 48]),
+            Digest384::new([8; 48]),
+            Digest384::new([9; 48]),
+            100,
+            10,
+            FungibleAssetLifecycle::Registered,
+        )
+        .unwrap();
+        let redemption =
+            FungibleRedemptionV1::new(asset, issuer, vec![input], 10, Digest384::new([30; 48]))
+                .unwrap();
+        let approval = FungibleIssuerApprovalV1::new(
+            asset,
+            policy.commitment().unwrap(),
+            policy.authority_set(),
+            Digest384::new([10; 48]),
+            FungibleIssuerOperation::Redemption,
+            10,
+            10,
+            5,
+            10,
+        )
+        .unwrap();
+        let (after, next_policy) =
+            set.apply_redemption(&redemption, &policy, &approval, 5).unwrap();
+        assert!(after.as_slice().is_empty());
+        assert_eq!(next_policy.supply_issued(), 0);
+        assert_eq!(redemption.settlement_reference(), Digest384::new([30; 48]));
+        let receipt = FungibleSettlementReceiptV1::new(
+            asset,
+            redemption.settlement_reference(),
+            TransactionId::new(Digest384::new([31; 48])),
+            10,
+            12,
+            Digest384::new([32; 48]),
+        )
+        .unwrap();
+        assert!(receipt.binds_redemption(&redemption));
+        assert_eq!(
+            after.apply_redemption(&redemption, &next_policy, &approval, 5),
+            Err(NativeMoneyError::InvalidInputs)
+        );
+        assert_eq!(set.as_slice().len(), 1);
     }
 
     #[test]

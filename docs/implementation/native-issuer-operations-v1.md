@@ -79,6 +79,12 @@ returned successor that reduces issued supply by the identical approved amount. 
 substituted cells, cross-asset authority, stale supply, paused policy, approval substitution, and
 underflow return neither the cell-set successor nor the policy successor.
 
+Approved redemptions use the same exact input/supply successor while retaining the canonical
+nonzero external settlement reference. Consuming the cells does not itself claim that external
+payout finalized: separately verified `FungibleSettlementReceiptV1` evidence must bind that exact
+reference, asset, and amount. Replay, input or approval substitution, stale supply, missing cells,
+inactive policy, and underflow return neither successor.
+
 The native issuer CLI exposes `control-policy`, `holder-control-state`, `control-action`, and
 `dry-run-control`. Freeze and unfreeze preflight return the exact post-state. Clawback additionally
 requires a canonical input Coin Cell and returns both the conserved post-cell and revisioned
