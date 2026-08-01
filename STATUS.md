@@ -980,6 +980,20 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 - [x] Define the v1 application settlement boundary for native payments, atomic swaps, merchant
   receipts, cross-network finality states, timeout refunds, and privacy-preserving commitments.
 
+## Active implementation — ActiveBridge connector and settlement platform
+
+Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189).
+
+- [x] Freeze canonical quotes, intents, provider observations, lifecycle records, evidence classes,
+  and idempotency bindings.
+- [x] Add crash-safe provider observation journaling and deterministic connector simulation.
+- [x] Add a fail-closed operator connector-host policy for identity, HTTPS origins, opaque secrets,
+  supported rail/asset pairs, amount ceilings, and request deadlines.
+- [ ] Implement the sandbox nTZS connector for quote, collection, payout, conversion, status, and
+  reconciliation mappings without partnership or regulated-asset claims.
+- [ ] Integrate finalized native settlement, refunds/disputes, fee sponsorship, treasury controls,
+  authenticated APIs/SDKs/webhooks, formal refinement, operations drills, and staged pilots.
+
 ## Active EUDI/TLSNotary/ZK qualification
 
 - [x] Freeze the off-chain evidence, selective-disclosure predicate, holder/action/policy binding,
