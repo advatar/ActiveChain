@@ -8,6 +8,7 @@ description = "Fail-closed constrained A2UI approval renderer for ActiveChain"
 
 [dependencies]
 activechain-agent-interfaces.workspace = true
+activechain-cash-kernel.workspace = true
 activechain-proposal-gateway.workspace = true
 activechain-protocol-types.workspace = true
 serde.workspace = true
