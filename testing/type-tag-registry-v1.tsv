@@ -215,3 +215,4 @@
 0x0152	1	VcIssuerPresentationV1	crates/protocol-types/src/credential.rs
 0x0153	1	ExternalIssuerBindingV1	crates/protocol-types/src/external_identity.rs
 0x0154	1	ExternalIssuerRegistryV1	crates/protocol-types/src/external_identity.rs
+0x0155	1	ExternalSubjectBindingV1	crates/protocol-types/src/subject_binding.rs

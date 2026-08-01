@@ -23,6 +23,7 @@ mod external_identity;
 mod migration;
 mod object;
 mod package;
+mod subject_binding;
 mod version;
 
 /// Sparse allocation prevents deferred protocol versions from reinterpreting v1.0 bytes.
@@ -113,6 +114,10 @@ pub use object::{
 pub use package::{
     MAX_PACKAGE_ENTRIES, MAX_PACKAGE_IMPORTS, PackageManifest, PackageManifestError,
     PackageUpgradeError, UpgradePolicy,
+};
+pub use subject_binding::{
+    ExternalSubjectBindingError, ExternalSubjectBindingKindV1, ExternalSubjectBindingV1,
+    ExternalSubjectScopeKindV1,
 };
 pub use version::{
     HeaderSlotRule, ProtocolFeature, ProtocolVersionError, ProtocolVersionProfile,

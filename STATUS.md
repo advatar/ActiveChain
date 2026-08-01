@@ -1915,6 +1915,9 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
   collision rejection, finalized lookup, and cross-network/rollback failure are unit tested.
 - [x] Freeze EUDI/VCIssuer profile-to-schema derivation and consume byte-identical vectors in
   ActiveChain and VCIssuer; arbitrary caller-provided schema identifiers must fail closed (#439).
+- [x] Implement account-bound, pairwise, private-proof, and device-bound external subject
+  association profiles with wallet authorization, scoped derivation, rotation/recovery, and replay
+  rejection (#440).
 - [ ] Complete wallet OpenID4VP transport, consent UX, live trust/status adapters, cross-repository
   vectors, device qualification, and independent interoperability review.
 
