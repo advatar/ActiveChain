@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
-use activechain_protocol_commitment::{DomainTag, commit};
+use activechain_protocol_commitment::{DomainTag, cash_transition_id, coin_cell_id, commit};
 use activechain_protocol_types::{
     Amount, AssetId, ChainId, CoinCellId, Digest384, Epoch, FungibleAssetDefinition,
     FungibleAssetLifecycle, FungibleAssetPolicyV1, FungibleExceptionalControlActionV1,
@@ -753,6 +753,58 @@ impl FungibleCoinCellSet {
         h.finalize_xof().read(&mut out);
         Digest384::new(out)
     }
+
+    /// Atomically consumes exact authoritative fungible inputs and creates one deterministic
+    /// recipient output after finalized policy and holder-control admission.
+    pub fn apply_transfer(
+        &self,
+        transfer: &FungibleTransferV1,
+        policy: &FungibleAssetPolicyV1,
+        holder_state: &FungibleHolderControlStateV1,
+        height: Height,
+    ) -> Result<Self, NativeMoneyError> {
+        transfer.validate_against_policy(policy)?;
+        transfer.validate_against_holder_control(holder_state)?;
+
+        let mut spent = Vec::with_capacity(transfer.inputs().len());
+        for input in transfer.inputs() {
+            let id = coin_cell_id(&input.origin()).map_err(|_| NativeMoneyError::InvalidInputs)?;
+            let index = self
+                .0
+                .binary_search_by_key(&id, |record| record.id())
+                .map_err(|_| NativeMoneyError::MissingCell)?;
+            if self.0[index].cell() != *input {
+                return Err(NativeMoneyError::InvalidInputs);
+            }
+            spent.push(id);
+        }
+        spent.sort_unstable();
+
+        let transition =
+            cash_transition_id(transfer).map_err(|_| NativeMoneyError::InvalidInputs)?;
+        let output = FungibleCoinCell::new(
+            CoinCellOrigin::new(transition, 0),
+            transfer.asset_id(),
+            transfer.recipient(),
+            transfer.amount(),
+            height,
+        )?;
+        let output_id =
+            coin_cell_id(&output.origin()).map_err(|_| NativeMoneyError::InvalidInputs)?;
+        if self.0.binary_search_by_key(&output_id, |record| record.id()).is_ok() {
+            return Err(NativeMoneyError::OutputCollision);
+        }
+
+        let mut records = self
+            .0
+            .iter()
+            .copied()
+            .filter(|record| spent.binary_search(&record.id()).is_err())
+            .collect::<Vec<_>>();
+        records.push(FungibleCoinCellRecord::new(output_id, output));
+        records.sort_by_key(|record| record.id());
+        Self::new(records)
+    }
 }
 impl CanonicalEncode for FungibleCoinCellSet {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
@@ -1472,6 +1524,132 @@ mod fungible_cell_tests {
         let other_transfer =
             FungibleTransferV1::new(other, owner, recipient, vec![other_cell], 42).unwrap();
         assert_ne!(commitment, other_transfer.commitment().unwrap());
+    }
+
+    #[test]
+    fn authoritative_fungible_set_transfer_is_conserving_exact_and_replay_safe() {
+        let asset = AssetId::new(Digest384::new([2; 48]));
+        let owner = PrincipalId::new(Digest384::new([3; 48]));
+        let recipient = PrincipalId::new(Digest384::new([5; 48]));
+        let origin = CoinCellOrigin::new(TransactionId::new(Digest384::new([1; 48])), 0);
+        let input = FungibleCoinCell::new(origin, asset, owner, 42, 7).unwrap();
+        let input_id = coin_cell_id(&origin).unwrap();
+        let unrelated_origin = CoinCellOrigin::new(TransactionId::new(Digest384::new([10; 48])), 0);
+        let unrelated = FungibleCoinCell::new(
+            unrelated_origin,
+            asset,
+            PrincipalId::new(Digest384::new([11; 48])),
+            8,
+            6,
+        )
+        .unwrap();
+        let mut records = vec![
+            FungibleCoinCellRecord::new(input_id, input),
+            FungibleCoinCellRecord::new(coin_cell_id(&unrelated_origin).unwrap(), unrelated),
+        ];
+        records.sort_by_key(|record| record.id());
+        let set = FungibleCoinCellSet::new(records).unwrap();
+        let transfer = FungibleTransferV1::new(asset, owner, recipient, vec![input], 42).unwrap();
+        let policy = FungibleAssetPolicyV1::new(
+            asset,
+            owner,
+            Digest384::new([6; 48]),
+            Digest384::new([7; 48]),
+            Digest384::new([8; 48]),
+            Digest384::new([9; 48]),
+            100,
+            50,
+            FungibleAssetLifecycle::Registered,
+        )
+        .unwrap();
+        let state = FungibleHolderControlStateV1::new(asset, owner).unwrap();
+        let after = set.apply_transfer(&transfer, &policy, &state, 12).unwrap();
+        assert_eq!(after.as_slice().len(), set.as_slice().len());
+        assert!(after.as_slice().iter().any(|record| record.cell() == unrelated));
+        let output = after
+            .as_slice()
+            .iter()
+            .find(|record| record.cell().owner() == recipient)
+            .unwrap()
+            .cell();
+        assert_eq!(output.asset_id(), asset);
+        assert_eq!(output.amount(), 42);
+        assert_eq!(output.creation_height(), 12);
+        assert_eq!(
+            after.apply_transfer(&transfer, &policy, &state, 12),
+            Err(NativeMoneyError::MissingCell)
+        );
+
+        let substituted = FungibleCoinCell::new(origin, asset, owner, 42, 8).unwrap();
+        let substituted_transfer =
+            FungibleTransferV1::new(asset, owner, recipient, vec![substituted], 42).unwrap();
+        assert_eq!(
+            set.apply_transfer(&substituted_transfer, &policy, &state, 12),
+            Err(NativeMoneyError::InvalidInputs)
+        );
+    }
+
+    #[test]
+    fn authoritative_fungible_set_rejects_frozen_holder_before_mutation() {
+        let asset = AssetId::new(Digest384::new([2; 48]));
+        let owner = PrincipalId::new(Digest384::new([3; 48]));
+        let recipient = PrincipalId::new(Digest384::new([5; 48]));
+        let authority = Digest384::new([12; 48]);
+        let exceptional =
+            FungibleExceptionalControlPolicyV1::new(asset, owner, authority, true, false).unwrap();
+        let definition = FungibleAssetDefinition::new(
+            asset,
+            owner,
+            b"TEST".to_vec(),
+            2,
+            100,
+            exceptional.commitment().unwrap(),
+        )
+        .unwrap();
+        let freeze = FungibleExceptionalControlActionV1::new(
+            asset,
+            owner,
+            owner,
+            exceptional.commitment().unwrap(),
+            authority,
+            Digest384::new([13; 48]),
+            Digest384::new([14; 48]),
+            FungibleExceptionalControlKind::Freeze,
+            0,
+            0,
+            10,
+            20,
+        )
+        .unwrap();
+        let frozen = FungibleHolderControlStateV1::new(asset, owner)
+            .unwrap()
+            .apply(&definition, &exceptional, &freeze, 10)
+            .unwrap();
+        let origin = CoinCellOrigin::new(TransactionId::new(Digest384::new([1; 48])), 0);
+        let input = FungibleCoinCell::new(origin, asset, owner, 42, 7).unwrap();
+        let set = FungibleCoinCellSet::new(vec![FungibleCoinCellRecord::new(
+            coin_cell_id(&origin).unwrap(),
+            input,
+        )])
+        .unwrap();
+        let transfer = FungibleTransferV1::new(asset, owner, recipient, vec![input], 42).unwrap();
+        let policy = FungibleAssetPolicyV1::new(
+            asset,
+            owner,
+            Digest384::new([6; 48]),
+            Digest384::new([7; 48]),
+            Digest384::new([8; 48]),
+            Digest384::new([9; 48]),
+            100,
+            50,
+            FungibleAssetLifecycle::Registered,
+        )
+        .unwrap();
+        assert_eq!(
+            set.apply_transfer(&transfer, &policy, &frozen, 12),
+            Err(NativeMoneyError::InvalidInputs)
+        );
+        assert_eq!(set.as_slice()[0].cell(), input);
     }
 
     #[test]

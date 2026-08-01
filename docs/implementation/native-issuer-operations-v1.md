@@ -54,6 +54,14 @@ canonically ordered fungible Coin Cell set with that revision, preserves the tar
 and every unrelated record, and advances memory only after the synchronized atomic replacement
 succeeds. These primitives establish protocol mechanics, not the legal authority to exercise them.
 
+Ordinary fungible transfers execute directly against the authoritative `FungibleCoinCellSet`.
+Admission requires the exact registered asset policy and matching unfrozen holder state. Each
+declared input is resolved by the `CoinCellId` derived from its immutable origin and must equal the
+authoritative record byte-for-byte. The pure transition consumes all exact inputs, preserves every
+unrelated record, and creates one recipient output whose origin and ID derive from the canonical
+transfer. Missing or substituted inputs, replay, wrong or inactive policy, frozen holders, output
+collision, and malformed ordering fail without returning a successor set.
+
 The native issuer CLI exposes `control-policy`, `holder-control-state`, `control-action`, and
 `dry-run-control`. Freeze and unfreeze preflight return the exact post-state. Clawback additionally
 requires a canonical input Coin Cell and returns both the conserved post-cell and revisioned
