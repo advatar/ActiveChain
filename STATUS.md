@@ -1011,6 +1011,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
   skipped, cross-subscription, cross-intent, and expired delivery without promoting evidence.
 - [x] Persist canonically ordered webhook subscriber cursors atomically so acknowledged delivery
   survives restart and failed or corrupt storage cannot advance in-memory state.
+- [x] Bind authenticated API calls to exact caller, audience, operation, request, idempotency,
+  optional intent, sequence, validity, and authenticator commitments with replay-safe client state.
 
 ## Active EUDI/TLSNotary/ZK qualification
 
