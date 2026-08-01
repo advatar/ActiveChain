@@ -58,6 +58,7 @@ dependencies = [
  "activechain-accumulator",
  "activechain-canonical-codec",
  "activechain-crypto-provider",
+ "activechain-privacy-kernel",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
  "activechain-rpc-types",

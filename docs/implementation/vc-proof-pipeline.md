@@ -101,3 +101,12 @@ status, and optional issuer authorization. It additionally binds the verifier, p
 policy, nullifier, verification height, and non-regressing finalized height. The receipt contains no
 raw transcript, account identifier, full balance, or disclosed attribute. A canonical receipt is a
 binding artifact; consumers must still verify its finalized membership/finality evidence.
+
+After cryptographic proof and finality verification, application admission passes the bound
+receipt, evidence, predicate, and exact non-membership witness to
+`DurableCredentialReceiptJournal`. The journal consumes the receipt's policy-scoped nullifier
+through the canonical constant-size `NullifierSet`, writes and synchronizes the next canonical
+envelope, and atomically replaces durable state before advancing memory or acknowledging success.
+Replays, stale or substituted witnesses, mismatched evidence, and corrupt restart state fail
+closed. The journal deliberately does not replace proof or finality verification; it provides the
+durable exactly-once boundary after those checks succeed.

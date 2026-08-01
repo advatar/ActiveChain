@@ -13,6 +13,8 @@ mod compliance;
 mod compute;
 #[cfg(feature = "std")]
 mod corporate_action;
+#[cfg(feature = "std")]
+mod receipt_nullifier;
 
 #[cfg(feature = "std")]
 pub use anchor::DurableAnchorRegistry;
@@ -36,6 +38,8 @@ pub use compute::{
 };
 #[cfg(feature = "std")]
 pub use corporate_action::{CorporateActionPersistenceError, DurableCorporateActionRegistry};
+#[cfg(feature = "std")]
+pub use receipt_nullifier::{CredentialReceiptJournalError, DurableCredentialReceiptJournal};
 
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,

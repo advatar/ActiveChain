@@ -949,6 +949,8 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 - [x] Publish and consume the byte-identical 17-case portable-evidence TSV across ActiveChain,
   TLSNotary, and EUWallet, covering version, commitment, freshness, assurance, and issuer-upgrade
   failures with a closed decision table.
+- [x] Consume receipt nullifiers through the canonical accumulator and persist the updated root
+  atomically before acknowledgement, rejecting replay, stale witnesses, and corrupt restart state.
 - [ ] Complete wallet consent/assurance UX, lifecycle and recovery coverage, physical-device key
   tests, offline-proof conformance, and independent review.
 
@@ -1227,6 +1229,8 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
   replay controls on ActiveChain; keep transcripts, account identifiers, and full balances off-chain.
   - [x] Add a canonical finalized predicate receipt preserving the exact evidence and assurance,
     predicate, verifier/proof version, status, policy, nullifier, and finalized-height bindings.
+  - [x] Consume receipt nullifiers through the canonical accumulator and persist the updated root
+    atomically before acknowledgement, rejecting replay, stale witnesses, and corrupt restart state.
 - [ ] Formally prove the evidence-to-claim-to-circuit-to-APL refinement, no provenance escalation,
   predicate soundness, action/audience binding, replay resistance, and declared unlinkability.
 - [ ] Pass cross-repository malformed/adversarial vectors, device-key integration, privacy review,
