@@ -1,0 +1,7 @@
+fixture_version=1
+canonical_bytes=1024
+charged_bytes=3072
+epochs=10
+unit_price=2
+pressure_multiplier=4
+total=245760

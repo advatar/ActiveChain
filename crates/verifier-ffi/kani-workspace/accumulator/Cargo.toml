@@ -1,0 +1,14 @@
+# Verification-only metadata shim. The library target is the production accumulator source.
+[package]
+name = "activechain-accumulator"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+path = "../../../accumulator/src/lib.rs"
+
+[dependencies]
+sha3.workspace = true

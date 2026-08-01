@@ -3,6 +3,13 @@
 version = 4
 
 [[package]]
+name = "activechain-accumulator"
+version = "0.1.0"
+dependencies = [
+ "sha3",
+]
+
+[[package]]
 name = "activechain-bytecode-verifier"
 version = "0.1.0"
 dependencies = [
@@ -27,6 +34,7 @@ dependencies = [
 name = "activechain-protocol-types"
 version = "0.1.0"
 dependencies = [
+ "activechain-accumulator",
  "activechain-canonical-codec",
  "sha3",
 ]

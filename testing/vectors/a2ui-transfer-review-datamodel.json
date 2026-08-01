@@ -1,0 +1,14 @@
+{
+  "version": "v0.9",
+  "updateDataModel": {
+    "surfaceId": "activechain.transfer_review.v1",
+    "path": "/approval",
+    "value": {
+      "title": "Review transfer",
+      "verified": {"amount":"125.00 AC EUR","recipient":"Recipient: merchant.ke.001"},
+      "warning": "Verify these wallet-reconstructed facts. The agent explanation below is untrusted.",
+      "agent": {"label":"Agent explanation — unverified","explanation":"Pay the referenced invoice"},
+      "actions": {"reject":"Reject","approve":"Approve in wallet"}
+    }
+  }
+}

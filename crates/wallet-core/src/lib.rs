@@ -28,7 +28,8 @@ pub use agent_management::{
 };
 pub use cash_authorization::{
     AuthorizedCashSessionGrantV1, AuthorizedCashTransferV1, CashAuthorizationRequestV1,
-    CashSessionAdmissionWitnessV1, CashSessionGrantV1, recipient_commitment,
+    CashSessionAdmissionWitnessV1, CashSessionGrantV1, OperatorFaucetAuthorizationV1,
+    recipient_commitment,
 };
 pub use cash_persistence::{
     FinalizedIdentityKeyProof, FinalizedIdentityKeyVerifier, authenticator_set_root,
@@ -573,6 +574,46 @@ impl TransactionIngress {
         let authorized = decode_envelope::<AuthorizedCashTransferV1>(bytes)
             .map_err(|_| WalletError::MalformedAuthorization)?;
         self.submit_authorized(&authorized, height)
+    }
+
+    /// Atomically installs a one-shot authorized session and admits its exact transfer.
+    ///
+    /// Faucet/operator signers use this boundary so a crash cannot persist a session without its
+    /// matching transfer or expose a transfer without its replay barriers. The complete next
+    /// state is validated and durably published before it replaces the caller-visible state.
+    pub fn submit_session_and_transfer_durable(
+        &mut self,
+        session: &AuthorizedCashSessionGrantV1,
+        transfer: &AuthorizedCashTransferV1,
+        height: u64,
+        path: &std::path::Path,
+    ) -> Result<(), WalletError> {
+        if session.grant().session_id() != transfer.request().session_id()
+            || session.grant().signer() != transfer.request().signer()
+            || session.grant().chain_id() != transfer.request().chain_id()
+        {
+            return Err(WalletError::MalformedAuthorization);
+        }
+        let mut next = self.clone();
+        next.register_session(session)?;
+        next.submit_authorized(transfer, height)?;
+        next.save_atomic(path)?;
+        *self = next;
+        Ok(())
+    }
+
+    pub fn submit_operator_faucet_authorization_durable(
+        &mut self,
+        authorization: &OperatorFaucetAuthorizationV1,
+        height: u64,
+        path: &std::path::Path,
+    ) -> Result<(), WalletError> {
+        self.submit_session_and_transfer_durable(
+            authorization.session(),
+            authorization.transfer(),
+            height,
+            path,
+        )
     }
 
     /// Non-authoritative compatibility helper for isolated ledger tests only.
@@ -1445,7 +1486,7 @@ mod tests {
         let signed = sign_cash_request(request, &key);
         let envelope = encode_envelope(&signed).unwrap();
         let mut wrong_version = envelope.clone();
-        wrong_version[3] = 2;
+        wrong_version[3] = 3;
         assert_eq!(
             ingress.submit_envelope(&wrong_version, 5),
             Err(WalletError::MalformedAuthorization)
@@ -1513,6 +1554,39 @@ mod tests {
         let tampered =
             AuthorizedCashTransferV1::new(tampered_request, original.signature().clone()).unwrap();
         assert_eq!(ingress.submit_authorized(&tampered, 5), Err(WalletError::InvalidSignature));
+
+        let referenced_request = CashAuthorizationRequestV1::new_with_settlement_reference(
+            original.request().chain_id(),
+            original.request().signer(),
+            original.request().nonce(),
+            original.request().session_id(),
+            original.request().session_expires_at(),
+            Some(digest(90)),
+            original.request().transfer().clone(),
+        )
+        .unwrap();
+        let referenced = sign_cash_request(referenced_request, &key);
+        let substituted_reference = CashAuthorizationRequestV1::new_with_settlement_reference(
+            referenced.request().chain_id(),
+            referenced.request().signer(),
+            referenced.request().nonce(),
+            referenced.request().session_id(),
+            referenced.request().session_expires_at(),
+            Some(digest(91)),
+            referenced.request().transfer().clone(),
+        )
+        .unwrap();
+        assert_ne!(
+            referenced.request().intent_id().unwrap(),
+            substituted_reference.intent_id().unwrap()
+        );
+        let substituted_reference =
+            AuthorizedCashTransferV1::new(substituted_reference, referenced.signature().clone())
+                .unwrap();
+        assert_eq!(
+            ingress.submit_authorized(&substituted_reference, 5),
+            Err(WalletError::InvalidSignature)
+        );
 
         let mut recipient_tampered = encode_envelope(&original).unwrap();
         let commitment = original.request().recipient_commitment().into_bytes();
@@ -1662,7 +1736,62 @@ mod tests {
     }
 
     #[test]
-    fn legacy_cash_snapshot_migrates_once_and_rewrites_as_v3() {
+    fn operator_session_and_transfer_publish_as_one_durable_state() {
+        let (mut ingress, key, owner, input, reserve) = setup_authorized_ingress(42);
+        let session = digest(77);
+        let request =
+            cash_request(ChainId::new(digest(1)), owner, 0, session, 15, input, reserve, 10);
+        let authorized = sign_cash_request(request.clone(), &key);
+        let grant = sign_session_grant(&request, &key, 11);
+        let path = std::env::temp_dir().join(format!(
+            "activechain-operator-session-transfer-{}-{}.bin",
+            std::process::id(),
+            session.as_bytes()[0]
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        ingress.submit_session_and_transfer_durable(&grant, &authorized, 5, &path).unwrap();
+        let restored = TransactionIngress::load(&path, ChainId::new(digest(1))).unwrap();
+        assert_eq!(restored.next_nonce(owner), Some(1));
+        assert!(restored.session_consumed(owner, session));
+        assert_eq!(restored.ledger(), ingress.ledger());
+
+        let mismatched_request =
+            cash_request(ChainId::new(digest(1)), owner, 1, digest(78), 15, input, reserve, 10);
+        let before = ingress.clone();
+        assert_eq!(
+            ingress.submit_session_and_transfer_durable(
+                &grant,
+                &sign_cash_request(mismatched_request, &key),
+                5,
+                &path,
+            ),
+            Err(WalletError::MalformedAuthorization)
+        );
+        assert_eq!(ingress, before);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn prior_v3_cash_snapshot_migrates_once_and_rewrites_as_v4() {
+        let (ingress, _key, _owner, _input, _reserve) = setup_authorized_ingress(48);
+        let legacy = ingress.encode_legacy_v3_for_test().unwrap();
+        let path = std::env::temp_dir()
+            .join(format!("activechain-cash-ingress-v3-{}.bin", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        std::fs::write(&path, legacy).unwrap();
+
+        let migrated = TransactionIngress::load(&path, ChainId::new(digest(1))).unwrap();
+        assert_eq!(migrated, ingress);
+        migrated.save_atomic(&path).unwrap();
+        let rewritten = std::fs::read(&path).unwrap();
+        assert_eq!(u16::from_be_bytes([rewritten[2], rewritten[3]]), 4);
+        assert_eq!(TransactionIngress::load(&path, ChainId::new(digest(1))).unwrap(), migrated);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn legacy_cash_snapshot_migrates_once_and_rewrites_as_v4() {
         let (ingress, _key, _owner, _input, _reserve) = setup_authorized_ingress(49);
         let legacy = ingress.encode_legacy_v2_for_test().unwrap();
         let path = std::env::temp_dir()
@@ -1676,7 +1805,7 @@ mod tests {
         assert_eq!(migrated.ledger().supply().issuance_in_window(), 0);
         migrated.save_atomic(&path).unwrap();
         let rewritten = std::fs::read(&path).unwrap();
-        assert_eq!(u16::from_be_bytes([rewritten[2], rewritten[3]]), 3);
+        assert_eq!(u16::from_be_bytes([rewritten[2], rewritten[3]]), 4);
         assert_eq!(TransactionIngress::load(&path, ChainId::new(digest(1))).unwrap(), migrated);
         std::fs::remove_file(path).unwrap();
     }

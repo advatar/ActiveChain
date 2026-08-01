@@ -66,6 +66,8 @@ targets:
       - path: Tests
     dependencies:
       - target: ActiveChainWallet
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
   ActiveChainWalletMacTests:
     type: bundle.unit-test
     platform: macOS
@@ -73,6 +75,7 @@ targets:
     sources:
       - path: Tests
     settings:
+      GENERATE_INFOPLIST_FILE: YES
       PRODUCT_MODULE_NAME: ActiveChainWalletMacTests
       SWIFT_VERSION: "5.9"
     dependencies:

@@ -21,6 +21,7 @@ default = ["runtime"]
 runtime = ["dep:activechain-cash-kernel", "dep:activechain-crypto-provider", "dep:activechain-privacy-kernel"]
 
 [dev-dependencies]
+activechain-accumulator.workspace = true
 proptest.workspace = true
 
 [lints]

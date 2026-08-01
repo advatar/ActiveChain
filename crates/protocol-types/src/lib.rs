@@ -22,6 +22,7 @@ mod did;
 mod migration;
 mod object;
 mod package;
+mod version;
 
 /// Sparse allocation prevents deferred protocol versions from reinterpreting v1.0 bytes.
 pub const V1_TYPE_TAG_MIN: u16 = 0x0020;
@@ -61,10 +62,11 @@ pub use checked_arithmetic::{
 };
 pub use compliance::{
     ComplianceError, ComplianceEvidenceBindingV1, ComplianceReplayKey, ComplianceReplaySet,
-    ComplianceSignatureEnvelopeV1, ComplianceSignatureEnvelopeV2, EvidenceDeletionMode,
-    EvidenceRetentionPolicyV1, JurisdictionProfileCandidate, ProfileSelection, ScreeningDecisionV1,
-    ScreeningOutcome, ScreeningOverrideV1, ScreeningPolicyV1, TravelRuleBindingV1,
-    select_jurisdiction_profiles,
+    ComplianceReplayWitness, ComplianceSignatureEnvelopeV1, ComplianceSignatureEnvelopeV2,
+    EvidenceDeletionMode, EvidenceRetentionPolicyV1, JurisdictionProfileCandidate, KenyaControlSet,
+    KenyaRegulatedActivity, KenyaRegulatedProfileV1, LEGACY_MAX_COMPLIANCE_REPLAY_KEYS,
+    ProfileSelection, ScreeningDecisionV1, ScreeningOutcome, ScreeningOverrideV1,
+    ScreeningPolicyV1, TravelRuleBindingV1, select_jurisdiction_profiles,
 };
 pub use consensus::{
     BlockProposal, BlockProposalError, ConsensusBlockRef, ConsensusUpgradeAuthorization,
@@ -80,9 +82,10 @@ pub use consensus_state::{
     MAX_RETIRED_VALIDATOR_SET_ROOTS,
 };
 pub use credential::{
-    CREDENTIAL_FORMAT_VERSION, Credential, CredentialAcceptancePolicy, CredentialPredicateKind,
-    CredentialPredicateV1, CredentialStatement, CredentialStatusRegistry,
+    CREDENTIAL_FORMAT_VERSION, Credential, CredentialAcceptancePolicy, CredentialAssuranceClassV1,
+    CredentialPredicateKind, CredentialPredicateV1, CredentialStatement, CredentialStatusRegistry,
     CredentialValidationError, MAX_ACCEPTED_CREDENTIAL_ISSUERS, MAX_ACCEPTED_CREDENTIAL_SCHEMAS,
+    TlsCredentialEvidenceV1,
 };
 pub use crypto::{
     AuthenticatorDescriptor, AuthenticatorPurpose, AuthenticatorValidationError, CryptoFamily,
@@ -102,6 +105,14 @@ pub use object::{
 pub use package::{
     MAX_PACKAGE_ENTRIES, MAX_PACKAGE_IMPORTS, PackageManifest, PackageManifestError,
     PackageUpgradeError, UpgradePolicy,
+};
+pub use version::{
+    HeaderSlotRule, ProtocolFeature, ProtocolVersionError, ProtocolVersionProfile,
+    TypeDispatchError, V1_0_PROTOCOL_REVISION, V1_1_EXECUTION_PROOF_ACTIVATION_TAG,
+    V1_1_PROTOCOL_REVISION, V1_2_PRIVATE_CREDENTIAL_ACTIVATION_TAG,
+    V1_2_PRIVATE_OBJECT_ACTIVATION_TAG, V1_2_PROTOCOL_REVISION,
+    V1_2_SHIELDED_PAYMENT_ACTIVATION_TAG, V1_2_VIEWING_CAPABILITY_ACTIVATION_TAG,
+    V1_3_PROTOCOL_REVISION, V1_4_PROTOCOL_REVISION, V2_PROTOCOL_REVISION,
 };
 
 /// The fixed size of every protocol digest and identifier.

@@ -62,9 +62,9 @@
     {
       "id": "devnet-block-v1",
       "type_tag": "0x0073",
-      "schema_version": 1,
+      "schema_version": 2,
       "source": "devnet/devnet-block-v1.txt",
-      "sha256": "80050406b27ad3f53bf3094938a9e39c5154e38eaa03240d84f3c9317fa9b627",
+      "sha256": "dde6ad90280686ff53ca0302f8a61863addb6fc0768812efd0a58c7d990426c4",
       "status": "valid"
     },
     {
@@ -73,6 +73,14 @@
       "schema_version": 1,
       "source": "application/external-anchor-v1.txt",
       "sha256": "5bc58aeff5b1a0baf16467a1fb0dbf37f705ec49abc9681e844485b6aea501d9",
+      "status": "valid"
+    },
+    {
+      "id": "apple-anchor-client-v1",
+      "type_tag": "0x00c6,0x0107",
+      "schema_version": 1,
+      "source": "application/apple-anchor-client-v1.txt",
+      "sha256": "0267c2bfab5dcf27c1e209c3e04567515d1c212edcceaaef14990024be2e85eb",
       "status": "valid"
     }
   ],

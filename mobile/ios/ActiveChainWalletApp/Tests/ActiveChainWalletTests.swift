@@ -1,8 +1,176 @@
 import XCTest
 import Security
+import ActiveChainWallet
 @testable import ActiveChainWalletApp
 
 final class ActiveChainWalletTests: XCTestCase {
+    func testFundingPresentationNeverCreditsPendingOrRejectedRequests() {
+        let states: [WalletFundingState] = [
+            .unavailable(reason: "missing key"),
+            .ready,
+            .requesting,
+            .pending(reference: "abc"),
+            .rejected(reference: "abc", reason: "limit")
+        ]
+        XCTAssertTrue(states.allSatisfy { !$0.creditsBalance })
+        XCTAssertTrue(WalletFundingState.finalized(reference: "abc", height: 7).creditsBalance)
+    }
+
+    func testFundingPresentationUsesHonestLifecycleLabels() {
+        XCTAssertEqual(WalletFundingState.ready.title, "Request testnet ACT")
+        XCTAssertEqual(WalletFundingState.requesting.title, "Submitting signed request")
+        XCTAssertEqual(WalletFundingState.pending(reference: "abc").title, "Funding pending")
+        XCTAssertEqual(
+            WalletFundingState.finalized(reference: "abc", height: 7).title,
+            "Funding finalized"
+        )
+        XCTAssertEqual(
+            WalletFundingState.rejected(reference: nil, reason: "disabled").title,
+            "Funding rejected"
+        )
+    }
+
+    func testFaucetRequestUsesPlainBoundedCanonicalRPCShape() throws {
+        let frame = try WalletRPCCodec.framedFaucetRequest(
+            owner: Data(repeating: 3, count: 48),
+            idempotencyKey: Data(repeating: 4, count: 48),
+            sourceCommitment: Data(repeating: 5, count: 48)
+        )
+        XCTAssertEqual(Array(frame.prefix(4)), [0, 0, 1, 0])
+        XCTAssertEqual(Array(frame[4..<8]), [0, 0xa0, 0, 1])
+        XCTAssertEqual(Array(frame[8..<10]), [0xfa, 0x01])
+        XCTAssertEqual(frame[10], 5)
+        XCTAssertEqual(frame.count, 260)
+        XCTAssertThrowsError(
+            try WalletRPCCodec.framedFaucetRequest(
+                owner: Data(repeating: 0, count: 48),
+                idempotencyKey: Data(repeating: 4, count: 48),
+                sourceCommitment: Data(repeating: 5, count: 48)
+            )
+        )
+    }
+
+    func testFaucetTermsAndPendingReceiptDecodeWithoutCreditingBalance() throws {
+        var termsBody = Data([7])
+        termsBody.append(WalletKanalen.chainID)
+        termsBody.append(WalletKanalen.genesis)
+        termsBody.append(contentsOf: UInt64(1).bigEndianBytes)
+        termsBody.append(contentsOf: UInt64(1_000).bigEndianBytes)
+        termsBody.append(Data(repeating: 0, count: 15) + Data([10]))
+        termsBody.append(contentsOf: UInt64(60).bigEndianBytes)
+        termsBody.append(contentsOf: UInt16(2).bigEndianBytes)
+        termsBody.append(contentsOf: UInt64(60).bigEndianBytes)
+        termsBody.append(contentsOf: UInt16(2).bigEndianBytes)
+        termsBody.append(contentsOf: UInt64(60).bigEndianBytes)
+        termsBody.append(contentsOf: UInt32(10).bigEndianBytes)
+        termsBody.append(contentsOf: [0, 0])
+        let terms = try WalletRPCCodec.decodeFaucetTerms(rpcResponse(body: termsBody))
+        XCTAssertEqual(terms.chainID, WalletKanalen.chainID)
+        XCTAssertEqual(terms.genesis, WalletKanalen.genesis)
+        XCTAssertEqual(terms.challengeKind, 0)
+
+        var receiptBody = Data([6])
+        receiptBody.append(Data(repeating: 7, count: 48))
+        receiptBody.append(Data(repeating: 8, count: 48))
+        receiptBody.append(Data(repeating: 0, count: 15) + Data([10]))
+        receiptBody.append(contentsOf: [0, 1])
+        receiptBody.append(Data(repeating: 9, count: 48))
+        receiptBody.append(contentsOf: [0, 0, 0])
+        let receipt = try WalletRPCCodec.decodeFaucetReceipt(rpcResponse(body: receiptBody))
+        XCTAssertEqual(receipt.state, 0)
+        XCTAssertNil(receipt.finalizedHeight)
+        XCTAssertFalse(WalletFundingState.pending(reference: "07").creditsBalance)
+    }
+
+    func testSharedCanonicalApprovalVectorCrossesTheRustCAndSwiftBoundaries() throws {
+        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        var vectorURL: URL?
+        while directory.path != "/" {
+            let candidate = directory.appendingPathComponent(
+                "testing/vectors/wallet-canonical-approval-v1.txt"
+            )
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                vectorURL = candidate
+                break
+            }
+            directory.deleteLastPathComponent()
+        }
+        let contents = try String(contentsOf: try XCTUnwrap(vectorURL), encoding: .utf8)
+        let vector = Dictionary(uniqueKeysWithValues: contents.split(separator: "\n")
+            .filter { !$0.hasPrefix("#") && $0.contains("=") }
+            .map { line -> (String, String) in
+                let fields = line.split(separator: "=", maxSplits: 1)
+                return (String(fields[0]), String(fields[1]))
+            })
+        let request = try XCTUnwrap(Data(strictHex: vector["request_hex"]!))
+        let approval = try RustCanonicalApproval.review(request)
+
+        XCTAssertEqual(approval.intentID, Data(strictHex: vector["intent_id"]!))
+        XCTAssertEqual(approval.recipient, Data(strictHex: vector["recipient"]!))
+        XCTAssertEqual(approval.nonce, 7)
+        XCTAssertEqual(approval.amount, Unsigned128Words(high: 0, low: 50))
+
+        var alternate = request
+        alternate.append(0)
+        XCTAssertThrowsError(try RustCanonicalApproval.review(alternate))
+    }
+
+    func testCanonicalApprovalSessionFailsClosedAfterOneAuthenticatedSigningAttempt() throws {
+        let approval = try sharedCanonicalApproval()
+        let fixture = AppleCustodyFixture()
+        var recoveryKey = Data(repeating: 0x91, count: 32)
+        _ = try fixture.provider.provision(
+            slotID: "wallet-primary", keyVersion: 1, finalizedHeight: 20,
+            recoveryKey: &recoveryKey
+        )
+        let session = CanonicalCashApprovalSession(approval: approval)
+
+        XCTAssertThrowsError(try session.sign(
+            with: fixture.provider, slotID: "wallet-primary",
+            minimumVersion: 1, minimumFinalizedHeight: 20
+        ))
+        XCTAssertEqual(fixture.hardware.unwrapCount, 1)
+        XCTAssertThrowsError(try session.sign(
+            with: fixture.provider, slotID: "wallet-primary",
+            minimumVersion: 1, minimumFinalizedHeight: 20
+        )) { error in
+            XCTAssertEqual(error as? CanonicalApprovalError, .alreadyConsumed)
+        }
+        XCTAssertEqual(fixture.hardware.unwrapCount, 1)
+    }
+
+    func testCanonicalApprovalSessionRejectsSubstitutedHumanReviewBeforeCustody() throws {
+        let approval = try sharedCanonicalApproval()
+        let substituted = CanonicalCashApproval(
+            request: approval.request, chainID: approval.chainID, signer: approval.signer,
+            recipient: Data(repeating: 0xff, count: 48), feeReserve: approval.feeReserve,
+            sessionID: approval.sessionID, intentID: approval.intentID, nonce: approval.nonce,
+            sessionExpiresAt: approval.sessionExpiresAt, amount: approval.amount, fee: approval.fee,
+            validUntil: approval.validUntil, inputCount: approval.inputCount
+        )
+        let fixture = AppleCustodyFixture()
+        XCTAssertThrowsError(try CanonicalCashApprovalSession(approval: substituted).sign(
+            with: fixture.provider, slotID: "missing", minimumVersion: 1,
+            minimumFinalizedHeight: 0
+        )) { error in
+            XCTAssertEqual(error as? CanonicalApprovalError, .substitutedReview)
+        }
+        XCTAssertEqual(fixture.hardware.unwrapCount, 0)
+    }
+
+    func testRustNativeMLDSAEngineProducesWireCompatibleLengths() throws {
+        let engine = RustAppleMLDSA44Engine()
+        var seed = Data(repeating: 73, count: AppleNativeCustodyProvider.seedLength)
+        let publicKey = try engine.publicKey(seed: &seed)
+        let repeatedPublicKey = try engine.publicKey(seed: &seed)
+        let signature = try engine.sign(payload: Data("canonical payload".utf8), seed: &seed)
+
+        XCTAssertEqual(publicKey.count, AppleNativeCustodyProvider.publicKeyLength)
+        XCTAssertEqual(publicKey, repeatedPublicKey)
+        XCTAssertEqual(signature.count, AppleNativeCustodyProvider.signatureLength)
+        XCTAssertEqual(seed, Data(repeating: 73, count: AppleNativeCustodyProvider.seedLength))
+    }
+
     func testReceiveRequestBindsAddressToNetworkAndGenesis() throws {
         let request = ReceiveRequest(
             networkID: "roslagen",
@@ -55,10 +223,47 @@ final class ActiveChainWalletTests: XCTestCase {
         XCTAssertThrowsError(try SharedKeychainConfiguration(accessGroup: "dev.activechain.wallet"))
     }
 
-    func testLocalApproval() throws {
-        let bridge = LocalWalletBridge()
-        let preview = bridge.previewTransfer(recipient: "did:activechain:test", amount: 1, feeReserve: 1, validUntil: 10, currentHeight: 1)
-        XCTAssertNoThrow(try bridge.approveTransfer(preview))
+    func testCanonicalApprovalComesFromExactRustRequest() throws {
+        func digest(_ byte: UInt8) -> UnsafeMutablePointer<UInt8> {
+            let pointer = UnsafeMutablePointer<UInt8>.allocate(capacity: 48)
+            pointer.initialize(repeating: byte, count: 48)
+            return pointer
+        }
+        let chain = digest(1), signer = digest(2), recipient = digest(3)
+        let input = digest(4), reserve = digest(5), session = digest(6)
+        defer { [chain, signer, recipient, input, reserve, session].forEach { $0.deallocate() } }
+        var required: UInt32 = 0
+        var intent = Data(repeating: 0, count: 48)
+        let query = intent.withUnsafeMutableBytes {
+            activechain_wallet_build_cash_intent(
+                chain, signer, recipient, input, reserve, 7, session, 9,
+                0, 50, 0, 2, 10, nil, 0, &required,
+                $0.bindMemory(to: UInt8.self).baseAddress
+            )
+        }
+        XCTAssertEqual(query, UInt32(ACTIVECHAIN_WALLET_BUFFER_TOO_SMALL))
+        var request = Data(repeating: 0, count: Int(required))
+        let code = request.withUnsafeMutableBytes { requestBytes in
+            intent.withUnsafeMutableBytes { intentBytes in
+                activechain_wallet_build_cash_intent(
+                    chain, signer, recipient, input, reserve, 7, session, 9,
+                    0, 50, 0, 2, 10,
+                    requestBytes.bindMemory(to: UInt8.self).baseAddress, required, &required,
+                    intentBytes.bindMemory(to: UInt8.self).baseAddress
+                )
+            }
+        }
+        XCTAssertEqual(code, UInt32(ACTIVECHAIN_WALLET_OK))
+        let approval = try RustCanonicalApproval.review(request)
+        XCTAssertEqual(approval.intentID, intent)
+        XCTAssertEqual(approval.recipient, Data(repeating: 3, count: 48))
+        XCTAssertEqual(approval.amount, Unsigned128Words(high: 0, low: 50))
+        XCTAssertEqual(approval.fee, Unsigned128Words(high: 0, low: 2))
+        XCTAssertEqual(approval.validUntil, 10)
+        XCTAssertEqual(approval.inputCount, 1)
+
+        request[request.index(before: request.endIndex)] ^= 1
+        XCTAssertNotEqual(try RustCanonicalApproval.review(request).intentID, approval.intentID)
     }
 
     func testOpenWalletCredentialAndSessionReplayRules() {
@@ -309,6 +514,173 @@ final class ActiveChainWalletTests: XCTestCase {
         XCTAssertNil(AgentIntentRouter.consume(defaults: defaults))
     }
 
+    func testNativeCustodySignsOnlyAtCurrentRollbackAnchors() throws {
+        let fixture = AppleCustodyFixture()
+        var recoveryKey = Data(repeating: 9, count: 32)
+        let publicKey = try fixture.provider.provision(
+            slotID: "primary",
+            keyVersion: 1,
+            finalizedHeight: 10,
+            recoveryKey: &recoveryKey
+        )
+
+        XCTAssertEqual(publicKey.count, 1_312)
+        XCTAssertEqual(
+            try fixture.provider.sign(
+                slotID: "primary",
+                payload: Data([7]),
+                minimumVersion: 1,
+                minimumFinalizedHeight: 10,
+                reason: "Approve"
+            ).count,
+            2_420
+        )
+        XCTAssertThrowsError(
+            try fixture.provider.sign(
+                slotID: "primary",
+                payload: Data([7]),
+                minimumVersion: 2,
+                minimumFinalizedHeight: 10,
+                reason: "Approve"
+            )
+        ) { XCTAssertEqual($0 as? AppleCustodyError, .rollback) }
+        XCTAssertThrowsError(
+            try fixture.provider.sign(
+                slotID: "primary",
+                payload: Data([7]),
+                minimumVersion: 1,
+                minimumFinalizedHeight: 11,
+                reason: "Approve"
+            )
+        ) { XCTAssertEqual($0 as? AppleCustodyError, .rollback) }
+    }
+
+    func testNativeCustodyRejectsCancellationLockedWrongAndRevokedKeys() throws {
+        let fixture = AppleCustodyFixture()
+        var recoveryKey = Data(repeating: 4, count: 32)
+        _ = try fixture.provider.provision(
+            slotID: "primary",
+            keyVersion: 1,
+            finalizedHeight: 10,
+            recoveryKey: &recoveryKey
+        )
+        fixture.hardware.failure = .authenticationCancelled
+        XCTAssertThrowsError(
+            try fixture.provider.sign(
+                slotID: "primary", payload: Data([1]), minimumVersion: 1,
+                minimumFinalizedHeight: 10, reason: "Approve"
+            )
+        ) { XCTAssertEqual($0 as? AppleCustodyError, .authenticationCancelled) }
+        fixture.hardware.failure = .deviceLocked
+        XCTAssertThrowsError(
+            try fixture.provider.sign(
+                slotID: "primary", payload: Data([1]), minimumVersion: 1,
+                minimumFinalizedHeight: 10, reason: "Approve"
+            )
+        ) { XCTAssertEqual($0 as? AppleCustodyError, .deviceLocked) }
+        fixture.hardware.failure = nil
+        fixture.hardware.substitutePlaintext = Data(repeating: 99, count: 32)
+        XCTAssertThrowsError(
+            try fixture.provider.sign(
+                slotID: "primary", payload: Data([1]), minimumVersion: 1,
+                minimumFinalizedHeight: 10, reason: "Approve"
+            )
+        ) { XCTAssertEqual($0 as? AppleCustodyError, .wrongKey) }
+        fixture.hardware.substitutePlaintext = nil
+        try fixture.provider.revoke(slotID: "primary")
+        XCTAssertThrowsError(
+            try fixture.provider.sign(
+                slotID: "primary", payload: Data([1]), minimumVersion: 1,
+                minimumFinalizedHeight: 10, reason: "Approve"
+            )
+        ) { XCTAssertEqual($0 as? AppleCustodyError, .revoked) }
+        XCTAssertThrowsError(try fixture.provider.exportRecoveryEnvelope(slotID: "primary")) {
+            XCTAssertEqual($0 as? AppleCustodyError, .revoked)
+        }
+    }
+
+    func testNativeCustodyRotationStoresReplacementBeforeDeletingOldKey() throws {
+        let fixture = AppleCustodyFixture()
+        var recoveryKey = Data(repeating: 4, count: 32)
+        _ = try fixture.provider.provision(
+            slotID: "primary", keyVersion: 1, finalizedHeight: 10,
+            recoveryKey: &recoveryKey
+        )
+        let oldTag = try XCTUnwrap(fixture.hardware.tags.first)
+        fixture.store.failNextSave = true
+        XCTAssertThrowsError(
+            try fixture.provider.rotate(
+                slotID: "primary", newVersion: 2, finalizedHeight: 11,
+                recoveryKey: &recoveryKey
+            )
+        ) { XCTAssertEqual($0 as? AppleCustodyError, .storageFailure) }
+        XCTAssertTrue(fixture.hardware.tags.contains(oldTag))
+        XCTAssertEqual(fixture.hardware.tags.count, 1)
+
+        _ = try fixture.provider.rotate(
+            slotID: "primary", newVersion: 2, finalizedHeight: 11,
+            recoveryKey: &recoveryKey
+        )
+        XCTAssertFalse(fixture.hardware.tags.contains(oldTag))
+        XCTAssertThrowsError(
+            try fixture.provider.rotate(
+                slotID: "primary", newVersion: 2, finalizedHeight: 12,
+                recoveryKey: &recoveryKey
+            )
+        ) { XCTAssertEqual($0 as? AppleCustodyError, .rollback) }
+    }
+
+    func testNativeCustodyRecoveryBindsKeyVersionAndMetadata() throws {
+        let fixture = AppleCustodyFixture()
+        var recoveryKey = Data(repeating: 4, count: 32)
+        let publicKey = try fixture.provider.provision(
+            slotID: "primary", keyVersion: 1, finalizedHeight: 10,
+            recoveryKey: &recoveryKey
+        )
+        let envelope = try fixture.provider.exportRecoveryEnvelope(slotID: "primary")
+        try fixture.provider.revoke(slotID: "primary")
+
+        let replacement = AppleCustodyFixture()
+        XCTAssertEqual(
+            try replacement.provider.recover(
+                envelopeBytes: envelope,
+                expectedPublicKey: publicKey,
+                newVersion: 2,
+                finalizedHeight: 11,
+                recoveryKey: &recoveryKey
+            ),
+            publicKey
+        )
+        XCTAssertThrowsError(
+            try AppleCustodyFixture().provider.recover(
+                envelopeBytes: envelope,
+                expectedPublicKey: Data(repeating: 0, count: 1_312),
+                newVersion: 2,
+                finalizedHeight: 11,
+                recoveryKey: &recoveryKey
+            )
+        ) { XCTAssertEqual($0 as? AppleCustodyError, .wrongKey) }
+        var wrongRecoveryKey = Data(repeating: 8, count: 32)
+        XCTAssertThrowsError(
+            try AppleCustodyFixture().provider.recover(
+                envelopeBytes: envelope,
+                expectedPublicKey: publicKey,
+                newVersion: 2,
+                finalizedHeight: 11,
+                recoveryKey: &wrongRecoveryKey
+            )
+        ) { XCTAssertEqual($0 as? AppleCustodyError, .cryptographicFailure) }
+        XCTAssertThrowsError(
+            try AppleCustodyFixture().provider.recover(
+                envelopeBytes: Data([1, 2, 3]),
+                expectedPublicKey: publicKey,
+                newVersion: 2,
+                finalizedHeight: 11,
+                recoveryKey: &recoveryKey
+            )
+        ) { XCTAssertEqual($0 as? AppleCustodyError, .unsupportedRecord) }
+    }
+
     private func makeStatusResponse(
         chainID: Data = WalletKanalen.chainID,
         genesis: Data = WalletKanalen.genesis,
@@ -336,6 +708,13 @@ final class ActiveChainWalletTests: XCTestCase {
         return envelope
     }
 
+    private func rpcResponse(body: Data) -> Data {
+        var envelope = Data([0, 0xa1, 0, 1])
+        envelope.append(contentsOf: uleb128(body.count))
+        envelope.append(body)
+        return envelope
+    }
+
     private func uleb128(_ value: Int) -> [UInt8] {
         var value = value
         var result: [UInt8] = []
@@ -346,6 +725,108 @@ final class ActiveChainWalletTests: XCTestCase {
             result.append(byte)
         } while value != 0
         return result
+    }
+
+    private func sharedCanonicalApproval() throws -> CanonicalCashApproval {
+        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        while directory.path != "/" {
+            let candidate = directory.appendingPathComponent(
+                "testing/vectors/wallet-canonical-approval-v1.txt"
+            )
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                let contents = try String(contentsOf: candidate, encoding: .utf8)
+                let requestLine = try XCTUnwrap(contents.split(separator: "\n")
+                    .first { $0.hasPrefix("request_hex=") })
+                let request = try XCTUnwrap(Data(strictHex: String(requestLine.dropFirst(12))))
+                return try RustCanonicalApproval.review(request)
+            }
+            directory.deleteLastPathComponent()
+        }
+        throw CanonicalApprovalError.malformed
+    }
+}
+
+private extension Data {
+    init?(strictHex: String) {
+        guard strictHex.count.isMultiple(of: 2),
+              strictHex.allSatisfy({ $0.isNumber || $0 >= "a" && $0 <= "f" }) else { return nil }
+        self.init()
+        reserveCapacity(strictHex.count / 2)
+        var index = strictHex.startIndex
+        while index < strictHex.endIndex {
+            let next = strictHex.index(index, offsetBy: 2)
+            guard let byte = UInt8(strictHex[index..<next], radix: 16) else { return nil }
+            append(byte)
+            index = next
+        }
+    }
+}
+
+private final class AppleCustodyFixture {
+    let store = AppleMemoryCustodyStore()
+    let hardware = AppleFakeHardwareWrapping()
+    lazy var provider = AppleNativeCustodyProvider(
+        store: store,
+        hardware: hardware,
+        engine: AppleFakeMLDSA44Engine()
+    )
+}
+
+private final class AppleMemoryCustodyStore: AppleCustodyRecordStore {
+    private var records: [String: Data] = [:]
+    var failNextSave = false
+
+    func loadCustodyRecord(slotID: String) throws -> Data? { records[slotID] }
+
+    func saveCustodyRecord(_ data: Data, slotID: String) throws {
+        if failNextSave {
+            failNextSave = false
+            throw AppleCustodyError.storageFailure
+        }
+        records[slotID] = data
+    }
+
+    func deleteCustodyRecord(slotID: String) throws { records.removeValue(forKey: slotID) }
+}
+
+private final class AppleFakeHardwareWrapping: AppleHardwareWrapping {
+    let capability = AppleCustodyCapability.secureEnclaveWrappedMLDSA44
+    private(set) var tags: Set<Data> = []
+    var substitutePlaintext: Data?
+    var failure: AppleCustodyError?
+    private(set) var unwrapCount = 0
+
+    func createAndWrap(secret: Data, tag: Data) throws -> Data {
+        tags.insert(tag)
+        return Data(secret.map { $0 ^ 0x5a })
+    }
+
+    func unwrap(ciphertext: Data, tag: Data, reason: String) throws -> Data {
+        unwrapCount += 1
+        if let failure { throw failure }
+        guard tags.contains(tag) else { throw AppleCustodyError.missingSlot }
+        return substitutePlaintext ?? Data(ciphertext.map { $0 ^ 0x5a })
+    }
+
+    func deleteWrappingKey(tag: Data) throws { tags.remove(tag) }
+}
+
+private final class AppleFakeMLDSA44Engine: AppleMLDSA44Engine {
+    private var next: UInt8 = 1
+
+    func generateSeed() throws -> Data {
+        defer { next &+= 1 }
+        return Data(repeating: next, count: 32)
+    }
+
+    func publicKey(seed: inout Data) throws -> Data {
+        Data((0..<1_312).map { seed[$0 % seed.count] ^ UInt8(truncatingIfNeeded: $0) })
+    }
+
+    func sign(payload: Data, seed: inout Data) throws -> Data {
+        Data((0..<2_420).map {
+            seed[$0 % seed.count] ^ payload[$0 % payload.count]
+        })
     }
 }
 

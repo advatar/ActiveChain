@@ -1,0 +1,123 @@
+{
+  "version": "activechain.agent-interfaces.v1",
+  "cases": [
+    {
+      "name": "read_only_status",
+      "kind": "mcp_request",
+      "accepted": true,
+      "payload": {
+        "version": "activechain.agent-interfaces.v1",
+        "request_id": "status-1",
+        "tool": "get_status",
+        "authority": null,
+        "arguments": {}
+      }
+    },
+    {
+      "name": "proposal_missing_authority",
+      "kind": "mcp_request",
+      "accepted": false,
+      "error": "missing_authority",
+      "payload": {
+        "version": "activechain.agent-interfaces.v1",
+        "request_id": "transfer-1",
+        "tool": "propose_transfer",
+        "authority": null,
+        "arguments": { "amount": "1", "asset": "ACT", "recipient": "example" }
+      }
+    },
+    {
+      "name": "unknown_signing_field",
+      "kind": "mcp_request",
+      "accepted": false,
+      "error": "unknown_field",
+      "payload": {
+        "version": "activechain.agent-interfaces.v1",
+        "request_id": "status-2",
+        "tool": "get_status",
+        "authority": null,
+        "arguments": {},
+        "sign": true
+      }
+    },
+    {
+      "name": "bounded_transfer_review",
+      "kind": "a2ui_surface",
+      "accepted": true,
+      "payload": {
+        "version": "v0.9",
+        "interface_version": "activechain.agent-interfaces.v1",
+        "surface_id": "transfer-review",
+        "root": "root",
+        "intent_commitment": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+        "components": [
+          {
+            "id": "root",
+            "component": "Column",
+            "children": ["summary", "approve"],
+            "child": null,
+            "text": null,
+            "action": null
+          },
+          {
+            "id": "summary",
+            "component": "Text",
+            "children": [],
+            "child": null,
+            "text": { "path": "/verified/summary" },
+            "action": null
+          },
+          {
+            "id": "approve",
+            "component": "Button",
+            "children": [],
+            "child": "approve-label",
+            "text": null,
+            "action": {
+              "name": "activechain.approve",
+              "context": {
+                "intent_commitment": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111"
+              }
+            }
+          },
+          {
+            "id": "approve-label",
+            "component": "Text",
+            "children": [],
+            "child": null,
+            "text": { "path": "/labels/approve" },
+            "action": null
+          }
+        ],
+        "data_model": {
+          "verified": { "summary": "Send 1 ACT" },
+          "labels": { "approve": "Approve" }
+        }
+      }
+    },
+    {
+      "name": "web_component_rejected",
+      "kind": "a2ui_surface",
+      "accepted": false,
+      "error": "invalid_component",
+      "payload": {
+        "version": "v0.9",
+        "interface_version": "activechain.agent-interfaces.v1",
+        "surface_id": "unsafe-review",
+        "root": "root",
+        "intent_commitment": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+        "components": [
+          {
+            "id": "root",
+            "component": "Web",
+            "children": [],
+            "child": null,
+            "text": null,
+            "action": null
+          }
+        ],
+        "data_model": {}
+      }
+    }
+  ]
+}

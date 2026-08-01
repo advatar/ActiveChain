@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://activechain.dev/schema/agent-interfaces/a2ui-surface-v1.schema.json",
+  "title": "ActiveChain constrained A2UI surface v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "interface_version",
+    "surface_id",
+    "root",
+    "intent_commitment",
+    "components",
+    "data_model"
+  ],
+  "properties": {
+    "version": { "const": "v0.9" },
+    "interface_version": { "const": "activechain.agent-interfaces.v1" },
+    "surface_id": { "$ref": "#/$defs/identifier" },
+    "root": { "$ref": "#/$defs/identifier" },
+    "intent_commitment": { "$ref": "#/$defs/commitment" },
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/component" }
+    },
+    "data_model": { "type": "object", "maxProperties": 256 }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "commitment": { "type": "string", "pattern": "^[A-Fa-f0-9]{96}$" },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": { "path": { "type": "string", "pattern": "^/[^./]+(?:/[^./]+)*$" } }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "enum": ["activechain.approve", "activechain.reject", "activechain.open_details"]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "maxLength": 128 }
+        }
+      }
+    },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "component"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "component": {
+          "enum": [
+            "Button",
+            "Card",
+            "CheckBox",
+            "Column",
+            "Divider",
+            "Icon",
+            "List",
+            "Modal",
+            "RichText",
+            "Row",
+            "Table",
+            "Text"
+          ]
+        },
+        "children": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/identifier" }
+        },
+        "child": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/identifier" }] },
+        "text": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/binding" }] },
+        "action": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/action" }] }
+      }
+    }
+  }
+}

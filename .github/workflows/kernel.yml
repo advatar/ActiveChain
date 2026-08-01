@@ -17,7 +17,9 @@ jobs:
   rust:
     name: Rust kernel on local ARM64
     runs-on: [self-hosted, macOS, ARM64, activechain-ci]
-    timeout-minutes: 120
+    # The authorization-chain Tamarin suite can consume almost two hours on
+    # the pinned ARM64 runner before the remaining deterministic checks run.
+    timeout-minutes: 180
     env:
       CARGO_TERM_COLOR: always
       # Keep build artifacts scoped to the exact synthetic merge revision under qualification.
@@ -52,14 +54,52 @@ jobs:
       - name: Isolate public Docker authentication
         run: |
           ci_docker_config="${RUNNER_TEMP}/activechain-docker-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          ci_docker_bin="${RUNNER_TEMP}/activechain-docker-bin-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          system_docker="$(command -v docker)"
           mkdir -p "${ci_docker_config}/cli-plugins"
-          printf '{}\n' > "${ci_docker_config}/config.json"
+          mkdir -p "${ci_docker_bin}"
+          printf '{"credsStore":"activechain-anonymous"}\n' > "${ci_docker_config}/config.json"
           for plugin in "${HOME}/.docker/cli-plugins/"*; do
             if [[ -f "${plugin}" && -x "${plugin}" ]]; then
               ln -s "${plugin}" "${ci_docker_config}/cli-plugins/$(basename "${plugin}")"
             fi
           done
+          cat > "${ci_docker_bin}/docker" <<EOF
+          #!/bin/sh
+          exec "${system_docker}" --config "${ci_docker_config}" "\$@"
+          EOF
+          cat > "${ci_docker_bin}/docker-credential-activechain-anonymous" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            get)
+              IFS= read -r server_url
+              printf '{"ServerURL":"%s","Username":"","Secret":""}\n' "${server_url}"
+              ;;
+            list) printf '{}\n' ;;
+            store|erase) exit 0 ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod +x "${ci_docker_bin}/docker"
+          chmod +x "${ci_docker_bin}/docker-credential-activechain-anonymous"
           echo "DOCKER_CONFIG=${ci_docker_config}" >> "${GITHUB_ENV}"
+          echo "${ci_docker_bin}" >> "${GITHUB_PATH}"
+      - name: Verify anonymous Docker configuration
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          config = json.loads((Path(os.environ["DOCKER_CONFIG"]) / "config.json").read_text())
+          if config != {"credsStore": "activechain-anonymous"}:
+              raise SystemExit(f"unexpected Docker credential configuration: {config!r}")
+          PY
+          resolved_docker="$(command -v docker)"
+          case "${resolved_docker}" in
+            "${RUNNER_TEMP}/activechain-docker-bin-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/docker") ;;
+            *) echo "Docker isolation wrapper is not first on PATH: ${resolved_docker}" >&2; exit 1 ;;
+          esac
       - name: Preflight pinned RISC0 guest builder
         run: |
           ci_builder="activechain-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -74,6 +114,11 @@ jobs:
         run: cargo fmt --all --check
       - name: Verify canonical type-tag registry
         run: python3 scripts/check-type-tag-registry.py
+      - name: Verify independent-client complexity budget
+        run: python3 scripts/check-independent-client-budget.py
+      - name: Test independent Go M0 vector reader
+        working-directory: tools/go-verifier
+        run: go test ./...
       - name: Check all targets
         env:
           # Clippy checks host code; the following test step builds the pinned guest image.
@@ -136,6 +181,8 @@ jobs:
         run: bash scripts/rehearse-consensus-view-change.sh
       - name: Rehearse validator key rotation
         run: bash scripts/rehearse-validator-key-rotation.sh
+      - name: Verify fail-closed Kanalen cash publication
+        run: bash scripts/test-kanalen-round-cash-gate.sh
       - name: Reproduce canonical vectors
         run: |
           cargo run --locked --quiet -p activechain-vector-generator -- principal-v1 | diff -u testing/vectors/canonical/principal-v1.txt -

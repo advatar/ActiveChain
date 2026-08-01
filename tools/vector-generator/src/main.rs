@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use activechain_accumulator::{AccumulatorDomain, ReferenceSet};
 use activechain_action_kernel::{
     ACTION_PROTOCOL_VERSION, ActionEnvelope, FeeTicket, NonceAdvanceError, NonceChannel,
     ResourcePrices, ResourceVector, ValidityInterval, action_id,
@@ -33,8 +34,9 @@ use activechain_principal::{
     create_principal,
 };
 use activechain_privacy_kernel::{
-    DomainPseudonymOpening, NullifierOpening, NullifierSet, PrivateCredentialPresentation,
-    ShieldedCashState, ShieldedNote, ShieldedTransferPublicInputs, VerifiedPrivacyProof,
+    DomainPseudonymOpening, NullifierOpening, NullifierSet, NullifierWitness,
+    PrivateCredentialPresentation, ShieldedCashState, ShieldedNote, ShieldedTransferPublicInputs,
+    VerifiedPrivacyProof,
 };
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
@@ -491,12 +493,22 @@ fn render_privacy_v1() -> String {
     let public_inputs_commitment = inputs.commitment().expect("privacy vector inputs commit");
     let proof = VerifiedPrivacyProof { public_inputs_commitment, verified: true };
     assert!(proof.verified);
-    let state = ShieldedCashState::new(
-        500,
-        public_inputs_commitment,
-        NullifierSet::new(vec![nullifier]).expect("privacy vector nullifier set is canonical"),
+    let mut reference = ReferenceSet::new(AccumulatorDomain::Nullifier);
+    let witness = reference
+        .non_membership_witness(nullifier.into_bytes())
+        .expect("privacy vector nullifier is absent");
+    let witness = NullifierWitness::new(
+        nullifier,
+        witness.siblings.into_iter().map(Digest384::new).collect(),
     )
-    .expect("privacy vector state is valid");
+    .expect("privacy vector witness is canonical");
+    let mut nullifiers = NullifierSet::default();
+    nullifiers
+        .consume_verified(&[nullifier], &[witness])
+        .expect("privacy vector nullifier update verifies");
+    reference.insert(nullifier.into_bytes()).expect("privacy vector nullifier inserts");
+    let state = ShieldedCashState::new(500, public_inputs_commitment, nullifiers)
+        .expect("privacy vector state is valid");
     let pseudonym =
         DomainPseudonymOpening::new(chain_id, repeated_digest(0xaa), repeated_digest(0xbb), 7)
             .expect("privacy vector pseudonym opening is valid")
@@ -1252,9 +1264,9 @@ fn devnet_values() -> (FeeTicket, NonceChannel, ActionEnvelope, DevnetBlock, Blo
     let maximum_resources = ResourceVector::new(100, 1, 1, 0, 0, 2_000_000);
     let fee_ticket = FeeTicket::new(
         ObjectId::new(repeated_digest(0xe1)),
-        identifier_principal(0xe2),
+        sender,
         3_000_000,
-        60,
+        57,
         11,
         maximum_resources,
     )
@@ -1268,7 +1280,7 @@ fn devnet_values() -> (FeeTicket, NonceChannel, ActionEnvelope, DevnetBlock, Blo
         fee_ticket,
         3,
         7,
-        ValidityInterval::new(40, 60).expect("development vector validity is ordered"),
+        ValidityInterval::new(50, 57).expect("development vector validity is ordered"),
         maximum_resources,
         payload_commitment,
         transaction,
@@ -1280,17 +1292,31 @@ fn devnet_values() -> (FeeTicket, NonceChannel, ActionEnvelope, DevnetBlock, Blo
     let pre_state_commitment =
         commit_objects(pre_state.objects()).expect("development pre-state commits");
     let prices = ResourcePrices::new(1, 2, 3, 4, 5, 1);
-    let state =
-        ChainState::new(chain_id, 49, parent_block_id, pre_state, vec![nonce], vec![], prices)
-            .expect("development vector chain state is canonical");
-    let block =
-        DevnetBlock::new(chain_id, 50, parent_block_id, pre_state_commitment, vec![action.clone()])
-            .expect("development vector block is bounded");
+    let state = ChainState::new(
+        chain_id,
+        49,
+        parent_block_id,
+        pre_state,
+        vec![nonce],
+        vec![activechain_devnet_kernel::FeeAccount::new(sender, 10_000_000, 11)],
+        vec![],
+        prices,
+    )
+    .expect("development vector chain state is canonical");
+    let block = DevnetBlock::new(
+        chain_id,
+        50,
+        parent_block_id,
+        pre_state_commitment,
+        state.commitment().expect("development chain state commits"),
+        vec![action.clone()],
+    )
+    .expect("development vector block is bounded");
     let output = apply_block(&state, &block).expect("development vector block applies");
 
     assert_eq!(output.state().height(), 50);
     assert_eq!(output.state().nonce_channels()[0].next_sequence(), 8);
-    assert_eq!(output.state().used_fee_tickets(), [fee_ticket.ticket_id()]);
+    assert_eq!(output.state().used_fee_tickets()[0].ticket_id(), fee_ticket.ticket_id());
     assert_eq!(
         output
             .state()

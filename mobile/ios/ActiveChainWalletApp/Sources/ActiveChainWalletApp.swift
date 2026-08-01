@@ -73,6 +73,9 @@ private struct HomeView: View {
                 LazyVStack(spacing: 18) {
                     Header()
                     BalanceCard(networkState: liveState.networkState, verifiedPage: liveState.verifiedOwnerPage)
+                    FundingCard(state: liveState.fundingState) {
+                        Task { await liveState.requestTestnetFunding() }
+                    }
                     NetworkCard(state: liveState.networkState) {
                         Task { await liveState.refresh() }
                     }
@@ -88,6 +91,46 @@ private struct HomeView: View {
             .scrollIndicators(.hidden)
         }
         .walletNavigationBarHidden()
+    }
+}
+
+private struct FundingCard: View {
+    let state: WalletFundingState
+    let request: () -> Void
+
+    private var detail: String {
+        switch state {
+        case let .unavailable(reason), let .rejected(_, reason): reason
+        case .ready: "The faucet submits a real Coin Cell transition. Balance changes only after proof-backed finality."
+        case .requesting: "The exact chain-bound request is being authorized and submitted."
+        case let .pending(reference): "Reference \(reference) is awaiting finalized evidence. No balance has been credited."
+        case let .finalized(reference, height): "Reference \(reference) finalized at block \(height). Refreshing owner proofs."
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label(state.title, systemImage: "drop.fill")
+                    .font(.headline)
+                Spacer()
+                if case .requesting = state { ProgressView().controlSize(.small) }
+            }
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(WalletPalette.muted)
+            Button("Request testnet funding", action: request)
+                .buttonStyle(.borderedProminent)
+                .disabled(state != .ready)
+            if !state.creditsBalance {
+                Label("Pending and rejected requests never change the displayed balance",
+                      systemImage: "checkmark.shield.fill")
+                    .font(.caption2)
+                    .foregroundStyle(WalletPalette.mint)
+            }
+        }
+        .cardStyle()
+        .accessibilityElement(children: .contain)
     }
 }
 

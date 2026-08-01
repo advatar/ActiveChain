@@ -13,3 +13,10 @@ predicate_wrong_action\taction=transfer-02;expected=transfer-01\treject\texact a
 predicate_expired\texpires_height=100;current_height=100\treject\texpiry is inclusive and cannot be stale
 predicate_context_mismatch\taudience/action/chain differs from request\treject\tpublic context binding
 predicate_value_proof_rejected\tcontext valid;ZK verifier returns false\treject\tclaim proof remains mandatory
+self_issued_preserved\tassurance=holder_self_issued;issuer_authorization=none\taccept\tprovenance is retained without promotion
+self_issued_as_regulated\tassurance=holder_self_issued;minimum=regulated_attestation\treject\tlower assurance cannot satisfy a stronger policy
+upgraded_without_issuer\tassurance=issuer_upgraded;issuer_authorization=none\treject\tupgrade requires exact issuer authorization commitment
+evidence_substitution\tpredicate binds evidence-A;transcript commitment from evidence-B\treject\tpredicate binds the complete evidence commitment
+evidence_wrong_holder\tevidence holder differs from predicate holder\treject\tholder binding is end to end
+evidence_wrong_schema\tevidence schema differs from predicate schema\treject\tschema semantics cannot be substituted
+evidence_stale\tfresh_until_height=current_height\treject\tfreshness interval is half open

@@ -3,6 +3,24 @@
 version = 4
 
 [[package]]
+name = "activechain-a2ui-renderer"
+version = "0.1.0"
+dependencies = [
+ "activechain-agent-interfaces",
+ "activechain-proposal-gateway",
+ "activechain-protocol-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "activechain-accumulator"
+version = "0.1.0"
+dependencies = [
+ "sha3 0.10.9",
+]
+
+[[package]]
 name = "activechain-action-kernel"
 version = "0.1.0"
 dependencies = [
@@ -12,6 +30,14 @@ dependencies = [
  "activechain-protocol-types",
  "activechain-transition",
  "proptest",
+]
+
+[[package]]
+name = "activechain-agent-interfaces"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -28,6 +54,7 @@ dependencies = [
 name = "activechain-application-primitives"
 version = "0.1.0"
 dependencies = [
+ "activechain-accumulator",
  "activechain-canonical-codec",
  "activechain-crypto-provider",
  "activechain-protocol-commitment",
@@ -36,6 +63,22 @@ dependencies = [
  "ml-dsa",
  "sha2 0.10.9",
  "tempfile",
+]
+
+[[package]]
+name = "activechain-archive"
+version = "0.1.0"
+dependencies = [
+ "reed-solomon-erasure",
+ "sha3 0.10.9",
+]
+
+[[package]]
+name = "activechain-archive-settlement"
+version = "0.1.0"
+dependencies = [
+ "activechain-archive",
+ "sha3 0.10.9",
 ]
 
 [[package]]
@@ -101,8 +144,8 @@ dependencies = [
  "p3-sha256",
  "p3-symmetric",
  "p3-uni-stark",
+ "postcard",
  "serde",
- "serde_json",
  "sha3 0.10.9",
  "winterfell",
 ]
@@ -111,6 +154,7 @@ dependencies = [
 name = "activechain-cash-kernel"
 version = "0.1.0"
 dependencies = [
+ "activechain-accumulator",
  "activechain-canonical-codec",
  "activechain-privacy-kernel",
  "activechain-protocol-commitment",
@@ -123,6 +167,7 @@ dependencies = [
 name = "activechain-consensus-runtime"
 version = "0.1.0"
 dependencies = [
+ "activechain-accumulator",
  "activechain-action-kernel",
  "activechain-application-primitives",
  "activechain-authorization-kernel",
@@ -136,6 +181,7 @@ dependencies = [
  "activechain-finality-types",
  "activechain-object-vm",
  "activechain-privacy-kernel",
+ "activechain-protocol-commitment",
  "activechain-protocol-types",
  "activechain-rpc-server",
  "activechain-rpc-types",
@@ -231,6 +277,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-mcp-rehearsal"
+version = "0.1.0"
+dependencies = [
+ "activechain-agent-interfaces",
+ "activechain-application-primitives",
+ "activechain-canonical-codec",
+ "activechain-finality-types",
+ "activechain-mcp-server",
+ "activechain-proposal-gateway",
+ "activechain-protocol-types",
+ "activechain-rpc-server",
+ "activechain-rpc-types",
+ "activechain-state-tree",
+ "activechain-wallet-ffi",
+ "ml-dsa",
+ "serde_json",
+ "sha3 0.10.9",
+]
+
+[[package]]
+name = "activechain-mcp-server"
+version = "0.1.0"
+dependencies = [
+ "activechain-agent-interfaces",
+ "activechain-canonical-codec",
+ "activechain-proposal-gateway",
+ "activechain-protocol-types",
+ "activechain-rpc-server",
+ "activechain-rpc-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "activechain-object"
 version = "0.1.0"
 dependencies = [
@@ -319,6 +399,7 @@ dependencies = [
 name = "activechain-privacy-kernel"
 version = "0.1.0"
 dependencies = [
+ "activechain-accumulator",
  "activechain-canonical-codec",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
@@ -329,6 +410,7 @@ dependencies = [
 name = "activechain-private-billboard"
 version = "0.1.0"
 dependencies = [
+ "activechain-accumulator",
  "activechain-canonical-codec",
  "activechain-cash-kernel",
  "activechain-crypto-provider",
@@ -336,6 +418,19 @@ dependencies = [
  "activechain-protocol-commitment",
  "activechain-protocol-types",
  "proptest",
+ "sha3 0.10.9",
+]
+
+[[package]]
+name = "activechain-proposal-gateway"
+version = "0.1.0"
+dependencies = [
+ "activechain-agent-interfaces",
+ "activechain-application-primitives",
+ "activechain-canonical-codec",
+ "activechain-protocol-types",
+ "serde",
+ "serde_json",
  "sha3 0.10.9",
 ]
 
@@ -352,9 +447,20 @@ dependencies = [
 name = "activechain-protocol-types"
 version = "0.1.0"
 dependencies = [
+ "activechain-accumulator",
  "activechain-canonical-codec",
  "proptest",
  "sha3 0.10.9",
+]
+
+[[package]]
+name = "activechain-pruning"
+version = "0.1.0"
+dependencies = [
+ "activechain-archive",
+ "activechain-storage-engine",
+ "sha3 0.10.9",
+ "tempfile",
 ]
 
 [[package]]
@@ -378,6 +484,7 @@ dependencies = [
  "activechain-wallet-core",
  "ml-dsa",
  "sha3 0.10.9",
+ "zeroize",
 ]
 
 [[package]]
@@ -411,6 +518,63 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-storage-engine"
+version = "0.1.0"
+dependencies = [
+ "sha3 0.10.9",
+ "tempfile",
+]
+
+[[package]]
+name = "activechain-storage-profile"
+version = "0.1.0"
+
+[[package]]
+name = "activechain-storage-qualification"
+version = "0.1.0"
+dependencies = [
+ "activechain-storage-profile",
+]
+
+[[package]]
+name = "activechain-storage-rent"
+version = "0.1.0"
+dependencies = [
+ "activechain-archive",
+ "activechain-storage-profile",
+]
+
+[[package]]
+name = "activechain-storage-soak"
+version = "0.1.0"
+dependencies = [
+ "activechain-archive",
+ "activechain-pruning",
+ "activechain-storage-engine",
+ "tempfile",
+]
+
+[[package]]
+name = "activechain-storage-sync"
+version = "0.1.0"
+dependencies = [
+ "activechain-storage-engine",
+ "sha3 0.10.9",
+]
+
+[[package]]
+name = "activechain-storage-transition"
+version = "0.1.0"
+dependencies = [
+ "activechain-archive",
+ "activechain-canonical-codec",
+ "activechain-protocol-types",
+ "activechain-state-tree",
+ "activechain-storage-profile",
+ "activechain-storage-rent",
+]
+
+[[package]]
 name = "activechain-transition"
 version = "0.1.0"
 dependencies = [
@@ -435,6 +599,7 @@ dependencies = [
 name = "activechain-vector-generator"
 version = "0.1.0"
 dependencies = [
+ "activechain-accumulator",
  "activechain-action-kernel",
  "activechain-bytecode-verifier",
  "activechain-canonical-codec",
@@ -478,12 +643,14 @@ dependencies = [
 name = "activechain-verifier-ffi"
 version = "0.1.0"
 dependencies = [
+ "activechain-application-primitives",
  "activechain-canonical-codec",
  "activechain-devnet-kernel",
  "activechain-finality-types",
  "activechain-policy-kernel",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
+ "activechain-rpc-types",
  "activechain-state-tree",
  "activechain-verifier-api",
  "ml-dsa",
@@ -510,6 +677,7 @@ version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
  "activechain-cash-kernel",
+ "activechain-proposal-gateway",
  "activechain-protocol-types",
  "activechain-verifier-api",
  "activechain-wallet-core",

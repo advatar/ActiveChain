@@ -8,6 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+activechain-accumulator.workspace = true
 activechain-canonical-codec.workspace = true
 activechain-protocol-commitment = { path = "../protocol-commitment", version = "0.1.0" }
 activechain-protocol-types.workspace = true

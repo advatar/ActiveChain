@@ -7,6 +7,7 @@ android { namespace = "dev.activechain.wallet"; compileSdk = 35
         targetCompatibility = JavaVersion.VERSION_17
     }
     sourceSets["main"].jniLibs.srcDir(layout.buildDirectory.dir("generated/jniLibs"))
+    sourceSets["androidTest"].assets.srcDir(rootProject.projectDir.resolve("../../testing/vectors"))
 }
 
 kotlin { jvmToolchain(17) }
@@ -14,6 +15,7 @@ kotlin { jvmToolchain(17) }
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.81")
     testImplementation("org.jetbrains.kotlin:kotlin-test:2.0.21")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:core:1.6.1")

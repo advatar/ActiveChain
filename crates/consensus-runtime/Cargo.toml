@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 activechain-crypto-provider.workspace = true
 activechain-protocol-types.workspace = true
+activechain-protocol-commitment.workspace = true
 activechain-canonical-codec.workspace = true
 activechain-action-kernel.workspace = true
 activechain-application-primitives.workspace = true
@@ -31,6 +32,7 @@ zeroize = "1.8"
 rustix = { version = "1.1", features = ["fs", "process"] }
 
 [dev-dependencies]
+activechain-accumulator.workspace = true
 activechain-transition.workspace = true
 activechain-capability.workspace = true
 activechain-credential.workspace = true

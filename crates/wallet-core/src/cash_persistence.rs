@@ -237,6 +237,7 @@ impl TransactionIngress {
         let bytes = std::fs::read(path).map_err(|_| WalletError::Persistence)?;
         let snapshot = verified_cash_snapshot(&bytes).unwrap_or(&bytes);
         let ingress = decode_envelope::<Self>(snapshot)
+            .or_else(|_| Self::decode_legacy_v3_envelope(snapshot))
             .or_else(|_| Self::decode_legacy_v2_envelope(snapshot))
             .map_err(|_| WalletError::Persistence)?;
         if ingress.chain_id != expected_chain {
@@ -249,6 +250,15 @@ impl TransactionIngress {
         let envelope = inspect_canonical_envelope(bytes, Self::TYPE_TAG, 2, Self::MAX_ENCODED_LEN)?;
         let mut decoder = Decoder::new(envelope.body());
         let ledger = activechain_cash_kernel::CashLedger::decode_legacy_v1(&mut decoder)?;
+        let ingress = Self::decode_after_ledger(&mut decoder, ledger)?;
+        decoder.finish()?;
+        Ok(ingress)
+    }
+
+    fn decode_legacy_v3_envelope(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let envelope = inspect_canonical_envelope(bytes, Self::TYPE_TAG, 3, Self::MAX_ENCODED_LEN)?;
+        let mut decoder = Decoder::new(envelope.body());
+        let ledger = activechain_cash_kernel::CashLedger::decode_legacy_v2(&mut decoder)?;
         let ingress = Self::decode_after_ledger(&mut decoder, ledger)?;
         decoder.finish()?;
         Ok(ingress)
@@ -437,6 +447,20 @@ impl TransactionIngress {
         envelope.write_raw(&body)?;
         Ok(envelope.finish())
     }
+
+    #[cfg(test)]
+    pub(crate) fn encode_legacy_v3_for_test(&self) -> Result<Vec<u8>, EncodeError> {
+        let mut body = Encoder::new(Self::MAX_ENCODED_LEN);
+        self.ledger.encode_legacy_v2(&mut body)?;
+        self.encode_after_ledger(&mut body)?;
+        let body = body.finish();
+        let mut envelope = Encoder::new(Self::MAX_ENCODED_LEN + 8);
+        envelope.write_u16(Self::TYPE_TAG)?;
+        envelope.write_u16(3)?;
+        envelope.write_length(body.len(), Self::MAX_ENCODED_LEN)?;
+        envelope.write_raw(&body)?;
+        Ok(envelope.finish())
+    }
 }
 
 impl CanonicalDecode for TransactionIngress {
@@ -562,7 +586,7 @@ where
 
 impl CanonicalType for TransactionIngress {
     const TYPE_TAG: u16 = 0x0090;
-    const SCHEMA_VERSION: u16 = 3;
+    const SCHEMA_VERSION: u16 = 4;
     const MAX_ENCODED_LEN: usize = activechain_cash_kernel::CashLedger::MAX_ENCODED_LEN
         + 48
         + 2

@@ -51,6 +51,7 @@ metadata = json.loads(
 )
 
 expected_sources = {
+    "activechain-accumulator": root / "crates/accumulator/src/lib.rs",
     "activechain-bytecode-verifier": root / "crates/bytecode-verifier/src/lib.rs",
     "activechain-canonical-codec": root / "crates/canonical-codec/src/lib.rs",
     "activechain-object-vm": root / "crates/object-vm/src/lib.rs",

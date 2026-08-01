@@ -1,0 +1,14 @@
+[package]
+name = "activechain-storage-qualification"
+description = "Bounded storage telemetry and deterministic capacity qualification for ActiveChain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+activechain-storage-profile.workspace = true
+
+[lints]
+workspace = true

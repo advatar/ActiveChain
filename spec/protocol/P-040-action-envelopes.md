@@ -1,14 +1,14 @@
 # P-040: Public action envelopes, fee tickets, and nonce channels
 
-- Status: Draft 0.1
+- Status: Draft 0.2
 - Protocol version: Development
-- Issue: <https://github.com/advatar/ActiveChain/issues/7>
+- Issues: <https://github.com/advatar/ActiveChain/issues/7>, <https://github.com/advatar/ActiveChain/issues/337>
 
 ## 1. Scope
 
 This revision defines the public development envelope admitted by the single-node semantic devnet. It binds an existing P-030 transfer transaction to one chain, public sender, validity interval, exact nonce channel, one-shot fee ticket, multidimensional resource ceiling, and authorization-evidence commitment.
 
-Protected payloads, cryptographic signature verification, balance settlement, fee markets, networking, and consensus are later refinements. The public envelope is not a substitute for P-041 privacy or production authentication.
+Protected payloads, cryptographic signature verification, fee markets, networking, and consensus are later refinements. The public envelope is not a substitute for P-041 privacy or production authentication.
 
 ## 2. Resource vectors
 
@@ -33,9 +33,9 @@ Vectors compare componentwise. An actual or declared vector fits a ceiling only 
 
 A fee ticket contains a unique object identifier, payer, reserved amount, expiry height, issuance nonce, and permitted resource vector. Its canonical identifier is consumed once when an envelope is admitted, including when the underlying semantic transfer later returns a failure receipt.
 
-The envelope maximum resource vector MUST fit within the ticket permission. At block admission, the maximum resource charge under the chain's deterministic price vector MUST not exceed the reserved amount. Tickets with zero reservation are invalid. A ticket whose expiry precedes the block height is invalid.
+The envelope maximum resource vector MUST fit within the ticket permission. At block admission, the maximum resource charge under the chain's deterministic price vector plus the one-unit non-refundable ticket-admission charge MUST not exceed the reserved amount. Tickets with zero reservation are invalid. A ticket whose expiry precedes the block height is invalid.
 
-This development kernel records charges but does not yet debit balances. Production fee settlement and refund rules require P-090.
+The development chain state contains at most 64 fee accounts, ordered by payer. Each account retains a `u128` spendable balance and an exact `u64 next_nonce`. The ticket payer MUST equal the public action sender until an authenticated sponsorship profile is specified. Admission requires the ticket nonce to equal the account nonce and the account balance to cover the complete reservation. The actual resource charge plus the admission charge is debited and the account nonce advances atomically with action admission, including semantic or resource-limit failure. Missing accounts, insufficient balances, replayed nonces, gaps, and nonce exhaustion fail closed. `DevnetBlock` schema 2 binds the canonical commitment of the complete input `ChainState` into the block identifier; `BlockReceipt` schema 2 binds both that input commitment and the complete successor-state commitment into the receipt root.
 
 ## 4. Validity and replay protection
 
@@ -51,6 +51,10 @@ next = u64::MAX  -> SequenceExhausted
 ```
 
 The channel advances and the fee ticket is consumed for every admitted action, even if deterministic transfer semantics fail. Rejected block structure or admission leaves the input chain state unchanged because block application is pure.
+
+The ticket expiry MUST equal the envelope `valid_until`, and the inclusive interval may span at most seven height increments (`valid_until - valid_from <= 7`). A consumed identifier is retained through its expiry height and pruned only before applying a later height. Since a block contains at most 32 actions, no conforming state can retain more than `32 * (7 + 1) = 256` identifiers. After identifier pruning, the durable payer nonce continues to reject replay.
+
+`ChainState` schema 2 stores fee accounts and each consumed identifier's expiry. Bounded schema-1 migration is allowed only for an empty legacy replay set and requires the operator to supply canonical fee accounts. A non-empty schema-1 replay set lacks expiry and payer-nonce evidence and MUST fail closed.
 
 ## 5. Public action envelope
 
@@ -70,7 +74,7 @@ TransferTransactionV1 payload
 authorization_commitment
 ```
 
-`payload_commitment` is the P-002 canonical-value commitment to the exact typed transfer payload. Every transfer command's policy request actor MUST be `Principal(sender)`; private actors require a later protected-envelope profile. The fee payer MAY differ from the sender.
+`payload_commitment` is the P-002 canonical-value commitment to the exact typed transfer payload. Every transfer command's policy request actor MUST be `Principal(sender)`; private actors require a later protected-envelope profile. The fee payer MUST equal the sender in this development profile.
 
 The authorization commitment binds evidence checked by an external development adapter. This draft does not claim to verify a signature and MUST NOT be used as production authentication.
 
@@ -86,6 +90,9 @@ A development block orders envelopes by strictly increasing transaction identifi
 FeeTicketV1      type 0x0070, schema 1, max body       176 bytes
 ActionEnvelopeV1 type 0x0071, schema 1, max body 1,265,778 bytes
 NonceChannelV1   type 0x0072, schema 1, max body        58 bytes
+ChainState        type 0x007b, schema 2, bounded fee accounts and expiring replay records
+DevnetBlock       type 0x0073, schema 2, full pre-chain-state commitment
+BlockReceipt      type 0x0074, schema 2, full pre/post-chain-state commitments
 ```
 
 Resource vectors and prices are fixed 48-byte nested values. A validity interval is fixed at 16 bytes. The envelope maximum follows from the exact P-030 transfer-transaction bound.
@@ -100,6 +107,9 @@ exact next sequence                   -> advances once
 repeated sequence                     -> replay rejection
 future sequence                       -> gap rejection
 reused ticket identifier              -> rejection
+missing/unfunded payer or bad fee nonce -> rejection
+ticket validity longer than seven heights -> rejection
+expired replay entry                  -> prune only after expiry
 actual resource dimension over limit  -> semantic resource-limit receipt
 fee/resource arithmetic overflow      -> typed rejection
 ```
