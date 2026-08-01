@@ -1052,6 +1052,9 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
 
 Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164).
 
+- [x] Persist the complete multi-asset Coin Cell set and canonically sorted policy registry
+  atomically, requiring every cell to resolve to one policy and every policy supply to equal its
+  checked cell total.
 - [x] Define issuer registration, threshold-controlled mint/burn, redemption, pause/recovery,
   and supply-attestation lifecycle semantics with deterministic vectors.
 - [x] Add a canonical commitment-only fungible supply attestation binding asset, issuer, policy,

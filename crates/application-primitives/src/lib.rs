@@ -46,8 +46,9 @@ pub use compute::{
 pub use corporate_action::{CorporateActionPersistenceError, DurableCorporateActionRegistry};
 #[cfg(feature = "std")]
 pub use fungible_transfer::{
-    DurableFungibleAssetLedger, DurableFungibleTransferLedger, FungibleAssetLedgerSnapshotV1,
-    FungibleTransferPersistenceError,
+    DurableFungibleAssetLedger, DurableFungibleTransferLedger, DurableMultiAssetLedger,
+    FungibleAssetLedgerSnapshotV1, FungibleTransferPersistenceError, MAX_FUNGIBLE_ASSET_POLICIES,
+    MultiAssetLedgerSnapshotV1,
 };
 #[cfg(feature = "std")]
 pub use holder_control::{

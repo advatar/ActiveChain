@@ -93,6 +93,14 @@ through the pure successors, then synchronizes and atomically replaces both set 
 memory or acknowledgement advances. Inconsistent supply, corrupt restart state, replay, and failed
 writes fail closed without a partial root or supply change.
 
+`MultiAssetLedgerSnapshotV1` closes the remaining cross-asset accounting gap. Its bounded policy
+registry is strictly ordered by `AssetId`; every Coin Cell must resolve to exactly one registered
+policy, and every registered policy independently recomputes to its exact checked cell total.
+`DurableMultiAssetLedger` selects only the policy named by a transfer, mint, burn, or redemption,
+then atomically replaces the complete cell set and complete policy registry. Restart decoding
+revalidates all of those invariants, while failed persistence leaves the in-memory snapshot
+unchanged.
+
 The native issuer CLI exposes `control-policy`, `holder-control-state`, `control-action`, and
 `dry-run-control`. Freeze and unfreeze preflight return the exact post-state. Clawback additionally
 requires a canonical input Coin Cell and returns both the conserved post-cell and revisioned
