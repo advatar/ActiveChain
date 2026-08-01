@@ -23,7 +23,10 @@ use crate::types::{
     NativeMoneyError, NativeSupply, basis_points_amount, effective_stake_basis_points,
     epoch_security_budget, issuance_window_index,
 };
-use crate::{RewardRedemption, RewardSettlement};
+use crate::{
+    CashPaymasterPolicyV1, CashPaymasterRequestV1, EconomicsError, RewardRedemption,
+    RewardSettlement,
+};
 
 /// Atomic bounded native-money ledger used by the semantic and process kernels.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -634,6 +637,146 @@ impl CashLedger {
         self.verify_invariants()
     }
 
+    /// Applies a transfer whose value inputs belong to the sender while its
+    /// distinct fee reserve belongs to an authorized paymaster. Ledger and
+    /// paymaster state advance atomically.
+    pub fn apply_sponsored_transfer(
+        &mut self,
+        policy: &mut CashPaymasterPolicyV1,
+        request: &CashPaymasterRequestV1,
+        transfer: &CoinTransfer,
+        height: Height,
+    ) -> Result<(), CashTransitionError> {
+        if request.sender() != transfer.sender() || request.fee() != transfer.fee() {
+            return Err(CashTransitionError::Economics(EconomicsError::PaymasterUnauthorized));
+        }
+        let transition_id = cash_transition_id(transfer).map_err(CashTransitionError::Encoding)?;
+        if request.transfer() != *transition_id.digest() {
+            return Err(CashTransitionError::Economics(EconomicsError::PaymasterUnauthorized));
+        }
+        let next_policy = policy
+            .authorize(request, *transition_id.digest(), transfer.fee(), height)
+            .map_err(CashTransitionError::Economics)?;
+        let mut next = self.clone();
+        next.apply_sponsored_transfer_inner(request.sponsor(), transfer, transition_id, height)?;
+        *self = next;
+        *policy = next_policy;
+        Ok(())
+    }
+
+    fn apply_sponsored_transfer_inner(
+        &mut self,
+        sponsor: activechain_protocol_types::PrincipalId,
+        transfer: &CoinTransfer,
+        transition_id: TransactionId,
+        height: Height,
+    ) -> Result<(), CashTransitionError> {
+        if height > transfer.valid_until() {
+            return Err(CashTransitionError::Invalid(NativeMoneyError::Expired));
+        }
+        let mut input_total = 0_u128;
+        let mut spent = Vec::new();
+        for id in transfer.inputs() {
+            let record = self
+                .find(*id)
+                .ok_or(CashTransitionError::Invalid(NativeMoneyError::MissingCell))?;
+            if record.cell().owner() != transfer.sender() {
+                return Err(CashTransitionError::Invalid(NativeMoneyError::WrongOwner));
+            }
+            input_total = input_total
+                .checked_add(record.cell().amount())
+                .ok_or(CashTransitionError::Invalid(NativeMoneyError::AmountOverflow))?;
+            spent.push(record);
+        }
+        if input_total < transfer.amount() {
+            return Err(CashTransitionError::Invalid(NativeMoneyError::InsufficientValue));
+        }
+        let reserve = self
+            .find(transfer.fee_reserve())
+            .ok_or(CashTransitionError::Invalid(NativeMoneyError::MissingCell))?;
+        if reserve.cell().owner() != sponsor {
+            return Err(CashTransitionError::Invalid(NativeMoneyError::WrongOwner));
+        }
+        if reserve.cell().amount() < transfer.fee() {
+            return Err(CashTransitionError::Invalid(NativeMoneyError::InsufficientValue));
+        }
+        spent.push(reserve);
+        let mut cells = self
+            .cells
+            .as_slice()
+            .iter()
+            .copied()
+            .filter(|record| !spent.iter().any(|spent| spent.id() == record.id()))
+            .collect::<Vec<_>>();
+        let recipient = CoinCell::new(
+            CoinCellOrigin::new(transition_id, 0),
+            transfer.recipient(),
+            transfer.amount(),
+            height,
+        )
+        .map_err(CashTransitionError::Invalid)?;
+        cells.push(CoinCellRecord::new(
+            coin_cell_id(&recipient.origin()).map_err(CashTransitionError::Encoding)?,
+            recipient,
+        ));
+        let sender_change = input_total - transfer.amount();
+        if sender_change > 0 {
+            let change = CoinCell::new(
+                CoinCellOrigin::new(transition_id, 1),
+                transfer.sender(),
+                sender_change,
+                height,
+            )
+            .map_err(CashTransitionError::Invalid)?;
+            cells.push(CoinCellRecord::new(
+                coin_cell_id(&change.origin()).map_err(CashTransitionError::Encoding)?,
+                change,
+            ));
+        }
+        let sponsor_change = reserve.cell().amount() - transfer.fee();
+        if sponsor_change > 0 {
+            let change = CoinCell::new(
+                CoinCellOrigin::new(transition_id, 2),
+                sponsor,
+                sponsor_change,
+                height,
+            )
+            .map_err(CashTransitionError::Invalid)?;
+            cells.push(CoinCellRecord::new(
+                coin_cell_id(&change.origin()).map_err(CashTransitionError::Encoding)?,
+                change,
+            ));
+        }
+        cells.sort_by_key(|record| record.id());
+        self.cells = CoinCellSet::new(cells).map_err(CashTransitionError::Invalid)?;
+        let fee_pool = self
+            .supply
+            .security_reserve_balance()
+            .checked_add(transfer.fee())
+            .ok_or(CashTransitionError::Invalid(NativeMoneyError::AmountOverflow))?;
+        let circulating = self
+            .supply
+            .circulating_supply()
+            .checked_sub(transfer.fee())
+            .ok_or(CashTransitionError::Invalid(NativeMoneyError::AmountOverflow))?;
+        self.supply = NativeSupply::new(
+            self.supply.genesis_supply(),
+            self.supply.cumulative_security_issuance(),
+            self.supply.cumulative_burn(),
+            self.supply.current_total_supply(),
+            circulating,
+            self.supply.locked_vesting_supply(),
+            self.supply.staked_supply(),
+            fee_pool,
+            self.supply.last_settled_epoch(),
+            self.supply.issuance_window(),
+            self.supply.issuance_window_opening_supply(),
+            self.supply.issuance_in_window(),
+        )
+        .map_err(CashTransitionError::Invalid)?;
+        self.verify_invariants()
+    }
+
     /// Applies a permanent burn and returns any unburned change to the owner.
     pub fn apply_burn(
         &mut self,
@@ -959,6 +1102,7 @@ pub enum CashTransitionError {
     Encoding(activechain_canonical_codec::EncodeError),
     Invariant(NativeMoneyError),
     Privacy(PrivacyError),
+    Economics(EconomicsError),
 }
 
 fn verify_privacy_proof<T: activechain_canonical_codec::CanonicalType>(

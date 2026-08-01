@@ -522,6 +522,22 @@ impl CashPaymasterRequestV1 {
             expires_height,
         })
     }
+
+    pub const fn sponsor(&self) -> PrincipalId {
+        self.sponsor
+    }
+
+    pub const fn sender(&self) -> PrincipalId {
+        self.sender
+    }
+
+    pub const fn transfer(&self) -> Digest384 {
+        self.transfer
+    }
+
+    pub const fn fee(&self) -> u128 {
+        self.fee
+    }
 }
 
 impl CanonicalEncode for CashPaymasterRequestV1 {
