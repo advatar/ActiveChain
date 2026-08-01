@@ -39,3 +39,20 @@ or status lists. A bound issuer principal may issue only profiles in its explici
 External presentation verification, status proofs, and profile-to-schema mapping remain separate
 bounded adapters. Cross-network, previous-state, issuer, external-identity, trust, rulebook,
 profile, signing-key, lifecycle, and finalized-height substitution fail closed.
+
+## 6. External profile schema identity
+
+`ExternalCredentialSchemaMappingV1` derives the schema digest from the normalized UTF-8
+credential-configuration identifier, credential type, rulebook identifier, positive `u32`
+rulebook version, and exact 48-byte rulebook/document digest. The SHAKE256 transcript starts with
+`ACTIVECHAIN-EUDI-SCHEMA-V1`; each variable byte field is prefixed by a four-byte big-endian
+length, the version is four-byte big-endian, and the rulebook digest is length-prefixed like the
+other byte fields. Identifiers are nonempty and at most 256 bytes.
+
+The mapping also commits each normalized textual field under its own domain and MUST match one
+profile in the active issuer binding. Callers never provide `schema_id`; adapters derive it from a
+pinned mapping table. Display labels, JSON member order, transport serialization, and credential
+disclosure order cannot affect it. Current vectors use explicitly named development profile
+descriptors; production EUDI activation requires replacing those descriptors with the exact
+selected normative rulebook editions and their reviewed document digests, producing new schema
+identities where inputs change.
