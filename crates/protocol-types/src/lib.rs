@@ -54,8 +54,8 @@ pub use asset::{
     FungibleAssetPolicyV1, FungibleAssetRegistry, FungibleCorporateActionKind,
     FungibleCorporateActionRegistryV1, FungibleCorporateActionV1, FungibleIssuerApprovalV1,
     FungibleIssuerOperation, FungibleIssuerRegistrationV1, FungibleSupplyAttestationV1,
-    MAX_ASSET_SYMBOL_LENGTH, MAX_CORPORATE_ACTIONS, MAX_FUNGIBLE_ASSETS, NonFungibleSeriesV1,
-    NonFungibleTokenV1,
+    MAX_ASSET_SYMBOL_LENGTH, MAX_CORPORATE_ACTIONS, MAX_FUNGIBLE_ASSETS,
+    NonFungibleIssuerApprovalV1, NonFungibleSeriesV1, NonFungibleTokenV1,
 };
 pub use authority::{
     BoundedActionSet, BoundedActionSetError, CapabilityGrant, CapabilityGrantFields,

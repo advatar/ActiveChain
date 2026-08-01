@@ -1091,6 +1091,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   transfer semantics; series assets and full issuer authorization remain separate gates.
 - [x] Add bounded NFT series definitions with metadata-schema commitments and checked mint
   reservation accounting; issuer authorization remains enforced by the action layer.
+- [x] Bind every NFT series mint reservation to the exact issuer, authority set, pre-state series
+  commitment, minted count, quantity, approval commitment, and finalized execution window.
 - [x] Reject NFT token and series definitions with zero asset, issuer, or owner identities before
   metadata and supply admission.
 - [x] Add an immutable-identity NFT Coin Cell carrying asset/token/metadata commitments and
