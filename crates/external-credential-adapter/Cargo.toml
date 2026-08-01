@@ -6,6 +6,9 @@ rust-version.workspace = true
 repository.workspace = true
 license = "Apache-2.0"
 
+[features]
+test-support = []
+
 [dependencies]
 activechain-protocol-types.workspace = true
 base64.workspace = true

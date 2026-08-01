@@ -52,6 +52,81 @@ pub enum SdJwtRejection {
     ReplayCacheFull,
 }
 
+/// Non-deserializable proof that a registered adapter completed verification.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VerifiedExternalPresentation {
+    presentation: VcIssuerPresentationV1,
+    configuration_commitment: Digest384,
+    subject_binding: Digest384,
+    purpose_commitment: Digest384,
+    status_anchor_height: u64,
+    status_age: u64,
+    has_issuance_log: bool,
+    verifier_version: u16,
+    proof_version: u16,
+    replay_nullifier: Digest384,
+}
+impl VerifiedExternalPresentation {
+    pub const fn presentation(&self) -> VcIssuerPresentationV1 {
+        self.presentation
+    }
+    pub const fn configuration_commitment(&self) -> Digest384 {
+        self.configuration_commitment
+    }
+    pub const fn subject_binding(&self) -> Digest384 {
+        self.subject_binding
+    }
+    pub const fn purpose_commitment(&self) -> Digest384 {
+        self.purpose_commitment
+    }
+    pub const fn status_anchor_height(&self) -> u64 {
+        self.status_anchor_height
+    }
+    pub const fn status_age(&self) -> u64 {
+        self.status_age
+    }
+    pub const fn has_issuance_log(&self) -> bool {
+        self.has_issuance_log
+    }
+    pub const fn verifier_version(&self) -> u16 {
+        self.verifier_version
+    }
+    pub const fn proof_version(&self) -> u16 {
+        self.proof_version
+    }
+    pub const fn replay_nullifier(&self) -> Digest384 {
+        self.replay_nullifier
+    }
+}
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+#[allow(clippy::too_many_arguments)]
+pub fn testing_verified_external_presentation(
+    presentation: VcIssuerPresentationV1,
+    configuration_commitment: Digest384,
+    subject_binding: Digest384,
+    purpose_commitment: Digest384,
+    status_anchor_height: u64,
+    status_age: u64,
+    has_issuance_log: bool,
+    verifier_version: u16,
+    proof_version: u16,
+    replay_nullifier: Digest384,
+) -> VerifiedExternalPresentation {
+    VerifiedExternalPresentation {
+        presentation,
+        configuration_commitment,
+        subject_binding,
+        purpose_commitment,
+        status_anchor_height,
+        status_age,
+        has_issuance_log,
+        verifier_version,
+        proof_version,
+        replay_nullifier,
+    }
+}
+
 /// Bounded replay state. Persist `entries()` atomically and restore it with `from_entries`.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SdJwtReplayCache {
@@ -113,7 +188,7 @@ pub struct SdJwtVerificationContext<'a> {
 /// Verifies only pinned inputs and performs no network or filesystem access.
 pub fn verify_sd_jwt_vc(
     context: &SdJwtVerificationContext<'_>,
-) -> Result<VcIssuerPresentationV1, SdJwtRejection> {
+) -> Result<VerifiedExternalPresentation, SdJwtRejection> {
     if context.presentation.len() > MAX_PRESENTATION_BYTES {
         return Err(SdJwtRejection::Oversize);
     }
@@ -258,7 +333,7 @@ pub fn verify_sd_jwt_vc(
         value_commitment,
     )
     .map_err(|_| SdJwtRejection::InvalidOutput)?;
-    VcIssuerPresentationV1::new(
+    let presentation = VcIssuerPresentationV1::new(
         context.issuer_binding.issuer(),
         VcIssuerFormatV1::SdJwtVc,
         credential_commitment,
@@ -271,14 +346,32 @@ pub fn verify_sd_jwt_vc(
         context.audience,
         context.action,
     )
-    .map_err(|_| SdJwtRejection::InvalidOutput)
+    .map_err(|_| SdJwtRejection::InvalidOutput)?;
+    Ok(VerifiedExternalPresentation {
+        presentation,
+        configuration_commitment: context.configuration_commitment,
+        subject_binding: holder_binding,
+        purpose_commitment: commitment(
+            b"ACTIVECHAIN-OPENID4VP-PURPOSE-V1",
+            context.expected_purpose.as_bytes(),
+        ),
+        status_anchor_height: context.status_snapshot.anchor_height(),
+        status_age: context.verified_height.saturating_sub(context.status_snapshot.anchor_height()),
+        has_issuance_log: context.issuance_log_root.is_some(),
+        verifier_version: 1,
+        proof_version: 1,
+        replay_nullifier: commitment(
+            b"ACTIVECHAIN-SD-JWT-OPENID4VP-REPLAY-V1",
+            context.presentation.as_bytes(),
+        ),
+    })
 }
 
 /// Verifies first and consumes the request-bound presentation only after successful verification.
 pub fn verify_sd_jwt_vc_once(
     cache: &mut SdJwtReplayCache,
     context: &SdJwtVerificationContext<'_>,
-) -> Result<VcIssuerPresentationV1, SdJwtRejection> {
+) -> Result<VerifiedExternalPresentation, SdJwtRejection> {
     let verified = verify_sd_jwt_vc(context)?;
     let replay_key =
         commitment(b"ACTIVECHAIN-SD-JWT-OPENID4VP-REPLAY-V1", context.presentation.as_bytes());
@@ -562,8 +655,8 @@ mod tests {
     fn vcissuer_sd_jwt_produces_one_action_bound_handoff() {
         let f = fixture();
         let verified = verify_sd_jwt_vc(&context(&f)).unwrap();
-        assert_eq!(verified.format(), VcIssuerFormatV1::SdJwtVc);
-        assert!(verified.predicate().binds_action(
+        assert_eq!(verified.presentation().format(), VcIssuerFormatV1::SdJwtVc);
+        assert!(verified.presentation().predicate().binds_action(
             ChainId::new(d(1)),
             principal(8),
             TransactionId::new(d(9))

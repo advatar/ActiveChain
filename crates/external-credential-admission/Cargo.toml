@@ -1,0 +1,20 @@
+[package]
+name = "activechain-external-credential-admission"
+description = "P-021/P-023 admission boundary for verified external credentials"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+activechain-external-credential-adapter.workspace = true
+activechain-protocol-types.workspace = true
+activechain-policy-kernel.workspace = true
+sha3.workspace = true
+
+[dev-dependencies]
+activechain-external-credential-adapter = { workspace = true, features = ["test-support"] }
+
+[lints]
+workspace = true

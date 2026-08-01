@@ -61,6 +61,14 @@ require_issuance_log: bool
 
 An empty allowlist accepts nothing. Status age is measured in finalized block heights as `presentation_height - effective_height`. Future registry snapshots and ages greater than the configured maximum are rejected.
 
+External SD-JWT VC and mdoc presentations use the separately versioned
+`ExternalCredentialAcceptancePolicy`. It pins external issuer principals, credential
+configuration and canonical schema commitments, minimum assurance, maximum anchored-status age,
+issuance-log requirement, declared purpose, adapter verifier/proof versions, and policy revision.
+Only the opaque, non-deserializable result of a registered external adapter may enter this
+admission function. A caller-decodable `VcIssuerPresentationV1` is evidence content, not proof of
+adapter execution and cannot directly construct a verified fact.
+
 ## 5. Presentation verification
 
 The deterministic verifier receives a credential, acceptance policy, expected subject binding, finalized height and timestamp, preverified issuer evidence, and optional registry/status evidence. It checks in fixed order:

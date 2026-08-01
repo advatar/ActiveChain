@@ -1926,6 +1926,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [x] Implement the separately versioned bounded mdoc/COSE/OpenID4VP verifier with canonical CBOR,
   issuer/device authentication, namespace digests, session binding, and typed rejection codes
   (#442).
+- [x] Admit opaque outputs from registered external credential adapters through P-021 policy and
+  derive only bounded schema facts for P-023, with non-leaking context-bound receipts (#443).
 - [ ] Complete wallet OpenID4VP transport, consent UX, live trust/status adapters, cross-repository
   vectors, device qualification, and independent interoperability review.
 

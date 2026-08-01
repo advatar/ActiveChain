@@ -265,6 +265,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-external-credential-admission"
+version = "0.1.0"
+dependencies = [
+ "activechain-external-credential-adapter",
+ "activechain-policy-kernel",
+ "activechain-protocol-types",
+ "sha3 0.10.9",
+]
+
+[[package]]
 name = "activechain-finality-types"
 version = "0.1.0"
 dependencies = [
