@@ -1,11 +1,14 @@
 # ACTS — a unified concept design for verifiable act provenance
 
-This document unifies three threads:
+This document unifies four threads:
 
 - **MadeMark/AuditFinder** (`../MadeMark`): a shipping local-first provenance recorder — per-root
   append-only feeds of hash-chained signed events, signed checkpoints, an independent witness
   service, sealed portable evidence dossiers (`.mmevidence`), transparent STARK/FRI policy proofs,
   conservative multi-party merges that preserve conflicts, and signed release ceremonies.
+- **ARK** (`~/dev/ark/ARK`): a music-first macOS evidence system that watches protected session
+  folders (e.g. Logic Pro projects), collects participant claims and responses, and produces
+  cryptographic receipts and evidence packages — a second, independently built bespoke recorder.
 - **MM2ACTUM.md**: the analysis of what Actum should adopt from MadeMark's epistemology — and what
   it must not absorb into consensus.
 - **Actum/ActiveChain**: the settlement and verification substrate — PQ-only principals with
@@ -129,7 +132,51 @@ What stays out of the unified core, per MM2ACTUM: filesystem paths, local self-d
 free-form detail maps, application action enums, raw workflow logs, C2PA parsing in consensus,
 model prompts and private reasoning, and any universal ontology of human action.
 
-## 6. Consensus boundary discipline
+## 6. The Actum Recorder Protocol — any app, no shadow apps
+
+MadeMark and ARK share a defect that no amount of product work fixes: each is a **bespoke watcher
+app** built because the applications people actually work in (Logic Pro, Finder, a DAW, an
+editor) have no way to speak provenance themselves. Every new domain today means another custom
+tracker. The unified design inverts this: plane 1 is not a product, it is an **open protocol**
+that any application can implement to anchor provenance on Actum directly.
+
+A conforming recorder implements five obligations:
+
+1. **Enrollment.** The app instance holds an Actum principal (app identity + publisher
+   attestation + device binding). The user grants it an attenuated capability scoped to a
+   recording context ("this project", "this folder", "this patient file") — consent is a
+   capability, not a checkbox, and is revocable and auditable like any other delegation.
+2. **Canonical feed emission.** The app appends events to a local, append-only, hash-chained feed
+   in the canonical feed format (stable event IDs, ordered sequence, previous-event hash, typed
+   actor/device, signed by the app principal). The format is app-neutral: a DAW session edit, a
+   document save, and an agent tool call serialize into the same envelope.
+3. **Content commitment.** Artifacts (project files, stems, exports) are referenced by content
+   commitment only; bytes never leave the machine as part of the protocol.
+4. **Checkpoint and anchor.** The app periodically signs feed checkpoints and may anchor the
+   checkpoint digest on Actum — directly, or through a local anchoring agent shared by all
+   recorders on the device.
+5. **Bundle export.** On demand, the app (or the shared agent) exports an Act Bundle for any
+   slice of its history.
+
+The protocol ships as an SDK plus a file/IPC contract, so integration depth can vary — from a
+one-call "commit and anchor this save" to full act-graph emission.
+
+**Epistemic consequence — native beats watching.** When the application itself emits the event,
+the record is a *declaration* by the app principal about its own act, with publisher-attested
+software identity. When an external watcher infers the same thing from filesystem changes (what
+MadeMark and ARK do today), the record is an *observation* — valid, but typed lower and marked as
+inferred. The two coexist in one act graph; assurance vectors surface the difference instead of
+flattening it. This gives watcher apps a permanent, honest role — coverage for the long tail of
+apps that never integrate — while creating a clear upgrade path: an app vendor adopting the
+recorder protocol upgrades its users' provenance from observation to declaration without any
+workflow change.
+
+MadeMark and ARK therefore converge instead of multiplying: both become reference recorders — one
+generalist (files/folders/approvals), one domain profile (music sessions) — emitting the same
+canonical feed, checkpointing the same way, anchoring to the same chain, and exporting the same
+bundles. The next domain needs a profile, not an app.
+
+## 7. Consensus boundary discipline
 
 Only plane-3 primitives that multiple unrelated domain profiles independently require may
 graduate into consensus, and each graduation carries the full canonical-encoding, boundedness,
@@ -141,14 +188,16 @@ that commitment to truth. Verifier language must preserve this ("this bundle exi
 form, signed by these principals, containing these attestations"), never "everything inside is
 true".
 
-## 7. Delivery plan
+## 8. Delivery plan
 
-1. **Specify Act Bundle v1 and ActRecordV1** off-chain: canonical encodings, epistemic typing,
-   causal edges, assurance vector, bounded sizes, frozen vectors, malformed-input rejection.
-   No consensus change.
-2. **MadeMark emits and verifies Act Bundles.** Map feed events + checkpoints + dossier into the
-   bundle format behind an adapter; MadeMark adopts Actum principals/credentials for new
-   enrollments while keeping its local directory for legacy feeds.
+1. **Specify Act Bundle v1, ActRecordV1, and the Recorder Protocol v1** off-chain: canonical
+   encodings, epistemic typing, causal edges, assurance vector, the app-neutral feed/checkpoint
+   format with enrollment and capability-scoped consent, bounded sizes, frozen vectors,
+   malformed-input rejection. No consensus change.
+2. **MadeMark and ARK become reference recorders.** Map feed events + checkpoints + dossiers into
+   the bundle format behind adapters; both adopt Actum principals/credentials for new enrollments
+   while keeping local directories for legacy feeds; their watcher-derived events are typed as
+   observations, native emissions as declarations.
 3. **Actum anchors and verifies.** Add digest anchoring for act-feed checkpoints and an offline
    verifier that returns the assurance vector; expose read-only act-graph queries via the
    existing MCP surface.
