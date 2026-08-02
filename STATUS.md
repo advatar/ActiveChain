@@ -6,8 +6,8 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Tracked by [GitHub issue #719](https://github.com/advatar/ActiveChain/issues/719).
 
-- [ ] Map every canonical RPC `QueryKind` to a stable MCP snake-case name.
-- [ ] Add exhaustive regression coverage for all current query variants.
+- [x] Map every canonical RPC `QueryKind` to a stable MCP snake-case name.
+- [x] Add exhaustive regression coverage for all current query variants.
 - [ ] Pass MCP tests, strict workspace Clippy, and the deterministic-kernel gate; merge to `main`
   and verify reachability.
 

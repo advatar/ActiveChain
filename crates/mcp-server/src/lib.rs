@@ -583,6 +583,14 @@ fn query_kind_name(kind: QueryKind) -> &'static str {
         QueryKind::CoinCell => "coin_cell",
         QueryKind::FungibleCoinCell => "fungible_coin_cell",
         QueryKind::NonFungibleCoinCell => "non_fungible_coin_cell",
+        QueryKind::AssetDefinition => "asset_definition",
+        QueryKind::AssetIssuerRegistration => "asset_issuer_registration",
+        QueryKind::AssetSupplyAttestation => "asset_supply_attestation",
+        QueryKind::AssetCorporateAction => "asset_corporate_action",
+        QueryKind::AssetSettlementReceipt => "asset_settlement_receipt",
+        QueryKind::AssetNftSeries => "asset_nft_series",
+        QueryKind::AssetNftTokenRegistry => "asset_nft_token_registry",
+        QueryKind::DidEnsAlias => "did_ens_alias",
     }
 }
 
@@ -656,6 +664,31 @@ mod tests {
                 .is_none()
         );
         session
+    }
+
+    #[test]
+    fn canonical_query_kinds_have_stable_external_names() {
+        let expected = [
+            (QueryKind::State, "state"),
+            (QueryKind::Action, "action"),
+            (QueryKind::Receipt, "receipt"),
+            (QueryKind::ApplicationReceipt, "application_receipt"),
+            (QueryKind::CoinCell, "coin_cell"),
+            (QueryKind::FungibleCoinCell, "fungible_coin_cell"),
+            (QueryKind::NonFungibleCoinCell, "non_fungible_coin_cell"),
+            (QueryKind::AssetDefinition, "asset_definition"),
+            (QueryKind::AssetIssuerRegistration, "asset_issuer_registration"),
+            (QueryKind::AssetSupplyAttestation, "asset_supply_attestation"),
+            (QueryKind::AssetCorporateAction, "asset_corporate_action"),
+            (QueryKind::AssetSettlementReceipt, "asset_settlement_receipt"),
+            (QueryKind::AssetNftSeries, "asset_nft_series"),
+            (QueryKind::AssetNftTokenRegistry, "asset_nft_token_registry"),
+            (QueryKind::DidEnsAlias, "did_ens_alias"),
+        ];
+
+        for (kind, name) in expected {
+            assert_eq!(query_kind_name(kind), name);
+        }
     }
 
     #[test]
