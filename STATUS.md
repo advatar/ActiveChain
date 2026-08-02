@@ -2124,7 +2124,15 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
           monotonic-spend constraints
           ([GitHub issue #74](https://github.com/advatar/ActiveChain/issues/74)).
   - [ ] Add recursive microbatch, partition, cash-slot, and global-transition aggregation.
-- [ ] Add the cash-specific capacity and fee market, refundable deposits, sponsorship, and paymasters.
+- [x] Add the cash-specific capacity and fee market, refundable deposits, sponsorship, and paymasters.
+  - [x] Adjust deterministic base fees from bounded target-capacity utilization and quote exact
+        base, resource, and congestion charges.
+  - [x] Require exact prepaid capacity deposits, settle reservations once, and refund every unused
+        unit while rejecting underfunding, expiry, overuse, and arithmetic overflow.
+  - [x] Bind paymaster authorization to the sponsor policy, allowed sender, exact transfer and fee,
+        epoch budget, monotonic nonce, and expiry window.
+  - [x] Apply sponsored value transfer, sender change, sponsor fee change, and paymaster budget
+        advancement atomically so a rejected sponsorship mutates no state.
 - [x] Implement the first accountable verifier-duty kernel: role-scoped bond lots, one-shot assignments, fixed rewards, receipt validation, and bounded objective penalties.
 - [ ] Add random audit assignments and commit/reveal challenge rewards without passive-verifier inflation.
 - [x] Add deterministic one-shot challenge assignments and bounded challenge reward resolution.
