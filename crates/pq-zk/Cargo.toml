@@ -13,6 +13,7 @@ reproducible-build = ["activechain-pq-zk-methods/reproducible-build"]
 
 [dependencies]
 activechain-canonical-codec.workspace = true
+activechain-cash-air.workspace = true
 activechain-private-billboard.workspace = true
 activechain-privacy-kernel.workspace = true
 activechain-pq-zk-methods = { path = "../pq-zk-methods" }

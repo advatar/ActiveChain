@@ -2292,14 +2292,15 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
         - [x] Bind the exact runtime pre/post session-budget witness into specialized AIR range and
           monotonic-spend constraints
           ([GitHub issue #74](https://github.com/advatar/ActiveChain/issues/74)).
-  - [ ] Add recursive microbatch, partition, cash-slot, and global-transition aggregation.
-    - [ ] Add pinned RISC Zero cash-leaf and recursive aggregation guests that verify exact child
-      image IDs and journals through resolved receipt assumptions.
+  - [x] Add recursive microbatch, partition, cash-slot, and global-transition aggregation.
     - [x] Derive every proof-leaf field from one verified authorized payment, its composed
       session/ML-DSA proof, and its authenticated partition-aware CashAIR receipt.
     - [x] Define canonical bounded aggregation statements and a composed verifier that binds
       ordered child-proof commitments, partition ownership, resource totals, and contiguous
-      pre/post roots at every level; recursive in-circuit child-proof verification remains open.
+      pre/post roots at every level.
+    - [x] Add pinned RISC Zero leaf, microbatch, partition, cash-slot, and global-transition guests;
+      each aggregation guest verifies exact child image IDs and canonical journals through resolved
+      receipt assumptions, and the host accepts only unconditional succinct receipts.
 - [x] Add the cash-specific capacity and fee market, refundable deposits, sponsorship, and paymasters.
   - [x] Adjust deterministic base fees from bounded target-capacity utilization and quote exact
         base, resource, and congestion charges.

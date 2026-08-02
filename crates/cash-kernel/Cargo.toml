@@ -3,7 +3,7 @@ name = "activechain-cash-kernel"
 description = "Canonical native-money schemas and pure Coin Cell transitions for ActiveChain"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+rust-version = "1.94.1"
 repository.workspace = true
 publish = false
 

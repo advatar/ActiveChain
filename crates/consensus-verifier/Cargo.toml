@@ -3,7 +3,7 @@ name = "activechain-consensus-verifier"
 description = "Pure no_std PQ consensus signature and quorum verification"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+rust-version = "1.94.1"
 repository.workspace = true
 publish = false
 

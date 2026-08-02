@@ -15,12 +15,16 @@ use sha3::{
 
 use crate::{
     AuthenticatedCashAirReceiptV1, AuthorizedCashSessionMlDsaStarkProof,
-    verify_authorized_session_mldsa,
+    verify_authorized_session_mldsa, verify_authorized_witness_binding,
 };
 
 pub const MAX_CASH_AGGREGATION_CHILDREN: usize = 1024;
 pub const GLOBAL_CASH_PARTITION: u16 = u16::MAX;
 const PROOF_COMMITMENT_DOMAIN: &[u8] = b"ACTIVECHAIN-CASH-AGGREGATION-PROOF-V1";
+pub const CASH_AGGREGATION_JOURNAL_DOMAIN: &[u8] = b"ACTIVECHAIN-CASH-RECURSIVE-AGGREGATION-V1";
+const RECURSIVE_PROOF_COMMITMENT_DOMAIN: &[u8] = b"ACTIVECHAIN-CASH-RECURSIVE-PROOF-COMMITMENT-V1";
+const MAX_CASH_LEAF_RECEIPT_LEN: usize = 16 * 1024 * 1024;
+const MAX_CASH_LEAF_PUBLIC_KEY_LEN: usize = 4096;
 
 #[must_use]
 pub fn cash_aggregation_proof_commitment(proof: &[u8]) -> Digest384 {
@@ -28,6 +32,21 @@ pub fn cash_aggregation_proof_commitment(proof: &[u8]) -> Digest384 {
     hasher.update(PROOF_COMMITMENT_DOMAIN);
     hasher.update(&(proof.len() as u64).to_be_bytes());
     hasher.update(proof);
+    let mut digest = [0_u8; 48];
+    hasher.finalize_xof().read(&mut digest);
+    Digest384::new(digest)
+}
+
+/// Commits to the exact guest image and journal authenticated by a recursive receipt.
+#[must_use]
+pub fn recursive_cash_proof_commitment(image_id: &[u32; 8], journal: &[u8]) -> Digest384 {
+    let mut hasher = Shake256::default();
+    hasher.update(RECURSIVE_PROOF_COMMITMENT_DOMAIN);
+    for word in image_id {
+        hasher.update(&word.to_le_bytes());
+    }
+    hasher.update(&(journal.len() as u64).to_be_bytes());
+    hasher.update(journal);
     let mut digest = [0_u8; 48];
     hasher.finalize_xof().read(&mut digest);
     Digest384::new(digest)
@@ -46,6 +65,88 @@ pub fn verify_cash_aggregation(
         return Err("cash aggregation child proof commitment mismatch");
     }
     Ok(())
+}
+
+/// Canonical private input consumed by the recursive proof leaf guest.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CashAggregationLeafInputV1 {
+    receipt: Vec<u8>,
+    witness: CashSessionAdmissionWitnessV1,
+    authorized: AuthorizedCashTransferV1,
+    public_key: Vec<u8>,
+}
+
+impl CashAggregationLeafInputV1 {
+    pub fn new(
+        receipt: Vec<u8>,
+        witness: CashSessionAdmissionWitnessV1,
+        authorized: AuthorizedCashTransferV1,
+        public_key: Vec<u8>,
+    ) -> Result<Self, &'static str> {
+        if receipt.is_empty()
+            || receipt.len() > MAX_CASH_LEAF_RECEIPT_LEN
+            || public_key.is_empty()
+            || public_key.len() > MAX_CASH_LEAF_PUBLIC_KEY_LEN
+        {
+            return Err("recursive cash leaf input is outside bounds");
+        }
+        Ok(Self { receipt, witness, authorized, public_key })
+    }
+
+    pub fn verify(&self) -> Result<CashAggregationNodeV1, &'static str> {
+        verify_cash_aggregation_leaf(
+            &self.receipt,
+            &self.witness,
+            &self.authorized,
+            &self.public_key,
+        )
+    }
+}
+
+impl CanonicalEncode for CashAggregationLeafInputV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        encoder.write_bytes(&self.receipt, MAX_CASH_LEAF_RECEIPT_LEN)?;
+        self.witness.encode(encoder)?;
+        self.authorized.encode(encoder)?;
+        encoder.write_bytes(&self.public_key, MAX_CASH_LEAF_PUBLIC_KEY_LEN)
+    }
+}
+
+impl CanonicalDecode for CashAggregationLeafInputV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let receipt = decoder.read_bytes(MAX_CASH_LEAF_RECEIPT_LEN)?.to_vec();
+        let witness = CashSessionAdmissionWitnessV1::decode(decoder)?;
+        let authorized = AuthorizedCashTransferV1::decode(decoder)?;
+        let public_key = decoder.read_bytes(MAX_CASH_LEAF_PUBLIC_KEY_LEN)?.to_vec();
+        Self::new(receipt, witness, authorized, public_key).map_err(DecodeError::InvalidValue)
+    }
+}
+
+impl CanonicalType for CashAggregationLeafInputV1 {
+    const TYPE_TAG: u16 = 0x01B0;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = MAX_CASH_LEAF_RECEIPT_LEN
+        + CashSessionAdmissionWitnessV1::MAX_ENCODED_LEN
+        + AuthorizedCashTransferV1::MAX_ENCODED_LEN
+        + MAX_CASH_LEAF_PUBLIC_KEY_LEN
+        + 8;
+}
+
+/// Verifies every leaf invariant directly inside a recursive guest and derives its public node.
+pub fn verify_cash_aggregation_leaf(
+    receipt_bytes: &[u8],
+    witness: &CashSessionAdmissionWitnessV1,
+    authorized: &AuthorizedCashTransferV1,
+    public_key: &[u8],
+) -> Result<CashAggregationNodeV1, &'static str> {
+    AuthenticatedCashAirReceiptV1::verify_bytes(receipt_bytes)?;
+    let receipt: AuthenticatedCashAirReceiptV1 =
+        decode_envelope(receipt_bytes).map_err(|_| "malformed aggregation leaf receipt")?;
+    verify_authorized_witness_binding(witness, authorized)?;
+    authorized.verify(public_key).map_err(|_| "cash session ML-DSA authorization is invalid")?;
+    let (chain_id, slot, child) =
+        derive_cash_aggregation_leaf(&receipt, receipt_bytes, witness, authorized)?;
+    Ok(CashAggregationNodeV1::from_child(chain_id, slot, &child))
 }
 
 /// Complete verifier inputs for one proof-level aggregation child.
@@ -236,6 +337,38 @@ impl CashAggregationChildV1 {
     pub const fn proof_commitment(&self) -> Digest384 {
         self.proof_commitment
     }
+
+    /// Constructs a child whose proof commitment binds an exact recursive guest image and its
+    /// canonical public journal.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_recursive(
+        chain_id: ChainId,
+        slot: u64,
+        level: CashAggregationLevel,
+        partition: u16,
+        pre_root: Digest384,
+        post_root: Digest384,
+        applied: u32,
+        rejected: u32,
+        resource_units: u64,
+        image_id: &[u32; 8],
+    ) -> Result<Self, &'static str> {
+        let mut child = Self::new(
+            level,
+            partition,
+            pre_root,
+            post_root,
+            Digest384::new([1; 48]),
+            applied,
+            rejected,
+            resource_units,
+        )?;
+        let node = CashAggregationNodeV1::from_child(chain_id, slot, &child);
+        let journal = cash_aggregation_journal(&node)
+            .map_err(|_| "recursive cash child journal encoding failed")?;
+        child.proof_commitment = recursive_cash_proof_commitment(image_id, &journal);
+        Ok(child)
+    }
 }
 
 impl CanonicalEncode for CashAggregationChildV1 {
@@ -265,6 +398,126 @@ impl CanonicalDecode for CashAggregationChildV1 {
         )
         .map_err(DecodeError::InvalidValue)
     }
+}
+
+/// Canonical semantic result committed by every recursive cash proof.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CashAggregationNodeV1 {
+    chain_id: ChainId,
+    slot: u64,
+    level: CashAggregationLevel,
+    partition: u16,
+    pre_root: Digest384,
+    post_root: Digest384,
+    applied: u64,
+    rejected: u64,
+    resource_units: u64,
+}
+
+impl CashAggregationNodeV1 {
+    fn from_child(chain_id: ChainId, slot: u64, child: &CashAggregationChildV1) -> Self {
+        Self {
+            chain_id,
+            slot,
+            level: child.level,
+            partition: child.partition,
+            pre_root: child.pre_root,
+            post_root: child.post_root,
+            applied: u64::from(child.applied),
+            rejected: u64::from(child.rejected),
+            resource_units: child.resource_units,
+        }
+    }
+
+    #[must_use]
+    pub fn from_statement(statement: &CashAggregationStatementV1) -> Self {
+        Self {
+            chain_id: statement.chain_id,
+            slot: statement.slot,
+            level: statement.level,
+            partition: statement.partition,
+            pre_root: statement.pre_root,
+            post_root: statement.post_root,
+            applied: statement.applied,
+            rejected: statement.rejected,
+            resource_units: statement.resource_units,
+        }
+    }
+
+    #[must_use]
+    pub const fn level(&self) -> CashAggregationLevel {
+        self.level
+    }
+}
+
+impl CanonicalEncode for CashAggregationNodeV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain_id.encode(encoder)?;
+        self.slot.encode(encoder)?;
+        self.level.encode(encoder)?;
+        self.partition.encode(encoder)?;
+        self.pre_root.encode(encoder)?;
+        self.post_root.encode(encoder)?;
+        self.applied.encode(encoder)?;
+        self.rejected.encode(encoder)?;
+        self.resource_units.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for CashAggregationNodeV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Ok(Self {
+            chain_id: ChainId::decode(decoder)?,
+            slot: u64::decode(decoder)?,
+            level: CashAggregationLevel::decode(decoder)?,
+            partition: u16::decode(decoder)?,
+            pre_root: Digest384::decode(decoder)?,
+            post_root: Digest384::decode(decoder)?,
+            applied: u64::decode(decoder)?,
+            rejected: u64::decode(decoder)?,
+            resource_units: u64::decode(decoder)?,
+        })
+    }
+}
+
+impl CanonicalType for CashAggregationNodeV1 {
+    const TYPE_TAG: u16 = 0x01AF;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 + 8 + 1 + 2 + 48 + 48 + 8 + 8 + 8;
+}
+
+pub fn cash_aggregation_journal(node: &CashAggregationNodeV1) -> Result<Vec<u8>, EncodeError> {
+    let encoded = activechain_canonical_codec::encode_envelope(node)?;
+    let mut journal = Vec::with_capacity(CASH_AGGREGATION_JOURNAL_DOMAIN.len() + encoded.len());
+    journal.extend_from_slice(CASH_AGGREGATION_JOURNAL_DOMAIN);
+    journal.extend_from_slice(&encoded);
+    Ok(journal)
+}
+
+/// Validates a recursive aggregation statement and derives the exact child journals it must
+/// authenticate through RISC Zero receipt assumptions.
+pub fn recursive_cash_child_journals(
+    statement: &CashAggregationStatementV1,
+    expected_level: CashAggregationLevel,
+    child_image_id: &[u32; 8],
+) -> Result<Vec<Vec<u8>>, &'static str> {
+    if statement.level != expected_level {
+        return Err("recursive cash aggregation level mismatch");
+    }
+    statement.verify()?;
+    statement
+        .children
+        .iter()
+        .map(|child| {
+            let node = CashAggregationNodeV1::from_child(statement.chain_id, statement.slot, child);
+            let journal = cash_aggregation_journal(&node)
+                .map_err(|_| "recursive cash child journal encoding failed")?;
+            if child.proof_commitment != recursive_cash_proof_commitment(child_image_id, &journal) {
+                return Err("recursive cash child proof commitment mismatch");
+            }
+            Ok(journal)
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -375,6 +628,11 @@ impl CashAggregationStatementV1 {
     #[must_use]
     pub fn children(&self) -> &[CashAggregationChildV1] {
         &self.children
+    }
+
+    #[must_use]
+    pub const fn level(&self) -> CashAggregationLevel {
+        self.level
     }
 }
 
@@ -804,5 +1062,54 @@ mod tests {
         )
         .unwrap();
         verify_cash_aggregation(&global, &[b"slot"]).unwrap();
+    }
+
+    #[test]
+    fn recursive_children_bind_exact_image_and_journal() {
+        let image_id = [7_u32; 8];
+        let child = CashAggregationChildV1::new_recursive(
+            ChainId::new(digest(1)),
+            9,
+            CashAggregationLevel::Proof,
+            3,
+            digest(10),
+            digest(11),
+            1,
+            0,
+            7,
+            &image_id,
+        )
+        .unwrap();
+        let statement = CashAggregationStatementV1::new(
+            ChainId::new(digest(1)),
+            9,
+            CashAggregationLevel::Microbatch,
+            3,
+            digest(10),
+            digest(11),
+            1,
+            0,
+            7,
+            vec![child],
+        )
+        .unwrap();
+        let journals =
+            recursive_cash_child_journals(&statement, CashAggregationLevel::Microbatch, &image_id)
+                .unwrap();
+        assert_eq!(journals.len(), 1);
+        assert!(
+            recursive_cash_child_journals(
+                &statement,
+                CashAggregationLevel::Microbatch,
+                &[8_u32; 8],
+            )
+            .is_err()
+        );
+        let mut substituted = journals[0].clone();
+        substituted.push(0);
+        assert_ne!(
+            statement.children()[0].proof_commitment(),
+            recursive_cash_proof_commitment(&image_id, &substituted)
+        );
     }
 }

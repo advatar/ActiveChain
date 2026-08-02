@@ -44,9 +44,11 @@ mod ml_dsa_vector_subtract;
 mod session;
 mod shake;
 pub use aggregation::{
-    CashAggregationChildV1, CashAggregationLeafEvidenceV1, CashAggregationLevel,
-    CashAggregationStatementV1, GLOBAL_CASH_PARTITION, MAX_CASH_AGGREGATION_CHILDREN,
-    cash_aggregation_proof_commitment, verify_cash_aggregation, verify_cash_aggregation_leaves,
+    CashAggregationChildV1, CashAggregationLeafEvidenceV1, CashAggregationLeafInputV1,
+    CashAggregationLevel, CashAggregationNodeV1, CashAggregationStatementV1, GLOBAL_CASH_PARTITION,
+    MAX_CASH_AGGREGATION_CHILDREN, cash_aggregation_journal, cash_aggregation_proof_commitment,
+    recursive_cash_child_journals, recursive_cash_proof_commitment, verify_cash_aggregation,
+    verify_cash_aggregation_leaf, verify_cash_aggregation_leaves,
 };
 pub use ml_dsa_challenge_product::{
     MlDsa44ChallengeProductStarkProof, prove_ml_dsa44_challenge_product,
@@ -101,7 +103,8 @@ pub use ml_dsa_vector_subtract::{
 pub use session::{
     AuthorizedCashSessionMlDsaStarkProof, CashSessionProofError, CashSessionStarkProof,
     prove_authorized_session, prove_authorized_session_mldsa, prove_session_budget,
-    verify_authorized_session, verify_authorized_session_mldsa, verify_session_budget,
+    verify_authorized_session, verify_authorized_session_mldsa, verify_authorized_witness_binding,
+    verify_session_budget,
 };
 pub use shake::{
     AuthenticatedCashShakeStarkProof, BatchedShake256StarkProof,
