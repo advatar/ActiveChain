@@ -2408,6 +2408,8 @@ Tracked by [GitHub issue #387](https://github.com/advatar/ActiveChain/issues/387
           linkage, and leaf actor-binding verification through matching Rust and C result codes.
         - [ ] Join capability and actor signatures to principal controller keys proven against the
           finalized state root.
+          - [x] Canonicalize object-backed finalized principal and authenticator-set witnesses
+            ([GitHub issue #627](https://github.com/advatar/ActiveChain/issues/627)).
   - [x] Expose Coin Cell discovery, policy evaluation, canonical intents, approval-bound signing,
     secure-key callbacks, and submission through the wallet ABI
     ([GitHub issue #87](https://github.com/advatar/ActiveChain/issues/87)).

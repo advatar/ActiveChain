@@ -6,6 +6,11 @@ use alloc::vec::Vec;
 
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
+    encode_envelope,
+};
+use sha3::{
+    Shake256,
+    digest::{ExtendableOutput, Update, XofReader},
 };
 
 use crate::{AuthenticatorId, Height};
@@ -14,6 +19,10 @@ use crate::{AuthenticatorId, Height};
 pub const MAX_VERIFICATION_KEY_LENGTH: usize = 4_096;
 /// Maximum signature bytes admitted by the development schema.
 pub const MAX_SIGNATURE_LENGTH: usize = 20_000;
+/// Maximum authenticators committed by one version-1 principal.
+pub const MAX_PRINCIPAL_AUTHENTICATORS: usize = 8;
+
+const AUTHENTICATOR_SET_DOMAIN: &[u8] = b"ACTIVECHAIN-AUTHENTICATOR-SET-V1";
 
 const MAX_U32_ULEB128_LENGTH: usize = 5;
 
@@ -471,6 +480,111 @@ impl CanonicalType for AuthenticatorDescriptor {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
+/// Canonical, strictly ordered public authenticator set committed by a principal.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthenticatorSetV1 {
+    authenticators: Vec<AuthenticatorDescriptor>,
+}
+
+impl AuthenticatorSetV1 {
+    /// Registered top-level type tag.
+    pub const TYPE_TAG: u16 = 0x0028;
+    /// Initial schema version.
+    pub const SCHEMA_VERSION: u16 = 1;
+    /// Maximum canonical body length.
+    pub const MAX_ENCODED_LEN: usize =
+        1 + MAX_PRINCIPAL_AUTHENTICATORS * AuthenticatorDescriptor::MAX_ENCODED_LEN;
+
+    /// Constructs a non-empty set ordered uniquely by authenticator identifier.
+    pub fn new(
+        authenticators: Vec<AuthenticatorDescriptor>,
+    ) -> Result<Self, AuthenticatorSetError> {
+        if authenticators.is_empty() || authenticators.len() > MAX_PRINCIPAL_AUTHENTICATORS {
+            return Err(AuthenticatorSetError::InvalidCount);
+        }
+        if authenticators
+            .windows(2)
+            .any(|pair| pair[0].authenticator_id() >= pair[1].authenticator_id())
+        {
+            return Err(AuthenticatorSetError::NotStrictlyOrdered);
+        }
+        Ok(Self { authenticators })
+    }
+
+    /// Borrows the ordered descriptors.
+    #[must_use]
+    pub fn authenticators(&self) -> &[AuthenticatorDescriptor] {
+        &self.authenticators
+    }
+
+    /// Finds one descriptor by stable identifier.
+    #[must_use]
+    pub fn authenticator(&self, id: AuthenticatorId) -> Option<&AuthenticatorDescriptor> {
+        self.authenticators
+            .binary_search_by_key(&id, AuthenticatorDescriptor::authenticator_id)
+            .ok()
+            .map(|index| &self.authenticators[index])
+    }
+
+    /// Computes the principal's version-1 authenticator-set commitment.
+    pub fn root(&self) -> Result<crate::Digest384, EncodeError> {
+        let mut hasher = Shake256::default();
+        hasher.update(AUTHENTICATOR_SET_DOMAIN);
+        hasher.update(&(self.authenticators.len() as u16).to_be_bytes());
+        for authenticator in &self.authenticators {
+            let encoded = encode_envelope(authenticator)?;
+            hasher.update(&(encoded.len() as u32).to_be_bytes());
+            hasher.update(&encoded);
+        }
+        let mut output = [0_u8; 48];
+        hasher.finalize_xof().read(&mut output);
+        Ok(crate::Digest384::new(output))
+    }
+}
+
+impl CanonicalEncode for AuthenticatorSetV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        encoder.write_length(self.authenticators.len(), MAX_PRINCIPAL_AUTHENTICATORS)?;
+        for authenticator in &self.authenticators {
+            authenticator.encode(encoder)?;
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for AuthenticatorSetV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let count = decoder.read_length(MAX_PRINCIPAL_AUTHENTICATORS)?;
+        let mut authenticators = Vec::with_capacity(count);
+        for _ in 0..count {
+            authenticators.push(AuthenticatorDescriptor::decode(decoder)?);
+        }
+        Self::new(authenticators).map_err(|error| match error {
+            AuthenticatorSetError::InvalidCount => {
+                DecodeError::InvalidValue("authenticator set count is out of bounds")
+            }
+            AuthenticatorSetError::NotStrictlyOrdered => {
+                DecodeError::InvalidValue("authenticator set is not strictly ordered")
+            }
+        })
+    }
+}
+
+impl CanonicalType for AuthenticatorSetV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
+/// Authenticator-set construction failures.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AuthenticatorSetError {
+    /// The set is empty or exceeds the version-1 bound.
+    InvalidCount,
+    /// Identifiers are duplicated or not ascending.
+    NotStrictlyOrdered,
+}
+
 /// Authenticator descriptor validation failures.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AuthenticatorValidationError {
@@ -531,8 +645,9 @@ mod tests {
     use activechain_canonical_codec::{decode_envelope, encode_envelope};
 
     use super::{
-        AuthenticatorDescriptor, AuthenticatorPurpose, AuthenticatorValidationError, CryptoFamily,
-        CryptoSuiteError, CryptoSuiteId, ProtocolSignature, SignatureError,
+        AuthenticatorDescriptor, AuthenticatorPurpose, AuthenticatorSetError, AuthenticatorSetV1,
+        AuthenticatorValidationError, CryptoFamily, CryptoSuiteError, CryptoSuiteId,
+        ProtocolSignature, SignatureError,
     };
     use crate::{AuthenticatorId, Digest384};
 
@@ -594,6 +709,38 @@ mod tests {
 
         let encoded = encode_envelope(&value).expect("descriptor fits its bound");
         assert_eq!(decode_envelope::<AuthenticatorDescriptor>(&encoded), Ok(value));
+    }
+
+    #[test]
+    fn authenticator_sets_are_ordered_bounded_and_root_committed() {
+        let descriptor = |byte| {
+            AuthenticatorDescriptor::new(
+                AuthenticatorId::new(crate::Digest384::new([byte; 48])),
+                CryptoSuiteId::ML_DSA_65,
+                vec![byte; CryptoSuiteId::ML_DSA_65.verification_key_length().unwrap()],
+                AuthenticatorPurpose::Control,
+                2,
+                Some(20),
+                None,
+            )
+            .unwrap()
+        };
+        let set = AuthenticatorSetV1::new(vec![descriptor(1), descriptor(2)]).unwrap();
+        let encoded = encode_envelope(&set).unwrap();
+        assert_eq!(decode_envelope::<AuthenticatorSetV1>(&encoded), Ok(set.clone()));
+        assert_ne!(
+            set.root().unwrap(),
+            AuthenticatorSetV1::new(vec![descriptor(1)]).unwrap().root().unwrap()
+        );
+        assert_eq!(
+            AuthenticatorSetV1::new(vec![descriptor(2), descriptor(1)]),
+            Err(AuthenticatorSetError::NotStrictlyOrdered)
+        );
+        assert_eq!(
+            AuthenticatorSetV1::new(vec![descriptor(1), descriptor(1)]),
+            Err(AuthenticatorSetError::NotStrictlyOrdered)
+        );
+        assert_eq!(AuthenticatorSetV1::new(vec![]), Err(AuthenticatorSetError::InvalidCount));
     }
 
     #[test]

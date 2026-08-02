@@ -12,6 +12,14 @@
       "status": "valid"
     },
     {
+      "id": "principal-authenticator-witness-v1",
+      "type_tag": "0x0020,0x0028,0x0050,0x0055,0x007A",
+      "schema_version": 1,
+      "source": "principal-authenticator-witness-v1.tsv",
+      "sha256": "6e2cb3472e2575773cf7a780407cd7fa5c6ff05aa0fcef3e99acedbb1da87e6e",
+      "status": "valid"
+    },
+    {
       "id": "native-money-v1",
       "type_tag": "0x0080-0x0089",
       "schema_version": 2,

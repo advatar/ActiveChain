@@ -20,4 +20,6 @@ holders, actions, scopes, ceilings, validity, delegation, revocation, constraint
 suite/length framing. These are partial M1 semantic families, not completion of M1.
 It still does not decode other schema bodies,
 verify ML-DSA signatures, execute transitions, or replay finalized roots, and is not M2 evidence.
+The Rust/C verifier SDK separately supports finalized object-backed principal and active
+authenticator evidence; that API is not implemented by this independent Go slice yet.
 The v1.0 complexity budget, staffing requirement, and launch decision are recorded in P-134.

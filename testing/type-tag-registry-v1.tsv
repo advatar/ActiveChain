@@ -8,6 +8,7 @@
 0x0025	1	CredentialStatusRegistry	crates/protocol-types/src/credential.rs
 0x0026	1	CredentialAcceptancePolicy	crates/protocol-types/src/credential.rs
 0x0027	1	CredentialPredicateV1	crates/protocol-types/src/credential.rs
+0x0028	1	AuthenticatorSetV1	crates/protocol-types/src/crypto.rs
 0x0030	1	CapabilityGrant	crates/protocol-types/src/authority.rs
 0x0040	1	PolicySet	crates/policy-kernel/src/ast.rs
 0x0041	1	PolicyRequest	crates/policy-kernel/src/request.rs

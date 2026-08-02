@@ -3,8 +3,8 @@ use activechain_canonical_codec::{
     decode_envelope, encode_envelope, inspect_canonical_envelope,
 };
 use activechain_protocol_types::{
-    AuthenticatorDescriptor, AuthenticatorPurpose, ChainId, CoinCellId, CryptoSuiteId, Digest384,
-    Principal, PrincipalId, TransactionId,
+    AuthenticatorDescriptor, AuthenticatorPurpose, AuthenticatorSetV1, ChainId, CoinCellId,
+    CryptoSuiteId, Digest384, Principal, PrincipalId, TransactionId,
 };
 use alloc::vec::Vec;
 use sha3::{
@@ -49,7 +49,6 @@ fn interrupt(
     }
 }
 
-const AUTHENTICATOR_SET_DOMAIN: &[u8] = b"ACTIVECHAIN-AUTHENTICATOR-SET-V1";
 const CASH_SNAPSHOT_TAG_LENGTH: usize = 32;
 pub(crate) const MAX_AUTHORIZATION_LANES: usize = 256;
 pub(crate) const MAX_CONSUMED_SESSIONS_PER_LANE: usize = 4_096;
@@ -137,16 +136,10 @@ pub fn authenticator_set_root(
     if authenticators.len() != 1 {
         return Err(WalletError::InvalidIdentityProof);
     }
-    let encoded =
-        encode_envelope(&authenticators[0]).map_err(|_| WalletError::InvalidIdentityProof)?;
-    let mut hasher = Shake256::default();
-    hasher.update(AUTHENTICATOR_SET_DOMAIN);
-    hasher.update(&(authenticators.len() as u16).to_be_bytes());
-    hasher.update(&(encoded.len() as u32).to_be_bytes());
-    hasher.update(&encoded);
-    let mut output = [0_u8; 48];
-    hasher.finalize_xof().read(&mut output);
-    Ok(Digest384::new(output))
+    AuthenticatorSetV1::new(authenticators.to_vec())
+        .map_err(|_| WalletError::InvalidIdentityProof)?
+        .root()
+        .map_err(|_| WalletError::InvalidIdentityProof)
 }
 
 impl TransactionIngress {
