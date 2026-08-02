@@ -436,6 +436,8 @@ Tracked by [GitHub issue #345](https://github.com/advatar/ActiveChain/issues/345
           temporal inversion, truncation, and trailing bytes (#620).
     - [x] Independently decode AuthenticatorDescriptor v1, registered suites, exact key sizes,
           purpose compatibility, and validity/revocation ordering (#622).
+    - [x] Independently decode CapabilityGrant v1 and verify complete parent/child attenuation,
+          including scopes, ceilings, validity, delegation, revocation, and signature framing (#624).
 
 ## Active milestone — P-060 execution proof system
 
