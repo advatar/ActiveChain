@@ -43,9 +43,10 @@ mod compliance;
 pub use compliance::RegulatedTransferAdmission;
 pub mod finalized_block;
 pub use finalized_block::{
-    ExecutionProofVerifier, FinalizedBlock, FinalizedBlockAdmissionError, FinalizedBlockCandidate,
-    FinalizedBlockHeader, FinalizedBlockVerifier, GenesisBackedFinalizedBlockVerifier,
-    ProofPublicInputs, VerifiedExecutionProof,
+    DirectExecutionProofV1, DirectExecutionProofVerifier, ExecutionProofVerifier, FinalizedBlock,
+    FinalizedBlockAdmissionError, FinalizedBlockCandidate, FinalizedBlockHeader,
+    FinalizedBlockVerifier, GenesisBackedFinalizedBlockVerifier, ProofPublicInputs,
+    VerifiedExecutionProof,
 };
 mod pq_session;
 pub use pq_session::{PqPeerSession, PqSessionContext, PqSessionStore, SESSION_TTL_SECS};
@@ -69,11 +70,25 @@ pub struct WalletTransactionGateway {
 pub struct PreparedWalletTransactionBatch {
     pre_ledger: activechain_cash_kernel::CashLedger,
     next: WalletTransactionGateway,
+    action_ids: Vec<TransactionId>,
 }
 
 impl PreparedWalletTransactionBatch {
     pub fn ledger(&self) -> &activechain_cash_kernel::CashLedger {
         self.next.ledger()
+    }
+    pub fn pre_cash_cell_root(&self) -> Digest384 {
+        activechain_cash_kernel::authenticated_coin_cell_root(self.pre_ledger.cells())
+            .expect("prepared invariant-checked pre-state has an authenticated root")
+            .into_digest()
+    }
+    pub fn post_cash_cell_root(&self) -> Digest384 {
+        activechain_cash_kernel::authenticated_coin_cell_root(self.next.ledger().cells())
+            .expect("prepared invariant-checked post-state has an authenticated root")
+            .into_digest()
+    }
+    pub fn action_ids(&self) -> &[TransactionId] {
+        &self.action_ids
     }
 }
 
@@ -131,6 +146,7 @@ impl WalletTransactionGateway {
         height: u64,
     ) -> Result<PreparedWalletTransactionBatch, activechain_wallet_core::WalletError> {
         let mut next = self.clone();
+        let mut action_ids = Vec::with_capacity(envelopes.len());
         next.ingress.prune_replay_state(height);
         for envelope in envelopes {
             let authorized =
@@ -146,8 +162,9 @@ impl WalletTransactionGateway {
                 continue;
             }
             next.ingress.submit_envelope(envelope, height)?;
+            action_ids.push(transaction);
         }
-        Ok(PreparedWalletTransactionBatch { pre_ledger: self.ledger().clone(), next })
+        Ok(PreparedWalletTransactionBatch { pre_ledger: self.ledger().clone(), next, action_ids })
     }
 
     /// Durably publishes a previously prepared batch after consensus certifies its exact root.
@@ -4880,6 +4897,8 @@ mod tests {
         assert_eq!(gateway.ledger(), &pre_ledger, "rejected batch must not mutate live state");
         let prepared = gateway.prepare_envelope_batch(&[envelope.clone()], 1).unwrap();
         let stale_prepared = gateway.prepare_envelope_batch(&[envelope.clone()], 1).unwrap();
+        assert_eq!(prepared.action_ids().len(), 1);
+        assert_ne!(prepared.pre_cash_cell_root(), prepared.post_cash_cell_root());
         assert_ne!(prepared.ledger(), &pre_ledger);
         assert_eq!(gateway.ledger(), &pre_ledger, "prepared state remains unpublished");
         gateway.commit_prepared(prepared).unwrap();
@@ -4889,6 +4908,8 @@ mod tests {
         );
         let retried = gateway.prepare_envelope_batch(&[envelope], 2).unwrap();
         assert_eq!(retried.ledger(), gateway.ledger(), "certified retry is idempotent");
+        assert!(retried.action_ids().is_empty());
+        assert_eq!(retried.pre_cash_cell_root(), retried.post_cash_cell_root());
         let restored =
             WalletTransactionGateway::load_snapshot(&snapshot_path, ChainId::new(digest(1)))
                 .unwrap();

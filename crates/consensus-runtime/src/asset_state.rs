@@ -236,6 +236,8 @@ mod tests {
             issuance: 0,
             burn: 0,
             post_supply: 0,
+            pre_cash_cell_root: digest(46),
+            cash_action_root: digest(50),
             cash_cell_root: digest(46),
             post_state,
             receipt_root: digest(47),

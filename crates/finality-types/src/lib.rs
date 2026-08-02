@@ -52,6 +52,10 @@ pub struct ProofPublicInputs {
     pub issuance: u128,
     pub burn: u128,
     pub post_supply: u128,
+    /// Authenticated root of the complete Coin Cell set before ordered cash execution.
+    pub pre_cash_cell_root: Digest384,
+    /// Commitment to the exact ordered authorized cash transactions executed at this height.
+    pub cash_action_root: Digest384,
     /// Authenticated root of the complete finalized Coin Cell set.
     pub cash_cell_root: Digest384,
     pub post_state: StateCommitment,
@@ -88,6 +92,8 @@ impl CanonicalEncode for ProofPublicInputs {
         self.issuance.encode(encoder)?;
         self.burn.encode(encoder)?;
         self.post_supply.encode(encoder)?;
+        self.pre_cash_cell_root.encode(encoder)?;
+        self.cash_action_root.encode(encoder)?;
         self.cash_cell_root.encode(encoder)?;
         self.post_state.encode(encoder)?;
         self.receipt_root.encode(encoder)?;
@@ -113,6 +119,8 @@ impl CanonicalDecode for ProofPublicInputs {
             issuance: u128::decode(decoder)?,
             burn: u128::decode(decoder)?,
             post_supply: u128::decode(decoder)?,
+            pre_cash_cell_root: Digest384::decode(decoder)?,
+            cash_action_root: Digest384::decode(decoder)?,
             cash_cell_root: Digest384::decode(decoder)?,
             post_state: StateCommitment::decode(decoder)?,
             receipt_root: Digest384::decode(decoder)?,
@@ -123,9 +131,9 @@ impl CanonicalDecode for ProofPublicInputs {
 
 impl CanonicalType for ProofPublicInputs {
     const TYPE_TAG: u16 = 0x0078;
-    const SCHEMA_VERSION: u16 = 2;
+    const SCHEMA_VERSION: u16 = 3;
     const MAX_ENCODED_LEN: usize =
-        48 + 8 + 8 + 8 + 48 + 48 + 56 + 48 + 48 + 48 + 16 * 5 + 48 + 56 + 48 + 48;
+        48 + 8 + 8 + 8 + 48 + 48 + 56 + 48 + 48 + 48 + 16 * 5 + 48 * 3 + 56 + 48 + 48;
 }
 
 /// Canonical header whose digest is the only digest validators may certify.
@@ -136,7 +144,7 @@ pub struct FinalizedBlockHeader {
 }
 
 impl FinalizedBlockHeader {
-    pub const SCHEMA_VERSION: u16 = 2;
+    pub const SCHEMA_VERSION: u16 = 3;
     pub fn digest(&self) -> Result<Digest384, EncodeError> {
         Ok(commit_parts(b"ACTIVECHAIN-FINALIZED-BLOCK-HEADER-V1", &[&encode_envelope(self)?]))
     }
@@ -281,6 +289,8 @@ mod tests {
             issuance: 14,
             burn: 15,
             post_supply: 12,
+            pre_cash_cell_root: digest(20),
+            cash_action_root: digest(21),
             cash_cell_root: digest(20),
             post_state: StateCommitment::new(digest(16), 17),
             receipt_root: digest(18),

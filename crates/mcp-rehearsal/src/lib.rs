@@ -288,6 +288,8 @@ fn receipt_record(intent: &ActionIntentV1, transaction: Digest384) -> (QueryReco
         issuance: 0,
         burn: 0,
         post_supply: 0,
+        pre_cash_cell_root: digest(75),
+        cash_action_root: digest(76),
         cash_cell_root: digest(75),
         post_state: StateCommitment::new(digest(81), 0),
         receipt_root: digest(77),

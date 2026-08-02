@@ -4,11 +4,15 @@ use activechain_authorization_kernel::{
     AuthorizationCandidate, AuthorizationReplayStore, AuthorizationVerifier, CredentialMaterial,
     verify_authorization_candidate,
 };
-use activechain_canonical_codec::{EncodeError, decode_envelope, encode_envelope};
+use activechain_canonical_codec::{
+    CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
+    decode_envelope, encode_envelope,
+};
 use activechain_data_availability::AvailabilityBatch;
 use activechain_devnet_kernel::{BlockReceipt, ChainState, DevnetBlock, apply_block};
 use activechain_finality_types::commit_parts as commitment;
 pub use activechain_finality_types::{FinalizedBlockHeader, ProofPublicInputs};
+use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::FungibleIssuerApprovalV1;
 use activechain_protocol_types::{
     CapabilityGrant, Credential, Digest384, PrincipalId, QuorumCertificate, ValidatorGenesis,
@@ -25,16 +29,25 @@ fn derive_proof_public_inputs(
     pre_supply: u128,
     issuance: u128,
     burn: u128,
+    pre_cash_cell_root: Digest384,
+    cash_action_ids: &[activechain_protocol_types::TransactionId],
     cash_cell_root: Digest384,
     data_shards: usize,
     parity_shards: usize,
 ) -> Result<(ProofPublicInputs, ChainState, BlockReceipt, Vec<u8>), FinalizedBlockAdmissionError> {
+    if cash_action_ids.is_empty() != (pre_cash_cell_root == cash_cell_root) {
+        return Err(FinalizedBlockAdmissionError::Execution);
+    }
     let encoded =
         encode_envelope(block).map_err(|_| FinalizedBlockAdmissionError::CanonicalBlock)?;
     let output = apply_block(state, block).map_err(|_| FinalizedBlockAdmissionError::Execution)?;
     let mut authorization = Vec::with_capacity(block.actions().len() * 48);
     let mut actions = Vec::with_capacity(block.actions().len() * 48);
     let mut total_fees = 0_u128;
+    let mut cash_actions = Vec::with_capacity(cash_action_ids.len() * 48);
+    for action in cash_action_ids {
+        cash_actions.extend_from_slice(action.digest().as_bytes());
+    }
     for (action, receipt) in block.actions().iter().zip(output.receipt().action_receipts()) {
         authorization.extend_from_slice(action.authorization_commitment().as_bytes());
         actions.extend_from_slice(receipt.transaction_id().digest().as_bytes());
@@ -74,6 +87,8 @@ fn derive_proof_public_inputs(
             issuance,
             burn,
             post_supply,
+            pre_cash_cell_root,
+            cash_action_root: commitment(b"ACTIVECHAIN-BLOCK-CASH-ACTIONS-V1", &[&cash_actions]),
             cash_cell_root,
             post_state: output.receipt().post_state(),
             receipt_root: output.receipt_root(),
@@ -92,6 +107,100 @@ pub struct VerifiedExecutionProof {
     pub prover: PrincipalId,
     pub proof_system: u16,
     pub proof_bytes: Vec<u8>,
+}
+
+/// Direct-reexecution evidence. The admission path independently reexecutes the block and requires
+/// these exact public inputs and receipt, so this proof system needs no trusted prover.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DirectExecutionProofV1 {
+    inputs: ProofPublicInputs,
+    receipt: BlockReceipt,
+    prover: PrincipalId,
+}
+
+impl DirectExecutionProofV1 {
+    pub const TYPE_TAG: u16 = 0x0192;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const PROOF_SYSTEM: u16 = 0;
+
+    pub fn new(
+        inputs: ProofPublicInputs,
+        receipt: BlockReceipt,
+        prover: PrincipalId,
+    ) -> Result<Self, FinalizedBlockAdmissionError> {
+        if prover.digest() == &Digest384::ZERO
+            || inputs.pre_state != receipt.pre_state()
+            || inputs.post_state != receipt.post_state()
+            || inputs.receipt_root
+                != commit(DomainTag::CANONICAL_VALUE, &receipt)
+                    .map_err(|_| FinalizedBlockAdmissionError::Proof)?
+        {
+            return Err(FinalizedBlockAdmissionError::Proof);
+        }
+        let fees = receipt
+            .action_receipts()
+            .iter()
+            .try_fold(0_u128, |sum, action| sum.checked_add(action.fee_charged()));
+        if fees != Some(inputs.total_fees) {
+            return Err(FinalizedBlockAdmissionError::Proof);
+        }
+        Ok(Self { inputs, receipt, prover })
+    }
+
+    pub fn into_verified(self) -> Result<VerifiedExecutionProof, FinalizedBlockAdmissionError> {
+        let proof_bytes =
+            encode_envelope(&self).map_err(|_| FinalizedBlockAdmissionError::Proof)?;
+        Ok(VerifiedExecutionProof {
+            inputs: self.inputs,
+            prover: self.prover,
+            proof_system: Self::PROOF_SYSTEM,
+            proof_bytes,
+        })
+    }
+}
+
+impl CanonicalEncode for DirectExecutionProofV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.inputs.encode(encoder)?;
+        self.receipt.encode(encoder)?;
+        self.prover.encode(encoder)
+    }
+}
+impl CanonicalDecode for DirectExecutionProofV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            ProofPublicInputs::decode(decoder)?,
+            BlockReceipt::decode(decoder)?,
+            PrincipalId::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid direct execution proof"))
+    }
+}
+impl CanonicalType for DirectExecutionProofV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize =
+        ProofPublicInputs::MAX_ENCODED_LEN + BlockReceipt::MAX_ENCODED_LEN + 48;
+}
+
+/// Production verifier for proof-system zero: deterministic direct reexecution.
+pub struct DirectExecutionProofVerifier;
+impl ExecutionProofVerifier for DirectExecutionProofVerifier {
+    fn verify(&self, proof_system: u16, statement: Digest384, proof: &[u8]) -> bool {
+        if proof_system != DirectExecutionProofV1::PROOF_SYSTEM {
+            return false;
+        }
+        let Ok(direct) = decode_envelope::<DirectExecutionProofV1>(proof) else {
+            return false;
+        };
+        let verified = VerifiedExecutionProof {
+            inputs: direct.inputs,
+            prover: direct.prover,
+            proof_system,
+            proof_bytes: proof.to_vec(),
+        };
+        verified.statement_commitment().is_ok_and(|actual| actual == statement)
+    }
 }
 impl VerifiedExecutionProof {
     pub const MAX_PROOF_BYTES: usize = 1 << 20;
@@ -240,6 +349,8 @@ impl FinalizedBlockCandidate {
         pre_supply: u128,
         issuance: u128,
         burn: u128,
+        pre_cash_cell_root: Digest384,
+        cash_action_ids: &[activechain_protocol_types::TransactionId],
         cash_cell_root: Digest384,
         authorization_store: &AuthorizationReplayStore,
         verifier: &V,
@@ -301,6 +412,8 @@ impl FinalizedBlockCandidate {
             pre_supply,
             issuance,
             burn,
+            pre_cash_cell_root,
+            cash_action_ids,
             cash_cell_root,
             self.data_shards,
             self.parity_shards,
@@ -464,6 +577,8 @@ mod tests {
             3,
             2,
             Digest384::new([6; 48]),
+            &[],
+            Digest384::new([6; 48]),
             1,
             1,
         )
@@ -591,6 +706,65 @@ mod tests {
     }
 
     #[test]
+    fn direct_execution_proof_binds_reexecuted_inputs_receipt_fees_and_prover() {
+        let (state, block, inputs, _, _, _, root) = fixture();
+        let (_, _, receipt, _) = derive_proof_public_inputs(
+            &state,
+            &block,
+            inputs.epoch,
+            inputs.protocol_revision,
+            root,
+            inputs.pre_supply,
+            inputs.issuance,
+            inputs.burn,
+            inputs.pre_cash_cell_root,
+            &[],
+            inputs.cash_cell_root,
+            1,
+            1,
+        )
+        .unwrap();
+        let direct = DirectExecutionProofV1::new(
+            inputs,
+            receipt.clone(),
+            PrincipalId::new(Digest384::new([52; 48])),
+        )
+        .unwrap()
+        .into_verified()
+        .unwrap();
+        let statement = direct.statement_commitment().unwrap();
+        assert!(DirectExecutionProofVerifier.verify(
+            direct.proof_system,
+            statement,
+            &direct.proof_bytes,
+        ));
+        let mut tampered = direct.proof_bytes.clone();
+        *tampered.last_mut().unwrap() ^= 1;
+        assert!(!DirectExecutionProofVerifier.verify(direct.proof_system, statement, &tampered));
+        let wrong_receipt = BlockReceipt::new(
+            receipt.block_id(),
+            receipt.height(),
+            receipt.pre_state(),
+            receipt.post_state(),
+            receipt.pre_chain_state(),
+            receipt.post_chain_state(),
+            vec![activechain_devnet_kernel::ActionReceipt::new(
+                activechain_protocol_types::TransactionId::new(Digest384::new([53; 48])),
+                activechain_devnet_kernel::ActionOutcome::ResourceLimitExceeded,
+                activechain_action_kernel::ResourceVector::default(),
+                1,
+                0,
+                receipt.post_state(),
+            )],
+        )
+        .unwrap();
+        assert_eq!(
+            DirectExecutionProofV1::new(inputs, wrong_receipt, direct.prover),
+            Err(FinalizedBlockAdmissionError::Proof)
+        );
+    }
+
+    #[test]
     fn typed_finalization_recomputes_every_binding_and_rejects_substitution() {
         let (state, block, _inputs, proof, header, genesis, root) = fixture();
         let authorization_path = std::env::temp_dir().join(format!(
@@ -603,14 +777,14 @@ mod tests {
         assert_eq!(
             digest,
             Digest384::new([
-                36, 172, 138, 9, 83, 100, 172, 1, 41, 192, 222, 157, 127, 238, 98, 227, 250, 200,
-                191, 244, 220, 211, 145, 50, 94, 172, 245, 194, 153, 172, 172, 11, 214, 149, 124,
-                70, 44, 219, 45, 194, 69, 238, 201, 247, 33, 95, 79, 137,
+                126, 32, 99, 202, 172, 186, 212, 32, 208, 149, 115, 157, 78, 94, 152, 42, 151, 1,
+                110, 13, 219, 158, 22, 159, 185, 103, 189, 151, 247, 31, 141, 144, 225, 50, 56,
+                241, 233, 39, 207, 108, 77, 7, 124, 229, 109, 129, 146, 202,
             ])
         );
         assert_eq!(
             include_str!("../../../testing/vectors/consensus/finalized-block-v1.txt"),
-            "header_type_tag=0x0079\nheader_schema_version=2\nproof_inputs_type_tag=0x0078\nproof_inputs_schema_version=2\nheader_digest=24ac8a095364ac0129c0de9d7fee62e3fac8bff4dcd391325eacf5c299acac0bd6957c462cdb2dc245eec9f7215f4f89\n"
+            "header_type_tag=0x0079\nheader_schema_version=3\nproof_inputs_type_tag=0x0078\nproof_inputs_schema_version=3\nheader_digest=7e2063caacbad420d095739d4e5e982a97016e0ddb9e169fb967bd97f71f8d90e13238f1e927cf6c4d077ce56d8192ca\n"
         );
         let context = ConsensusVoteContext::new_with_revision(genesis, 7, root, 4).unwrap();
         let certificate = QuorumCertificate::new(
@@ -645,6 +819,8 @@ mod tests {
                     100,
                     3,
                     2,
+                    header.inputs.pre_cash_cell_root,
+                    &[],
                     header.inputs.cash_cell_root,
                     &authorization_store,
                     &AcceptAll,
@@ -677,6 +853,8 @@ mod tests {
                 100,
                 3,
                 2,
+                header.inputs.pre_cash_cell_root,
+                &[],
                 header.inputs.cash_cell_root,
                 &authorization_store,
                 &AcceptAll,
@@ -689,6 +867,8 @@ mod tests {
             ProofPublicInputs { action_root: Digest384::new([22; 48]), ..header.inputs },
             ProofPublicInputs { execution_order_root: Digest384::new([23; 48]), ..header.inputs },
             ProofPublicInputs { receipt_root: Digest384::new([24; 48]), ..header.inputs },
+            ProofPublicInputs { pre_cash_cell_root: Digest384::new([28; 48]), ..header.inputs },
+            ProofPublicInputs { cash_action_root: Digest384::new([29; 48]), ..header.inputs },
             ProofPublicInputs { cash_cell_root: Digest384::new([27; 48]), ..header.inputs },
             ProofPublicInputs {
                 data_availability_commitment: Digest384::new([25; 48]),
@@ -720,6 +900,8 @@ mod tests {
                     100,
                     3,
                     2,
+                    header.inputs.pre_cash_cell_root,
+                    &[],
                     header.inputs.cash_cell_root,
                     &authorization_store,
                     &AcceptAll,
@@ -767,6 +949,8 @@ mod tests {
             100,
             3,
             2,
+            header.inputs.pre_cash_cell_root,
+            &[],
             header.inputs.cash_cell_root,
             &authorization_store,
             &AcceptAll,
