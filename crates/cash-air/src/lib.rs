@@ -27,6 +27,7 @@ extern crate alloc;
 
 mod aggregation;
 mod ml_dsa_decoding;
+mod ml_dsa_hint;
 mod ml_dsa_inverse_ntt;
 mod ml_dsa_ntt;
 mod ml_dsa_ntt_multiply;
@@ -41,6 +42,9 @@ pub use aggregation::{
 pub use ml_dsa_decoding::{
     ML_DSA44_SIGNATURE_LENGTH, ML_DSA44_VECTOR_DIMENSION, MlDsa44DecodedVerifierInputs,
     MlDsa44DecodingStarkProof, prove_ml_dsa44_decoding, verify_ml_dsa44_decoding,
+};
+pub use ml_dsa_hint::{
+    MlDsa44UseHintStarkProof, prove_ml_dsa44_use_hint, verify_ml_dsa44_use_hint,
 };
 pub use ml_dsa_inverse_ntt::{
     MlDsaInverseNttStarkProof, prove_ml_dsa_inverse_ntt, verify_ml_dsa_inverse_ntt,
