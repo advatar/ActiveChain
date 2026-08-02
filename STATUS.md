@@ -6,9 +6,9 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Tracked by [GitHub issue #729](https://github.com/advatar/ActiveChain/issues/729).
 
-- [ ] Reconcile the finalized-block canonical digest vector with the current schema-three proof
+- [x] Reconcile the finalized-block canonical digest vector with the current schema-three proof
   inputs and document the source of the change.
-- [ ] Generate a structurally valid empty-history schema-four snapshot fixture and retain
+- [x] Generate a structurally valid empty-history schema-four snapshot fixture and retain
   fail-closed malformed/non-empty legacy rejection.
 - [ ] Pass the consensus-runtime suite, strict workspace Clippy, and the deterministic-kernel gate;
   merge the dependency chain to `main` and verify reachability.
