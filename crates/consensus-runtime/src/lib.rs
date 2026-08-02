@@ -1800,8 +1800,12 @@ fn save_validator_snapshot(
         accepted_view_change: engine.accepted_view_change.clone(),
         timeout_locks: engine.timeout_locks.clone(),
     };
-    let bytes = encode_envelope(&snapshot)
-        .map_err(|_| invalid_data("validator safety snapshot encoding failed"))?;
+    let bytes = encode_envelope(&snapshot).map_err(|error| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("validator safety snapshot encoding failed: {error:?}"),
+        )
+    })?;
     write_atomic(path, &bytes)
 }
 pub fn load_genesis(path: &std::path::Path) -> std::io::Result<ValidatorGenesis> {
