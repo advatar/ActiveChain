@@ -657,6 +657,45 @@ impl AuthorizationGateway {
             epoch: snapshot.epoch,
         })
     }
+    /// Advances the gateway to a later epoch, releasing the epoch-scoped invocation set.
+    ///
+    /// Invocation identifiers only need to be unique within one epoch: every admission path
+    /// rejects an envelope whose `epoch` differs from the gateway's, so an identifier retired
+    /// with a previous epoch can never be replayed against a later one. Capability budgets are
+    /// lifetime ceilings rather than per-epoch allowances and are therefore retained.
+    ///
+    /// Without this, the invocation set fills at `MAX_AUTHORIZATION_INVOCATIONS` and every
+    /// subsequent admission fails permanently.
+    pub fn advance_epoch(&mut self, next_epoch: u64) -> Result<(), AuthorizationError> {
+        if next_epoch <= self.epoch {
+            return Err(AuthorizationError::Authentication);
+        }
+        let mut runtime = self.inner.lock().map_err(|_| AuthorizationError::Poisoned)?;
+        if runtime.poisoned {
+            return Err(AuthorizationError::Poisoned);
+        }
+        let mut ledger = runtime.ledger.clone();
+        ledger.invocations.clear();
+        // Preserve the last receipt/envelope witnesses recorded by the previous admission.
+        let previous =
+            load_snapshot(&self.snapshot_path).map_err(|_| AuthorizationError::Persistence)?;
+        let snapshot = AuthorizedSnapshot {
+            chain_genesis_commitment: self.chain_genesis_commitment,
+            epoch: next_epoch,
+            state: runtime.state.clone(),
+            ledger: ledger.clone(),
+            last_receipt: previous.last_receipt,
+            last_envelope: previous.last_envelope,
+        };
+        save_snapshot(&self.snapshot_path, &snapshot).map_err(|_| {
+            runtime.poisoned = true;
+            AuthorizationError::Persistence
+        })?;
+        runtime.ledger = ledger;
+        self.epoch = next_epoch;
+        Ok(())
+    }
+
     pub fn state(&self) -> Result<ObjectState, AuthorizationError> {
         let runtime = self.inner.lock().map_err(|_| AuthorizationError::Poisoned)?;
         if runtime.poisoned {
@@ -1265,6 +1304,53 @@ mod tests {
         bytes[10] ^= 1;
         std::fs::write(&path, bytes).unwrap();
         assert!(AuthorizationGateway::load(path.clone()).is_err());
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// Regression for #705: a full invocation set must not halt authorization forever.
+    ///
+    /// The ledger refuses once `MAX_AUTHORIZATION_INVOCATIONS` identifiers are retained, and
+    /// nothing reclaims them, so a long-lived chain stops admitting transfers permanently.
+    /// Advancing the epoch releases the set, which is sound because every admission path
+    /// rejects an envelope whose epoch differs from the gateway's.
+    #[test]
+    fn a_full_invocation_set_is_released_by_advancing_the_epoch() {
+        let mut ledger = AuthorizationLedger::default();
+        for index in 0..MAX_AUTHORIZATION_INVOCATIONS {
+            let mut bytes = [0_u8; 48];
+            bytes[..8].copy_from_slice(&(index as u64).to_be_bytes());
+            ledger.invocations.insert(Digest384::new(bytes), Digest384::ZERO);
+        }
+        assert_eq!(ledger.invocations.len(), MAX_AUTHORIZATION_INVOCATIONS);
+
+        let path = std::env::temp_dir()
+            .join(format!("activechain-auth-epoch-{}.snapshot", std::process::id()));
+        let mut gateway = gateway(path.clone());
+        assert_eq!(
+            gateway.admit(candidate(1, 5), &Verifier::default()).unwrap().result(),
+            ReceiptResult::Success
+        );
+        // Saturate the persisted ledger, then prove admission is refused.
+        {
+            let mut runtime = gateway.inner.lock().unwrap();
+            runtime.ledger.invocations = ledger.invocations.clone();
+        }
+        let mut blocked = candidate(2, 5);
+        blocked.envelope.finalized_state_root =
+            commit_objects(gateway.state().unwrap().objects()).unwrap().root();
+        assert_eq!(gateway.admit(blocked, &Verifier::default()), Err(AuthorizationError::Replay));
+
+        // A stale or equal epoch is refused; only a strictly later one advances.
+        assert_eq!(gateway.advance_epoch(EPOCH), Err(AuthorizationError::Authentication));
+        gateway.advance_epoch(EPOCH + 1).unwrap();
+        assert!(gateway.inner.lock().unwrap().ledger.invocations.is_empty());
+        // Budgets are lifetime ceilings and must survive the rotation.
+        assert!(!gateway.inner.lock().unwrap().ledger.budgets.is_empty());
+
+        // The released epoch is durable across restart.
+        let restarted = AuthorizationGateway::load(path.clone()).unwrap();
+        assert_eq!(restarted.epoch, EPOCH + 1);
+        assert!(restarted.inner.lock().unwrap().ledger.invocations.is_empty());
         let _ = std::fs::remove_file(path);
     }
 
