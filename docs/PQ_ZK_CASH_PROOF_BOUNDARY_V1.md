@@ -15,6 +15,12 @@ ingress. Its composed verifier re-runs real ML-DSA-44 verification before accept
 This closes envelope/key substitution at the proof boundary; it is not a claim that ML-DSA
 arithmetic is constrained inside the session AIR.
 
+Cash proof aggregation uses a canonical four-level statement (microbatch, partition, cash slot,
+and global transition). Every level binds the ordered child-proof commitments, exact partition
+ownership, contiguous pre/post roots, applied/rejected counts, and checked resource totals. The
+composed verifier checks the supplied child bytes against those commitments. Recursive in-circuit
+verification of the child proofs remains a separate open gate and is not implied by this format.
+
 Formal assurance must state circuit bounds, field-width assumptions, transcript domains, recursive
 composition limits, and trusted setup/parameter provenance. The reference CashAIR re-execution
 path remains the development oracle until the mandatory-proof profile is activated.
