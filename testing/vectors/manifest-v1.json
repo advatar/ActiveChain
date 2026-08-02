@@ -85,7 +85,7 @@
     },
     {
       "id": "did-pq-lifecycle-v1",
-      "type_tag": "0x0160-0x0163",
+      "type_tag": "0x0196-0x0199",
       "schema_version": 1,
       "source": "did-pq-lifecycle-v1.tsv",
       "sha256": "2b7d177439bb9d892d07dde87a4728ce7d1f1c6ee3363c654d735c9db0ce025d",
@@ -93,10 +93,18 @@
     },
     {
       "id": "did-ens-alias-v1",
-      "type_tag": "0x0164-0x0167",
+      "type_tag": "0x019A-0x019D",
       "schema_version": 1,
       "source": "did-ens-alias-v1.tsv",
       "sha256": "b547edbcbe39cf03f570beea94a166948bf1b329b48403b8bcc1227201e3ae85",
+      "status": "valid"
+    },
+    {
+      "id": "external-companion-credential-v1",
+      "type_tag": "0x0193-0x0195",
+      "schema_version": 1,
+      "source": "external-companion-credential-v1.tsv",
+      "sha256": "43947d42754c12b3a3341c8b410dada6697406a7c6dfb3785354a7dc4183c0ec",
       "status": "valid"
     }
   ],

@@ -84,6 +84,22 @@ The deterministic verifier receives a credential, acceptance policy, expected su
 
 Every error returns no verified fact. Success returns a `VerifiedCredentialFact` whose fields are not publicly constructible. The fact exposes the accepted schema for the existing P-023 request boundary; adapters MUST sort, deduplicate, and enforce P-023's 32-fact bound.
 
+### External credential companion
+
+An `ExternalCredentialCompanionV1` is a separate native assertion and MUST NOT replace, rewrite,
+or relabel the signature suite of an SD-JWT VC, mdoc, PID, or other external credential. Its ML-DSA
+signature covers the exact original-credential commitment, external issuer and profile, subject,
+schema and claims commitments, both status sources, governed assurance transition, terms, network,
+and validity interval. The original credential remains independently verified by its registered
+external adapter.
+
+An assurance increase is valid only under the exact finalized `CompanionAssurancePolicyV1`; the
+companion issuer, external issuer/profile, source assurance, and maximum resulting assurance are
+closed inputs. External revocation always revokes the companion. When a native status source is
+declared, either source reporting revocation fails closed. A verified companion contributes only a
+credential schema fact at the P-023 boundary and never supplies actor authentication, a capability,
+an approval, spending authority, or an APL permit.
+
 ## 6. Total failure classes
 
 Failures include not-yet-issued, not-yet-valid, expired, subject mismatch, unaccepted issuer/schema, issuer-evidence mismatch, missing or mismatched issuance-log evidence, missing or unexpected status material, registry mismatch, future or stale registry, status-evidence mismatch, revoked, suspended, commitment encoding, and too many derived APL facts.

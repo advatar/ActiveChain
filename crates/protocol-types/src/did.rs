@@ -43,7 +43,7 @@ pub struct DidKeyAgreementMethodV1 {
 }
 
 impl DidKeyAgreementMethodV1 {
-    pub const TYPE_TAG: u16 = 0x0160;
+    pub const TYPE_TAG: u16 = 0x0196;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize =
         48 + 7 + 5 + ML_KEM_768_PUBLIC_KEY_LENGTH + 8 + 1 + 8 + 1 + 8;
@@ -122,7 +122,7 @@ pub struct DidDocumentV1 {
 }
 
 impl DidDocumentV1 {
-    pub const TYPE_TAG: u16 = 0x0161;
+    pub const TYPE_TAG: u16 = 0x0197;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48
         + 5
@@ -580,7 +580,7 @@ pub struct DidResolutionCheckpointV1 {
 }
 
 impl DidResolutionCheckpointV1 {
-    pub const TYPE_TAG: u16 = 0x0163;
+    pub const TYPE_TAG: u16 = 0x0199;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 + 8 + 8 + 48 + 1;
 
@@ -699,7 +699,7 @@ pub struct DidOperationAuthorizationV1 {
 }
 
 impl DidOperationAuthorizationV1 {
-    pub const TYPE_TAG: u16 = 0x0162;
+    pub const TYPE_TAG: u16 = 0x0198;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 + 48 + 48 + ProtocolSignature::MAX_ENCODED_LEN;
 

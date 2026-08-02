@@ -13,6 +13,7 @@ mod admission;
 mod asset;
 mod authority;
 mod checked_arithmetic;
+mod companion_credential;
 mod compliance;
 mod consensus;
 mod consensus_state;
@@ -68,6 +69,10 @@ pub use authority::{
 };
 pub use checked_arithmetic::{
     authorized_issuance, fee_total, next_base_fee, partition_total, post_supply, strict_two_thirds,
+};
+pub use companion_credential::{
+    CompanionAssurancePolicyV1, CompanionCredentialError, ExternalCredentialCompanionV1,
+    SignedExternalCredentialCompanionV1, validate_companion,
 };
 pub use compliance::{
     ComplianceError, ComplianceEvidenceBindingV1, ComplianceReplayKey, ComplianceReplaySet,
