@@ -568,8 +568,8 @@ pub struct CapabilityGrant {
 impl CapabilityGrant {
     /// Registered top-level type tag.
     pub const TYPE_TAG: u16 = 0x0030;
-    /// Initial capability-grant schema version.
-    pub const SCHEMA_VERSION: u16 = 1;
+    /// Chain-bound capability-grant schema version.
+    pub const SCHEMA_VERSION: u16 = 2;
     /// Maximum canonical body length.
     pub const MAX_ENCODED_LEN: usize = 22_024;
 
@@ -607,7 +607,10 @@ impl CapabilityGrant {
     }
 
     /// Returns the domain-separated canonical payload authenticated by the issuer signature.
-    pub fn signing_payload(&self) -> Result<Vec<u8>, EncodeError> {
+    pub fn signing_payload(
+        &self,
+        chain_genesis_commitment: Digest384,
+    ) -> Result<Vec<u8>, EncodeError> {
         let signature_length =
             self.issuer_signature.suite().signature_length().ok_or(EncodeError::LengthOverflow)?;
         let unsigned = Self::new(
@@ -616,7 +619,8 @@ impl CapabilityGrant {
                 .map_err(|_| EncodeError::LengthOverflow)?,
         )
         .map_err(|_| EncodeError::LengthOverflow)?;
-        let mut payload = b"ACTIVECHAIN-CAPABILITY-GRANT-V1".to_vec();
+        let mut payload = b"ACTIVECHAIN-CAPABILITY-GRANT-V2".to_vec();
+        payload.extend_from_slice(chain_genesis_commitment.as_bytes());
         payload.extend_from_slice(&activechain_canonical_codec::encode_envelope(&unsigned)?);
         Ok(payload)
     }
@@ -902,18 +906,29 @@ mod tests {
     }
 
     #[test]
-    fn capability_signing_payload_binds_fields_but_not_signature_bytes() {
+    fn capability_signing_payload_binds_chain_fields_but_not_signature_bytes() {
+        let genesis = digest(0xb0);
         let first = CapabilityGrant::new(grant_fields(), signature()).unwrap();
         let second = CapabilityGrant::new(
             grant_fields(),
             ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0xa5; 2_420]).unwrap(),
         )
         .unwrap();
-        assert_eq!(first.signing_payload().unwrap(), second.signing_payload().unwrap());
+        assert_eq!(
+            first.signing_payload(genesis).unwrap(),
+            second.signing_payload(genesis).unwrap()
+        );
+        assert_ne!(
+            first.signing_payload(genesis).unwrap(),
+            first.signing_payload(digest(0xb1)).unwrap()
+        );
 
         let mut changed = grant_fields();
         changed.monetary_limit = Some(999);
         let changed = CapabilityGrant::new(changed, signature()).unwrap();
-        assert_ne!(first.signing_payload().unwrap(), changed.signing_payload().unwrap());
+        assert_ne!(
+            first.signing_payload(genesis).unwrap(),
+            changed.signing_payload(genesis).unwrap()
+        );
     }
 }

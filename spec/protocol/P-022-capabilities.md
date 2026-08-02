@@ -1,6 +1,6 @@
 # P-022: Capabilities, delegation, and revocation
 
-- Status: Draft 0.1
+- Status: Draft 0.2
 - Protocol version: Development
 - Issue: <https://github.com/advatar/ActiveChain/issues/2>
 
@@ -22,10 +22,13 @@ This revision specifies canonical capability grants and the conservative mechani
 - immutable constraint commitment;
 - suite-tagged issuer signature.
 
-The issuer signs `ACTIVECHAIN-CAPABILITY-GRANT-V1 || canonical_envelope(unsigned_grant)`, where
-`unsigned_grant` preserves the registered signature suite and replaces only the signature bytes
-with that suite's exact-length all-zero value. This binds every authority field and the suite while
-avoiding a second unsigned schema.
+The issuer signs
+`ACTIVECHAIN-CAPABILITY-GRANT-V2 || chain_genesis_commitment || canonical_envelope(unsigned_grant)`,
+where `unsigned_grant` preserves the registered signature suite and replaces only the signature
+bytes with that suite's exact-length all-zero value. The chain genesis is the 48-byte commitment
+from the finalized chain context, not caller-selected metadata. This binds every authority field,
+the suite, and the exact network while avoiding a second unsigned schema. A v1 transcript is not a
+valid v2 signature and MUST NOT be accepted by v2 authorization paths.
 
 `None` for a numeric limit means unbounded. A grant with `delegation_allowed = false` MUST have zero remaining depth. A grant with delegation enabled MUST have positive remaining depth. A grant cannot name itself as parent.
 
@@ -105,7 +108,10 @@ Action subset checking is bounded by 32 actions. Selectors are at most 51 bytes.
 
 ## 11. Security assumptions
 
-Successful attenuation alone does not authenticate the issuer, establish holder control, prove non-revocation, or reserve mutable budgets. Those predicates remain mandatory in the complete authorization intersection.
+Successful attenuation alone does not authenticate the issuer, bind the grant to a chain,
+establish holder control, prove non-revocation, or reserve mutable budgets. Those predicates remain
+mandatory in the complete authorization intersection. Signature verification MUST derive the
+chain-genesis transcript input from trusted finalized context.
 
 Because budget reservation is deferred, a limit declared on a capability bounds that capability alone. An issuer that delegates to several children MUST NOT assume its own limit caps their combined spend: each attenuated child is individually bounded by the parent's limits, so N siblings may each spend up to the parent's ceiling. Aggregating a delegation subtree's spend against every ancestor requires the mutable budget objects specified by a later revision. Implementations MUST NOT present per-capability accounting as a subtree spend ceiling.
 

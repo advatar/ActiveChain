@@ -13,9 +13,9 @@
       "source": "authority/authority-v1.txt",
       "field": "child_capability_envelope_hex",
       "type_tag": "0x0030",
-      "schema_version": 1,
-      "envelope_sha256": "91a261fda0e4b84dd119ff38ba74e5a753fc5abb46030943347885ab6c592a24",
-      "canonical_value_commitment": "4aa243ecfe9d777be8acc2946fa80e400cc15092c1c3c0097a8f90985027c08a486ce9a0ecccf06f2af86d045c5d3fce"
+      "schema_version": 2,
+      "envelope_sha256": "8c456d4a7a3f348bdd4005f8c61c8f236e36999f694bb21bb7f23917d3d93c7e",
+      "canonical_value_commitment": "b995eec9c28faed977d6a3d8fe70948224ac038978746c8910d90bf289b8f6c46d2d5c420565080bc4f3e6618c2d4ec5"
     },
     {
       "source": "authority/authority-v1.txt",
@@ -29,9 +29,9 @@
       "source": "authority/authority-v1.txt",
       "field": "parent_capability_envelope_hex",
       "type_tag": "0x0030",
-      "schema_version": 1,
-      "envelope_sha256": "d8b7bfee5e2d2a0b6d748448a4b355621bda3e0fc0e63cbbe3630d70366c7ffd",
-      "canonical_value_commitment": "694fda6e5d863407acbc94b217840541f1ae7d8eef59907f15f5afa4c998746bdad1315c07112cb09795501193d3f9a4"
+      "schema_version": 2,
+      "envelope_sha256": "839a793776592e8cc0fc6cee0265d180e81473a2f59872f64979c11654d4cff8",
+      "canonical_value_commitment": "497e71405a956c55aad222e530889ec01121615742e0753e943665d4f0b3865f34fe18553e4a6ce49f03e3302382f5cc"
     },
     {
       "source": "authority/authority-v1.txt",
