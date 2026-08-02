@@ -518,6 +518,8 @@ fn verify_decoded_finality_bundle(
     let header = bundle.header();
     let genesis = bundle.validator_genesis();
     let certificate = bundle.certificate();
+    let empty_cash_actions =
+        activechain_finality_types::commit_parts(b"ACTIVECHAIN-BLOCK-CASH-ACTIONS-V1", &[&[]]);
     if genesis.epoch() != header.inputs.epoch
         || genesis.protocol_revision() != header.inputs.protocol_revision
         || genesis.validator_set_root() != header.inputs.validator_set_root
@@ -526,6 +528,11 @@ fn verify_decoded_finality_bundle(
         || certificate.protocol_revision() != header.inputs.protocol_revision
         || certificate.validator_set_root() != header.inputs.validator_set_root
         || certificate.height() != header.inputs.height
+        || header.inputs.pre_cash_cell_root == Digest384::ZERO
+        || header.inputs.cash_action_root == Digest384::ZERO
+        || header.inputs.cash_cell_root == Digest384::ZERO
+        || (header.inputs.cash_action_root == empty_cash_actions
+            && header.inputs.pre_cash_cell_root != header.inputs.cash_cell_root)
         || header.digest().map_err(|_| {
             VerifyError::Decode(DecodeError::InvalidValue(
                 "finalized block header could not be encoded",
@@ -1132,6 +1139,8 @@ mod tests {
             issuance: 0,
             burn: 0,
             post_supply: 0,
+            pre_cash_cell_root: cash_cell_root,
+            cash_action_root: digest(50),
             cash_cell_root,
             post_state,
             receipt_root,

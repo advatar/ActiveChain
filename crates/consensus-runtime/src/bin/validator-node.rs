@@ -89,6 +89,8 @@ fn kanalen_finalized_header(
     genesis: &ValidatorGenesis,
     chain_id: ChainId,
     height: u64,
+    pre_cash_cell_root: Digest384,
+    cash_action_root: Digest384,
     cash_cell_root: Digest384,
 ) -> FinalizedBlockHeader {
     let height_bytes = height.to_be_bytes();
@@ -111,6 +113,8 @@ fn kanalen_finalized_header(
         issuance: 0,
         burn: 0,
         post_supply: 0,
+        pre_cash_cell_root,
+        cash_action_root,
         cash_cell_root,
         post_state: StateCommitment::new(post_root, height),
         receipt_root: digest_parts(b"ACTIVECHAIN-KANALEN-RECEIPTS-V1", &[]),
@@ -123,6 +127,14 @@ fn kanalen_finalized_header(
             &[cash_cell_root.as_bytes(), &height_bytes],
         ),
     }
+}
+
+fn cash_action_root(actions: &[activechain_protocol_types::TransactionId]) -> Digest384 {
+    let mut bytes = Vec::with_capacity(actions.len() * 48);
+    for action in actions {
+        bytes.extend_from_slice(action.digest().as_bytes());
+    }
+    activechain_finality_types::commit_parts(b"ACTIVECHAIN-BLOCK-CASH-ACTIONS-V1", &[&bytes])
 }
 
 fn publish_finalized_cash(
@@ -393,7 +405,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             let publication_header =
                 chain_id.zip(cash_snapshot.as_ref()).map(|(chain_id, cash)| {
-                    kanalen_finalized_header(genesis, chain_id, next_height, cash.cash_cell_root)
+                    let (pre_root, action_root) = prepared_cash.as_ref().map_or_else(
+                        || (cash.cash_cell_root, cash_action_root(&[])),
+                        |prepared| {
+                            (prepared.pre_cash_cell_root(), cash_action_root(prepared.action_ids()))
+                        },
+                    );
+                    kanalen_finalized_header(
+                        genesis,
+                        chain_id,
+                        next_height,
+                        pre_root,
+                        action_root,
+                        cash.cash_cell_root,
+                    )
                 });
             let block_digest = match publication_header {
                 Some(header) => {
@@ -574,10 +599,19 @@ mod tests {
     fn publication_header_binds_chain_height_and_cash_root() {
         let chain = parse_chain_id(&"11".repeat(48)).unwrap();
         let cash_root = Digest384::new([7; 48]);
-        let header = kanalen_finalized_header(&genesis(), chain, 9, cash_root);
+        let header = kanalen_finalized_header(
+            &genesis(),
+            chain,
+            9,
+            Digest384::new([6; 48]),
+            cash_action_root(&[]),
+            cash_root,
+        );
         assert_eq!(header.inputs.chain_id, chain);
         assert_eq!(header.inputs.height, 9);
         assert_eq!(header.inputs.cash_cell_root, cash_root);
+        assert_eq!(header.inputs.pre_cash_cell_root, Digest384::new([6; 48]));
+        assert_eq!(header.inputs.cash_action_root, cash_action_root(&[]));
         assert_ne!(header.digest().unwrap(), Digest384::ZERO);
     }
 
