@@ -28,3 +28,27 @@ This is a developmental local recovery drill. It does not exercise a live provid
 asset, production secret manager, multi-process soak, real network partition, operator paging,
 backup restoration, external audit, or staged pilot. Those remain separate rollout gates and no
 provider observation is promoted to ActiveChain finality by this rehearsal.
+
+## Time-based multi-process chaos
+
+Run the separate process-level rehearsal with a duration and worker count:
+
+```sh
+scripts/rehearse-activebridge-multiprocess-chaos.sh 30 1
+```
+
+The runner builds the connector-host test executable once and then invokes it directly from four
+independent worker modes. This avoids overlapping Cargo builds while continuously exercising:
+
+- 64-intent aggregate load, periodic restart, and exact snapshot comparison;
+- provider rejection, reversal, and unknown-state behavior as an outage boundary;
+- invalid terminal edges and reordered provider sequences as a partition/reordering boundary; and
+- partial-state and failed atomic-write rejection under repeated write pressure.
+
+Every process must complete at least one full iteration and exit successfully. The command emits a
+versioned JSON record containing the duration, process count, and aggregate iteration count only
+after all workers pass.
+
+This remains deterministic simulator evidence. It does not impose kernel-level memory, disk, or
+file-descriptor exhaustion; interrupt real sockets; contact a live provider; page an operator; or
+satisfy independent review and staged-pilot requirements.

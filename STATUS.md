@@ -1075,6 +1075,9 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
       - [x] Run a bounded deterministic multi-intent persistence soak with exact retries,
             lifecycle and webhook mutation, and periodic complete-aggregate restart verification.
       - [ ] Run time-based multi-process load, outage, partition, and resource-exhaustion chaos.
+        - [x] Exercise concurrent process-level load/restart, simulated provider outage,
+              partition/reordering, and failed-write pressure for a bounded wall-clock duration.
+        - [ ] Complete kernel-level memory, disk, and file-descriptor exhaustion qualification.
     - [ ] Complete operator incident exercises, independent review, and staged external-rail
           pilots.
 - [x] Add canonical exact-once partial-refund requests and cumulative settlement-bound accounting.
