@@ -49,3 +49,8 @@ The reconstruction proof now composes the complete four-polynomial verifier arit
 inverse NTT, and `UseHint`. The externally supplied matrix and sparse challenge remain public and
 fully bound; deriving them from `rho` and the challenge seed through SHAKE, then proving the final
 challenge-hash equality, are the remaining end-to-end cryptographic boundaries.
+
+The specialized Keccak AIR now also proves bounded SHAKE256 XOF output up to 16,384 bytes in one
+ordered trace. It binds the padded absorption chain and every additional squeeze permutation,
+providing the variable-length transcript boundary required by matrix expansion and challenge
+rejection sampling rather than treating bytes beyond the first 48 as unproved host output.

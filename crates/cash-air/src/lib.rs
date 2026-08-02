@@ -88,10 +88,11 @@ pub use session::{
 pub use shake::{
     AuthenticatedCashShakeStarkProof, BatchedShake256StarkProof,
     MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_CHUNK,
-    MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_COMPOSITE, MAX_CASH_SHAKE_MESSAGE, Shake256StarkProof,
+    MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_COMPOSITE, MAX_CASH_SHAKE_MESSAGE,
+    MAX_CASH_SHAKE_XOF_OUTPUT, Shake256StarkProof, Shake256XofStarkProof,
     authenticated_cash_shake_permutation_count, prove_authenticated_cash_shake, prove_shake256_384,
-    prove_shake256_384_batch, verify_authenticated_cash_shake, verify_shake256_384,
-    verify_shake256_384_batch,
+    prove_shake256_384_batch, prove_shake256_xof, verify_authenticated_cash_shake,
+    verify_shake256_384, verify_shake256_384_batch, verify_shake256_xof,
 };
 
 /// Registered CashAIR suite identifier. The composite suite explicitly consists
