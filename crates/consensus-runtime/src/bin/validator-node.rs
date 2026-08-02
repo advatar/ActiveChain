@@ -97,6 +97,152 @@ fn save_execution_state(path: &Path, state: &ChainState) -> Result<(), Box<dyn s
     Ok(())
 }
 
+const ROUND_INGRESS_FILE: &str = "cash-ingress.snapshot";
+const ROUND_EXECUTION_FILE: &str = "execution.snapshot";
+const ROUND_CASH_FILE: &str = "finalized-cash.snapshot";
+const ROUND_FINALITY_FILE: &str = "finality.bundle";
+const ROUND_HEIGHT_FILE: &str = "height";
+const ROUND_ACTIONS_FILE: &str = "cash-actions.batch";
+
+fn write_synced(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let mut file = std::fs::File::create(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()
+}
+
+fn atomic_materialize(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let temporary = path.with_extension("round-tmp");
+    write_synced(&temporary, bytes)?;
+    std::fs::rename(temporary, path)
+}
+
+fn round_journal_paths(execution_path: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
+    (
+        execution_path.with_extension("round-staging"),
+        execution_path.with_extension("round-committed"),
+    )
+}
+
+fn remove_round_directory(path: &Path) -> std::io::Result<()> {
+    for name in [
+        ROUND_INGRESS_FILE,
+        ROUND_EXECUTION_FILE,
+        ROUND_CASH_FILE,
+        ROUND_FINALITY_FILE,
+        ROUND_HEIGHT_FILE,
+        ROUND_ACTIONS_FILE,
+    ] {
+        let member = path.join(name);
+        if member.exists() {
+            std::fs::remove_file(member)?;
+        }
+    }
+    std::fs::remove_dir(path)
+}
+
+fn materialize_committed_cash_round(
+    committed: &Path,
+    cash_ledger_path: &Path,
+    execution_path: &Path,
+    cash_snapshot_path: &Path,
+    finality_path: &Path,
+    cash_actions_path: Option<&Path>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let ingress = std::fs::read(committed.join(ROUND_INGRESS_FILE))?;
+    let execution = std::fs::read(committed.join(ROUND_EXECUTION_FILE))?;
+    let cash = std::fs::read(committed.join(ROUND_CASH_FILE))?;
+    let finality = std::fs::read(committed.join(ROUND_FINALITY_FILE))?;
+    let height_bytes = std::fs::read(committed.join(ROUND_HEIGHT_FILE))?;
+    let height = u64::from_be_bytes(
+        height_bytes
+            .try_into()
+            .map_err(|_| std::io::Error::other("cash round journal height is malformed"))?,
+    );
+    let decoded_ingress: activechain_wallet_core::TransactionIngress = decode_envelope(&ingress)
+        .map_err(|_| std::io::Error::other("cash round journal ingress is malformed"))?;
+    let decoded_execution: ChainState = decode_envelope(&execution)
+        .map_err(|_| std::io::Error::other("cash round journal execution is malformed"))?;
+    let decoded_cash: FinalizedCashSnapshot = decode_envelope(&cash)
+        .map_err(|_| std::io::Error::other("cash round journal cash snapshot is malformed"))?;
+    let decoded_finality: FinalityCertificateBundle = decode_envelope(&finality)
+        .map_err(|_| std::io::Error::other("cash round journal finality is malformed"))?;
+    if encode_envelope(&decoded_ingress).map_err(|_| "journal ingress encoding failed")? != ingress
+        || encode_envelope(&decoded_execution).map_err(|_| "journal execution encoding failed")?
+            != execution
+        || encode_envelope(&decoded_cash).map_err(|_| "journal cash encoding failed")? != cash
+        || encode_envelope(&decoded_finality).map_err(|_| "journal finality encoding failed")?
+            != finality
+        || decoded_execution.height() != height
+        || decoded_cash.finalized_height != height
+        || decoded_finality.header().inputs.height != height
+        || decoded_cash.cash_cell_root != decoded_finality.header().inputs.cash_cell_root
+    {
+        return Err(std::io::Error::other("cash round journal components do not match").into());
+    }
+    decoded_cash.verify_against_finality(&finality).map_err(std::io::Error::other)?;
+    atomic_materialize(cash_ledger_path, &ingress)?;
+    atomic_materialize(execution_path, &execution)?;
+    atomic_materialize(cash_snapshot_path, &cash)?;
+    atomic_materialize(finality_path, &finality)?;
+    let action_member = committed.join(ROUND_ACTIONS_FILE);
+    if action_member.exists() {
+        let source = cash_actions_path
+            .ok_or_else(|| std::io::Error::other("journal requires the cash action path"))?;
+        let archive = std::path::PathBuf::from(format!("{}.finalized-{height}", source.display()));
+        atomic_materialize(&archive, &std::fs::read(action_member)?)?;
+        if source.exists() {
+            std::fs::remove_file(source)?;
+        }
+    }
+    remove_round_directory(committed)?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn commit_cash_round_transaction(
+    execution_path: &Path,
+    cash_ledger_path: &Path,
+    cash_snapshot_path: &Path,
+    finality_path: &Path,
+    cash_actions_path: Option<&Path>,
+    height: u64,
+    ingress: &[u8],
+    execution: &[u8],
+    cash: &[u8],
+    finality: &[u8],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (staging, committed) = round_journal_paths(execution_path);
+    if committed.exists() {
+        return Err(std::io::Error::other("a committed cash round requires recovery").into());
+    }
+    if staging.exists() {
+        remove_round_directory(&staging)?;
+    }
+    std::fs::create_dir(&staging)?;
+    write_synced(&staging.join(ROUND_INGRESS_FILE), ingress)?;
+    write_synced(&staging.join(ROUND_EXECUTION_FILE), execution)?;
+    write_synced(&staging.join(ROUND_CASH_FILE), cash)?;
+    write_synced(&staging.join(ROUND_FINALITY_FILE), finality)?;
+    write_synced(&staging.join(ROUND_HEIGHT_FILE), &height.to_be_bytes())?;
+    if let Some(path) = cash_actions_path {
+        write_synced(&staging.join(ROUND_ACTIONS_FILE), &std::fs::read(path)?)?;
+    }
+    std::fs::File::open(&staging)?.sync_all()?;
+    std::fs::rename(&staging, &committed)?;
+    if let Some(parent) = committed.parent() {
+        std::fs::File::open(parent)?.sync_all()?;
+    }
+    materialize_committed_cash_round(
+        &committed,
+        cash_ledger_path,
+        execution_path,
+        cash_snapshot_path,
+        finality_path,
+        cash_actions_path,
+    )
+}
+
 const MAX_CASH_ROUND_ACTIONS: usize = 32;
 
 fn load_cash_action_batch(path: &Path) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
@@ -173,21 +319,6 @@ fn cash_action_root(actions: &[activechain_protocol_types::TransactionId]) -> Di
     activechain_finality_types::commit_parts(b"ACTIVECHAIN-BLOCK-CASH-ACTIONS-V1", &[&bytes])
 }
 
-fn publish_finalized_cash(
-    cash_path: &Path,
-    finality_path: &Path,
-    snapshot: &FinalizedCashSnapshot,
-    bundle: &FinalityCertificateBundle,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let finality = encode_envelope(bundle)
-        .map_err(|_| std::io::Error::other("finality bundle encoding failed"))?;
-    snapshot.save_with_finality(cash_path, &finality)?;
-    let temporary = finality_path.with_extension("tmp");
-    std::fs::write(&temporary, &finality)?;
-    std::fs::rename(temporary, finality_path)?;
-    Ok(())
-}
-
 fn log_ingress_metrics(validator_id: u16, metrics: PeerIngressMetricsSnapshot) {
     eprintln!(
         "peer_ingress event=metrics validator={validator_id} accepted={} active={} queued={} shed={} pre_auth_rate_limited={} recovered={}",
@@ -255,12 +386,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if cash_actions.is_some() && cash_ledger.is_none() {
         return Err("--cash-actions requires --cash-ledger".into());
     }
-    let mut authoritative_cash = cash_ledger
+    if let (Some(execution), Some(cash_ledger), Some(cash_snapshot), Some(finality)) =
+        (execution_state_path, cash_ledger, finalized_cash_out, finality_out)
+    {
+        let (_, committed) = round_journal_paths(Path::new(execution));
+        if committed.exists() {
+            materialize_committed_cash_round(
+                &committed,
+                Path::new(cash_ledger),
+                Path::new(execution),
+                Path::new(cash_snapshot),
+                Path::new(finality),
+                cash_actions.map(Path::new),
+            )?;
+        }
+    }
+    let authoritative_cash = cash_ledger
         .map(Path::new)
         .zip(chain_id)
         .map(|(path, chain)| load_authoritative_cash_gateway(path, chain))
         .transpose()?;
-    let mut execution_state = execution_state_path
+    let execution_state = execution_state_path
         .map(Path::new)
         .zip(chain_id)
         .map(|(path, chain)| load_or_create_execution_state(path, chain))
@@ -591,31 +737,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     certified.votes().to_vec(),
                 )
                 .map_err(|_| "certified Kanalen finality bundle is invalid")?;
-                if let Some(prepared) = prepared_cash {
-                    authoritative_cash
-                        .as_mut()
-                        .ok_or("authoritative cash gateway disappeared")?
-                        .commit_prepared(prepared)
-                        .map_err(|error| {
-                            format!("certified cash state persistence failed: {error:?}")
-                        })?;
-                    if let Some(path) = cash_actions {
-                        let finalized = format!("{path}.finalized-{next_height}");
-                        std::fs::rename(path, finalized)?;
-                    }
-                }
-                publish_finalized_cash(
+                let ingress_bytes = prepared_cash.as_ref().map_or_else(
+                    || {
+                        authoritative_cash
+                            .as_ref()
+                            .ok_or("authoritative cash gateway disappeared")?
+                            .encoded_ingress_snapshot()
+                            .map_err(|_| "cash ingress encoding failed")
+                    },
+                    |prepared| {
+                        prepared
+                            .encoded_ingress_snapshot()
+                            .map_err(|_| "prepared cash ingress encoding failed")
+                    },
+                )?;
+                let execution_bytes = encode_envelope(&admitted.next_state)
+                    .map_err(|_| "execution state encoding failed")?;
+                let snapshot = cash_snapshot
+                    .as_ref()
+                    .ok_or("authoritative cash snapshot was not materialized")?;
+                let cash_bytes = encode_envelope(snapshot)
+                    .map_err(|_| "finalized cash snapshot encoding failed")?;
+                let finality_bytes =
+                    encode_envelope(&bundle).map_err(|_| "finality bundle encoding failed")?;
+                let execution_path =
+                    Path::new(execution_state_path.ok_or("execution state path disappeared")?);
+                commit_cash_round_transaction(
+                    execution_path,
+                    Path::new(cash_ledger.ok_or("cash ledger path disappeared")?),
                     Path::new(cash_path),
                     Path::new(finality_path),
-                    cash_snapshot
-                        .as_ref()
-                        .ok_or("authoritative cash snapshot was not materialized")?,
-                    &bundle,
-                )?;
-                execution_state = Some(admitted.next_state);
-                save_execution_state(
-                    Path::new(execution_state_path.unwrap()),
-                    execution_state.as_ref().unwrap(),
+                    cash_actions.map(Path::new),
+                    next_height,
+                    &ingress_bytes,
+                    &execution_bytes,
+                    &cash_bytes,
+                    &finality_bytes,
                 )?;
             }
             println!("completed network round: finalized_height={}", state.finalized_height());
@@ -718,7 +875,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 mod tests {
     use super::*;
     use activechain_cash_kernel::{GenesisAllocation, GenesisEconomy, NativeAssetDefinition};
-    use activechain_protocol_types::{PrincipalId, ValidatorGenesisEntry};
+    use activechain_protocol_types::{
+        ConsensusVoteContext, CryptoSuiteId, PrincipalId, ProtocolSignature, QuorumCertificate,
+        ValidatorGenesisEntry, ValidatorVote,
+    };
+    use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
 
     fn genesis() -> ValidatorGenesis {
         ValidatorGenesis::new(
@@ -789,6 +950,92 @@ mod tests {
         .unwrap()
     }
 
+    fn signed_cash_bundle(
+        chain: ChainId,
+        height: u64,
+        cash_root: Digest384,
+    ) -> FinalityCertificateBundle {
+        let keys = [
+            SigningKey::<MlDsa44>::from_seed(&Seed::from([91; 32])),
+            SigningKey::<MlDsa44>::from_seed(&Seed::from([92; 32])),
+        ];
+        let entries = keys
+            .iter()
+            .enumerate()
+            .map(|(index, key)| {
+                ValidatorGenesisEntry::new(
+                    PrincipalId::new(Digest384::new([(index + 91) as u8; 48])),
+                    1,
+                    key.verifying_key().encode().into(),
+                )
+                .unwrap()
+            })
+            .collect();
+        let genesis = ValidatorGenesis::new_with_revision(1, 1, 1, entries).unwrap();
+        let header = kanalen_finalized_header(
+            &genesis,
+            chain,
+            height,
+            cash_root,
+            cash_action_root(&[]),
+            cash_root,
+        );
+        let digest = header.digest().unwrap();
+        let context = ConsensusVoteContext::new_with_revision(
+            genesis.genesis_commitment(),
+            genesis.epoch(),
+            genesis.validator_set_root(),
+            genesis.protocol_revision(),
+        )
+        .unwrap();
+        let mut votes = Vec::new();
+        let mut vote_set_hasher = Shake256::default();
+        vote_set_hasher.update(b"ACTIVECHAIN-VOTE-SET-V1");
+        for (index, key) in keys.iter().enumerate() {
+            let validator = PrincipalId::new(Digest384::new([(index + 91) as u8; 48]));
+            let unsigned = ValidatorVote::new(
+                validator,
+                context,
+                height,
+                0,
+                digest,
+                Digest384::new([93; 48]),
+                ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2_420]).unwrap(),
+            )
+            .unwrap();
+            let signature = key.sign(&unsigned.signing_payload());
+            let vote = ValidatorVote::new(
+                validator,
+                context,
+                height,
+                0,
+                digest,
+                Digest384::new([93; 48]),
+                ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec())
+                    .unwrap(),
+            )
+            .unwrap();
+            vote_set_hasher.update(key.verifying_key().encode().as_slice());
+            vote_set_hasher.update(&vote.signing_payload());
+            vote_set_hasher.update(vote.signature().as_bytes());
+            votes.push(vote);
+        }
+        let mut vote_set_root = [0; 48];
+        vote_set_hasher.finalize_xof().read(&mut vote_set_root);
+        let certificate = QuorumCertificate::new(
+            context,
+            height,
+            0,
+            digest,
+            Digest384::new([93; 48]),
+            Digest384::new(vote_set_root),
+            2,
+            2,
+        )
+        .unwrap();
+        FinalityCertificateBundle::new(header, genesis, certificate, votes).unwrap()
+    }
+
     #[test]
     fn authoritative_cash_loader_rejects_cross_chain_and_noncanonical_state() {
         let chain = ChainId::new(Digest384::new([80; 48]));
@@ -833,6 +1080,91 @@ mod tests {
         std::fs::write(&path, malformed).unwrap();
         assert!(load_or_create_execution_state(&path, chain).is_err());
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn committed_cash_round_recovers_all_targets_after_partial_materialization() {
+        let root = std::env::temp_dir()
+            .join(format!("activechain-cash-round-journal-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir(&root).unwrap();
+        let chain = ChainId::new(Digest384::new([94; 48]));
+        let ledger = cash_ledger(chain);
+        let gateway = WalletTransactionGateway::from_ledger(
+            ledger.clone(),
+            root.join("cash-ingress.snapshot"),
+        )
+        .unwrap();
+        let ingress = gateway.encoded_ingress_snapshot().unwrap();
+        let execution = ChainState::new(
+            chain,
+            9,
+            Digest384::new([95; 48]),
+            ObjectState::new(Vec::new()).unwrap(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            ResourcePrices::new(1, 1, 1, 1, 1, 1),
+        )
+        .unwrap();
+        let execution_bytes = encode_envelope(&execution).unwrap();
+        let cash_root = activechain_cash_kernel::authenticated_coin_cell_root(ledger.cells())
+            .unwrap()
+            .into_digest();
+        let bundle = signed_cash_bundle(chain, 9, cash_root);
+        let snapshot = FinalizedCashSnapshot::new(
+            bundle.validator_genesis().genesis_commitment(),
+            9,
+            ledger.cells().clone(),
+        )
+        .unwrap();
+        let cash_bytes = encode_envelope(&snapshot).unwrap();
+        let finality_bytes = encode_envelope(&bundle).unwrap();
+        let execution_path = root.join("execution.snapshot");
+        let cash_path = root.join("cash-ingress.snapshot");
+        let snapshot_path = root.join("finalized-cash.snapshot");
+        let missing_parent = root.join("missing");
+        let finality_path = missing_parent.join("finality.bundle");
+        let actions_path = root.join("actions.batch");
+        std::fs::write(&actions_path, b"authorized-actions").unwrap();
+        assert!(
+            commit_cash_round_transaction(
+                &execution_path,
+                &cash_path,
+                &snapshot_path,
+                &finality_path,
+                Some(&actions_path),
+                9,
+                &ingress,
+                &execution_bytes,
+                &cash_bytes,
+                &finality_bytes,
+            )
+            .is_err()
+        );
+        let (_, committed) = round_journal_paths(&execution_path);
+        assert!(committed.is_dir());
+        std::fs::create_dir(&missing_parent).unwrap();
+        materialize_committed_cash_round(
+            &committed,
+            &cash_path,
+            &execution_path,
+            &snapshot_path,
+            &finality_path,
+            Some(&actions_path),
+        )
+        .unwrap();
+        assert!(!committed.exists());
+        assert_eq!(std::fs::read(&cash_path).unwrap(), ingress);
+        assert_eq!(std::fs::read(&execution_path).unwrap(), execution_bytes);
+        assert_eq!(std::fs::read(&snapshot_path).unwrap(), cash_bytes);
+        assert_eq!(std::fs::read(&finality_path).unwrap(), finality_bytes);
+        assert!(!actions_path.exists());
+        assert_eq!(
+            std::fs::read(root.join("actions.batch.finalized-9")).unwrap(),
+            b"authorized-actions"
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
