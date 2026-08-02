@@ -1021,6 +1021,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
         first `Finalized` to `RefundPending` edge with cumulative amount and sequence accounting.
       - [x] Persist dispute opening and exact successors inside that same complete settlement
         aggregate without promoting external resolution to ActiveChain finality.
+      - [x] Persist treasury policy registration and exact debit authorization inside the complete
+        settlement aggregate so budget and nonce state cannot diverge from payment evidence.
 - [x] Add canonical exact-once partial-refund requests and cumulative settlement-bound accounting.
   - [x] Persist a bounded per-intent refund-state journal atomically across settlement registration
     and every accepted partial refund, rejecting replay and corrupt restart state.

@@ -564,6 +564,12 @@ commitment to the canonical request, and the cumulative refund successor in one 
 partials retain that lifecycle evidence while advancing only the exact amount and request sequence;
 no standalone refund journal write can partially advance the public settlement state.
 
+Treasury policy registration and payout, conversion, refund, fee, or settlement debit
+authorization use that same public aggregate. Each accepted debit atomically retains the exact
+policy commitment while advancing its period budget and nonce beside payment, settlement, refund,
+and dispute evidence; replay, substitution, budget overrun, and failed persistence leave the live
+aggregate unchanged.
+
 Disputes use a separate `DisputeJournalV1`, canonically ordered by immutable dispute identity. The
 journal atomically persists opening and each exact next-sequence lifecycle successor, and restart
 decoding retains the evidence class that distinguishes client reports, connector-authenticated
