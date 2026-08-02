@@ -2205,6 +2205,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
                 the fixed ML-DSA-44 matrix-row/vector dot product.
           - [x] Constrain ML-DSA-44 public-key/signature bit unpacking, `z` infinity-norm range,
                 and canonical hint decoding, exposing exact decoded verifier inputs.
+          - [x] Constrain ML-DSA-44 `UseHint` decomposition, signed low bits, adjustment branches,
+                and modulo-44 wraparound for all four verifier polynomials.
         - [x] Bind the exact authorized-transfer envelope and ML-DSA-44 verification key into the
           session STARK public inputs, then compose real signature verification at proof admission;
           this binding does not replace the remaining in-circuit ML-DSA arithmetic gate.

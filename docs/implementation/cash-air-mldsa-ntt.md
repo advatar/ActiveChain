@@ -23,7 +23,7 @@ non-canonical sparse-hint cuts, ordering, weight, and padding. It exposes `rho`,
 decoded polynomials, and the hint bitmap for subsequent tables.
 
 Remaining verifier tables include SHAKE-derived matrix and challenge sampling, full matrix-row
-composition, hint application arithmetic, the final challenge equality, and cross-table composition
+composition, the final challenge equality, and cross-table composition
 with the session statement.
 
 The companion `MultiplyNTT` table now constrains all 256 coefficient-wise products used by FIPS
