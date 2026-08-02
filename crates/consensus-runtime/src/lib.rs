@@ -1695,12 +1695,72 @@ fn decode_validator_snapshot(bytes: &[u8]) -> Result<(PersistedValidatorState, b
     if old_schema != 4 && old_schema != 5 {
         return Err(DecodeError::InvalidValue("unsupported validator safety snapshot"));
     }
-    let mut migrated = bytes.to_vec();
-    migrated[2..4].copy_from_slice(&PersistedValidatorState::SCHEMA_VERSION.to_be_bytes());
-    migrated.extend_from_slice(&[0, 0]); // Option::None plus an empty timeout-lock set
+    let migrated = append_validator_snapshot_body_suffix(
+        bytes,
+        PersistedValidatorState::SCHEMA_VERSION,
+        &[0, 0], // Option::None plus an empty timeout-lock set
+    )?;
     decode_envelope::<PersistedValidatorState>(&migrated)
         .map(|snapshot| (snapshot, true))
         .map_err(|_| DecodeError::InvalidValue("legacy snapshot cannot be migrated safely"))
+}
+
+fn append_validator_snapshot_body_suffix(
+    bytes: &[u8],
+    schema_version: u16,
+    suffix: &[u8],
+) -> Result<Vec<u8>, DecodeError> {
+    const CANONICAL_MAX_LENGTH_PREFIX: usize = 5;
+    let mut prefix_end = 4_usize;
+    let mut body_length = 0_u32;
+    for index in 0..CANONICAL_MAX_LENGTH_PREFIX {
+        let byte = *bytes
+            .get(prefix_end)
+            .ok_or(DecodeError::InvalidValue("legacy snapshot length prefix is truncated"))?;
+        prefix_end += 1;
+        if index == CANONICAL_MAX_LENGTH_PREFIX - 1 && byte > 0x0f {
+            return Err(DecodeError::LengthOverflow);
+        }
+        body_length |= u32::from(byte & 0x7f) << (index * 7);
+        if byte & 0x80 == 0 {
+            if activechain_canonical_codec::canonical_length_prefix_len(body_length) != index + 1 {
+                return Err(DecodeError::NonMinimalLength);
+            }
+            break;
+        }
+        if index == CANONICAL_MAX_LENGTH_PREFIX - 1 {
+            return Err(DecodeError::LengthOverflow);
+        }
+    }
+    let body_length = body_length as usize;
+    if prefix_end.checked_add(body_length) != Some(bytes.len()) {
+        return Err(DecodeError::InvalidValue("legacy snapshot envelope length is inconsistent"));
+    }
+    let new_length = body_length.checked_add(suffix.len()).ok_or(DecodeError::LengthOverflow)?;
+    if new_length > PersistedValidatorState::MAX_ENCODED_LEN {
+        return Err(DecodeError::LengthLimitExceeded {
+            length: new_length,
+            maximum: PersistedValidatorState::MAX_ENCODED_LEN,
+        });
+    }
+    let mut migrated = Vec::with_capacity(bytes.len() + suffix.len() + 1);
+    migrated.extend_from_slice(&bytes[..2]);
+    migrated.extend_from_slice(&schema_version.to_be_bytes());
+    let mut remaining = u32::try_from(new_length).map_err(|_| DecodeError::LengthOverflow)?;
+    loop {
+        let mut byte = (remaining & 0x7f) as u8;
+        remaining >>= 7;
+        if remaining != 0 {
+            byte |= 0x80;
+        }
+        migrated.push(byte);
+        if remaining == 0 {
+            break;
+        }
+    }
+    migrated.extend_from_slice(&bytes[prefix_end..]);
+    migrated.extend_from_slice(suffix);
+    Ok(migrated)
 }
 
 fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -6702,6 +6762,66 @@ mod tests {
         .unwrap();
         assert_eq!(restarted.state().unwrap().protocol_revision(), 2);
         drop(restarted);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn schema_five_validator_snapshot_migration_updates_envelope_length() {
+        use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
+        let validator = PrincipalId::new(Digest384::new([85; 48]));
+        let signer = ValidatorSigner::from_seed(validator, [86; 32]);
+        let genesis = ValidatorGenesis::new(
+            1,
+            1,
+            vec![
+                ValidatorGenesisEntry::new(validator, 1, signer.public_key().try_into().unwrap())
+                    .unwrap(),
+            ],
+        )
+        .unwrap();
+        let path = std::env::temp_dir()
+            .join(format!("activechain-schema-five-validator-snapshot-{}.bin", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let state = ConsensusState::new_with_validator_set_root(1, genesis.validator_set_root());
+        let service = ValidatorService::from_genesis(state, &genesis, path.clone()).unwrap();
+        service.propose_round(&signer, 1, 0, Digest384::new([87; 48]), 1).unwrap();
+        let current = std::fs::read(&path).unwrap();
+        let mut prefix_end = 4;
+        let mut body_length = 0_u32;
+        for index in 0..5 {
+            let byte = current[prefix_end];
+            prefix_end += 1;
+            body_length |= u32::from(byte & 0x7f) << (index * 7);
+            if byte & 0x80 == 0 {
+                break;
+            }
+        }
+        assert_eq!(prefix_end + body_length as usize, current.len());
+        assert_eq!(&current[current.len() - 2..], &[0, 0]);
+        let legacy_body = &current[prefix_end..current.len() - 2];
+        let mut legacy = Vec::new();
+        legacy.extend_from_slice(&current[..2]);
+        legacy.extend_from_slice(&5_u16.to_be_bytes());
+        let mut remaining = legacy_body.len() as u32;
+        loop {
+            let mut byte = (remaining & 0x7f) as u8;
+            remaining >>= 7;
+            if remaining != 0 {
+                byte |= 0x80;
+            }
+            legacy.push(byte);
+            if remaining == 0 {
+                break;
+            }
+        }
+        legacy.extend_from_slice(legacy_body);
+        std::fs::write(&path, legacy).unwrap();
+        let restored = load_snapshot(&path).unwrap();
+        assert_eq!(restored, service.state().unwrap());
+        drop(service);
+        let restarted = ValidatorService::from_genesis(restored, &genesis, path.clone()).unwrap();
+        assert_eq!(restarted.state().unwrap(), restored);
+        assert_eq!(u16::from_be_bytes(std::fs::read(&path).unwrap()[2..4].try_into().unwrap()), 6);
         std::fs::remove_file(path).unwrap();
     }
 
