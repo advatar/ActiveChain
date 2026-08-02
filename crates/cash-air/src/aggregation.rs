@@ -322,7 +322,7 @@ impl CanonicalDecode for CashAggregationStatementV1 {
 }
 
 impl CanonicalType for CashAggregationStatementV1 {
-    const TYPE_TAG: u16 = 0x0120;
+    const TYPE_TAG: u16 = 0x01AC;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 48
         + 8

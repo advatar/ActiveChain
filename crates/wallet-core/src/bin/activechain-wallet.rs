@@ -6,8 +6,8 @@ use activechain_protocol_types::{
     ChainId, CoinCellId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature,
 };
 use activechain_wallet_core::{
-    AuthorizedCashSessionGrantV1, AuthorizedCashTransferV1, CashAuthorizationRequestV1,
-    CashSessionGrantV1,
+    AuthorizedCashSessionGrantV1, AuthorizedCashTransferV1, AuthorizedDutyReceiptV1,
+    CashAuthorizationRequestV1, CashSessionGrantV1, DutyReceiptV1,
 };
 use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
 use sha3::{
@@ -25,6 +25,7 @@ const USAGE: &str = "usage: activechain-wallet <command>\n\
 <session-expires-at> <amount> <fee> <valid-until>\n\
   challenge-commit <challenge-id> <duty> <challenger> <bond-cell> <reward> <evidence> <nonce> \
 <reveal-deadline> <resolution-deadline>\n\
+  duty-receipt <key-file> <chain-id> <assignment> <evidence> <height>\n\
   redeem-witness <witness-hex-file> <settlement>";
 
 fn hex(bytes: &[u8]) -> String {
@@ -172,6 +173,20 @@ fn build_challenge_commitment(
     .map_err(|error| format!("invalid challenge commitment: {error:?}"))
 }
 
+fn build_duty_receipt(
+    key: &SigningKey<MlDsa44>,
+    chain_id: ChainId,
+    assignment: Digest384,
+    evidence: Digest384,
+    height: u64,
+) -> Result<AuthorizedDutyReceiptV1, String> {
+    let receipt = DutyReceiptV1::new(chain_id, assignment, principal_for(key), evidence, height)
+        .map_err(|error| format!("invalid duty receipt: {error:?}"))?;
+    let payload = receipt.signing_payload().map_err(|_| "receipt encoding failed")?;
+    AuthorizedDutyReceiptV1::new(receipt, sign(key, &payload)?)
+        .map_err(|error| format!("receipt authorization failed: {error:?}"))
+}
+
 fn validate_reward_witness(
     envelope: &[u8],
     settlement: Digest384,
@@ -310,6 +325,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             println!("keep evidence and nonce private until the reveal step");
         }
+        "duty-receipt" => {
+            let [key_file, chain_id, assignment, evidence, height] = arguments.as_slice() else {
+                return Err(USAGE.into());
+            };
+            let key = load_signing_key(key_file)?;
+            let authorized = build_duty_receipt(
+                &key,
+                ChainId::new(parse_digest(chain_id)?),
+                parse_digest(assignment)?,
+                parse_digest(evidence)?,
+                height.parse()?,
+            )?;
+            println!("verifier={}", hex(principal_for(&key).into_digest().as_bytes()));
+            println!(
+                "authorized_duty_receipt={}",
+                hex(&encode_envelope(&authorized).map_err(|_| "envelope encoding failed")?)
+            );
+        }
         "redeem-witness" => {
             let [witness_file, settlement] = arguments.as_slice() else {
                 return Err(USAGE.into());
@@ -429,6 +462,37 @@ mod tests {
                 20,
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn duty_receipt_verifies_only_for_the_signing_verifier_and_exact_chain() {
+        let key = key();
+        let authorized =
+            build_duty_receipt(&key, ChainId::new(digest(1)), digest(2), digest(3), 9).unwrap();
+        let public_key = key.verifying_key().encode();
+        let verifier = principal_for(&key);
+        assert_eq!(
+            authorized.verify(public_key.as_slice(), ChainId::new(digest(1)), verifier),
+            Ok(())
+        );
+        assert!(
+            authorized.verify(public_key.as_slice(), ChainId::new(digest(9)), verifier).is_err()
+        );
+        assert!(
+            authorized
+                .verify(
+                    public_key.as_slice(),
+                    ChainId::new(digest(1)),
+                    PrincipalId::new(digest(4)),
+                )
+                .is_err()
+        );
+        let encoded = encode_envelope(&authorized).unwrap();
+        assert_eq!(decode_envelope::<AuthorizedDutyReceiptV1>(&encoded), Ok(authorized));
+        assert!(
+            build_duty_receipt(&key, ChainId::new(digest(1)), Digest384::ZERO, digest(3), 9)
+                .is_err()
         );
     }
 

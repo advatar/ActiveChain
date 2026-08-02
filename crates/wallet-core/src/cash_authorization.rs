@@ -597,6 +597,167 @@ impl AuthorizedCashTransferV1 {
     }
 }
 
+const DUTY_RECEIPT_SIGNING_DOMAIN: &[u8] = b"ACTIVECHAIN-DUTY-RECEIPT-ML-DSA-44-V1";
+
+/// One verifier's claim that an assigned duty produced checkable evidence at a height.
+///
+/// The canonical value binds chain, assignment, verifier, evidence, and height so a signed
+/// receipt cannot be replayed for another duty, verifier, or network.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DutyReceiptV1 {
+    chain_id: ChainId,
+    assignment: Digest384,
+    verifier: PrincipalId,
+    evidence: Digest384,
+    height: u64,
+}
+
+impl DutyReceiptV1 {
+    pub const TYPE_TAG: u16 = 0x01AA;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 4 + 8;
+
+    pub fn new(
+        chain_id: ChainId,
+        assignment: Digest384,
+        verifier: PrincipalId,
+        evidence: Digest384,
+        height: u64,
+    ) -> Result<Self, WalletError> {
+        if assignment == Digest384::ZERO
+            || evidence == Digest384::ZERO
+            || *verifier.digest() == Digest384::ZERO
+        {
+            return Err(WalletError::MalformedAuthorization);
+        }
+        Ok(Self { chain_id, assignment, verifier, evidence, height })
+    }
+
+    #[must_use]
+    pub const fn chain_id(&self) -> ChainId {
+        self.chain_id
+    }
+
+    #[must_use]
+    pub const fn assignment(&self) -> Digest384 {
+        self.assignment
+    }
+
+    #[must_use]
+    pub const fn verifier(&self) -> PrincipalId {
+        self.verifier
+    }
+
+    #[must_use]
+    pub const fn evidence(&self) -> Digest384 {
+        self.evidence
+    }
+
+    #[must_use]
+    pub const fn height(&self) -> u64 {
+        self.height
+    }
+
+    /// Returns the complete domain-separated canonical bytes that the verifier's key signs.
+    pub fn signing_payload(&self) -> Result<Vec<u8>, EncodeError> {
+        let encoded = encode_envelope(self)?;
+        let mut payload = Vec::with_capacity(DUTY_RECEIPT_SIGNING_DOMAIN.len() + 8 + encoded.len());
+        payload.extend_from_slice(DUTY_RECEIPT_SIGNING_DOMAIN);
+        payload.extend_from_slice(&(encoded.len() as u64).to_be_bytes());
+        payload.extend_from_slice(&encoded);
+        Ok(payload)
+    }
+}
+
+impl CanonicalEncode for DutyReceiptV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain_id.encode(e)?;
+        self.assignment.encode(e)?;
+        self.verifier.encode(e)?;
+        self.evidence.encode(e)?;
+        self.height.encode(e)
+    }
+}
+
+impl CanonicalDecode for DutyReceiptV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            ChainId::decode(d)?,
+            Digest384::decode(d)?,
+            PrincipalId::decode(d)?,
+            Digest384::decode(d)?,
+            u64::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid duty receipt"))
+    }
+}
+
+impl CanonicalType for DutyReceiptV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
+/// A duty receipt bound to exactly one ML-DSA-44 verifier signature.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthorizedDutyReceiptV1 {
+    receipt: DutyReceiptV1,
+    signature: ProtocolSignature,
+}
+
+impl AuthorizedDutyReceiptV1 {
+    pub const TYPE_TAG: u16 = 0x01AB;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize =
+        DutyReceiptV1::MAX_ENCODED_LEN + ProtocolSignature::MAX_ENCODED_LEN;
+
+    pub fn new(receipt: DutyReceiptV1, signature: ProtocolSignature) -> Result<Self, WalletError> {
+        if signature.suite() != CryptoSuiteId::ML_DSA_44 {
+            return Err(WalletError::InvalidSignature);
+        }
+        Ok(Self { receipt, signature })
+    }
+
+    #[must_use]
+    pub const fn receipt(&self) -> &DutyReceiptV1 {
+        &self.receipt
+    }
+
+    /// Verifies the exact chain, verifier, and signature bindings for one settlement consumer.
+    pub fn verify(
+        &self,
+        public_key: &[u8],
+        chain_id: ChainId,
+        verifier: PrincipalId,
+    ) -> Result<(), WalletError> {
+        if self.receipt.chain_id != chain_id || self.receipt.verifier != verifier {
+            return Err(WalletError::MalformedAuthorization);
+        }
+        let payload =
+            self.receipt.signing_payload().map_err(|_| WalletError::MalformedAuthorization)?;
+        verify_ml_dsa(public_key, &self.signature, &payload)
+    }
+}
+
+impl CanonicalEncode for AuthorizedDutyReceiptV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.receipt.encode(e)?;
+        self.signature.encode(e)
+    }
+}
+
+impl CanonicalDecode for AuthorizedDutyReceiptV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(DutyReceiptV1::decode(d)?, ProtocolSignature::decode(d)?)
+            .map_err(|_| DecodeError::InvalidValue("invalid authorized duty receipt"))
+    }
+}
+
+impl CanonicalType for AuthorizedDutyReceiptV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
 fn verify_ml_dsa(
     public_key: &[u8],
     signature: &ProtocolSignature,

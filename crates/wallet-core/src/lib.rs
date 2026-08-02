@@ -30,9 +30,9 @@ pub use agent_management::{
     AgentRegistryV1, MAX_AGENT_CAPABILITIES, MAX_AGENT_LABEL, ManagedAgentV1,
 };
 pub use cash_authorization::{
-    AuthorizedCashSessionGrantV1, AuthorizedCashTransferV1, CashAuthorizationRequestV1,
-    CashSessionAdmissionWitnessV1, CashSessionGrantV1, OperatorFaucetAuthorizationV1,
-    recipient_commitment,
+    AuthorizedCashSessionGrantV1, AuthorizedCashTransferV1, AuthorizedDutyReceiptV1,
+    CashAuthorizationRequestV1, CashSessionAdmissionWitnessV1, CashSessionGrantV1, DutyReceiptV1,
+    OperatorFaucetAuthorizationV1, recipient_commitment,
 };
 pub use cash_persistence::{
     FinalizedIdentityKeyProof, FinalizedIdentityKeyVerifier, authenticator_set_root,

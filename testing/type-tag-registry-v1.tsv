@@ -1,5 +1,5 @@
 # Authoritative canonical v1 envelope registry. Keep sorted by tag.
-# tag\tschema\ttype\tsource
+# tag	schema	type	source
 0x0020	1	Principal	crates/protocol-types/src/lib.rs
 0x0021	1	AuthenticatorDescriptor	crates/protocol-types/src/crypto.rs
 0x0022	1	RecoveryRequest	crates/protocol-types/src/authority.rs
@@ -301,3 +301,7 @@
 0x01A7	1	PaymentSdkRequestV1	crates/payment-sdk/src/lib.rs
 0x01A8	1	PaymentSdkResponseV1	crates/payment-sdk/src/lib.rs
 0x01A9	1	SignedAuthorizationChainV1	crates/verifier-api/src/signed_authorization.rs
+
+0x01AA	1	DutyReceiptV1	crates/wallet-core/src/cash_authorization.rs
+0x01AB	1	AuthorizedDutyReceiptV1	crates/wallet-core/src/cash_authorization.rs
+0x01AC	1	CashAggregationStatementV1	crates/cash-air/src/aggregation.rs
