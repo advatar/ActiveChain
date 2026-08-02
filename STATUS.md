@@ -1069,8 +1069,10 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
   - [ ] Qualify operations and staged rollout without promoting sandbox evidence.
     - [x] Run one deterministic ActiveBridge recovery drill covering exact retry, ambiguous
           provider dispatch, forced reconciliation, restart, replay, and failed-write atomicity.
-    - [ ] Complete sustained soak/chaos, backup restoration, operator incident exercises,
-          independent review, and staged external-rail pilots.
+    - [x] Add validated, crash-safe export and restoration for the complete joined payment
+          settlement aggregate, rejecting corrupt backups without mutating live state.
+    - [ ] Complete sustained soak/chaos, operator incident exercises, independent review, and
+          staged external-rail pilots.
 - [x] Add canonical exact-once partial-refund requests and cumulative settlement-bound accounting.
   - [x] Persist a bounded per-intent refund-state journal atomically across settlement registration
     and every accepted partial refund, rejecting replay and corrupt restart state.

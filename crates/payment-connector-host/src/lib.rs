@@ -1445,6 +1445,7 @@ impl DurablePaymentRequestState {
 
     /// Persists a finalized successor structurally bound to exact native settlement evidence.
     /// The caller must cryptographically verify the committed receipt/proof before invoking this.
+    #[cfg(test)]
     fn finalize_settlement(
         &mut self,
         settlement: &PaymentFinalizedSettlementV1,
@@ -1455,6 +1456,7 @@ impl DurablePaymentRequestState {
         Ok(commitment)
     }
 
+    #[cfg(test)]
     fn finalize_verified_settlement(
         &mut self,
         settlement: &PaymentFinalizedSettlementV1,
@@ -1491,6 +1493,7 @@ pub struct PaymentSettlementStateV1 {
 impl PaymentSettlementStateV1 {
     pub const TYPE_TAG: u16 = 0x0189;
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         requests: PaymentRequestStateV1,
         settlements: Vec<PaymentFinalizedSettlementV1>,
@@ -1712,6 +1715,27 @@ impl DurablePaymentSettlementState {
 
     pub const fn snapshot(&self) -> &PaymentSettlementStateV1 {
         &self.snapshot
+    }
+
+    /// Writes one independently validated canonical copy of the complete joined payment state.
+    pub fn export_backup(&self, backup_path: impl AsRef<Path>) -> Result<(), JournalError> {
+        let backup_path = backup_path.as_ref();
+        if backup_path == self.path {
+            return Err(JournalError::Persistence);
+        }
+        save_snapshot(&self.snapshot, backup_path)
+    }
+
+    /// Validates a complete backup before atomically replacing both durable and in-memory state.
+    pub fn restore_backup(&mut self, backup_path: impl AsRef<Path>) -> Result<(), JournalError> {
+        let backup_path = backup_path.as_ref();
+        if backup_path == self.path {
+            return Err(JournalError::Persistence);
+        }
+        let restored: PaymentSettlementStateV1 = load_snapshot(backup_path)?;
+        save_snapshot(&restored, &self.path)?;
+        self.snapshot = restored;
+        Ok(())
     }
 
     pub fn create_intent(
@@ -3546,6 +3570,58 @@ mod tests {
         );
         assert_eq!(durable.snapshot(), &before);
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn complete_payment_backup_restores_exact_state_and_survives_restart() {
+        let primary = path("complete-payment-backup-primary");
+        let backup = path("complete-payment-backup-copy");
+        let _ = std::fs::remove_file(&primary);
+        let _ = std::fs::remove_file(&backup);
+        let mut durable = chain_submitted_settlement_state(&primary);
+        let settlement = finalized_settlement(124, 95, 110);
+        durable.finalize_verified_value(&settlement).unwrap();
+        durable
+            .request_refund(&settlement_refund_request(&settlement, 140, 40, 1, 0), 150)
+            .unwrap();
+        let backed_up = durable.snapshot().clone();
+        durable.export_backup(&backup).unwrap();
+
+        durable
+            .request_refund(&settlement_refund_request(&settlement, 142, 55, 2, 40), 150)
+            .unwrap();
+        assert_ne!(durable.snapshot(), &backed_up);
+        durable.restore_backup(&backup).unwrap();
+        assert_eq!(durable.snapshot(), &backed_up);
+        assert_eq!(DurablePaymentSettlementState::open(&primary).unwrap().snapshot(), &backed_up);
+        assert_eq!(durable.export_backup(&primary), Err(JournalError::Persistence));
+        assert_eq!(durable.restore_backup(&primary), Err(JournalError::Persistence));
+
+        std::fs::remove_file(primary).unwrap();
+        std::fs::remove_file(backup).unwrap();
+    }
+
+    #[test]
+    fn corrupt_payment_backup_cannot_mutate_live_or_durable_state() {
+        let primary = path("corrupt-payment-backup-primary");
+        let backup = path("corrupt-payment-backup-copy");
+        let _ = std::fs::remove_file(&primary);
+        let _ = std::fs::remove_file(&backup);
+        let mut durable = chain_submitted_settlement_state(&primary);
+        let settlement = finalized_settlement(124, 95, 110);
+        durable.finalize_verified_value(&settlement).unwrap();
+        durable.export_backup(&backup).unwrap();
+        let before = durable.snapshot().clone();
+        let durable_bytes = std::fs::read(&primary).unwrap();
+
+        std::fs::write(&backup, b"truncated or unauthenticated backup").unwrap();
+        assert_eq!(durable.restore_backup(&backup), Err(JournalError::Persistence));
+        assert_eq!(durable.snapshot(), &before);
+        assert_eq!(std::fs::read(&primary).unwrap(), durable_bytes);
+        assert_eq!(DurablePaymentSettlementState::open(&primary).unwrap().snapshot(), &before);
+
+        std::fs::remove_file(primary).unwrap();
+        std::fs::remove_file(backup).unwrap();
     }
 
     #[test]
