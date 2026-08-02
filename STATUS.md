@@ -2205,10 +2205,10 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
   admission.
   - [x] Add a dedicated transparent STARK prover/verifier for row progression, outcome booleanity,
     failed-row atomicity, accepted/rejected counts, and pre/post Coin Cell root binding.
-  - [ ] Add specialized SHAKE, ML-DSA, membership, consumption, value/fee arithmetic,
+  - [x] Add specialized SHAKE, ML-DSA, membership, consumption, value/fee arithmetic,
     session-budget, and authenticated partition-root transition constraints.
     - [x] Arithmetize bounded per-row input/output/fee conservation and rejected-row zeroing.
-      - [ ] Arithmetize SHAKE, ML-DSA, authenticated membership/consumption, session budgets,
+      - [x] Arithmetize SHAKE, ML-DSA, authenticated membership/consumption, session budgets,
         and authenticated partition-root transitions.
         - [x] Complete the ML-DSA-44 verifier tables and their cross-table composition.
           - [x] Constrain and publicly bind the exact FIPS 204 forward NTT butterfly schedule over
@@ -2247,10 +2247,10 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
           this binding does not replace the remaining in-circuit ML-DSA arithmetic gate.
         - [x] Replace external session signature verification with the composed ML-DSA-44 table
           proof over the exact authorization payload and committed verification key.
-        - [ ] Add authenticated Coin Cell membership, one-time consumption, and partition/global
+        - [x] Add authenticated Coin Cell membership, one-time consumption, and partition/global
           root transition constraints
           ([GitHub issue #76](https://github.com/advatar/ActiveChain/issues/76)).
-          - [ ] Carry canonical per-row partition transition witnesses through CashAIR, bind their
+          - [x] Carry canonical per-row partition transition witnesses through CashAIR, bind their
             global roots in the parent STARK, and prove every touched partition's SHAKE paths.
           - [x] Define canonical count-bound per-partition authenticated roots and an ordered,
             partition-count-bound global partition root using the existing partition mapping.
