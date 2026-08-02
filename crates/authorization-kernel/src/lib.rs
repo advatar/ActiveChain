@@ -1389,6 +1389,216 @@ mod tests {
         );
     }
 
+    fn rescoped(
+        invocation: u8,
+        mutate: impl Fn(&mut CapabilityGrantFields),
+    ) -> AuthorizationCandidate {
+        let mut value = candidate(invocation, 5);
+        for capability in &mut value.capability_chain {
+            let mut fields = capability.fields().clone();
+            mutate(&mut fields);
+            *capability = CapabilityGrant::new(fields, signature()).unwrap();
+        }
+        value
+    }
+
+    /// Pins the confused-deputy defences. A capability chain that is internally
+    /// a valid attenuation must still be rejected when its authority does not
+    /// cover the exact resource, the transfer action, or the envelope actor.
+    #[test]
+    fn capability_scope_binds_resource_action_and_holder() {
+        let other_object = ObjectId::new(digest(0x4f));
+        assert_eq!(
+            verify_authorization_candidate(
+                &rescoped(30, |fields| fields.resource_scope =
+                    ResourceSelector::exact(other_object)),
+                genesis(),
+                EPOCH,
+                state_root(),
+                &Verifier::default(),
+            ),
+            Err(AuthorizationError::CapabilityScope),
+            "a capability for another object must not authorize this transfer"
+        );
+
+        let other_action = activechain_protocol_types::ActionId::new(digest(0x01));
+        assert_eq!(
+            verify_authorization_candidate(
+                &rescoped(31, |fields| fields.permitted_actions =
+                    BoundedActionSet::new(vec![other_action]).unwrap()),
+                genesis(),
+                EPOCH,
+                state_root(),
+                &Verifier::default(),
+            ),
+            Err(AuthorizationError::CapabilityScope),
+            "a capability for another action must not authorize a transfer"
+        );
+
+        let mut stranger = candidate(32, 5);
+        let mut fields = stranger.capability_chain[1].fields().clone();
+        fields.holder_binding = HolderBinding::Principal(PrincipalId::new(digest(0x77)));
+        stranger.capability_chain[1] = CapabilityGrant::new(fields, signature()).unwrap();
+        assert_eq!(
+            verify_authorization_candidate(
+                &stranger,
+                genesis(),
+                EPOCH,
+                state_root(),
+                &Verifier::default(),
+            ),
+            Err(AuthorizationError::CapabilityScope),
+            "a capability held by another principal must not authorize this actor"
+        );
+    }
+
+    /// Pins the capability validity comparison at both inclusive boundaries.
+    /// The envelope in `candidate` declares height 50.
+    #[test]
+    fn capability_validity_window_is_inclusive_at_both_ends() {
+        for (valid_from, valid_until, expected) in [
+            (50, Some(50), Ok(())),
+            (51, Some(100), Err(AuthorizationError::CapabilityScope)),
+            (1, Some(49), Err(AuthorizationError::CapabilityScope)),
+            (1, None, Ok(())),
+        ] {
+            let candidate = rescoped(33, |fields| {
+                fields.valid_from = valid_from;
+                fields.valid_until = valid_until;
+            });
+            assert_eq!(
+                verify_authorization_candidate(
+                    &candidate,
+                    genesis(),
+                    EPOCH,
+                    state_root(),
+                    &Verifier::default(),
+                )
+                .map(|_| ()),
+                expected,
+                "validity window {valid_from}..={valid_until:?} at height 50"
+            );
+        }
+    }
+
+    /// Pins the decode-path re-validation of the envelope ordering invariant
+    /// that `AuthorizationEnvelope::new` enforces: canonical bytes must never
+    /// restore a descending or duplicated capability set that the constructor
+    /// would refuse.
+    #[test]
+    fn envelope_decode_reenforces_construction_invariants() {
+        let envelope = AuthorizationEnvelope::new(
+            digest(0x21),
+            genesis(),
+            EPOCH,
+            actor(),
+            50,
+            1000,
+            state_root(),
+            digest(0x22),
+            0,
+            0,
+            FreezeState::Active,
+            None,
+            vec![],
+            vec![],
+            vec![cap_id(0xc1), cap_id(0xc2)],
+            signature(),
+        )
+        .unwrap();
+        let bytes = encode_envelope(&envelope).unwrap();
+        assert_eq!(decode_envelope::<AuthorizationEnvelope>(&bytes), Ok(envelope));
+
+        let low = [0xc1; 48];
+        let high = [0xc2; 48];
+        let first = bytes.windows(48).position(|window| window == low).unwrap();
+        let second = bytes.windows(48).position(|window| window == high).unwrap();
+
+        let mut descending = bytes.clone();
+        descending[first..first + 48].copy_from_slice(&high);
+        descending[second..second + 48].copy_from_slice(&low);
+        assert!(
+            decode_envelope::<AuthorizationEnvelope>(&descending).is_err(),
+            "descending capability identifiers must not decode"
+        );
+
+        let mut duplicated = bytes;
+        duplicated[second..second + 48].copy_from_slice(&low);
+        assert!(
+            decode_envelope::<AuthorizationEnvelope>(&duplicated).is_err(),
+            "duplicated capability identifiers must not decode"
+        );
+    }
+
+    /// Pins the depth bound at the envelope boundary: an envelope naming more
+    /// than `MAX_CAPABILITY_DEPTH` capabilities is refused by construction, and
+    /// a chain longer than the bound is refused by the joined verifier.
+    #[test]
+    fn capability_depth_bound_is_enforced_at_every_boundary() {
+        let overlong = (0..=MAX_CAPABILITY_DEPTH)
+            .map(|index| cap_id(u8::try_from(index).unwrap()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            AuthorizationEnvelope::new(
+                digest(0x23),
+                genesis(),
+                EPOCH,
+                actor(),
+                50,
+                1000,
+                state_root(),
+                digest(0x24),
+                0,
+                0,
+                FreezeState::Active,
+                None,
+                vec![],
+                vec![],
+                overlong,
+                signature(),
+            ),
+            Err(AuthorizationError::MalformedEnvelope)
+        );
+
+        let mut deep = candidate(34, 5);
+        let leaf = deep.capability_chain[1].clone();
+        while deep.capability_chain.len() <= MAX_CAPABILITY_DEPTH {
+            deep.capability_chain.push(leaf.clone());
+        }
+        assert_eq!(
+            verify_authorization_candidate(
+                &deep,
+                genesis(),
+                EPOCH,
+                state_root(),
+                &Verifier::default()
+            ),
+            Err(AuthorizationError::Capability)
+        );
+    }
+
+    /// Pins per-capability budget exhaustion across separate admissions: the
+    /// same leaf capability cannot spend its monetary ceiling twice.
+    #[test]
+    fn capability_budget_is_exhausted_across_admissions() {
+        let path = std::env::temp_dir()
+            .join(format!("activechain-auth-budget-{}.snapshot", std::process::id()));
+        let store = AuthorizationReplayStore::new(path.clone(), genesis(), EPOCH).unwrap();
+        let verify = |invocation, value| {
+            verify_authorization_candidate(
+                &candidate(invocation, value),
+                genesis(),
+                EPOCH,
+                state_root(),
+                &Verifier::default(),
+            )
+            .unwrap()
+        };
+        assert!(store.admit_batch(&[verify(35, 10)]).is_ok());
+        assert_eq!(store.admit_batch(&[verify(36, 10)]), Err(AuthorizationError::Budget));
+        let _ = std::fs::remove_file(path);
+    }
+
     #[test]
     fn concurrent_duplicate_invocation_has_one_atomic_winner() {
         let path = std::env::temp_dir()
