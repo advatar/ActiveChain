@@ -1,0 +1,2 @@
+# ActiveChain canonical duty-receipt and verifier-bond vectors v1.
+# Independent clients must strictly decode each envelope and derive every field from it.
