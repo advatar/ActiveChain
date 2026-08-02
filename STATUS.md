@@ -166,12 +166,13 @@ Tracked by [GitHub issue #327](https://github.com/advatar/ActiveChain/issues/327
 - [x] Keep secret key material behind opaque native handles across the Rust FFI, reverify every
   returned ML-DSA-44 signature, and add locked-device, cancelled-authentication, rollback, wrong-key,
   revoked-key, recovery, rotation, and migration-failure tests.
-- [ ] Correct mobile custody and recovery claims and complete the independent platform review gate.
-  Targeted Rust (13), macOS (26), and Android unit/build qualification passes on the merged
-  implementation candidate.
+- [x] Correct mobile custody and recovery claims. Targeted Rust (13), macOS (26), and Android
+  unit/build qualification passes on the merged implementation candidate.
+- [ ] Complete physical-device qualification and the independent platform/PQ review gates tracked
+  by #578, #579, and #580; these external evidence gates do not reopen the completed #327
+  implementation scope.
 - [x] Merge the implementation to `main` and verify reachability. The queued full deterministic
-  kernel run is skipped in favor of normal tests during issue reconciliation; #327 remains open
-  until independent platform review is complete.
+  kernel run is skipped in favor of normal tests during issue reconciliation.
 
 ## Critical consensus recovery — bounded views and leader rotation
 
