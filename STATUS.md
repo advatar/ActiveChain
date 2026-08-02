@@ -264,7 +264,7 @@ Follow-up availability fix tracked by
   more than 4,096 valid authorizations.
 - [x] Add targeted adversarial unit tests for the 4,096/4,097 boundary, duplicate and stale
   witnesses, sequential batch witnesses, and snapshot restart behavior.
-- [ ] Run targeted authorization-kernel and accumulator tests plus affected strict Clippy, merge
+- [x] Run targeted authorization-kernel and accumulator tests plus affected strict Clippy, merge
   #705 to `main`, verify patch-equivalent reachability, and delete the feature branch.
 
 - [x] Replace publicly mintable asserted-verification values with opaque results produced only by
