@@ -1362,11 +1362,14 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   authority/policy bindings.
 - [x] Keep the workspace lockfile synchronized with the canonical payment-types cryptographic
   dependencies so targeted issuer/payment tests leave a reproducible clean checkout.
-- [ ] Complete wallet, compatibility, adversarial-test, migration, and independent-audit gates.
+- [x] Complete wallet ABI compatibility, adversarial transition, and migration implementation
+  gates for the #164 native-asset scope.
   - [x] Expose verifier ABI, canonical schema, and protocol revisions through the native wallet
         ABI so shells can negotiate proof-bearing native-asset compatibility before verification.
   - [x] Reject supply-inconsistent and ambiguous partially upgraded legacy asset snapshots during
         standalone-ledger and chain-state migration.
+- [ ] Complete independent wallet/native-asset audit and external interoperability qualification;
+  these evidence gates do not reopen the completed #164 implementation scope.
 
 ## Active design — privacy-preserving tokenization identity
 
