@@ -661,6 +661,43 @@ mod tests {
             issuer: digest(byte + 2),
         }
     }
+    fn offer(byte: u8) -> OpenWalletCredentialOfferV1 {
+        OpenWalletCredentialOfferV1::new(
+            session(byte),
+            b"https://issuer.example".to_vec(),
+            vec![digest(byte + 10)],
+            digest(byte + 11),
+            digest(byte + 12),
+            digest(byte + 13),
+        )
+        .expect("fixture offer is valid")
+    }
+    fn request(byte: u8) -> OpenWalletPresentationRequestV1 {
+        OpenWalletPresentationRequestV1::new(
+            session(byte),
+            b"verifier.example".to_vec(),
+            b"https://verifier.example/response".to_vec(),
+            digest(byte + 2),
+            digest(byte + 3),
+            PresentationResponseMode::DirectPostJwt,
+            vec![RequestedCredentialV1 {
+                format: CredentialFormat::Mdoc,
+                schema_id: digest(byte + 4),
+                claims_digest: digest(byte + 5),
+            }],
+        )
+        .expect("fixture request is valid")
+    }
+    fn issuance_state(
+        adapter: &OpenWalletAdapterV1,
+        session_id: Digest384,
+    ) -> Option<IssuanceSessionState> {
+        adapter
+            .issuance
+            .iter()
+            .find(|item| item.session.session_id == session_id)
+            .map(OpenWalletCredentialOfferV1::state)
+    }
 
     #[test]
     fn issuance_is_consent_bound_and_nonce_replay_safe() {
@@ -725,5 +762,601 @@ mod tests {
         .unwrap();
         adapter.approve_presentation(&consent, 1).unwrap();
         assert_eq!(adapter.approve_presentation(&consent, 1), Err(WalletError::PolicyDenied));
+    }
+
+    #[test]
+    fn issuance_happy_path_walks_offered_authorized_completed_exactly_once() {
+        let mut adapter = OpenWalletAdapterV1::new();
+        let offered = offer(1);
+        let session_id = offered.session().session_id;
+        let (consent_digest, grant_nonce) = (offered.consent_digest(), offered.grant_nonce());
+
+        adapter.begin_issuance(offered, 1).unwrap();
+        assert_eq!(issuance_state(&adapter, session_id), Some(IssuanceSessionState::Offered));
+        assert_eq!(adapter.sessions().len(), 1);
+        assert!(adapter.credentials().is_empty());
+
+        adapter.authorize_issuance(session_id, consent_digest, 5).unwrap();
+        assert_eq!(issuance_state(&adapter, session_id), Some(IssuanceSessionState::Authorized));
+        assert!(adapter.credentials().is_empty());
+
+        adapter.complete_issuance(session_id, credential(50), grant_nonce, 5).unwrap();
+        assert_eq!(issuance_state(&adapter, session_id), Some(IssuanceSessionState::Completed));
+        assert_eq!(adapter.credentials(), &[credential(50)]);
+        assert_eq!(adapter.consumed_nonces, vec![grant_nonce]);
+
+        // The terminal state is absorbing: neither step may run a second time.
+        assert_eq!(
+            adapter.authorize_issuance(session_id, consent_digest, 5),
+            Err(WalletError::PolicyDenied)
+        );
+        assert_eq!(
+            adapter.complete_issuance(session_id, credential(60), grant_nonce, 5),
+            Err(WalletError::Replay)
+        );
+    }
+
+    #[test]
+    fn issuance_steps_out_of_order_or_for_unknown_sessions_are_rejected() {
+        let mut adapter = OpenWalletAdapterV1::new();
+        let offered = offer(1);
+        let session_id = offered.session().session_id;
+        let (consent_digest, grant_nonce) = (offered.consent_digest(), offered.grant_nonce());
+
+        // Neither step exists before the offer is admitted.
+        assert_eq!(
+            adapter.authorize_issuance(session_id, consent_digest, 1),
+            Err(WalletError::UnknownSession)
+        );
+        assert_eq!(
+            adapter.complete_issuance(session_id, credential(50), grant_nonce, 1),
+            Err(WalletError::UnknownSession)
+        );
+
+        adapter.begin_issuance(offered, 1).unwrap();
+
+        // Completing before authorizing is refused and leaves the offer in the offered state.
+        assert_eq!(
+            adapter.complete_issuance(session_id, credential(50), grant_nonce, 1),
+            Err(WalletError::Replay)
+        );
+        assert_eq!(issuance_state(&adapter, session_id), Some(IssuanceSessionState::Offered));
+        assert!(adapter.credentials().is_empty());
+        assert!(adapter.consumed_nonces.is_empty());
+
+        adapter.authorize_issuance(session_id, consent_digest, 1).unwrap();
+        // Authorizing twice is refused; the offer stays authorized rather than regressing.
+        assert_eq!(
+            adapter.authorize_issuance(session_id, consent_digest, 1),
+            Err(WalletError::PolicyDenied)
+        );
+        assert_eq!(issuance_state(&adapter, session_id), Some(IssuanceSessionState::Authorized));
+
+        // Completing with the wrong grant nonce is refused without consuming anything.
+        assert_eq!(
+            adapter.complete_issuance(session_id, credential(50), digest(99), 1),
+            Err(WalletError::Replay)
+        );
+        assert!(adapter.consumed_nonces.is_empty());
+        // Every step also fails once the session expires.
+        assert_eq!(
+            adapter.complete_issuance(session_id, credential(50), grant_nonce, 21),
+            Err(WalletError::Replay)
+        );
+    }
+
+    #[test]
+    fn issuance_rejects_reused_sessions_and_replayed_grant_nonces() {
+        let mut adapter = OpenWalletAdapterV1::new();
+        let first = offer(1);
+        let session_id = first.session().session_id;
+        let (consent_digest, grant_nonce) = (first.consent_digest(), first.grant_nonce());
+        adapter.begin_issuance(first.clone(), 1).unwrap();
+
+        // The same session identifier may never carry a second offer.
+        assert_eq!(adapter.begin_issuance(first, 1), Err(WalletError::Replay));
+        // A distinct offer that reuses only the session identifier is refused too.
+        let mut aliased = offer(1);
+        aliased.grant_nonce = digest(200);
+        aliased.consent_digest = digest(201);
+        assert_eq!(adapter.begin_issuance(aliased, 1), Err(WalletError::Replay));
+
+        adapter.authorize_issuance(session_id, consent_digest, 1).unwrap();
+        adapter.complete_issuance(session_id, credential(50), grant_nonce, 1).unwrap();
+
+        // A fresh session that replays the spent grant nonce is refused at admission.
+        let mut replayed = offer(70);
+        replayed.grant_nonce = grant_nonce;
+        assert_eq!(adapter.begin_issuance(replayed, 1), Err(WalletError::Replay));
+        // An offer whose session already expired relative to the current height is refused.
+        assert_eq!(adapter.begin_issuance(offer(70), 21), Err(WalletError::Replay));
+    }
+
+    #[test]
+    fn presentation_approval_requires_registered_selected_credentials() {
+        let mut adapter = OpenWalletAdapterV1::new();
+        adapter.register_credential(credential(20)).unwrap();
+        let pending = request(40);
+        adapter.begin_presentation(pending.clone(), 1).unwrap();
+        let commitment = pending.commitment().unwrap();
+
+        // A credential the wallet never registered cannot be disclosed.
+        let unheld = OpenWalletConsentV1::new(
+            digest(40),
+            commitment,
+            vec![digest(99)],
+            vec![digest(45)],
+            1,
+            10,
+        )
+        .unwrap();
+        assert_eq!(adapter.approve_presentation(&unheld, 1), Err(WalletError::PolicyDenied));
+        // A partially held selection fails closed on the missing member.
+        let partial = OpenWalletConsentV1::new(
+            digest(40),
+            commitment,
+            vec![digest(20), digest(99)],
+            vec![digest(45)],
+            1,
+            10,
+        )
+        .unwrap();
+        assert_eq!(adapter.approve_presentation(&partial, 1), Err(WalletError::PolicyDenied));
+        // Nothing was consumed, so the honest approval still succeeds afterwards.
+        assert!(adapter.consumed_nonces.is_empty());
+        let honest = OpenWalletConsentV1::new(
+            digest(40),
+            commitment,
+            vec![digest(20)],
+            vec![digest(45)],
+            1,
+            10,
+        )
+        .unwrap();
+        adapter.approve_presentation(&honest, 1).unwrap();
+        assert_eq!(adapter.consumed_nonces, vec![pending.nonce()]);
+    }
+
+    #[test]
+    fn presentation_approval_rejects_unknown_sessions_wrong_commitments_and_expiry() {
+        let mut adapter = OpenWalletAdapterV1::new();
+        adapter.register_credential(credential(20)).unwrap();
+        let pending = request(40);
+        adapter.begin_presentation(pending.clone(), 1).unwrap();
+        let commitment = pending.commitment().unwrap();
+
+        // A consent naming a session the adapter never opened is unknown, not merely denied.
+        let stranger = OpenWalletConsentV1::new(
+            digest(70),
+            commitment,
+            vec![digest(20)],
+            vec![digest(45)],
+            1,
+            10,
+        )
+        .unwrap();
+        assert_eq!(adapter.approve_presentation(&stranger, 1), Err(WalletError::UnknownSession));
+
+        // A consent bound to any other request commitment is refused.
+        let mismatched = OpenWalletConsentV1::new(
+            digest(40),
+            request(60).commitment().unwrap(),
+            vec![digest(20)],
+            vec![digest(45)],
+            1,
+            10,
+        )
+        .unwrap();
+        assert_eq!(adapter.approve_presentation(&mismatched, 1), Err(WalletError::PolicyDenied));
+
+        let honest = OpenWalletConsentV1::new(
+            digest(40),
+            commitment,
+            vec![digest(20)],
+            vec![digest(45)],
+            1,
+            10,
+        )
+        .unwrap();
+        // Past the consent expiry, and past the session expiry, approval fails closed.
+        assert_eq!(adapter.approve_presentation(&honest, 11), Err(WalletError::PolicyDenied));
+        let long_lived = OpenWalletConsentV1::new(
+            digest(40),
+            commitment,
+            vec![digest(20)],
+            vec![digest(45)],
+            1,
+            99,
+        )
+        .unwrap();
+        assert_eq!(adapter.approve_presentation(&long_lived, 21), Err(WalletError::PolicyDenied));
+        assert!(adapter.consumed_nonces.is_empty());
+    }
+
+    #[test]
+    fn presentation_rejects_reused_sessions_and_replayed_nonces() {
+        let mut adapter = OpenWalletAdapterV1::new();
+        let pending = request(40);
+        adapter.begin_presentation(pending.clone(), 1).unwrap();
+        assert_eq!(adapter.begin_presentation(pending.clone(), 1), Err(WalletError::Replay));
+        assert_eq!(adapter.begin_presentation(request(40), 21), Err(WalletError::Replay));
+
+        adapter.register_credential(credential(20)).unwrap();
+        let consent = OpenWalletConsentV1::new(
+            digest(40),
+            pending.commitment().unwrap(),
+            vec![digest(20)],
+            vec![digest(45)],
+            1,
+            10,
+        )
+        .unwrap();
+        adapter.approve_presentation(&consent, 1).unwrap();
+
+        // The spent request nonce is refused for any later session as well.
+        let mut replayed = request(80);
+        replayed.nonce = pending.nonce();
+        assert_eq!(adapter.begin_presentation(replayed, 1), Err(WalletError::Replay));
+    }
+
+    #[test]
+    fn sessions_and_credentials_reject_zero_identifiers_duplicates_and_capacity() {
+        let mut adapter = OpenWalletAdapterV1::new();
+        for zeroed in [
+            OpenWalletCredentialRefV1 {
+                credential_id: Digest384::ZERO,
+                schema_id: digest(2),
+                issuer: digest(3),
+            },
+            OpenWalletCredentialRefV1 {
+                credential_id: digest(1),
+                schema_id: Digest384::ZERO,
+                issuer: digest(3),
+            },
+            OpenWalletCredentialRefV1 {
+                credential_id: digest(1),
+                schema_id: digest(2),
+                issuer: Digest384::ZERO,
+            },
+        ] {
+            assert_eq!(
+                adapter.register_credential(zeroed),
+                Err(WalletError::MalformedAuthorization)
+            );
+        }
+        adapter.register_credential(credential(20)).unwrap();
+        assert_eq!(adapter.register_credential(credential(20)), Err(WalletError::DuplicateIntent));
+
+        for invalid in [
+            OpenWalletSessionV1 {
+                session_id: Digest384::ZERO,
+                relying_party: digest(2),
+                expires_at: 20,
+            },
+            OpenWalletSessionV1 {
+                session_id: digest(1),
+                relying_party: Digest384::ZERO,
+                expires_at: 20,
+            },
+            OpenWalletSessionV1 { session_id: digest(1), relying_party: digest(2), expires_at: 0 },
+        ] {
+            assert_eq!(adapter.open_session(invalid, 1), Err(WalletError::MalformedAuthorization));
+        }
+        // A session that already expired at the current height is refused.
+        assert_eq!(adapter.open_session(session(1), 21), Err(WalletError::Expired));
+
+        // The session table is bounded and refuses admission once it is full.
+        let mut bounded = OpenWalletAdapterV1::new();
+        for index in 1..=MAX_OPENWALLET_SESSIONS {
+            let opened = OpenWalletSessionV1 {
+                session_id: digest(u8::try_from(index).unwrap()),
+                relying_party: digest(0xff),
+                expires_at: 20,
+            };
+            bounded.open_session(opened, 1).unwrap();
+        }
+        let overflow = OpenWalletSessionV1 {
+            session_id: digest(0xfe),
+            relying_party: digest(0xff),
+            expires_at: 20,
+        };
+        assert_eq!(bounded.open_session(overflow, 1), Err(WalletError::Expired));
+        assert_eq!(bounded.sessions().len(), MAX_OPENWALLET_SESSIONS);
+    }
+
+    #[test]
+    fn credential_offer_constructor_rejects_malformed_inputs() {
+        let valid = |session, uri: &[u8], ids, server, nonce, consent| {
+            OpenWalletCredentialOfferV1::new(session, uri.to_vec(), ids, server, nonce, consent)
+        };
+        let zero_session = OpenWalletSessionV1 {
+            session_id: Digest384::ZERO,
+            relying_party: digest(2),
+            expires_at: 5,
+        };
+        for rejected in [
+            valid(
+                zero_session,
+                b"https://issuer.example",
+                vec![digest(10)],
+                digest(11),
+                digest(12),
+                digest(13),
+            ),
+            valid(session(1), b"", vec![digest(10)], digest(11), digest(12), digest(13)),
+            valid(
+                session(1),
+                b"http://issuer.example",
+                vec![digest(10)],
+                digest(11),
+                digest(12),
+                digest(13),
+            ),
+            valid(
+                session(1),
+                b"https://issuer.example",
+                Vec::new(),
+                digest(11),
+                digest(12),
+                digest(13),
+            ),
+            // Configuration identifiers must be strictly ascending, so equal and descending fail.
+            valid(
+                session(1),
+                b"https://issuer.example",
+                vec![digest(10), digest(10)],
+                digest(11),
+                digest(12),
+                digest(13),
+            ),
+            valid(
+                session(1),
+                b"https://issuer.example",
+                vec![digest(11), digest(10)],
+                digest(11),
+                digest(12),
+                digest(13),
+            ),
+            valid(
+                session(1),
+                b"https://issuer.example",
+                vec![digest(10)],
+                Digest384::ZERO,
+                digest(12),
+                digest(13),
+            ),
+            valid(
+                session(1),
+                b"https://issuer.example",
+                vec![digest(10)],
+                digest(11),
+                Digest384::ZERO,
+                digest(13),
+            ),
+            valid(
+                session(1),
+                b"https://issuer.example",
+                vec![digest(10)],
+                digest(11),
+                digest(12),
+                Digest384::ZERO,
+            ),
+        ] {
+            assert_eq!(rejected, Err(WalletError::MalformedAuthorization));
+        }
+        let oversize = vec![b'a'; MAX_OPENWALLET_URI + 1];
+        assert_eq!(
+            OpenWalletCredentialOfferV1::new(
+                session(1),
+                oversize,
+                vec![digest(10)],
+                digest(11),
+                digest(12),
+                digest(13),
+            ),
+            Err(WalletError::MalformedAuthorization)
+        );
+        let too_many: Vec<Digest384> =
+            (0..=MAX_CONFIGURATION_IDS).map(|index| digest(u8::try_from(index).unwrap())).collect();
+        assert_eq!(
+            OpenWalletCredentialOfferV1::new(
+                session(1),
+                b"https://issuer.example".to_vec(),
+                too_many,
+                digest(11),
+                digest(12),
+                digest(13),
+            ),
+            Err(WalletError::MalformedAuthorization)
+        );
+    }
+
+    #[test]
+    fn presentation_request_constructor_rejects_malformed_inputs() {
+        let requested = |format, schema, claims| RequestedCredentialV1 {
+            format,
+            schema_id: schema,
+            claims_digest: claims,
+        };
+        let build = |client: &[u8], uri: &[u8], nonce, state, items| {
+            OpenWalletPresentationRequestV1::new(
+                session(40),
+                client.to_vec(),
+                uri.to_vec(),
+                nonce,
+                state,
+                PresentationResponseMode::DirectPost,
+                items,
+            )
+        };
+        let one = vec![requested(CredentialFormat::Mdoc, digest(21), digest(44))];
+        for rejected in [
+            build(b"", b"https://verifier.example", digest(42), digest(43), one.clone()),
+            build(b"verifier.example", b"", digest(42), digest(43), one.clone()),
+            // The response endpoint must be an https URL.
+            build(
+                b"verifier.example",
+                b"http://verifier.example",
+                digest(42),
+                digest(43),
+                one.clone(),
+            ),
+            build(
+                b"verifier.example",
+                b"https://verifier.example",
+                Digest384::ZERO,
+                digest(43),
+                one.clone(),
+            ),
+            build(
+                b"verifier.example",
+                b"https://verifier.example",
+                digest(42),
+                Digest384::ZERO,
+                one.clone(),
+            ),
+            build(
+                b"verifier.example",
+                b"https://verifier.example",
+                digest(42),
+                digest(43),
+                Vec::new(),
+            ),
+            // Requested credentials must be strictly ascending by (schema_id, format).
+            build(
+                b"verifier.example",
+                b"https://verifier.example",
+                digest(42),
+                digest(43),
+                vec![
+                    requested(CredentialFormat::Mdoc, digest(21), digest(44)),
+                    requested(CredentialFormat::SdJwtVc, digest(21), digest(45)),
+                ],
+            ),
+            build(
+                b"verifier.example",
+                b"https://verifier.example",
+                digest(42),
+                digest(43),
+                vec![
+                    requested(CredentialFormat::SdJwtVc, digest(22), digest(44)),
+                    requested(CredentialFormat::SdJwtVc, digest(21), digest(45)),
+                ],
+            ),
+            // Zero-valued members of an otherwise well-formed list are refused.
+            build(
+                b"verifier.example",
+                b"https://verifier.example",
+                digest(42),
+                digest(43),
+                vec![requested(CredentialFormat::Mdoc, Digest384::ZERO, digest(44))],
+            ),
+            build(
+                b"verifier.example",
+                b"https://verifier.example",
+                digest(42),
+                digest(43),
+                vec![requested(CredentialFormat::Mdoc, digest(21), Digest384::ZERO)],
+            ),
+        ] {
+            assert_eq!(rejected, Err(WalletError::MalformedAuthorization));
+        }
+        let zero_session =
+            OpenWalletSessionV1 { session_id: digest(1), relying_party: digest(2), expires_at: 0 };
+        assert_eq!(
+            OpenWalletPresentationRequestV1::new(
+                zero_session,
+                b"verifier.example".to_vec(),
+                b"https://verifier.example".to_vec(),
+                digest(42),
+                digest(43),
+                PresentationResponseMode::DigitalCredentialsApi,
+                one,
+            ),
+            Err(WalletError::MalformedAuthorization)
+        );
+    }
+
+    #[test]
+    fn consent_constructor_rejects_malformed_inputs() {
+        let build = |session_id, commitment, selected, claims, approved, expires| {
+            OpenWalletConsentV1::new(session_id, commitment, selected, claims, approved, expires)
+        };
+        for rejected in [
+            build(Digest384::ZERO, digest(2), vec![digest(3)], vec![digest(4)], 1, 10),
+            build(digest(1), Digest384::ZERO, vec![digest(3)], vec![digest(4)], 1, 10),
+            build(digest(1), digest(2), Vec::new(), vec![digest(4)], 1, 10),
+            build(digest(1), digest(2), vec![digest(3)], Vec::new(), 1, 10),
+            // Both lists must be strictly ascending with no repeats.
+            build(digest(1), digest(2), vec![digest(3), digest(3)], vec![digest(4)], 1, 10),
+            build(digest(1), digest(2), vec![digest(4), digest(3)], vec![digest(4)], 1, 10),
+            build(digest(1), digest(2), vec![digest(3)], vec![digest(4), digest(4)], 1, 10),
+            build(digest(1), digest(2), vec![digest(3)], vec![digest(5), digest(4)], 1, 10),
+            // Approval may not postdate the consent expiry.
+            build(digest(1), digest(2), vec![digest(3)], vec![digest(4)], 11, 10),
+        ] {
+            assert_eq!(rejected, Err(WalletError::MalformedAuthorization));
+        }
+        // Approval exactly at the expiry height is the accepted boundary.
+        build(digest(1), digest(2), vec![digest(3)], vec![digest(4)], 10, 10).unwrap();
+    }
+
+    #[test]
+    fn enveloped_openwallet_types_round_trip_canonically() {
+        let offered = offer(1);
+        assert_eq!(
+            decode_envelope::<OpenWalletCredentialOfferV1>(&encode_envelope(&offered).unwrap()),
+            Ok(offered.clone())
+        );
+        // The declared issuance state travels inside the body rather than being reset on decode.
+        let mut authorized = offered;
+        authorized.state = IssuanceSessionState::Authorized;
+        let decoded =
+            decode_envelope::<OpenWalletCredentialOfferV1>(&encode_envelope(&authorized).unwrap())
+                .unwrap();
+        assert_eq!(decoded.state(), IssuanceSessionState::Authorized);
+        assert_eq!(decoded, authorized);
+
+        let pending = request(40);
+        assert_eq!(
+            decode_envelope::<OpenWalletPresentationRequestV1>(&encode_envelope(&pending).unwrap()),
+            Ok(pending.clone())
+        );
+
+        let consent = OpenWalletConsentV1::new(
+            digest(40),
+            pending.commitment().unwrap(),
+            vec![digest(20), digest(21)],
+            vec![digest(45), digest(46)],
+            1,
+            10,
+        )
+        .unwrap();
+        assert_eq!(
+            decode_envelope::<OpenWalletConsentV1>(&encode_envelope(&consent).unwrap()),
+            Ok(consent.clone())
+        );
+        // The canonical commitment is stable and domain separated per value.
+        assert_eq!(consent.commitment().unwrap(), consent.commitment().unwrap());
+        assert_ne!(consent.commitment().unwrap(), pending.commitment().unwrap());
+        assert_eq!(consent.session_id(), digest(40));
+        assert_eq!(consent.request_commitment(), pending.commitment().unwrap());
+    }
+
+    #[test]
+    fn enveloped_openwallet_types_reject_out_of_range_enum_tags() {
+        let mut envelope = encode_envelope(&offer(1)).unwrap();
+        // The trailing byte of the offer body is the issuance state discriminant.
+        *envelope.last_mut().unwrap() = 3;
+        assert!(decode_envelope::<OpenWalletCredentialOfferV1>(&envelope).is_err());
+
+        let pending = request(40);
+        let body = encode_envelope(&pending).unwrap();
+        let mut tampered = body.clone();
+        // Zeroing the trailing claims digest must fail the requested-credential validity check.
+        let length = tampered.len();
+        tampered[length - 48..].fill(0);
+        assert!(decode_envelope::<OpenWalletPresentationRequestV1>(&tampered).is_err());
+        assert!(decode_envelope::<OpenWalletPresentationRequestV1>(&body).is_ok());
     }
 }
