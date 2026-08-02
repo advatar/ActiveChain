@@ -82,6 +82,14 @@
       "source": "application/apple-anchor-client-v1.txt",
       "sha256": "0267c2bfab5dcf27c1e209c3e04567515d1c212edcceaaef14990024be2e85eb",
       "status": "valid"
+    },
+    {
+      "id": "did-pq-lifecycle-v1",
+      "type_tag": "0x0160-0x0163",
+      "schema_version": 1,
+      "source": "did-pq-lifecycle-v1.tsv",
+      "sha256": "2b7d177439bb9d892d07dde87a4728ce7d1f1c6ee3363c654d735c9db0ce025d",
+      "status": "valid"
     }
   ],
   "malformed_cases": [

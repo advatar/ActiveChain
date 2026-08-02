@@ -2118,8 +2118,15 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 
 Detailed remaining implementation slices:
 
-- [ ] Post-quantum key lifecycle and deterministic DID vectors
+- [x] Post-quantum key lifecycle and deterministic DID vectors
   ([GitHub issue #566](https://github.com/advatar/ActiveChain/issues/566)).
+  - [x] Add canonical ML-DSA control/SLH-DSA recovery and ML-KEM agreement method documents,
+    exact record commitments, role-bound lifecycle transitions, and terminal deactivation tests.
+  - [x] Verify network-bound lifecycle authorizations with real ML-DSA-65/87 and
+    SLH-DSA-SHAKE-192s signatures without suite fallback.
+  - [x] Connect lifecycle signing payloads to opaque native custody callbacks.
+  - [x] Publish deterministic create/rotate/recover/deactivate/resolution vectors and migration
+    coverage, including wrong-key, rollback, suite-confusion, and post-deactivation failures.
 - [ ] Non-authoritative ENS aliases
   ([GitHub issue #567](https://github.com/advatar/ActiveChain/issues/567)).
 

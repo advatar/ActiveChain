@@ -1,0 +1,17 @@
+case	operation	authorizer_role	authorizer_suite	agreement_suite	sequence	active	expected
+create	create	control	ml-dsa-65	ml-kem-768	1	true	accept
+rotate-control	update	control	ml-dsa-65	ml-kem-768	2	true	accept
+rotate-control-87	update	control	ml-dsa-87	ml-kem-768	2	true	accept
+recover-slh	recover	recovery	slh-dsa-shake-192s	ml-kem-768	2	true	accept
+deactivate	deactivate	control	ml-dsa-65	ml-kem-768	3	false	accept
+wrong-recovery-role	recover	control	ml-dsa-65	ml-kem-768	2	true	reject
+wrong-update-role	update	recovery	slh-dsa-shake-192s	ml-kem-768	2	true	reject
+kem-used-to-sign	update	key-agreement	ml-kem-768	ml-kem-768	2	true	reject
+signature-used-for-kem	update	control	ml-dsa-65	ml-dsa-65	2	true	reject
+duplicate-method	update	control	ml-dsa-65	ml-kem-768	2	true	reject
+stale-sequence	update	control	ml-dsa-65	ml-kem-768	1	true	reject
+wrong-previous	update	control	ml-dsa-65	ml-kem-768	2	true	reject
+cross-genesis	update	control	ml-dsa-65	ml-kem-768	2	true	reject
+resolver-rollback	resolve	control	ml-dsa-65	ml-kem-768	1	true	reject
+post-deactivation-update	update	control	ml-dsa-65	ml-kem-768	4	true	reject
+post-deactivation-recovery	recover	recovery	slh-dsa-shake-192s	ml-kem-768	4	true	reject
