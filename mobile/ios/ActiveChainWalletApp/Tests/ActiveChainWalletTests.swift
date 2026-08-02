@@ -37,7 +37,7 @@ final class ActiveChainWalletTests: XCTestCase {
             sourceCommitment: Data(repeating: 5, count: 48)
         )
         XCTAssertEqual(Array(frame.prefix(4)), [0, 0, 1, 0])
-        XCTAssertEqual(Array(frame[4..<8]), [0, 0xa0, 0, 1])
+        XCTAssertEqual(Array(frame[4..<8]), [0x01, 0x07, 0, 1])
         XCTAssertEqual(Array(frame[8..<10]), [0xfa, 0x01])
         XCTAssertEqual(frame[10], 5)
         XCTAssertEqual(frame.count, 260)
@@ -404,10 +404,38 @@ final class ActiveChainWalletTests: XCTestCase {
         XCTAssertGreaterThan(finalizedHeight, 0)
     }
 
+    func testLiveKanalenFaucetWhenExplicitlyEnabled() async throws {
+        let mode = ProcessInfo.processInfo.environment["ACTIVECHAIN_LIVE_KANALEN_FAUCET"]
+        guard mode == "submit" || mode == "verify" else {
+            throw XCTSkip("set ACTIVECHAIN_LIVE_KANALEN_FAUCET=submit or verify")
+        }
+        let owner = Data(repeating: 0xa7, count: 48)
+        let client = WalletRPCClient()
+        if mode == "submit" {
+            let terms = try await client.faucetTerms()
+            XCTAssertEqual(terms.chainID, WalletKanalen.chainID)
+            XCTAssertEqual(terms.genesis, WalletKanalen.genesis)
+            let receipt = try await client.requestFaucet(owner: owner)
+            XCTAssertEqual(receipt.state, 0)
+            XCTAssertNil(receipt.finalizedHeight)
+        } else {
+            let status = try await client.status()
+            guard case let .healthy(height) = status.networkState else {
+                return XCTFail("Kanalen is not healthy")
+            }
+            let page = try await client.verifiedOwnerCoinCells(
+                profile: WalletDeviceProfile(owner: owner, chainGenesis: WalletKanalen.genesis),
+                finalizedHeight: height,
+                verifier: RustWalletOwnerCoinProofVerifier()
+            )
+            XCTAssertFalse(page.records.isEmpty)
+        }
+    }
+
     func testOwnerCoinCellRequestUsesBoundedCanonicalEnvelope() throws {
         let frame = try WalletRPCCodec.framedOwnerCoinCellRequest(owner: Data(repeating: 7, count: 48))
         XCTAssertEqual(frame.count, 4 + 4 + 1 + 48 + 1 + 2 + 1)
-        XCTAssertEqual(Array(frame[4..<8]), [0, 0xa0, 0, 1])
+        XCTAssertEqual(Array(frame[4..<8]), [0x01, 0x07, 0, 1])
         XCTAssertEqual(frame[8], 52)
         XCTAssertEqual(frame[9], 8)
         XCTAssertThrowsError(try WalletRPCCodec.framedOwnerCoinCellRequest(owner: Data(repeating: 0, count: 47)))
@@ -418,7 +446,7 @@ final class ActiveChainWalletTests: XCTestCase {
         var body = Data([2, 1, 1])
         body.append(Data(repeating: 1, count: 48))
         body.append(contentsOf: [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0])
-        var envelope = Data([0, 0xa1, 0, 1, UInt8(body.count)])
+        var envelope = Data([0x01, 0x0a, 0, 1, UInt8(body.count)])
         envelope.append(body)
         XCTAssertThrowsError(try WalletRPCCodec.decodeOwnerCoinPage(envelope))
     }
@@ -432,7 +460,7 @@ final class ActiveChainWalletTests: XCTestCase {
             body.append(Data(repeating: marker, count: 60))
         }
         body.append(0)
-        var envelope = Data([0, 0xa1, 0, 1])
+        var envelope = Data([0x01, 0x0a, 0, 1])
         envelope.append(contentsOf: uleb128(body.count))
         envelope.append(body)
 
@@ -716,13 +744,13 @@ final class ActiveChainWalletTests: XCTestCase {
         body.append(contentsOf: maximumStaleness.bigEndianBytes)
         body.append(health)
         body.append(contentsOf: [2, 0, 1])
-        var envelope = Data([0, 0xa1, 0, 1, 0x91, 0x01])
+        var envelope = Data([0x01, 0x0a, 0, 1, 0x91, 0x01])
         envelope.append(body)
         return envelope
     }
 
     private func rpcResponse(body: Data) -> Data {
-        var envelope = Data([0, 0xa1, 0, 1])
+        var envelope = Data([0x01, 0x0a, 0, 1])
         envelope.append(contentsOf: uleb128(body.count))
         envelope.append(body)
         return envelope

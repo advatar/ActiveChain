@@ -125,7 +125,7 @@ final class AmberModelsTests: XCTestCase {
     func testStatusRequestUsesCanonicalFraming() {
         XCTAssertEqual(
             Array(AmberRPCCodec.framedStatusRequest),
-            [0, 0, 0, 6, 0, 0xa0, 0, 1, 1, 0]
+            [0, 0, 0, 6, 0x01, 0x07, 0, 1, 1, 0]
         )
     }
 
@@ -221,7 +221,7 @@ final class AmberModelsTests: XCTestCase {
         body.append(health)
         body.append(contentsOf: [2, 0, 1])
         XCTAssertEqual(body.count, 145)
-        var envelope = Data([0, 0xa1, 0, 1, 0x91, 0x01])
+        var envelope = Data([0x01, 0x0a, 0, 1, 0x91, 0x01])
         envelope.append(body)
         return envelope
     }

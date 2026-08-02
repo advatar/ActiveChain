@@ -64,9 +64,15 @@ fn ledger(
         policy_commitment(chain, b"rewards"),
     )
     .map_err(|error| format!("invalid native asset definition: {error:?}"))?;
-    let allocation = GenesisAllocation::new(owner, allocation, 0)
-        .map_err(|error| format!("invalid treasury allocation: {error:?}"))?;
-    let economy = GenesisEconomy::new(definition, vec![allocation], security_reserve)
+    let fee_reserve = allocation / 2;
+    let spendable = allocation - fee_reserve;
+    let allocations = vec![
+        GenesisAllocation::new(owner, fee_reserve, 0)
+            .map_err(|error| format!("invalid treasury fee reserve: {error:?}"))?,
+        GenesisAllocation::new(owner, spendable, 0)
+            .map_err(|error| format!("invalid treasury spendable allocation: {error:?}"))?,
+    ];
+    let economy = GenesisEconomy::new(definition, allocations, security_reserve)
         .map_err(|error| format!("invalid genesis economy: {error:?}"))?;
     CashLedger::from_genesis(&economy)
         .map_err(|error| format!("cash genesis transition failed: {error:?}"))
@@ -167,8 +173,13 @@ mod tests {
         assert_eq!(value.definition().chain_id(), chain);
         assert_eq!(value.supply().genesis_supply(), 1_000);
         assert_eq!(value.supply().security_reserve_balance(), 100);
+        assert_eq!(value.cells().as_slice().len(), 2);
         assert_eq!(value.cells().as_slice()[0].cell().owner(), owner);
-        assert_eq!(value.cells().as_slice()[0].cell().amount(), 900);
+        assert!(value.cells().as_slice().iter().all(|cell| cell.cell().owner() == owner));
+        assert_eq!(
+            value.cells().as_slice().iter().map(|cell| cell.cell().amount()).sum::<u128>(),
+            900
+        );
         let encoded = encode_envelope(&value).unwrap();
         assert_eq!(decode_envelope::<CashLedger>(&encoded), Ok(value.clone()));
         let ingress = activechain_wallet_core::TransactionIngress::from_ledger(value).unwrap();
