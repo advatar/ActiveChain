@@ -18,6 +18,7 @@ activechain-data-availability.workspace = true
 activechain-devnet-kernel.workspace = true
 activechain-finality-types.workspace = true
 activechain-state-tree.workspace = true
+activechain-transition.workspace = true
 activechain-cash-kernel.workspace = true
 activechain-wallet-core.workspace = true
 activechain-object-vm.workspace = true

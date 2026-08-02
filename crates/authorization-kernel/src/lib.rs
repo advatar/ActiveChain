@@ -519,6 +519,16 @@ impl AuthorizationReplayStore {
         })
     }
 
+    #[must_use]
+    pub const fn chain_genesis_commitment(&self) -> Digest384 {
+        self.chain_genesis_commitment
+    }
+
+    #[must_use]
+    pub const fn epoch(&self) -> u64 {
+        self.epoch
+    }
+
     /// Atomically persists the whole block's replay and budget effects before admission returns.
     pub fn admit_batch(
         &self,
