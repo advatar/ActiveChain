@@ -1,0 +1,17 @@
+genesis,accept,0,0,0
+create,accept,1,1,1
+create_replay,reject,1,1,1
+create_bad_sequence,reject,1,1,1
+create_previous_commitment,reject,1,1,1
+update_recovery_authorizer,reject,1,1,1
+update_skips_sequence,reject,1,1,1
+update,accept,1,1,2
+update_stale_commitment,reject,1,1,2
+recover_control_authorizer,reject,1,1,2
+recover,accept,1,1,3
+create_second_identity,accept,2,2,3
+deactivate_recovery_authorizer,reject,2,2,3
+deactivate,accept,2,1,4
+update_after_deactivation,reject,2,1,4
+recover_after_deactivation,reject,2,1,4
+create_after_deactivation,reject,2,1,4

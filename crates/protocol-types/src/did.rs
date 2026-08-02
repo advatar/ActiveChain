@@ -886,7 +886,7 @@ impl CanonicalType for DidControllerOperationV1 {
 mod tests {
     use super::*;
     use activechain_canonical_codec::{decode_envelope, encode_envelope};
-    use alloc::vec;
+    use alloc::{format, string::String, vec};
 
     fn digest(value: u8) -> Digest384 {
         Digest384::new([value; 48])
@@ -1266,6 +1266,328 @@ mod tests {
                 1,
             ),
             Err(DidRecordError::Inactive)
+        );
+    }
+
+    /// One registered controller: its principal, its current record, and the document that record
+    /// commits to. The registry is test scaffolding for the Lean `State`; every accept/reject
+    /// decision below comes from the production constructors and `apply_document_operation`.
+    type LifecycleRegistry = Vec<(PrincipalId, DidControllerRecordV1, DidDocumentV1)>;
+
+    fn lifecycle_document(
+        principal_byte: u8,
+        control: u8,
+        recovery: u8,
+        agreement_byte: u8,
+    ) -> DidDocumentV1 {
+        DidDocumentV1::new(
+            principal(principal_byte),
+            vec![
+                auth(control, AuthenticatorPurpose::Control),
+                auth(recovery, AuthenticatorPurpose::Recovery),
+            ],
+            vec![agreement(agreement_byte)],
+            Some(digest(40)),
+        )
+        .unwrap()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn lifecycle_apply(
+        registry: &LifecycleRegistry,
+        kind: DidOperationKind,
+        subject: PrincipalId,
+        previous: Option<Digest384>,
+        next: DidControllerRecordV1,
+        next_document: &DidDocumentV1,
+        authorizer: AuthenticatorId,
+    ) -> Option<LifecycleRegistry> {
+        let operation =
+            DidControllerOperationV1::new(kind, subject, previous, next, digest(50)).ok()?;
+        let index = registry.iter().position(|entry| entry.0 == subject);
+        match kind {
+            DidOperationKind::Create => {
+                if index.is_some() {
+                    return None;
+                }
+                let mut post = registry.clone();
+                post.push((subject, next, next_document.clone()));
+                Some(post)
+            }
+            _ => {
+                let index = index?;
+                let applied = registry[index]
+                    .1
+                    .apply_document_operation(
+                        &registry[index].2,
+                        &operation,
+                        next_document,
+                        authorizer,
+                        1,
+                    )
+                    .ok()?;
+                let mut post = registry.clone();
+                post[index] = (subject, applied, next_document.clone());
+                Some(post)
+            }
+        }
+    }
+
+    fn lifecycle_row(name: &str, result: &str, registry: &LifecycleRegistry) -> String {
+        let sequence = registry
+            .iter()
+            .find(|entry| entry.0 == principal(1))
+            .map_or(0, |entry| entry.1.sequence());
+        let active = registry.iter().filter(|entry| entry.1.active()).count();
+        format!("{name},{result},{},{active},{sequence}", registry.len())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn lifecycle_step(
+        rows: &mut Vec<String>,
+        registry: LifecycleRegistry,
+        name: &str,
+        kind: DidOperationKind,
+        subject: PrincipalId,
+        previous: Option<Digest384>,
+        next: DidControllerRecordV1,
+        next_document: &DidDocumentV1,
+        authorizer: u8,
+    ) -> LifecycleRegistry {
+        match lifecycle_apply(
+            &registry,
+            kind,
+            subject,
+            previous,
+            next,
+            next_document,
+            AuthenticatorId::new(digest(authorizer)),
+        ) {
+            Some(post) => {
+                rows.push(lifecycle_row(name, "accept", &post));
+                post
+            }
+            None => {
+                rows.push(lifecycle_row(name, "reject", &registry));
+                registry
+            }
+        }
+    }
+
+    /// The production DID controller lifecycle must reproduce the frozen
+    /// `formal/lean/DidLifecycleTable.lean` trace byte-for-byte.
+    #[test]
+    fn rust_did_lifecycle_matches_frozen_lean_refinement_table() {
+        use DidOperationKind::{Create, Deactivate, Recover, Update};
+
+        let genesis_document = lifecycle_document(1, 10, 11, 12);
+        let rotated_document = lifecycle_document(1, 13, 14, 15);
+        let recovered_document = lifecycle_document(1, 16, 17, 18);
+        let second_document = lifecycle_document(2, 20, 21, 22);
+
+        let first = DidControllerRecordV1::from_document(&genesis_document, 1, true).unwrap();
+        let bad_sequence =
+            DidControllerRecordV1::from_document(&genesis_document, 2, true).unwrap();
+        let rotated = DidControllerRecordV1::from_document(&rotated_document, 2, true).unwrap();
+        let skipped = DidControllerRecordV1::from_document(&rotated_document, 4, true).unwrap();
+        let recovered = DidControllerRecordV1::from_document(&recovered_document, 3, true).unwrap();
+        let deactivated =
+            DidControllerRecordV1::from_document(&recovered_document, 4, false).unwrap();
+        let posthumous =
+            DidControllerRecordV1::from_document(&recovered_document, 5, true).unwrap();
+        let second = DidControllerRecordV1::from_document(&second_document, 1, true).unwrap();
+
+        let first_commitment = first.commitment().unwrap();
+        let rotated_commitment = rotated.commitment().unwrap();
+        let recovered_commitment = recovered.commitment().unwrap();
+        let deactivated_commitment = deactivated.commitment().unwrap();
+
+        let mut rows: Vec<String> = Vec::new();
+        let mut registry: LifecycleRegistry = Vec::new();
+        rows.push(lifecycle_row("genesis", "accept", &registry));
+
+        registry = lifecycle_step(
+            &mut rows,
+            registry,
+            "create",
+            Create,
+            principal(1),
+            None,
+            first,
+            &genesis_document,
+            0,
+        );
+        registry = lifecycle_step(
+            &mut rows,
+            registry,
+            "create_replay",
+            Create,
+            principal(1),
+            None,
+            first,
+            &genesis_document,
+            0,
+        );
+        registry = lifecycle_step(
+            &mut rows,
+            registry,
+            "create_bad_sequence",
+            Create,
+            principal(1),
+            None,
+            bad_sequence,
+            &genesis_document,
+            0,
+        );
+        registry = lifecycle_step(
+            &mut rows,
+            registry,
+            "create_previous_commitment",
+            Create,
+            principal(1),
+            Some(first_commitment),
+            first,
+            &genesis_document,
+            0,
+        );
+        registry = lifecycle_step(
+            &mut rows,
+            registry,
+            "update_recovery_authorizer",
+            Update,
+            principal(1),
+            Some(first_commitment),
+            rotated,
+            &rotated_document,
+            11,
+        );
+        registry = lifecycle_step(
+            &mut rows,
+            registry,
+            "update_skips_sequence",
+            Update,
+            principal(1),
+            Some(first_commitment),
+            skipped,
+            &rotated_document,
+            10,
+        );
+        registry = lifecycle_step(
+            &mut rows,
+            registry,
+            "update",
+            Update,
+            principal(1),
+            Some(first_commitment),
+            rotated,
+            &rotated_document,
+            10,
+        );
+        registry = lifecycle_step(
+            &mut rows,
+            registry,
+            "update_stale_commitment",
+            Update,
+            principal(1),
+            Some(first_commitment),
+            recovered,
+            &recovered_document,
+            13,
+        );
+        registry = lifecycle_step(
+            &mut rows,
+            registry,
+            "recover_control_authorizer",
+            Recover,
+            principal(1),
+            Some(rotated_commitment),
+            recovered,
+            &recovered_document,
+            13,
+        );
+        registry = lifecycle_step(
+            &mut rows,
+            registry,
+            "recover",
+            Recover,
+            principal(1),
+            Some(rotated_commitment),
+            recovered,
+            &recovered_document,
+            14,
+        );
+        registry = lifecycle_step(
+            &mut rows,
+            registry,
+            "create_second_identity",
+            Create,
+            principal(2),
+            None,
+            second,
+            &second_document,
+            0,
+        );
+        registry = lifecycle_step(
+            &mut rows,
+            registry,
+            "deactivate_recovery_authorizer",
+            Deactivate,
+            principal(1),
+            Some(recovered_commitment),
+            deactivated,
+            &recovered_document,
+            17,
+        );
+        registry = lifecycle_step(
+            &mut rows,
+            registry,
+            "deactivate",
+            Deactivate,
+            principal(1),
+            Some(recovered_commitment),
+            deactivated,
+            &recovered_document,
+            16,
+        );
+        registry = lifecycle_step(
+            &mut rows,
+            registry,
+            "update_after_deactivation",
+            Update,
+            principal(1),
+            Some(deactivated_commitment),
+            posthumous,
+            &recovered_document,
+            16,
+        );
+        registry = lifecycle_step(
+            &mut rows,
+            registry,
+            "recover_after_deactivation",
+            Recover,
+            principal(1),
+            Some(deactivated_commitment),
+            posthumous,
+            &recovered_document,
+            17,
+        );
+        let _ = lifecycle_step(
+            &mut rows,
+            registry,
+            "create_after_deactivation",
+            Create,
+            principal(1),
+            None,
+            first,
+            &genesis_document,
+            0,
+        );
+
+        let mut rendered = rows.join("\n");
+        rendered.push('\n');
+        assert_eq!(
+            rendered,
+            include_str!("../../../testing/vectors/did-lifecycle-model-table.txt")
         );
     }
 

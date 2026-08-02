@@ -17,6 +17,7 @@ consensus-history	formal/lean/ActiveChain/ConsensusHistory.lean	testing/vectors/
 consensus-safety	formal/tla/ActiveChainConsensus.tla	crates/consensus-runtime/src/lib.rs	trace
 credential	formal/lean/ActiveChain/Credential.lean	testing/vectors/credential/credential-status-table.txt	differential
 data-availability	formal/lean/ActiveChain/DA.lean	testing/vectors/availability/availability-v1.txt	trace
+did-lifecycle	formal/lean/ActiveChain/DidLifecycle.lean	testing/vectors/did-lifecycle-model-table.txt	differential
 duty-settlement	formal/lean/ActiveChain/DutySettlement.lean	testing/vectors/cash/duty-settlement-model-table.txt	differential
 envelope	formal/lean/ActiveChain/Envelope.lean	testing/vectors/canonical/length-prefix-table.txt	differential
 epoch-upgrade	formal/lean/ActiveChain/EpochUpgrade.lean	testing/vectors/consensus/epoch-upgrade-model-table.txt	differential
