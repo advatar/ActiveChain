@@ -2203,6 +2203,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
                 `256^-1 mod q` scaling through the `MultiplyNTT` table.
           - [x] Compose four `MultiplyNTT` proofs with coefficient-wise modular accumulation for
                 the fixed ML-DSA-44 matrix-row/vector dot product.
+          - [x] Compose four proven matrix-row dot products into the complete fixed 4x4
+                ML-DSA-44 matrix-vector multiplication.
           - [x] Constrain ML-DSA-44 public-key/signature bit unpacking, `z` infinity-norm range,
                 and canonical hint decoding, exposing exact decoded verifier inputs.
           - [x] Constrain ML-DSA-44 `UseHint` decomposition, signed low bits, adjustment branches,

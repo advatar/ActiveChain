@@ -22,13 +22,14 @@ The decoding table now binds the exact ML-DSA-44 public-key and signature bytes,
 non-canonical sparse-hint cuts, ordering, weight, and padding. It exposes `rho`, the challenge seed,
 decoded polynomials, and the hint bitmap for subsequent tables.
 
-Remaining verifier tables include SHAKE-derived matrix and challenge sampling, full matrix-row
-composition, the final challenge equality, and cross-table composition
+Remaining verifier tables include SHAKE-derived matrix and challenge sampling, the final challenge
+equality, and cross-table composition
 with the session statement.
 
 The companion `MultiplyNTT` table now constrains all 256 coefficient-wise products used by FIPS
 204 NTT-domain polynomial multiplication. Each row proves `left × right = output + q × quotient`,
 and the verifier binds both operands, every quotient, and the complete output. The ML-DSA-44 vector
 accumulation proof composes four such proofs for a matrix row, then proves the three coefficient-wise
-reduced additions with Boolean wrap witnesses. Full matrix construction and SHAKE-derived matrix
-binding remain open rather than being inferred from an independently supplied row.
+reduced additions with Boolean wrap witnesses. The matrix-vector proof composes all four fixed
+ML-DSA-44 rows. SHAKE-derived matrix construction and binding remain open rather than being inferred
+from an independently supplied matrix.

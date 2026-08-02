@@ -29,6 +29,7 @@ mod aggregation;
 mod ml_dsa_decoding;
 mod ml_dsa_hint;
 mod ml_dsa_inverse_ntt;
+mod ml_dsa_matrix_vector;
 mod ml_dsa_ntt;
 mod ml_dsa_ntt_multiply;
 mod ml_dsa_vector_accumulation;
@@ -48,6 +49,9 @@ pub use ml_dsa_hint::{
 };
 pub use ml_dsa_inverse_ntt::{
     MlDsaInverseNttStarkProof, prove_ml_dsa_inverse_ntt, verify_ml_dsa_inverse_ntt,
+};
+pub use ml_dsa_matrix_vector::{
+    MlDsa44MatrixVectorStarkProof, prove_ml_dsa44_matrix_vector, verify_ml_dsa44_matrix_vector,
 };
 pub use ml_dsa_ntt::{
     ML_DSA_NTT_COEFFICIENTS, ML_DSA_Q, MlDsaNttStarkProof, prove_ml_dsa_ntt, verify_ml_dsa_ntt,
