@@ -1153,6 +1153,150 @@ impl CanonicalType for PaymentFinalizedSettlementV1 {
     const MAX_ENCODED_LEN: usize = 48 * 6 + 16 + 8;
 }
 
+/// Finalized ActiveChain evidence for one complete payment refund.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PaymentFinalizedRefundV1 {
+    refund: PaymentRefundId,
+    intent: PaymentIntentId,
+    settlement_commitment: Digest384,
+    refunded_amount: AssetAmountV1,
+    transaction: TransactionId,
+    finalized_height: u64,
+    finalized_block: Digest384,
+    receipt_commitment: Digest384,
+    proof_commitment: Digest384,
+}
+
+impl PaymentFinalizedRefundV1 {
+    pub const TYPE_TAG: u16 = 0x018D;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        refund: PaymentRefundId,
+        intent: PaymentIntentId,
+        settlement_commitment: Digest384,
+        refunded_amount: AssetAmountV1,
+        transaction: TransactionId,
+        finalized_height: u64,
+        finalized_block: Digest384,
+        receipt_commitment: Digest384,
+        proof_commitment: Digest384,
+    ) -> Result<Self, PaymentValidationError> {
+        if settlement_commitment == Digest384::ZERO
+            || transaction.digest() == &Digest384::ZERO
+            || finalized_height == 0
+            || finalized_block == Digest384::ZERO
+            || receipt_commitment == Digest384::ZERO
+            || proof_commitment == Digest384::ZERO
+        {
+            return Err(PaymentValidationError::InvalidEvidence);
+        }
+        Ok(Self {
+            refund,
+            intent,
+            settlement_commitment,
+            refunded_amount,
+            transaction,
+            finalized_height,
+            finalized_block,
+            receipt_commitment,
+            proof_commitment,
+        })
+    }
+
+    pub const fn refund(&self) -> PaymentRefundId {
+        self.refund
+    }
+    pub const fn intent(&self) -> PaymentIntentId {
+        self.intent
+    }
+    pub const fn settlement_commitment(&self) -> Digest384 {
+        self.settlement_commitment
+    }
+    pub const fn refunded_amount(&self) -> AssetAmountV1 {
+        self.refunded_amount
+    }
+    pub const fn transaction(&self) -> TransactionId {
+        self.transaction
+    }
+    pub const fn finalized_height(&self) -> u64 {
+        self.finalized_height
+    }
+    pub const fn finalized_block(&self) -> Digest384 {
+        self.finalized_block
+    }
+    pub const fn receipt_commitment(&self) -> Digest384 {
+        self.receipt_commitment
+    }
+    pub const fn proof_commitment(&self) -> Digest384 {
+        self.proof_commitment
+    }
+
+    pub fn commitment(&self) -> Result<Digest384, PaymentValidationError> {
+        let bytes = encode_envelope(self).map_err(|_| PaymentValidationError::InvalidEvidence)?;
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-PAYMENT-FINALIZED-REFUND-V1");
+        hasher.update(&bytes);
+        let mut output = [0_u8; 48];
+        hasher.finalize_xof().read(&mut output);
+        Ok(Digest384::new(output))
+    }
+
+    pub fn refunded_record(
+        &self,
+        sequence: u64,
+    ) -> Result<PaymentLifecycleRecordV1, PaymentValidationError> {
+        PaymentLifecycleRecordV1::new(
+            self.intent,
+            sequence,
+            PaymentState::Refunded,
+            EvidenceClass::ActiveChainFinalized,
+            self.commitment()?,
+            Some(self.transaction),
+            self.finalized_height,
+            Some(self.finalized_block),
+            0,
+        )
+    }
+}
+
+impl CanonicalEncode for PaymentFinalizedRefundV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.refund.encode(encoder)?;
+        self.intent.encode(encoder)?;
+        self.settlement_commitment.encode(encoder)?;
+        self.refunded_amount.encode(encoder)?;
+        self.transaction.encode(encoder)?;
+        self.finalized_height.encode(encoder)?;
+        self.finalized_block.encode(encoder)?;
+        self.receipt_commitment.encode(encoder)?;
+        self.proof_commitment.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for PaymentFinalizedRefundV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            PaymentRefundId::decode(decoder)?,
+            PaymentIntentId::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            AssetAmountV1::decode(decoder)?,
+            TransactionId::decode(decoder)?,
+            u64::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid finalized payment refund"))
+    }
+}
+
+impl CanonicalType for PaymentFinalizedRefundV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = PAYMENT_SCHEMA_REVISION;
+    const MAX_ENCODED_LEN: usize = 408;
+}
+
 /// One bounded delivery of an exact lifecycle record to an authenticated subscriber.
 ///
 /// The signing transcript authenticates transport delivery only. It never changes the embedded
@@ -1673,6 +1817,7 @@ impl PaymentApiReplayStateV1 {
     pub const fn next_sequence(&self) -> u64 {
         self.next_sequence
     }
+
     pub const fn caller(&self) -> PrincipalId {
         self.caller
     }
@@ -1909,6 +2054,10 @@ impl PaymentRefundStateV1 {
 
     pub const fn settlement_commitment(&self) -> Digest384 {
         self.settlement_commitment
+    }
+
+    pub const fn last_refund(&self) -> Option<PaymentRefundId> {
+        self.last_refund
     }
 
     pub const fn next_sequence(&self) -> u64 {
@@ -3240,6 +3389,30 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn finalized_refund_round_trips_and_builds_finalized_lifecycle_evidence() {
+        let refund = PaymentFinalizedRefundV1::new(
+            PaymentRefundId::new(digest(31)).unwrap(),
+            intent_id(),
+            digest(32),
+            amount(12, 100),
+            TransactionId::new(digest(33)),
+            21,
+            digest(34),
+            digest(35),
+            digest(36),
+        )
+        .unwrap();
+        assert_eq!(
+            decode_envelope::<PaymentFinalizedRefundV1>(&encode_envelope(&refund).unwrap()),
+            Ok(refund)
+        );
+        let record = refund.refunded_record(8).unwrap();
+        assert_eq!(record.state(), PaymentState::Refunded);
+        assert_eq!(record.evidence_class(), EvidenceClass::ActiveChainFinalized);
+        assert_eq!(record.observation_commitment(), refund.commitment().unwrap());
     }
 
     #[test]
