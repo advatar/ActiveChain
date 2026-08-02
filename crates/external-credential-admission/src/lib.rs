@@ -3,7 +3,8 @@
 use activechain_external_credential_adapter::VerifiedExternalPresentation;
 use activechain_policy_kernel::{MAX_CREDENTIAL_FACTS, PolicyRequest, PolicyRequestFields};
 use activechain_protocol_types::{
-    CredentialAssuranceClassV1, Digest384, PrincipalId, VcIssuerFormatV1,
+    CredentialAssuranceClassV1, Digest384, ExternalCredentialCompanionV1, PrincipalId,
+    VcIssuerFormatV1,
 };
 use sha3::{
     Shake256,
@@ -140,6 +141,75 @@ pub struct ExternalAdmissionReceipt {
     pub status_commitment: Digest384,
     pub replay_nullifier: Digest384,
     pub result: ExternalAdmissionResult,
+}
+
+/// Opaque fact created only after the native companion and its external source have both passed
+/// verification. It deliberately carries no authentication or spending authority.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VerifiedCompanionCredentialFact {
+    schema_id: Digest384,
+    subject_binding: Digest384,
+    external_issuer: PrincipalId,
+    companion_issuer: PrincipalId,
+    original_credential_commitment: Digest384,
+    claims_commitment: Digest384,
+    assurance: CredentialAssuranceClassV1,
+    assurance_policy_commitment: Digest384,
+    external_status_commitment: Digest384,
+    native_status_commitment: Option<Digest384>,
+}
+impl VerifiedCompanionCredentialFact {
+    pub const fn schema_id(self) -> Digest384 {
+        self.schema_id
+    }
+    pub const fn assurance(self) -> CredentialAssuranceClassV1 {
+        self.assurance
+    }
+    pub const fn original_credential_commitment(self) -> Digest384 {
+        self.original_credential_commitment
+    }
+    pub const fn assurance_policy_commitment(self) -> Digest384 {
+        self.assurance_policy_commitment
+    }
+}
+
+/// Converts an already fully validated companion into the private-constructor P-023 fact shape.
+/// The validation result is explicit so callers cannot mistake parsing for verification.
+pub fn admit_verified_companion(
+    companion: &ExternalCredentialCompanionV1,
+    validation: Result<(), activechain_protocol_types::CompanionCredentialError>,
+) -> Result<VerifiedCompanionCredentialFact, activechain_protocol_types::CompanionCredentialError> {
+    validation?;
+    Ok(VerifiedCompanionCredentialFact {
+        schema_id: companion.schema_id(),
+        subject_binding: companion.subject_binding(),
+        external_issuer: companion.external_issuer(),
+        companion_issuer: companion.companion_issuer(),
+        original_credential_commitment: companion.original_credential_commitment(),
+        claims_commitment: companion.claims_commitment(),
+        assurance: companion.assurance(),
+        assurance_policy_commitment: companion.assurance_policy_commitment(),
+        external_status_commitment: companion.external_status_commitment(),
+        native_status_commitment: companion.native_status_commitment(),
+    })
+}
+
+pub fn companion_authorization_intersection(
+    fact: Option<&VerifiedCompanionCredentialFact>,
+    authenticated_actor: bool,
+    capability_valid: bool,
+    approvals_valid: bool,
+    apl_permit: bool,
+    protocol_forbid: bool,
+    obligations_atomic: bool,
+) -> bool {
+    fact.is_some()
+        && authenticated_actor
+        && capability_valid
+        && approvals_valid
+        && apl_permit
+        && !protocol_forbid
+        && obligations_atomic
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExternalAdmissionResult {
@@ -502,5 +572,49 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn companion_possession_never_substitutes_for_authority() {
+        assert!(!companion_authorization_intersection(None, true, true, true, true, false, true));
+        let fact = VerifiedCompanionCredentialFact {
+            schema_id: d(1),
+            subject_binding: d(2),
+            external_issuer: principal(3),
+            companion_issuer: principal(4),
+            original_credential_commitment: d(5),
+            claims_commitment: d(6),
+            assurance: CredentialAssuranceClassV1::IssuerUpgraded,
+            assurance_policy_commitment: d(7),
+            external_status_commitment: d(8),
+            native_status_commitment: Some(d(9)),
+        };
+        assert!(!companion_authorization_intersection(
+            Some(&fact),
+            false,
+            true,
+            true,
+            true,
+            false,
+            true
+        ));
+        assert!(!companion_authorization_intersection(
+            Some(&fact),
+            true,
+            false,
+            true,
+            true,
+            false,
+            true
+        ));
+        assert!(companion_authorization_intersection(
+            Some(&fact),
+            true,
+            true,
+            true,
+            true,
+            false,
+            true
+        ));
     }
 }

@@ -1302,8 +1302,12 @@ Detailed remaining implementation slices:
   ([GitHub issue #563](https://github.com/advatar/ActiveChain/issues/563)).
 - [ ] Private age, residency, and jurisdiction predicate proofs
   ([GitHub issue #564](https://github.com/advatar/ActiveChain/issues/564)).
-- [ ] Assurance-preserving ML-DSA companion credentials
+- [x] Assurance-preserving ML-DSA companion credentials
   ([GitHub issue #565](https://github.com/advatar/ActiveChain/issues/565)).
+  - [x] Freeze the separate native companion, governed assurance transition, dual-status, and
+    provenance-preserving admission contract; reject relabeling external ES256/COSE credentials.
+  - [x] Add substitution, escalation, revocation disagreement, replay, and authority-boundary unit
+    vectors, then merge the targeted-test-qualified implementation to `main`.
 - [ ] Evidence-to-credential-to-APL refinement and non-escalation proofs
   ([GitHub issue #568](https://github.com/advatar/ActiveChain/issues/568)).
 - [ ] Cross-device VCIssuer/EUWallet interoperability qualification

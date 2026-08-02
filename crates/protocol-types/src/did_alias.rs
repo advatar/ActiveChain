@@ -42,7 +42,7 @@ pub struct EnsAliasEvidenceV1 {
 }
 
 impl EnsAliasEvidenceV1 {
-    pub const TYPE_TAG: u16 = 0x0164;
+    pub const TYPE_TAG: u16 = 0x019A;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 8 + 32 + 48 + 48 + 8 + 8;
 
@@ -126,7 +126,7 @@ pub struct EnsAliasRecordV1 {
 }
 
 impl EnsAliasRecordV1 {
-    pub const TYPE_TAG: u16 = 0x0165;
+    pub const TYPE_TAG: u16 = 0x019B;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 + 32 + 48 + 48 + 48 + 8 + 8 + 1;
 
@@ -257,7 +257,7 @@ pub struct EnsAliasOperationV1 {
 }
 
 impl EnsAliasOperationV1 {
-    pub const TYPE_TAG: u16 = 0x0166;
+    pub const TYPE_TAG: u16 = 0x019C;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 1 + 1 + 48 + EnsAliasRecordV1::MAX_ENCODED_LEN + 48;
 
@@ -380,7 +380,7 @@ pub struct EnsAliasRegistryV1 {
 }
 
 impl EnsAliasRegistryV1 {
-    pub const TYPE_TAG: u16 = 0x0167;
+    pub const TYPE_TAG: u16 = 0x019D;
     pub const SCHEMA_VERSION: u16 = 1;
     pub const MAX_ENCODED_LEN: usize = 48 + 5 + MAX_ENS_ALIASES * EnsAliasRecordV1::MAX_ENCODED_LEN;
 
