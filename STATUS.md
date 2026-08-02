@@ -948,6 +948,9 @@ Tracked by [GitHub issue #91](https://github.com/advatar/ActiveChain/issues/91).
 
 ## Active Kanalen deployment compatibility gate
 
+- [x] Refresh the frozen devnet semantic vector for canonical action-envelope schema v2 and its
+      derived action/block/receipt commitments ([GitHub issue #616](https://github.com/advatar/ActiveChain/issues/616)).
+
 - [x] Add snapshot schema and immutable genesis compatibility checks before
   promoting new validator binaries; the 2026-07-25 canary was rolled back after snapshot decode
   failure.
