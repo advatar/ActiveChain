@@ -64,8 +64,9 @@ pub use asset::{
 };
 pub use authority::{
     BoundedActionSet, BoundedActionSetError, CapabilityGrant, CapabilityGrantFields,
-    CapabilityValidationError, DataSelector, HolderBinding, RateLimit, RateLimitError,
-    RecoveryRequest, RecoveryRequestError, ResourceSelector, ScopeSelector, ScopeSelectorError,
+    CapabilityRevocationRegistryV1, CapabilityValidationError, DataSelector, HolderBinding,
+    RateLimit, RateLimitError, RecoveryRequest, RecoveryRequestError, ResourceSelector,
+    ScopeSelector, ScopeSelectorError,
 };
 pub use checked_arithmetic::{
     authorized_issuance, fee_total, next_base_fee, partition_total, post_supply, strict_two_thirds,

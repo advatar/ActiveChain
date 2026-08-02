@@ -2,15 +2,17 @@ use crate::{
     AuthorizationChain, MAX_ENVELOPE_LENGTH, VERIFY_OK, VerifyError, verify_authorization_chain,
     verify_finality_bundle_with_chain_genesis, verify_finalized_principal_authenticator,
 };
+use activechain_accumulator::{KEY_BITS, NonMembershipWitness};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     decode_envelope, encode_envelope, inspect_canonical_envelope,
 };
+use activechain_finality_types::commit_parts;
 use activechain_policy_kernel::{ApprovalFact, MAX_APPROVAL_FACTS};
 use activechain_protocol_types::{
     AuthenticatorDescriptor, AuthenticatorId, AuthenticatorPurpose, AuthenticatorSetV1,
-    CapabilityId, CredentialId, CryptoSuiteId, Digest384, FreezeState, PrincipalId,
-    ProtocolSignature,
+    CapabilityId, CapabilityRevocationRegistryV1, CredentialId, CryptoSuiteId, Digest384,
+    FreezeState, Object, PrincipalId, ProtocolSignature,
 };
 use alloc::{vec, vec::Vec};
 use ml_dsa::{
@@ -25,6 +27,10 @@ const MAX_STATE_PROOF_ENVELOPE_LEN: usize = 69_369;
 const MAX_AUTHENTICATOR_SET_ENVELOPE_LEN: usize = 33_440;
 const MAX_AUTHORIZATION_CREDENTIALS: usize = 16;
 const MAX_CAPABILITY_DEPTH: usize = 16;
+const CAPABILITY_REVOCATION_OBJECT_TYPE_DOMAIN: &[u8] =
+    b"ACTIVECHAIN-CAPABILITY-REVOCATION-OBJECT-TYPE-V1";
+const CAPABILITY_REVOCATION_OBJECT_VALUE_DOMAIN: &[u8] =
+    b"ACTIVECHAIN-CAPABILITY-REVOCATION-OBJECT-VALUE-V1";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct AuthorizationEnvelopeView {
@@ -199,17 +205,103 @@ impl CanonicalDecode for AuthorizationControllerWitnessV1 {
     }
 }
 
+/// Sparse non-revocation path for one capability in the finalized registry.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CapabilityNonRevocationProofV1 {
+    capability_id: CapabilityId,
+    siblings: Vec<Digest384>,
+}
+
+impl CapabilityNonRevocationProofV1 {
+    pub fn new(capability_id: CapabilityId, siblings: Vec<Digest384>) -> Result<Self, DecodeError> {
+        if siblings.len() != KEY_BITS {
+            return Err(DecodeError::InvalidValue("capability non-revocation path length"));
+        }
+        Ok(Self { capability_id, siblings })
+    }
+}
+
+impl CanonicalEncode for CapabilityNonRevocationProofV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.capability_id.encode(encoder)?;
+        for sibling in &self.siblings {
+            sibling.encode(encoder)?;
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for CapabilityNonRevocationProofV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let capability_id = CapabilityId::decode(decoder)?;
+        let mut siblings = Vec::with_capacity(KEY_BITS);
+        for _ in 0..KEY_BITS {
+            siblings.push(Digest384::decode(decoder)?);
+        }
+        Self::new(capability_id, siblings)
+    }
+}
+
+/// Finalized registry object and all non-revocation paths required by one linear chain.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CapabilityRevocationWitnessV1 {
+    registry_object: Vec<u8>,
+    registry_proof: Vec<u8>,
+    capabilities: Vec<CapabilityNonRevocationProofV1>,
+}
+
+impl CapabilityRevocationWitnessV1 {
+    pub fn new(
+        registry_object: Vec<u8>,
+        registry_proof: Vec<u8>,
+        capabilities: Vec<CapabilityNonRevocationProofV1>,
+    ) -> Result<Self, DecodeError> {
+        if registry_object.len() > MAX_OBJECT_ENVELOPE_LEN
+            || registry_proof.len() > MAX_STATE_PROOF_ENVELOPE_LEN
+            || capabilities.is_empty()
+            || capabilities.len() > MAX_CAPABILITY_DEPTH
+            || capabilities.windows(2).any(|pair| pair[0].capability_id >= pair[1].capability_id)
+        {
+            return Err(DecodeError::InvalidValue("invalid capability revocation witness"));
+        }
+        Ok(Self { registry_object, registry_proof, capabilities })
+    }
+}
+
+impl CanonicalEncode for CapabilityRevocationWitnessV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        encoder.write_bytes(&self.registry_object, MAX_OBJECT_ENVELOPE_LEN)?;
+        encoder.write_bytes(&self.registry_proof, MAX_STATE_PROOF_ENVELOPE_LEN)?;
+        encoder.write_length(self.capabilities.len(), MAX_CAPABILITY_DEPTH)?;
+        for capability in &self.capabilities {
+            capability.encode(encoder)?;
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for CapabilityRevocationWitnessV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            decoder.read_bytes(MAX_OBJECT_ENVELOPE_LEN)?.to_vec(),
+            decoder.read_bytes(MAX_STATE_PROOF_ENVELOPE_LEN)?.to_vec(),
+            decode_vec(decoder, MAX_CAPABILITY_DEPTH)?,
+        )
+    }
+}
+
 /// Actor envelope, capability chain, and ordered finalized controller evidence.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SignedAuthorizationChainV1 {
     authorization_envelope: Vec<u8>,
     chain: AuthorizationChain,
     controllers: Vec<AuthorizationControllerWitnessV1>,
+    revocation: Option<CapabilityRevocationWitnessV1>,
 }
 
 impl SignedAuthorizationChainV1 {
     pub const TYPE_TAG: u16 = 0x01a9;
-    pub const SCHEMA_VERSION: u16 = 2;
+    pub const SCHEMA_VERSION: u16 = 3;
     pub const MAX_ENCODED_LEN: usize = MAX_AUTHORIZATION_ENVELOPE_LEN
         + AuthorizationChain::MAX_ENCODED_LEN
         + 1
@@ -218,12 +310,17 @@ impl SignedAuthorizationChainV1 {
                 + MAX_STATE_PROOF_ENVELOPE_LEN
                 + MAX_AUTHENTICATOR_SET_ENVELOPE_LEN
                 + 48
-                + 15);
+                + 15)
+        + 8
+        + MAX_OBJECT_ENVELOPE_LEN
+        + MAX_STATE_PROOF_ENVELOPE_LEN
+        + MAX_CAPABILITY_DEPTH * (48 + KEY_BITS * 48);
 
     pub fn new(
         authorization_envelope: Vec<u8>,
         chain: AuthorizationChain,
         controllers: Vec<AuthorizationControllerWitnessV1>,
+        revocation: Option<CapabilityRevocationWitnessV1>,
     ) -> Result<Self, DecodeError> {
         if authorization_envelope.len() > MAX_AUTHORIZATION_ENVELOPE_LEN
             || controllers.len() != chain.capabilities().len() + 1
@@ -233,7 +330,7 @@ impl SignedAuthorizationChainV1 {
                 "signed authorization controller count mismatch",
             ));
         }
-        Ok(Self { authorization_envelope, chain, controllers })
+        Ok(Self { authorization_envelope, chain, controllers, revocation })
     }
 }
 
@@ -245,7 +342,7 @@ impl CanonicalEncode for SignedAuthorizationChainV1 {
         for controller in &self.controllers {
             controller.encode(encoder)?;
         }
-        Ok(())
+        self.revocation.encode(encoder)
     }
 }
 
@@ -254,7 +351,8 @@ impl CanonicalDecode for SignedAuthorizationChainV1 {
         let envelope = decoder.read_bytes(MAX_AUTHORIZATION_ENVELOPE_LEN)?.to_vec();
         let chain = AuthorizationChain::decode(decoder)?;
         let controllers = decode_vec(decoder, MAX_CONTROLLER_WITNESSES)?;
-        Self::new(envelope, chain, controllers)
+        let revocation = Option::<CapabilityRevocationWitnessV1>::decode(decoder)?;
+        Self::new(envelope, chain, controllers, revocation)
     }
 }
 
@@ -312,6 +410,8 @@ pub fn verify_signed_authorization_chain(
         return Err(VerifyError::RelationMismatch);
     }
 
+    verify_capability_revocations(&signed, &finality_bundle)?;
+
     let actor = &signed.controllers[0];
     let actor_key = verify_controller(
         actor,
@@ -346,6 +446,68 @@ pub fn verify_signed_authorization_chain(
         ) {
             return Err(VerifyError::RelationMismatch);
         }
+    }
+    Ok(())
+}
+
+fn verify_capability_revocations(
+    signed: &SignedAuthorizationChainV1,
+    finality: &activechain_finality_types::FinalityCertificateBundle,
+) -> Result<(), VerifyError> {
+    let mut registry = None;
+    let mut capability_ids = Vec::new();
+    for capability in signed.chain.capabilities() {
+        let Some(candidate) = capability.fields().revocation_registry else { continue };
+        if registry.is_some_and(|expected| expected != candidate) {
+            return Err(VerifyError::RelationMismatch);
+        }
+        registry = Some(candidate);
+        capability_ids.push(capability.fields().capability_id);
+    }
+    capability_ids.sort_unstable();
+    let Some(registry_id) = registry else {
+        return if signed.revocation.is_none() {
+            Ok(())
+        } else {
+            Err(VerifyError::RelationMismatch)
+        };
+    };
+    let witness = signed.revocation.as_ref().ok_or(VerifyError::RelationMismatch)?;
+    let proof_ids =
+        witness.capabilities.iter().map(|proof| proof.capability_id).collect::<Vec<_>>();
+    if proof_ids != capability_ids {
+        return Err(VerifyError::RelationMismatch);
+    }
+    let object =
+        decode_envelope::<Object>(&witness.registry_object).map_err(VerifyError::Decode)?;
+    let public_value = object.public_value().ok_or(VerifyError::RelationMismatch)?;
+    let registry_value = decode_envelope::<CapabilityRevocationRegistryV1>(public_value)
+        .map_err(VerifyError::Decode)?;
+    let expected_type = commit_parts(
+        CAPABILITY_REVOCATION_OBJECT_TYPE_DOMAIN,
+        &[
+            &CapabilityRevocationRegistryV1::TYPE_TAG.to_be_bytes(),
+            &CapabilityRevocationRegistryV1::SCHEMA_VERSION.to_be_bytes(),
+        ],
+    );
+    if object.object_id() != registry_id
+        || object.type_id() != expected_type
+        || object.value_root()
+            != commit_parts(CAPABILITY_REVOCATION_OBJECT_VALUE_DOMAIN, &[public_value])
+    {
+        return Err(VerifyError::CommitmentMismatch);
+    }
+    let state = encode_envelope(&finality.header().inputs.post_state)
+        .map_err(|_| VerifyError::RelationMismatch)?;
+    crate::verify_state_membership(&state, &witness.registry_object, &witness.registry_proof)?;
+    for proof in &witness.capabilities {
+        let witness = NonMembershipWitness {
+            key: proof.capability_id.into_digest().into_bytes(),
+            siblings: proof.siblings.iter().map(|sibling| sibling.into_bytes()).collect(),
+        };
+        registry_value
+            .verify_not_revoked(proof.capability_id, &witness)
+            .map_err(|_| VerifyError::RelationMismatch)?;
     }
     Ok(())
 }

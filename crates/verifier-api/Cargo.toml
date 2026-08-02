@@ -8,6 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+activechain-accumulator.workspace = true
 activechain-application-primitives.workspace = true
 activechain-action-kernel.workspace = true
 activechain-capability.workspace = true
