@@ -23,8 +23,16 @@ use winterfell::{
     matrix::ColMatrix,
 };
 
+extern crate alloc;
+
+mod aggregation;
 mod session;
 mod shake;
+pub use aggregation::{
+    CashAggregationChildV1, CashAggregationLevel, CashAggregationStatementV1,
+    GLOBAL_CASH_PARTITION, MAX_CASH_AGGREGATION_CHILDREN, cash_aggregation_proof_commitment,
+    verify_cash_aggregation,
+};
 pub use session::{
     CashSessionProofError, CashSessionStarkProof, prove_authorized_session, prove_session_budget,
     verify_authorized_session, verify_session_budget,
