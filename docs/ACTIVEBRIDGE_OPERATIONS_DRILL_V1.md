@@ -49,11 +49,24 @@ independent worker modes. This avoids overlapping Cargo builds while continuousl
 - real kernel file-size exhaustion in a child writer, proving an I/O failure or kernel termination
   cannot replace the authoritative snapshot and restart still decodes the exact pre-state.
 
+Linux/cgroup memory exhaustion is qualified separately because Darwin does not enforce the required
+per-process virtual-memory limit:
+
+```sh
+scripts/qualify-activebridge-memory-exhaustion.sh
+```
+
+The runner builds only the connector-host test executable in a pinned Linux arm64 Rust image,
+prepares a chain-submitted aggregate, retains committed pages until fallible allocation is
+exhausted under one cgroup memory limit, and attempts finalization. The constrained child must fail;
+an unconstrained verifier then requires the authoritative snapshot digest to be unchanged and the
+exact pre-state to remain restart-decodable.
+
 Every process must complete at least one full iteration and exit successfully. The command emits a
 versioned JSON record containing the duration, process count, and aggregate iteration count only
 after all workers pass.
 
-This remains deterministic simulator evidence except for the real file-descriptor and file-size
-limits. It does not impose kernel-level memory exhaustion; interrupt real sockets; contact a live
-provider; page an operator; or
+This remains deterministic simulator evidence except for the real file-descriptor, file-size, and
+Linux/cgroup memory limits. It does not interrupt real sockets; contact a live provider; page an
+operator; or
 satisfy independent review and staged-pilot requirements.

@@ -36,7 +36,8 @@ run_worker() {
   local iterations=0
   while (( SECONDS < deadline )); do
     if [[ "$mode" == "fd-exhaustion" ]]; then
-      (ulimit -n 128 && "$test_binary" "$test_name" --exact --test-threads=1 >/dev/null)
+      (ulimit -n 128 && ACTIVECHAIN_FD_EXHAUSTION=1 \
+        "$test_binary" "$test_name" --exact --test-threads=1 >/dev/null)
     else
       "$test_binary" "$test_name" --exact --test-threads=1 >/dev/null
     fi

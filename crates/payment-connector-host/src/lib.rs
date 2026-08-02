@@ -3659,6 +3659,9 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn file_descriptor_exhaustion_cannot_advance_live_or_durable_settlement_state() {
+        if std::env::var_os("ACTIVECHAIN_FD_EXHAUSTION").is_none() {
+            return;
+        }
         let path = path("settlement-state-fd-exhaustion");
         let _ = std::fs::remove_file(&path);
         let mut durable = chain_submitted_settlement_state(&path);
@@ -3719,6 +3722,51 @@ mod tests {
 
         let _ = std::fs::remove_file(temporary);
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn memory_exhaustion_cannot_replace_durable_settlement_state() {
+        const MODE_ENV: &str = "ACTIVECHAIN_MEMORY_EXHAUSTION_MODE";
+        const PATH_ENV: &str = "ACTIVECHAIN_MEMORY_EXHAUSTION_PATH";
+        let Some(mode) = std::env::var_os(MODE_ENV) else {
+            return;
+        };
+        let path = PathBuf::from(std::env::var_os(PATH_ENV).expect("memory test path is required"));
+        match mode.to_str().expect("memory test mode must be UTF-8") {
+            "prepare" => {
+                let _ = std::fs::remove_file(&path);
+                drop(chain_submitted_settlement_state(&path));
+                assert!(DurablePaymentSettlementState::open(&path).is_ok());
+            }
+            "mutate" => {
+                let mut durable = DurablePaymentSettlementState::open(&path).unwrap();
+                let mut pressure = Vec::<Vec<u8>>::new();
+                for chunk_size in [1_048_576, 65_536, 4_096, 256, 16] {
+                    loop {
+                        let mut chunk = Vec::new();
+                        if chunk.try_reserve_exact(chunk_size).is_err() {
+                            break;
+                        }
+                        chunk.resize(chunk_size, 0xa5);
+                        pressure.push(chunk);
+                    }
+                }
+                let _ = durable.finalize_verified_value(&finalized_settlement(124, 95, 110));
+                // The constrained child must never report success. The parent qualification
+                // independently verifies that the authoritative snapshot stayed byte-identical.
+                std::process::abort();
+            }
+            "verify" => {
+                let durable = DurablePaymentSettlementState::open(&path).unwrap();
+                assert_eq!(durable.snapshot().settlements().len(), 0);
+                assert_eq!(
+                    durable.snapshot().requests().lifecycles().records()[0].state(),
+                    PaymentState::ChainSubmitted
+                );
+            }
+            _ => panic!("unsupported memory exhaustion mode"),
+        }
     }
 
     #[test]
