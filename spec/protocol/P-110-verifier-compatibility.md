@@ -65,6 +65,15 @@ Offsets identify the start of the failing envelope field where it is statically 
 0, schema at 2, length at 4, and body at 5. Unexpected-end points to the end of input and
 trailing-data points to the first trailing byte. No error string crosses the ABI.
 
+`activechain_verify_finalized_principal_authenticator_code` extends the stable read-only surface
+for controller authentication. It accepts a canonical principal registry object, its P-031
+membership proof, the bounded `AuthenticatorSetV1`, a complete finality bundle, trusted genesis,
+and exact principal/authenticator/purpose identifiers. It MUST verify finality before accepting the
+object, bind membership to the finalized `post_state`, recompute both registry value and
+authenticator-set commitments, and reject frozen, future-updated, inactive, expired, revoked, or
+purpose-substituted controller evidence. Caller-provided principal or key bytes alone are never
+authority.
+
 ## Light-client requirements
 
 Before a light client trusts state it MUST verify a consecutive two-QC proposal chain that commits

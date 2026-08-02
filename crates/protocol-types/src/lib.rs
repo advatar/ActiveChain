@@ -103,8 +103,9 @@ pub use credential::{
     TlsCredentialEvidenceV1, VcIssuerFormatV1, VcIssuerPresentationV1,
 };
 pub use crypto::{
-    AuthenticatorDescriptor, AuthenticatorPurpose, AuthenticatorValidationError, CryptoFamily,
-    CryptoSuiteError, CryptoSuiteId, ProtocolSignature, SignatureError,
+    AuthenticatorDescriptor, AuthenticatorPurpose, AuthenticatorSetError, AuthenticatorSetV1,
+    AuthenticatorValidationError, CryptoFamily, CryptoSuiteError, CryptoSuiteId,
+    MAX_PRINCIPAL_AUTHENTICATORS, ProtocolSignature, SignatureError,
 };
 pub use did::{
     DidControllerOperationV1, DidControllerRecordV1, DidDocumentV1, DidKeyAgreementMethodV1,

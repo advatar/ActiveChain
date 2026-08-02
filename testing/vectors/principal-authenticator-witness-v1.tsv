@@ -1,0 +1,17 @@
+case	mutation	expected	reason
+canonical	identity	verified	finalized object and committed active controller
+wrong_genesis	trusted_genesis	invalid	wrong network finality
+wrong_state_root	post_state	invalid	principal object not finalized
+wrong_principal	principal_id	invalid	object key and principal mismatch
+wrong_owner	object_owner	invalid	registry object owner mismatch
+wrong_type	object_type	invalid	registry type substitution
+wrong_value	value_root	invalid	principal value substitution
+frozen_principal	freeze_state	invalid	controller use requires active principal
+future_update	last_updated_at	invalid	principal update is not finalized at height
+wrong_set	authenticator_set_root	invalid	authenticator set substitution
+duplicate_authenticator	authenticator_id	invalid	set ordering and uniqueness
+wrong_purpose	purpose	invalid	authenticator purpose mismatch
+not_yet_valid	valid_from	invalid	authenticator lifecycle
+expired	valid_until	invalid	authenticator lifecycle
+revoked	revoked_at	invalid	authenticator lifecycle
+trailing	envelope_plus_byte	invalid	strict canonical framing

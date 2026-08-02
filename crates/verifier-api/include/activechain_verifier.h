@@ -206,6 +206,25 @@ uint32_t activechain_verify_capability_attenuation_code(const uint8_t *parent,
 uint32_t activechain_verify_authorization_chain_code(const uint8_t *bytes, uint32_t bytes_len);
 
 /**
+ * Verifies a principal state object, its finalized membership proof, and one active authenticator.
+ * `trusted_genesis`, `expected_principal`, and `expected_authenticator` each point to 48 bytes.
+ * `expected_purpose` uses the canonical AuthenticatorPurpose tag (0 through 5).
+ */
+uint32_t activechain_verify_finalized_principal_authenticator_code(
+    const uint8_t *principal_object,
+    uint32_t principal_object_len,
+    const uint8_t *principal_proof,
+    uint32_t principal_proof_len,
+    const uint8_t *authenticator_set,
+    uint32_t authenticator_set_len,
+    const uint8_t *finality,
+    uint32_t finality_len,
+    const uint8_t *trusted_genesis,
+    const uint8_t *expected_principal,
+    const uint8_t *expected_authenticator,
+    uint8_t expected_purpose);
+
+/**
  * # Safety
  * The caller must provide a readable `bytes` buffer of `bytes_len` bytes. No pointer is retained.
  */

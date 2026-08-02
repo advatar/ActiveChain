@@ -6,7 +6,7 @@ extern crate alloc;
 use activechain_application_primitives::{AnchorFinalizedEvidenceV1, DigestAnchorStatementV1};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
-    decode_envelope, inspect_canonical_envelope,
+    decode_envelope, encode_envelope, inspect_canonical_envelope,
 };
 use activechain_cash_kernel::{CoinCellMembershipProof, CoinCellRecord};
 use activechain_devnet_kernel::BlockReceipt;
@@ -17,8 +17,9 @@ use activechain_payment_types::{
 use activechain_policy_kernel::PolicyDecision;
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
-    CapabilityGrant, Digest384, INITIAL_PROTOCOL_REVISION, NonFungibleSeriesV1,
-    NonFungibleTokenRegistryV1, Object, ObjectId, Principal, PrincipalId,
+    AuthenticatorId, AuthenticatorPurpose, AuthenticatorSetV1, CapabilityGrant, Digest384,
+    FreezeState, INITIAL_PROTOCOL_REVISION, NonFungibleSeriesV1, NonFungibleTokenRegistryV1,
+    Object, ObjectFlags, ObjectId, ObjectOwner, Principal, PrincipalId,
 };
 use activechain_state_tree::{
     StateCommitment, StateProof, verify_membership, verify_non_membership,
@@ -35,6 +36,11 @@ pub const VERIFIER_SCHEMA_REVISION: u32 = 1;
 pub const VERIFIER_PROTOCOL_REVISION: u64 = INITIAL_PROTOCOL_REVISION;
 pub const NFT_SERIES_QUERY_KIND: u8 = 12;
 pub const NFT_TOKEN_REGISTRY_QUERY_KIND: u8 = 13;
+
+const PRINCIPAL_REGISTRY_OBJECT_TYPE_DOMAIN: &[u8] =
+    b"ACTIVECHAIN-PRINCIPAL-REGISTRY-OBJECT-TYPE-V1";
+const PRINCIPAL_REGISTRY_OBJECT_VALUE_DOMAIN: &[u8] =
+    b"ACTIVECHAIN-PRINCIPAL-REGISTRY-OBJECT-VALUE-V1";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EnvelopeMetadata {
@@ -511,6 +517,99 @@ pub fn verify_nft_state_record(
     verify_state_membership(&commitment, value, proof)
 }
 
+/// Returns the fixed type commitment required for principal-registry state objects.
+#[must_use]
+pub fn principal_registry_object_type() -> Digest384 {
+    commit_parts(
+        PRINCIPAL_REGISTRY_OBJECT_TYPE_DOMAIN,
+        &[&Principal::TYPE_TAG.to_be_bytes(), &Principal::SCHEMA_VERSION.to_be_bytes()],
+    )
+}
+
+/// Verifies a finalized principal object and one active authenticator under its committed set.
+#[allow(clippy::too_many_arguments)]
+pub fn verify_finalized_principal_authenticator_code(
+    principal_object: &[u8],
+    principal_proof: &[u8],
+    authenticator_set: &[u8],
+    finality: &[u8],
+    trusted_genesis: Digest384,
+    expected_principal: PrincipalId,
+    expected_authenticator: AuthenticatorId,
+    expected_purpose: AuthenticatorPurpose,
+) -> u32 {
+    verify_finalized_principal_authenticator(
+        principal_object,
+        principal_proof,
+        authenticator_set,
+        finality,
+        trusted_genesis,
+        expected_principal,
+        expected_authenticator,
+        expected_purpose,
+    )
+    .map_or_else(|error| error.code(), |()| VERIFY_OK)
+}
+
+/// Verifies the complete object/state/finality and authenticator-set relation.
+#[allow(clippy::too_many_arguments)]
+pub fn verify_finalized_principal_authenticator(
+    principal_object: &[u8],
+    principal_proof: &[u8],
+    authenticator_set: &[u8],
+    finality: &[u8],
+    trusted_genesis: Digest384,
+    expected_principal: PrincipalId,
+    expected_authenticator: AuthenticatorId,
+    expected_purpose: AuthenticatorPurpose,
+) -> Result<(), VerifyError> {
+    let total = principal_object
+        .len()
+        .checked_add(principal_proof.len())
+        .and_then(|length| length.checked_add(authenticator_set.len()))
+        .and_then(|length| length.checked_add(finality.len()))
+        .ok_or(VerifyError::TooLarge)?;
+    if total > MAX_ENVELOPE_LENGTH {
+        return Err(VerifyError::TooLarge);
+    }
+    let finality = verify_finality_bundle_with_chain_genesis(finality, trusted_genesis)?;
+    let object = decode_envelope::<Object>(principal_object).map_err(VerifyError::Decode)?;
+    let set =
+        decode_envelope::<AuthenticatorSetV1>(authenticator_set).map_err(VerifyError::Decode)?;
+    let public_value = object.public_value().ok_or(VerifyError::RelationMismatch)?;
+    let principal = decode_envelope::<Principal>(public_value).map_err(VerifyError::Decode)?;
+    let expected_object_id = ObjectId::new(expected_principal.into_digest());
+    let height = finality.header().inputs.height;
+
+    if object.object_id() != expected_object_id
+        || object.type_id() != principal_registry_object_type()
+        || object.owner() != ObjectOwner::Principal(expected_principal)
+        || !object.flags().contains(ObjectFlags::SYSTEM)
+        || object.package_id().is_some()
+        || principal.principal_id() != expected_principal
+        || principal.freeze_state() != FreezeState::Active
+        || principal.last_updated_at() > height
+        || set.root().map_err(|_| VerifyError::CommitmentMismatch)?
+            != principal.authenticator_set_root()
+        || object.value_root()
+            != commit_parts(PRINCIPAL_REGISTRY_OBJECT_VALUE_DOMAIN, &[public_value])
+    {
+        return Err(VerifyError::RelationMismatch);
+    }
+    let authenticator =
+        set.authenticator(expected_authenticator).ok_or(VerifyError::RelationMismatch)?;
+    if authenticator.purpose() != expected_purpose || !authenticator.is_active_at(height) {
+        return Err(VerifyError::RelationMismatch);
+    }
+
+    let commitment = encode_envelope(&finality.header().inputs.post_state).map_err(|_| {
+        VerifyError::Decode(DecodeError::InvalidValue(
+            "finalized state commitment could not be encoded",
+        ))
+    })?;
+    verify_state_membership(&commitment, principal_object, principal_proof)
+}
+
 fn verify_decoded_finality_bundle(
     bundle: FinalityCertificateBundle,
     expected_chain_genesis: Digest384,
@@ -819,11 +918,11 @@ mod tests {
     };
     use activechain_policy_kernel::DecisionResult;
     use activechain_protocol_types::{
-        ActionId, AssetId, BoundedActionSet, CapabilityGrantFields, CapabilityId,
-        ConsensusVoteContext, CryptoSuiteId, DataSelector, FreezeState, HolderBinding,
-        ObjectFields, ObjectFlags, ObjectOwner, PrincipalId, PrincipalKind, ProtocolSignature,
-        QuorumCertificate, ResourceSelector, TransactionId, ValidatorGenesis,
-        ValidatorGenesisEntry, ValidatorVote,
+        ActionId, AssetId, AuthenticatorDescriptor, AuthenticatorPurpose, AuthenticatorSetV1,
+        BoundedActionSet, CapabilityGrantFields, CapabilityId, ConsensusVoteContext, CryptoSuiteId,
+        DataSelector, FreezeState, HolderBinding, ObjectFields, ObjectFlags, ObjectOwner,
+        PrincipalId, PrincipalKind, ProtocolSignature, QuorumCertificate, ResourceSelector,
+        TransactionId, ValidatorGenesis, ValidatorGenesisEntry, ValidatorVote,
     };
     use activechain_state_tree::{commit_objects, prove_object};
     use alloc::{vec, vec::Vec};
@@ -1213,6 +1312,150 @@ mod tests {
             StateCommitment::new(digest(46), 0),
             digest(50),
         )
+    }
+
+    #[test]
+    fn finalized_principal_authenticator_binds_state_set_lifecycle_and_purpose() {
+        let principal_id = PrincipalId::new(digest(70));
+        let authenticator_id = AuthenticatorId::new(digest(71));
+        let authenticator = AuthenticatorDescriptor::new(
+            authenticator_id,
+            CryptoSuiteId::ML_DSA_65,
+            vec![72; CryptoSuiteId::ML_DSA_65.verification_key_length().unwrap()],
+            AuthenticatorPurpose::Control,
+            1,
+            Some(12),
+            None,
+        )
+        .unwrap();
+        let set = AuthenticatorSetV1::new(vec![authenticator]).unwrap();
+        let principal = Principal::new(
+            principal_id,
+            PrincipalKind::Organization,
+            digest(73),
+            digest(74),
+            set.root().unwrap(),
+            1,
+            FreezeState::Active,
+            digest(75),
+            1,
+            1,
+            8,
+        )
+        .unwrap();
+        let principal_value = encode_envelope(&principal).unwrap();
+        let object = Object::new(ObjectFields {
+            object_id: ObjectId::new(principal_id.into_digest()),
+            object_version: 1,
+            type_id: principal_registry_object_type(),
+            owner: ObjectOwner::Principal(principal_id),
+            control_policy_hash: digest(76),
+            use_policy_hash: digest(77),
+            disclosure_policy_hash: digest(78),
+            upgrade_policy_hash: digest(79),
+            package_id: None,
+            value_root: commit_parts(PRINCIPAL_REGISTRY_OBJECT_VALUE_DOMAIN, &[&principal_value]),
+            public_value: Some(principal_value),
+            lease_expiry_epoch: 10,
+            storage_deposit: 1,
+            flags: ObjectFlags::SYSTEM,
+        })
+        .unwrap();
+        let objects = vec![object.clone()];
+        let proof = encode_envelope(&prove_object(&objects, object.object_id()).unwrap()).unwrap();
+        let object_bytes = encode_envelope(&object).unwrap();
+        let set_bytes = encode_envelope(&set).unwrap();
+        let bundle = finality_bundle_with_inputs(
+            digest(47),
+            StateCommitment::new(digest(42), 0),
+            commit_objects(&objects).unwrap(),
+            digest(50),
+        );
+        let trusted_genesis = bundle.validator_genesis().genesis_commitment();
+        let finality = encode_envelope(&bundle).unwrap();
+
+        assert_eq!(
+            verify_finalized_principal_authenticator_code(
+                &object_bytes,
+                &proof,
+                &set_bytes,
+                &finality,
+                trusted_genesis,
+                principal_id,
+                authenticator_id,
+                AuthenticatorPurpose::Control,
+            ),
+            VERIFY_OK
+        );
+        assert_eq!(
+            verify_finalized_principal_authenticator_code(
+                &object_bytes,
+                &proof,
+                &set_bytes,
+                &finality,
+                trusted_genesis,
+                principal_id,
+                authenticator_id,
+                AuthenticatorPurpose::Session,
+            ),
+            VerifyError::RelationMismatch.code()
+        );
+        assert_eq!(
+            verify_finalized_principal_authenticator_code(
+                &object_bytes,
+                &proof,
+                &set_bytes,
+                &finality,
+                trusted_genesis,
+                PrincipalId::new(digest(80)),
+                authenticator_id,
+                AuthenticatorPurpose::Control,
+            ),
+            VerifyError::RelationMismatch.code()
+        );
+        let mut substituted_set = set_bytes.clone();
+        substituted_set[70] ^= 1;
+        assert_eq!(
+            verify_finalized_principal_authenticator_code(
+                &object_bytes,
+                &proof,
+                &substituted_set,
+                &finality,
+                trusted_genesis,
+                principal_id,
+                authenticator_id,
+                AuthenticatorPurpose::Control,
+            ),
+            VerifyError::RelationMismatch.code()
+        );
+        assert_eq!(
+            verify_finalized_principal_authenticator_code(
+                &object_bytes,
+                &proof,
+                &set_bytes,
+                &finality,
+                digest(81),
+                principal_id,
+                authenticator_id,
+                AuthenticatorPurpose::Control,
+            ),
+            VerifyError::RelationMismatch.code()
+        );
+        let mut trailing_object = object_bytes;
+        trailing_object.push(0);
+        assert_eq!(
+            verify_finalized_principal_authenticator_code(
+                &trailing_object,
+                &proof,
+                &set_bytes,
+                &finality,
+                trusted_genesis,
+                principal_id,
+                authenticator_id,
+                AuthenticatorPurpose::Control,
+            ),
+            VerifyError::Decode(DecodeError::TrailingData { remaining: 1 }).code()
+        );
     }
 
     #[test]

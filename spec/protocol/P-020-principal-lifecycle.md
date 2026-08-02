@@ -84,13 +84,32 @@ Every error aborts with no principal or recovery-request update.
 
 All operations are constant-time with respect to collection sizes and allocate no unbounded memory. `PrincipalV1` is 282 bytes and `RecoveryRequestV1` is 232 bytes before their top-level envelope headers.
 
+### 7.1 Finalized controller evidence
+
+An `AuthenticatorSetV1` contains one through eight public authenticator descriptors in strictly
+ascending, duplicate-free `AuthenticatorId` order. Its root is the SHAKE256 commitment over the
+domain `ACTIVECHAIN-AUTHENTICATOR-SET-V1`, the exact set count, and each length-prefixed canonical
+descriptor envelope. A principal's `authenticator_set_root` MUST equal that commitment.
+
+A finalized public principal is represented by a protocol-system `ObjectV1` whose object identifier
+is the principal identifier, owner is that principal, public value is the exact canonical
+`PrincipalV1` envelope, and type/value commitments use the registered principal-registry domains.
+The ordinary P-031 state membership proof then binds the principal to the finalized block's
+`post_state`; no caller-supplied principal or key is authoritative without that proof. Controller
+use additionally requires an active principal, a non-future principal update height, and an
+active purpose-compatible descriptor in the committed authenticator set.
+
 ## 8. Security assumptions
 
 Safety requires the upstream authorization kernel to authenticate the actor, verify signatures or private proofs, evaluate the committed policy, and emit the exact lifecycle authorization fact. Supplying an unverified fact to this state machine would violate the protocol boundary.
 
 ## 9. Test vectors and formal properties
 
-Authority vectors cover genesis, controller rotation, freeze, and recovery initiation. Required properties are stable identity, monotonic height, one-step sequence consumption, replay rejection, controller-policy binding, recovery-policy separation, and atomic creation of recovery state.
+Authority vectors cover genesis, controller rotation, freeze, recovery initiation, and finalized
+principal/authenticator witness substitution. Required properties are stable identity, monotonic
+height, one-step sequence consumption, replay rejection, controller-policy binding,
+recovery-policy separation, exact state-root membership, authenticator-set binding, lifecycle and
+purpose checks, and atomic creation of recovery state.
 
 Property tests MUST cover every non-exhausted sequence value. Future Lean refinement MUST prove that no successful command preserves or decreases the sequence.
 

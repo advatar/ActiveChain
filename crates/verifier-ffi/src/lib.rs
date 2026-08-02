@@ -2,7 +2,7 @@
 
 use activechain_application_primitives::{AnchorStatus, DigestAnchorStatementV1};
 use activechain_canonical_codec::{decode_envelope, encode_envelope};
-use activechain_protocol_types::Digest384;
+use activechain_protocol_types::{AuthenticatorId, AuthenticatorPurpose, Digest384, PrincipalId};
 use activechain_rpc_types::{RpcError, RpcRequest, RpcResponse};
 
 pub const ACTIVECHAIN_VERIFY_OK: u32 = 0;
@@ -552,6 +552,80 @@ pub unsafe extern "C" fn activechain_verify_authorization_chain_code(
 
 #[unsafe(no_mangle)]
 /// # Safety
+/// The caller must provide readable buffers for every non-zero declared length and readable
+/// 48-byte principal, authenticator, and trusted-genesis identifiers. No pointer is retained.
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn activechain_verify_finalized_principal_authenticator_code(
+    principal_object: *const u8,
+    principal_object_len: u32,
+    principal_proof: *const u8,
+    principal_proof_len: u32,
+    authenticator_set: *const u8,
+    authenticator_set_len: u32,
+    finality: *const u8,
+    finality_len: u32,
+    trusted_genesis: *const u8,
+    expected_principal: *const u8,
+    expected_authenticator: *const u8,
+    expected_purpose: u8,
+) -> u32 {
+    if (principal_object.is_null() && principal_object_len != 0)
+        || (principal_proof.is_null() && principal_proof_len != 0)
+        || (authenticator_set.is_null() && authenticator_set_len != 0)
+        || (finality.is_null() && finality_len != 0)
+        || trusted_genesis.is_null()
+        || expected_principal.is_null()
+        || expected_authenticator.is_null()
+    {
+        return NULL_POINTER;
+    }
+    let Some(total) = principal_object_len
+        .checked_add(principal_proof_len)
+        .and_then(|length| length.checked_add(authenticator_set_len))
+        .and_then(|length| length.checked_add(finality_len))
+    else {
+        return TOO_LARGE;
+    };
+    if total > MAX_ENVELOPE_LENGTH {
+        return TOO_LARGE;
+    }
+    let purpose = match expected_purpose {
+        0 => AuthenticatorPurpose::Control,
+        1 => AuthenticatorPurpose::Recovery,
+        2 => AuthenticatorPurpose::Session,
+        3 => AuthenticatorPurpose::Validator,
+        4 => AuthenticatorPurpose::CredentialIssuance,
+        5 => AuthenticatorPurpose::ToolReceipt,
+        _ => return ACTIVECHAIN_VERIFY_DECODE_ERROR,
+    };
+    let slice = |pointer: *const u8, length: u32| {
+        if length == 0 {
+            &[]
+        } else {
+            unsafe { core::slice::from_raw_parts(pointer, length as usize) }
+        }
+    };
+    let mut genesis = [0_u8; 48];
+    genesis.copy_from_slice(unsafe { core::slice::from_raw_parts(trusted_genesis, 48) });
+    let mut principal = [0_u8; 48];
+    principal.copy_from_slice(unsafe { core::slice::from_raw_parts(expected_principal, 48) });
+    let mut authenticator = [0_u8; 48];
+    authenticator
+        .copy_from_slice(unsafe { core::slice::from_raw_parts(expected_authenticator, 48) });
+    activechain_verifier_api::verify_finalized_principal_authenticator_code(
+        slice(principal_object, principal_object_len),
+        slice(principal_proof, principal_proof_len),
+        slice(authenticator_set, authenticator_set_len),
+        slice(finality, finality_len),
+        Digest384::new(genesis),
+        PrincipalId::new(Digest384::new(principal)),
+        AuthenticatorId::new(Digest384::new(authenticator)),
+        purpose,
+    )
+}
+
+#[unsafe(no_mangle)]
+/// # Safety
 /// The caller must provide a readable `bytes` buffer of `bytes_len` bytes. No pointer is retained.
 pub unsafe extern "C" fn activechain_verify_policy_decision_code(
     bytes: *const u8,
@@ -1092,6 +1166,49 @@ mod tests {
         assert_eq!(
             unsafe { activechain_verify_authorization_chain_code(core::ptr::null(), 1) },
             NULL_POINTER
+        );
+    }
+
+    #[test]
+    fn finalized_principal_authenticator_abi_is_null_safe_and_tag_closed() {
+        let id = [1_u8; 48];
+        assert_eq!(
+            unsafe {
+                activechain_verify_finalized_principal_authenticator_code(
+                    core::ptr::null(),
+                    1,
+                    core::ptr::null(),
+                    0,
+                    core::ptr::null(),
+                    0,
+                    core::ptr::null(),
+                    0,
+                    id.as_ptr(),
+                    id.as_ptr(),
+                    id.as_ptr(),
+                    0,
+                )
+            },
+            NULL_POINTER
+        );
+        assert_eq!(
+            unsafe {
+                activechain_verify_finalized_principal_authenticator_code(
+                    core::ptr::null(),
+                    0,
+                    core::ptr::null(),
+                    0,
+                    core::ptr::null(),
+                    0,
+                    core::ptr::null(),
+                    0,
+                    id.as_ptr(),
+                    id.as_ptr(),
+                    id.as_ptr(),
+                    6,
+                )
+            },
+            ACTIVECHAIN_VERIFY_DECODE_ERROR
         );
     }
 
