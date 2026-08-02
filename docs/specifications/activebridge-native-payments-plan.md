@@ -570,6 +570,11 @@ policy commitment while advancing its period budget and nonce beside payment, se
 and dispute evidence; replay, substitution, budget overrun, and failed persistence leave the live
 aggregate unchanged.
 
+Authenticated API replay state is consumed through the complete settlement aggregate as well.
+Both structurally admitted and ML-DSA-44-verified authorizations persist the exact caller/audience
+sequence and authenticator commitment beside retained payment evidence before acknowledgement;
+forgery, replay, sequence gaps, and failed storage cannot consume the live authorization state.
+
 Disputes use a separate `DisputeJournalV1`, canonically ordered by immutable dispute identity. The
 journal atomically persists opening and each exact next-sequence lifecycle successor, and restart
 decoding retains the evidence class that distinguishes client reports, connector-authenticated
