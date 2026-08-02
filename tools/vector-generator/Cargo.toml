@@ -13,6 +13,7 @@ activechain-accumulator.workspace = true
 activechain-bytecode-verifier.workspace = true
 activechain-canonical-codec.workspace = true
 activechain-capability.workspace = true
+activechain-cash-kernel.workspace = true
 activechain-credential.workspace = true
 activechain-devnet-kernel.workspace = true
 activechain-object.workspace = true
@@ -23,7 +24,9 @@ activechain-privacy-kernel.workspace = true
 activechain-protocol-types.workspace = true
 activechain-state-tree.workspace = true
 activechain-transition.workspace = true
+activechain-wallet-core.workspace = true
 activechain-protocol-commitment = { path = "../../crates/protocol-commitment", version = "0.1.0" }
+ml-dsa = "0.1.1"
 sha2 = "0.10.9"
 sha3.workspace = true
 
