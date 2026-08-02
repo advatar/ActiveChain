@@ -202,6 +202,96 @@ impl ExecutionProofVerifier for DirectExecutionProofVerifier {
         verified.statement_commitment().is_ok_and(|actual| actual == statement)
     }
 }
+
+/// Canonical pre-vote material for a cash-only round. The resulting header is the exact statement
+/// validators must sign and `into_candidate` preserves those bytes for post-vote admission.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PreparedDirectFinalizedBlock {
+    encoded_block: Vec<u8>,
+    header: FinalizedBlockHeader,
+    proof: VerifiedExecutionProof,
+    next_state: ChainState,
+    receipt: BlockReceipt,
+    data_shards: usize,
+    parity_shards: usize,
+}
+
+impl PreparedDirectFinalizedBlock {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        state: &ChainState,
+        block: &DevnetBlock,
+        epoch: u64,
+        protocol_revision: u64,
+        validator_set_root: Digest384,
+        pre_supply: u128,
+        issuance: u128,
+        burn: u128,
+        pre_cash_cell_root: Digest384,
+        cash_action_ids: &[activechain_protocol_types::TransactionId],
+        cash_cell_root: Digest384,
+        data_shards: usize,
+        parity_shards: usize,
+        prover: PrincipalId,
+    ) -> Result<Self, FinalizedBlockAdmissionError> {
+        if !block.actions().is_empty() {
+            return Err(FinalizedBlockAdmissionError::Authorization);
+        }
+        let (inputs, next_state, receipt, encoded_block) = derive_proof_public_inputs(
+            state,
+            block,
+            epoch,
+            protocol_revision,
+            validator_set_root,
+            pre_supply,
+            issuance,
+            burn,
+            pre_cash_cell_root,
+            cash_action_ids,
+            cash_cell_root,
+            data_shards,
+            parity_shards,
+        )?;
+        let proof =
+            DirectExecutionProofV1::new(inputs, receipt.clone(), prover)?.into_verified()?;
+        let header = FinalizedBlockHeader {
+            inputs,
+            proof_statement_commitment: proof
+                .statement_commitment()
+                .map_err(|_| FinalizedBlockAdmissionError::Proof)?,
+        };
+        Ok(Self { encoded_block, header, proof, next_state, receipt, data_shards, parity_shards })
+    }
+
+    pub const fn header(&self) -> &FinalizedBlockHeader {
+        &self.header
+    }
+
+    pub const fn next_state(&self) -> &ChainState {
+        &self.next_state
+    }
+
+    pub const fn receipt(&self) -> &BlockReceipt {
+        &self.receipt
+    }
+
+    pub fn into_candidate(
+        self,
+        certificate: QuorumCertificate,
+        certificate_votes: Vec<ValidatorVote>,
+    ) -> FinalizedBlockCandidate {
+        FinalizedBlockCandidate {
+            encoded_block: self.encoded_block,
+            authorization_candidates: Vec::new(),
+            claimed_header: self.header,
+            proof: self.proof,
+            certificate,
+            certificate_votes,
+            data_shards: self.data_shards,
+            parity_shards: self.parity_shards,
+        }
+    }
+}
 impl VerifiedExecutionProof {
     pub const MAX_PROOF_BYTES: usize = 1 << 20;
     pub fn statement_commitment(&self) -> Result<Digest384, EncodeError> {
@@ -762,6 +852,48 @@ mod tests {
             DirectExecutionProofV1::new(inputs, wrong_receipt, direct.prover),
             Err(FinalizedBlockAdmissionError::Proof)
         );
+    }
+
+    #[test]
+    fn prepared_direct_block_preserves_the_exact_pre_vote_admission_material() {
+        let (state, block, inputs, _, _, genesis, root) = fixture();
+        let prepared = PreparedDirectFinalizedBlock::new(
+            &state,
+            &block,
+            inputs.epoch,
+            inputs.protocol_revision,
+            root,
+            inputs.pre_supply,
+            inputs.issuance,
+            inputs.burn,
+            inputs.pre_cash_cell_root,
+            &[],
+            inputs.cash_cell_root,
+            1,
+            1,
+            PrincipalId::new(Digest384::new([54; 48])),
+        )
+        .unwrap();
+        assert_eq!(prepared.header().inputs, inputs);
+        assert_eq!(prepared.next_state().height(), 1);
+        assert_eq!(prepared.receipt().height(), 1);
+        let digest = prepared.header().digest().unwrap();
+        let certificate = QuorumCertificate::new(
+            ConsensusVoteContext::new_with_revision(genesis, 7, root, 4).unwrap(),
+            1,
+            0,
+            digest,
+            Digest384::new([55; 48]),
+            Digest384::new([56; 48]),
+            4,
+            4,
+        )
+        .unwrap();
+        let candidate =
+            prepared.into_candidate(certificate.clone(), vec![certificate_vote(&certificate)]);
+        assert_eq!(candidate.claimed_header.inputs, inputs);
+        assert_eq!(candidate.certificate.block_digest(), digest);
+        assert_eq!(candidate.proof.proof_system, DirectExecutionProofV1::PROOF_SYSTEM);
     }
 
     #[test]
