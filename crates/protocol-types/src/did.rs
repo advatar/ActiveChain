@@ -430,7 +430,7 @@ impl DidControllerRecordV1 {
             || operation.principal() != self.principal
             || operation.previous_commitment()
                 != Some(self.commitment().map_err(|_| DidRecordError::PreviousMismatch)?)
-            || operation.next().sequence() != self.sequence.saturating_add(1)
+            || Some(operation.next().sequence()) != self.sequence.checked_add(1)
             || operation.next().principal() != self.principal
             || !operation.next().matches_document(next_document)
         {
@@ -467,7 +467,7 @@ impl DidControllerRecordV1 {
         }
         if previous_commitment != self.commitment().map_err(|_| DidRecordError::PreviousMismatch)?
             || next.principal != self.principal
-            || next.sequence != self.sequence.saturating_add(1)
+            || Some(next.sequence) != self.sequence.checked_add(1)
         {
             return Err(DidRecordError::PreviousMismatch);
         }
@@ -933,6 +933,35 @@ mod tests {
             Some(digest(40)),
         )
         .unwrap()
+    }
+
+    /// Sequence monotonicity must hold at the `u64` boundary, not merely below it.
+    ///
+    /// The successor check previously used `saturating_add(1)`, which returns `u64::MAX`
+    /// unchanged at the ceiling. A record at `u64::MAX` therefore accepted a successor
+    /// reusing the same sequence, silently breaking the strict monotonicity that DID
+    /// operation replay protection depends on. Checked arithmetic fails closed instead.
+    #[test]
+    fn sequence_successor_fails_closed_at_the_u64_ceiling() {
+        let saturated =
+            DidControllerRecordV1::from_document(&document(10, 11, 12), u64::MAX, true).unwrap();
+        let same_sequence =
+            DidControllerRecordV1::from_document(&document(13, 14, 15), u64::MAX, true).unwrap();
+        assert_eq!(
+            saturated.apply_update(saturated.commitment().unwrap(), same_sequence),
+            Err(DidRecordError::PreviousMismatch)
+        );
+
+        // One below the ceiling still advances exactly once.
+        let penultimate =
+            DidControllerRecordV1::from_document(&document(10, 11, 12), u64::MAX - 1, true)
+                .unwrap();
+        let successor =
+            DidControllerRecordV1::from_document(&document(13, 14, 15), u64::MAX, true).unwrap();
+        assert_eq!(
+            penultimate.apply_update(penultimate.commitment().unwrap(), successor),
+            Ok(successor)
+        );
     }
 
     #[test]
