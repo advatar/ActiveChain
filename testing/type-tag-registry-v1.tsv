@@ -305,3 +305,5 @@
 0x01AA	1	DutyReceiptV1	crates/wallet-core/src/cash_authorization.rs
 0x01AB	1	AuthorizedDutyReceiptV1	crates/wallet-core/src/cash_authorization.rs
 0x01AC	1	CashAggregationStatementV1	crates/cash-air/src/aggregation.rs
+0x01AD	1	VerifierBondRegistrationV1	crates/wallet-core/src/cash_authorization.rs
+0x01AE	1	AuthorizedVerifierBondRegistrationV1	crates/wallet-core/src/cash_authorization.rs

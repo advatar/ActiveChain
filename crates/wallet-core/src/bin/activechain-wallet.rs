@@ -1,4 +1,5 @@
 use activechain_canonical_codec::{decode_envelope, encode_envelope};
+use activechain_cash_kernel::VerifierRole;
 use activechain_cash_kernel::{
     ChallengeCommitmentV1, CoinTransfer, RewardReplayWitness, challenge_commitment,
 };
@@ -7,7 +8,8 @@ use activechain_protocol_types::{
 };
 use activechain_wallet_core::{
     AuthorizedCashSessionGrantV1, AuthorizedCashTransferV1, AuthorizedDutyReceiptV1,
-    CashAuthorizationRequestV1, CashSessionGrantV1, DutyReceiptV1,
+    AuthorizedVerifierBondRegistrationV1, CashAuthorizationRequestV1, CashSessionGrantV1,
+    DutyReceiptV1, VerifierBondRegistrationV1,
 };
 use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
 use sha3::{
@@ -26,6 +28,7 @@ const USAGE: &str = "usage: activechain-wallet <command>\n\
   challenge-commit <challenge-id> <duty> <challenger> <bond-cell> <reward> <evidence> <nonce> \
 <reveal-deadline> <resolution-deadline>\n\
   duty-receipt <key-file> <chain-id> <assignment> <evidence> <height>\n\
+  bond <key-file> <chain-id> <role> <bond-cell> <bond-amount> <valid-until>\n\
   redeem-witness <witness-hex-file> <settlement>";
 
 fn hex(bytes: &[u8]) -> String {
@@ -171,6 +174,39 @@ fn build_challenge_commitment(
         resolution_deadline,
     )
     .map_err(|error| format!("invalid challenge commitment: {error:?}"))
+}
+
+fn parse_role(text: &str) -> Result<VerifierRole, String> {
+    match text {
+        "finality" => Ok(VerifierRole::Finality),
+        "availability" => Ok(VerifierRole::Availability),
+        "audit" => Ok(VerifierRole::Audit),
+        "assurance" => Ok(VerifierRole::Assurance),
+        "public-goods" => Ok(VerifierRole::PublicGoods),
+        _ => Err("role must be finality, availability, audit, assurance, or public-goods".into()),
+    }
+}
+
+fn build_bond_registration(
+    key: &SigningKey<MlDsa44>,
+    chain_id: ChainId,
+    role: VerifierRole,
+    bond: CoinCellId,
+    bond_amount: u128,
+    valid_until: u64,
+) -> Result<AuthorizedVerifierBondRegistrationV1, String> {
+    let registration = VerifierBondRegistrationV1::new(
+        chain_id,
+        principal_for(key),
+        role,
+        bond,
+        bond_amount,
+        valid_until,
+    )
+    .map_err(|error| format!("invalid bond registration: {error:?}"))?;
+    let payload = registration.signing_payload().map_err(|_| "registration encoding failed")?;
+    AuthorizedVerifierBondRegistrationV1::new(registration, sign(key, &payload)?)
+        .map_err(|error| format!("bond authorization failed: {error:?}"))
 }
 
 fn build_duty_receipt(
@@ -343,6 +379,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 hex(&encode_envelope(&authorized).map_err(|_| "envelope encoding failed")?)
             );
         }
+        "bond" => {
+            let [key_file, chain_id, role, bond, bond_amount, valid_until] = arguments.as_slice()
+            else {
+                return Err(USAGE.into());
+            };
+            let key = load_signing_key(key_file)?;
+            let authorized = build_bond_registration(
+                &key,
+                ChainId::new(parse_digest(chain_id)?),
+                parse_role(role)?,
+                CoinCellId::new(parse_digest(bond)?),
+                bond_amount.parse()?,
+                valid_until.parse()?,
+            )?;
+            println!("verifier={}", hex(principal_for(&key).into_digest().as_bytes()));
+            println!(
+                "authorized_bond_registration={}",
+                hex(&encode_envelope(&authorized).map_err(|_| "envelope encoding failed")?)
+            );
+        }
         "redeem-witness" => {
             let [witness_file, settlement] = arguments.as_slice() else {
                 return Err(USAGE.into());
@@ -494,6 +550,47 @@ mod tests {
             build_duty_receipt(&key, ChainId::new(digest(1)), Digest384::ZERO, digest(3), 9)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn bond_registration_verifies_only_for_the_signing_verifier_and_exact_chain() {
+        let key = key();
+        let authorized = build_bond_registration(
+            &key,
+            ChainId::new(digest(1)),
+            VerifierRole::Audit,
+            CoinCellId::new(digest(2)),
+            100,
+            9,
+        )
+        .unwrap();
+        let public_key = key.verifying_key().encode();
+        let verifier = principal_for(&key);
+        assert_eq!(
+            authorized.verify(public_key.as_slice(), ChainId::new(digest(1)), verifier),
+            Ok(())
+        );
+        assert!(
+            authorized.verify(public_key.as_slice(), ChainId::new(digest(9)), verifier).is_err()
+        );
+        let encoded = encode_envelope(&authorized).unwrap();
+        assert_eq!(
+            decode_envelope::<AuthorizedVerifierBondRegistrationV1>(&encoded),
+            Ok(authorized)
+        );
+        assert!(
+            build_bond_registration(
+                &key,
+                ChainId::new(digest(1)),
+                VerifierRole::Audit,
+                CoinCellId::new(digest(2)),
+                0,
+                9,
+            )
+            .is_err()
+        );
+        assert!(parse_role("finality").is_ok());
+        assert!(parse_role("unknown").is_err());
     }
 
     #[test]

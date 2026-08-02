@@ -2360,7 +2360,7 @@ Detailed remaining implementation slices:
 - [x] Add `activechain-wallet-core` with policy-gated Coin Cell intents and deterministic fee checks.
 - [x] Add a deterministic ML-DSA testnet wallet CLI for operator/genesis identity derivation.
 - [ ] Add encrypted PQ keystore, ML-DSA/ML-KEM key lifecycle, DID resolution, and recovery.
-- [ ] Add CLI adapter for testnet transfer, verifier bonding, duty receipts, and reward redemption.
+- [x] Add CLI adapter for testnet transfer, verifier bonding, duty receipts, and reward redemption.
 - [x] Add the versioned OpenWallet credential and application-session adapter boundary (interoperability conformance remains).
 - [x] Freeze the first-testnet wallet/operator contract in `spec/protocol/P-100-testnet-wallet-operator.md`.
 - [x] Publish the first-testnet release checklist and explicit transaction-ingress blockers.
