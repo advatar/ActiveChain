@@ -9,6 +9,7 @@ type Vector = [Polynomial; ML_DSA_44_VECTOR_DIMENSION];
 type Matrix = [Vector; ML_DSA_44_VECTOR_DIMENSION];
 
 /// Four fixed-dimension row proofs for the ML-DSA-44 `A * v` operation in the NTT domain.
+#[cfg_attr(test, derive(Clone))]
 pub struct MlDsa44MatrixVectorStarkProof {
     rows: [MlDsaVectorAccumulationStarkProof; ML_DSA_44_VECTOR_DIMENSION],
 }

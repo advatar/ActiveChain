@@ -166,11 +166,13 @@ impl Prover for AccumulationProver {
     }
 }
 
+#[cfg_attr(test, derive(Clone))]
 struct AccumulationProof {
     proof: Proof,
     public: AccumulationPublicInputs,
 }
 
+#[cfg_attr(test, derive(Clone))]
 pub struct MlDsaVectorAccumulationStarkProof {
     products: [MlDsaNttMultiplyStarkProof; ML_DSA_44_VECTOR_DIMENSION],
     accumulation: AccumulationProof,
