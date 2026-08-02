@@ -2232,6 +2232,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
                 constraining every absorption and squeeze permutation needed by ML-DSA sampling.
           - [x] Prove bounded SHAKE128 XOF output and bind all 16 ML-DSA-44 `ExpandA(rho)`
                 rejection-sampled NTT polynomials, including the rejection fallback path.
+          - [ ] Prove bounded SHAKE256 output and bind ML-DSA-44 `SampleInBall(c_tilde)` to the
+                exact Algorithm 29 rejection, swap, and sign-bit procedure.
           - [x] Constrain ML-DSA-44 public-key/signature bit unpacking, `z` infinity-norm range,
                 and canonical hint decoding, exposing exact decoded verifier inputs.
           - [x] Constrain ML-DSA-44 `UseHint` decomposition, signed low bits, adjustment branches,
