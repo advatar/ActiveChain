@@ -375,8 +375,42 @@ impl NonFungibleSeriesV1 {
         manifest: &NonFungibleMintManifestV1,
         height: u64,
     ) -> Result<(Self, Vec<NonFungibleTokenV1>), AssetDefinitionError> {
+        let series_commitment =
+            self.commitment().map_err(|_| AssetDefinitionError::InvalidSupplyTransition)?;
+        let manifest_commitment =
+            manifest.commitment().map_err(|_| AssetDefinitionError::InvalidSupplyTransition)?;
+        self.mint_approved_manifest_with_verified_commitments(
+            issuer,
+            authority_set,
+            approval,
+            manifest,
+            height,
+            series_commitment,
+            manifest_commitment,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn mint_approved_manifest_with_verified_commitments(
+        &self,
+        issuer: PrincipalId,
+        authority_set: Digest384,
+        approval: &NonFungibleIssuerApprovalV1,
+        manifest: &NonFungibleMintManifestV1,
+        height: u64,
+        series_commitment: Digest384,
+        manifest_commitment: Digest384,
+    ) -> Result<(Self, Vec<NonFungibleTokenV1>), AssetDefinitionError> {
         if issuer != self.issuer
-            || !approval.binds_context(self, issuer, authority_set, manifest, height)
+            || !approval.binds_context_with_verified_commitments(
+                self,
+                issuer,
+                authority_set,
+                manifest,
+                height,
+                series_commitment,
+                manifest_commitment,
+            )
         {
             return Err(AssetDefinitionError::IssuerMismatch);
         }
@@ -729,14 +763,38 @@ impl NonFungibleIssuerApprovalV1 {
         manifest: &NonFungibleMintManifestV1,
         height: u64,
     ) -> bool {
+        let series_commitment = series.commitment().ok().unwrap_or(Digest384::ZERO);
+        let manifest_commitment = manifest.commitment().ok().unwrap_or(Digest384::ZERO);
+        self.binds_context_with_verified_commitments(
+            series,
+            issuer,
+            authority_set,
+            manifest,
+            height,
+            series_commitment,
+            manifest_commitment,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn binds_context_with_verified_commitments(
+        &self,
+        series: &NonFungibleSeriesV1,
+        issuer: PrincipalId,
+        authority_set: Digest384,
+        manifest: &NonFungibleMintManifestV1,
+        height: u64,
+        series_commitment: Digest384,
+        manifest_commitment: Digest384,
+    ) -> bool {
         self.asset_id == series.asset_id()
             && self.issuer == issuer
             && self.authority_set == authority_set
             && manifest.asset_id == series.asset_id()
             && manifest.issuer == issuer
-            && self.manifest_commitment == manifest.commitment().ok().unwrap_or(Digest384::ZERO)
+            && self.manifest_commitment == manifest_commitment
             && self.quantity as usize == manifest.items.len()
-            && self.series_commitment == series.commitment().ok().unwrap_or(Digest384::ZERO)
+            && self.series_commitment == series_commitment
             && self.minted_before == series.minted()
             && self.active_at(height)
     }
@@ -2811,6 +2869,117 @@ mod kani_proofs {
                     height,
                     selector != 1,
                     Digest384::new([6; 48]),
+                )
+                .is_ok(),
+            selector == 0 && (10..20).contains(&height)
+        );
+    }
+
+    fn nft_manifest(asset: AssetId, issuer: PrincipalId) -> NonFungibleMintManifestV1 {
+        NonFungibleMintManifestV1::new(
+            asset,
+            issuer,
+            alloc::vec![
+                NonFungibleMintItemV1::new(
+                    Digest384::new([10; 48]),
+                    PrincipalId::new(Digest384::new([20; 48])),
+                    Digest384::new([30; 48]),
+                )
+                .unwrap(),
+                NonFungibleMintItemV1::new(
+                    Digest384::new([11; 48]),
+                    PrincipalId::new(Digest384::new([21; 48])),
+                    Digest384::new([31; 48]),
+                )
+                .unwrap(),
+            ],
+        )
+        .unwrap()
+    }
+
+    #[kani::proof]
+    fn approved_nft_manifest_advances_exact_supply_and_preserves_identity() {
+        let asset = AssetId::new(Digest384::new([1; 48]));
+        let issuer = PrincipalId::new(Digest384::new([2; 48]));
+        let authority = Digest384::new([3; 48]);
+        let series =
+            NonFungibleSeriesV1::new(asset, issuer, 5, 1, Digest384::new([4; 48])).unwrap();
+        let manifest = nft_manifest(asset, issuer);
+        let approval = NonFungibleIssuerApprovalV1::new(
+            asset,
+            issuer,
+            authority,
+            Digest384::new([5; 48]),
+            Digest384::new([6; 48]),
+            Digest384::new([7; 48]),
+            2,
+            1,
+            10,
+            20,
+        )
+        .unwrap();
+        let (next, tokens) = series
+            .mint_approved_manifest_with_verified_commitments(
+                issuer,
+                authority,
+                &approval,
+                &manifest,
+                10,
+                Digest384::new([5; 48]),
+                Digest384::new([7; 48]),
+            )
+            .unwrap();
+        assert_eq!(next.asset_id, series.asset_id);
+        assert_eq!(next.issuer, series.issuer);
+        assert_eq!(next.max_supply, series.max_supply);
+        assert_eq!(next.metadata_schema, series.metadata_schema);
+        assert_eq!(next.minted, 3);
+        assert_eq!(tokens.len(), 2);
+        assert_eq!(tokens[0].asset_id, asset);
+        assert_eq!(tokens[0].issuer, issuer);
+        assert_eq!(tokens[0].token_id, manifest.items[0].token_id);
+        assert_eq!(tokens[0].owner, manifest.items[0].owner);
+        assert_eq!(tokens[0].metadata_commitment, manifest.items[0].metadata_commitment);
+        assert_eq!(tokens[1].token_id, manifest.items[1].token_id);
+    }
+
+    #[kani::proof]
+    fn approved_nft_manifest_rejects_substituted_bindings_and_invalid_height() {
+        let selector: u8 = kani::any();
+        let height: u64 = kani::any();
+        kani::assume(selector <= 8);
+        let asset = AssetId::new(Digest384::new([1; 48]));
+        let issuer = PrincipalId::new(Digest384::new([2; 48]));
+        let authority = Digest384::new([3; 48]);
+        let series =
+            NonFungibleSeriesV1::new(asset, issuer, 5, 1, Digest384::new([4; 48])).unwrap();
+        let manifest = nft_manifest(
+            if selector == 8 { AssetId::new(Digest384::new([9; 48])) } else { asset },
+            issuer,
+        );
+        let approval = NonFungibleIssuerApprovalV1::new(
+            if selector == 3 { AssetId::new(Digest384::new([9; 48])) } else { asset },
+            issuer,
+            authority,
+            if selector == 4 { Digest384::new([9; 48]) } else { Digest384::new([5; 48]) },
+            Digest384::new([6; 48]),
+            if selector == 5 { Digest384::new([9; 48]) } else { Digest384::new([7; 48]) },
+            if selector == 6 { 1 } else { 2 },
+            if selector == 7 { 2 } else { 1 },
+            10,
+            20,
+        )
+        .unwrap();
+        assert_eq!(
+            series
+                .mint_approved_manifest_with_verified_commitments(
+                    if selector == 1 { PrincipalId::new(Digest384::new([9; 48])) } else { issuer },
+                    if selector == 2 { Digest384::new([9; 48]) } else { authority },
+                    &approval,
+                    &manifest,
+                    height,
+                    Digest384::new([5; 48]),
+                    Digest384::new([7; 48]),
                 )
                 .is_ok(),
             selector == 0 && (10..20).contains(&height)
