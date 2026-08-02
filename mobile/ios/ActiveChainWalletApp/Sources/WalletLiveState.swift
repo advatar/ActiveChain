@@ -18,12 +18,12 @@ enum WalletKanalen {
         0xf6, 0x53, 0x5b, 0x4c, 0x92, 0x77, 0x82, 0xf1,
     ])
     static let genesis = Data([
-        0xe4, 0xdc, 0x7a, 0xd1, 0x29, 0x10, 0xaa, 0xdf,
-        0x81, 0xb2, 0x71, 0x6a, 0xa4, 0xac, 0xaa, 0x23,
-        0xe7, 0x77, 0xe4, 0x34, 0xa0, 0xdd, 0x92, 0x9c,
-        0x42, 0x3a, 0xb8, 0x76, 0x13, 0x08, 0x13, 0xc1,
-        0x63, 0x1f, 0x02, 0x05, 0x4a, 0x42, 0x8b, 0x83,
-        0x21, 0xa2, 0x60, 0x40, 0x3b, 0x6f, 0x40, 0x8f,
+        0xbc, 0x0d, 0x2b, 0x8b, 0x08, 0x84, 0xdc, 0x37,
+        0x1c, 0x05, 0x95, 0xd5, 0x51, 0xf9, 0x13, 0xd4,
+        0x92, 0x7b, 0xbf, 0xac, 0xac, 0x44, 0xf1, 0x15,
+        0x53, 0x1e, 0x83, 0x61, 0xcf, 0xee, 0x8c, 0xb3,
+        0xbe, 0xb3, 0x1f, 0x72, 0xba, 0xe8, 0xff, 0x63,
+        0x01, 0x4f, 0x74, 0xa1, 0x25, 0xbb, 0x42, 0x85,
     ])
 }
 
@@ -367,7 +367,7 @@ enum WalletRPCCodec {
 
     static let framedStatusRequest = Data([
         0x00, 0x00, 0x00, 0x06,
-        0x00, 0xa0, 0x00, 0x01, 0x01, 0x00
+        0x01, 0x07, 0x00, 0x01, 0x01, 0x00
     ])
 
     static let framedFaucetTermsRequest = framedRequest(body: Data([7]))
@@ -452,7 +452,7 @@ enum WalletRPCCodec {
         variant: UInt8
     ) throws -> WalletBinaryDecoder {
         var decoder = WalletBinaryDecoder(data: envelope)
-        guard try decoder.readUInt16() == 0x00a1,
+        guard try decoder.readUInt16() == 0x010a,
               try decoder.readUInt16() == 1 else { throw WalletRPCError.unexpectedResponse }
         let length = try decoder.readULEB128(maximum: maximumFrameLength)
         guard length == decoder.remaining,
@@ -461,7 +461,7 @@ enum WalletRPCCodec {
     }
 
     private static func framedRequest(body: Data) -> Data {
-        var envelope = Data([0x00, 0xa0, 0x00, 0x01])
+        var envelope = Data([0x01, 0x07, 0x00, 0x01])
         envelope.append(contentsOf: uleb128(body.count))
         envelope.append(body)
         var frame = Data()
@@ -492,7 +492,7 @@ enum WalletRPCCodec {
         body.append(0) // Option<Digest384>::None
         body.append(UInt8(limit >> 8))
         body.append(UInt8(limit & 0xff))
-        var envelope = Data([0x00, 0xa0, 0x00, 0x01])
+        var envelope = Data([0x01, 0x07, 0x00, 0x01])
         envelope.append(UInt8(body.count))
         envelope.append(body)
         var framed = Data()
@@ -506,7 +506,7 @@ enum WalletRPCCodec {
 
     static func decodeStatus(_ envelope: Data) throws -> WalletRPCStatus {
         var decoder = WalletBinaryDecoder(data: envelope)
-        guard try decoder.readUInt16() == 0x00a1,
+        guard try decoder.readUInt16() == 0x010a,
               try decoder.readUInt16() == 1
         else {
             throw WalletRPCError.unexpectedResponse
@@ -561,7 +561,7 @@ enum WalletRPCCodec {
 
     static func decodeOwnerCoinPage(_ envelope: Data) throws -> WalletOwnerCoinPage {
         var decoder = WalletBinaryDecoder(data: envelope)
-        guard try decoder.readUInt16() == 0x00a1,
+        guard try decoder.readUInt16() == 0x010a,
               try decoder.readUInt16() == 1 else { throw WalletRPCError.unexpectedResponse }
         let bodyLength = try decoder.readULEB128(maximum: maximumFrameLength)
         guard bodyLength == decoder.remaining else { throw WalletRPCError.unexpectedResponse }
