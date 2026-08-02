@@ -54,6 +54,7 @@ jobs:
           cp deploy/kanalen/network.env dist/kanalen/
           cp -R deploy/kanalen/launchagents dist/kanalen/
           cp -R deploy/kanalen/scripts dist/kanalen/
+          cp scripts/check-validator-snapshot.sh scripts/check-execution-snapshot.sh dist/kanalen/scripts/
           tar -czf "kanalen-${GITHUB_SHA}.tar.gz" -C dist kanalen
           shasum -a 256 "kanalen-${GITHUB_SHA}.tar.gz" > "kanalen-${GITHUB_SHA}.sha256"
       - name: Publish bundle artifact
