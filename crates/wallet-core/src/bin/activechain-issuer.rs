@@ -1,5 +1,6 @@
 use activechain_canonical_codec::{CanonicalType, decode_envelope, encode_envelope};
 use activechain_cash_kernel::FungibleCoinCell;
+use activechain_principal::{LifecycleAuthorization, PrincipalCommand, apply_lifecycle_command};
 use activechain_protocol_types::{
     AssetId, Digest384, FungibleAssetDefinition, FungibleAssetLifecycle,
     FungibleAssetLifecycleAction, FungibleAssetLifecycleActionV1, FungibleAssetPolicyV1,
@@ -9,7 +10,7 @@ use activechain_protocol_types::{
     FungibleExceptionalControlPolicyV1, FungibleHolderControlStateV1, FungibleIssuerApprovalV1,
     FungibleIssuerOperation, FungibleIssuerRegistrationV1, FungibleSupplyAttestationV1,
     NonFungibleIssuerApprovalV1, NonFungibleMintItemV1, NonFungibleMintManifestV1,
-    NonFungibleSeriesV1, NonFungibleTokenRegistryV1, PrincipalId,
+    NonFungibleSeriesV1, NonFungibleTokenRegistryV1, Principal, PrincipalId, RecoveryRequest,
 };
 
 fn hex_digest(value: &str) -> Result<Digest384, String> {
@@ -89,12 +90,16 @@ fn control_usage() -> &'static str {
     "  activechain-issuer control-policy <asset> <issuer> <authority-set> <declared|absent freeze> <declared|absent clawback>\n  activechain-issuer holder-control-state <asset> <holder>\n  activechain-issuer control-action <policy-envelope> <state-envelope> <recipient> <approval> <reason> <freeze|unfreeze|clawback> <amount> <effective-height> <expires-height>\n  activechain-issuer dry-run-control <definition-envelope> <policy-envelope> <state-envelope> <action-envelope> <finalized-height> [coin-cell-envelope]"
 }
 
+fn recovery_usage() -> &'static str {
+    "  activechain-issuer recovery-initiation <principal-envelope> <policy-envelope> <state-envelope> <proposed-controller-policy> <replacement-authority> <recovery-evidence> <recovery-bond> <initiation-height> <challenge-deadline> <rotation-approval> <rotation-expires-height>"
+}
+
 fn hex_bytes(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn envelope<T: CanonicalType>(value: &str, name: &str) -> Result<T, String> {
-    if value.len() % 2 != 0 {
+    if !value.len().is_multiple_of(2) {
         return Err(format!("{name} envelope must contain an even number of hex characters"));
     }
     let mut bytes = Vec::with_capacity(value.len() / 2);
@@ -279,7 +284,7 @@ fn run(args: &[String]) -> Result<String, String> {
                     .map_err(|_| "invalid NFT registry values")?;
             Ok(hex_bytes(&encode_envelope(&registry).map_err(|_| "NFT registry encoding failed")?))
         }
-        Some("nft-manifest") if args.len() >= 6 && (args.len() - 3) % 3 == 0 => {
+        Some("nft-manifest") if args.len() >= 6 && (args.len() - 3).is_multiple_of(3) => {
             let mut items = Vec::with_capacity((args.len() - 3) / 3);
             for values in args[3..].chunks_exact(3) {
                 items.push(
@@ -398,6 +403,83 @@ fn run(args: &[String]) -> Result<String, String> {
                 )
             ))
         }
+        Some("recovery-initiation") if args.len() == 12 => {
+            let principal: Principal = envelope(&args[1], "principal")?;
+            let policy: FungibleAssetPolicyV1 = envelope(&args[2], "policy")?;
+            let state: FungibleControllerStateV1 = envelope(&args[3], "controller state")?;
+            let proposed_controller_policy = hex_digest(&args[4])?;
+            let replacement_authority = hex_digest(&args[5])?;
+            let recovery_evidence = hex_digest(&args[6])?;
+            let recovery_bond =
+                args[7].parse().map_err(|_| "recovery-bond must be an unsigned integer")?;
+            let initiation_height =
+                args[8].parse().map_err(|_| "initiation-height must be an unsigned integer")?;
+            let challenge_deadline =
+                args[9].parse().map_err(|_| "challenge-deadline must be an unsigned integer")?;
+            let rotation_expires = args[11]
+                .parse()
+                .map_err(|_| "rotation-expires-height must be an unsigned integer")?;
+            if principal.principal_id() != policy.issuer()
+                || principal.authenticator_set_root() != policy.authority_set()
+                || proposed_controller_policy == Digest384::ZERO
+                || recovery_evidence == Digest384::ZERO
+                || recovery_bond == 0
+            {
+                return Err(
+                    "issuer recovery context does not bind principal and asset policy".into()
+                );
+            }
+            let authorization = LifecycleAuthorization::recovery(
+                principal.principal_id(),
+                principal.sequence(),
+                principal.recovery_policy_hash(),
+            );
+            let output = apply_lifecycle_command(
+                &principal,
+                PrincipalCommand::InitiateRecovery {
+                    expected_sequence: principal.sequence(),
+                    proposed_controller_policy_hash: proposed_controller_policy,
+                    proposed_authenticator_set_root: replacement_authority,
+                    recovery_evidence_commitment: recovery_evidence,
+                    challenge_deadline,
+                    recovery_bond,
+                },
+                Some(&authorization),
+                initiation_height,
+            )
+            .map_err(|_| "issuer recovery initiation rejected")?;
+            let request: RecoveryRequest =
+                output.recovery_request().ok_or("issuer recovery did not produce a request")?;
+            let rotation = FungibleControllerRotationV1::new(
+                policy.asset_id(),
+                policy.issuer(),
+                state.commitment().map_err(|_| "controller state encoding failed")?,
+                policy.authority_set(),
+                replacement_authority,
+                hex_digest(&args[10])?,
+                state.revision(),
+                challenge_deadline,
+                rotation_expires,
+            )
+            .map_err(|_| "invalid recovery controller rotation")?;
+            state
+                .apply_rotation(&policy, &rotation, challenge_deadline)
+                .map_err(|_| "recovery rotation does not bind policy state")?;
+            Ok(format!(
+                "{}:{}:{}",
+                hex_bytes(
+                    &encode_envelope(&output.principal())
+                        .map_err(|_| "pending principal encoding failed")?
+                ),
+                hex_bytes(
+                    &encode_envelope(&request).map_err(|_| "recovery request encoding failed")?
+                ),
+                hex_bytes(
+                    &encode_envelope(&rotation)
+                        .map_err(|_| "controller rotation encoding failed")?
+                )
+            ))
+        }
         Some("control-policy") if args.len() == 6 => {
             let policy = FungibleExceptionalControlPolicyV1::new(
                 AssetId::new(hex_digest(&args[1])?),
@@ -483,7 +565,7 @@ fn run(args: &[String]) -> Result<String, String> {
                 ))
             }
         }
-        _ => Err(format!("{}\n{}", usage(), control_usage())),
+        _ => Err(format!("{}\n{}\n{}", usage(), control_usage(), recovery_usage())),
     }
 }
 
@@ -502,7 +584,7 @@ fn main() {
 mod tests {
     use super::*;
     use activechain_cash_kernel::CoinCellOrigin;
-    use activechain_protocol_types::TransactionId;
+    use activechain_protocol_types::{FreezeState, PrincipalKind, TransactionId};
 
     fn d() -> String {
         "11".repeat(48)
@@ -1017,6 +1099,118 @@ mod tests {
                 "20".into(),
             ]),
             Err("controller rotation dry-run rejected".into())
+        );
+    }
+
+    #[test]
+    fn recovery_initiation_binds_principal_challenge_and_post_challenge_rotation() {
+        let (policy, _) = policy_and_approval(FungibleIssuerOperation::Mint, 1);
+        let principal = Principal::new(
+            policy.issuer(),
+            PrincipalKind::Organization,
+            Digest384::new([0x44; 48]),
+            Digest384::new([0x45; 48]),
+            policy.authority_set(),
+            7,
+            FreezeState::Active,
+            Digest384::new([0x46; 48]),
+            100,
+            1,
+            5,
+        )
+        .unwrap();
+        let state = FungibleControllerStateV1::from_policy(&policy, 3).unwrap();
+        let principal_hex = hex_bytes(&encode_envelope(&principal).unwrap());
+        let policy_hex = hex_bytes(&encode_envelope(&policy).unwrap());
+        let state_hex = hex_bytes(&encode_envelope(&state).unwrap());
+        let output = run(&[
+            "recovery-initiation".into(),
+            principal_hex.clone(),
+            policy_hex.clone(),
+            state_hex.clone(),
+            h(50),
+            h(55),
+            h(52),
+            "100".into(),
+            "10".into(),
+            "20".into(),
+            h(53),
+            "30".into(),
+        ])
+        .unwrap();
+        let parts = output.split(':').collect::<Vec<_>>();
+        assert_eq!(parts.len(), 3);
+        let pending: Principal = envelope(parts[0], "principal").unwrap();
+        let request: RecoveryRequest = envelope(parts[1], "recovery request").unwrap();
+        let rotation: FungibleControllerRotationV1 =
+            envelope(parts[2], "controller rotation").unwrap();
+        assert_eq!(pending.principal_id(), policy.issuer());
+        assert_eq!(pending.sequence(), 8);
+        assert_eq!(pending.freeze_state(), FreezeState::RecoveryPending);
+        assert_eq!(request.expected_sequence(), 7);
+        assert_eq!(request.proposed_controller_policy_hash(), Digest384::new([50; 48]));
+        assert_eq!(request.proposed_authenticator_set_root(), Digest384::new([55; 48]));
+        assert_eq!(request.challenge_deadline(), 20);
+        assert_eq!(request.recovery_bond(), 100);
+        assert_eq!(rotation.replacement_authority_set(), Digest384::new([55; 48]));
+        assert_eq!(rotation.effective_height(), 20);
+        assert_eq!(rotation.expires_height(), 30);
+        assert!(state.apply_rotation(&policy, &rotation, 19).is_err());
+        assert!(state.apply_rotation(&policy, &rotation, 20).is_ok());
+
+        assert_eq!(
+            run(&[
+                "recovery-initiation".into(),
+                principal_hex,
+                policy_hex,
+                state_hex,
+                h(50),
+                h(55),
+                h(52),
+                "100".into(),
+                "20".into(),
+                "20".into(),
+                h(53),
+                "30".into(),
+            ]),
+            Err("issuer recovery initiation rejected".into())
+        );
+    }
+
+    #[test]
+    fn recovery_initiation_rejects_wrong_issuer_authority_and_empty_evidence() {
+        let (policy, _) = policy_and_approval(FungibleIssuerOperation::Mint, 1);
+        let state = FungibleControllerStateV1::from_policy(&policy, 0).unwrap();
+        let wrong = Principal::new(
+            PrincipalId::new(Digest384::new([0x99; 48])),
+            PrincipalKind::Organization,
+            Digest384::new([0x44; 48]),
+            Digest384::new([0x45; 48]),
+            policy.authority_set(),
+            0,
+            FreezeState::Active,
+            Digest384::new([0x46; 48]),
+            100,
+            1,
+            1,
+        )
+        .unwrap();
+        assert_eq!(
+            run(&[
+                "recovery-initiation".into(),
+                hex_bytes(&encode_envelope(&wrong).unwrap()),
+                hex_bytes(&encode_envelope(&policy).unwrap()),
+                hex_bytes(&encode_envelope(&state).unwrap()),
+                h(50),
+                h(51),
+                "00".repeat(48),
+                "100".into(),
+                "10".into(),
+                "20".into(),
+                h(53),
+                "30".into(),
+            ]),
+            Err("issuer recovery context does not bind principal and asset policy".into())
         );
     }
 }

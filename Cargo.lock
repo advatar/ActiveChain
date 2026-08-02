@@ -725,6 +725,7 @@ version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
  "activechain-cash-kernel",
+ "activechain-principal",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
  "getrandom 0.3.4",
