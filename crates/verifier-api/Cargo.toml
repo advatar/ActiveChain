@@ -21,10 +21,11 @@ activechain-payment-types.workspace = true
 activechain-protocol-commitment = { path = "../protocol-commitment", version = "0.1.0" }
 activechain-protocol-types.workspace = true
 activechain-state-tree.workspace = true
+ml-dsa = "0.1.1"
 sha3.workspace = true
 
 [dev-dependencies]
-ml-dsa = "0.1.1"
+activechain-authorization-kernel.workspace = true
 
 [lints]
 workspace = true

@@ -552,6 +552,45 @@ pub unsafe extern "C" fn activechain_verify_authorization_chain_code(
 
 #[unsafe(no_mangle)]
 /// # Safety
+/// The caller must provide readable signed-chain and finality buffers for non-zero lengths and a
+/// readable 48-byte trusted genesis. No pointer is retained.
+pub unsafe extern "C" fn activechain_verify_signed_authorization_chain_code(
+    bytes: *const u8,
+    bytes_len: u32,
+    finality: *const u8,
+    finality_len: u32,
+    trusted_genesis: *const u8,
+) -> u32 {
+    if (bytes.is_null() && bytes_len != 0)
+        || (finality.is_null() && finality_len != 0)
+        || trusted_genesis.is_null()
+    {
+        return NULL_POINTER;
+    }
+    if bytes_len.checked_add(finality_len).is_none_or(|length| length > MAX_ENVELOPE_LENGTH) {
+        return TOO_LARGE;
+    }
+    let bytes = if bytes_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(bytes, bytes_len as usize) }
+    };
+    let finality = if finality_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(finality, finality_len as usize) }
+    };
+    let mut genesis = [0_u8; 48];
+    genesis.copy_from_slice(unsafe { core::slice::from_raw_parts(trusted_genesis, 48) });
+    activechain_verifier_api::verify_signed_authorization_chain_code(
+        bytes,
+        finality,
+        Digest384::new(genesis),
+    )
+}
+
+#[unsafe(no_mangle)]
+/// # Safety
 /// The caller must provide readable buffers for every non-zero declared length and readable
 /// 48-byte principal, authenticator, and trusted-genesis identifiers. No pointer is retained.
 #[allow(clippy::too_many_arguments)]
@@ -1165,6 +1204,39 @@ mod tests {
         );
         assert_eq!(
             unsafe { activechain_verify_authorization_chain_code(core::ptr::null(), 1) },
+            NULL_POINTER
+        );
+    }
+
+    #[test]
+    fn signed_authorization_chain_abi_matches_rust_failures_and_is_null_safe() {
+        let genesis = [7_u8; 48];
+        assert_eq!(
+            unsafe {
+                activechain_verify_signed_authorization_chain_code(
+                    core::ptr::null(),
+                    0,
+                    core::ptr::null(),
+                    0,
+                    genesis.as_ptr(),
+                )
+            },
+            activechain_verifier_api::verify_signed_authorization_chain_code(
+                &[],
+                &[],
+                Digest384::new(genesis),
+            )
+        );
+        assert_eq!(
+            unsafe {
+                activechain_verify_signed_authorization_chain_code(
+                    core::ptr::null(),
+                    1,
+                    core::ptr::null(),
+                    0,
+                    genesis.as_ptr(),
+                )
+            },
             NULL_POINTER
         );
     }

@@ -1,0 +1,21 @@
+case	mutation	expected	reason
+canonical	identity	verified	actor and every issuer signature join finalized controllers
+wrong_genesis	trusted_genesis	invalid	wrong network finality
+wrong_epoch	authorization_epoch	invalid	finalized epoch mismatch
+wrong_height	authorization_height	invalid	finalized height mismatch
+wrong_state_root	finalized_state_root	invalid	principal evidence context substitution
+wrong_actor	actor_principal	invalid	actor and leaf holder mismatch
+frozen_actor	freeze_state	invalid	actor controller is not active
+capability_ids	capability_order	invalid	envelope and chain mismatch
+missing_actor_witness	controller_count	invalid	witness cardinality mismatch
+missing_issuer_witness	controller_count	invalid	witness cardinality mismatch
+reordered_witnesses	controller_order	invalid	controller principal mismatch
+wrong_actor_key	authenticator_id	invalid	actor controller substitution
+wrong_issuer_key	authenticator_id	invalid	issuer controller substitution
+wrong_actor_purpose	purpose	invalid	actor requires session authenticator
+wrong_issuer_purpose	purpose	invalid	issuer requires control authenticator
+actor_signature	actor_signature	invalid	ML-DSA verification
+capability_signature	issuer_signature	invalid	ML-DSA verification
+capability_field	authority_field	invalid	canonical signing payload binding
+truncated	envelope_truncate	invalid	strict canonical framing
+trailing	envelope_plus_byte	invalid	strict canonical framing

@@ -300,3 +300,4 @@
 0x01A6	1	OpenId4VpTransportSnapshotV1	crates/wallet-core/src/openid4vp.rs
 0x01A7	1	PaymentSdkRequestV1	crates/payment-sdk/src/lib.rs
 0x01A8	1	PaymentSdkResponseV1	crates/payment-sdk/src/lib.rs
+0x01A9	1	SignedAuthorizationChainV1	crates/verifier-api/src/signed_authorization.rs

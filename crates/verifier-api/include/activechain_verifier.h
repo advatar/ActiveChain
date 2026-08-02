@@ -206,6 +206,16 @@ uint32_t activechain_verify_capability_attenuation_code(const uint8_t *parent,
 uint32_t activechain_verify_authorization_chain_code(const uint8_t *bytes, uint32_t bytes_len);
 
 /**
+ * Verifies actor and capability signatures against controller keys proven in finalized state.
+ * `trusted_genesis` points to exactly 48 readable bytes.
+ */
+uint32_t activechain_verify_signed_authorization_chain_code(const uint8_t *bytes,
+                                                            uint32_t bytes_len,
+                                                            const uint8_t *finality,
+                                                            uint32_t finality_len,
+                                                            const uint8_t *trusted_genesis);
+
+/**
  * Verifies a principal state object, its finalized membership proof, and one active authenticator.
  * `trusted_genesis`, `expected_principal`, and `expected_authenticator` each point to 48 bytes.
  * `expected_purpose` uses the canonical AuthenticatorPurpose tag (0 through 5).

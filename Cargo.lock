@@ -687,6 +687,7 @@ version = "0.1.0"
 dependencies = [
  "activechain-action-kernel",
  "activechain-application-primitives",
+ "activechain-authorization-kernel",
  "activechain-canonical-codec",
  "activechain-capability",
  "activechain-cash-kernel",

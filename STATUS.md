@@ -2398,16 +2398,16 @@ Tracked by [GitHub issue #387](https://github.com/advatar/ActiveChain/issues/387
       - [x] Extract canonical execution-proof inputs and finalized-block headers from the
         validator runtime into the bounded shared `activechain-finality-types` crate without
         changing their registered tags, schemas, encoding, or digest domains.
-    - [ ] Add receipt and joined authorization-chain verifiers with complete positive and
+    - [x] Add receipt and joined authorization-chain verifiers with complete positive and
       malformed vectors.
       - [x] Verify canonical block receipts against a cryptographically verified finality bundle,
         exact receipt commitment, height, and pre/post state transition through matching Rust and
         C result codes.
-      - [ ] Verify joined authorization chains.
+      - [x] Verify joined authorization chains.
         - [x] Publish bounded canonical whole-chain attenuation, finalized-height validity, root
           linkage, and leaf actor-binding verification through matching Rust and C result codes.
-        - [ ] Join capability and actor signatures to principal controller keys proven against the
-          finalized state root.
+        - [x] Join capability and actor signatures to principal controller keys proven against the
+          finalized state root ([GitHub issue #626](https://github.com/advatar/ActiveChain/issues/626)).
           - [x] Canonicalize object-backed finalized principal and authenticator-set witnesses
             ([GitHub issue #627](https://github.com/advatar/ActiveChain/issues/627)).
   - [x] Expose Coin Cell discovery, policy evaluation, canonical intents, approval-bound signing,

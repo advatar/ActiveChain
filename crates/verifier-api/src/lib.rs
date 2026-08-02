@@ -3,6 +3,13 @@
 
 extern crate alloc;
 
+mod signed_authorization;
+
+pub use signed_authorization::{
+    AuthorizationControllerWitnessV1, SignedAuthorizationChainV1,
+    verify_signed_authorization_chain, verify_signed_authorization_chain_code,
+};
+
 use activechain_application_primitives::{AnchorFinalizedEvidenceV1, DigestAnchorStatementV1};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
@@ -907,6 +914,7 @@ mod tests {
     use super::*;
     use activechain_action_kernel::ResourceVector;
     use activechain_application_primitives::{AnchorFinalizedEvidenceV1, DigestAnchorStatementV1};
+    use activechain_authorization_kernel::AuthorizationEnvelope;
     use activechain_canonical_codec::encode_envelope;
     use activechain_cash_kernel::{
         CoinCell, CoinCellOrigin, CoinCellRecord, CoinCellSet, prove_coin_cell_membership,
@@ -926,7 +934,7 @@ mod tests {
     };
     use activechain_state_tree::{commit_objects, prove_object};
     use alloc::{vec, vec::Vec};
-    use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
+    use ml_dsa::{Keypair, MlDsa44, MlDsa65, Seed, Signer, SigningKey};
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
@@ -1455,6 +1463,225 @@ mod tests {
                 AuthenticatorPurpose::Control,
             ),
             VerifyError::Decode(DecodeError::TrailingData { remaining: 1 }).code()
+        );
+    }
+
+    #[test]
+    fn signed_authorization_chain_joins_real_signatures_to_finalized_controllers() {
+        let actor_id = PrincipalId::new(digest(90));
+        let root_issuer = PrincipalId::new(digest(91));
+        let child_issuer = PrincipalId::new(digest(92));
+        let actor_key = SigningKey::<MlDsa44>::from_seed(&Seed::from([90; 32]));
+        let root_key = SigningKey::<MlDsa65>::from_seed(&Seed::from([91; 32]));
+        let child_key = SigningKey::<MlDsa65>::from_seed(&Seed::from([92; 32]));
+
+        let identity = |principal_id: PrincipalId,
+                        authenticator_id: AuthenticatorId,
+                        suite: CryptoSuiteId,
+                        key: Vec<u8>,
+                        purpose: AuthenticatorPurpose| {
+            let authenticator = AuthenticatorDescriptor::new(
+                authenticator_id,
+                suite,
+                key,
+                purpose,
+                1,
+                Some(12),
+                None,
+            )
+            .unwrap();
+            let set = AuthenticatorSetV1::new(vec![authenticator]).unwrap();
+            let principal = Principal::new(
+                principal_id,
+                PrincipalKind::Organization,
+                digest(93),
+                digest(94),
+                set.root().unwrap(),
+                1,
+                FreezeState::Active,
+                digest(95),
+                1,
+                1,
+                8,
+            )
+            .unwrap();
+            let value = encode_envelope(&principal).unwrap();
+            let object = Object::new(ObjectFields {
+                object_id: ObjectId::new(principal_id.into_digest()),
+                object_version: 1,
+                type_id: principal_registry_object_type(),
+                owner: ObjectOwner::Principal(principal_id),
+                control_policy_hash: digest(96),
+                use_policy_hash: digest(97),
+                disclosure_policy_hash: digest(98),
+                upgrade_policy_hash: digest(99),
+                package_id: None,
+                value_root: commit_parts(PRINCIPAL_REGISTRY_OBJECT_VALUE_DOMAIN, &[&value]),
+                public_value: Some(value),
+                lease_expiry_epoch: 10,
+                storage_deposit: 1,
+                flags: ObjectFlags::SYSTEM,
+            })
+            .unwrap();
+            (object, set, authenticator_id)
+        };
+        let identities = [
+            identity(
+                actor_id,
+                AuthenticatorId::new(digest(100)),
+                CryptoSuiteId::ML_DSA_44,
+                actor_key.verifying_key().encode().to_vec(),
+                AuthenticatorPurpose::Session,
+            ),
+            identity(
+                root_issuer,
+                AuthenticatorId::new(digest(101)),
+                CryptoSuiteId::ML_DSA_65,
+                root_key.verifying_key().encode().to_vec(),
+                AuthenticatorPurpose::Control,
+            ),
+            identity(
+                child_issuer,
+                AuthenticatorId::new(digest(102)),
+                CryptoSuiteId::ML_DSA_65,
+                child_key.verifying_key().encode().to_vec(),
+                AuthenticatorPurpose::Control,
+            ),
+        ];
+        let objects = identities.iter().map(|entry| entry.0.clone()).collect::<Vec<_>>();
+        let state = commit_objects(&objects).unwrap();
+        let unsigned_capability = |id: u8,
+                                   issuer: PrincipalId,
+                                   holder: PrincipalId,
+                                   parent: Option<u8>,
+                                   depth: u8,
+                                   allowed: bool| {
+            CapabilityGrant::new(
+                CapabilityGrantFields {
+                    capability_id: CapabilityId::new(digest(id)),
+                    issuer,
+                    holder_binding: HolderBinding::Principal(holder),
+                    parent_capability: parent.map(|value| CapabilityId::new(digest(value))),
+                    permitted_actions: BoundedActionSet::new(vec![ActionId::new(digest(1))])
+                        .unwrap(),
+                    resource_scope: ResourceSelector::ANY,
+                    data_scope: DataSelector::ANY,
+                    monetary_limit: Some(100),
+                    compute_limit: Some(100),
+                    rate_limit: None,
+                    use_limit: Some(10),
+                    valid_from: 1,
+                    valid_until: Some(12),
+                    delegation_depth_remaining: depth,
+                    delegation_allowed: allowed,
+                    revocation_registry: None,
+                    constraint_hash: digest(103),
+                },
+                ProtocolSignature::new(CryptoSuiteId::ML_DSA_65, vec![0; 3_309]).unwrap(),
+            )
+            .unwrap()
+        };
+        let sign_capability = |unsigned: CapabilityGrant, key: &SigningKey<MlDsa65>| {
+            let signature = key.sign(&unsigned.signing_payload().unwrap());
+            CapabilityGrant::new(
+                unsigned.fields().clone(),
+                ProtocolSignature::new(CryptoSuiteId::ML_DSA_65, signature.encode().to_vec())
+                    .unwrap(),
+            )
+            .unwrap()
+        };
+        let root = sign_capability(
+            unsigned_capability(104, root_issuer, child_issuer, None, 1, true),
+            &root_key,
+        );
+        let child = sign_capability(
+            unsigned_capability(105, child_issuer, actor_id, Some(104), 0, false),
+            &child_key,
+        );
+        let chain = AuthorizationChain::new(actor_id, 9, vec![root, child]).unwrap();
+        let provisional = finality_bundle_with_inputs(
+            digest(47),
+            StateCommitment::new(digest(42), 0),
+            state,
+            digest(50),
+        );
+        let genesis = provisional.validator_genesis().genesis_commitment();
+        let capability_ids = chain
+            .capabilities()
+            .iter()
+            .map(|capability| capability.fields().capability_id)
+            .collect::<Vec<_>>();
+        let unsigned_envelope = AuthorizationEnvelope::new(
+            digest(106),
+            genesis,
+            3,
+            actor_id,
+            9,
+            1,
+            state.root(),
+            digest(107),
+            1,
+            1,
+            FreezeState::Active,
+            None,
+            vec![],
+            vec![],
+            capability_ids.clone(),
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2_420]).unwrap(),
+        )
+        .unwrap();
+        let actor_signature = actor_key.sign(&unsigned_envelope.signing_payload().unwrap());
+        let envelope = AuthorizationEnvelope::new(
+            digest(106),
+            genesis,
+            3,
+            actor_id,
+            9,
+            1,
+            state.root(),
+            digest(107),
+            1,
+            1,
+            FreezeState::Active,
+            None,
+            vec![],
+            vec![],
+            capability_ids,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, actor_signature.encode().to_vec())
+                .unwrap(),
+        )
+        .unwrap();
+        let controllers = [0_usize, 1, 2]
+            .into_iter()
+            .map(|index| {
+                AuthorizationControllerWitnessV1::new(
+                    encode_envelope(&identities[index].0).unwrap(),
+                    encode_envelope(
+                        &prove_object(&objects, identities[index].0.object_id()).unwrap(),
+                    )
+                    .unwrap(),
+                    encode_envelope(&identities[index].1).unwrap(),
+                    identities[index].2,
+                )
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+        let signed = SignedAuthorizationChainV1::new(
+            encode_envelope(&envelope).unwrap(),
+            chain,
+            controllers,
+        )
+        .unwrap();
+        let signed_bytes = encode_envelope(&signed).unwrap();
+        let finality = encode_envelope(&provisional).unwrap();
+        assert_eq!(verify_signed_authorization_chain(&signed_bytes, &finality, genesis), Ok(()));
+
+        let mut tampered = signed_bytes;
+        let last = tampered.len() - 1;
+        tampered[last] ^= 1;
+        assert_eq!(
+            verify_signed_authorization_chain_code(&tampered, &finality, genesis),
+            VerifyError::RelationMismatch.code()
         );
     }
 

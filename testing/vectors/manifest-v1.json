@@ -20,6 +20,14 @@
       "status": "valid"
     },
     {
+      "id": "signed-authorization-chain-v1",
+      "type_tag": "0x0020,0x0028,0x0030,0x0050,0x0055,0x007A,0x007D,0x01A9",
+      "schema_version": 1,
+      "source": "signed-authorization-chain-v1.tsv",
+      "sha256": "2a162f0b5fa1fd58d5f85bf490d6c4b5e06dba9eeb4027ee703293b1955b8a28",
+      "status": "valid"
+    },
+    {
       "id": "native-money-v1",
       "type_tag": "0x0080-0x0089",
       "schema_version": 2,
