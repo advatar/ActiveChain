@@ -670,6 +670,7 @@ impl ConsensusAssetLedgerV1 {
             ActionPayloadV2::FungibleBurn { burn, .. } => burn.asset_id(),
             ActionPayloadV2::FungibleRedemption { redemption, .. } => redemption.asset_id(),
             ActionPayloadV2::FungibleCorporateAction { action, .. } => action.asset_id(),
+            ActionPayloadV2::FungibleLifecycle { action, .. } => action.asset_id(),
             ActionPayloadV2::Transfer(_) => return Err(NativeMoneyError::InvalidInputs),
         };
         let index = self
@@ -694,6 +695,21 @@ impl ConsensusAssetLedgerV1 {
                 corporate_actions,
             });
         }
+        if let ActionPayloadV2::FungibleLifecycle { issuer, action, .. } = payload {
+            if *issuer != policy.issuer() {
+                return Err(NativeMoneyError::InvalidInputs);
+            }
+            let next_policy = policy
+                .apply_lifecycle_action(action, height)
+                .map_err(|_| NativeMoneyError::InvalidInputs)?;
+            let mut policies = self.policies.clone();
+            policies[index] = next_policy;
+            return Ok(Self {
+                cells: self.cells.clone(),
+                policies,
+                corporate_actions: self.corporate_actions.clone(),
+            });
+        }
         let (cells, next_policy) = match payload {
             ActionPayloadV2::FungibleMint { mint, approval, .. } => {
                 self.cells.apply_mint(mint, policy, approval, height)?
@@ -704,7 +720,9 @@ impl ConsensusAssetLedgerV1 {
             ActionPayloadV2::FungibleRedemption { redemption, approval, .. } => {
                 self.cells.apply_redemption(redemption, policy, approval, height)?
             }
-            ActionPayloadV2::Transfer(_) | ActionPayloadV2::FungibleCorporateAction { .. } => {
+            ActionPayloadV2::Transfer(_)
+            | ActionPayloadV2::FungibleCorporateAction { .. }
+            | ActionPayloadV2::FungibleLifecycle { .. } => {
                 unreachable!()
             }
         };

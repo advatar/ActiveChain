@@ -1895,6 +1895,9 @@ impl FungibleAssetLifecycleActionV1 {
     pub const fn authority_set(&self) -> Digest384 {
         self.authority_set
     }
+    pub const fn approval_commitment(&self) -> Digest384 {
+        self.approval_commitment
+    }
     pub const fn effective_height(&self) -> u64 {
         self.effective_height
     }

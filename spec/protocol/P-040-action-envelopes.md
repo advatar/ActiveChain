@@ -60,8 +60,11 @@ The ticket expiry MUST equal the envelope `valid_until`, and the inclusive inter
 `ChainState` schema 4 stores fee accounts, each consumed identifier's expiry, the authoritative
 multi-asset ledger, and its exact-once corporate-action registry. Schema 3 migrates by preserving
 the complete asset policy and Coin Cell ledger and initializing an empty corporate-action registry.
-The standalone `ConsensusAssetLedgerV1` envelope advances to schema 2 with the same lossless
-schema-1 migration rule. `ActionPayloadV2` advances to schema 2 for the corporate-action variant.
+The standalone `ConsensusAssetLedgerV1` envelope uses schema 2 with the same lossless schema-1
+migration rule. `ActionPayloadV2` schema 3 includes corporate actions and issuer-bound lifecycle
+actions. Pause, resume, and retirement execute only against the exact policy commitment, authority
+set, approval commitment, and finalized-height window; retirement additionally requires zero
+issued supply.
 Bounded schema-1 migration is allowed only for an empty legacy replay set and requires the operator
 to supply canonical fee accounts. A non-empty schema-1 replay set lacks expiry and payer-nonce
 evidence and MUST fail closed.

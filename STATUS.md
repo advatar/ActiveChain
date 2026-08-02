@@ -1195,6 +1195,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   actions in consensus, persistence, authorization, and formal proofs.
   - [x] Admit exact policy/authority/window-bound corporate actions as validator payloads and
     commit their replay-safe registry successor in consensus asset-ledger state.
+  - [x] Admit issuer- and approval-bound pause, resume, and retirement actions as exact consensus
+    policy successors, including the zero-supply retirement rule.
   - [x] Persist each accepted controller rotation as one atomic policy/controller-state successor,
     revalidating exact commitments and revision bindings on restart.
   - [x] Authenticate the complete policy/Cell ledger through a canonical state-tree anchor proven

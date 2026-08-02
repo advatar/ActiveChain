@@ -7,8 +7,9 @@ use activechain_cash_kernel::{FungibleBurnV1, FungibleMintV1, FungibleRedemption
 use activechain_policy_kernel::ActorBinding;
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
-    Amount, ChainId, Digest384, FungibleCorporateActionV1, FungibleIssuerApprovalV1,
-    FungibleIssuerOperation, Height, ObjectId, PrincipalId, TransactionId,
+    Amount, ChainId, Digest384, FungibleAssetLifecycleActionV1, FungibleCorporateActionV1,
+    FungibleIssuerApprovalV1, FungibleIssuerOperation, Height, ObjectId, PrincipalId,
+    TransactionId,
 };
 use activechain_transition::TransferTransaction;
 
@@ -467,11 +468,16 @@ pub enum ActionPayloadV2 {
         height: Height,
         action: FungibleCorporateActionV1,
     },
+    FungibleLifecycle {
+        height: Height,
+        issuer: PrincipalId,
+        action: FungibleAssetLifecycleActionV1,
+    },
 }
 
 impl ActionPayloadV2 {
     pub const TYPE_TAG: u16 = 0x0190;
-    pub const SCHEMA_VERSION: u16 = 2;
+    pub const SCHEMA_VERSION: u16 = 3;
     pub const MAX_ENCODED_LEN: usize = 1 + TransferTransaction::MAX_ENCODED_LEN;
 
     pub fn mint(
@@ -530,13 +536,25 @@ impl ActionPayloadV2 {
         Ok(Self::FungibleCorporateAction { height, action })
     }
 
+    pub fn lifecycle(
+        height: Height,
+        issuer: PrincipalId,
+        action: FungibleAssetLifecycleActionV1,
+    ) -> Result<Self, ActionPayloadValidationError> {
+        if issuer.digest() == &Digest384::ZERO || !action.active_at(height) {
+            return Err(ActionPayloadValidationError::ApprovalMismatch);
+        }
+        Ok(Self::FungibleLifecycle { height, issuer, action })
+    }
+
     pub const fn height(&self) -> Height {
         match self {
             Self::Transfer(value) => value.height(),
             Self::FungibleMint { height, .. }
             | Self::FungibleBurn { height, .. }
             | Self::FungibleRedemption { height, .. }
-            | Self::FungibleCorporateAction { height, .. } => *height,
+            | Self::FungibleCorporateAction { height, .. }
+            | Self::FungibleLifecycle { height, .. } => *height,
         }
     }
 
@@ -553,7 +571,7 @@ impl ActionPayloadV2 {
             Self::FungibleMint { approval, .. }
             | Self::FungibleBurn { approval, .. }
             | Self::FungibleRedemption { approval, .. } => Some(approval),
-            Self::FungibleCorporateAction { .. } => None,
+            Self::FungibleCorporateAction { .. } | Self::FungibleLifecycle { .. } => None,
         }
     }
 
@@ -563,7 +581,7 @@ impl ActionPayloadV2 {
             Self::FungibleMint { .. } => 1,
             Self::FungibleBurn { burn, .. } => burn.inputs().len(),
             Self::FungibleRedemption { redemption, .. } => redemption.inputs().len(),
-            Self::FungibleCorporateAction { .. } => 1,
+            Self::FungibleCorporateAction { .. } | Self::FungibleLifecycle { .. } => 1,
         }
     }
 
@@ -577,6 +595,7 @@ impl ActionPayloadV2 {
             Self::FungibleBurn { burn, .. } => burn.authority() == sender,
             Self::FungibleRedemption { redemption, .. } => redemption.authority() == sender,
             Self::FungibleCorporateAction { action, .. } => action.issuer() == sender,
+            Self::FungibleLifecycle { issuer, .. } => *issuer == sender,
         }
     }
 
@@ -618,6 +637,12 @@ impl CanonicalEncode for ActionPayloadV2 {
                 height.encode(encoder)?;
                 action.encode(encoder)
             }
+            Self::FungibleLifecycle { height, issuer, action } => {
+                5_u8.encode(encoder)?;
+                height.encode(encoder)?;
+                issuer.encode(encoder)?;
+                action.encode(encoder)
+            }
         }
     }
 }
@@ -649,6 +674,12 @@ impl CanonicalDecode for ActionPayloadV2 {
                 FungibleCorporateActionV1::decode(decoder)?,
             )
             .map_err(|_| DecodeError::InvalidValue("invalid fungible corporate action payload")),
+            5 => Self::lifecycle(
+                u64::decode(decoder)?,
+                PrincipalId::decode(decoder)?,
+                FungibleAssetLifecycleActionV1::decode(decoder)?,
+            )
+            .map_err(|_| DecodeError::InvalidValue("invalid fungible lifecycle action payload")),
             tag => Err(DecodeError::InvalidEnumTag { type_name: "ActionPayloadV2", tag }),
         }
     }
@@ -747,9 +778,14 @@ impl ActionEnvelope {
         if !payload.sender_matches(sender) {
             return Err(ActionEnvelopeError::SenderActorMismatch);
         }
-        if let ActionPayloadV2::FungibleCorporateAction { action, .. } = &payload
-            && authorization_commitment != action.approval_commitment()
-        {
+        let declared_approval = match &payload {
+            ActionPayloadV2::FungibleCorporateAction { action, .. } => {
+                Some(action.approval_commitment())
+            }
+            ActionPayloadV2::FungibleLifecycle { action, .. } => Some(action.approval_commitment()),
+            _ => None,
+        };
+        if declared_approval.is_some_and(|expected| authorization_commitment != expected) {
             return Err(ActionEnvelopeError::AuthorizationCommitmentMismatch);
         }
         if !maximum_resources.fits_within(fee_ticket.permitted_resources()) {

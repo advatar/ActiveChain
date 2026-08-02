@@ -21,10 +21,10 @@ use activechain_policy_kernel::{
 use activechain_protocol_commitment::{DomainTag, coin_cell_id, commit};
 use activechain_protocol_types::{
     AccessManifest, AccessManifestFields, AssetId, ChainId, Digest384, FreezeState,
-    FungibleAssetLifecycle, FungibleAssetPolicyV1, FungibleCorporateActionKind,
-    FungibleCorporateActionV1, FungibleIssuerApprovalV1, FungibleIssuerOperation, Object,
-    ObjectFields, ObjectFlags, ObjectId, ObjectOwner, ObjectVersionRef, PrincipalId,
-    ResourceSelector, TransactionId,
+    FungibleAssetLifecycle, FungibleAssetLifecycleAction, FungibleAssetLifecycleActionV1,
+    FungibleAssetPolicyV1, FungibleCorporateActionKind, FungibleCorporateActionV1,
+    FungibleIssuerApprovalV1, FungibleIssuerOperation, Object, ObjectFields, ObjectFlags, ObjectId,
+    ObjectOwner, ObjectVersionRef, PrincipalId, ResourceSelector, TransactionId,
 };
 use activechain_state_tree::{StateCommitment, commit_objects};
 use activechain_transition::{
@@ -434,6 +434,128 @@ fn corporate_action_atomically_advances_consensus_registry_and_rejects_replay() 
         output.receipt().action_receipts()[0].outcome(),
         ActionOutcome::AssetTransition { pre_ledger, post_ledger } if pre_ledger != post_ledger
     ));
+}
+
+#[test]
+fn lifecycle_payload_executes_exact_policy_successors_and_zero_supply_retirement() {
+    let asset = AssetId::new(digest(0xb1));
+    let policy = FungibleAssetPolicyV1::new(
+        asset,
+        sender(),
+        digest(0xb2),
+        digest(0xb3),
+        digest(0xb4),
+        digest(0xb5),
+        100,
+        0,
+        FungibleAssetLifecycle::Registered,
+    )
+    .unwrap();
+    let pause = FungibleAssetLifecycleActionV1::new(
+        asset,
+        policy.commitment().unwrap(),
+        policy.authority_set(),
+        digest(0xb6),
+        digest(0xb7),
+        FungibleAssetLifecycleAction::Pause,
+        1,
+        2,
+    )
+    .unwrap();
+    let payload = ActionPayloadV2::lifecycle(1, sender(), pause).unwrap();
+    let ledger =
+        ConsensusAssetLedgerV1::new(FungibleCoinCellSet::new(vec![]).unwrap(), vec![policy])
+            .unwrap();
+    let paused = ledger.apply(&payload, 1).unwrap();
+    assert_eq!(paused.policies()[0].lifecycle(), FungibleAssetLifecycle::Paused);
+    assert!(paused.apply(&payload, 1).is_err());
+
+    let resume = FungibleAssetLifecycleActionV1::new(
+        asset,
+        paused.policies()[0].commitment().unwrap(),
+        policy.authority_set(),
+        digest(0xb8),
+        digest(0xb9),
+        FungibleAssetLifecycleAction::Resume,
+        2,
+        3,
+    )
+    .unwrap();
+    let resumed =
+        paused.apply(&ActionPayloadV2::lifecycle(2, sender(), resume).unwrap(), 2).unwrap();
+    assert_eq!(resumed.policies()[0].lifecycle(), FungibleAssetLifecycle::Registered);
+
+    let retire = FungibleAssetLifecycleActionV1::new(
+        asset,
+        resumed.policies()[0].commitment().unwrap(),
+        policy.authority_set(),
+        digest(0xba),
+        digest(0xbb),
+        FungibleAssetLifecycleAction::Retire,
+        3,
+        4,
+    )
+    .unwrap();
+    let retired =
+        resumed.apply(&ActionPayloadV2::lifecycle(3, sender(), retire).unwrap(), 3).unwrap();
+    assert_eq!(retired.policies()[0].lifecycle(), FungibleAssetLifecycle::Retired);
+
+    let state = ChainState::new_with_asset_ledger(
+        chain_id(),
+        0,
+        Digest384::ZERO,
+        ObjectState::new(vec![object()]).unwrap(),
+        vec![NonceChannel::new(sender(), 0, 5)],
+        vec![FeeAccount::new(sender(), 100_000_000, 5)],
+        vec![],
+        prices(),
+        ledger,
+    )
+    .unwrap();
+    let ticket = FeeTicket::new(
+        ObjectId::new(digest(0xbc)),
+        sender(),
+        3_000_000,
+        1,
+        5,
+        resources(2_000_000),
+    )
+    .unwrap();
+    assert!(matches!(
+        ActionEnvelope::new_payload(
+            ACTION_PROTOCOL_VERSION,
+            chain_id(),
+            PrincipalId::new(digest(0xbd)),
+            ticket,
+            0,
+            5,
+            ValidityInterval::new(1, 1).unwrap(),
+            resources(2_000_000),
+            payload.commitment().unwrap(),
+            payload.clone(),
+            pause.approval_commitment(),
+        ),
+        Err(activechain_action_kernel::ActionEnvelopeError::SenderActorMismatch)
+    ));
+    let envelope = ActionEnvelope::new_payload(
+        ACTION_PROTOCOL_VERSION,
+        chain_id(),
+        sender(),
+        ticket,
+        0,
+        5,
+        ValidityInterval::new(1, 1).unwrap(),
+        resources(2_000_000),
+        payload.commitment().unwrap(),
+        payload,
+        pause.approval_commitment(),
+    )
+    .unwrap();
+    let output = apply_block(&state, &block(&state, vec![envelope])).unwrap();
+    assert_eq!(
+        output.state().asset_ledger().policies()[0].lifecycle(),
+        FungibleAssetLifecycle::Paused
+    );
 }
 
 #[test]
