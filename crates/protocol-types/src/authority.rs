@@ -727,6 +727,13 @@ fn matches_prefix(
     bits: u16,
 ) -> bool {
     let full_bytes = usize::from(bits / 8);
+    // `ScopeSelector::prefix` refuses `bits >= 384`, so `full_bytes` is at most 48 for every
+    // selector built through a constructor or canonical decoding. The variant's fields are
+    // public, so guard the slice rather than trusting that invariant: an out-of-range prefix
+    // matches nothing instead of panicking inside authorization.
+    if full_bytes > crate::DIGEST_LENGTH {
+        return false;
+    }
     if candidate[..full_bytes] != prefix[..full_bytes] {
         return false;
     }
@@ -734,9 +741,39 @@ fn matches_prefix(
     let remaining_bits = (bits % 8) as u8;
     if remaining_bits == 0 {
         true
+    } else if full_bytes >= crate::DIGEST_LENGTH {
+        // A partial byte beyond the digest cannot be compared; match nothing.
+        false
     } else {
         let mask = u8::MAX << (8 - remaining_bits);
         candidate[full_bytes] & mask == prefix[full_bytes] & mask
+    }
+}
+
+#[cfg(test)]
+mod prefix_bounds_tests {
+    use super::{ScopeSelector, matches_prefix};
+    use crate::Digest384;
+
+    /// Regression for #706: `ScopeSelector::Prefix` has public fields, so an out-of-range bit
+    /// count is constructible even though `ScopeSelector::prefix` and canonical decoding both
+    /// refuse one. Comparison must fail closed rather than panic inside authorization.
+    #[test]
+    fn out_of_range_prefix_bits_match_nothing_instead_of_panicking() {
+        let value = Digest384::new([1; 48]);
+        // 400 bits: 50 whole bytes, past the end of a 48-byte digest.
+        assert!(!matches_prefix(value.as_bytes(), value.as_bytes(), 400));
+        // 385 bits: 48 whole bytes plus a partial byte at index 48, also past the end.
+        assert!(!matches_prefix(value.as_bytes(), value.as_bytes(), 385));
+        // 384 bits is a whole-digest prefix and still compares normally.
+        assert!(matches_prefix(value.as_bytes(), value.as_bytes(), 384));
+
+        let oversized = ScopeSelector::Prefix { bytes: value, bits: 400 };
+        assert!(!oversized.is_subset_of(&ScopeSelector::Exact(value)));
+        assert!(!ScopeSelector::Exact(value).is_subset_of(&oversized));
+        assert!(!oversized.is_subset_of(&ScopeSelector::Prefix { bytes: value, bits: 385 }));
+        // The constructor still refuses to build one.
+        assert!(ScopeSelector::prefix(value, 400).is_err());
     }
 }
 
