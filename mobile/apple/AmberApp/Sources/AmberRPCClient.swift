@@ -8,13 +8,17 @@ struct AmberRPCStatus: Equatable, Sendable {
         case degraded = 2
     }
 
+    let chainID: Data
+    let genesis: Data
     let protocolRevision: UInt64
     let schemaRevision: UInt32
     let finalizedHeight: UInt64
     let health: Health
 
     var connectionState: AmberConnectionState {
-        guard protocolRevision == AmberRPCCodec.supportedProtocolRevision,
+        guard chainID == AmberRPCCodec.kanalenChainID,
+              genesis == AmberRPCCodec.kanalenGenesis,
+              protocolRevision == AmberRPCCodec.supportedProtocolRevision,
               schemaRevision == AmberRPCCodec.supportedSchemaRevision
         else {
             return .incompatible
@@ -38,6 +42,22 @@ enum AmberRPCError: Error, Equatable {
 enum AmberRPCCodec {
     static let supportedProtocolRevision: UInt64 = 1
     static let supportedSchemaRevision: UInt32 = 2
+    static let kanalenChainID = Data([
+        0xb1, 0x2c, 0x1c, 0x31, 0x67, 0x17, 0xe9, 0x66,
+        0x9c, 0xec, 0x36, 0xf7, 0x63, 0x2a, 0x90, 0x80,
+        0x70, 0x2c, 0x57, 0xa3, 0x12, 0x5d, 0x90, 0xc7,
+        0x21, 0x54, 0xf8, 0xa7, 0x29, 0x8e, 0x4f, 0x0b,
+        0x09, 0x5e, 0x6c, 0xfe, 0x94, 0x4b, 0xd2, 0xc9,
+        0xf6, 0x53, 0x5b, 0x4c, 0x92, 0x77, 0x82, 0xf1,
+    ])
+    static let kanalenGenesis = Data([
+        0xe4, 0xdc, 0x7a, 0xd1, 0x29, 0x10, 0xaa, 0xdf,
+        0x81, 0xb2, 0x71, 0x6a, 0xa4, 0xac, 0xaa, 0x23,
+        0xe7, 0x77, 0xe4, 0x34, 0xa0, 0xdd, 0x92, 0x9c,
+        0x42, 0x3a, 0xb8, 0x76, 0x13, 0x08, 0x13, 0xc1,
+        0x63, 0x1f, 0x02, 0x05, 0x4a, 0x42, 0x8b, 0x83,
+        0x21, 0xa2, 0x60, 0x40, 0x3b, 0x6f, 0x40, 0x8f,
+    ])
     static let maximumFrameLength = 4 * 1_024 * 1_024
     private static let responseTypeTag: UInt16 = 0x00a1
     private static let envelopeSchema: UInt16 = 1
@@ -61,11 +81,8 @@ enum AmberRPCCodec {
         guard try decoder.readUInt8() == 0 else {
             throw AmberRPCError.unexpectedResponse
         }
-        _ = try decoder.read(count: 48)
+        let chainID = try decoder.read(count: 48)
         let genesis = try decoder.read(count: 48)
-        guard genesis.contains(where: { $0 != 0 }) else {
-            throw AmberRPCError.malformedResponse
-        }
         let protocolRevision = try decoder.readUInt64()
         let schemaRevision = try decoder.readUInt32()
         let finalizedHeight = try decoder.readUInt64()
@@ -96,6 +113,8 @@ enum AmberRPCCodec {
             throw AmberRPCError.malformedResponse
         }
         return AmberRPCStatus(
+            chainID: chainID,
+            genesis: genesis,
             protocolRevision: protocolRevision,
             schemaRevision: schemaRevision,
             finalizedHeight: finalizedHeight,
