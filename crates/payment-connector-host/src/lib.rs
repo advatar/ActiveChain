@@ -11,10 +11,11 @@ use activechain_payment_types::{
     ConnectorId, EvidenceClass, IdempotencyBindingV1, PaymentApiAuthorizationV1,
     PaymentApiReplayStateV1, PaymentApiSignedAuthorizationV1, PaymentDisputeRecordV1,
     PaymentDisputeRequestV1, PaymentFeeSponsorPolicyV1, PaymentFeeSponsorRequestV1,
-    PaymentFinalizedSettlementV1, PaymentIntentId, PaymentIntentV1, PaymentLifecycleRecordV1,
-    PaymentRefundRequestV1, PaymentRefundStateV1, PaymentState, PaymentValidationError,
-    PaymentWebhookCursorV1, PaymentWebhookEventV1, PaymentWebhookSignedEventV1,
-    ProviderObservationV1, RailId, TreasuryDebitPolicyV1, TreasuryDebitRequestV1,
+    PaymentFinalizedRefundV1, PaymentFinalizedSettlementV1, PaymentIntentId, PaymentIntentV1,
+    PaymentLifecycleRecordV1, PaymentRefundRequestV1, PaymentRefundStateV1, PaymentState,
+    PaymentValidationError, PaymentWebhookCursorV1, PaymentWebhookEventV1,
+    PaymentWebhookSignedEventV1, ProviderObservationV1, RailId, TreasuryDebitPolicyV1,
+    TreasuryDebitRequestV1,
 };
 use activechain_protocol_types::{AssetId, Digest384};
 use sha3::{
@@ -1478,6 +1479,7 @@ impl DurablePaymentRequestState {
 pub struct PaymentSettlementStateV1 {
     requests: PaymentRequestStateV1,
     settlements: Vec<PaymentFinalizedSettlementV1>,
+    finalized_refunds: Vec<PaymentFinalizedRefundV1>,
     refunds: RefundJournalV1,
     disputes: DisputeJournalV1,
     treasuries: TreasuryJournalV1,
@@ -1492,6 +1494,7 @@ impl PaymentSettlementStateV1 {
     pub fn new(
         requests: PaymentRequestStateV1,
         settlements: Vec<PaymentFinalizedSettlementV1>,
+        finalized_refunds: Vec<PaymentFinalizedRefundV1>,
         refunds: RefundJournalV1,
         disputes: DisputeJournalV1,
         treasuries: TreasuryJournalV1,
@@ -1501,6 +1504,8 @@ impl PaymentSettlementStateV1 {
     ) -> Result<Self, JournalError> {
         if settlements.len() > MAX_PAYMENT_INTENTS
             || settlements.windows(2).any(|pair| pair[0].intent() >= pair[1].intent())
+            || finalized_refunds.len() > MAX_PAYMENT_INTENTS
+            || finalized_refunds.windows(2).any(|pair| pair[0].intent() >= pair[1].intent())
             || settlements.len() != refunds.states().len()
         {
             return Err(JournalError::InvalidLifecycle);
@@ -1539,6 +1544,31 @@ impl PaymentSettlementStateV1 {
             ) {
                 return Err(JournalError::InvalidLifecycle);
             }
+            let finalized_refund = finalized_refunds
+                .binary_search_by_key(&intent.intent(), PaymentFinalizedRefundV1::intent)
+                .ok()
+                .map(|index| &finalized_refunds[index]);
+            if lifecycle.state() == PaymentState::Refunded {
+                let evidence = finalized_refund.ok_or(JournalError::InvalidRefund)?;
+                let refund_index = refunds
+                    .states()
+                    .binary_search_by_key(&intent.intent(), PaymentRefundStateV1::intent)
+                    .map_err(|_| JournalError::InvalidRefund)?;
+                let refund = &refunds.states()[refund_index];
+                let settlement = settlement.ok_or(JournalError::InvalidRefund)?;
+                if evidence.settlement_commitment() != refund.settlement_commitment()
+                    || evidence.refunded_amount() != refund.settled_amount()
+                    || refund.refunded_units() != refund.settled_amount().atomic_units()
+                    || refund.last_refund() != Some(evidence.refund())
+                    || lifecycle.observation_commitment()
+                        != evidence.commitment().map_err(|_| JournalError::InvalidRefund)?
+                    || evidence.refunded_amount() != settlement.settled_amount()
+                {
+                    return Err(JournalError::InvalidRefund);
+                }
+            } else if finalized_refund.is_some() {
+                return Err(JournalError::InvalidRefund);
+            }
         }
         if disputes.records().iter().any(|record| {
             settlements
@@ -1550,6 +1580,7 @@ impl PaymentSettlementStateV1 {
         Ok(Self {
             requests,
             settlements,
+            finalized_refunds,
             refunds,
             disputes,
             treasuries,
@@ -1565,6 +1596,10 @@ impl PaymentSettlementStateV1 {
 
     pub fn settlements(&self) -> &[PaymentFinalizedSettlementV1] {
         &self.settlements
+    }
+
+    pub fn finalized_refunds(&self) -> &[PaymentFinalizedRefundV1] {
+        &self.finalized_refunds
     }
 
     pub const fn refunds(&self) -> &RefundJournalV1 {
@@ -1599,6 +1634,10 @@ impl CanonicalEncode for PaymentSettlementStateV1 {
         for settlement in &self.settlements {
             settlement.encode(encoder)?;
         }
+        encoder.write_length(self.finalized_refunds.len(), MAX_PAYMENT_INTENTS)?;
+        for refund in &self.finalized_refunds {
+            refund.encode(encoder)?;
+        }
         self.refunds.encode(encoder)?;
         self.disputes.encode(encoder)?;
         self.treasuries.encode(encoder)?;
@@ -1616,9 +1655,15 @@ impl CanonicalDecode for PaymentSettlementStateV1 {
         for _ in 0..count {
             settlements.push(PaymentFinalizedSettlementV1::decode(decoder)?);
         }
+        let refund_count = decoder.read_length(MAX_PAYMENT_INTENTS)?;
+        let mut finalized_refunds = Vec::with_capacity(refund_count);
+        for _ in 0..refund_count {
+            finalized_refunds.push(PaymentFinalizedRefundV1::decode(decoder)?);
+        }
         Self::new(
             requests,
             settlements,
+            finalized_refunds,
             RefundJournalV1::decode(decoder)?,
             DisputeJournalV1::decode(decoder)?,
             TreasuryJournalV1::decode(decoder)?,
@@ -1636,6 +1681,8 @@ impl CanonicalType for PaymentSettlementStateV1 {
     const MAX_ENCODED_LEN: usize = PaymentRequestStateV1::MAX_ENCODED_LEN
         + 3
         + MAX_PAYMENT_INTENTS * PaymentFinalizedSettlementV1::MAX_ENCODED_LEN
+        + 3
+        + MAX_PAYMENT_INTENTS * PaymentFinalizedRefundV1::MAX_ENCODED_LEN
         + RefundJournalV1::MAX_ENCODED_LEN
         + DisputeJournalV1::MAX_ENCODED_LEN
         + TreasuryJournalV1::MAX_ENCODED_LEN
@@ -1684,6 +1731,7 @@ impl DurablePaymentSettlementState {
             let next = PaymentSettlementStateV1::new(
                 requests,
                 self.snapshot.settlements.clone(),
+                self.snapshot.finalized_refunds.clone(),
                 self.snapshot.refunds.clone(),
                 self.snapshot.disputes.clone(),
                 self.snapshot.treasuries.clone(),
@@ -1711,6 +1759,7 @@ impl DurablePaymentSettlementState {
         let next = PaymentSettlementStateV1::new(
             requests,
             self.snapshot.settlements.clone(),
+            self.snapshot.finalized_refunds.clone(),
             self.snapshot.refunds.clone(),
             self.snapshot.disputes.clone(),
             self.snapshot.treasuries.clone(),
@@ -1762,6 +1811,7 @@ impl DurablePaymentSettlementState {
         let next = PaymentSettlementStateV1::new(
             requests,
             settlements,
+            self.snapshot.finalized_refunds.clone(),
             refunds,
             self.snapshot.disputes.clone(),
             self.snapshot.treasuries.clone(),
@@ -1823,6 +1873,7 @@ impl DurablePaymentSettlementState {
         let next = PaymentSettlementStateV1::new(
             requests,
             self.snapshot.settlements.clone(),
+            self.snapshot.finalized_refunds.clone(),
             refunds,
             self.snapshot.disputes.clone(),
             self.snapshot.treasuries.clone(),
@@ -1833,6 +1884,78 @@ impl DurablePaymentSettlementState {
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
         Ok(())
+    }
+
+    pub fn finalize_verified_refund(
+        &mut self,
+        refund: &PaymentFinalizedRefundV1,
+        finality: &[u8],
+        receipt: &[u8],
+        trusted_chain_genesis: Digest384,
+    ) -> Result<Digest384, JournalError> {
+        let encoded = encode_envelope(refund).map_err(|_| JournalError::InvalidRefund)?;
+        let verified = activechain_verifier_api::verify_payment_finalized_refund(
+            &encoded,
+            finality,
+            receipt,
+            trusted_chain_genesis,
+        )
+        .map_err(|_| JournalError::InvalidRefund)?;
+        self.finalize_verified_refund_value(&verified)
+    }
+
+    fn finalize_verified_refund_value(
+        &mut self,
+        verified: &PaymentFinalizedRefundV1,
+    ) -> Result<Digest384, JournalError> {
+        let index = self
+            .snapshot
+            .requests
+            .intents()
+            .binary_search_by_key(&verified.intent(), PaymentIntentV1::intent)
+            .map_err(|_| JournalError::InvalidRefund)?;
+        let lifecycle = &self.snapshot.requests.lifecycles().records()[index];
+        let refund_index = self
+            .snapshot
+            .refunds
+            .states()
+            .binary_search_by_key(&verified.intent(), PaymentRefundStateV1::intent)
+            .map_err(|_| JournalError::InvalidRefund)?;
+        let refund = &self.snapshot.refunds.states()[refund_index];
+        if lifecycle.state() != PaymentState::RefundPending
+            || verified.settlement_commitment() != refund.settlement_commitment()
+            || verified.refunded_amount() != refund.settled_amount()
+            || refund.refunded_units() != refund.settled_amount().atomic_units()
+            || refund.last_refund() != Some(verified.refund())
+        {
+            return Err(JournalError::InvalidRefund);
+        }
+        let sequence = lifecycle.sequence().checked_add(1).ok_or(JournalError::InvalidLifecycle)?;
+        let record = verified.refunded_record(sequence).map_err(|_| JournalError::InvalidRefund)?;
+        let requests = self.snapshot.requests.lifecycle_successor(record)?;
+        let mut finalized_refunds = self.snapshot.finalized_refunds.clone();
+        let evidence_index = finalized_refunds
+            .binary_search_by_key(&verified.intent(), PaymentFinalizedRefundV1::intent)
+            .map_or_else(|index| index, |_| usize::MAX);
+        if evidence_index == usize::MAX {
+            return Err(JournalError::InvalidRefund);
+        }
+        finalized_refunds.insert(evidence_index, *verified);
+        let commitment = verified.commitment().map_err(|_| JournalError::InvalidRefund)?;
+        let next = PaymentSettlementStateV1::new(
+            requests,
+            self.snapshot.settlements.clone(),
+            finalized_refunds,
+            self.snapshot.refunds.clone(),
+            self.snapshot.disputes.clone(),
+            self.snapshot.treasuries.clone(),
+            self.snapshot.authorizations.clone(),
+            self.snapshot.webhooks.clone(),
+            self.snapshot.sponsorships.clone(),
+        )?;
+        save_snapshot(&next, &self.path)?;
+        self.snapshot = next;
+        Ok(commitment)
     }
 
     pub fn open_dispute(
@@ -1858,6 +1981,7 @@ impl DurablePaymentSettlementState {
         let next = PaymentSettlementStateV1::new(
             self.snapshot.requests.clone(),
             self.snapshot.settlements.clone(),
+            self.snapshot.finalized_refunds.clone(),
             self.snapshot.refunds.clone(),
             disputes,
             self.snapshot.treasuries.clone(),
@@ -1879,6 +2003,7 @@ impl DurablePaymentSettlementState {
         let next = PaymentSettlementStateV1::new(
             self.snapshot.requests.clone(),
             self.snapshot.settlements.clone(),
+            self.snapshot.finalized_refunds.clone(),
             self.snapshot.refunds.clone(),
             disputes,
             self.snapshot.treasuries.clone(),
@@ -1897,6 +2022,7 @@ impl DurablePaymentSettlementState {
         let next = PaymentSettlementStateV1::new(
             self.snapshot.requests.clone(),
             self.snapshot.settlements.clone(),
+            self.snapshot.finalized_refunds.clone(),
             self.snapshot.refunds.clone(),
             self.snapshot.disputes.clone(),
             treasuries,
@@ -1919,6 +2045,7 @@ impl DurablePaymentSettlementState {
         let next = PaymentSettlementStateV1::new(
             self.snapshot.requests.clone(),
             self.snapshot.settlements.clone(),
+            self.snapshot.finalized_refunds.clone(),
             self.snapshot.refunds.clone(),
             self.snapshot.disputes.clone(),
             treasuries,
@@ -1941,6 +2068,7 @@ impl DurablePaymentSettlementState {
         let next = PaymentSettlementStateV1::new(
             self.snapshot.requests.clone(),
             self.snapshot.settlements.clone(),
+            self.snapshot.finalized_refunds.clone(),
             self.snapshot.refunds.clone(),
             self.snapshot.disputes.clone(),
             self.snapshot.treasuries.clone(),
@@ -1985,6 +2113,7 @@ impl DurablePaymentSettlementState {
         let next = PaymentSettlementStateV1::new(
             self.snapshot.requests.clone(),
             self.snapshot.settlements.clone(),
+            self.snapshot.finalized_refunds.clone(),
             self.snapshot.refunds.clone(),
             self.snapshot.disputes.clone(),
             self.snapshot.treasuries.clone(),
@@ -2018,6 +2147,7 @@ impl DurablePaymentSettlementState {
         let next = PaymentSettlementStateV1::new(
             self.snapshot.requests.clone(),
             self.snapshot.settlements.clone(),
+            self.snapshot.finalized_refunds.clone(),
             self.snapshot.refunds.clone(),
             self.snapshot.disputes.clone(),
             self.snapshot.treasuries.clone(),
@@ -2049,6 +2179,7 @@ impl DurablePaymentSettlementState {
         let next = PaymentSettlementStateV1::new(
             self.snapshot.requests.clone(),
             self.snapshot.settlements.clone(),
+            self.snapshot.finalized_refunds.clone(),
             self.snapshot.refunds.clone(),
             self.snapshot.disputes.clone(),
             self.snapshot.treasuries.clone(),
@@ -3431,6 +3562,7 @@ mod tests {
             PaymentSettlementStateV1::new(
                 finalized_requests,
                 Vec::new(),
+                Vec::new(),
                 RefundJournalV1::default(),
                 DisputeJournalV1::default(),
                 TreasuryJournalV1::default(),
@@ -3823,6 +3955,93 @@ mod tests {
         std::fs::create_dir(&path).unwrap();
         assert_eq!(
             durable.authorize_fee_sponsorship(&aggregate_fee_sponsor_request(&policy), 800),
+            Err(JournalError::Persistence)
+        );
+        assert_eq!(durable.snapshot(), &before);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    fn finalized_refund(
+        settlement: &PaymentFinalizedSettlementV1,
+        refund: u8,
+    ) -> PaymentFinalizedRefundV1 {
+        PaymentFinalizedRefundV1::new(
+            PaymentRefundId::new(digest(refund)).unwrap(),
+            settlement.intent(),
+            settlement.commitment().unwrap(),
+            settlement.settled_amount(),
+            TransactionId::new(digest(200)),
+            60,
+            digest(201),
+            digest(202),
+            digest(203),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn finalized_refund_requires_complete_accounting_and_survives_restart() {
+        let partial_path = path("finalized-refund-partial");
+        let _ = std::fs::remove_file(&partial_path);
+        let settlement = finalized_settlement(124, 95, 110);
+        let mut partial = chain_submitted_settlement_state(&partial_path);
+        partial.finalize_verified_value(&settlement).unwrap();
+        partial
+            .request_refund(&settlement_refund_request(&settlement, 140, 40, 1, 0), 150)
+            .unwrap();
+        assert_eq!(
+            partial.finalize_verified_refund_value(&finalized_refund(&settlement, 140)),
+            Err(JournalError::InvalidRefund)
+        );
+        assert_eq!(
+            partial.snapshot().requests().lifecycles().records()[0].state(),
+            PaymentState::RefundPending
+        );
+        std::fs::remove_file(partial_path).unwrap();
+
+        let path = path("finalized-refund-restart");
+        let _ = std::fs::remove_file(&path);
+        let mut durable = chain_submitted_settlement_state(&path);
+        durable.finalize_verified_value(&settlement).unwrap();
+        durable
+            .request_refund(&settlement_refund_request(&settlement, 141, 95, 1, 0), 150)
+            .unwrap();
+        let evidence = finalized_refund(&settlement, 141);
+        let commitment = durable.finalize_verified_refund_value(&evidence).unwrap();
+        assert_eq!(durable.snapshot().finalized_refunds(), &[evidence]);
+        let lifecycle = &durable.snapshot().requests().lifecycles().records()[0];
+        assert_eq!(lifecycle.state(), PaymentState::Refunded);
+        assert_eq!(lifecycle.observation_commitment(), commitment);
+        assert_eq!(
+            DurablePaymentSettlementState::open(&path).unwrap().snapshot(),
+            durable.snapshot()
+        );
+        let before = durable.snapshot().clone();
+        assert_eq!(
+            durable.finalize_verified_refund_value(&evidence),
+            Err(JournalError::InvalidRefund)
+        );
+        assert_eq!(durable.snapshot(), &before);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn finalized_refund_failed_write_does_not_promote_lifecycle() {
+        let directory = path("finalized-refund-failure");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("settlement-state.bin");
+        let settlement = finalized_settlement(124, 95, 110);
+        let mut durable = chain_submitted_settlement_state(&path);
+        durable.finalize_verified_value(&settlement).unwrap();
+        durable
+            .request_refund(&settlement_refund_request(&settlement, 142, 95, 1, 0), 150)
+            .unwrap();
+        let before = durable.snapshot().clone();
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        assert_eq!(
+            durable.finalize_verified_refund_value(&finalized_refund(&settlement, 142)),
             Err(JournalError::Persistence)
         );
         assert_eq!(durable.snapshot(), &before);

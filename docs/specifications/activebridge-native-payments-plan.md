@@ -564,6 +564,15 @@ commitment to the canonical request, and the cumulative refund successor in one 
 partials retain that lifecycle evidence while advancing only the exact amount and request sequence;
 no standalone refund journal write can partially advance the public settlement state.
 
+`RefundPending -> Refunded` requires `PaymentFinalizedRefundV1` and is deliberately limited in v1
+to a complete refund: cumulative accepted requests must equal the exact settled amount and the
+evidence must bind the latest refund id, intent, settlement commitment, asset/amount, transaction,
+finalized height/block, canonical receipt, and finality proof. The trusted-genesis verifier checks
+the block receipt commitment and exact action-transaction inclusion before the complete aggregate
+persists both evidence and lifecycle successor. Partial or external-only refund observations remain
+`RefundPending`; invalid proof, substitution, replay, corruption, or failed storage cannot promote
+them.
+
 Treasury policy registration and payout, conversion, refund, fee, or settlement debit
 authorization use that same public aggregate. Each accepted debit atomically retains the exact
 policy commitment while advancing its period budget and nonce beside payment, settlement, refund,

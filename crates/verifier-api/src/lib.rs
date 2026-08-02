@@ -11,7 +11,9 @@ use activechain_canonical_codec::{
 use activechain_cash_kernel::{CoinCellMembershipProof, CoinCellRecord};
 use activechain_devnet_kernel::BlockReceipt;
 use activechain_finality_types::{FinalityCertificateBundle, commit_parts};
-use activechain_payment_types::{PaymentFinalizedSettlementV1, payment_finality_proof_commitment};
+use activechain_payment_types::{
+    PaymentFinalizedRefundV1, PaymentFinalizedSettlementV1, payment_finality_proof_commitment,
+};
 use activechain_policy_kernel::PolicyDecision;
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
@@ -692,6 +694,48 @@ pub fn verify_payment_finalized_settlement(
     Ok(settlement)
 }
 
+/// Verifies trusted-genesis finality and exact action inclusion for a complete payment refund.
+pub fn verify_payment_finalized_refund(
+    refund: &[u8],
+    finality: &[u8],
+    receipt: &[u8],
+    expected_chain_genesis: Digest384,
+) -> Result<PaymentFinalizedRefundV1, VerifyError> {
+    let total = refund
+        .len()
+        .checked_add(finality.len())
+        .and_then(|length| length.checked_add(receipt.len()))
+        .ok_or(VerifyError::TooLarge)?;
+    if total > MAX_ENVELOPE_LENGTH {
+        return Err(VerifyError::TooLarge);
+    }
+    inspect_envelope(
+        refund,
+        PaymentFinalizedRefundV1::TYPE_TAG,
+        PaymentFinalizedRefundV1::SCHEMA_VERSION,
+    )?;
+    let refund =
+        decode_envelope::<PaymentFinalizedRefundV1>(refund).map_err(VerifyError::Decode)?;
+    let verified_receipt =
+        verify_block_receipt_with_chain_genesis(finality, receipt, expected_chain_genesis)?;
+    let receipt_commitment =
+        commit(DomainTag::CANONICAL_VALUE, &verified_receipt).map_err(|_| {
+            VerifyError::Decode(DecodeError::InvalidValue("refund receipt could not be committed"))
+        })?;
+    if verified_receipt.block_id() != refund.finalized_block()
+        || verified_receipt.height() != refund.finalized_height()
+        || receipt_commitment != refund.receipt_commitment()
+        || payment_finality_proof_commitment(finality) != refund.proof_commitment()
+        || !verified_receipt
+            .action_receipts()
+            .iter()
+            .any(|action| action.transaction_id() == refund.transaction())
+    {
+        return Err(VerifyError::RelationMismatch);
+    }
+    Ok(refund)
+}
+
 fn verify_block_receipt_with_finality(
     finality: FinalityCertificateBundle,
     receipt: &[u8],
@@ -763,8 +807,8 @@ mod tests {
     };
     use activechain_devnet_kernel::{ActionOutcome, ActionReceipt};
     use activechain_payment_types::{
-        AssetAmountV1, PaymentFinalizedSettlementV1, PaymentIntentId,
-        payment_finality_proof_commitment,
+        AssetAmountV1, PaymentFinalizedRefundV1, PaymentFinalizedSettlementV1, PaymentIntentId,
+        PaymentRefundId, payment_finality_proof_commitment,
     };
     use activechain_policy_kernel::DecisionResult;
     use activechain_protocol_types::{
@@ -1539,6 +1583,78 @@ mod tests {
         assert_eq!(
             verify_payment_finalized_settlement(
                 &encode_envelope(&wrong_transaction).unwrap(),
+                &finality,
+                &receipt_bytes,
+                trusted_genesis,
+            ),
+            Err(VerifyError::RelationMismatch)
+        );
+    }
+
+    #[test]
+    fn payment_refund_verifier_binds_finality_receipt_and_action_transaction() {
+        let pre_state = StateCommitment::new(digest(80), 2);
+        let post_state = StateCommitment::new(digest(81), 3);
+        let transaction = TransactionId::new(digest(82));
+        let receipt = BlockReceipt::new(
+            digest(83),
+            9,
+            pre_state,
+            post_state,
+            digest(84),
+            digest(85),
+            vec![ActionReceipt::new(
+                transaction,
+                ActionOutcome::ResourceLimitExceeded,
+                ResourceVector::new(1, 0, 0, 0, 0, 1),
+                0,
+                1,
+                post_state,
+            )],
+        )
+        .unwrap();
+        let receipt_commitment = commit(DomainTag::CANONICAL_VALUE, &receipt).unwrap();
+        let bundle =
+            finality_bundle_with_inputs(receipt_commitment, pre_state, post_state, digest(50));
+        let trusted_genesis = bundle.validator_genesis().genesis_commitment();
+        let finality = encode_envelope(&bundle).unwrap();
+        let receipt_bytes = encode_envelope(&receipt).unwrap();
+        let refund = PaymentFinalizedRefundV1::new(
+            PaymentRefundId::new(digest(86)).unwrap(),
+            PaymentIntentId::new(digest(87)).unwrap(),
+            digest(88),
+            AssetAmountV1::new(AssetId::new(digest(89)), 95).unwrap(),
+            transaction,
+            9,
+            receipt.block_id(),
+            receipt_commitment,
+            payment_finality_proof_commitment(&finality),
+        )
+        .unwrap();
+        assert_eq!(
+            verify_payment_finalized_refund(
+                &encode_envelope(&refund).unwrap(),
+                &finality,
+                &receipt_bytes,
+                trusted_genesis,
+            ),
+            Ok(refund)
+        );
+        let substituted = PaymentFinalizedRefundV1::new(
+            refund.refund(),
+            refund.intent(),
+            refund.settlement_commitment(),
+            refund.refunded_amount(),
+            TransactionId::new(digest(90)),
+            9,
+            receipt.block_id(),
+            receipt_commitment,
+            payment_finality_proof_commitment(&finality),
+        )
+        .unwrap();
+        assert_eq!(
+            verify_payment_finalized_refund(
+                &encode_envelope(&substituted).unwrap(),
                 &finality,
                 &receipt_bytes,
                 trusted_genesis,
