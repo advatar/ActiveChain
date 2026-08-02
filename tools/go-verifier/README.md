@@ -1,4 +1,4 @@
-# Independent Go verifier (v1.0 M0 reader)
+# Independent Go verifier (v1.0 M0 plus canonical-codec M1 slice)
 
 This module is intentionally standard-library-only and does not import the Rust
 workspace. It validates the published v1 TSV contract: strict headers, bounded
@@ -10,7 +10,8 @@ go test ./...
 go run . -vectors ../../testing/vectors
 ```
 
-This is an M0 parser/independence smoke check only. It does not decode canonical envelopes,
-verify ML-DSA signatures, execute transitions, or replay finalized roots, and therefore is not M1
-or M2 evidence. The v1.0 complexity budget, required staffing, and launch decision are recorded in
-`spec/protocol/P-134-independent-client.md`.
+The verifier now independently implements strict canonical-envelope framing: exact type/schema,
+minimal bounded ULEB128 lengths, exact bodies, and fail-closed truncation/trailing-data handling.
+That is one M1 semantic family, not completion of M1. It still does not decode schema bodies,
+verify ML-DSA signatures, execute transitions, or replay finalized roots, and is not M2 evidence.
+The v1.0 complexity budget, staffing requirement, and launch decision are recorded in P-134.

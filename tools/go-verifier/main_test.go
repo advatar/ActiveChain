@@ -38,3 +38,22 @@ func TestVectorsAcceptLiteralTabManifest(t *testing.T) {
 		t.Fatalf("literal-tab manifest: n=%d err=%v", n, err)
 	}
 }
+
+func TestIndependentCodecSemanticVectors(t *testing.T) {
+	n, err := verify("../../testing/vectors/independent-codec-v1.tsv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 12 {
+		t.Fatalf("expected 12 semantic codec cases, got %d", n)
+	}
+}
+
+func TestCodecRejectsNonminimalLengthAndTrailingBytes(t *testing.T) {
+	if _, got := inspectEnvelope([]byte{0x12, 0x34, 0, 1, 0x81, 0, 0xaa}, 0x1234, 1, 1); got != errNonminimalLength {
+		t.Fatalf("non-minimal length: got %q", got)
+	}
+	if _, got := inspectEnvelope([]byte{0x12, 0x34, 0, 1, 1, 0xaa, 0xbb}, 0x1234, 1, 1); got != errTrailingData {
+		t.Fatalf("trailing data: got %q", got)
+	}
+}
