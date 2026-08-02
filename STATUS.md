@@ -831,6 +831,10 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
   genesis, exact finalized height, and block digest before funding is marked final.
 - [ ] Submit faucet-authorized Coin Cell transitions through real transaction ingress and expose
   pending/finalized/rejected proof-bearing status through the Kanalen gateway.
+  - [x] Admit the atomic operator session-plus-transfer envelope in consensus batch preparation,
+    reload the authoritative ingress before signing, and spool immutable framed actions for the
+    locked Kanalen round runner without publishing an RPC-local ledger successor.
+  - [ ] Reconcile the exact finalized action and Coin Cell membership evidence into faucet status.
 - [x] Qualify the current RPC/faucet boundary with 27 server tests covering finalized ingestion,
   owner scoping, cross-chain rejection, durable restart, faucet limits, malformed evidence, and
   typed adapter installation.

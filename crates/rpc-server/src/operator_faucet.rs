@@ -75,6 +75,7 @@ pub struct MlDsa44FaucetAuthorizer {
     fee: u128,
     valid_for_blocks: u64,
     finalized_height: std::sync::Arc<crate::DurableRpcStore>,
+    reload_path: Option<PathBuf>,
 }
 
 impl MlDsa44FaucetAuthorizer {
@@ -91,7 +92,23 @@ impl MlDsa44FaucetAuthorizer {
         if valid_for_blocks == 0 {
             return Err(FaucetError::InvalidPolicy);
         }
-        Ok(Self { ingress, chain_id, source, signing_key, fee, valid_for_blocks, finalized_height })
+        Ok(Self {
+            ingress,
+            chain_id,
+            source,
+            signing_key,
+            fee,
+            valid_for_blocks,
+            finalized_height,
+            reload_path: None,
+        })
+    }
+
+    /// Reload the consensus-owned ingress snapshot immediately before each authorization.
+    #[must_use]
+    pub fn with_snapshot_reload(mut self, path: PathBuf) -> Self {
+        self.reload_path = Some(path);
+        self
     }
 }
 
@@ -103,6 +120,11 @@ impl FaucetEnvelopeAuthorizer for MlDsa44FaucetAuthorizer {
         reference: Digest384,
     ) -> Result<OperatorFaucetAuthorizationV1, FaucetError> {
         self.finalized_height.reload().map_err(|_| FaucetError::Persistence)?;
+        if let Some(path) = self.reload_path.as_ref() {
+            let fresh = TransactionIngress::load(path, self.chain_id)
+                .map_err(|_| FaucetError::Persistence)?;
+            *self.ingress.lock().map_err(|_| FaucetError::Persistence)? = fresh;
+        }
         let height =
             self.finalized_height.finalized_height().map_err(|_| FaucetError::Persistence)?;
         let valid_until =
@@ -201,6 +223,75 @@ impl FaucetEnvelopeAuthorizer for MlDsa44FaucetAuthorizer {
         .map_err(|_| FaucetError::InvalidTransition)?;
         OperatorFaucetAuthorizationV1::new(grant, transfer)
             .map_err(|_| FaucetError::InvalidTransition)
+    }
+}
+
+/// Cross-process validator ingress. Each admitted authorization is published as one immutable,
+/// length-prefixed spool member; the round runner assembles members under its existing round lock.
+pub struct SpoolOperatorFaucetIngressAdapter {
+    directory: PathBuf,
+}
+
+impl SpoolOperatorFaucetIngressAdapter {
+    pub fn new(directory: PathBuf) -> Result<Self, FaucetError> {
+        std::fs::create_dir_all(&directory).map_err(|_| FaucetError::Persistence)?;
+        if !directory.is_dir() {
+            return Err(FaucetError::Persistence);
+        }
+        Ok(Self { directory })
+    }
+}
+
+impl OperatorFaucetIngressAdapter for SpoolOperatorFaucetIngressAdapter {
+    fn settle_operator_authorization(
+        &self,
+        authorization: &OperatorFaucetAuthorizationV1,
+        recipient: PrincipalId,
+        amount: u128,
+        reference: Digest384,
+    ) -> Result<TransactionId, FaucetError> {
+        let request = authorization.transfer().request();
+        let transaction =
+            TransactionId::new(request.intent_id().map_err(|_| FaucetError::InvalidTransition)?);
+        if request.transfer().recipient() != recipient
+            || request.transfer().amount() != amount
+            || request.settlement_reference() != Some(reference)
+        {
+            return Err(FaucetError::InvalidTransition);
+        }
+        let envelope =
+            encode_envelope(authorization).map_err(|_| FaucetError::InvalidTransition)?;
+        let length = u32::try_from(envelope.len()).map_err(|_| FaucetError::InvalidTransition)?;
+        let mut framed = Vec::with_capacity(4 + envelope.len());
+        framed.extend_from_slice(&length.to_be_bytes());
+        framed.extend_from_slice(&envelope);
+        let name = transaction
+            .digest()
+            .as_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        let target = self.directory.join(format!("{name}.action"));
+        if target.exists() {
+            return if std::fs::read(&target).map_err(|_| FaucetError::Persistence)? == framed {
+                Ok(transaction)
+            } else {
+                Err(FaucetError::InvalidTransition)
+            };
+        }
+        let temporary = self.directory.join(format!(".{name}.{}.tmp", std::process::id()));
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+            .map_err(|_| FaucetError::Persistence)?;
+        file.write_all(&framed).map_err(|_| FaucetError::Persistence)?;
+        file.sync_all().map_err(|_| FaucetError::Persistence)?;
+        std::fs::rename(&temporary, &target).map_err(|_| FaucetError::Persistence)?;
+        File::open(&self.directory)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|_| FaucetError::Persistence)?;
+        Ok(transaction)
     }
 }
 
@@ -597,5 +688,46 @@ mod tests {
             Err(FaucetError::InvalidTransition)
         );
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn spool_adapter_publishes_one_idempotent_validator_frame() {
+        let directory =
+            std::env::temp_dir().join(format!("activechain-faucet-spool-{}", std::process::id()));
+        let _ = std::fs::remove_dir(&directory);
+        let adapter = SpoolOperatorFaucetIngressAdapter::new(directory.clone()).unwrap();
+        let reference = digest(21);
+        let recipient = PrincipalId::new(digest(22));
+        let authorization = authorization(reference, recipient, 10);
+        let transaction = adapter
+            .settle_operator_authorization(&authorization, recipient, 10, reference)
+            .unwrap();
+        assert_eq!(
+            adapter
+                .settle_operator_authorization(&authorization, recipient, 10, reference)
+                .unwrap(),
+            transaction
+        );
+        let entries =
+            std::fs::read_dir(&directory).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
+        assert_eq!(entries.len(), 1);
+        let frame = std::fs::read(entries[0].path()).unwrap();
+        let length = u32::from_be_bytes(frame[..4].try_into().unwrap()) as usize;
+        assert_eq!(length, frame.len() - 4);
+        assert_eq!(
+            decode_envelope::<OperatorFaucetAuthorizationV1>(&frame[4..]).unwrap(),
+            authorization
+        );
+        assert_eq!(
+            adapter.settle_operator_authorization(
+                &authorization,
+                PrincipalId::new(digest(23)),
+                10,
+                reference,
+            ),
+            Err(FaucetError::InvalidTransition)
+        );
+        std::fs::remove_file(entries[0].path()).unwrap();
+        std::fs::remove_dir(directory).unwrap();
     }
 }

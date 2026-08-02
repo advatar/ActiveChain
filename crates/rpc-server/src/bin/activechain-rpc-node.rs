@@ -2,8 +2,8 @@ use activechain_application_primitives::DurableAnchorRegistry;
 use activechain_protocol_types::{Digest384, PrincipalId};
 use activechain_rpc_server::{
     DurableFaucet, DurableOperatorFaucetSettlement, DurableRpcStore, FaucetPolicy,
-    MlDsa44FaucetAuthorizer, RpcAccessController, RpcServer, SybilPolicy,
-    WalletIngressOperatorSettlementAdapter, load_access_terms, verify_access_terms,
+    MlDsa44FaucetAuthorizer, RpcAccessController, RpcServer, SpoolOperatorFaucetIngressAdapter,
+    SybilPolicy, WalletIngressOperatorSettlementAdapter, load_access_terms, verify_access_terms,
 };
 use activechain_rpc_types::RpcAccessMode;
 use ml_dsa::{MlDsa44, Seed, SigningKey};
@@ -150,11 +150,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Arc::clone(&store),
             )
             .map_err(|error| format!("invalid faucet operator policy: {error:?}"))?;
-            let ingress_adapter = WalletIngressOperatorSettlementAdapter::new(
-                Arc::clone(ingress),
-                wallet_path.clone(),
-                Arc::clone(&store),
-            );
+            let authorizer = authorizer.with_snapshot_reload(wallet_path.clone());
+            let spool = env::var_os("ACTIVECHAIN_FAUCET_ACTION_SPOOL").map(PathBuf::from);
+            let ingress_adapter = match spool {
+                Some(path) => {
+                    FaucetIngress::Spool(SpoolOperatorFaucetIngressAdapter::new(path).map_err(
+                        |error| format!("could not initialize faucet action spool: {error:?}"),
+                    )?)
+                }
+                None => FaucetIngress::Local(WalletIngressOperatorSettlementAdapter::new(
+                    Arc::clone(ingress),
+                    wallet_path.clone(),
+                    Arc::clone(&store),
+                )),
+            };
             let settlement = if journal.exists() {
                 DurableOperatorFaucetSettlement::open(journal, authorizer, ingress_adapter)
             } else {
@@ -175,6 +184,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .as_secs();
         if let Err(error) = server.serve_once(&listener, now) {
             eprintln!("RPC request rejected: {error:?}");
+        }
+    }
+}
+
+enum FaucetIngress {
+    Local(WalletIngressOperatorSettlementAdapter),
+    Spool(SpoolOperatorFaucetIngressAdapter),
+}
+
+impl activechain_rpc_server::OperatorFaucetIngressAdapter for FaucetIngress {
+    fn settle_operator_authorization(
+        &self,
+        authorization: &activechain_wallet_core::OperatorFaucetAuthorizationV1,
+        recipient: PrincipalId,
+        amount: u128,
+        reference: Digest384,
+    ) -> Result<activechain_protocol_types::TransactionId, activechain_rpc_server::FaucetError>
+    {
+        match self {
+            Self::Local(adapter) => {
+                activechain_rpc_server::OperatorFaucetIngressAdapter::settle_operator_authorization(
+                    adapter,
+                    authorization,
+                    recipient,
+                    amount,
+                    reference,
+                )
+            }
+            Self::Spool(adapter) => {
+                activechain_rpc_server::OperatorFaucetIngressAdapter::settle_operator_authorization(
+                    adapter,
+                    authorization,
+                    recipient,
+                    amount,
+                    reference,
+                )
+            }
         }
     }
 }

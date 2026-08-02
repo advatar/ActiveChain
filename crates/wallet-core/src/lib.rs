@@ -750,6 +750,30 @@ impl TransactionIngress {
         )
     }
 
+    /// Atomically installs and admits an operator faucet authorization in memory.
+    ///
+    /// Consensus uses this on a cloned ingress while preparing a block, then publishes the
+    /// complete successor through its existing crash-atomic commit path.
+    pub fn submit_operator_faucet_authorization(
+        &mut self,
+        authorization: &OperatorFaucetAuthorizationV1,
+        height: u64,
+    ) -> Result<(), WalletError> {
+        let session = authorization.session();
+        let transfer = authorization.transfer();
+        if session.grant().session_id() != transfer.request().session_id()
+            || session.grant().signer() != transfer.request().signer()
+            || session.grant().chain_id() != transfer.request().chain_id()
+        {
+            return Err(WalletError::MalformedAuthorization);
+        }
+        let mut next = self.clone();
+        next.register_session(session)?;
+        next.submit_authorized(transfer, height)?;
+        *self = next;
+        Ok(())
+    }
+
     /// Non-authoritative compatibility helper for isolated ledger tests only.
     ///
     /// Network handlers MUST call [`Self::submit_envelope`] instead.

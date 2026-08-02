@@ -13,7 +13,7 @@ pub use faucet::{
 };
 pub use operator_faucet::{
     DurableOperatorFaucetSettlement, FaucetEnvelopeAuthorizer, MlDsa44FaucetAuthorizer,
-    OperatorFaucetIngressAdapter,
+    OperatorFaucetIngressAdapter, SpoolOperatorFaucetIngressAdapter,
 };
 
 use activechain_action_kernel::{ActionEnvelope, action_id};
