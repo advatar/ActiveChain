@@ -1308,7 +1308,7 @@ Detailed remaining implementation slices:
     provenance-preserving admission contract; reject relabeling external ES256/COSE credentials.
   - [x] Add substitution, escalation, revocation disagreement, replay, and authority-boundary unit
     vectors, then merge the targeted-test-qualified implementation to `main`.
-- [ ] Evidence-to-credential-to-APL refinement and non-escalation proofs
+- [x] Evidence-to-credential-to-APL refinement and non-escalation proofs
   ([GitHub issue #568](https://github.com/advatar/ActiveChain/issues/568)).
 - [ ] Cross-device VCIssuer/EUWallet interoperability qualification
   ([GitHub issue #569](https://github.com/advatar/ActiveChain/issues/569)).

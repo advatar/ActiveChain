@@ -8,6 +8,8 @@ Status: bounded production-linked model for issues #438–#447.
 `issuer_authenticity`, `schema_integrity`, `holder_non_transferability`, `status_freshness`,
 `context_and_replay_safety`, `no_authority_inflation`, `assurance_monotonicity`,
 `disclosure_minimization`, `forbid_dominates`, and `declared_trace_only`.
+The completed evidence-to-receipt slice additionally proves `evidence_authenticity`,
+`predicate_units_soundness`, `pairwise_witness_freshness`, and `receipt_semantic_binding`.
 
 Reproduce with:
 
@@ -42,6 +44,13 @@ mapping, issuer/subject binding, status, adapter replay, opaque admission, P-023
 intersection. The shared corpus provides finite trace coverage, not a universal compiler-level
 refinement theorem. Independent interoperability, cryptographic, privacy, and certification review
 remain release gates.
+
+The model's `unitsExact` premise covers the production requirement that currency, decimal scale,
+comparison direction, threshold, and aggregation domain are identical at evidence, circuit-public-
+input, credential-fact, policy, and receipt boundaries. `receiptBound` prohibits interpreting a
+receipt under any different schema, predicate, policy, action, audience, network, or assurance
+semantics. `pairwiseFresh` proves rejection of witness reuse in the declared abstract model;
+unlinkability against issuer/verifier collusion or network metadata remains an explicit assumption.
 
 ## Trusted code base and counterexamples
 
