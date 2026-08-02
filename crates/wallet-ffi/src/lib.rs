@@ -195,6 +195,24 @@ pub extern "C" fn activechain_wallet_ffi_revision() -> u32 {
     4
 }
 
+/// Returns the proof verifier ABI revision consumed by native wallet shells.
+#[unsafe(no_mangle)]
+pub extern "C" fn activechain_wallet_verifier_abi_revision() -> u32 {
+    activechain_verifier_api::VERIFIER_ABI_REVISION
+}
+
+/// Returns the canonical proof-envelope schema revision consumed by native wallet shells.
+#[unsafe(no_mangle)]
+pub extern "C" fn activechain_wallet_verifier_schema_revision() -> u32 {
+    activechain_verifier_api::VERIFIER_SCHEMA_REVISION
+}
+
+/// Returns the protocol revision accepted by the proof verifier.
+#[unsafe(no_mangle)]
+pub extern "C" fn activechain_wallet_verifier_protocol_revision() -> u64 {
+    activechain_verifier_api::VERIFIER_PROTOCOL_REVISION
+}
+
 /// Derives the canonical ML-DSA-44 public key for one transient 32-byte seed.
 ///
 /// # Safety
@@ -2118,6 +2136,22 @@ mod tests {
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
+    }
+
+    #[test]
+    fn wallet_abi_exposes_exact_verifier_compatibility_revisions() {
+        assert_eq!(
+            activechain_wallet_verifier_abi_revision(),
+            activechain_verifier_api::VERIFIER_ABI_REVISION
+        );
+        assert_eq!(
+            activechain_wallet_verifier_schema_revision(),
+            activechain_verifier_api::VERIFIER_SCHEMA_REVISION
+        );
+        assert_eq!(
+            activechain_wallet_verifier_protocol_revision(),
+            activechain_verifier_api::VERIFIER_PROTOCOL_REVISION
+        );
     }
 
     unsafe extern "C" fn did_sign_callback(

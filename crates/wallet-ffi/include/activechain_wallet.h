@@ -123,6 +123,15 @@ extern "C" {
  */
 uint32_t activechain_wallet_ffi_revision(void);
 
+/** Returns the ABI revision of the proof verifier behind the wallet ABI. */
+uint32_t activechain_wallet_verifier_abi_revision(void);
+
+/** Returns the canonical envelope schema revision accepted by the proof verifier. */
+uint32_t activechain_wallet_verifier_schema_revision(void);
+
+/** Returns the ActiveChain protocol revision accepted by the proof verifier. */
+uint64_t activechain_wallet_verifier_protocol_revision(void);
+
 /**
  * Derives the canonical ML-DSA-44 public key for one transient 32-byte seed.
  *
