@@ -1402,6 +1402,7 @@ pub struct PaymentSettlementStateV1 {
     disputes: DisputeJournalV1,
     treasuries: TreasuryJournalV1,
     authorizations: ApiAuthorizationJournalV1,
+    webhooks: WebhookDeliveryJournalV1,
 }
 
 impl PaymentSettlementStateV1 {
@@ -1414,6 +1415,7 @@ impl PaymentSettlementStateV1 {
         disputes: DisputeJournalV1,
         treasuries: TreasuryJournalV1,
         authorizations: ApiAuthorizationJournalV1,
+        webhooks: WebhookDeliveryJournalV1,
     ) -> Result<Self, JournalError> {
         if settlements.len() > MAX_PAYMENT_INTENTS
             || settlements.windows(2).any(|pair| pair[0].intent() >= pair[1].intent())
@@ -1463,7 +1465,7 @@ impl PaymentSettlementStateV1 {
         }) {
             return Err(JournalError::InvalidDispute);
         }
-        Ok(Self { requests, settlements, refunds, disputes, treasuries, authorizations })
+        Ok(Self { requests, settlements, refunds, disputes, treasuries, authorizations, webhooks })
     }
 
     pub const fn requests(&self) -> &PaymentRequestStateV1 {
@@ -1489,6 +1491,10 @@ impl PaymentSettlementStateV1 {
     pub const fn authorizations(&self) -> &ApiAuthorizationJournalV1 {
         &self.authorizations
     }
+
+    pub const fn webhooks(&self) -> &WebhookDeliveryJournalV1 {
+        &self.webhooks
+    }
 }
 
 impl CanonicalEncode for PaymentSettlementStateV1 {
@@ -1501,7 +1507,8 @@ impl CanonicalEncode for PaymentSettlementStateV1 {
         self.refunds.encode(encoder)?;
         self.disputes.encode(encoder)?;
         self.treasuries.encode(encoder)?;
-        self.authorizations.encode(encoder)
+        self.authorizations.encode(encoder)?;
+        self.webhooks.encode(encoder)
     }
 }
 
@@ -1520,6 +1527,7 @@ impl CanonicalDecode for PaymentSettlementStateV1 {
             DisputeJournalV1::decode(decoder)?,
             TreasuryJournalV1::decode(decoder)?,
             ApiAuthorizationJournalV1::decode(decoder)?,
+            WebhookDeliveryJournalV1::decode(decoder)?,
         )
         .map_err(|_| DecodeError::InvalidValue("invalid payment settlement state"))
     }
@@ -1534,7 +1542,8 @@ impl CanonicalType for PaymentSettlementStateV1 {
         + RefundJournalV1::MAX_ENCODED_LEN
         + DisputeJournalV1::MAX_ENCODED_LEN
         + TreasuryJournalV1::MAX_ENCODED_LEN
-        + ApiAuthorizationJournalV1::MAX_ENCODED_LEN;
+        + ApiAuthorizationJournalV1::MAX_ENCODED_LEN
+        + WebhookDeliveryJournalV1::MAX_ENCODED_LEN;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1581,6 +1590,7 @@ impl DurablePaymentSettlementState {
                 self.snapshot.disputes.clone(),
                 self.snapshot.treasuries.clone(),
                 self.snapshot.authorizations.clone(),
+                self.snapshot.webhooks.clone(),
             )?;
             save_snapshot(&next, &self.path)?;
             self.snapshot = next;
@@ -1606,6 +1616,7 @@ impl DurablePaymentSettlementState {
             self.snapshot.disputes.clone(),
             self.snapshot.treasuries.clone(),
             self.snapshot.authorizations.clone(),
+            self.snapshot.webhooks.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1655,6 +1666,7 @@ impl DurablePaymentSettlementState {
             self.snapshot.disputes.clone(),
             self.snapshot.treasuries.clone(),
             self.snapshot.authorizations.clone(),
+            self.snapshot.webhooks.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1714,6 +1726,7 @@ impl DurablePaymentSettlementState {
             self.snapshot.disputes.clone(),
             self.snapshot.treasuries.clone(),
             self.snapshot.authorizations.clone(),
+            self.snapshot.webhooks.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1747,6 +1760,7 @@ impl DurablePaymentSettlementState {
             disputes,
             self.snapshot.treasuries.clone(),
             self.snapshot.authorizations.clone(),
+            self.snapshot.webhooks.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1766,6 +1780,7 @@ impl DurablePaymentSettlementState {
             disputes,
             self.snapshot.treasuries.clone(),
             self.snapshot.authorizations.clone(),
+            self.snapshot.webhooks.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1782,6 +1797,7 @@ impl DurablePaymentSettlementState {
             self.snapshot.disputes.clone(),
             treasuries,
             self.snapshot.authorizations.clone(),
+            self.snapshot.webhooks.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1802,6 +1818,7 @@ impl DurablePaymentSettlementState {
             self.snapshot.disputes.clone(),
             treasuries,
             self.snapshot.authorizations.clone(),
+            self.snapshot.webhooks.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1822,6 +1839,7 @@ impl DurablePaymentSettlementState {
             self.snapshot.disputes.clone(),
             self.snapshot.treasuries.clone(),
             authorizations,
+            self.snapshot.webhooks.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1839,6 +1857,48 @@ impl DurablePaymentSettlementState {
         verify_ml_dsa44(signed.public_key(), &payload, signed.signature().as_bytes())
             .map_err(|_| JournalError::InvalidAuthorization)?;
         self.authorize_api_call(authorization, timestamp)
+    }
+
+    pub fn deliver_webhook(
+        &mut self,
+        event: &PaymentWebhookEventV1,
+        timestamp: u64,
+    ) -> Result<(), JournalError> {
+        if self
+            .snapshot
+            .requests
+            .intents()
+            .binary_search_by_key(&event.intent(), PaymentIntentV1::intent)
+            .is_err()
+        {
+            return Err(JournalError::InvalidDelivery);
+        }
+        let mut webhooks = self.snapshot.webhooks.clone();
+        webhooks.deliver(event, timestamp)?;
+        let next = PaymentSettlementStateV1::new(
+            self.snapshot.requests.clone(),
+            self.snapshot.settlements.clone(),
+            self.snapshot.refunds.clone(),
+            self.snapshot.disputes.clone(),
+            self.snapshot.treasuries.clone(),
+            self.snapshot.authorizations.clone(),
+            webhooks,
+        )?;
+        save_snapshot(&next, &self.path)?;
+        self.snapshot = next;
+        Ok(())
+    }
+
+    pub fn deliver_signed_webhook(
+        &mut self,
+        signed: &PaymentWebhookSignedEventV1,
+        timestamp: u64,
+    ) -> Result<(), JournalError> {
+        let event = signed.event();
+        let payload = event.signing_payload().map_err(|_| JournalError::InvalidDelivery)?;
+        verify_ml_dsa44(signed.public_key(), &payload, signed.signature().as_bytes())
+            .map_err(|_| JournalError::InvalidDelivery)?;
+        self.deliver_webhook(event, timestamp)
     }
 }
 
@@ -3215,6 +3275,7 @@ mod tests {
                 DisputeJournalV1::default(),
                 TreasuryJournalV1::default(),
                 ApiAuthorizationJournalV1::default(),
+                WebhookDeliveryJournalV1::default(),
             ),
             Err(JournalError::InvalidLifecycle)
         );
@@ -3449,6 +3510,71 @@ mod tests {
         std::fs::create_dir(&path).unwrap();
         assert_eq!(
             durable.authorize_api_call(&api_authorization(172, 173, 1), 150),
+            Err(JournalError::Persistence)
+        );
+        assert_eq!(durable.snapshot(), &before);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    fn aggregate_webhook_event(intent: u8, event: u8, sequence: u64) -> PaymentWebhookEventV1 {
+        PaymentWebhookEventV1::new(
+            PaymentWebhookSubscriptionId::new(digest(180)).unwrap(),
+            PaymentWebhookEventId::new(digest(event)).unwrap(),
+            PaymentLifecycleRecordV1::new(
+                PaymentIntentId::new(digest(intent)).unwrap(),
+                sequence,
+                if sequence == 1 { PaymentState::Created } else { PaymentState::ProviderPending },
+                EvidenceClass::ConnectorAuthenticated,
+                digest(event.wrapping_add(1)),
+                None,
+                0,
+                None,
+                0,
+            )
+            .unwrap(),
+            digest(181),
+            digest(182),
+            100,
+            200,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn atomic_webhook_cursor_requires_retained_intent_and_survives_restart() {
+        let path = path("atomic-webhook-restart");
+        let _ = std::fs::remove_file(&path);
+        let mut durable = DurablePaymentSettlementState::open(&path).unwrap();
+        let unknown = aggregate_webhook_event(10, 183, 1);
+        assert_eq!(durable.deliver_webhook(&unknown, 150), Err(JournalError::InvalidDelivery));
+        let intent = payment_intent(10, 11, 12, 13);
+        durable.create_intent(intent.clone(), intent_binding(&intent), digest(14), 150).unwrap();
+        durable.deliver_webhook(&unknown, 150).unwrap();
+        assert_eq!(durable.snapshot().webhooks().cursors()[0].next_sequence(), 2);
+        assert_eq!(
+            DurablePaymentSettlementState::open(&path).unwrap().snapshot(),
+            durable.snapshot()
+        );
+        let before = durable.snapshot().clone();
+        assert_eq!(durable.deliver_webhook(&unknown, 150), Err(JournalError::InvalidDelivery));
+        assert_eq!(durable.snapshot(), &before);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn atomic_webhook_failed_write_does_not_advance_cursor() {
+        let directory = path("atomic-webhook-failure");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("settlement-state.bin");
+        let mut durable = DurablePaymentSettlementState::open(&path).unwrap();
+        let intent = payment_intent(10, 11, 12, 13);
+        durable.create_intent(intent.clone(), intent_binding(&intent), digest(14), 150).unwrap();
+        let before = durable.snapshot().clone();
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        assert_eq!(
+            durable.deliver_webhook(&aggregate_webhook_event(10, 184, 1), 150),
             Err(JournalError::Persistence)
         );
         assert_eq!(durable.snapshot(), &before);
