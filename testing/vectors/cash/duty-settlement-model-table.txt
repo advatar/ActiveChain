@@ -1,0 +1,1 @@
+# Frozen Lean/Rust refinement trace for verifier duty settlement.
