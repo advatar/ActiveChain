@@ -2494,7 +2494,7 @@ Tracked by [GitHub issue #387](https://github.com/advatar/ActiveChain/issues/387
   wrong-genesis/signature rejection, finalized validator-set upgrades, stale/fork restart safety,
   corruption rejection, and data-availability reconstruction binding.
 - [x] Add a local manifest checker for vector hashes and malformed fixtures.
-- [ ] Deliver the stable downstream integration contract required by dBrowser
+- [x] Deliver the stable downstream integration contract required by dBrowser
   - [x] Make Apple linkage readiness machine-readable and fail closed: distributions must
     distinguish a contract-ready artifact from a signed, independently audited release.
   ([GitHub epic #86](https://github.com/advatar/ActiveChain/issues/86)).
@@ -2535,8 +2535,8 @@ Tracked by [GitHub issue #387](https://github.com/advatar/ActiveChain/issues/387
       optional recipient pinning through the C ABI.
     - [x] Construct the exact canonical cash authorization request and intent identifier through a
       size-query C ABI without exposing secret material.
-  - [ ] Complete validator-backed owner-scoped Coin Cell/state extraction before serving wallet
-    balances on Kanalen; consensus snapshots currently contain metadata only (issue #180).
+  - [x] Complete validator-backed owner-scoped Coin Cell/state extraction before serving wallet
+    balances on Kanalen, including proof-bearing public owner queries (issue #180).
     - [x] Make the Kanalen round publisher fail closed unless the exact finalized cash snapshot and
       certificate bundle are both present, so a metadata-only height cannot be advertised as a
       wallet-ready finalized state.
@@ -2600,9 +2600,9 @@ Tracked by [GitHub issue #387](https://github.com/advatar/ActiveChain/issues/387
     - [x] Freeze positive and malformed vectors for substitution, authority amplification,
       duplicate/replay, invalid lifecycle, timeout, and settlement failures.
     - [x] Document the downstream integration boundary and compatibility revisions.
-  - [ ] Pass downstream conformance against dBrowser while retaining the developmental and
+  - [x] Pass downstream conformance against dBrowser while retaining the developmental and
     unaudited release status until the external security gate completes.
-  - [ ] Consolidate verified release branches into `main`, retire superseded branches, and enforce
+  - [x] Consolidate verified release branches into `main`, retire superseded branches, and enforce
     a single active implementation branch per issue
     ([GitHub issue #125](https://github.com/advatar/ActiveChain/issues/125)).
 
