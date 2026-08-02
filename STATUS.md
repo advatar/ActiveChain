@@ -2293,6 +2293,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
           monotonic-spend constraints
           ([GitHub issue #74](https://github.com/advatar/ActiveChain/issues/74)).
   - [ ] Add recursive microbatch, partition, cash-slot, and global-transition aggregation.
+    - [ ] Derive every proof-leaf field from one verified authorized payment, its composed
+      session/ML-DSA proof, and its authenticated partition-aware CashAIR receipt.
     - [x] Define canonical bounded aggregation statements and a composed verifier that binds
       ordered child-proof commitments, partition ownership, resource totals, and contiguous
       pre/post roots at every level; recursive in-circuit child-proof verification remains open.
