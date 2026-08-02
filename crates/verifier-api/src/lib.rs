@@ -1590,12 +1590,16 @@ mod tests {
             )
             .unwrap()
         };
+        // The root id deliberately sorts AFTER the child id, so the chain's delegation order
+        // ([105, 104]) differs from the strictly ascending order an AuthorizationEnvelope
+        // requires. Verification must compare on the envelope's canonical order; comparing in
+        // delegation order rejects this correct chain.
         let root = sign_capability(
-            unsigned_capability(104, root_issuer, child_issuer, None, 1, true),
+            unsigned_capability(105, root_issuer, child_issuer, None, 1, true),
             &root_key,
         );
         let child = sign_capability(
-            unsigned_capability(105, child_issuer, actor_id, Some(104), 0, false),
+            unsigned_capability(104, child_issuer, actor_id, Some(105), 0, false),
             &child_key,
         );
         let chain = AuthorizationChain::new(actor_id, 9, vec![root, child]).unwrap();
@@ -1606,11 +1610,12 @@ mod tests {
             digest(50),
         );
         let genesis = provisional.validator_genesis().genesis_commitment();
-        let capability_ids = chain
+        let mut capability_ids = chain
             .capabilities()
             .iter()
             .map(|capability| capability.fields().capability_id)
             .collect::<Vec<_>>();
+        capability_ids.sort_unstable();
         let unsigned_envelope = AuthorizationEnvelope::new(
             digest(106),
             genesis,

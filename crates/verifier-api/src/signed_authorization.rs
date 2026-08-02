@@ -289,12 +289,17 @@ pub fn verify_signed_authorization_chain(
         .map_err(VerifyError::Decode)?;
     let finality_bundle = verify_finality_bundle_with_chain_genesis(finality, trusted_genesis)?;
     let inputs = finality_bundle.header().inputs;
-    let ids = signed
+    // Envelopes carry capability ids in strictly ascending canonical order, while the chain
+    // carries them in delegation order. Compare on the canonical order the envelope uses, as
+    // the authorization kernel does, so a correct chain whose delegation order is not already
+    // ascending remains representable.
+    let mut ids = signed
         .chain
         .capabilities()
         .iter()
         .map(|capability| capability.fields().capability_id)
         .collect::<Vec<_>>();
+    ids.sort_unstable();
     if envelope.actor != signed.chain.actor()
         || envelope.height != signed.chain.height()
         || envelope.height != inputs.height
