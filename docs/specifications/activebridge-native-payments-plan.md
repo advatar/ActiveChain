@@ -575,6 +575,11 @@ Both structurally admitted and ML-DSA-44-verified authorizations persist the exa
 sequence and authenticator commitment beside retained payment evidence before acknowledgement;
 forgery, replay, sequence gaps, and failed storage cannot consume the live authorization state.
 
+Webhook delivery cursors are retained by the same aggregate and may advance only for an intent
+present in its canonical request state. Structural and ML-DSA-44-verified event entry points share
+that boundary, so an unknown intent, duplicate or skipped sequence, forged event, expiry, or failed
+snapshot write cannot acknowledge delivery or advance the live subscriber cursor.
+
 Disputes use a separate `DisputeJournalV1`, canonically ordered by immutable dispute identity. The
 journal atomically persists opening and each exact next-sequence lifecycle successor, and restart
 decoding retains the evidence class that distinguishes client reports, connector-authenticated
