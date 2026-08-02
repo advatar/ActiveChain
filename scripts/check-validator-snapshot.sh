@@ -3,7 +3,7 @@ set -euo pipefail
 
 snapshot=${1:?usage: check-validator-snapshot.sh <validator-snapshot> [indexer-tool]}
 indexer=${2:-target/release/indexer-tool}
-expected_schema=${ACTIVECHAIN_EXPECTED_SNAPSHOT_SCHEMA_VERSION:-5}
+expected_schema=${ACTIVECHAIN_EXPECTED_SNAPSHOT_SCHEMA_VERSION:-6}
 
 test -r "$snapshot"
 test -x "$indexer"

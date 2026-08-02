@@ -1141,6 +1141,9 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
 
 ## Active testnet release qualification
 
+- [ ] Align the Kanalen promotion preflight with validator snapshot schema 6, preserve explicit
+  migration overrides and genesis mismatch rejection, then deploy and smoke-test the exact merged
+  revision ([GitHub issue #630](https://github.com/advatar/ActiveChain/issues/630)).
 - [x] Publish a fail-closed development testnet release gate covering validator finality, Coin Cell
   extraction, RPC, faucet ingress, wallet funding, independent-client conformance, and claims.
 - [x] Publish genesis-reset vectors rejecting old proposals, certificates, snapshots, and faucet
