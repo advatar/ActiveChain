@@ -2,9 +2,9 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     encode_envelope,
 };
-use activechain_cash_kernel::CoinTransfer;
+use activechain_cash_kernel::{CoinTransfer, VerifierRole};
 use activechain_protocol_types::{
-    ChainId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature,
+    ChainId, CoinCellId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature,
 };
 use alloc::vec::Vec;
 use ml_dsa::{EncodedSignature, EncodedVerifyingKey, MlDsa44, Signature, Verifier, VerifyingKey};
@@ -758,6 +758,207 @@ impl CanonicalType for AuthorizedDutyReceiptV1 {
     const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
+const VERIFIER_BOND_SIGNING_DOMAIN: &[u8] = b"ACTIVECHAIN-VERIFIER-BOND-ML-DSA-44-V1";
+
+fn role_code(role: VerifierRole) -> u8 {
+    match role {
+        VerifierRole::Finality => 0,
+        VerifierRole::Availability => 1,
+        VerifierRole::Audit => 2,
+        VerifierRole::Assurance => 3,
+        VerifierRole::PublicGoods => 4,
+    }
+}
+
+fn role_from_code(code: u8) -> Result<VerifierRole, WalletError> {
+    match code {
+        0 => Ok(VerifierRole::Finality),
+        1 => Ok(VerifierRole::Availability),
+        2 => Ok(VerifierRole::Audit),
+        3 => Ok(VerifierRole::Assurance),
+        4 => Ok(VerifierRole::PublicGoods),
+        _ => Err(WalletError::MalformedAuthorization),
+    }
+}
+
+/// One verifier's offer to lock an exact bond Coin Cell behind an assigned duty role.
+///
+/// The canonical value binds chain, verifier, role, bond cell, amount, and expiry so a signed
+/// registration cannot be replayed for another role, amount, network, or bond input.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VerifierBondRegistrationV1 {
+    chain_id: ChainId,
+    verifier: PrincipalId,
+    role: VerifierRole,
+    bond: CoinCellId,
+    bond_amount: u128,
+    valid_until: u64,
+}
+
+impl VerifierBondRegistrationV1 {
+    pub const TYPE_TAG: u16 = 0x01AD;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 * 3 + 1 + 16 + 8;
+
+    pub fn new(
+        chain_id: ChainId,
+        verifier: PrincipalId,
+        role: VerifierRole,
+        bond: CoinCellId,
+        bond_amount: u128,
+        valid_until: u64,
+    ) -> Result<Self, WalletError> {
+        if *verifier.digest() == Digest384::ZERO
+            || *bond.digest() == Digest384::ZERO
+            || bond_amount == 0
+            || valid_until == 0
+        {
+            return Err(WalletError::MalformedAuthorization);
+        }
+        Ok(Self { chain_id, verifier, role, bond, bond_amount, valid_until })
+    }
+
+    #[must_use]
+    pub const fn chain_id(&self) -> ChainId {
+        self.chain_id
+    }
+
+    #[must_use]
+    pub const fn verifier(&self) -> PrincipalId {
+        self.verifier
+    }
+
+    #[must_use]
+    pub const fn role(&self) -> VerifierRole {
+        self.role
+    }
+
+    #[must_use]
+    pub const fn bond(&self) -> CoinCellId {
+        self.bond
+    }
+
+    #[must_use]
+    pub const fn bond_amount(&self) -> u128 {
+        self.bond_amount
+    }
+
+    #[must_use]
+    pub const fn valid_until(&self) -> u64 {
+        self.valid_until
+    }
+
+    /// Returns the complete domain-separated canonical bytes that the verifier's key signs.
+    pub fn signing_payload(&self) -> Result<Vec<u8>, EncodeError> {
+        let encoded = encode_envelope(self)?;
+        let mut payload =
+            Vec::with_capacity(VERIFIER_BOND_SIGNING_DOMAIN.len() + 8 + encoded.len());
+        payload.extend_from_slice(VERIFIER_BOND_SIGNING_DOMAIN);
+        payload.extend_from_slice(&(encoded.len() as u64).to_be_bytes());
+        payload.extend_from_slice(&encoded);
+        Ok(payload)
+    }
+}
+
+impl CanonicalEncode for VerifierBondRegistrationV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain_id.encode(e)?;
+        self.verifier.encode(e)?;
+        role_code(self.role).encode(e)?;
+        self.bond.encode(e)?;
+        self.bond_amount.encode(e)?;
+        self.valid_until.encode(e)
+    }
+}
+
+impl CanonicalDecode for VerifierBondRegistrationV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let chain_id = ChainId::decode(d)?;
+        let verifier = PrincipalId::decode(d)?;
+        let role = role_from_code(u8::decode(d)?)
+            .map_err(|_| DecodeError::InvalidValue("invalid verifier role"))?;
+        Self::new(
+            chain_id,
+            verifier,
+            role,
+            CoinCellId::decode(d)?,
+            u128::decode(d)?,
+            u64::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid verifier bond registration"))
+    }
+}
+
+impl CanonicalType for VerifierBondRegistrationV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
+/// A verifier bond registration bound to exactly one ML-DSA-44 signature.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthorizedVerifierBondRegistrationV1 {
+    registration: VerifierBondRegistrationV1,
+    signature: ProtocolSignature,
+}
+
+impl AuthorizedVerifierBondRegistrationV1 {
+    pub const TYPE_TAG: u16 = 0x01AE;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize =
+        VerifierBondRegistrationV1::MAX_ENCODED_LEN + ProtocolSignature::MAX_ENCODED_LEN;
+
+    pub fn new(
+        registration: VerifierBondRegistrationV1,
+        signature: ProtocolSignature,
+    ) -> Result<Self, WalletError> {
+        if signature.suite() != CryptoSuiteId::ML_DSA_44 {
+            return Err(WalletError::InvalidSignature);
+        }
+        Ok(Self { registration, signature })
+    }
+
+    #[must_use]
+    pub const fn registration(&self) -> &VerifierBondRegistrationV1 {
+        &self.registration
+    }
+
+    /// Verifies the exact chain, verifier, and signature bindings for one registry consumer.
+    pub fn verify(
+        &self,
+        public_key: &[u8],
+        chain_id: ChainId,
+        verifier: PrincipalId,
+    ) -> Result<(), WalletError> {
+        if self.registration.chain_id != chain_id || self.registration.verifier != verifier {
+            return Err(WalletError::MalformedAuthorization);
+        }
+        let payload =
+            self.registration.signing_payload().map_err(|_| WalletError::MalformedAuthorization)?;
+        verify_ml_dsa(public_key, &self.signature, &payload)
+    }
+}
+
+impl CanonicalEncode for AuthorizedVerifierBondRegistrationV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.registration.encode(e)?;
+        self.signature.encode(e)
+    }
+}
+
+impl CanonicalDecode for AuthorizedVerifierBondRegistrationV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(VerifierBondRegistrationV1::decode(d)?, ProtocolSignature::decode(d)?)
+            .map_err(|_| DecodeError::InvalidValue("invalid authorized bond registration"))
+    }
+}
+
+impl CanonicalType for AuthorizedVerifierBondRegistrationV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
 fn verify_ml_dsa(
     public_key: &[u8],
     signature: &ProtocolSignature,
