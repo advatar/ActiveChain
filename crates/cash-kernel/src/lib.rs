@@ -444,13 +444,24 @@ mod tests {
             super::verify_authenticated_cash_air(&ledger, &batch, &proof, 3, 16),
             Ok(expected_post.clone())
         );
-        assert_eq!(proof.pre_root(), super::authenticated_coin_cell_root(ledger.cells()).unwrap());
+        assert_eq!(
+            proof.pre_root(),
+            super::authenticated_coin_cell_partition_roots(ledger.cells(), 16)
+                .unwrap()
+                .global_root()
+        );
         assert_eq!(
             proof.post_root(),
-            super::authenticated_coin_cell_root(expected_post.cells()).unwrap()
+            super::authenticated_coin_cell_partition_roots(expected_post.cells(), 16)
+                .unwrap()
+                .global_root()
         );
         for (row, mutation) in proof.execution().rows().iter().zip(proof.mutations()) {
             assert_eq!(mutation.is_some(), row.accepted());
+            if let Some(mutation) = mutation {
+                assert_eq!(mutation.partitions(), 16);
+                assert!(!mutation.mutations().is_empty());
+            }
         }
         let encoded = encode_envelope(&proof).unwrap();
         assert_eq!(

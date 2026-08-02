@@ -122,6 +122,7 @@ pub const CASH_AIR_COMPOSITE_SUITE_ID: u32 = 0xCA50_0201;
 pub const MAX_CASH_AIR_PROOF_BYTES: usize = 1 << 20;
 pub const MAX_CASH_AIR_COMPOSITE_BYTES: usize = 8 << 20;
 const MAX_CASH_AIR_PROOF_SEGMENTS: usize = 4;
+const MAX_CASH_PARTITION_PROOFS_PER_ROW: usize = 256;
 
 /// Arithmetic kernel shared by fungible admission, vectors, and the future AIR.
 #[must_use]
@@ -411,22 +412,38 @@ pub struct AuthenticatedCashAirReceiptV1 {
     pub suite_id: u32,
     pub trace: AuthenticatedCashAirProofV1,
     pub parent_proof_bytes: Vec<u8>,
-    pub mutation_proof_segments: Vec<Option<Vec<Vec<u8>>>>,
+    pub mutation_proof_segments: Vec<Option<Vec<Vec<Vec<u8>>>>>,
 }
 
 impl AuthenticatedCashAirReceiptV1 {
     pub fn new(
         trace: AuthenticatedCashAirProofV1,
         parent_proof_bytes: Vec<u8>,
-        mutation_proof_bytes: Vec<Option<Vec<u8>>>,
+        mutation_proof_bytes: Vec<Option<Vec<Vec<u8>>>>,
     ) -> Result<Self, &'static str> {
         if parent_proof_bytes.is_empty() || mutation_proof_bytes.len() != trace.mutations().len() {
             return Err("inconsistent authenticated CashAIR receipt");
         }
         let mutation_proof_segments = mutation_proof_bytes
             .into_iter()
-            .map(|proof| proof.map(split_cash_air_proof).transpose())
+            .map(|proofs| {
+                proofs
+                    .map(|proofs| {
+                        if proofs.is_empty() || proofs.len() > MAX_CASH_PARTITION_PROOFS_PER_ROW {
+                            return Err("invalid authenticated CashAIR partition proof count");
+                        }
+                        proofs.into_iter().map(split_cash_air_proof).collect::<Result<Vec<_>, _>>()
+                    })
+                    .transpose()
+            })
             .collect::<Result<Vec<_>, _>>()?;
+        for (segments, mutation) in mutation_proof_segments.iter().zip(trace.mutations()) {
+            match (segments, mutation) {
+                (Some(proofs), Some(mutation)) if proofs.len() == mutation.mutations().len() => {}
+                (None, None) => {}
+                _ => return Err("inconsistent authenticated CashAIR partition proofs"),
+            }
+        }
         Ok(Self {
             suite_id: CASH_AIR_COMPOSITE_SUITE_ID,
             trace,
@@ -449,12 +466,17 @@ impl AuthenticatedCashAirReceiptV1 {
             .map_err(|_| "malformed authenticated CashAIR parent proof")?;
         let public = authenticated_public_inputs(&envelope.trace)?;
         let mut mutation_shake = Vec::with_capacity(envelope.mutation_proof_segments.len());
-        for segments in envelope.mutation_proof_segments {
+        for partition_segments in envelope.mutation_proof_segments {
             mutation_shake.push(
-                segments
-                    .map(|value| {
-                        let bytes = join_cash_air_proof(&value)?;
-                        crate::shake::AuthenticatedCashShakeStarkProof::decode_bytes(&bytes)
+                partition_segments
+                    .map(|partition_proofs| {
+                        partition_proofs
+                            .into_iter()
+                            .map(|segments| {
+                                let bytes = join_cash_air_proof(&segments)?;
+                                crate::shake::AuthenticatedCashShakeStarkProof::decode_bytes(&bytes)
+                            })
+                            .collect::<Result<Vec<_>, _>>()
                     })
                     .transpose()?,
             );
@@ -478,17 +500,20 @@ impl CanonicalEncode for AuthenticatedCashAirReceiptV1 {
         for proof in &self.mutation_proof_segments {
             match proof {
                 None => 0_u8.encode(e)?,
-                Some(segments) => {
-                    validate_cash_air_proof_segments(segments).map_err(|_| {
-                        EncodeError::LengthLimitExceeded {
-                            length: segments.len(),
-                            maximum: MAX_CASH_AIR_PROOF_SEGMENTS,
-                        }
-                    })?;
+                Some(partition_proofs) => {
                     1_u8.encode(e)?;
-                    e.write_length(segments.len(), MAX_CASH_AIR_PROOF_SEGMENTS)?;
-                    for segment in segments {
-                        e.write_bytes(segment, MAX_CASH_AIR_PROOF_BYTES)?;
+                    e.write_length(partition_proofs.len(), MAX_CASH_PARTITION_PROOFS_PER_ROW)?;
+                    for segments in partition_proofs {
+                        validate_cash_air_proof_segments(segments).map_err(|_| {
+                            EncodeError::LengthLimitExceeded {
+                                length: segments.len(),
+                                maximum: MAX_CASH_AIR_PROOF_SEGMENTS,
+                            }
+                        })?;
+                        e.write_length(segments.len(), MAX_CASH_AIR_PROOF_SEGMENTS)?;
+                        for segment in segments {
+                            e.write_bytes(segment, MAX_CASH_AIR_PROOF_BYTES)?;
+                        }
                     }
                 }
             }
@@ -516,36 +541,57 @@ impl CanonicalDecode for AuthenticatedCashAirReceiptV1 {
             mutation_proof_segments.push(match u8::decode(d)? {
                 0 => None,
                 1 => {
-                    let segment_count = d.read_length(MAX_CASH_AIR_PROOF_SEGMENTS)?;
-                    if segment_count == 0 {
+                    let proof_count = d.read_length(MAX_CASH_PARTITION_PROOFS_PER_ROW)?;
+                    if proof_count == 0 {
                         return Err(DecodeError::InvalidValue(
-                            "empty authenticated proof segments",
+                            "empty authenticated partition proof set",
                         ));
                     }
-                    let mut segments = Vec::with_capacity(segment_count);
-                    for _ in 0..segment_count {
-                        let segment = d.read_bytes(MAX_CASH_AIR_PROOF_BYTES)?.to_vec();
-                        if segment.is_empty() {
+                    let mut partition_proofs = Vec::with_capacity(proof_count);
+                    for _ in 0..proof_count {
+                        let segment_count = d.read_length(MAX_CASH_AIR_PROOF_SEGMENTS)?;
+                        if segment_count == 0 {
                             return Err(DecodeError::InvalidValue(
-                                "empty authenticated proof segment",
+                                "empty authenticated proof segments",
                             ));
                         }
-                        segments.push(segment);
+                        let mut segments = Vec::with_capacity(segment_count);
+                        for _ in 0..segment_count {
+                            let segment = d.read_bytes(MAX_CASH_AIR_PROOF_BYTES)?.to_vec();
+                            if segment.is_empty() {
+                                return Err(DecodeError::InvalidValue(
+                                    "empty authenticated proof segment",
+                                ));
+                            }
+                            segments.push(segment);
+                        }
+                        validate_cash_air_proof_segments(&segments).map_err(|_| {
+                            DecodeError::InvalidValue("non-canonical authenticated proof segments")
+                        })?;
+                        partition_proofs.push(segments);
                     }
-                    validate_cash_air_proof_segments(&segments).map_err(|_| {
-                        DecodeError::InvalidValue("non-canonical authenticated proof segments")
-                    })?;
-                    Some(segments)
+                    Some(partition_proofs)
                 }
                 _ => return Err(DecodeError::InvalidValue("invalid authenticated proof option")),
             });
+        }
+        for (segments, mutation) in mutation_proof_segments.iter().zip(trace.mutations()) {
+            match (segments, mutation) {
+                (Some(proofs), Some(mutation)) if proofs.len() == mutation.mutations().len() => {}
+                (None, None) => {}
+                _ => {
+                    return Err(DecodeError::InvalidValue(
+                        "authenticated partition proof shape mismatch",
+                    ));
+                }
+            }
         }
         Ok(Self { suite_id, trace, parent_proof_bytes, mutation_proof_segments })
     }
 }
 impl CanonicalType for AuthenticatedCashAirReceiptV1 {
     const TYPE_TAG: u16 = 0x0108;
-    const SCHEMA_VERSION: u16 = 2;
+    const SCHEMA_VERSION: u16 = 3;
     const MAX_ENCODED_LEN: usize = MAX_CASH_AIR_COMPOSITE_BYTES;
 }
 
@@ -877,7 +923,7 @@ pub struct CashStarkProof {
 
 pub struct AuthenticatedCashCompositeStarkProof {
     parent: CashStarkProof,
-    mutation_shake: Vec<Option<AuthenticatedCashShakeStarkProof>>,
+    mutation_shake: Vec<Option<Vec<AuthenticatedCashShakeStarkProof>>>,
 }
 
 impl AuthenticatedCashCompositeStarkProof {
@@ -887,7 +933,7 @@ impl AuthenticatedCashCompositeStarkProof {
     }
     #[must_use]
     pub fn mutation_proof_count(&self) -> usize {
-        self.mutation_shake.iter().filter(|proof| proof.is_some()).count()
+        self.mutation_shake.iter().flatten().map(Vec::len).sum()
     }
 }
 
@@ -927,7 +973,18 @@ pub fn prove_authenticated_composite(
     let parent = prove_authenticated_parent(trace)?;
     let mut mutation_shake = Vec::with_capacity(trace.mutations().len());
     for mutation in trace.mutations() {
-        mutation_shake.push(mutation.as_ref().map(prove_authenticated_cash_shake).transpose()?);
+        mutation_shake.push(
+            mutation
+                .as_ref()
+                .map(|partitioned| {
+                    partitioned
+                        .mutations()
+                        .iter()
+                        .map(|mutation| prove_authenticated_cash_shake(mutation.transition()))
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .transpose()?,
+        );
     }
     Ok(AuthenticatedCashCompositeStarkProof { parent, mutation_shake })
 }
@@ -947,8 +1004,13 @@ pub fn verify_authenticated_composite(
     verify_trace_structure(proof.parent)?;
     for (row_proof, mutation) in proof.mutation_shake.iter().zip(trace.mutations()) {
         match (row_proof, mutation) {
-            (Some(row_proof), Some(mutation)) => {
-                verify_authenticated_cash_shake(row_proof, mutation)?;
+            (Some(row_proofs), Some(partitioned)) => {
+                if row_proofs.len() != partitioned.mutations().len() {
+                    return Err("authenticated CashAIR partition proof count mismatch");
+                }
+                for (row_proof, mutation) in row_proofs.iter().zip(partitioned.mutations()) {
+                    verify_authenticated_cash_shake(row_proof, mutation.transition())?;
+                }
             }
             (None, None) => {}
             _ => return Err("authenticated CashAIR composite row/proof mismatch"),
@@ -960,11 +1022,16 @@ pub fn verify_authenticated_composite(
 fn enforce_authenticated_composite_permutation_limit(
     trace: &AuthenticatedCashAirProofV1,
 ) -> Result<usize, &'static str> {
-    let total = trace.mutations().iter().flatten().try_fold(0_usize, |total, mutation| {
-        total
-            .checked_add(authenticated_cash_shake_permutation_count(mutation)?)
-            .ok_or("authenticated CashAIR permutation count overflow")
-    })?;
+    let total = trace
+        .mutations()
+        .iter()
+        .flatten()
+        .flat_map(|partitioned| partitioned.mutations())
+        .try_fold(0_usize, |total, mutation| {
+            total
+                .checked_add(authenticated_cash_shake_permutation_count(mutation.transition())?)
+                .ok_or("authenticated CashAIR permutation count overflow")
+        })?;
     ensure_authenticated_composite_permutation_total(total)
 }
 
@@ -1020,7 +1087,7 @@ fn build_trace(
     set_root(&mut trace, 0, current_root);
     let authenticated_mode = BaseElement::new(u128::from(authenticated.is_some()));
     let mut authenticated_root = authenticated
-        .map(|value| digest_elements(value.pre_root().into_digest()))
+        .map(|value| digest_elements(value.pre_root()))
         .transpose()?
         .unwrap_or(current_root);
     trace.set(AUTHENTICATED_MODE, 0, authenticated_mode);
@@ -1056,7 +1123,7 @@ fn build_trace(
         if let Some(authenticated) = authenticated {
             match (row.accepted(), &authenticated.mutations()[offset]) {
                 (true, Some(mutation)) => {
-                    authenticated_root = digest_elements(mutation.post_root().into_digest())?
+                    authenticated_root = digest_elements(mutation.post_global_root())?
                 }
                 (false, None) => {}
                 _ => return Err("authenticated CashAIR row/mutation mismatch"),
@@ -1106,13 +1173,13 @@ fn authenticated_public_inputs(
 ) -> Result<CashStarkPublicInputs, &'static str> {
     let mut public = public_inputs(proof.execution())?;
     public.authenticated_mode = BaseElement::ONE;
-    public.authenticated_pre_root = digest_elements(proof.pre_root().into_digest())?;
-    public.authenticated_post_root = digest_elements(proof.post_root().into_digest())?;
+    public.authenticated_pre_root = digest_elements(proof.pre_root())?;
+    public.authenticated_post_root = digest_elements(proof.post_root())?;
     let mut current = public.authenticated_pre_root;
     public.authenticated_row_roots = Vec::with_capacity(proof.mutations().len());
     for mutation in proof.mutations() {
         if let Some(mutation) = mutation {
-            current = digest_elements(mutation.post_root().into_digest())?;
+            current = digest_elements(mutation.post_global_root())?;
         }
         public.authenticated_row_roots.push(current);
     }
@@ -1458,7 +1525,13 @@ mod tests {
         let receipt = AuthenticatedCashAirReceiptV1::new(
             trace.clone(),
             parent.to_bytes(),
-            trace.mutations().iter().map(|_| None).collect(),
+            trace
+                .mutations()
+                .iter()
+                .map(|mutation| {
+                    mutation.as_ref().map(|mutation| vec![vec![1]; mutation.mutations().len()])
+                })
+                .collect(),
         )
         .unwrap();
         let encoded = receipt.encode_envelope().unwrap();
@@ -1484,6 +1557,17 @@ mod tests {
             mutation_shake: trace.mutations().iter().map(|_| None).collect(),
         };
         assert!(verify_authenticated_composite(missing_proofs, &trace).is_err());
+
+        let parent = prove_authenticated_parent(&trace).unwrap();
+        let missing_partition_proofs = super::AuthenticatedCashCompositeStarkProof {
+            parent,
+            mutation_shake: trace
+                .mutations()
+                .iter()
+                .map(|mutation| mutation.as_ref().map(|_| Vec::new()))
+                .collect(),
+        };
+        assert!(verify_authenticated_composite(missing_partition_proofs, &trace).is_err());
     }
 
     #[test]
@@ -1533,21 +1617,31 @@ mod tests {
         let started = std::time::Instant::now();
         let (ledger, batch) = bounded_composite_fixture();
         let (trace, _) = prove_authenticated_cash_air(&ledger, &batch, 3, 16).unwrap();
+        let expected_partition_proofs = trace
+            .mutations()
+            .iter()
+            .flatten()
+            .map(|mutation| mutation.mutations().len())
+            .sum::<usize>();
         let proof = prove_authenticated_composite(&trace).unwrap();
         let prove_elapsed = started.elapsed();
-        assert_eq!(proof.mutation_proof_count(), 1);
+        assert_eq!(proof.mutation_proof_count(), expected_partition_proofs);
         let parent_proof_bytes = proof.parent.to_bytes();
         let mutation_proof_bytes = proof
             .mutation_shake
             .iter()
-            .map(|proof| proof.as_ref().map(|proof| proof.encode_bytes().unwrap()))
+            .map(|proofs| {
+                proofs.as_ref().map(|proofs| {
+                    proofs.iter().map(|proof| proof.encode_bytes().unwrap()).collect::<Vec<_>>()
+                })
+            })
             .collect::<Vec<_>>();
         let logical_mutation_bytes =
-            mutation_proof_bytes.iter().flatten().map(Vec::len).sum::<usize>();
-        let mut trailing = mutation_proof_bytes[0].clone().unwrap();
+            mutation_proof_bytes.iter().flatten().flatten().map(Vec::len).sum::<usize>();
+        let mut trailing = mutation_proof_bytes[0].as_ref().unwrap()[0].clone();
         trailing.push(0);
         assert!(super::shake::AuthenticatedCashShakeStarkProof::decode_bytes(&trailing).is_err());
-        let mut truncated = mutation_proof_bytes[0].clone().unwrap();
+        let mut truncated = mutation_proof_bytes[0].as_ref().unwrap()[0].clone();
         truncated.pop();
         assert!(super::shake::AuthenticatedCashShakeStarkProof::decode_bytes(&truncated).is_err());
         assert!(
@@ -1566,11 +1660,12 @@ mod tests {
         let receipt =
             AuthenticatedCashAirReceiptV1::new(trace, parent_proof_bytes, mutation_proof_bytes)
                 .unwrap();
-        assert_eq!(receipt.mutation_proof_segments[0].as_ref().unwrap().len(), 4);
+        assert_eq!(receipt.mutation_proof_segments[0].as_ref().unwrap()[0].len(), 4);
         assert!(
             receipt
                 .mutation_proof_segments
                 .iter()
+                .flatten()
                 .flatten()
                 .flatten()
                 .all(|segment| segment.len() <= super::MAX_CASH_AIR_PROOF_BYTES)
@@ -1581,7 +1676,7 @@ mod tests {
         assert!(encoded.len() <= super::MAX_CASH_AIR_COMPOSITE_BYTES);
         assert_eq!(super::MAX_CASH_AIR_COMPOSITE_BYTES / encoded.len(), 2);
         let mut reordered = receipt.clone();
-        reordered.mutation_proof_segments[0].as_mut().unwrap().swap(0, 1);
+        reordered.mutation_proof_segments[0].as_mut().unwrap()[0].swap(0, 1);
         let reordered = reordered.encode_envelope().unwrap();
         assert!(AuthenticatedCashAirReceiptV1::verify_bytes(&reordered).is_err());
         let verify_started = std::time::Instant::now();
@@ -1593,6 +1688,7 @@ mod tests {
             receipt
                 .mutation_proof_segments
                 .iter()
+                .flatten()
                 .flatten()
                 .flatten()
                 .map(Vec::len)

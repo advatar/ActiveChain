@@ -8,9 +8,9 @@ use activechain_protocol_types::{CoinCellSetRoot, Digest384, Height, SupplyRoot}
 
 use crate::types::MAX_TRANSFER_BATCH;
 use crate::{
-    AuthenticatedCoinCellRoot, CashLedger, CashTransferV1, CashTransitionError,
-    CoinCellTransitionWitness, PartitionedCashPlan, authenticated_coin_cell_root,
-    prove_coin_cell_transition, verify_coin_cell_transition,
+    CashLedger, CashTransferV1, CashTransitionError, CoinCellPartitionTransitionWitness,
+    PartitionedCashPlan, prove_coin_cell_partition_transition,
+    verify_coin_cell_partition_transition,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -269,9 +269,9 @@ impl CanonicalType for CashAirProof {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AuthenticatedCashAirProofV1 {
     execution: CashAirProof,
-    pre_root: AuthenticatedCoinCellRoot,
-    post_root: AuthenticatedCoinCellRoot,
-    mutations: Vec<Option<CoinCellTransitionWitness>>,
+    pre_root: Digest384,
+    post_root: Digest384,
+    mutations: Vec<Option<CoinCellPartitionTransitionWitness>>,
 }
 
 impl AuthenticatedCashAirProofV1 {
@@ -281,17 +281,17 @@ impl AuthenticatedCashAirProofV1 {
     }
 
     #[must_use]
-    pub const fn pre_root(&self) -> AuthenticatedCoinCellRoot {
+    pub const fn pre_root(&self) -> Digest384 {
         self.pre_root
     }
 
     #[must_use]
-    pub const fn post_root(&self) -> AuthenticatedCoinCellRoot {
+    pub const fn post_root(&self) -> Digest384 {
         self.post_root
     }
 
     #[must_use]
-    pub fn mutations(&self) -> &[Option<CoinCellTransitionWitness>] {
+    pub fn mutations(&self) -> &[Option<CoinCellPartitionTransitionWitness>] {
         &self.mutations
     }
 }
@@ -315,13 +315,13 @@ impl CanonicalEncode for AuthenticatedCashAirProofV1 {
 impl CanonicalDecode for AuthenticatedCashAirProofV1 {
     fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
         let execution = CashAirProof::decode(decoder)?;
-        let pre_root = AuthenticatedCoinCellRoot::decode(decoder)?;
-        let post_root = AuthenticatedCoinCellRoot::decode(decoder)?;
+        let pre_root = Digest384::decode(decoder)?;
+        let post_root = Digest384::decode(decoder)?;
         let count = decoder.read_length(MAX_TRANSFER_BATCH)?;
         let mut mutations = Vec::with_capacity(count);
         for _ in 0..count {
             mutations.push(if bool::decode(decoder)? {
-                Some(CoinCellTransitionWitness::decode(decoder)?)
+                Some(CoinCellPartitionTransitionWitness::decode(decoder)?)
             } else {
                 None
             });
@@ -335,11 +335,11 @@ impl CanonicalDecode for AuthenticatedCashAirProofV1 {
 
 impl CanonicalType for AuthenticatedCashAirProofV1 {
     const TYPE_TAG: u16 = 0x009d;
-    const SCHEMA_VERSION: u16 = 1;
+    const SCHEMA_VERSION: u16 = 2;
     const MAX_ENCODED_LEN: usize = CashAirProof::MAX_ENCODED_LEN
-        + AuthenticatedCoinCellRoot::MAX_ENCODED_LEN * 2
+        + 48 * 2
         + 1
-        + MAX_TRANSFER_BATCH * (1 + CoinCellTransitionWitness::MAX_ENCODED_LEN);
+        + MAX_TRANSFER_BATCH * (1 + CoinCellPartitionTransitionWitness::MAX_ENCODED_LEN);
 }
 
 pub fn prove_cash_air(
@@ -430,7 +430,7 @@ pub fn prove_authenticated_cash_air(
         }
         mutations.push(if accepted {
             Some(
-                prove_coin_cell_transition(&before, state.cells())
+                prove_coin_cell_partition_transition(&before, state.cells(), partitions)
                     .map_err(|_| CashAirError::Transition)?,
             )
         } else {
@@ -442,10 +442,12 @@ pub fn prove_authenticated_cash_air(
     }
     let proof = AuthenticatedCashAirProofV1 {
         execution,
-        pre_root: authenticated_coin_cell_root(pre.cells())
-            .map_err(|_| CashAirError::Transition)?,
-        post_root: authenticated_coin_cell_root(state.cells())
-            .map_err(|_| CashAirError::Transition)?,
+        pre_root: crate::authenticated_coin_cell_partition_roots(pre.cells(), partitions)
+            .map_err(|_| CashAirError::Transition)?
+            .global_root(),
+        post_root: crate::authenticated_coin_cell_partition_roots(state.cells(), partitions)
+            .map_err(|_| CashAirError::Transition)?
+            .global_root(),
         mutations,
     };
     validate_authenticated_shape(&proof)?;
@@ -476,11 +478,14 @@ fn validate_authenticated_shape(proof: &AuthenticatedCashAirProofV1) -> Result<(
     for (row, mutation) in proof.execution.rows.iter().zip(&proof.mutations) {
         match (row.accepted, mutation) {
             (true, Some(mutation)) => {
-                verify_coin_cell_transition(mutation).map_err(|_| CashAirError::InvalidProof)?;
-                if mutation.pre_root() != current {
+                verify_coin_cell_partition_transition(mutation)
+                    .map_err(|_| CashAirError::InvalidProof)?;
+                if mutation.partitions() != proof.execution.public.partitions
+                    || mutation.pre_global_root() != current
+                {
                     return Err(CashAirError::InvalidProof);
                 }
-                current = mutation.post_root();
+                current = mutation.post_global_root();
             }
             (false, None) => {}
             _ => return Err(CashAirError::InvalidProof),

@@ -22,5 +22,12 @@ replaces only its declared pre-root, and recomputes both global roots. Empty tra
 or out-of-order partitions, substituted roots, wrong-partition records, and malformed canonical
 encodings fail closed.
 
-This completes the canonical witness foundation for issue #76. The remaining work is to carry these
-witnesses through each accepted CashAIR row and constrain their ordered global transition.
+CashAIR now carries one canonical `CoinCellPartitionTransitionWitness` for every accepted row under
+the exact configured partition count. The parent STARK binds the initial global partition root,
+every ordered row result, and the final global partition root; rejected rows keep the root stable.
+The authenticated composite additionally requires exactly one SHAKE proof for every touched local
+partition transition. Missing, extra, reordered, wrong-partition, or substituted local evidence
+therefore fails before an authenticated receipt is accepted.
+
+This completes the per-row partition/global-root transition gate for issue #76. Recursive child
+proof verification and exact aggregation resource-unit binding remain separate open gates.
