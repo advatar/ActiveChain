@@ -2250,6 +2250,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
         - [ ] Add authenticated Coin Cell membership, one-time consumption, and partition/global
           root transition constraints
           ([GitHub issue #76](https://github.com/advatar/ActiveChain/issues/76)).
+          - [ ] Carry canonical per-row partition transition witnesses through CashAIR, bind their
+            global roots in the parent STARK, and prove every touched partition's SHAKE paths.
           - [x] Define canonical count-bound per-partition authenticated roots and an ordered,
             partition-count-bound global partition root using the existing partition mapping.
           - [x] Add canonical row-level partition transition witnesses carrying the complete
