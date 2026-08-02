@@ -27,6 +27,7 @@ extern crate alloc;
 
 mod aggregation;
 mod ml_dsa_challenge_product;
+mod ml_dsa_cross_table;
 mod ml_dsa_decoding;
 mod ml_dsa_expanda;
 mod ml_dsa_final_challenge;
@@ -50,6 +51,9 @@ pub use aggregation::{
 pub use ml_dsa_challenge_product::{
     MlDsa44ChallengeProductStarkProof, prove_ml_dsa44_challenge_product,
     verify_ml_dsa44_challenge_product,
+};
+pub use ml_dsa_cross_table::{
+    MlDsa44CrossTableStarkProof, prove_ml_dsa44_cross_table, verify_ml_dsa44_cross_table,
 };
 pub use ml_dsa_decoding::{
     ML_DSA44_SIGNATURE_LENGTH, ML_DSA44_VECTOR_DIMENSION, MlDsa44DecodedVerifierInputs,

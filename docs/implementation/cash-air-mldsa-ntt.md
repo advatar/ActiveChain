@@ -52,15 +52,28 @@ inverse NTT, and `UseHint`. The matrix and sparse challenge are now derived from
 `c_tilde` through proved SHAKE streams. The final-challenge composition canonically packs all four
 `w1` polynomials at six bits per coefficient, proves SHAKE256 over the exact 64-byte `mu` plus
 768-byte `w1Encode(w1)` transcript, and requires its 32-byte output to equal the decoded signature
-`c_tilde`. Composing every table with the decoded key/signature and session statement remains the
-end-to-end boundary.
+`c_tilde`. The cross-table layer below connects these tables to decoded key/signature bytes; the
+session statement remains the activation boundary.
+
+The cross-table verifier now closes the standalone ML-DSA-44 boundary. It accepts one canonical
+1,312-byte public key, 2,420-byte signature, and message payload; proves key/signature decoding;
+proves `tr = SHAKE256(pk, 64)` and the normal-mode empty-context
+`mu = SHAKE256(tr || 0x00 || 0x00 || payload, 64)` transcript; derives `ExpandA(rho)`; and feeds the
+decoded `t1`, `z`, hints, and `c_tilde` through reconstruction and final-challenge equality. A real
+deterministic `ml-dsa 0.1.1` signature exercises the complete composition. Binding this composed
+proof object into the session AIR's authorization commitment remains a separate activation step.
+
+Real signatures can legitimately omit the rare `UseHint` increment/decrement wrap branches. The
+UseHint table therefore appends fixed valid branch-exercising rows after its 1,024 verifier rows,
+keeping every declared Boolean constraint algebraically nonconstant without changing or weakening
+the public verifier rows.
 
 The specialized Keccak AIR now also proves bounded SHAKE256 XOF output up to 16,384 bytes in one
-ordered trace and accepts bounded XOF messages up to 1,024 bytes, enough for the 832-byte final
-ML-DSA-44 challenge transcript. It binds the padded absorption chain and every additional squeeze
-permutation, providing the variable-length transcript boundary required by matrix expansion and
-challenge rejection sampling rather than treating bytes beyond the first 48 as unproved host
-output.
+ordered trace and accepts bounded XOF messages up to 2,048 bytes, enough for both the 832-byte final
+challenge transcript and the 1,312-byte public-key hash used to derive `tr`. It binds the padded
+absorption chain and every additional squeeze permutation, providing the variable-length transcript
+boundary required by matrix expansion and challenge rejection sampling rather than treating bytes
+beyond the first 48 as unproved host output.
 
 `ExpandA` uses SHAKE128, so its proof uses the same ordered Keccak AIR with the FIPS SHAKE128
 168-byte rate. For each of the 16 `rho || column || row` streams it proves the exact XOF prefix,

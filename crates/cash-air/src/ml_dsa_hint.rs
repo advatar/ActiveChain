@@ -16,7 +16,8 @@ use crate::{ML_DSA_NTT_COEFFICIENTS, ML_DSA_Q, ML_DSA44_VECTOR_DIMENSION};
 const TWO_GAMMA_2: u32 = 190_464;
 const GAMMA_2: u32 = TWO_GAMMA_2 / 2;
 const HIGH_MODULUS: u32 = (ML_DSA_Q - 1) / TWO_GAMMA_2;
-const TRACE_LENGTH: usize = 1024;
+const VERIFIER_ROWS: usize = ML_DSA44_VECTOR_DIMENSION * ML_DSA_NTT_COEFFICIENTS;
+const TRACE_LENGTH: usize = 2048;
 const INPUT: usize = 0;
 const HINT: usize = 1;
 const HIGH: usize = 2;
@@ -216,32 +217,50 @@ fn use_hint_public_inputs(
             if r >= ML_DSA_Q {
                 return Err("ML-DSA UseHint coefficient is outside Z_q");
             }
-            let (high, low_abs, low_positive, edge) = decompose(r);
             let hint = hints[vector_index][coefficient];
-            let inc_wrap = hint && low_positive && high + 1 == HIGH_MODULUS;
-            let dec_wrap = hint && !low_positive && high == 0;
-            let adjusted = if !hint {
-                high
-            } else if low_positive {
-                (high + 1) % HIGH_MODULUS
-            } else {
-                (high + HIGH_MODULUS - 1) % HIGH_MODULUS
-            };
+            let (row, adjusted) = hint_row(r, hint);
             output[vector_index][coefficient] = adjusted;
-            rows.push([
-                element(r),
-                element(u32::from(hint)),
-                element(high),
-                element(low_abs),
-                element(u32::from(low_positive)),
-                element(u32::from(edge)),
-                element(adjusted),
-                element(u32::from(inc_wrap)),
-                element(u32::from(dec_wrap)),
-            ]);
+            rows.push(row);
         }
     }
+    debug_assert_eq!(rows.len(), VERIFIER_ROWS);
+    let padding = [
+        hint_row(43 * TWO_GAMMA_2 + 1, true).0,
+        hint_row(ML_DSA_Q - 1, true).0,
+        hint_row(0, false).0,
+        hint_row(GAMMA_2, false).0,
+    ];
+    while rows.len() < TRACE_LENGTH {
+        rows.push(padding[(rows.len() - VERIFIER_ROWS) % padding.len()]);
+    }
     Ok((UseHintPublicInputs { rows }, output))
+}
+
+fn hint_row(r: u32, hint: bool) -> ([BaseElement; TRACE_WIDTH], u32) {
+    let (high, low_abs, low_positive, edge) = decompose(r);
+    let inc_wrap = hint && low_positive && high + 1 == HIGH_MODULUS;
+    let dec_wrap = hint && !low_positive && high == 0;
+    let adjusted = if !hint {
+        high
+    } else if low_positive {
+        (high + 1) % HIGH_MODULUS
+    } else {
+        (high + HIGH_MODULUS - 1) % HIGH_MODULUS
+    };
+    (
+        [
+            element(r),
+            element(u32::from(hint)),
+            element(high),
+            element(low_abs),
+            element(u32::from(low_positive)),
+            element(u32::from(edge)),
+            element(adjusted),
+            element(u32::from(inc_wrap)),
+            element(u32::from(dec_wrap)),
+        ],
+        adjusted,
+    )
 }
 
 fn decompose(r: u32) -> (u32, u32, bool, bool) {
