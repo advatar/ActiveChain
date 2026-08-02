@@ -8,6 +8,7 @@ version = "0.1.0"
 dependencies = [
  "activechain-agent-interfaces",
  "activechain-cash-kernel",
+ "activechain-principal",
  "activechain-proposal-gateway",
  "activechain-protocol-types",
  "serde",

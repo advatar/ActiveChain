@@ -8,6 +8,7 @@ use activechain_agent_interfaces::{
     A2UI_VERSION, A2uiActionV1, A2uiComponentV1, A2uiSurfaceV1, BindingV1, INTERFACE_VERSION,
 };
 use activechain_cash_kernel::FungibleCoinCell;
+use activechain_principal::{LifecycleAuthorization, PrincipalCommand, apply_lifecycle_command};
 use activechain_proposal_gateway::{ActionIntentV1, ActionKindV1};
 use activechain_protocol_types::{
     FungibleAssetDefinition, FungibleAssetPolicyV1, FungibleControllerRotationV1,
@@ -15,7 +16,7 @@ use activechain_protocol_types::{
     FungibleCorporateActionV1, FungibleExceptionalControlActionV1, FungibleExceptionalControlKind,
     FungibleExceptionalControlPolicyV1, FungibleHolderControlStateV1, FungibleIssuerApprovalV1,
     FungibleIssuerOperation, NonFungibleIssuerApprovalV1, NonFungibleMintManifestV1,
-    NonFungibleSeriesV1, NonFungibleTokenRegistryV1,
+    NonFungibleSeriesV1, NonFungibleTokenRegistryV1, Principal, RecoveryRequest,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -300,6 +301,86 @@ impl ControllerRotationFacts {
             revision_after: next_state.revision(),
             effective_height: rotation.effective_height(),
             expires_height: rotation.expires_height(),
+        })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IssuerRecoveryInitiationFacts {
+    pub approval_commitment: String,
+    pub asset: String,
+    pub issuer: String,
+    pub current_authority: String,
+    pub replacement_authority: String,
+    pub proposed_controller_policy: String,
+    pub recovery_policy: String,
+    pub recovery_evidence: String,
+    pub sequence_before: u64,
+    pub sequence_after: u64,
+    pub recovery_bond: u128,
+    pub initiated_at: u64,
+    pub challenge_deadline: u64,
+    pub rotation_expires_height: u64,
+}
+
+impl IssuerRecoveryInitiationFacts {
+    pub fn from_initiation(
+        principal: &Principal,
+        policy: &FungibleAssetPolicyV1,
+        state: &FungibleControllerStateV1,
+        request: &RecoveryRequest,
+        rotation: &FungibleControllerRotationV1,
+    ) -> Result<Self, RenderError> {
+        if principal.principal_id() != policy.issuer()
+            || principal.authenticator_set_root() != policy.authority_set()
+        {
+            return Err(RenderError::InvalidCanonicalFacts);
+        }
+        let authorization = LifecycleAuthorization::recovery(
+            principal.principal_id(),
+            principal.sequence(),
+            principal.recovery_policy_hash(),
+        );
+        let output = apply_lifecycle_command(
+            principal,
+            PrincipalCommand::InitiateRecovery {
+                expected_sequence: request.expected_sequence(),
+                proposed_controller_policy_hash: request.proposed_controller_policy_hash(),
+                proposed_authenticator_set_root: request.proposed_authenticator_set_root(),
+                recovery_evidence_commitment: request.recovery_evidence_commitment(),
+                challenge_deadline: request.challenge_deadline(),
+                recovery_bond: request.recovery_bond(),
+            },
+            Some(&authorization),
+            request.initiated_at(),
+        )
+        .map_err(|_| RenderError::InvalidCanonicalFacts)?;
+        if output.recovery_request() != Some(*request)
+            || rotation.replacement_authority_set() != request.proposed_authenticator_set_root()
+            || rotation.effective_height() != request.challenge_deadline()
+        {
+            return Err(RenderError::InvalidCanonicalFacts);
+        }
+        state
+            .apply_rotation(policy, rotation, request.challenge_deadline())
+            .map_err(|_| RenderError::InvalidCanonicalFacts)?;
+        Ok(Self {
+            approval_commitment: lower_hex(rotation.approval_commitment().as_bytes()),
+            asset: lower_hex(policy.asset_id().digest().as_bytes()),
+            issuer: lower_hex(policy.issuer().digest().as_bytes()),
+            current_authority: lower_hex(policy.authority_set().as_bytes()),
+            replacement_authority: lower_hex(request.proposed_authenticator_set_root().as_bytes()),
+            proposed_controller_policy: lower_hex(
+                request.proposed_controller_policy_hash().as_bytes(),
+            ),
+            recovery_policy: lower_hex(principal.recovery_policy_hash().as_bytes()),
+            recovery_evidence: lower_hex(request.recovery_evidence_commitment().as_bytes()),
+            sequence_before: principal.sequence(),
+            sequence_after: output.principal().sequence(),
+            recovery_bond: request.recovery_bond(),
+            initiated_at: request.initiated_at(),
+            challenge_deadline: request.challenge_deadline(),
+            rotation_expires_height: rotation.expires_height(),
         })
     }
 }
@@ -825,6 +906,55 @@ pub fn render_controller_rotation(
     )
 }
 
+pub fn render_issuer_recovery_initiation(
+    facts: &IssuerRecoveryInitiationFacts,
+    explanation: &str,
+) -> Result<RenderedApproval, RenderError> {
+    for digest in [
+        &facts.approval_commitment,
+        &facts.asset,
+        &facts.issuer,
+        &facts.current_authority,
+        &facts.replacement_authority,
+        &facts.proposed_controller_policy,
+        &facts.recovery_policy,
+        &facts.recovery_evidence,
+    ] {
+        require_digest_text(digest)?;
+    }
+    if facts.current_authority == facts.replacement_authority
+        || facts.sequence_before.checked_add(1) != Some(facts.sequence_after)
+        || facts.recovery_bond == 0
+        || facts.initiated_at >= facts.challenge_deadline
+        || facts.challenge_deadline >= facts.rotation_expires_height
+    {
+        return Err(RenderError::InvalidCanonicalFacts);
+    }
+    render_fact_surface(
+        "activechain.issuer_recovery_initiation.v1",
+        "Review issuer recovery initiation",
+        &facts.approval_commitment,
+        &[
+            ("Asset ID".into(), facts.asset.clone()),
+            ("Issuer principal".into(), facts.issuer.clone()),
+            ("Current authority".into(), facts.current_authority.clone()),
+            ("Proposed authority".into(), facts.replacement_authority.clone()),
+            ("Proposed controller policy".into(), facts.proposed_controller_policy.clone()),
+            ("Recovery policy".into(), facts.recovery_policy.clone()),
+            ("Recovery evidence".into(), facts.recovery_evidence.clone()),
+            ("Sequence before".into(), facts.sequence_before.to_string()),
+            ("Sequence after initiation".into(), facts.sequence_after.to_string()),
+            ("Recovery bond".into(), facts.recovery_bond.to_string()),
+            ("Initiated at".into(), facts.initiated_at.to_string()),
+            ("Challenge deadline".into(), facts.challenge_deadline.to_string()),
+            ("Rotation expiry".into(), facts.rotation_expires_height.to_string()),
+            ("Recovery status".into(), "Pending challenge period; not completed".into()),
+        ],
+        Some(explanation),
+        true,
+    )
+}
+
 pub fn render_corporate_action(
     facts: &CorporateActionFacts,
     explanation: &str,
@@ -1219,8 +1349,8 @@ mod tests {
     use super::*;
     use activechain_cash_kernel::CoinCellOrigin;
     use activechain_protocol_types::{
-        AssetId, Digest384, FungibleAssetLifecycle, NonFungibleMintItemV1, PrincipalId,
-        TransactionId,
+        AssetId, Digest384, FreezeState, FungibleAssetLifecycle, NonFungibleMintItemV1,
+        PrincipalId, PrincipalKind, TransactionId,
     };
 
     fn facts() -> TransferApprovalFacts {
@@ -1702,6 +1832,123 @@ mod tests {
         .unwrap();
         assert_eq!(
             ControllerRotationFacts::from_approved_rotation(&changed, &state, &rotation, 15),
+            Err(RenderError::InvalidCanonicalFacts)
+        );
+    }
+
+    fn issuer_recovery_fixture() -> (
+        Principal,
+        FungibleAssetPolicyV1,
+        FungibleControllerStateV1,
+        RecoveryRequest,
+        FungibleControllerRotationV1,
+    ) {
+        let policy = issuer_policy();
+        let principal = Principal::new(
+            policy.issuer(),
+            PrincipalKind::Organization,
+            Digest384::new([70; 48]),
+            Digest384::new([71; 48]),
+            policy.authority_set(),
+            7,
+            FreezeState::Active,
+            Digest384::new([72; 48]),
+            100,
+            1,
+            5,
+        )
+        .unwrap();
+        let state = FungibleControllerStateV1::from_policy(&policy, 3).unwrap();
+        let request = RecoveryRequest::new(
+            policy.issuer(),
+            7,
+            Digest384::new([73; 48]),
+            Digest384::new([74; 48]),
+            Digest384::new([75; 48]),
+            10,
+            20,
+            500,
+        )
+        .unwrap();
+        let rotation = FungibleControllerRotationV1::new(
+            policy.asset_id(),
+            policy.issuer(),
+            state.commitment().unwrap(),
+            policy.authority_set(),
+            request.proposed_authenticator_set_root(),
+            Digest384::new([76; 48]),
+            state.revision(),
+            request.challenge_deadline(),
+            30,
+        )
+        .unwrap();
+        (principal, policy, state, request, rotation)
+    }
+
+    #[test]
+    fn issuer_recovery_review_is_exact_and_explicitly_pending() {
+        let (principal, policy, state, request, rotation) = issuer_recovery_fixture();
+        let facts = IssuerRecoveryInitiationFacts::from_initiation(
+            &principal, &policy, &state, &request, &rotation,
+        )
+        .unwrap();
+        assert_eq!(facts.sequence_before, 7);
+        assert_eq!(facts.sequence_after, 8);
+        assert_eq!(facts.challenge_deadline, 20);
+        let rendered = render_issuer_recovery_initiation(
+            &facts,
+            "Initiate issuer recovery; challenge period remains open",
+        )
+        .unwrap();
+        let surface = rendered.surface.unwrap();
+        assert_eq!(surface.surface_id, "activechain.issuer_recovery_initiation.v1");
+        assert_eq!(surface.intent_commitment, "4c".repeat(48));
+        assert_eq!(
+            surface.data_model["view"]["facts"][13],
+            "Recovery status: Pending challenge period; not completed"
+        );
+    }
+
+    #[test]
+    fn issuer_recovery_review_rejects_stale_request_and_changed_rotation() {
+        let (principal, policy, state, request, rotation) = issuer_recovery_fixture();
+        let stale = RecoveryRequest::new(
+            request.principal_id(),
+            6,
+            request.proposed_controller_policy_hash(),
+            request.proposed_authenticator_set_root(),
+            request.recovery_evidence_commitment(),
+            request.initiated_at(),
+            request.challenge_deadline(),
+            request.recovery_bond(),
+        )
+        .unwrap();
+        assert_eq!(
+            IssuerRecoveryInitiationFacts::from_initiation(
+                &principal, &policy, &state, &stale, &rotation,
+            ),
+            Err(RenderError::InvalidCanonicalFacts)
+        );
+        let changed_rotation = FungibleControllerRotationV1::new(
+            policy.asset_id(),
+            policy.issuer(),
+            state.commitment().unwrap(),
+            policy.authority_set(),
+            Digest384::new([77; 48]),
+            rotation.approval_commitment(),
+            state.revision(),
+            request.challenge_deadline(),
+            30,
+        )
+        .unwrap();
+        assert_eq!(
+            IssuerRecoveryInitiationFacts::from_initiation(
+                &principal,
+                &policy,
+                &state,
+                &request,
+                &changed_rotation,
+            ),
             Err(RenderError::InvalidCanonicalFacts)
         );
     }
