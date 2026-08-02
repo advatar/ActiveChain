@@ -101,25 +101,25 @@
       "source": "devnet/devnet-block-v1.txt",
       "field": "action_envelope_envelope_hex",
       "type_tag": "0x0071",
-      "schema_version": 1,
-      "envelope_sha256": "933096f8991b9ee83ec8946b8e914fbba66d6bac1ea9dbf311d98506a371bcd6",
-      "canonical_value_commitment": "577b31d1e39368e399161c21a1e2975d8d7c5a85f1e34a56f520f68d27d9666e22f04a3c1275fac5e1ab9315d236e010"
+      "schema_version": 2,
+      "envelope_sha256": "8aba2d62aa1e77a905f1f92c9e78cd700a7f98b21284725ad01e553868262019",
+      "canonical_value_commitment": "3dcbe8b5a257c563864cebc604928a46367c3bbaa8b9045799b57b104546480f0f52235ec13d0448b3f7a486da1518f2"
     },
     {
       "source": "devnet/devnet-block-v1.txt",
       "field": "block_receipt_envelope_hex",
       "type_tag": "0x0074",
       "schema_version": 2,
-      "envelope_sha256": "811d2c0bd4f079993bbfaa158ee4542f59253b1d0baa365509d1176334502940",
-      "canonical_value_commitment": "fce0c828e0491650b16d7945704f9d25648bff03d99b5d6ef9044341eee795db9e7b8f11fb5688405ba668578b9e4646"
+      "envelope_sha256": "8862d1e7428878d51e22ef58fb8f7b8e8ddc9f62ab4fb6d06df093930d0c7066",
+      "canonical_value_commitment": "679c36c69c1ec79465e5afa99d13adf347a18c8bd4d31fc9b59b4b8b1d676f21a57a03c5174435af3a0f2d567bd7403e"
     },
     {
       "source": "devnet/devnet-block-v1.txt",
       "field": "devnet_block_envelope_hex",
       "type_tag": "0x0073",
       "schema_version": 2,
-      "envelope_sha256": "308fb8a4fef5e0de918fc4793626cde23492771b8de521a80e3d13cbeb1a3dc8",
-      "canonical_value_commitment": "3c1ac1022b5b28189d5750a7317bc316590fb98c356d96c1ac72f08db1c53225879f452917d85109f8598a70ef861e12"
+      "envelope_sha256": "097c2688d2572d2063b67b8bab6a7291e3ab3eb4f646e970e033796cd9703884",
+      "canonical_value_commitment": "e197cb8e93e2d94140978eca019d34d93eaf2b8fc6a5a59caf42ee4ec1f3adf23bedca7429d0f0b93b39ab1845a42c19"
     },
     {
       "source": "devnet/devnet-block-v1.txt",
