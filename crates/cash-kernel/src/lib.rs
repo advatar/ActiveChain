@@ -1764,6 +1764,47 @@ mod tests {
         assert_eq!(restarted, ledger);
     }
 
+    /// Regression for #716: every rejected burn must leave the ledger byte-identical.
+    ///
+    /// `apply_burn` used to assign `self.cells` before the supply arithmetic and the invariant
+    /// check, so a failure after that point would have destroyed cells while leaving supply
+    /// intact. The inner failures are implied unreachable by the entry checks, so this pins the
+    /// observable contract at every reachable rejection instead.
+    #[test]
+    fn rejected_burns_leave_the_ledger_byte_identical() {
+        let (_, mut ledger, owned, _) = minted_fixture();
+        let before = ledger.clone();
+
+        // Expired at the height it is applied.
+        let expired = CoinBurnTransition::new(principal(10), vec![owned], 10, 5).unwrap();
+        assert_eq!(
+            ledger.apply_burn(&expired, 6),
+            Err(CashTransitionError::Invalid(NativeMoneyError::Expired))
+        );
+        assert_eq!(ledger, before);
+
+        // Input that is not in the cell set.
+        let missing = CoinBurnTransition::new(
+            principal(10),
+            vec![CoinCellId::new(Digest384::new([0xab; 48]))],
+            10,
+            10,
+        )
+        .unwrap();
+        assert_eq!(
+            ledger.apply_burn(&missing, 1),
+            Err(CashTransitionError::Invalid(NativeMoneyError::MissingCell))
+        );
+        assert_eq!(ledger, before);
+
+        // A burn that succeeds still advances exactly once and stays consistent.
+        let ok = CoinBurnTransition::new(principal(10), vec![owned], 10, 10).unwrap();
+        ledger.apply_burn(&ok, 1).unwrap();
+        assert_ne!(ledger, before);
+        ledger.verify_invariants().unwrap();
+        assert_eq!(ledger.supply().cumulative_burn(), before.supply().cumulative_burn() + 10);
+    }
+
     /// Attack: replay a settled transfer against a ledger restored from its own
     /// canonical snapshot, in the hope that the spent-input evidence did not
     /// survive encoding.
