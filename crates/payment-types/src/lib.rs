@@ -1809,6 +1809,17 @@ impl PaymentRefundRequestV1 {
     pub const fn active_at(&self, timestamp: u64) -> bool {
         timestamp >= self.requested_at && timestamp < self.expires_at
     }
+
+    /// Commits to the exact canonical refund request used as lifecycle evidence.
+    pub fn commitment(&self) -> Result<Digest384, PaymentValidationError> {
+        let bytes = encode_envelope(self).map_err(|_| PaymentValidationError::InvalidBinding)?;
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-PAYMENT-REFUND-REQUEST-V1");
+        hasher.update(&bytes);
+        let mut output = [0_u8; 48];
+        hasher.finalize_xof().read(&mut output);
+        Ok(Digest384::new(output))
+    }
 }
 
 impl CanonicalEncode for PaymentRefundRequestV1 {
@@ -3434,10 +3445,12 @@ mod tests {
             decode_envelope::<PaymentRefundRequestV1>(&encode_envelope(&first).unwrap()),
             Ok(first.clone())
         );
+        assert_ne!(first.commitment().unwrap(), Digest384::ZERO);
         let state = state.apply(&first, 150).unwrap();
         assert_eq!(state.refunded_units(), 30);
         assert_eq!(state.next_sequence(), 2);
         let second = refund_request(&state, 51, 70);
+        assert_ne!(first.commitment().unwrap(), second.commitment().unwrap());
         let state = state.apply(&second, 150).unwrap();
         assert_eq!(state.refunded_units(), 100);
         assert_eq!(

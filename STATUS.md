@@ -1017,6 +1017,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
       including exact action-transaction inclusion and evidence commitments, before finalization.
       - [x] Persist the full verified settlement evidence, joined request lifecycle, and initialized
         exact refund accounting as one atomic aggregate successor.
+      - [x] Apply refund requests through the complete settlement state, atomically joining the
+        first `Finalized` to `RefundPending` edge with cumulative amount and sequence accounting.
 - [x] Add canonical exact-once partial-refund requests and cumulative settlement-bound accounting.
   - [x] Persist a bounded per-intent refund-state journal atomically across settlement registration
     and every accepted partial refund, rejecting replay and corrupt restart state.

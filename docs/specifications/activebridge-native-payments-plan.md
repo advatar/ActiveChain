@@ -558,6 +558,12 @@ replay, over-refund, corrupt restart state, and failed writes do not advance liv
 durability proves refund replay safety only—it does not promote an external payout observation to
 finalized ActiveChain settlement.
 
+The durable complete-settlement aggregate is the public refund-request boundary. Its first accepted
+partial refund atomically joins the `Finalized -> RefundPending` lifecycle edge, a domain-separated
+commitment to the canonical request, and the cumulative refund successor in one snapshot. Later
+partials retain that lifecycle evidence while advancing only the exact amount and request sequence;
+no standalone refund journal write can partially advance the public settlement state.
+
 Disputes use a separate `DisputeJournalV1`, canonically ordered by immutable dispute identity. The
 journal atomically persists opening and each exact next-sequence lifecycle successor, and restart
 decoding retains the evidence class that distinguishes client reports, connector-authenticated
