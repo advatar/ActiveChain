@@ -362,6 +362,14 @@ commitment, finalized block and height, and inclusion of the exact submitted tra
 receipt action set before the private state transition can run. Invalid proof bytes cannot mutate
 the joined request state.
 
+`PaymentSettlementStateV1` is the authoritative post-finality crash-consistency unit. It retains
+the complete verified settlement object alongside the joined request state and initializes
+`PaymentRefundStateV1` with that exact evidence commitment and settled amount in the same atomic
+replacement. On restart, every finalized/refund lifecycle must resolve to one unique settlement,
+and every settlement must resolve to matching refund accounting. The public durable aggregate owns
+intent creation, lifecycle advancement, and verify-then-finalize; the older request-only boundary
+cannot publicly finalize commitment-only state.
+
 ### 6.3 Status and receipt rules
 
 Status responses identify:
