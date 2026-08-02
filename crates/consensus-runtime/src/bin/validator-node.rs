@@ -69,6 +69,8 @@ fn load_authoritative_cash_gateway(
 fn load_or_create_execution_state(
     path: &Path,
     chain_id: ChainId,
+    finalized_height: u64,
+    finalized_block_digest: Digest384,
 ) -> Result<ChainState, Box<dyn std::error::Error>> {
     if path.exists() {
         let bytes = std::fs::read(path)?;
@@ -76,6 +78,7 @@ fn load_or_create_execution_state(
             .map_err(|_| std::io::Error::other("execution state is not canonical"))?;
         if encode_envelope(&state).map_err(|_| "execution state encoding failed")? != bytes
             || state.chain_id() != chain_id
+            || state.height() != finalized_height
         {
             return Err(
                 std::io::Error::other("execution state is noncanonical or cross-chain").into()
@@ -85,8 +88,17 @@ fn load_or_create_execution_state(
     }
     let objects = ObjectState::new(Vec::new())
         .map_err(|_| std::io::Error::other("empty execution object state is invalid"))?;
-    ChainState::genesis(chain_id, objects, Vec::new(), ResourcePrices::new(1, 1, 1, 1, 1, 1))
-        .map_err(|_| std::io::Error::other("execution genesis construction failed").into())
+    ChainState::new(
+        chain_id,
+        finalized_height,
+        finalized_block_digest,
+        objects,
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        ResourcePrices::new(1, 1, 1, 1, 1, 1),
+    )
+    .map_err(|_| std::io::Error::other("execution bootstrap construction failed").into())
 }
 
 fn save_execution_state(path: &Path, state: &ChainState) -> Result<(), Box<dyn std::error::Error>> {
@@ -606,11 +618,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .zip(chain_id)
         .map(|(path, chain)| load_authoritative_cash_gateway(path, chain))
         .transpose()?;
-    let mut execution_state = execution_state_path
-        .map(Path::new)
-        .zip(chain_id)
-        .map(|(path, chain)| load_or_create_execution_state(path, chain))
-        .transpose()?;
     let peer_specs: Vec<&str> =
         extras.iter().filter_map(|value| value.strip_prefix("--peer=")).collect();
     let genesis = genesis_path.as_deref().map(Path::new).map(load_genesis).transpose()?;
@@ -633,6 +640,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
             )
         });
+    let mut execution_state = execution_state_path
+        .map(Path::new)
+        .zip(chain_id)
+        .map(|(path, chain)| {
+            load_or_create_execution_state(
+                path,
+                chain,
+                state.finalized_height(),
+                state.finalized_block_digest(),
+            )
+        })
+        .transpose()?;
     let chain_genesis_commitment = snapshot_path
         .as_deref()
         .filter(|path| Path::new(path).exists())
@@ -722,8 +741,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )? {
                     authoritative_cash =
                         Some(load_authoritative_cash_gateway(Path::new(cash_ledger_path), chain)?);
-                    execution_state =
-                        Some(load_or_create_execution_state(Path::new(execution_path), chain)?);
+                    let recovered_consensus = service
+                        .state()
+                        .map_err(|error| format!("recovered consensus read failed: {error:?}"))?;
+                    execution_state = Some(load_or_create_execution_state(
+                        Path::new(execution_path),
+                        chain,
+                        recovered_consensus.finalized_height(),
+                        recovered_consensus.finalized_block_digest(),
+                    )?);
                 }
             }
             let listener_thread_service = std::sync::Arc::clone(&service);
@@ -1306,19 +1332,41 @@ mod tests {
         let path = std::env::temp_dir()
             .join(format!("activechain-validator-execution-{}.snapshot", std::process::id()));
         let _ = std::fs::remove_file(&path);
-        let state = load_or_create_execution_state(&path, chain).unwrap();
+        let state = load_or_create_execution_state(&path, chain, 0, Digest384::ZERO).unwrap();
         assert_eq!(state.height(), 0);
         assert_eq!(state.chain_id(), chain);
         save_execution_state(&path, &state).unwrap();
-        assert_eq!(load_or_create_execution_state(&path, chain).unwrap(), state);
+        assert_eq!(
+            load_or_create_execution_state(&path, chain, 0, Digest384::ZERO).unwrap(),
+            state
+        );
         assert!(
-            load_or_create_execution_state(&path, ChainId::new(Digest384::new([83; 48]))).is_err()
+            load_or_create_execution_state(
+                &path,
+                ChainId::new(Digest384::new([83; 48])),
+                0,
+                Digest384::ZERO,
+            )
+            .is_err()
         );
         let mut malformed = std::fs::read(&path).unwrap();
         malformed.push(0);
         std::fs::write(&path, malformed).unwrap();
-        assert!(load_or_create_execution_state(&path, chain).is_err());
+        assert!(load_or_create_execution_state(&path, chain, 0, Digest384::ZERO).is_err());
         std::fs::remove_file(path).unwrap();
+
+        let migrated_path = std::env::temp_dir().join(format!(
+            "activechain-validator-execution-migrated-{}.snapshot",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&migrated_path);
+        let anchor = Digest384::new([84; 48]);
+        let migrated = load_or_create_execution_state(&migrated_path, chain, 42, anchor).unwrap();
+        assert_eq!(migrated.height(), 42);
+        assert_eq!(migrated.head_block_id(), anchor);
+        save_execution_state(&migrated_path, &migrated).unwrap();
+        assert!(load_or_create_execution_state(&migrated_path, chain, 43, anchor).is_err());
+        std::fs::remove_file(migrated_path).unwrap();
     }
 
     #[test]
@@ -1438,7 +1486,8 @@ mod tests {
         let finality_path = root.join("finality.bundle");
         let gateway =
             WalletTransactionGateway::from_ledger(cash_ledger(chain), cash_path.clone()).unwrap();
-        let execution = load_or_create_execution_state(&execution_path, chain).unwrap();
+        let execution =
+            load_or_create_execution_state(&execution_path, chain, 0, Digest384::ZERO).unwrap();
         let block = DevnetBlock::new(
             chain,
             1,
@@ -1515,7 +1564,9 @@ mod tests {
             )
             .unwrap()
         );
-        assert_eq!(load_or_create_execution_state(&execution_path, chain).unwrap().height(), 1);
+        let recovered: ChainState =
+            decode_envelope(&std::fs::read(&execution_path).unwrap()).unwrap();
+        assert_eq!(recovered.height(), 1);
         assert_eq!(
             load_authoritative_cash_gateway(&cash_path, chain).unwrap().ledger().cells(),
             gateway.ledger().cells()
