@@ -1038,6 +1038,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
   reconciliation mappings without partnership or regulated-asset claims.
 - [ ] Integrate finalized native settlement, refunds/disputes, fee sponsorship, treasury controls,
   authenticated APIs/SDKs/webhooks, formal refinement, operations drills, and staged pilots.
+  - [x] Publish a transport-agnostic Rust SDK with canonical authenticated requests, correlated
+    responses, and mandatory proof material for finalized/refunded lifecycle results.
   - [x] Prove cumulative refund conservation and sequencing, treasury budget/nonce safety, and
     retained-intent webhook cursor admission in the executable payment model.
   - [x] Bind each finalized payment successor to one canonical intent, exact native asset/amount,
