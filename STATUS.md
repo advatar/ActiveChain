@@ -2176,6 +2176,9 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
     - [x] Arithmetize bounded per-row input/output/fee conservation and rejected-row zeroing.
       - [ ] Arithmetize SHAKE, ML-DSA, authenticated membership/consumption, session budgets,
         and authenticated partition-root transitions.
+        - [x] Bind the exact authorized-transfer envelope and ML-DSA-44 verification key into the
+          session STARK public inputs, then compose real signature verification at proof admission;
+          this binding does not replace the remaining in-circuit ML-DSA arithmetic gate.
         - [ ] Add authenticated Coin Cell membership, one-time consumption, and partition/global
           root transition constraints
           ([GitHub issue #76](https://github.com/advatar/ActiveChain/issues/76)).

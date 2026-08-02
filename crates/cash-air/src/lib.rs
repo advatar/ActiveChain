@@ -27,7 +27,7 @@ mod session;
 mod shake;
 pub use session::{
     CashSessionProofError, CashSessionStarkProof, prove_authorized_session, prove_session_budget,
-    verify_session_budget,
+    verify_authorized_session, verify_session_budget,
 };
 pub use shake::{
     AuthenticatedCashShakeStarkProof, BatchedShake256StarkProof,
