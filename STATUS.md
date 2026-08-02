@@ -6,7 +6,7 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Tracked by [GitHub issue #737](https://github.com/advatar/ActiveChain/issues/737).
 
-- [ ] Repair the reachable NFT registry proof panic and bound the two timed-out asset rejection
+- [x] Repair the reachable NFT registry proof panic and bound the two timed-out asset rejection
   harnesses without weakening their production invariants.
 - [ ] Pass all protocol-types Kani harnesses and the exact aggregate deterministic-kernel gate;
   merge the dependency chain to `main` and verify reachability.

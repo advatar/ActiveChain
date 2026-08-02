@@ -2849,58 +2849,64 @@ mod kani_proofs {
 
     #[kani::proof]
     fn exceptional_controls_reject_undeclared_substituted_replayed_and_overflow() {
-        let selector: u8 = kani::any();
-        kani::assume((1..=10).contains(&selector));
-        let asset = AssetId::new(Digest384::new([1; 48]));
-        let issuer = PrincipalId::new(Digest384::new([2; 48]));
-        let holder = PrincipalId::new(Digest384::new([3; 48]));
-        let authority = Digest384::new([4; 48]);
-        let policy =
-            FungibleExceptionalControlPolicyV1::new(asset, issuer, authority, selector != 7, true)
-                .unwrap();
-        let state = FungibleHolderControlStateV1 {
-            asset_id: asset,
-            holder,
-            revision: if selector == 10 { u64::MAX } else { 7 },
-            frozen: selector != 9,
-        };
-        let action = FungibleExceptionalControlActionV1::new(
-            if selector == 2 { AssetId::new(Digest384::new([9; 48])) } else { asset },
-            if selector == 3 { PrincipalId::new(Digest384::new([9; 48])) } else { holder },
-            holder,
-            if selector == 4 { Digest384::new([9; 48]) } else { Digest384::new([6; 48]) },
-            if selector == 5 { Digest384::new([9; 48]) } else { authority },
-            Digest384::new([7; 48]),
-            Digest384::new([8; 48]),
-            if selector == 8 {
-                FungibleExceptionalControlKind::Freeze
-            } else {
-                FungibleExceptionalControlKind::Unfreeze
-            },
-            0,
-            if selector == 6 {
-                8
-            } else if selector == 10 {
-                u64::MAX
-            } else {
-                7
-            },
-            10,
-            20,
-        )
-        .unwrap();
-        assert_eq!(
-            state
-                .apply_with_verified_bindings(
-                    &policy,
-                    &action,
-                    10,
-                    selector != 1,
-                    Digest384::new([6; 48]),
-                )
-                .is_ok(),
-            false
-        );
+        for selector in 1_u8..=10 {
+            let asset = AssetId::new(Digest384::new([1; 48]));
+            let issuer = PrincipalId::new(Digest384::new([2; 48]));
+            let holder = PrincipalId::new(Digest384::new([3; 48]));
+            let substituted_holder = PrincipalId::new(Digest384::new([9; 48]));
+            let authority = Digest384::new([4; 48]);
+            let policy = FungibleExceptionalControlPolicyV1::new(
+                asset,
+                issuer,
+                authority,
+                selector != 7,
+                true,
+            )
+            .unwrap();
+            let state = FungibleHolderControlStateV1 {
+                asset_id: asset,
+                holder,
+                revision: if selector == 10 { u64::MAX } else { 7 },
+                frozen: selector != 9,
+            };
+            let action_holder = if selector == 3 { substituted_holder } else { holder };
+            let action = FungibleExceptionalControlActionV1::new(
+                if selector == 2 { AssetId::new(Digest384::new([9; 48])) } else { asset },
+                action_holder,
+                action_holder,
+                if selector == 4 { Digest384::new([9; 48]) } else { Digest384::new([6; 48]) },
+                if selector == 5 { Digest384::new([9; 48]) } else { authority },
+                Digest384::new([7; 48]),
+                Digest384::new([8; 48]),
+                if selector == 8 {
+                    FungibleExceptionalControlKind::Freeze
+                } else {
+                    FungibleExceptionalControlKind::Unfreeze
+                },
+                0,
+                if selector == 6 {
+                    8
+                } else if selector == 10 {
+                    u64::MAX
+                } else {
+                    7
+                },
+                10,
+                20,
+            )
+            .unwrap();
+            assert!(
+                state
+                    .apply_with_verified_bindings(
+                        &policy,
+                        &action,
+                        10,
+                        selector != 1,
+                        Digest384::new([6; 48]),
+                    )
+                    .is_err()
+            );
+        }
     }
 
     #[kani::proof]
@@ -3013,44 +3019,47 @@ mod kani_proofs {
 
     #[kani::proof]
     fn approved_nft_manifest_rejects_substituted_bindings_and_invalid_height() {
-        let selector: u8 = kani::any();
-        kani::assume((1..=8).contains(&selector));
-        let asset = AssetId::new(Digest384::new([1; 48]));
-        let issuer = PrincipalId::new(Digest384::new([2; 48]));
-        let authority = Digest384::new([3; 48]);
-        let series =
-            NonFungibleSeriesV1::new(asset, issuer, 5, 1, Digest384::new([4; 48])).unwrap();
-        let manifest = nft_manifest(
-            if selector == 8 { AssetId::new(Digest384::new([9; 48])) } else { asset },
-            issuer,
-        );
-        let approval = NonFungibleIssuerApprovalV1::new(
-            if selector == 3 { AssetId::new(Digest384::new([9; 48])) } else { asset },
-            issuer,
-            authority,
-            if selector == 4 { Digest384::new([9; 48]) } else { Digest384::new([5; 48]) },
-            Digest384::new([6; 48]),
-            if selector == 5 { Digest384::new([9; 48]) } else { Digest384::new([7; 48]) },
-            if selector == 6 { 1 } else { 2 },
-            if selector == 7 { 2 } else { 1 },
-            10,
-            20,
-        )
-        .unwrap();
-        assert_eq!(
-            series
-                .mint_approved_manifest_with_verified_commitments(
-                    if selector == 1 { PrincipalId::new(Digest384::new([9; 48])) } else { issuer },
-                    if selector == 2 { Digest384::new([9; 48]) } else { authority },
-                    &approval,
-                    &manifest,
-                    10,
-                    Digest384::new([5; 48]),
-                    Digest384::new([7; 48]),
-                )
-                .is_ok(),
-            false
-        );
+        for selector in 1_u8..=8 {
+            let asset = AssetId::new(Digest384::new([1; 48]));
+            let issuer = PrincipalId::new(Digest384::new([2; 48]));
+            let authority = Digest384::new([3; 48]);
+            let series =
+                NonFungibleSeriesV1::new(asset, issuer, 5, 1, Digest384::new([4; 48])).unwrap();
+            let manifest = nft_manifest(
+                if selector == 8 { AssetId::new(Digest384::new([9; 48])) } else { asset },
+                issuer,
+            );
+            let approval = NonFungibleIssuerApprovalV1::new(
+                if selector == 3 { AssetId::new(Digest384::new([9; 48])) } else { asset },
+                issuer,
+                authority,
+                if selector == 4 { Digest384::new([9; 48]) } else { Digest384::new([5; 48]) },
+                Digest384::new([6; 48]),
+                if selector == 5 { Digest384::new([9; 48]) } else { Digest384::new([7; 48]) },
+                if selector == 6 { 1 } else { 2 },
+                if selector == 7 { 2 } else { 1 },
+                10,
+                20,
+            )
+            .unwrap();
+            assert!(
+                series
+                    .mint_approved_manifest_with_verified_commitments(
+                        if selector == 1 {
+                            PrincipalId::new(Digest384::new([9; 48]))
+                        } else {
+                            issuer
+                        },
+                        if selector == 2 { Digest384::new([9; 48]) } else { authority },
+                        &approval,
+                        &manifest,
+                        10,
+                        Digest384::new([5; 48]),
+                        Digest384::new([7; 48]),
+                    )
+                    .is_err()
+            );
+        }
     }
 
     #[kani::proof]
