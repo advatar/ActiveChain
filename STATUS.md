@@ -1199,6 +1199,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
     policy successors, including the zero-supply retirement rule.
   - [x] Persist each accepted controller rotation as one atomic policy/controller-state successor,
     revalidating exact commitments and revision bindings on restart.
+  - [x] Execute controller rotation through validator action admission and commit the exact policy
+    and controller-revision successor in consensus asset-ledger state.
   - [x] Authenticate the complete policy/Cell ledger through a canonical state-tree anchor proven
     against finalized post-state, and reverify the joined evidence on restart.
   - [x] Admit threshold-approved fungible mint, burn, and redemption as versioned validator action

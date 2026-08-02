@@ -7,9 +7,9 @@ use activechain_cash_kernel::{FungibleBurnV1, FungibleMintV1, FungibleRedemption
 use activechain_policy_kernel::ActorBinding;
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
-    Amount, ChainId, Digest384, FungibleAssetLifecycleActionV1, FungibleCorporateActionV1,
-    FungibleIssuerApprovalV1, FungibleIssuerOperation, Height, ObjectId, PrincipalId,
-    TransactionId,
+    Amount, ChainId, Digest384, FungibleAssetLifecycleActionV1, FungibleControllerRotationV1,
+    FungibleCorporateActionV1, FungibleIssuerApprovalV1, FungibleIssuerOperation, Height, ObjectId,
+    PrincipalId, TransactionId,
 };
 use activechain_transition::TransferTransaction;
 
@@ -473,11 +473,15 @@ pub enum ActionPayloadV2 {
         issuer: PrincipalId,
         action: FungibleAssetLifecycleActionV1,
     },
+    FungibleControllerRotation {
+        height: Height,
+        rotation: FungibleControllerRotationV1,
+    },
 }
 
 impl ActionPayloadV2 {
     pub const TYPE_TAG: u16 = 0x0190;
-    pub const SCHEMA_VERSION: u16 = 3;
+    pub const SCHEMA_VERSION: u16 = 4;
     pub const MAX_ENCODED_LEN: usize = 1 + TransferTransaction::MAX_ENCODED_LEN;
 
     pub fn mint(
@@ -547,6 +551,16 @@ impl ActionPayloadV2 {
         Ok(Self::FungibleLifecycle { height, issuer, action })
     }
 
+    pub fn controller_rotation(
+        height: Height,
+        rotation: FungibleControllerRotationV1,
+    ) -> Result<Self, ActionPayloadValidationError> {
+        if !rotation.active_at(height) {
+            return Err(ActionPayloadValidationError::ApprovalMismatch);
+        }
+        Ok(Self::FungibleControllerRotation { height, rotation })
+    }
+
     pub const fn height(&self) -> Height {
         match self {
             Self::Transfer(value) => value.height(),
@@ -554,7 +568,8 @@ impl ActionPayloadV2 {
             | Self::FungibleBurn { height, .. }
             | Self::FungibleRedemption { height, .. }
             | Self::FungibleCorporateAction { height, .. }
-            | Self::FungibleLifecycle { height, .. } => *height,
+            | Self::FungibleLifecycle { height, .. }
+            | Self::FungibleControllerRotation { height, .. } => *height,
         }
     }
 
@@ -571,7 +586,9 @@ impl ActionPayloadV2 {
             Self::FungibleMint { approval, .. }
             | Self::FungibleBurn { approval, .. }
             | Self::FungibleRedemption { approval, .. } => Some(approval),
-            Self::FungibleCorporateAction { .. } | Self::FungibleLifecycle { .. } => None,
+            Self::FungibleCorporateAction { .. }
+            | Self::FungibleLifecycle { .. }
+            | Self::FungibleControllerRotation { .. } => None,
         }
     }
 
@@ -581,7 +598,9 @@ impl ActionPayloadV2 {
             Self::FungibleMint { .. } => 1,
             Self::FungibleBurn { burn, .. } => burn.inputs().len(),
             Self::FungibleRedemption { redemption, .. } => redemption.inputs().len(),
-            Self::FungibleCorporateAction { .. } | Self::FungibleLifecycle { .. } => 1,
+            Self::FungibleCorporateAction { .. }
+            | Self::FungibleLifecycle { .. }
+            | Self::FungibleControllerRotation { .. } => 1,
         }
     }
 
@@ -596,6 +615,7 @@ impl ActionPayloadV2 {
             Self::FungibleRedemption { redemption, .. } => redemption.authority() == sender,
             Self::FungibleCorporateAction { action, .. } => action.issuer() == sender,
             Self::FungibleLifecycle { issuer, .. } => *issuer == sender,
+            Self::FungibleControllerRotation { rotation, .. } => rotation.issuer() == sender,
         }
     }
 
@@ -643,6 +663,11 @@ impl CanonicalEncode for ActionPayloadV2 {
                 issuer.encode(encoder)?;
                 action.encode(encoder)
             }
+            Self::FungibleControllerRotation { height, rotation } => {
+                6_u8.encode(encoder)?;
+                height.encode(encoder)?;
+                rotation.encode(encoder)
+            }
         }
     }
 }
@@ -680,6 +705,11 @@ impl CanonicalDecode for ActionPayloadV2 {
                 FungibleAssetLifecycleActionV1::decode(decoder)?,
             )
             .map_err(|_| DecodeError::InvalidValue("invalid fungible lifecycle action payload")),
+            6 => Self::controller_rotation(
+                u64::decode(decoder)?,
+                FungibleControllerRotationV1::decode(decoder)?,
+            )
+            .map_err(|_| DecodeError::InvalidValue("invalid controller rotation action payload")),
             tag => Err(DecodeError::InvalidEnumTag { type_name: "ActionPayloadV2", tag }),
         }
     }
@@ -783,6 +813,9 @@ impl ActionEnvelope {
                 Some(action.approval_commitment())
             }
             ActionPayloadV2::FungibleLifecycle { action, .. } => Some(action.approval_commitment()),
+            ActionPayloadV2::FungibleControllerRotation { rotation, .. } => {
+                Some(rotation.approval_commitment())
+            }
             _ => None,
         };
         if declared_approval.is_some_and(|expected| authorization_commitment != expected) {
