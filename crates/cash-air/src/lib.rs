@@ -26,6 +26,7 @@ use winterfell::{
 extern crate alloc;
 
 mod aggregation;
+mod ml_dsa_challenge_product;
 mod ml_dsa_decoding;
 mod ml_dsa_hint;
 mod ml_dsa_inverse_ntt;
@@ -40,6 +41,10 @@ pub use aggregation::{
     CashAggregationChildV1, CashAggregationLevel, CashAggregationStatementV1,
     GLOBAL_CASH_PARTITION, MAX_CASH_AGGREGATION_CHILDREN, cash_aggregation_proof_commitment,
     verify_cash_aggregation,
+};
+pub use ml_dsa_challenge_product::{
+    MlDsa44ChallengeProductStarkProof, prove_ml_dsa44_challenge_product,
+    verify_ml_dsa44_challenge_product,
 };
 pub use ml_dsa_decoding::{
     ML_DSA44_SIGNATURE_LENGTH, ML_DSA44_VECTOR_DIMENSION, MlDsa44DecodedVerifierInputs,

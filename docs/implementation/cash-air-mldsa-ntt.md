@@ -38,3 +38,8 @@ The verifier precomputation proof constrains every decoded `t1` coefficient to i
 10-bit range, composes coefficient-wise multiplication by `2^13` modulo q, and proves the forward
 NTT of all four scaled polynomials. This supplies the exact cached `t1_2d_hat` operand used by FIPS
 verification; multiplication by the sampled challenge remains a separate table.
+
+The challenge-product proof validates the fixed ML-DSA-44 challenge shape (exactly 39 nonzero
+coefficients, each `+1` or `-1` in `Z_q`), proves its forward NTT, composes the `t1_2d_hat`
+precomputation, and proves all four `c_hat * t1_2d_hat` products. Deriving that sparse polynomial
+from the challenge seed through SHAKE rejection sampling remains an explicit subsequent boundary.

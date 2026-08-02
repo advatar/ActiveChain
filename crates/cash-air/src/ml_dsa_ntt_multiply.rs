@@ -138,6 +138,7 @@ impl Prover for MultiplyProver {
     }
 }
 
+#[cfg_attr(test, derive(Clone))]
 pub struct MlDsaNttMultiplyStarkProof {
     proof: Proof,
     public: MultiplyPublicInputs,

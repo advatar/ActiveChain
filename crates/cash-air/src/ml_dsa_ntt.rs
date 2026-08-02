@@ -157,6 +157,7 @@ impl Prover for NttProver {
     }
 }
 
+#[cfg_attr(test, derive(Clone))]
 pub struct MlDsaNttStarkProof {
     proof: Proof,
     public: NttPublicInputs,
