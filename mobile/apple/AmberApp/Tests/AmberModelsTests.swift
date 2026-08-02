@@ -157,7 +157,50 @@ final class AmberModelsTests: XCTestCase {
         XCTAssertEqual(try AmberRPCCodec.decodeStatus(response).connectionState, .incompatible)
     }
 
+    func testStatusDecoderPinsKanalenChainAndGenesis() throws {
+        let live = makeStatusResponse(
+            protocolRevision: 1, schemaRevision: 2, finalizedHeight: 12,
+            finalizedAt: 90, servedAt: 100, maximumStaleness: 30, health: 0
+        )
+        XCTAssertEqual(try AmberRPCCodec.decodeStatus(live).connectionState, .verified(finalizedHeight: 12))
+        XCTAssertEqual(
+            try AmberRPCCodec.decodeStatus(
+                makeStatusResponse(
+                    chainID: Data(repeating: 0x44, count: 48), protocolRevision: 1,
+                    schemaRevision: 2, finalizedHeight: 12, finalizedAt: 90,
+                    servedAt: 100, maximumStaleness: 30, health: 0
+                )
+            ).connectionState,
+            .incompatible
+        )
+        XCTAssertEqual(
+            try AmberRPCCodec.decodeStatus(
+                makeStatusResponse(
+                    genesis: Data(repeating: 0x55, count: 48), protocolRevision: 1,
+                    schemaRevision: 2, finalizedHeight: 12, finalizedAt: 90,
+                    servedAt: 100, maximumStaleness: 30, health: 0
+                )
+            ).connectionState,
+            .incompatible
+        )
+    }
+
+    func testLiveKanalenStatusWhenEnabled() async throws {
+        guard ProcessInfo.processInfo.environment["ACTIVECHAIN_LIVE_KANALEN"] == "1" else {
+            throw XCTSkip("set ACTIVECHAIN_LIVE_KANALEN=1 for the bounded live RPC test")
+        }
+        let status = try await AmberRPCClient().status(for: .kanalenTestnet)
+        XCTAssertEqual(status.chainID, AmberRPCCodec.kanalenChainID)
+        XCTAssertEqual(status.genesis, AmberRPCCodec.kanalenGenesis)
+        guard case let .verified(finalizedHeight) = status.connectionState else {
+            return XCTFail("live Kanalen status is not healthy and identity-compatible")
+        }
+        XCTAssertGreaterThan(finalizedHeight, 0)
+    }
+
     private func makeStatusResponse(
+        chainID: Data = AmberRPCCodec.kanalenChainID,
+        genesis: Data = AmberRPCCodec.kanalenGenesis,
         protocolRevision: UInt64,
         schemaRevision: UInt32,
         finalizedHeight: UInt64,
@@ -167,8 +210,8 @@ final class AmberModelsTests: XCTestCase {
         health: UInt8
     ) -> Data {
         var body = Data([0])
-        body.append(Data(repeating: 0x11, count: 48))
-        body.append(Data(repeating: 0x22, count: 48))
+        body.append(chainID)
+        body.append(genesis)
         body.append(contentsOf: protocolRevision.bigEndianBytes)
         body.append(contentsOf: schemaRevision.bigEndianBytes)
         body.append(contentsOf: finalizedHeight.bigEndianBytes)

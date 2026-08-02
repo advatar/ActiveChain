@@ -615,6 +615,11 @@ Phase 0 bootstrap is tracked by [GitHub issue #1](https://github.com/advatar/Act
 
 ## Active testnet fix — verified wallet state discovery
 
+- [x] Pin the Apple wallet and Amber status clients to the deployed Kanalen chain and genesis,
+  reject substituted network identities, and pass targeted unit plus live TLS tests
+  ([GitHub issue #634](https://github.com/advatar/ActiveChain/issues/634)). Three Amber and two
+  wallet identity/codec XCTest cases pass serially on macOS, and each app's own Swift network client
+  independently accepts the healthy live Kanalen endpoint with the exact pinned identity.
 - [x] Qualify the wallet-core/OpenWallet and agent-management primitives: all 36 library tests
   pass, including deterministic selection, PQ authorization, durable replay barriers, OpenWallet
   consent/nonces, agent enrollment/revocation, and malformed-vector rejection.

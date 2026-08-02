@@ -391,6 +391,19 @@ final class ActiveChainWalletTests: XCTestCase {
         XCTAssertEqual(wrongSchema.networkState, .incompatible)
     }
 
+    func testLiveKanalenStatusWhenEnabled() async throws {
+        guard ProcessInfo.processInfo.environment["ACTIVECHAIN_LIVE_KANALEN"] == "1" else {
+            throw XCTSkip("set ACTIVECHAIN_LIVE_KANALEN=1 for the bounded live RPC test")
+        }
+        let status = try await WalletRPCClient().status()
+        XCTAssertEqual(status.chainID, WalletKanalen.chainID)
+        XCTAssertEqual(status.genesis, WalletKanalen.genesis)
+        guard case let .healthy(finalizedHeight) = status.networkState else {
+            return XCTFail("live Kanalen status is not healthy and identity-compatible")
+        }
+        XCTAssertGreaterThan(finalizedHeight, 0)
+    }
+
     func testOwnerCoinCellRequestUsesBoundedCanonicalEnvelope() throws {
         let frame = try WalletRPCCodec.framedOwnerCoinCellRequest(owner: Data(repeating: 7, count: 48))
         XCTAssertEqual(frame.count, 4 + 4 + 1 + 48 + 1 + 2 + 1)
