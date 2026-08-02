@@ -6,7 +6,7 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Tracked by [GitHub issue #735](https://github.com/advatar/ActiveChain/issues/735).
 
-- [ ] Mirror the production `activechain-payment-types` dependency in the verifier-FFI Kani
+- [x] Mirror the production `activechain-payment-types` dependency in the verifier-FFI Kani
   workspace without weakening graph-drift validation.
 - [ ] Pass the targeted verifier-FFI Kani gate and the exact aggregate deterministic-kernel gate;
   merge the dependency chain to `main` and verify reachability.
