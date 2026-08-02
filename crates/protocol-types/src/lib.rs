@@ -19,6 +19,7 @@ mod consensus_state;
 mod credential;
 mod crypto;
 mod did;
+mod did_alias;
 mod external_identity;
 mod external_status;
 mod migration;
@@ -105,6 +106,10 @@ pub use did::{
     DidOperationAuthorizationV1, DidOperationKind, DidRecordError, DidResolutionCheckpointV1,
     DidResolutionV1, MAX_DID_AUTHENTICATION_METHODS, MAX_DID_KEY_AGREEMENT_METHODS,
     ML_KEM_768_PUBLIC_KEY_LENGTH, derive_activechain_did,
+};
+pub use did_alias::{
+    EnsAliasError, EnsAliasEvidenceV1, EnsAliasOperationKind, EnsAliasOperationV1,
+    EnsAliasRecordV1, EnsAliasRegistryV1, MAX_ENS_ALIASES,
 };
 pub use external_identity::{
     ExternalCredentialSchemaMappingV1, ExternalCredentialSchemaRegistryV1,

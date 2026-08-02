@@ -2127,7 +2127,7 @@ Detailed remaining implementation slices:
   - [x] Connect lifecycle signing payloads to opaque native custody callbacks.
   - [x] Publish deterministic create/rotate/recover/deactivate/resolution vectors and migration
     coverage, including wrong-key, rollback, suite-confusion, and post-deactivation failures.
-- [ ] Non-authoritative ENS aliases
+- [x] Non-authoritative ENS aliases
   ([GitHub issue #567](https://github.com/advatar/ActiveChain/issues/567)).
 
 - [x] Freeze the method-specific identifier, PQ verification methods, resolver boundary, and

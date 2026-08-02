@@ -66,3 +66,23 @@ canonical authorization envelope; private key material never crosses the FFI bou
 Resolvers MUST expose the W3C DID 1.1 data model and JSON representation while retaining the
 canonical binary document as the consensus representation. ENS names MAY reference an ActiveChain
 DID as an alias, but ENS ownership alone MUST NOT authorize an ActiveChain transition.
+
+### ENS discovery aliases
+
+`EnsAliasEvidenceV1` commits to the EVM chain identifier, exact 32-byte ENS namehash, resolver,
+ownership proof, observed block, and expiry block. Name normalization happens in the external
+adapter under a pinned ENS profile; consensus accepts only the resulting namehash and commitments.
+It never parses or normalizes user-provided Unicode names.
+
+`EnsAliasRecordV1` binds that evidence to the immutable ActiveChain chain genesis, `PrincipalId`,
+derived `did:activechain`, sequence, and active state. Create, update, and remove operations require
+the ActiveChain principal authorization commitment. External ENS ownership, resolver control, and
+proof possession are display evidence only and cannot satisfy controller, recovery, capability,
+credential, or APL authentication requirements.
+
+The finalized registry is ordered by namehash, retains removed records, rejects duplicate creation
+and principal reassignment, and never permits alias takeover after removal. Proof-bearing RPC
+records use the dedicated `DidEnsAlias` query kind and bind the canonical alias object, object ID,
+principal owner, alias type/value commitments, sparse state proof, and finality. Wallets always show
+the authoritative principal and DID and label the alias `verified`, `stale`, `unverified`, or
+`removed`; an alias is never rendered as the account identity by itself.

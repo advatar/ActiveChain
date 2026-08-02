@@ -59,10 +59,69 @@ use activechain_cash_kernel::{
 use activechain_cash_kernel::{CashLedger, CashTransitionError, GenesisEconomy};
 use activechain_protocol_commitment::cash_transition_id;
 use activechain_protocol_types::{
-    AuthenticatorId, ChainId, CoinCellId, Digest384, FungibleAssetPolicyV1,
+    AuthenticatorId, ChainId, CoinCellId, Digest384, EnsAliasRecordV1, FungibleAssetPolicyV1,
     ML_DSA44_PUBLIC_KEY_LENGTH, PrincipalId, TransactionId,
 };
 use alloc::vec::Vec;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EnsAliasDisplayStatus {
+    Verified,
+    Stale,
+    Unverified,
+    Removed,
+}
+
+/// Wallet display projection that always preserves the authoritative principal and DID alongside
+/// non-authoritative ENS discovery metadata.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EnsAliasDisplay {
+    namehash: [u8; 32],
+    principal: PrincipalId,
+    did: Digest384,
+    evidence_commitment: Digest384,
+    status: EnsAliasDisplayStatus,
+}
+
+impl EnsAliasDisplay {
+    pub fn from_record(
+        record: EnsAliasRecordV1,
+        proof_verified: bool,
+        observed_source_block: u64,
+    ) -> Self {
+        let status = if !proof_verified {
+            EnsAliasDisplayStatus::Unverified
+        } else if !record.active() {
+            EnsAliasDisplayStatus::Removed
+        } else if !record.evidence_is_fresh_at(observed_source_block) {
+            EnsAliasDisplayStatus::Stale
+        } else {
+            EnsAliasDisplayStatus::Verified
+        };
+        Self {
+            namehash: record.namehash(),
+            principal: record.principal(),
+            did: record.did(),
+            evidence_commitment: record.evidence_commitment(),
+            status,
+        }
+    }
+    pub const fn namehash(self) -> [u8; 32] {
+        self.namehash
+    }
+    pub const fn principal(self) -> PrincipalId {
+        self.principal
+    }
+    pub const fn did(self) -> Digest384 {
+        self.did
+    }
+    pub const fn evidence_commitment(self) -> Digest384 {
+        self.evidence_commitment
+    }
+    pub const fn status(self) -> EnsAliasDisplayStatus {
+        self.status
+    }
+}
 use std::io::{Read, Write};
 use std::net::TcpListener;
 
@@ -981,7 +1040,8 @@ mod tests {
     };
     use activechain_protocol_types::{
         AuthenticatorDescriptor, AuthenticatorId, AuthenticatorPurpose, CoinCellId, CryptoSuiteId,
-        FreezeState, Principal, PrincipalKind, ProtocolSignature, TransactionId,
+        EnsAliasEvidenceV1, EnsAliasRecordV1, FreezeState, Principal, PrincipalKind,
+        ProtocolSignature, TransactionId,
     };
     use alloc::vec;
     use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
@@ -1966,5 +2026,29 @@ mod tests {
             }
         }
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn ens_alias_display_never_replaces_authoritative_principal_or_did() {
+        let evidence = EnsAliasEvidenceV1::new(1, [7; 32], digest(8), digest(9), 10, 20).unwrap();
+        let record = EnsAliasRecordV1::new(digest(10), principal(11), &evidence, 1, true).unwrap();
+        let verified = EnsAliasDisplay::from_record(record, true, 20);
+        assert_eq!(verified.status(), EnsAliasDisplayStatus::Verified);
+        assert_eq!(verified.principal(), principal(11));
+        assert_eq!(verified.did(), record.did());
+        assert_eq!(
+            EnsAliasDisplay::from_record(record, true, 21).status(),
+            EnsAliasDisplayStatus::Stale
+        );
+        assert_eq!(
+            EnsAliasDisplay::from_record(record, false, 20).status(),
+            EnsAliasDisplayStatus::Unverified
+        );
+        let removed =
+            EnsAliasRecordV1::new(digest(10), principal(11), &evidence, 2, false).unwrap();
+        assert_eq!(
+            EnsAliasDisplay::from_record(removed, true, 20).status(),
+            EnsAliasDisplayStatus::Removed
+        );
     }
 }
