@@ -3,6 +3,7 @@ use activechain_cash_kernel::VerifierRole;
 use activechain_cash_kernel::{
     ChallengeCommitmentV1, CoinTransfer, RewardReplayWitness, challenge_commitment,
 };
+use activechain_crypto_provider::MlKem768Recipient;
 use activechain_protocol_types::{
     AuthenticatorDescriptor, AuthenticatorId, AuthenticatorPurpose, ChainId, CoinCellId,
     CryptoSuiteId, DidControllerOperationV1, DidControllerRecordV1, DidDocumentV1,
@@ -37,6 +38,7 @@ const USAGE: &str = "usage: activechain-wallet <command>\n\
   bond <key-file> <chain-id> <role> <bond-cell> <bond-amount> <valid-until>\n\
   protect <plain-key-file> <keystore-file>\n\
   redeem-witness <witness-hex-file> <settlement>\n\
+  kem-public <key-file>\n\
   did-create <key-file> <chain-genesis> <kem-public-key-hex-file> <valid-from>\n\
   did-rotate <old-key-file> <new-key-file> <chain-genesis> <kem-public-key-hex-file> \
 <previous-commitment> <sequence> <valid-from>\n\
@@ -123,6 +125,17 @@ fn load_did_control_key(path: &str) -> Result<(PrincipalId, SigningKey<MlDsa65>)
     let key = SigningKey::<MlDsa65>::from_seed(&Seed::from(seed));
     seed.zeroize();
     Ok((principal, key))
+}
+
+/// Expands the 32-byte wallet seed into the 64-byte ML-KEM-768 derivation seed through a
+/// domain-separated SHAKE256 read, so the KEM key never reuses the signing-seed bytes directly.
+fn kem_seed(seed: &[u8; 32]) -> [u8; 64] {
+    let mut shake = Shake256::default();
+    shake.update(b"ACTIVECHAIN-WALLET-KEM-SEED-V1");
+    shake.update(seed);
+    let mut expanded = [0_u8; 64];
+    shake.finalize_xof().read(&mut expanded);
+    expanded
 }
 
 fn shake384(domain: &[u8], parts: &[&[u8]]) -> Digest384 {
@@ -665,6 +678,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("siblings={}", witness.siblings().len());
             println!("witness=valid");
         }
+        "kem-public" => {
+            let [key_file] = arguments.as_slice() else {
+                return Err(USAGE.into());
+            };
+            let mut seed = load_seed(key_file)?;
+            let mut expanded = kem_seed(&seed);
+            seed.zeroize();
+            let recipient = MlKem768Recipient::from_seed(expanded);
+            expanded.zeroize();
+            println!("suite=ML_KEM_768");
+            println!("kem_public_key={}", hex(&recipient.public_key()));
+        }
         "did-create" => {
             let [key_file, chain_genesis, kem_file, valid_from] = arguments.as_slice() else {
                 return Err(USAGE.into());
@@ -1053,6 +1078,16 @@ mod tests {
             .is_err()
         );
         assert!(build_did_create(principal, &old_control, genesis, vec![1; 10], 1).is_err());
+    }
+
+    #[test]
+    fn kem_derivation_is_deterministic_and_seed_bound() {
+        let first = MlKem768Recipient::from_seed(kem_seed(&[7; 32])).public_key();
+        let second = MlKem768Recipient::from_seed(kem_seed(&[7; 32])).public_key();
+        assert_eq!(first, second);
+        assert_eq!(first.len(), ML_KEM_768_PUBLIC_KEY_LENGTH);
+        let other = MlKem768Recipient::from_seed(kem_seed(&[8; 32])).public_key();
+        assert_ne!(first, other);
     }
 
     #[test]

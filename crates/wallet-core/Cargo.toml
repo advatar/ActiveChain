@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 activechain-canonical-codec.workspace = true
 activechain-cash-kernel.workspace = true
+activechain-crypto-provider.workspace = true
 activechain-principal.workspace = true
 activechain-protocol-types.workspace = true
 activechain-protocol-commitment.workspace = true
@@ -23,4 +24,3 @@ workspace = true
 
 [dev-dependencies]
 activechain-accumulator.workspace = true
-activechain-crypto-provider.workspace = true
