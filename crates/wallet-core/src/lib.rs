@@ -65,6 +65,50 @@ use activechain_protocol_types::{
 use alloc::vec::Vec;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PrivateIdentityInferenceWarning {
+    None,
+    MultiplePredicates,
+    CrossAudienceLinkability,
+}
+
+/// Non-sensitive consent preview. Raw birth dates, residence and nationality values never enter
+/// wallet display logs; only the requested predicate commitments and inference risk are shown.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PrivateIdentityDisclosurePreview {
+    pub predicate_commitments: Vec<Digest384>,
+    pub audience: PrincipalId,
+    pub purpose: Digest384,
+    pub warning: PrivateIdentityInferenceWarning,
+}
+impl PrivateIdentityDisclosurePreview {
+    pub fn new(
+        mut predicates: Vec<Digest384>,
+        audience: PrincipalId,
+        purpose: Digest384,
+        reused_linkability_scope: bool,
+    ) -> Result<Self, WalletError> {
+        predicates.sort_unstable();
+        predicates.dedup();
+        if predicates.is_empty()
+            || predicates.len() > 3
+            || predicates.iter().any(|v| *v == Digest384::ZERO)
+            || audience.digest() == &Digest384::ZERO
+            || purpose == Digest384::ZERO
+        {
+            return Err(WalletError::PolicyDenied);
+        }
+        let warning = if reused_linkability_scope {
+            PrivateIdentityInferenceWarning::CrossAudienceLinkability
+        } else if predicates.len() > 1 {
+            PrivateIdentityInferenceWarning::MultiplePredicates
+        } else {
+            PrivateIdentityInferenceWarning::None
+        };
+        Ok(Self { predicate_commitments: predicates, audience, purpose, warning })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EnsAliasDisplayStatus {
     Verified,
     Stale,
@@ -2050,5 +2094,22 @@ mod tests {
             EnsAliasDisplay::from_record(removed, true, 20).status(),
             EnsAliasDisplayStatus::Removed
         );
+    }
+
+    #[test]
+    fn private_identity_preview_warns_without_exposing_attributes() {
+        let preview = PrivateIdentityDisclosurePreview::new(
+            vec![digest(1), digest(2)],
+            principal(3),
+            digest(4),
+            false,
+        )
+        .unwrap();
+        assert_eq!(preview.warning, PrivateIdentityInferenceWarning::MultiplePredicates);
+        let correlated =
+            PrivateIdentityDisclosurePreview::new(vec![digest(1)], principal(3), digest(4), true)
+                .unwrap();
+        assert_eq!(correlated.warning, PrivateIdentityInferenceWarning::CrossAudienceLinkability);
+        assert_eq!(format!("{preview:?}").contains("birth"), false);
     }
 }

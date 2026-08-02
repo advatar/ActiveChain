@@ -1,0 +1,4 @@
+profile=ACTIVECHAIN-PRIVATE-IDENTITY-RISC0-STARK-V1
+image_id_u32_le=658748239,1463178859,1686941399,1484489969,1224808235,1784238748,2539543433,896791915
+relations=age-at-least,age-range,residency-in,residency-not-in,nationality-in,jurisdiction-not-in
+journal=domain||public_inputs_commitment_48||nullifier_48
