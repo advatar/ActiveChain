@@ -1312,7 +1312,7 @@ impl DurablePaymentRequestState {
 
     /// Persists a finalized successor structurally bound to exact native settlement evidence.
     /// The caller must cryptographically verify the committed receipt/proof before invoking this.
-    pub fn finalize_settlement(
+    fn finalize_settlement(
         &mut self,
         settlement: &PaymentFinalizedSettlementV1,
     ) -> Result<Digest384, JournalError> {
@@ -1333,6 +1333,24 @@ impl DurablePaymentRequestState {
         let commitment = settlement.commitment().map_err(|_| JournalError::InvalidLifecycle)?;
         self.advance_lifecycle(record)?;
         Ok(commitment)
+    }
+
+    pub fn finalize_verified_settlement(
+        &mut self,
+        settlement: &PaymentFinalizedSettlementV1,
+        finality: &[u8],
+        receipt: &[u8],
+        trusted_chain_genesis: Digest384,
+    ) -> Result<Digest384, JournalError> {
+        let encoded = encode_envelope(settlement).map_err(|_| JournalError::InvalidLifecycle)?;
+        let verified = activechain_verifier_api::verify_payment_finalized_settlement(
+            &encoded,
+            finality,
+            receipt,
+            trusted_chain_genesis,
+        )
+        .map_err(|_| JournalError::InvalidLifecycle)?;
+        self.finalize_settlement(&verified)
     }
 }
 
@@ -2590,6 +2608,15 @@ mod tests {
         let path = directory.join("request-state.bin");
         let mut durable = chain_submitted_request_state(&path);
         let before = durable.snapshot().clone();
+        assert_eq!(
+            durable.finalize_verified_settlement(
+                &finalized_settlement(124, 95, 110),
+                b"invalid finality",
+                b"invalid receipt",
+                digest(129),
+            ),
+            Err(JournalError::InvalidLifecycle)
+        );
         assert_eq!(
             durable.finalize_settlement(&finalized_settlement(125, 95, 110)),
             Err(JournalError::InvalidLifecycle)

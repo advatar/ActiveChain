@@ -1054,6 +1054,26 @@ impl PaymentFinalizedSettlementV1 {
         self.settled_amount
     }
 
+    pub const fn transaction(&self) -> TransactionId {
+        self.transaction
+    }
+
+    pub const fn finalized_height(&self) -> u64 {
+        self.finalized_height
+    }
+
+    pub const fn finalized_block(&self) -> Digest384 {
+        self.finalized_block
+    }
+
+    pub const fn receipt_commitment(&self) -> Digest384 {
+        self.receipt_commitment
+    }
+
+    pub const fn proof_commitment(&self) -> Digest384 {
+        self.proof_commitment
+    }
+
     pub fn commitment(&self) -> Result<Digest384, PaymentValidationError> {
         let bytes = encode_envelope(self).map_err(|_| PaymentValidationError::InvalidEvidence)?;
         let mut hasher = Shake256::default();
@@ -1080,6 +1100,18 @@ impl PaymentFinalizedSettlementV1 {
             0,
         )
     }
+}
+
+/// Commits the exact canonical finality-bundle bytes consumed by the shared verifier.
+#[must_use]
+pub fn payment_finality_proof_commitment(finality: &[u8]) -> Digest384 {
+    let mut hasher = Shake256::default();
+    hasher.update(b"ACTIVECHAIN-PAYMENT-FINALITY-PROOF-V1");
+    hasher.update(&(finality.len() as u64).to_be_bytes());
+    hasher.update(finality);
+    let mut output = [0_u8; 48];
+    hasher.finalize_xof().read(&mut output);
+    Digest384::new(output)
 }
 
 impl CanonicalEncode for PaymentFinalizedSettlementV1 {

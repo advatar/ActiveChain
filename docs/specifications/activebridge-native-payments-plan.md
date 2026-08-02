@@ -356,7 +356,11 @@ commitment, and proof commitment. The joined request state checks the intent's s
 requires the finalized transaction to equal the immediately preceding chain-submitted transaction,
 derives the lifecycle observation commitment from the canonical evidence, and persists the whole
 successor atomically. This object records proof-bearing facts but does not itself verify the proof:
-callers must first verify the receipt and finality proof against the trusted ActiveChain checkpoint.
+`DurablePaymentRequestState::finalize_verified_settlement` first invokes the shared bounded verifier
+against the trusted chain genesis. It requires the canonical receipt commitment, finality-proof
+commitment, finalized block and height, and inclusion of the exact submitted transaction in the
+receipt action set before the private state transition can run. Invalid proof bytes cannot mutate
+the joined request state.
 
 ### 6.3 Status and receipt rules
 

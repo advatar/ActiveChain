@@ -363,6 +363,7 @@ dependencies = [
  "activechain-crypto-provider",
  "activechain-payment-types",
  "activechain-protocol-types",
+ "activechain-verifier-api",
  "ml-dsa",
  "sha3 0.10.9",
 ]
@@ -661,6 +662,7 @@ dependencies = [
  "activechain-consensus-verifier",
  "activechain-devnet-kernel",
  "activechain-finality-types",
+ "activechain-payment-types",
  "activechain-policy-kernel",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
