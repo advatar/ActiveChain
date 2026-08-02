@@ -6,9 +6,9 @@ use activechain_canonical_codec::{CanonicalType, encode_envelope};
 use activechain_pq_zk_methods::{
     ACTIVECHAIN_PQ_ZK_GUEST_ELF as GUEST_ELF, ACTIVECHAIN_PQ_ZK_GUEST_ID as GUEST_ID,
     BILLBOARD_POST_ELF, BILLBOARD_POST_ID, BILLBOARD_WITHDRAW_ELF, BILLBOARD_WITHDRAW_ID,
-    PROOF_OF_FUNDS_ELF, PROOF_OF_FUNDS_ID,
+    PRIVATE_IDENTITY_ELF, PRIVATE_IDENTITY_ID, PROOF_OF_FUNDS_ELF, PROOF_OF_FUNDS_ID,
 };
-use activechain_privacy_kernel::ProofOfFundsRelationInputV1;
+use activechain_privacy_kernel::{PrivateIdentityRelationInputV1, ProofOfFundsRelationInputV1};
 use activechain_private_billboard::{PostRelationInput, WithdrawalRelationInput};
 use activechain_protocol_types::Digest384;
 use risc0_zkvm::{ExecutorEnv, ProverOpts, Receipt, default_executor, default_prover};
@@ -32,10 +32,14 @@ pub struct BillboardPqZkProof {
 pub struct ProofOfFundsPqZkProof {
     receipt: Receipt,
 }
+pub struct PrivateIdentityPqZkProof {
+    receipt: Receipt,
+}
 
 const POST_JOURNAL_DOMAIN: &[u8] = b"ACTIVECHAIN-BILLBOARD-POST-RISC0-STARK-V1";
 const WITHDRAW_JOURNAL_DOMAIN: &[u8] = b"ACTIVECHAIN-BILLBOARD-WITHDRAW-RISC0-STARK-V1";
 const PROOF_OF_FUNDS_JOURNAL_DOMAIN: &[u8] = b"ACTIVECHAIN-PROOF-OF-FUNDS-RISC0-STARK-V1";
+const PRIVATE_IDENTITY_JOURNAL_DOMAIN: &[u8] = b"ACTIVECHAIN-PRIVATE-IDENTITY-RISC0-STARK-V1";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PqZkError {
@@ -134,6 +138,45 @@ pub fn verify_proof_of_funds(
     proof.receipt.verify(PROOF_OF_FUNDS_ID).map_err(|_| PqZkError::Verification)?;
     let mut expected = PROOF_OF_FUNDS_JOURNAL_DOMAIN.to_vec();
     expected.extend_from_slice(predicate.as_bytes());
+    expected.extend_from_slice(nullifier.as_bytes());
+    if proof.receipt.journal.bytes != expected {
+        return Err(PqZkError::WrongPublicStatement);
+    }
+    Ok(())
+}
+
+pub fn execute_private_identity_relation(
+    input: &PrivateIdentityRelationInputV1,
+) -> Result<Vec<u8>, PqZkError> {
+    default_executor()
+        .execute(relation_env(input)?, PRIVATE_IDENTITY_ELF)
+        .map(|session| session.journal.bytes)
+        .map_err(|_| PqZkError::Verification)
+}
+pub fn prove_private_identity(
+    input: &PrivateIdentityRelationInputV1,
+) -> Result<PrivateIdentityPqZkProof, PqZkError> {
+    let receipt = default_prover()
+        .prove_with_opts(relation_env(input)?, PRIVATE_IDENTITY_ELF, &ProverOpts::succinct())
+        .map_err(|_| PqZkError::Prover)?
+        .receipt;
+    let proof = PrivateIdentityPqZkProof { receipt };
+    verify_private_identity(
+        &proof,
+        input.public.commitment().map_err(|_| PqZkError::WrongPublicStatement)?,
+        input.public.nonce,
+    )?;
+    Ok(proof)
+}
+pub fn verify_private_identity(
+    proof: &PrivateIdentityPqZkProof,
+    public: Digest384,
+    nullifier: Digest384,
+) -> Result<(), PqZkError> {
+    proof.receipt.inner.succinct().map_err(|_| PqZkError::WrongReceiptKind)?;
+    proof.receipt.verify(PRIVATE_IDENTITY_ID).map_err(|_| PqZkError::Verification)?;
+    let mut expected = PRIVATE_IDENTITY_JOURNAL_DOMAIN.to_vec();
+    expected.extend_from_slice(public.as_bytes());
     expected.extend_from_slice(nullifier.as_bytes());
     if proof.receipt.journal.bytes != expected {
         return Err(PqZkError::WrongPublicStatement);
@@ -494,6 +537,76 @@ mod tests {
         let published: [u32; 8] = words.try_into().unwrap();
         assert_eq!(activechain_pq_zk_methods::PROOF_OF_FUNDS_ID, published);
         assert!(vector.contains("journal=domain||public_inputs_commitment_48||nullifier_48"));
+    }
+
+    #[test]
+    fn private_identity_guest_enforces_age_without_journaling_birth_date() {
+        use activechain_privacy_kernel::{
+            CanonicalDateV1, PrivateIdentityPredicateKindV1, PrivateIdentityPublicInputsV1,
+            PrivateIdentityRelationInputV1, PrivateIdentityWitnessV1,
+        };
+        use activechain_protocol_types::{AssetId, ChainId, PrincipalId, TransactionId};
+        let d = |n| Digest384::new([n; 48]);
+        let public = PrivateIdentityPublicInputsV1::new(
+            PrivateIdentityPredicateKindV1::AgeAtLeast,
+            Some(18),
+            None,
+            Some(CanonicalDateV1::new(2026, 8, 2).unwrap()),
+            None,
+            None,
+            ChainId::new(d(1)),
+            d(2),
+            Some(AssetId::new(d(3))),
+            TransactionId::new(d(4)),
+            PrincipalId::new(d(5)),
+            PrincipalId::new(d(6)),
+            d(7),
+            1,
+            d(8),
+            20,
+            10,
+            d(9),
+            PrincipalId::new(d(10)),
+            d(11),
+            d(12),
+            d(13),
+            1,
+        )
+        .unwrap();
+        let input = PrivateIdentityRelationInputV1 {
+            public,
+            witness: PrivateIdentityWitnessV1 {
+                date_of_birth: Some(CanonicalDateV1::new(2008, 8, 2).unwrap()),
+                jurisdiction: None,
+                registry_entries: vec![],
+            },
+        };
+        let journal = super::execute_private_identity_relation(&input).unwrap();
+        assert_eq!(
+            journal,
+            super::expected_relation_journal(
+                super::PRIVATE_IDENTITY_JOURNAL_DOMAIN,
+                public.commitment().unwrap(),
+                public.nonce
+            )
+        );
+        assert!(!journal.windows(4).any(|w| w == [0x07, 0xd8, 8, 2]));
+        let mut underage = input.clone();
+        underage.witness.date_of_birth = Some(CanonicalDateV1::new(2008, 8, 3).unwrap());
+        assert!(super::execute_private_identity_relation(&underage).is_err());
+    }
+    #[test]
+    fn private_identity_image_id_matches_published_vector() {
+        let vector = include_str!("../../../testing/vectors/pq-zk/private-identity-v1.txt");
+        let words: Vec<u32> = vector
+            .lines()
+            .find_map(|line| line.strip_prefix("image_id_u32_le="))
+            .unwrap()
+            .split(',')
+            .map(|word| word.parse().unwrap())
+            .collect();
+        let published: [u32; 8] = words.try_into().unwrap();
+        assert_eq!(activechain_pq_zk_methods::PRIVATE_IDENTITY_ID, published);
     }
 
     #[test]

@@ -122,6 +122,22 @@
       "source": "pq-zk/proof-of-funds-v1.txt",
       "sha256": "d88eef56be700d488c46b8fc058bf7584a14d4b1f6cd1b83ca1e3c811471c4ef",
       "status": "valid"
+    },
+    {
+      "id": "private-identity-risc0-v1",
+      "type_tag": "0x01A0-0x01A1",
+      "schema_version": 1,
+      "source": "private-identity-risc0-v1.tsv",
+      "sha256": "ed399c3989c5534f4cf4c9083bae683523ca70b9055d9ddb736c7d7acddc4333",
+      "status": "valid"
+    },
+    {
+      "id": "private-identity-image-v1",
+      "type_tag": "0x01A1",
+      "schema_version": 1,
+      "source": "pq-zk/private-identity-v1.txt",
+      "sha256": "bf63bbc00070a49e6f7f9ac1b62e6052c16c04e0a9659ba125efd641c45a8489",
+      "status": "valid"
     }
   ],
   "malformed_cases": [

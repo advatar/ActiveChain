@@ -35,3 +35,7 @@ path = "src/bin/billboard_withdraw.rs"
 [[bin]]
 name = "proof-of-funds"
 path = "src/bin/proof_of_funds.rs"
+
+[[bin]]
+name = "private-identity"
+path = "src/bin/private_identity.rs"

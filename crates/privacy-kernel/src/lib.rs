@@ -12,6 +12,7 @@ extern crate alloc;
 mod builder;
 mod network;
 mod persistence;
+mod private_identity;
 mod proof_of_funds;
 mod protected;
 
@@ -25,6 +26,12 @@ pub use persistence::{
     ProtectedStateSnapshot,
 };
 
+pub use private_identity::{
+    CanonicalDateV1, JurisdictionCodeV1, MAX_JURISDICTION_SET, MAX_PRIVATE_IDENTITY_CONJUNCTIONS,
+    PrivateIdentityError, PrivateIdentityPredicateKindV1, PrivateIdentityPublicInputsV1,
+    PrivateIdentityRelationInputV1, PrivateIdentityWitnessV1, registry_root,
+    verify_private_identity_relation,
+};
 pub use proof_of_funds::{
     ProofOfFundsError, ProofOfFundsProofVerifier, ProofOfFundsPublicInputsV1,
     ProofOfFundsRelationInputV1, ProofOfFundsWitnessV1, VerifiedProofOfFundsV1,

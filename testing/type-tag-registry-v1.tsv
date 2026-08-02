@@ -290,3 +290,5 @@
 0x019D	1	EnsAliasRegistryV1	crates/protocol-types/src/did_alias.rs
 0x019E	1	ProofOfFundsPublicInputsV1	crates/privacy-kernel/src/proof_of_funds.rs
 0x019F	1	ProofOfFundsRelationInputV1	crates/privacy-kernel/src/proof_of_funds.rs
+0x01A0	1	PrivateIdentityPublicInputsV1	crates/privacy-kernel/src/private_identity.rs
+0x01A1	1	PrivateIdentityRelationInputV1	crates/privacy-kernel/src/private_identity.rs

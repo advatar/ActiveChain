@@ -1300,7 +1300,7 @@ Detailed remaining implementation slices:
   ([GitHub issue #562](https://github.com/advatar/ActiveChain/issues/562)).
 - [x] TLS evidence proof-of-funds predicate circuits
   ([GitHub issue #563](https://github.com/advatar/ActiveChain/issues/563)).
-- [ ] Private age, residency, and jurisdiction predicate proofs
+- [x] Private age, residency, and jurisdiction predicate proofs
   ([GitHub issue #564](https://github.com/advatar/ActiveChain/issues/564)).
 - [x] Assurance-preserving ML-DSA companion credentials
   ([GitHub issue #565](https://github.com/advatar/ActiveChain/issues/565)).

@@ -115,6 +115,22 @@ currency, decimal scale, institution set, aggregation rule, policy revision, obs
 nonce, and expiry. Self-issued evidence cannot claim issuer-upgraded or regulated assurance.
 Acceptance additionally requires fresh non-revoked status and atomic nullifier consumption.
 
+### Private demographic predicates
+
+The pinned private-identity RISC Zero guest evaluates age-at-least, bounded age-range, residence or
+nationality set membership, and residence or jurisdiction non-membership. Dates use the proleptic
+Gregorian calendar with a fixed UTC reference date. Jurisdiction codes are exactly two uppercase
+ASCII letters; no aliases or caller normalization are accepted. Registry entries are strictly
+ordered and unique, and their domain-separated root and nonzero revision are public inputs.
+
+The date of birth, jurisdiction value, and registry opening remain private. The journal exposes only
+the public-input commitment and action-scoped nullifier. Public inputs bind chain and genesis,
+asset, action, audience, verifier, purpose, policy revision, expiry/finalized height, status root,
+issuer, schema, holder, linkability scope, and the bounded conjunction count. A wallet MUST warn for
+multiple predicate conjunctions and reused cross-audience linkability scopes. An issuer template
+cannot request an undeclared attribute because each registered predicate kind admits exactly one
+witness shape and rejects all extra witness fields.
+
 ## 6. Total failure classes
 
 Failures include not-yet-issued, not-yet-valid, expired, subject mismatch, unaccepted issuer/schema, issuer-evidence mismatch, missing or mismatched issuance-log evidence, missing or unexpected status material, registry mismatch, future or stale registry, status-evidence mismatch, revoked, suspended, commitment encoding, and too many derived APL facts.
