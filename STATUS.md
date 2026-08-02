@@ -1015,8 +1015,11 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
   failures with a closed decision table.
 - [x] Consume receipt nullifiers through the canonical accumulator and persist the updated root
   atomically before acknowledgement, rejecting replay, stale witnesses, and corrupt restart state.
-- [ ] Complete wallet consent/assurance UX, lifecycle and recovery coverage, physical-device key
-  tests, offline-proof conformance, and independent review.
+- [x] Complete wallet consent/assurance UX, lifecycle and recovery coverage, and offline-proof
+  conformance.
+- [ ] Complete physical-device key qualification and independent review under #569 and its
+  dedicated children #578, #579, and #580; these external gates do not reopen the completed #169
+  implementation scope.
 
 ## Active independent-client qualification
 
@@ -1445,8 +1448,10 @@ Detailed remaining implementation slices:
     one canonical atomic ledger so restart preserves both replay protection and receipt evidence.
 - [x] Formally prove the evidence-to-claim-to-circuit-to-APL refinement, no provenance escalation,
   predicate soundness, action/audience binding, replay resistance, and declared unlinkability.
-- [ ] Pass cross-repository malformed/adversarial vectors, device-key integration, privacy review,
-  independent audit, and offline receipt-verification gates.
+- [x] Pass cross-repository malformed/adversarial vectors, device-key integration unit coverage,
+  and offline receipt-verification gates.
+- [ ] Complete physical-device, privacy-review, and independent-audit evidence under #569,
+  #578, #579, and #580.
 
 ## Active communication — first-class protocol primitives
 
