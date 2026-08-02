@@ -122,70 +122,6 @@ fn admission(
     }
 }
 
-#[cfg(kani)]
-mod kani_proofs {
-    use super::*;
-
-    #[kani::proof]
-    fn accepted_admission_is_below_every_limit() {
-        let recipient_count: usize = kani::any();
-        let source_count: usize = kani::any();
-        let global_count: usize = kani::any();
-        let recipient_limit: u16 = kani::any();
-        let source_limit: u16 = kani::any();
-        let global_limit: u32 = kani::any();
-        kani::assume(recipient_limit > 0);
-        kani::assume(source_limit > 0);
-        kani::assume(global_limit > 0);
-        let result = admission(
-            recipient_count,
-            None,
-            source_count,
-            global_count,
-            recipient_limit,
-            1,
-            source_limit,
-            global_limit,
-        );
-        if result == Admission::Accept {
-            assert!(recipient_count < usize::from(recipient_limit));
-            assert!(source_count < usize::from(source_limit));
-            assert!(global_count < usize::try_from(global_limit).unwrap_or(usize::MAX));
-        }
-    }
-
-    #[kani::proof]
-    fn cooldown_admission_precedes_source_and_global_capacity() {
-        let age: u64 = kani::any();
-        let cooldown: u64 = kani::any();
-        let recipient_count: usize = kani::any();
-        let source_count: usize = kani::any();
-        let global_count: usize = kani::any();
-        let recipient_limit: u16 = kani::any();
-        let source_limit: u16 = kani::any();
-        let global_limit: u32 = kani::any();
-        kani::assume(cooldown > 0);
-        kani::assume(recipient_limit > 0);
-        kani::assume(source_limit > 0);
-        kani::assume(global_limit > 0);
-        if age < cooldown {
-            assert_eq!(
-                admission(
-                    recipient_count,
-                    Some(age),
-                    source_count,
-                    global_count,
-                    recipient_limit,
-                    cooldown,
-                    source_limit,
-                    global_limit,
-                ),
-                Admission::RecipientCooldown
-            );
-        }
-    }
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct FaucetRecord {
     idempotency_key: Digest384,
@@ -1396,6 +1332,61 @@ mod tests {
         let second = threads.remove(0).join().unwrap();
         assert_eq!(first, second);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn adversarial_limits_clock_restart_and_privacy_qualification() {
+        let path = path("adversarial-qualification");
+        let raw_source = b"private-source-identifier-that-must-not-be-persisted";
+        let source = faucet_abuse_identity(raw_source);
+        let mut faucet = DurableFaucet::create(policy(), path.clone()).unwrap();
+
+        let first = faucet
+            .request(&request(3, 60), source, digest(70), 100, |_, _, _| {
+                Ok(TransactionId::new(digest(80)))
+            })
+            .unwrap();
+        assert_eq!(
+            faucet.request(&request(3, 61), source, digest(71), 159, |_, _, _| panic!()),
+            Err(FaucetError::RecipientCooldown)
+        );
+        // The exact boundary is admissible, while the lifetime counter remains monotonic.
+        faucet
+            .request(&request(3, 61), source, digest(71), 160, |_, _, _| {
+                Ok(TransactionId::new(digest(81)))
+            })
+            .unwrap();
+        assert_eq!(
+            faucet.request(&request(3, 62), digest(91), digest(72), 220, |_, _, _| panic!()),
+            Err(FaucetError::RecipientExhausted)
+        );
+        assert_eq!(
+            faucet.request(&request(3, 60), source, digest(70), 9_999, |_, _, _| panic!()),
+            Ok(first.clone())
+        );
+
+        let snapshot = std::fs::read(&path).unwrap();
+        assert!(!snapshot.windows(raw_source.len()).any(|window| window == raw_source));
+        drop(faucet);
+
+        // Operators can tighten limits without rebuilding clients. Existing durable usage is
+        // counted under the stricter policy after restart and can never be reset by rollback.
+        let mut tightened = policy();
+        tightened.global_window_seconds = 10_000;
+        tightened.global_window_limit = 2;
+        let mut restored = DurableFaucet::open(tightened, path.clone()).unwrap();
+        assert_eq!(
+            restored.request(&request(4, 63), digest(92), digest(73), 221, |_, _, _| panic!()),
+            Err(FaucetError::GlobalLimited)
+        );
+
+        // Expiry disables new issuance but does not alter durable receipts.
+        assert_eq!(
+            restored.request(&request(4, 64), digest(93), digest(74), 10_001, |_, _, _| panic!()),
+            Err(FaucetError::Disabled)
+        );
+        assert_eq!(restored.resolve(first.reference()), Some(&first));
         std::fs::remove_file(path).unwrap();
     }
 

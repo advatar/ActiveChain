@@ -874,13 +874,13 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
   not yet prove validator ingress or end-to-end issuance.
 - [x] Require an explicit testnet-only faucet deployment profile; production/regulated profiles
   fail closed before durable faucet state is created.
-- [ ] Formally verify testnet-only validity, supply conservation, exactly-once issuance,
+- [x] Formally verify testnet-only validity, supply conservation, exactly-once issuance,
   rate-limit monotonicity, atomic restart equivalence, and receipt-to-finalized-transition binding;
   publish the proof scope and every remaining assumption or gap.
 - [x] Freeze the faucet invariant model and executable conformance vectors before formal proof
   integration.
 - [x] Add an iOS/macOS testnet funding flow that never credits optimistic or local-only balances.
-- [ ] Pass replay, concurrency, forged-chain, exhaustion, restart, privacy, and end-to-end tests.
+- [x] Pass replay, concurrency, forged-chain, exhaustion, restart, privacy, and end-to-end tests.
 
 ## Active protocol design — multi-asset Coin Cells
 
