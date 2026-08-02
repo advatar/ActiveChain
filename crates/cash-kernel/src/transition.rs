@@ -820,7 +820,11 @@ impl CashLedger {
             next.push(CoinCellRecord::new(id, cell));
         }
         next.sort_by_key(|r| r.id());
-        self.cells = CoinCellSet::new(next).map_err(CashTransitionError::Invalid)?;
+        // Apply to a candidate and swap only once every check has passed, as every other
+        // transition does. Assigning `self.cells` before the supply arithmetic and the
+        // invariant check would let a later failure leave cells destroyed with supply intact.
+        let mut candidate = self.clone();
+        candidate.cells = CoinCellSet::new(next).map_err(CashTransitionError::Invalid)?;
         let burned = self
             .supply
             .cumulative_burn()
@@ -836,7 +840,7 @@ impl CashLedger {
             .circulating_supply()
             .checked_sub(burn.amount())
             .ok_or(CashTransitionError::Invalid(NativeMoneyError::AmountOverflow))?;
-        self.supply = NativeSupply::new(
+        candidate.supply = NativeSupply::new(
             self.supply.genesis_supply(),
             self.supply.cumulative_security_issuance(),
             burned,
@@ -851,7 +855,9 @@ impl CashLedger {
             self.supply.issuance_in_window(),
         )
         .map_err(CashTransitionError::Invalid)?;
-        self.verify_invariants()
+        candidate.verify_invariants()?;
+        *self = candidate;
+        Ok(())
     }
 
     pub fn verify_invariants(&self) -> Result<(), CashTransitionError> {
