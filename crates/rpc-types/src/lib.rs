@@ -249,6 +249,7 @@ pub enum QueryKind {
     AssetSettlementReceipt = 11,
     AssetNftSeries = 12,
     AssetNftTokenRegistry = 13,
+    DidEnsAlias = 14,
 }
 
 impl CanonicalEncode for QueryKind {
@@ -273,6 +274,7 @@ impl CanonicalDecode for QueryKind {
             11 => Ok(Self::AssetSettlementReceipt),
             12 => Ok(Self::AssetNftSeries),
             13 => Ok(Self::AssetNftTokenRegistry),
+            14 => Ok(Self::DidEnsAlias),
             tag => Err(DecodeError::InvalidEnumTag { type_name: "QueryKind", tag }),
         }
     }

@@ -1,0 +1,13 @@
+case	operation	principal_authorized	evidence_fresh	proof_verified	active	expected
+create	create	true	true	true	true	accept
+update-evidence	update	true	true	true	true	accept
+remove	remove	true	false	true	false	accept
+unicode-normalization-substitution	create	true	true	true	true	reject
+namehash-collision-substitution	update	true	true	true	true	reject
+stale-evidence	update	true	false	true	true	reject
+alias-takeover	update	false	true	true	true	reject
+wrong-principal	update	false	true	true	true	reject
+cross-chain-replay	update	true	true	true	true	reject
+resolver-rollback	resolve	true	true	false	true	reject
+deactivated-did	resolve	true	true	true	false	reject
+ens-control-as-authorization	authorize	false	true	true	true	reject
