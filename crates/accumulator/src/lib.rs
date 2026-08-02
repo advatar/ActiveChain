@@ -3,7 +3,13 @@
 
 extern crate alloc;
 
-use alloc::{collections::BTreeSet, format, string::String, vec, vec::Vec};
+use alloc::{
+    collections::{BTreeMap, BTreeSet},
+    format,
+    string::String,
+    vec,
+    vec::Vec,
+};
 use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
@@ -30,6 +36,7 @@ pub enum AccumulatorDomain {
     SpentInput = 2,
     Revocation = 3,
     RetiredValidatorSet = 4,
+    AuthorizationInvocation = 5,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -80,6 +87,9 @@ impl SetCommitment {
 pub struct ReferenceSet {
     domain: AccumulatorDomain,
     keys: BTreeSet<Root>,
+    nodes: BTreeMap<(usize, Root), Root>,
+    empty: Vec<Root>,
+    commitment: SetCommitment,
 }
 
 impl Default for ReferenceSet {
@@ -90,20 +100,15 @@ impl Default for ReferenceSet {
 
 impl ReferenceSet {
     #[must_use]
-    pub const fn new(domain: AccumulatorDomain) -> Self {
-        Self { domain, keys: BTreeSet::new() }
+    pub fn new(domain: AccumulatorDomain) -> Self {
+        let empty = set_empty_hashes(domain);
+        let commitment = SetCommitment::empty(domain);
+        Self { domain, keys: BTreeSet::new(), nodes: BTreeMap::new(), empty, commitment }
     }
 
     #[must_use]
     pub fn commitment(&self) -> SetCommitment {
-        let keys = self.keys.iter().copied().collect::<Vec<_>>();
-        let empty = set_empty_hashes(self.domain);
-        let tree_root = set_subtree(self.domain, &keys, 0, &empty);
-        SetCommitment {
-            domain: self.domain,
-            root: set_commitment_root(self.domain, self.keys.len() as u64, tree_root),
-            count: self.keys.len() as u64,
-        }
+        self.commitment
     }
 
     pub fn non_membership_witness(
@@ -113,19 +118,14 @@ impl ReferenceSet {
         if key == [0; 48] || self.keys.contains(&key) {
             return Err(AccumulatorError::Duplicate);
         }
-        let empty = set_empty_hashes(self.domain);
-        let mut candidates = self.keys.iter().copied().collect::<Vec<_>>();
         let mut siblings = Vec::with_capacity(KEY_BITS);
         for depth in 0..KEY_BITS {
-            let (left, right): (Vec<_>, Vec<_>) =
-                candidates.into_iter().partition(|candidate| !key_bit(candidate, depth));
-            if key_bit(&key, depth) {
-                siblings.push(set_subtree(self.domain, &left, depth + 1, &empty));
-                candidates = right;
-            } else {
-                siblings.push(set_subtree(self.domain, &right, depth + 1, &empty));
-                candidates = left;
-            }
+            let mut sibling = key;
+            toggle_key_bit(&mut sibling, depth);
+            let sibling = key_prefix(sibling, depth + 1);
+            siblings.push(
+                self.nodes.get(&(depth + 1, sibling)).copied().unwrap_or(self.empty[depth + 1]),
+            );
         }
         Ok(NonMembershipWitness { key, siblings })
     }
@@ -134,7 +134,55 @@ impl ReferenceSet {
         if key == [0; 48] || !self.keys.insert(key) {
             return Err(AccumulatorError::Duplicate);
         }
+        self.nodes.insert((KEY_BITS, key), set_leaf(self.domain, key));
+        for depth in (0..KEY_BITS).rev() {
+            let parent = key_prefix(key, depth);
+            let mut right = parent;
+            set_key_bit(&mut right, depth, true);
+            let left = key_prefix(parent, depth + 1);
+            let right = key_prefix(right, depth + 1);
+            let left_hash =
+                self.nodes.get(&(depth + 1, left)).copied().unwrap_or(self.empty[depth + 1]);
+            let right_hash =
+                self.nodes.get(&(depth + 1, right)).copied().unwrap_or(self.empty[depth + 1]);
+            self.nodes.insert((depth, parent), set_node(self.domain, depth, left_hash, right_hash));
+        }
+        let count = u64::try_from(self.keys.len()).map_err(|_| AccumulatorError::Overflow)?;
+        let tree_root = self.nodes.get(&(0, [0; 48])).copied().unwrap_or(self.empty[0]);
+        self.commitment = SetCommitment {
+            domain: self.domain,
+            root: set_commitment_root(self.domain, count, tree_root),
+            count,
+        };
         Ok(())
+    }
+}
+
+fn key_prefix(mut key: Root, depth: usize) -> Root {
+    if depth == KEY_BITS {
+        return key;
+    }
+    let byte = depth / 8;
+    let retained = depth % 8;
+    if retained == 0 {
+        key[byte] = 0;
+    } else {
+        key[byte] &= u8::MAX << (8 - retained);
+    }
+    key[byte + 1..].fill(0);
+    key
+}
+
+fn toggle_key_bit(key: &mut Root, depth: usize) {
+    key[depth / 8] ^= 1 << (7 - depth % 8);
+}
+
+fn set_key_bit(key: &mut Root, depth: usize, value: bool) {
+    let mask = 1 << (7 - depth % 8);
+    if value {
+        key[depth / 8] |= mask;
+    } else {
+        key[depth / 8] &= !mask;
     }
 }
 
@@ -280,22 +328,6 @@ fn fold_history(index: u32, mut leaf: Root, siblings: &[Root]) -> Root {
         };
     }
     leaf
-}
-
-fn set_subtree(domain: AccumulatorDomain, keys: &[Root], depth: usize, empty: &[Root]) -> Root {
-    if keys.is_empty() {
-        return empty[depth];
-    }
-    if depth == KEY_BITS {
-        return set_leaf(domain, keys[0]);
-    }
-    let split = keys.partition_point(|key| !key_bit(key, depth));
-    set_node(
-        domain,
-        depth,
-        set_subtree(domain, &keys[..split], depth + 1, empty),
-        set_subtree(domain, &keys[split..], depth + 1, empty),
-    )
 }
 
 fn history_subtree(entries: &[(usize, Root)], depth: usize, empty: &[Root]) -> Root {
@@ -458,7 +490,10 @@ mod tests {
     fn replay_domains_have_distinct_roots_and_reject_cross_domain_witnesses() {
         let nullifiers = ReferenceSet::new(AccumulatorDomain::Nullifier);
         let revocations = ReferenceSet::new(AccumulatorDomain::Revocation);
+        let authorizations = ReferenceSet::new(AccumulatorDomain::AuthorizationInvocation);
         assert_ne!(nullifiers.commitment().root, revocations.commitment().root);
+        assert_ne!(nullifiers.commitment().root, authorizations.commitment().root);
+        assert_ne!(revocations.commitment().root, authorizations.commitment().root);
 
         let candidate = key(7);
         let nullifier_witness = nullifiers.non_membership_witness(candidate).unwrap();

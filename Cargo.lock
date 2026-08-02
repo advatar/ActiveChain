@@ -90,6 +90,7 @@ dependencies = [
 name = "activechain-authorization-kernel"
 version = "0.1.0"
 dependencies = [
+ "activechain-accumulator",
  "activechain-canonical-codec",
  "activechain-capability",
  "activechain-credential",

@@ -2,9 +2,12 @@
 
 //! Authoritative joined authorization and crash-atomic transition admission.
 
+use activechain_accumulator::{
+    AccumulatorDomain, NonMembershipWitness, ReferenceSet, SetCommitment,
+};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
-    decode_envelope, encode_envelope,
+    decode_envelope, encode_envelope, inspect_canonical_envelope,
 };
 use activechain_capability::verify_attenuation;
 use activechain_credential::{
@@ -122,6 +125,7 @@ impl AuthorizationEnvelope {
     pub const fn epoch(&self) -> u64 {
         self.epoch
     }
+
     pub const fn actor(&self) -> PrincipalId {
         self.actor
     }
@@ -258,6 +262,9 @@ pub struct CredentialMaterial {
 
 pub struct AuthorizationCandidate {
     pub envelope: AuthorizationEnvelope,
+    /// Proof that `envelope.invocation_id` is absent from the finalized replay accumulator.
+    /// Within a batch, witnesses must be ordered against the state produced by prior entries.
+    pub invocation_non_membership: NonMembershipWitness,
     pub credentials: Vec<CredentialMaterial>,
     pub capability_chain: Vec<CapabilityGrant>,
     pub transaction: TransferTransaction,
@@ -283,6 +290,7 @@ pub struct VerifiedAuthorization {
     envelope: AuthorizationEnvelope,
     envelope_commitment: Digest384,
     leaf_capability: CapabilityGrant,
+    invocation_non_membership: NonMembershipWitness,
 }
 
 impl VerifiedAuthorization {
@@ -338,7 +346,7 @@ impl CanonicalDecode for BudgetUsage {
     }
 }
 
-/// Epoch-scoped replay barrier and per-capability budget usage.
+/// Permanent witnessed replay barrier and per-capability budget usage.
 ///
 /// Budget accounting is keyed on the individual capability that authorized an invocation, so a
 /// capability cannot exceed its own declared limits. It does NOT aggregate a delegated
@@ -350,23 +358,26 @@ impl CanonicalDecode for BudgetUsage {
 /// that attenuation alone does not reserve budgets. Subtree reservation belongs to that
 /// refinement; until it exists, these limits must not be read as a spend ceiling over a
 /// delegation subtree. See issue #704.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct AuthorizationLedger {
-    invocations: BTreeMap<Digest384, Digest384>,
+    invocation_set: SetCommitment,
     budgets: BTreeMap<CapabilityId, BudgetUsage>,
 }
-impl AuthorizationLedger {
-    fn consume(
-        &mut self,
-        authorization: &VerifiedAuthorization,
-        receipt: Digest384,
-    ) -> Result<(), AuthorizationError> {
-        let envelope = &authorization.envelope;
-        if self.invocations.len() >= MAX_AUTHORIZATION_INVOCATIONS
-            || self.invocations.contains_key(&envelope.invocation_id)
-        {
-            return Err(AuthorizationError::Replay);
+impl Default for AuthorizationLedger {
+    fn default() -> Self {
+        Self {
+            invocation_set: SetCommitment::empty(AccumulatorDomain::AuthorizationInvocation),
+            budgets: BTreeMap::new(),
         }
+    }
+}
+impl AuthorizationLedger {
+    fn consume(&mut self, authorization: &VerifiedAuthorization) -> Result<(), AuthorizationError> {
+        let envelope = &authorization.envelope;
+        let next_invocation_set = self
+            .invocation_set
+            .insert(envelope.invocation_id.into_bytes(), &authorization.invocation_non_membership)
+            .map_err(|_| AuthorizationError::Replay)?;
         let fields = authorization.leaf_capability.fields();
         let usage = self.budgets.entry(fields.capability_id).or_default();
         let uses = usage.uses.checked_add(1).ok_or(AuthorizationError::Budget)?;
@@ -385,7 +396,7 @@ impl AuthorizationLedger {
         usage.compute = compute;
         usage.window_start = window_start;
         usage.window_uses = window_uses;
-        self.invocations.insert(envelope.invocation_id, receipt);
+        self.invocation_set = next_invocation_set;
         Ok(())
     }
 }
@@ -410,11 +421,8 @@ fn rate_usage(
 
 impl CanonicalEncode for AuthorizationLedger {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
-        e.write_length(self.invocations.len(), MAX_AUTHORIZATION_INVOCATIONS)?;
-        for (k, v) in &self.invocations {
-            k.encode(e)?;
-            v.encode(e)?
-        }
+        Digest384::new(self.invocation_set.root).encode(e)?;
+        self.invocation_set.count.encode(e)?;
         e.write_length(self.budgets.len(), MAX_AUTHORIZATION_INVOCATIONS)?;
         for (k, v) in &self.budgets {
             k.encode(e)?;
@@ -425,16 +433,10 @@ impl CanonicalEncode for AuthorizationLedger {
 }
 impl CanonicalDecode for AuthorizationLedger {
     fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
-        let count = d.read_length(MAX_AUTHORIZATION_INVOCATIONS)?;
-        let mut invocations = BTreeMap::new();
-        let mut prior = None;
-        for _ in 0..count {
-            let k = Digest384::decode(d)?;
-            let v = Digest384::decode(d)?;
-            if prior.is_some_and(|p| p >= k) || invocations.insert(k, v).is_some() {
-                return Err(DecodeError::InvalidValue("unordered invocations"));
-            }
-            prior = Some(k)
+        let invocation_root = Digest384::decode(d)?;
+        let invocation_count = u64::decode(d)?;
+        if invocation_root == Digest384::ZERO {
+            return Err(DecodeError::InvalidValue("zero invocation accumulator root"));
         }
         let count = d.read_length(MAX_AUTHORIZATION_INVOCATIONS)?;
         let mut budgets = BTreeMap::new();
@@ -447,8 +449,47 @@ impl CanonicalDecode for AuthorizationLedger {
             }
             prior = Some(k)
         }
-        Ok(Self { invocations, budgets })
+        Ok(Self {
+            invocation_set: SetCommitment {
+                domain: AccumulatorDomain::AuthorizationInvocation,
+                root: invocation_root.into_bytes(),
+                count: invocation_count,
+            },
+            budgets,
+        })
     }
+}
+
+fn decode_legacy_authorization_ledger(
+    d: &mut Decoder<'_>,
+) -> Result<AuthorizationLedger, DecodeError> {
+    let count = d.read_length(MAX_AUTHORIZATION_INVOCATIONS)?;
+    let mut invocations = ReferenceSet::new(AccumulatorDomain::AuthorizationInvocation);
+    let mut prior = None;
+    for _ in 0..count {
+        let invocation = Digest384::decode(d)?;
+        let _legacy_receipt = Digest384::decode(d)?;
+        if prior.is_some_and(|value| value >= invocation)
+            || invocations.insert(invocation.into_bytes()).is_err()
+        {
+            return Err(DecodeError::InvalidValue("unordered legacy invocations"));
+        }
+        prior = Some(invocation);
+    }
+    let count = d.read_length(MAX_AUTHORIZATION_INVOCATIONS)?;
+    let mut budgets = BTreeMap::new();
+    let mut prior = None;
+    for _ in 0..count {
+        let capability = CapabilityId::decode(d)?;
+        let usage = BudgetUsage::decode(d)?;
+        if prior.is_some_and(|value| value >= capability)
+            || budgets.insert(capability, usage).is_some()
+        {
+            return Err(DecodeError::InvalidValue("unordered legacy budgets"));
+        }
+        prior = Some(capability);
+    }
+    Ok(AuthorizationLedger { invocation_set: invocations.commitment(), budgets })
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -475,13 +516,8 @@ impl CanonicalDecode for AuthorizationReplaySnapshot {
 }
 impl CanonicalType for AuthorizationReplaySnapshot {
     const TYPE_TAG: u16 = 0x0143;
-    const SCHEMA_VERSION: u16 = 1;
-    const MAX_ENCODED_LEN: usize = 48
-        + 8
-        + 2
-        + MAX_AUTHORIZATION_INVOCATIONS * 96
-        + 2
-        + MAX_AUTHORIZATION_INVOCATIONS * (48 + 56);
+    const SCHEMA_VERSION: u16 = 2;
+    const MAX_ENCODED_LEN: usize = 48 + 8 + 48 + 8 + 2 + MAX_AUTHORIZATION_INVOCATIONS * (48 + 56);
 }
 
 /// Durable replay and capability-budget state for finalized-block authorization.
@@ -516,7 +552,7 @@ impl AuthorizationReplayStore {
     }
 
     pub fn load(snapshot_path: PathBuf) -> std::io::Result<Self> {
-        let snapshot: AuthorizationReplaySnapshot = load_typed_snapshot(&snapshot_path)?;
+        let snapshot = load_replay_snapshot(&snapshot_path)?;
         if snapshot.chain_genesis_commitment == Digest384::ZERO {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -541,6 +577,14 @@ impl AuthorizationReplayStore {
         self.epoch
     }
 
+    pub fn invocation_commitment(&self) -> Result<SetCommitment, AuthorizationError> {
+        let runtime = self.inner.lock().map_err(|_| AuthorizationError::Poisoned)?;
+        if runtime.poisoned {
+            return Err(AuthorizationError::Poisoned);
+        }
+        Ok(runtime.ledger.invocation_set)
+    }
+
     /// Atomically persists the whole block's replay and budget effects before admission returns.
     pub fn admit_batch(
         &self,
@@ -557,7 +601,7 @@ impl AuthorizationReplayStore {
             {
                 return Err(AuthorizationError::Authentication);
             }
-            next.consume(authorization, authorization.transition_commitment())?;
+            next.consume(authorization)?;
         }
         let snapshot = AuthorizationReplaySnapshot {
             chain_genesis_commitment: self.chain_genesis_commitment,
@@ -606,12 +650,12 @@ impl CanonicalDecode for AuthorizedSnapshot {
 }
 impl CanonicalType for AuthorizedSnapshot {
     const TYPE_TAG: u16 = 0x007e;
-    const SCHEMA_VERSION: u16 = 2;
+    const SCHEMA_VERSION: u16 = 3;
     const MAX_ENCODED_LEN: usize = 48
         + 8
         + ObjectState::MAX_ENCODED_LEN
-        + 2
-        + MAX_AUTHORIZATION_INVOCATIONS * 96
+        + 48
+        + 8
         + 2
         + MAX_AUTHORIZATION_INVOCATIONS * (48 + 56)
         + TransitionReceipt::MAX_ENCODED_LEN
@@ -669,15 +713,11 @@ impl AuthorizationGateway {
             epoch: snapshot.epoch,
         })
     }
-    /// Advances the gateway to a later epoch, releasing the epoch-scoped invocation set.
+    /// Advances the gateway to a later epoch while retaining permanent replay history.
     ///
-    /// Invocation identifiers only need to be unique within one epoch: every admission path
-    /// rejects an envelope whose `epoch` differs from the gateway's, so an identifier retired
-    /// with a previous epoch can never be replayed against a later one. Capability budgets are
-    /// lifetime ceilings rather than per-epoch allowances and are therefore retained.
-    ///
-    /// Without this, the invocation set fills at `MAX_AUTHORIZATION_INVOCATIONS` and every
-    /// subsequent admission fails permanently.
+    /// Both invocation identifiers and capability budgets remain lifetime barriers. The witnessed
+    /// accumulator keeps replay state constant-size, so epoch advancement never needs to discard
+    /// accepted identifiers to preserve availability.
     pub fn advance_epoch(&mut self, next_epoch: u64) -> Result<(), AuthorizationError> {
         if next_epoch <= self.epoch {
             return Err(AuthorizationError::Authentication);
@@ -686,8 +726,7 @@ impl AuthorizationGateway {
         if runtime.poisoned {
             return Err(AuthorizationError::Poisoned);
         }
-        let mut ledger = runtime.ledger.clone();
-        ledger.invocations.clear();
+        let ledger = runtime.ledger.clone();
         // Preserve the last receipt/envelope witnesses recorded by the previous admission.
         let previous =
             load_snapshot(&self.snapshot_path).map_err(|_| AuthorizationError::Persistence)?;
@@ -715,6 +754,14 @@ impl AuthorizationGateway {
         }
         Ok(runtime.state.clone())
     }
+
+    pub fn invocation_commitment(&self) -> Result<SetCommitment, AuthorizationError> {
+        let runtime = self.inner.lock().map_err(|_| AuthorizationError::Poisoned)?;
+        if runtime.poisoned {
+            return Err(AuthorizationError::Poisoned);
+        }
+        Ok(runtime.ledger.invocation_set)
+    }
     pub fn admit<V: AuthorizationVerifier>(
         &self,
         candidate: AuthorizationCandidate,
@@ -724,9 +771,14 @@ impl AuthorizationGateway {
         if runtime.poisoned {
             return Err(AuthorizationError::Poisoned);
         }
-        if runtime.ledger.invocations.contains_key(&candidate.envelope.invocation_id) {
-            return Err(AuthorizationError::Replay);
-        }
+        runtime
+            .ledger
+            .invocation_set
+            .insert(
+                candidate.envelope.invocation_id.into_bytes(),
+                &candidate.invocation_non_membership,
+            )
+            .map_err(|_| AuthorizationError::Replay)?;
         let finalized_state_root = commit_objects(runtime.state.objects())
             .map_err(|_| AuthorizationError::Encoding)?
             .root();
@@ -738,15 +790,12 @@ impl AuthorizationGateway {
             verifier,
         )?;
         let mut ledger = runtime.ledger.clone();
-        ledger.consume(&authorization, Digest384::ZERO)?;
+        ledger.consume(&authorization)?;
         let output = apply_transfer_transaction(&runtime.state, &candidate.transaction)
             .map_err(|_| AuthorizationError::Transition)?;
         if !matches!(output.receipt().result(), ReceiptResult::Success) {
             return Err(AuthorizationError::Transition);
         }
-        let receipt_commitment = commit(DomainTag::CANONICAL_VALUE, &output.receipt())
-            .map_err(|_| AuthorizationError::Encoding)?;
-        ledger.invocations.insert(candidate.envelope.invocation_id, receipt_commitment);
         let snapshot = AuthorizedSnapshot {
             chain_genesis_commitment: self.chain_genesis_commitment,
             epoch: self.epoch,
@@ -881,6 +930,7 @@ pub fn verify_authorization_candidate<V: AuthorizationVerifier>(
         envelope: envelope.clone(),
         envelope_commitment,
         leaf_capability: leaf.clone(),
+        invocation_non_membership: candidate.invocation_non_membership.clone(),
     })
 }
 
@@ -902,7 +952,7 @@ fn save_typed_snapshot<T: CanonicalType>(path: &Path, snapshot: &T) -> std::io::
         path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
     std::fs::File::open(parent)?.sync_all()
 }
-fn load_typed_snapshot<T: CanonicalType>(path: &Path) -> std::io::Result<T> {
+fn load_verified_snapshot_bytes(path: &Path) -> std::io::Result<Vec<u8>> {
     let bytes = std::fs::read(path)?;
     if bytes.len() < 32 {
         return Err(std::io::Error::new(
@@ -917,15 +967,70 @@ fn load_typed_snapshot<T: CanonicalType>(path: &Path) -> std::io::Result<T> {
             "authorization snapshot corrupt",
         ));
     }
-    decode_envelope(&bytes[..body]).map_err(|_| {
-        std::io::Error::new(std::io::ErrorKind::InvalidData, "authorization snapshot invalid")
-    })
+    Ok(bytes[..body].to_vec())
+}
+fn load_replay_snapshot(path: &Path) -> std::io::Result<AuthorizationReplaySnapshot> {
+    let bytes = load_verified_snapshot_bytes(path)?;
+    decode_envelope(&bytes)
+        .or_else(|_| {
+            let envelope = inspect_canonical_envelope(
+                &bytes,
+                AuthorizationReplaySnapshot::TYPE_TAG,
+                1,
+                48 + 8
+                    + 2
+                    + MAX_AUTHORIZATION_INVOCATIONS * 96
+                    + 2
+                    + MAX_AUTHORIZATION_INVOCATIONS * (48 + 56),
+            )?;
+            let mut decoder = Decoder::new(envelope.body());
+            let snapshot = AuthorizationReplaySnapshot {
+                chain_genesis_commitment: Digest384::decode(&mut decoder)?,
+                epoch: u64::decode(&mut decoder)?,
+                ledger: decode_legacy_authorization_ledger(&mut decoder)?,
+            };
+            decoder.finish()?;
+            Ok::<_, DecodeError>(snapshot)
+        })
+        .map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "authorization snapshot invalid")
+        })
 }
 fn save_snapshot(path: &Path, snapshot: &AuthorizedSnapshot) -> std::io::Result<()> {
     save_typed_snapshot(path, snapshot)
 }
 fn load_snapshot(path: &Path) -> std::io::Result<AuthorizedSnapshot> {
-    load_typed_snapshot(path)
+    let bytes = load_verified_snapshot_bytes(path)?;
+    decode_envelope(&bytes)
+        .or_else(|_| {
+            let envelope = inspect_canonical_envelope(
+                &bytes,
+                AuthorizedSnapshot::TYPE_TAG,
+                2,
+                48 + 8
+                    + ObjectState::MAX_ENCODED_LEN
+                    + 2
+                    + MAX_AUTHORIZATION_INVOCATIONS * 96
+                    + 2
+                    + MAX_AUTHORIZATION_INVOCATIONS * (48 + 56)
+                    + TransitionReceipt::MAX_ENCODED_LEN
+                    + 48,
+            )?;
+            let mut decoder = Decoder::new(envelope.body());
+            let snapshot = AuthorizedSnapshot {
+                chain_genesis_commitment: Digest384::decode(&mut decoder)?,
+                epoch: u64::decode(&mut decoder)?,
+                state: ObjectState::decode(&mut decoder)?,
+                ledger: decode_legacy_authorization_ledger(&mut decoder)?,
+                last_receipt: TransitionReceipt::decode(&mut decoder)?,
+                last_envelope: Digest384::decode(&mut decoder)?,
+            };
+            decoder.finish()?;
+            Ok::<_, DecodeError>(snapshot)
+        })
+        .map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "authorization snapshot invalid")
+        })
 }
 fn snapshot_tag(bytes: &[u8]) -> [u8; 32] {
     let mut h = Shake256::default();
@@ -1208,10 +1313,29 @@ mod tests {
         .unwrap();
         AuthorizationCandidate {
             envelope,
+            invocation_non_membership: ReferenceSet::new(
+                AccumulatorDomain::AuthorizationInvocation,
+            )
+            .non_membership_witness(digest(invocation).into_bytes())
+            .unwrap(),
             credentials: vec![material],
             capability_chain: caps,
             transaction,
         }
+    }
+
+    fn witness_after(prior_invocations: &[u8], invocation: u8) -> NonMembershipWitness {
+        let mut reference = ReferenceSet::new(AccumulatorDomain::AuthorizationInvocation);
+        for prior in prior_invocations {
+            reference.insert(digest(*prior).into_bytes()).unwrap();
+        }
+        reference.non_membership_witness(digest(invocation).into_bytes()).unwrap()
+    }
+
+    fn numbered_invocation(number: u64) -> Digest384 {
+        let mut bytes = [0_u8; 48];
+        bytes[..8].copy_from_slice(&number.to_be_bytes());
+        Digest384::new(bytes)
     }
 
     struct Verifier {
@@ -1297,6 +1421,7 @@ mod tests {
             Err(AuthorizationError::Replay)
         );
         let mut exhausted = candidate(2, 5);
+        exhausted.invocation_non_membership = witness_after(&[1], 2);
         exhausted.envelope.finalized_state_root =
             commit_objects(gateway.state().unwrap().objects()).unwrap().root();
         assert_eq!(gateway.admit(exhausted, &Verifier::default()), Err(AuthorizationError::Budget));
@@ -1319,22 +1444,9 @@ mod tests {
         let _ = std::fs::remove_file(path);
     }
 
-    /// Regression for #705: a full invocation set must not halt authorization forever.
-    ///
-    /// The ledger refuses once `MAX_AUTHORIZATION_INVOCATIONS` identifiers are retained, and
-    /// nothing reclaims them, so a long-lived chain stops admitting transfers permanently.
-    /// Advancing the epoch releases the set, which is sound because every admission path
-    /// rejects an envelope whose epoch differs from the gateway's.
+    /// Epoch rotation must never reopen an invocation identifier that was already consumed.
     #[test]
-    fn a_full_invocation_set_is_released_by_advancing_the_epoch() {
-        let mut ledger = AuthorizationLedger::default();
-        for index in 0..MAX_AUTHORIZATION_INVOCATIONS {
-            let mut bytes = [0_u8; 48];
-            bytes[..8].copy_from_slice(&(index as u64).to_be_bytes());
-            ledger.invocations.insert(Digest384::new(bytes), Digest384::ZERO);
-        }
-        assert_eq!(ledger.invocations.len(), MAX_AUTHORIZATION_INVOCATIONS);
-
+    fn advancing_the_epoch_retains_permanent_invocation_replay_history() {
         let path = std::env::temp_dir()
             .join(format!("activechain-auth-epoch-{}.snapshot", std::process::id()));
         let mut gateway = gateway(path.clone());
@@ -1342,27 +1454,24 @@ mod tests {
             gateway.admit(candidate(1, 5), &Verifier::default()).unwrap().result(),
             ReceiptResult::Success
         );
-        // Saturate the persisted ledger, then prove admission is refused.
-        {
-            let mut runtime = gateway.inner.lock().unwrap();
-            runtime.ledger.invocations = ledger.invocations.clone();
-        }
-        let mut blocked = candidate(2, 5);
-        blocked.envelope.finalized_state_root =
-            commit_objects(gateway.state().unwrap().objects()).unwrap().root();
-        assert_eq!(gateway.admit(blocked, &Verifier::default()), Err(AuthorizationError::Replay));
+        let before = gateway.invocation_commitment().unwrap();
 
         // A stale or equal epoch is refused; only a strictly later one advances.
         assert_eq!(gateway.advance_epoch(EPOCH), Err(AuthorizationError::Authentication));
         gateway.advance_epoch(EPOCH + 1).unwrap();
-        assert!(gateway.inner.lock().unwrap().ledger.invocations.is_empty());
+        assert_eq!(gateway.invocation_commitment().unwrap(), before);
         // Budgets are lifetime ceilings and must survive the rotation.
         assert!(!gateway.inner.lock().unwrap().ledger.budgets.is_empty());
 
-        // The released epoch is durable across restart.
+        // The new epoch and permanent replay root are durable across restart.
         let restarted = AuthorizationGateway::load(path.clone()).unwrap();
         assert_eq!(restarted.epoch, EPOCH + 1);
-        assert!(restarted.inner.lock().unwrap().ledger.invocations.is_empty());
+        assert_eq!(restarted.invocation_commitment().unwrap(), before);
+        let mut replay = candidate(1, 5);
+        replay.envelope.epoch = EPOCH + 1;
+        replay.envelope.finalized_state_root =
+            commit_objects(restarted.state().unwrap().objects()).unwrap().root();
+        assert_eq!(restarted.admit(replay, &Verifier::default()), Err(AuthorizationError::Replay));
         let _ = std::fs::remove_file(path);
     }
 
@@ -1488,6 +1597,7 @@ mod tests {
         let rate_gateway = gateway(rate_path.clone());
         assert!(rate_gateway.admit(rate_candidate(16), &Verifier::default()).is_ok());
         let mut second = rate_candidate(17);
+        second.invocation_non_membership = witness_after(&[16], 17);
         second.envelope.finalized_state_root =
             commit_objects(rate_gateway.state().unwrap().objects()).unwrap().root();
         assert_eq!(
@@ -1698,9 +1808,9 @@ mod tests {
         let path = std::env::temp_dir()
             .join(format!("activechain-auth-budget-{}.snapshot", std::process::id()));
         let store = AuthorizationReplayStore::new(path.clone(), genesis(), EPOCH).unwrap();
-        let verify = |invocation, value| {
+        let verify = |candidate: AuthorizationCandidate| {
             verify_authorization_candidate(
-                &candidate(invocation, value),
+                &candidate,
                 genesis(),
                 EPOCH,
                 state_root(),
@@ -1708,9 +1818,92 @@ mod tests {
             )
             .unwrap()
         };
-        assert!(store.admit_batch(&[verify(35, 10)]).is_ok());
-        assert_eq!(store.admit_batch(&[verify(36, 10)]), Err(AuthorizationError::Budget));
+        assert!(store.admit_batch(&[verify(candidate(35, 10))]).is_ok());
+        let mut second = candidate(36, 10);
+        second.invocation_non_membership = witness_after(&[35], 36);
+        assert_eq!(store.admit_batch(&[verify(second)]), Err(AuthorizationError::Budget));
         let _ = std::fs::remove_file(path);
+    }
+
+    /// Regression for #705: replay history is constant-size and does not permanently halt after
+    /// the former 4,096-entry map limit. Witnesses are sequential, survive a snapshot restart,
+    /// and stale or duplicate paths remain fail-closed.
+    #[test]
+    fn invocation_accumulator_accepts_4097_and_rejects_stale_replay_after_restart() {
+        let mut template = verify_authorization_candidate(
+            &candidate(37, 1),
+            genesis(),
+            EPOCH,
+            state_root(),
+            &Verifier::default(),
+        )
+        .unwrap();
+        let mut fields = template.leaf_capability.fields().clone();
+        fields.use_limit = None;
+        fields.monetary_limit = None;
+        fields.compute_limit = None;
+        fields.rate_limit = None;
+        template.leaf_capability = CapabilityGrant::new(fields, signature()).unwrap();
+
+        let mut reference = ReferenceSet::new(AccumulatorDomain::AuthorizationInvocation);
+        let mut ledger = AuthorizationLedger::default();
+        let mut first = None;
+        for number in 1..=4_097 {
+            let invocation = numbered_invocation(number);
+            let mut authorization = template.clone();
+            authorization.envelope.invocation_id = invocation;
+            authorization.invocation_non_membership =
+                reference.non_membership_witness(invocation.into_bytes()).unwrap();
+            if number == 1 {
+                first = Some(authorization.clone());
+            }
+            ledger.consume(&authorization).unwrap();
+            reference.insert(invocation.into_bytes()).unwrap();
+        }
+        assert_eq!(ledger.invocation_set.count, 4_097);
+        assert_eq!(ledger.invocation_set, reference.commitment());
+
+        let path = std::env::temp_dir()
+            .join(format!("activechain-auth-4097-{}.snapshot", std::process::id()));
+        let snapshot = AuthorizationReplaySnapshot {
+            chain_genesis_commitment: genesis(),
+            epoch: EPOCH,
+            ledger,
+        };
+        save_typed_snapshot(&path, &snapshot).unwrap();
+        let mut restarted = load_replay_snapshot(&path).unwrap();
+        assert_eq!(restarted.ledger.invocation_set.count, 4_097);
+        assert_eq!(restarted.ledger.consume(&first.unwrap()), Err(AuthorizationError::Replay));
+
+        let mut stale = template;
+        stale.envelope.invocation_id = numbered_invocation(4_098);
+        stale.invocation_non_membership =
+            ReferenceSet::new(AccumulatorDomain::AuthorizationInvocation)
+                .non_membership_witness(stale.envelope.invocation_id.into_bytes())
+                .unwrap();
+        assert_eq!(restarted.ledger.consume(&stale), Err(AuthorizationError::Replay));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn legacy_invocation_map_migrates_to_the_same_accumulator_commitment() {
+        let mut encoder = Encoder::new(2 + 2 * 96 + 2);
+        encoder.write_length(2, MAX_AUTHORIZATION_INVOCATIONS).unwrap();
+        for invocation in [numbered_invocation(1), numbered_invocation(2)] {
+            invocation.encode(&mut encoder).unwrap();
+            digest(0x70).encode(&mut encoder).unwrap();
+        }
+        encoder.write_length(0, MAX_AUTHORIZATION_INVOCATIONS).unwrap();
+        let bytes = encoder.finish();
+        let mut decoder = Decoder::new(&bytes);
+        let migrated = decode_legacy_authorization_ledger(&mut decoder).unwrap();
+        decoder.finish().unwrap();
+
+        let mut expected = ReferenceSet::new(AccumulatorDomain::AuthorizationInvocation);
+        expected.insert(numbered_invocation(1).into_bytes()).unwrap();
+        expected.insert(numbered_invocation(2).into_bytes()).unwrap();
+        assert_eq!(migrated.invocation_set, expected.commitment());
+        assert!(migrated.budgets.is_empty());
     }
 
     #[test]

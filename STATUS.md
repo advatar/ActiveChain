@@ -259,10 +259,10 @@ Tracked by [GitHub issue #334](https://github.com/advatar/ActiveChain/issues/334
 Follow-up availability fix tracked by
 [GitHub issue #705](https://github.com/advatar/ActiveChain/issues/705).
 
-- [ ] Replace the permanently capped invocation replay map with a constant-size witnessed
+- [x] Replace the permanently capped invocation replay map with a constant-size witnessed
   accumulator commitment, preserving fail-closed replay rejection across restart while allowing
   more than 4,096 valid authorizations.
-- [ ] Add targeted adversarial unit tests for the 4,096/4,097 boundary, duplicate and stale
+- [x] Add targeted adversarial unit tests for the 4,096/4,097 boundary, duplicate and stale
   witnesses, sequential batch witnesses, and snapshot restart behavior.
 - [ ] Run targeted authorization-kernel and accumulator tests plus affected strict Clippy, merge
   #705 to `main`, verify patch-equivalent reachability, and delete the feature branch.
