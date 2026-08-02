@@ -90,9 +90,20 @@ impl PreparedWalletTransactionBatch {
     pub fn action_ids(&self) -> &[TransactionId] {
         &self.action_ids
     }
+    pub fn encoded_ingress_snapshot(
+        &self,
+    ) -> Result<Vec<u8>, activechain_canonical_codec::EncodeError> {
+        activechain_canonical_codec::encode_envelope(&self.next.ingress)
+    }
 }
 
 impl WalletTransactionGateway {
+    pub fn encoded_ingress_snapshot(
+        &self,
+    ) -> Result<Vec<u8>, activechain_canonical_codec::EncodeError> {
+        activechain_canonical_codec::encode_envelope(&self.ingress)
+    }
+
     /// Restores the authenticated wallet ledger and authorization lanes from a durable snapshot.
     pub fn load_snapshot(
         path: &std::path::Path,
