@@ -11,9 +11,11 @@ mismatched proof is a typed failure and never advances finality or credits value
 
 The session-budget proof binds a domain-separated commitment to the exact canonical
 `AuthorizedCashTransferV1` envelope and the finalized ML-DSA-44 verification key used by wallet
-ingress. Its composed verifier re-runs real ML-DSA-44 verification before accepting the STARK.
-This closes envelope/key substitution at the proof boundary; it is not a claim that ML-DSA
-arithmetic is constrained inside the session AIR.
+ingress. The original composed verifier re-runs host ML-DSA-44 verification for compatibility. The
+`AuthorizedCashSessionMlDsaStarkProof` boundary instead composes the session proof with the complete
+ML-DSA tables: canonical decoding, `tr` and `mu` hashing over the exact cash signing payload,
+`ExpandA`, verifier reconstruction, and final challenge equality. Verification binds both proofs
+to the same envelope and key commitment without calling host signature verification.
 
 Cash proof aggregation uses a canonical four-level statement (microbatch, partition, cash slot,
 and global transition). Every level binds the ordered child-proof commitments, exact partition

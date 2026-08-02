@@ -99,8 +99,9 @@ pub use ml_dsa_vector_subtract::{
     verify_ml_dsa44_vector_subtract,
 };
 pub use session::{
-    CashSessionProofError, CashSessionStarkProof, prove_authorized_session, prove_session_budget,
-    verify_authorized_session, verify_session_budget,
+    AuthorizedCashSessionMlDsaStarkProof, CashSessionProofError, CashSessionStarkProof,
+    prove_authorized_session, prove_authorized_session_mldsa, prove_session_budget,
+    verify_authorized_session, verify_authorized_session_mldsa, verify_session_budget,
 };
 pub use shake::{
     AuthenticatedCashShakeStarkProof, BatchedShake256StarkProof,

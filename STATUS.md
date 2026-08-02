@@ -2245,7 +2245,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
         - [x] Bind the exact authorized-transfer envelope and ML-DSA-44 verification key into the
           session STARK public inputs, then compose real signature verification at proof admission;
           this binding does not replace the remaining in-circuit ML-DSA arithmetic gate.
-        - [ ] Replace external session signature verification with the composed ML-DSA-44 table
+        - [x] Replace external session signature verification with the composed ML-DSA-44 table
           proof over the exact authorization payload and committed verification key.
         - [ ] Add authenticated Coin Cell membership, one-time consumption, and partition/global
           root transition constraints
