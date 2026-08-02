@@ -201,3 +201,38 @@
 
   The conceptual rule should be: ActiveChain identifies and authorizes principals; VCIssuer attests externally governed facts about them.
 
+  ## Implementation issue map
+
+  The design is split into bounded issues so each trust boundary can be implemented and
+  reviewed independently:
+
+  1. [#438](https://github.com/advatar/ActiveChain/issues/438) governs external issuer and
+     profile bindings.
+  2. [#439](https://github.com/advatar/ActiveChain/issues/439) freezes profile-to-schema
+     derivation and cross-repository vectors.
+  3. [#440](https://github.com/advatar/ActiveChain/issues/440) defines account-bound,
+     pairwise, private-proof, and device subject bindings.
+  4. [#441](https://github.com/advatar/ActiveChain/issues/441) and
+     [#442](https://github.com/advatar/ActiveChain/issues/442) isolate SD-JWT VC and mdoc/COSE
+     verification outside consensus.
+  5. [#443](https://github.com/advatar/ActiveChain/issues/443) admits bounded verified facts
+     through P-021 and P-023 without turning credentials into capabilities.
+  6. [#444](https://github.com/advatar/ActiveChain/issues/444) anchors externally authoritative
+     status and issuance-transparency roots.
+  7. [#445](https://github.com/advatar/ActiveChain/issues/445) implements explicit wallet
+     principal association, consent, lifecycle, recovery, and deletion behavior.
+  8. [#446](https://github.com/advatar/ActiveChain/issues/446) owns byte-identical
+     cross-repository conformance vectors.
+  9. [#447](https://github.com/advatar/ActiveChain/issues/447) owns formal refinement,
+     non-escalation, replay, and privacy invariants.
+  10. [#562](https://github.com/advatar/ActiveChain/issues/562) through
+      [#568](https://github.com/advatar/ActiveChain/issues/568) cover production transport,
+      private predicates, companion credentials, DID lifecycle/aliases, and the complete
+      evidence-to-APL proof refinement.
+
+  Cross-device release qualification remains tracked by
+  [#569](https://github.com/advatar/ActiveChain/issues/569), with physical Android
+  ([#578](https://github.com/advatar/ActiveChain/issues/578)), independent review
+  ([#579](https://github.com/advatar/ActiveChain/issues/579)), and physical Apple
+  ([#580](https://github.com/advatar/ActiveChain/issues/580)) as explicit blocking evidence.
+  Simulator tests and an agent-authored review do not satisfy those gates.

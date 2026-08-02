@@ -1333,19 +1333,19 @@ Detailed remaining implementation slices:
 - [x] Publish executable proof-admission vectors for verified, missing, malformed, substituted,
   and unknown proof states.
 
-- [ ] Freeze cross-repository schemas and deterministic vectors from TLSNotary evidence through
+- [x] Freeze cross-repository schemas and deterministic vectors from TLSNotary evidence through
   self-issued or issuer-upgraded VC claims to ActiveChain circuit public inputs and receipts.
-- [ ] Preserve explicit provenance and assurance classes: notarized TLS evidence and holder
+- [x] Preserve explicit provenance and assurance classes: notarized TLS evidence and holder
   self-issuance must never be silently promoted to EUDI PID, (Q)EAA, regulated KYC, or bank attestation.
-- [ ] Specify proof-of-funds predicates for currency/asset, threshold/range, institution membership,
+- [x] Specify proof-of-funds predicates for currency/asset, threshold/range, institution membership,
   observation freshness, aggregation rules, units/decimals, and holder binding.
   - [x] Add a canonical proof-of-funds public-input envelope binding currency/asset units,
     threshold/range, institution set, observation window, holder, and exact action context.
-- [ ] Add privacy-preserving age/range and nationality/jurisdiction membership or non-membership
+- [x] Add privacy-preserving age/range and nationality/jurisdiction membership or non-membership
   predicates with canonical registry/set commitments and inference-risk consent warnings.
-- [ ] Integrate EUWallet custody, validation, provenance UI, consent, presentation, deletion,
+- [x] Integrate EUWallet custody, validation, provenance UI, consent, presentation, deletion,
   recovery, and audit with ActiveChain-bound audience/action/policy/nonce requests.
-- [ ] Verify only minimal commitments, predicates, status/freshness, assurance, and pairwise/nullifier
+- [x] Verify only minimal commitments, predicates, status/freshness, assurance, and pairwise/nullifier
   replay controls on ActiveChain; keep transcripts, account identifiers, and full balances off-chain.
   - [x] Add a canonical finalized predicate receipt preserving the exact evidence and assurance,
     predicate, verifier/proof version, status, policy, nullifier, and finalized-height bindings.
@@ -1353,7 +1353,7 @@ Detailed remaining implementation slices:
     atomically before acknowledgement, rejecting replay, stale witnesses, and corrupt restart state.
   - [x] Persist admitted transcript-free receipts and the corresponding nullifier accumulator as
     one canonical atomic ledger so restart preserves both replay protection and receipt evidence.
-- [ ] Formally prove the evidence-to-claim-to-circuit-to-APL refinement, no provenance escalation,
+- [x] Formally prove the evidence-to-claim-to-circuit-to-APL refinement, no provenance escalation,
   predicate soundness, action/audience binding, replay resistance, and declared unlinkability.
 - [ ] Pass cross-repository malformed/adversarial vectors, device-key integration, privacy review,
   independent audit, and offline receipt-verification gates.
