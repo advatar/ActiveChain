@@ -11,6 +11,7 @@ lock="$state_root/round.lock"
 cash_snapshot="$state_root/finalized-cash.snapshot"
 finality_bundle="$state_root/finality.bundle"
 cash_ledger="$state_root/cash-ledger.snapshot"
+cash_actions="$state_root/pending-cash-actions.batch"
 
 test -f "$network_env" || {
   echo "runtime network manifest is missing: $network_env" >&2
@@ -43,14 +44,18 @@ done
 
 attempt=1
 max_attempts=3
-while ! "$binary_root/validator-node" \
+set -- "$binary_root/validator-node" \
   49150 "$state_root/validator-0.snapshot" "$state_root/genesis.bin" 0 0 --once \
   --key-file="$state_root/keys/validator-0.key" \
   --chain-id-hex="$chain_id" \
   --cash-ledger="$cash_ledger" \
   --finalized-cash-out="$cash_snapshot" \
   --finality-out="$finality_bundle" \
-  --peer=2@127.0.0.1:49154 --peer=3@127.0.0.1:49155; do
+  --peer=2@127.0.0.1:49154 --peer=3@127.0.0.1:49155
+if test -s "$cash_actions"; then
+  set -- "$@" --cash-actions="$cash_actions"
+fi
+while ! "$@"; do
   if test "$attempt" -ge "$max_attempts"; then
     echo "validator round failed after $max_attempts attempts" >&2
     exit 1

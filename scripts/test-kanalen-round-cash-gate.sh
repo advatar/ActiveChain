@@ -15,6 +15,7 @@ printf 'ACTIVECHAIN_CHAIN_ID_HEX=%096d\n' 0 > "$deployment_root/network.env"
 : > "$state_root/genesis.bin"
 : > "$state_root/keys/validator-0.key"
 : > "$state_root/cash-ledger.snapshot"
+: > "$state_root/pending-cash-actions.batch"
 : > "$rpc_root/rpc-index.snapshot"
 
 cp "$repo_root/deploy/kanalen/scripts/run-kanalen-round.sh" "$test_root/run-kanalen-round.sh"
@@ -68,6 +69,7 @@ fi
 grep -q 'refusing unauthenticated RPC publication' "$test_root/missing-finality.out"
 
 : > "$state_root/finality.bundle"
+printf '\000\000\000\001\001' > "$state_root/pending-cash-actions.batch"
 cat > "$binary_root/validator-node" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$@" > "$ACTIVECHAIN_VALIDATOR_ARGUMENTS"
@@ -89,5 +91,6 @@ grep -q '^--chain-id-hex=0000000000000000000000000000000000000000000000000000000
 grep -q "^--finalized-cash-out=$state_root/finalized-cash.snapshot$" "$test_root/validator-arguments"
 grep -q "^--finality-out=$state_root/finality.bundle$" "$test_root/validator-arguments"
 grep -q "^--cash-ledger=$state_root/cash-ledger.snapshot$" "$test_root/validator-arguments"
+grep -q "^--cash-actions=$state_root/pending-cash-actions.batch$" "$test_root/validator-arguments"
 
 echo "Kanalen finalized-cash publication gate passed"

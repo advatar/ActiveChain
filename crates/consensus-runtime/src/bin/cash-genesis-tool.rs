@@ -87,7 +87,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("unexpected trailing argument".into());
     }
     let ledger = ledger(chain, owner, genesis_supply, security_reserve)?;
-    let bytes = encode_envelope(&ledger).map_err(|_| "cash ledger encoding failed")?;
+    let ingress = activechain_wallet_core::TransactionIngress::from_ledger(ledger.clone())
+        .map_err(|_| "cash ingress construction failed")?;
+    let bytes = encode_envelope(&ingress).map_err(|_| "cash ingress encoding failed")?;
     let mut file = fs::OpenOptions::new().write(true).create_new(true).open(Path::new(&output))?;
     file.write_all(&bytes)?;
     file.sync_all()?;
@@ -114,7 +116,17 @@ mod tests {
         assert_eq!(value.cells().as_slice()[0].cell().owner(), owner);
         assert_eq!(value.cells().as_slice()[0].cell().amount(), 900);
         let encoded = encode_envelope(&value).unwrap();
-        assert_eq!(decode_envelope::<CashLedger>(&encoded), Ok(value));
+        assert_eq!(decode_envelope::<CashLedger>(&encoded), Ok(value.clone()));
+        let ingress = activechain_wallet_core::TransactionIngress::from_ledger(value).unwrap();
+        let encoded = encode_envelope(&ingress).unwrap();
+        assert_eq!(
+            decode_envelope::<activechain_wallet_core::TransactionIngress>(&encoded)
+                .unwrap()
+                .ledger()
+                .definition()
+                .chain_id(),
+            chain
+        );
     }
 
     #[test]
