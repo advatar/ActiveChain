@@ -13,7 +13,8 @@ use activechain_canonical_codec::{
 use activechain_cash_kernel::{FungibleCoinCellSet, NativeMoneyError};
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
-    Amount, ChainId, Digest384, FungibleAssetPolicyV1, Height, ObjectId, PrincipalId, TransactionId,
+    Amount, ChainId, Digest384, FungibleAssetPolicyV1, FungibleCorporateActionRegistryV1, Height,
+    ObjectId, PrincipalId, TransactionId,
 };
 use activechain_state_tree::StateCommitment;
 use activechain_transition::{ObjectState, TransitionReceipt};
@@ -54,6 +55,8 @@ const SCHEMA_2_CHAIN_STATE_MAX_ENCODED_LEN: usize = 48
     + 2
     + MAX_USED_FEE_TICKETS * UsedFeeTicket::ENCODED_LENGTH
     + ResourcePrices::ENCODED_LENGTH;
+const SCHEMA_3_CHAIN_STATE_MAX_ENCODED_LEN: usize =
+    SCHEMA_2_CHAIN_STATE_MAX_ENCODED_LEN + ConsensusAssetLedgerV1::LEGACY_MAX_ENCODED_LEN;
 
 /// Canonically ordered fee-paying account with an exact ticket-issuance nonce.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -578,12 +581,16 @@ pub struct ChainState {
 pub struct ConsensusAssetLedgerV1 {
     cells: FungibleCoinCellSet,
     policies: Vec<FungibleAssetPolicyV1>,
+    corporate_actions: FungibleCorporateActionRegistryV1,
 }
 
 impl ConsensusAssetLedgerV1 {
     pub const TYPE_TAG: u16 = 0x0191;
-    pub const SCHEMA_VERSION: u16 = 1;
+    pub const SCHEMA_VERSION: u16 = 2;
     pub const MAX_POLICIES: usize = 256;
+    const LEGACY_MAX_ENCODED_LEN: usize = FungibleCoinCellSet::MAX_ENCODED_LEN
+        + 2
+        + Self::MAX_POLICIES * FungibleAssetPolicyV1::MAX_ENCODED_LEN;
     pub fn new(
         cells: FungibleCoinCellSet,
         policies: Vec<FungibleAssetPolicyV1>,
@@ -609,13 +616,49 @@ impl ConsensusAssetLedgerV1 {
                 return Err(ChainStateError::AssetLedgerSupplyMismatch);
             }
         }
-        Ok(Self { cells, policies })
+        Ok(Self {
+            cells,
+            policies,
+            corporate_actions: FungibleCorporateActionRegistryV1::default(),
+        })
+    }
+    pub fn new_with_corporate_actions(
+        cells: FungibleCoinCellSet,
+        policies: Vec<FungibleAssetPolicyV1>,
+        corporate_actions: FungibleCorporateActionRegistryV1,
+    ) -> Result<Self, ChainStateError> {
+        let mut value = Self::new(cells, policies)?;
+        value.corporate_actions = corporate_actions;
+        Ok(value)
+    }
+    /// Decodes the current ledger or migrates schema 1 by preserving every policy and Coin Cell
+    /// and initializing the newly introduced corporate-action replay registry empty.
+    pub fn decode_snapshot(input: &[u8]) -> Result<(Self, bool), DecodeError> {
+        if let Ok(ledger) = decode_envelope::<Self>(input) {
+            return Ok((ledger, false));
+        }
+        let envelope =
+            inspect_canonical_envelope(input, Self::TYPE_TAG, 1, Self::LEGACY_MAX_ENCODED_LEN)?;
+        let mut decoder = Decoder::new(envelope.body());
+        let cells = FungibleCoinCellSet::decode(&mut decoder)?;
+        let count = decoder.read_length(Self::MAX_POLICIES)?;
+        let mut policies = Vec::with_capacity(count);
+        for _ in 0..count {
+            policies.push(FungibleAssetPolicyV1::decode(&mut decoder)?);
+        }
+        decoder.finish()?;
+        Self::new(cells, policies)
+            .map(|ledger| (ledger, true))
+            .map_err(|_| DecodeError::InvalidValue("invalid migrated schema-1 asset ledger"))
     }
     pub const fn cells(&self) -> &FungibleCoinCellSet {
         &self.cells
     }
     pub fn policies(&self) -> &[FungibleAssetPolicyV1] {
         &self.policies
+    }
+    pub const fn corporate_actions(&self) -> &FungibleCorporateActionRegistryV1 {
+        &self.corporate_actions
     }
     pub(crate) fn apply(
         &self,
@@ -626,6 +669,7 @@ impl ConsensusAssetLedgerV1 {
             ActionPayloadV2::FungibleMint { mint, .. } => mint.asset_id(),
             ActionPayloadV2::FungibleBurn { burn, .. } => burn.asset_id(),
             ActionPayloadV2::FungibleRedemption { redemption, .. } => redemption.asset_id(),
+            ActionPayloadV2::FungibleCorporateAction { action, .. } => action.asset_id(),
             ActionPayloadV2::Transfer(_) => return Err(NativeMoneyError::InvalidInputs),
         };
         let index = self
@@ -633,6 +677,23 @@ impl ConsensusAssetLedgerV1 {
             .binary_search_by_key(&asset_id, |p| p.asset_id())
             .map_err(|_| NativeMoneyError::InvalidInputs)?;
         let policy = &self.policies[index];
+        if let ActionPayloadV2::FungibleCorporateAction { action, .. } = payload {
+            let mut corporate_actions = self.corporate_actions.clone();
+            corporate_actions
+                .admit(
+                    action,
+                    policy.asset_id(),
+                    policy.commitment().map_err(|_| NativeMoneyError::InvalidInputs)?,
+                    policy.authority_set(),
+                    height,
+                )
+                .map_err(|_| NativeMoneyError::InvalidInputs)?;
+            return Ok(Self {
+                cells: self.cells.clone(),
+                policies: self.policies.clone(),
+                corporate_actions,
+            });
+        }
         let (cells, next_policy) = match payload {
             ActionPayloadV2::FungibleMint { mint, approval, .. } => {
                 self.cells.apply_mint(mint, policy, approval, height)?
@@ -643,11 +704,13 @@ impl ConsensusAssetLedgerV1 {
             ActionPayloadV2::FungibleRedemption { redemption, approval, .. } => {
                 self.cells.apply_redemption(redemption, policy, approval, height)?
             }
-            ActionPayloadV2::Transfer(_) => unreachable!(),
+            ActionPayloadV2::Transfer(_) | ActionPayloadV2::FungibleCorporateAction { .. } => {
+                unreachable!()
+            }
         };
         let mut policies = self.policies.clone();
         policies[index] = next_policy;
-        Ok(Self { cells, policies })
+        Ok(Self { cells, policies, corporate_actions: self.corporate_actions.clone() })
     }
 }
 impl Default for ConsensusAssetLedgerV1 {
@@ -655,6 +718,7 @@ impl Default for ConsensusAssetLedgerV1 {
         Self {
             cells: FungibleCoinCellSet::new(Vec::new()).expect("empty cell set"),
             policies: Vec::new(),
+            corporate_actions: FungibleCorporateActionRegistryV1::default(),
         }
     }
 }
@@ -665,7 +729,7 @@ impl CanonicalEncode for ConsensusAssetLedgerV1 {
         for policy in &self.policies {
             policy.encode(e)?;
         }
-        Ok(())
+        self.corporate_actions.encode(e)
     }
 }
 impl CanonicalDecode for ConsensusAssetLedgerV1 {
@@ -676,16 +740,19 @@ impl CanonicalDecode for ConsensusAssetLedgerV1 {
         for _ in 0..n {
             policies.push(FungibleAssetPolicyV1::decode(d)?);
         }
-        Self::new(cells, policies)
-            .map_err(|_| DecodeError::InvalidValue("invalid consensus asset ledger"))
+        Self::new_with_corporate_actions(
+            cells,
+            policies,
+            FungibleCorporateActionRegistryV1::decode(d)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid consensus asset ledger"))
     }
 }
 impl CanonicalType for ConsensusAssetLedgerV1 {
     const TYPE_TAG: u16 = Self::TYPE_TAG;
     const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
-    const MAX_ENCODED_LEN: usize = FungibleCoinCellSet::MAX_ENCODED_LEN
-        + 2
-        + Self::MAX_POLICIES * FungibleAssetPolicyV1::MAX_ENCODED_LEN;
+    const MAX_ENCODED_LEN: usize =
+        Self::LEGACY_MAX_ENCODED_LEN + FungibleCorporateActionRegistryV1::MAX_ENCODED_LEN;
 }
 
 impl ChainState {
@@ -705,6 +772,56 @@ impl ChainState {
     ) -> Result<(Self, bool), DecodeError> {
         if let Ok(state) = decode_envelope::<Self>(input) {
             return Ok((state, false));
+        }
+        if let Ok(envelope) = inspect_canonical_envelope(
+            input,
+            Self::TYPE_TAG,
+            3,
+            SCHEMA_3_CHAIN_STATE_MAX_ENCODED_LEN,
+        ) {
+            let mut decoder = Decoder::new(envelope.body());
+            let chain_id = ChainId::decode(&mut decoder)?;
+            let height = u64::decode(&mut decoder)?;
+            let head_block_id = Digest384::decode(&mut decoder)?;
+            let objects = ObjectState::decode(&mut decoder)?;
+            let channel_count = decoder.read_length(MAX_NONCE_CHANNELS)?;
+            let mut channels = Vec::with_capacity(channel_count);
+            for _ in 0..channel_count {
+                channels.push(NonceChannel::decode(&mut decoder)?);
+            }
+            let account_count = decoder.read_length(MAX_FEE_ACCOUNTS)?;
+            let mut accounts = Vec::with_capacity(account_count);
+            for _ in 0..account_count {
+                accounts.push(FeeAccount::decode(&mut decoder)?);
+            }
+            let ticket_count = decoder.read_length(MAX_USED_FEE_TICKETS)?;
+            let mut tickets = Vec::with_capacity(ticket_count);
+            for _ in 0..ticket_count {
+                tickets.push(UsedFeeTicket::decode(&mut decoder)?);
+            }
+            let resource_prices = ResourcePrices::decode(&mut decoder)?;
+            let cells = FungibleCoinCellSet::decode(&mut decoder)?;
+            let policy_count = decoder.read_length(ConsensusAssetLedgerV1::MAX_POLICIES)?;
+            let mut policies = Vec::with_capacity(policy_count);
+            for _ in 0..policy_count {
+                policies.push(FungibleAssetPolicyV1::decode(&mut decoder)?);
+            }
+            decoder.finish()?;
+            let ledger = ConsensusAssetLedgerV1::new(cells, policies)
+                .map_err(|_| DecodeError::InvalidValue("invalid migrated asset ledger"))?;
+            return Self::new_with_asset_ledger(
+                chain_id,
+                height,
+                head_block_id,
+                objects,
+                channels,
+                accounts,
+                tickets,
+                resource_prices,
+                ledger,
+            )
+            .map(|state| (state, true))
+            .map_err(|_| DecodeError::InvalidValue("invalid migrated schema-3 chain state"));
         }
         if let Ok(envelope) = inspect_canonical_envelope(
             input,
@@ -1018,7 +1135,7 @@ impl CanonicalDecode for ChainState {
 
 impl CanonicalType for ChainState {
     const TYPE_TAG: u16 = 0x007b;
-    const SCHEMA_VERSION: u16 = 3;
+    const SCHEMA_VERSION: u16 = 4;
     const MAX_ENCODED_LEN: usize = 48
         + 8
         + 48
