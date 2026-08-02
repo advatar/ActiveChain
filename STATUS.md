@@ -15,7 +15,7 @@ Tracked by [GitHub issue #719](https://github.com/advatar/ActiveChain/issues/719
 
 Tracked by [GitHub issue #721](https://github.com/advatar/ActiveChain/issues/721).
 
-- [ ] Resolve the five behavior-preserving strict-Clippy findings in SD-JWT parsing and time
+- [x] Resolve the five behavior-preserving strict-Clippy findings in SD-JWT parsing and time
   validation.
 - [ ] Pass adapter tests, strict workspace Clippy, and the deterministic-kernel gate; merge to
   `main` and verify reachability.

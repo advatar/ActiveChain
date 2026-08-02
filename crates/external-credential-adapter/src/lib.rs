@@ -135,7 +135,7 @@ pub struct SdJwtReplayCache {
 impl SdJwtReplayCache {
     pub fn from_entries(entries: Vec<Digest384>) -> Result<Self, SdJwtRejection> {
         if entries.len() > MAX_REPLAY_ENTRIES
-            || entries.iter().any(|entry| *entry == Digest384::ZERO)
+            || entries.contains(&Digest384::ZERO)
             || !entries.windows(2).all(|pair| pair[0] < pair[1])
         {
             return Err(SdJwtRejection::ReplayCacheFull);
@@ -287,11 +287,10 @@ pub fn verify_sd_jwt_vc(
             return Err(SdJwtRejection::RequestBindingMismatch);
         }
     }
-    let sd_hash = URL_SAFE_NO_PAD.encode(Sha256::digest(
-        context.presentation
-            [..context.presentation.rfind(kb_jwt).ok_or(SdJwtRejection::MalformedCompact)?]
-            .as_bytes(),
-    ));
+    let key_binding_start =
+        context.presentation.rfind(kb_jwt).ok_or(SdJwtRejection::MalformedCompact)?;
+    let sd_hash = URL_SAFE_NO_PAD
+        .encode(Sha256::digest(&context.presentation.as_bytes()[..key_binding_start]));
     if string(&kb_payload, "sd_hash")? != sd_hash {
         return Err(SdJwtRejection::RequestBindingMismatch);
     }
@@ -379,7 +378,9 @@ pub fn verify_sd_jwt_vc_once(
     Ok(verified)
 }
 
-fn parse_jwt(token: &str) -> Result<(Value, Value, &[u8], Vec<u8>), SdJwtRejection> {
+type ParsedJwt<'a> = (Value, Value, &'a [u8], Vec<u8>);
+
+fn parse_jwt(token: &str) -> Result<ParsedJwt<'_>, SdJwtRejection> {
     if token.len() > MAX_JWT_BYTES {
         return Err(SdJwtRejection::Oversize);
     }
@@ -430,15 +431,15 @@ fn validate_times(value: &Value, now: u64, skew: u64) -> Result<(), SdJwtRejecti
     if iat > now.saturating_add(skew) {
         return Err(SdJwtRejection::TimeInvalid);
     }
-    if let Some(nbf) = value.get("nbf").and_then(Value::as_u64) {
-        if nbf > now.saturating_add(skew) {
-            return Err(SdJwtRejection::TimeInvalid);
-        }
+    if let Some(nbf) = value.get("nbf").and_then(Value::as_u64)
+        && nbf > now.saturating_add(skew)
+    {
+        return Err(SdJwtRejection::TimeInvalid);
     }
-    if let Some(exp) = value.get("exp").and_then(Value::as_u64) {
-        if exp.saturating_add(skew) < now {
-            return Err(SdJwtRejection::TimeInvalid);
-        }
+    if let Some(exp) = value.get("exp").and_then(Value::as_u64)
+        && exp.saturating_add(skew) < now
+    {
+        return Err(SdJwtRejection::TimeInvalid);
     }
     Ok(())
 }
