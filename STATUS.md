@@ -2255,6 +2255,9 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
     externally qualified identity claims (activechain-display#17).
   - [x] Advertise the reproducible proof-finalized cash benchmark with explicit local-measurement
         and non-production caveats (activechain-display#19).
+  - [x] Advertise PQ-native payments and VCIssuer identity integrations directly on the homepage,
+        retaining pre-testnet, device-qualification, independent-review, and pilot caveats
+        (activechain-display#21).
 
 ## Planned milestone — `did:activechain` identity method
 
