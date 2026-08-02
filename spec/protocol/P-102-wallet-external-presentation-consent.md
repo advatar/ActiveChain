@@ -32,3 +32,22 @@ EUWallet issue 128 and its merged implementation add the same separately tagged 
 context to the wallet-owned OpenID4VP consent hash while preserving ordinary EUDI presentations as
 a distinct profile. Platform shells perform biometric/user-presence checks and receive only
 canonical commitments across FFI.
+
+## 5. Production OpenID4VP transport
+
+Both wallet- and verifier-initiated links create review state only. The accepted deep-link form is
+`openid4vp://authorize` with one HTTPS `request_uri`; embedded `redirect_uri` or `response_uri`,
+userinfo, fragments, duplicate parameters, HTTP, and alternate schemes fail closed. Response
+delivery uses the response URI and encryption-key commitments from pinned verifier metadata; a
+redirect can never replace either value.
+
+`OpenId4VpTransportSnapshotV1` durably records review, approval, post, callback consumption and
+cancelled terminal state plus sorted consumed nonces. Publication must persist the next snapshot
+before acknowledging a post or callback. Restart restores the exact generation and preserves
+one-shot behavior.
+
+Live resolution accepts only exact verifier metadata, issuer/profile binding, chain/genesis, trust
+revision, monotonic status sequence, finalized height and validity window. Unknown, stale, rolled
+back or revoked sources fail closed. A successful response carries commitments to the existing
+bounded adapter output and receipt; JSON, CBOR, COSE/X.509, disclosures and raw credentials remain
+outside consensus and the persistent transport snapshot.
