@@ -610,8 +610,24 @@ impl NonFungibleTokenRegistryV1 {
         {
             return Err(AssetDefinitionError::InvalidSupplyTransition);
         }
-        let (next_series, tokens) =
+        let (next_series, _) =
             series.mint_approved_manifest(issuer, authority_set, approval, manifest, height)?;
+        self.apply_verified_mint_successor(&next_series, manifest)
+    }
+
+    fn apply_verified_mint_successor(
+        &self,
+        next_series: &NonFungibleSeriesV1,
+        manifest: &NonFungibleMintManifestV1,
+    ) -> Result<(NonFungibleSeriesV1, Self, Vec<NonFungibleTokenV1>), AssetDefinitionError> {
+        if self.asset_id != next_series.asset_id()
+            || manifest.asset_id != next_series.asset_id()
+            || manifest.issuer != next_series.issuer()
+            || self.token_ids.len().checked_add(manifest.items.len())
+                != usize::try_from(next_series.minted()).ok()
+        {
+            return Err(AssetDefinitionError::InvalidSupplyTransition);
+        }
         let mut token_ids = Vec::with_capacity(self.token_ids.len() + manifest.items.len());
         let (mut existing, mut incoming) = (0, 0);
         while existing < self.token_ids.len() || incoming < manifest.items.len() {
@@ -638,7 +654,20 @@ impl NonFungibleTokenRegistryV1 {
         if usize::try_from(next_series.minted()).ok() != Some(next.token_ids.len()) {
             return Err(AssetDefinitionError::InvalidSupplyTransition);
         }
-        Ok((next_series, next, tokens))
+        let tokens = manifest
+            .items
+            .iter()
+            .map(|item| {
+                NonFungibleTokenV1::new(
+                    next_series.asset_id(),
+                    item.token_id,
+                    next_series.issuer(),
+                    item.owner,
+                    item.metadata_commitment,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok((*next_series, next, tokens))
     }
 }
 impl CanonicalEncode for NonFungibleTokenRegistryV1 {
@@ -2984,6 +3013,57 @@ mod kani_proofs {
                 .is_ok(),
             selector == 0 && (10..20).contains(&height)
         );
+    }
+
+    #[kani::proof]
+    fn nft_registry_successor_is_sorted_exact_and_supply_bound() {
+        let asset = AssetId::new(Digest384::new([1; 48]));
+        let issuer = PrincipalId::new(Digest384::new([2; 48]));
+        let registry =
+            NonFungibleTokenRegistryV1::new(asset, alloc::vec![Digest384::new([9; 48])]).unwrap();
+        let manifest = nft_manifest(asset, issuer);
+        let next_series =
+            NonFungibleSeriesV1::new(asset, issuer, 5, 3, Digest384::new([4; 48])).unwrap();
+        let (returned_series, next, tokens) =
+            registry.apply_verified_mint_successor(&next_series, &manifest).unwrap();
+        assert_eq!(returned_series, next_series);
+        assert_eq!(next.asset_id, asset);
+        assert_eq!(next.token_ids.len(), 3);
+        assert_eq!(next.token_ids[0], Digest384::new([9; 48]));
+        assert_eq!(next.token_ids[1], Digest384::new([10; 48]));
+        assert_eq!(next.token_ids[2], Digest384::new([11; 48]));
+        assert_eq!(tokens.len(), 2);
+        assert_eq!(tokens[0].token_id, manifest.items[0].token_id);
+        assert_eq!(tokens[0].owner, manifest.items[0].owner);
+        assert_eq!(tokens[0].metadata_commitment, manifest.items[0].metadata_commitment);
+        assert_eq!(tokens[1].token_id, manifest.items[1].token_id);
+    }
+
+    #[kani::proof]
+    fn nft_registry_rejects_duplicate_asset_and_supply_substitution() {
+        let selector: u8 = kani::any();
+        kani::assume(selector <= 2);
+        let asset = AssetId::new(Digest384::new([1; 48]));
+        let issuer = PrincipalId::new(Digest384::new([2; 48]));
+        let registry = NonFungibleTokenRegistryV1::new(
+            asset,
+            alloc::vec![if selector == 0 {
+                Digest384::new([10; 48])
+            } else {
+                Digest384::new([9; 48])
+            }],
+        )
+        .unwrap();
+        let manifest = nft_manifest(asset, issuer);
+        let next_series = NonFungibleSeriesV1::new(
+            if selector == 1 { AssetId::new(Digest384::new([8; 48])) } else { asset },
+            issuer,
+            5,
+            if selector == 2 { 4 } else { 3 },
+            Digest384::new([4; 48]),
+        )
+        .unwrap();
+        assert!(registry.apply_verified_mint_successor(&next_series, &manifest).is_err());
     }
 
     #[kani::proof]
