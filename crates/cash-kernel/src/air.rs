@@ -23,6 +23,7 @@ pub enum CashAirError {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CashAirPublicInputs {
+    chain_id: activechain_protocol_types::ChainId,
     batch_commitment: Digest384,
     pre_cells: CoinCellSetRoot,
     post_cells: CoinCellSetRoot,
@@ -35,6 +36,14 @@ pub struct CashAirPublicInputs {
 }
 
 impl CashAirPublicInputs {
+    #[must_use]
+    pub const fn chain_id(&self) -> activechain_protocol_types::ChainId {
+        self.chain_id
+    }
+    #[must_use]
+    pub const fn batch_commitment(&self) -> Digest384 {
+        self.batch_commitment
+    }
     #[must_use]
     pub const fn pre_cells(&self) -> CoinCellSetRoot {
         self.pre_cells
@@ -51,10 +60,19 @@ impl CashAirPublicInputs {
     pub const fn rejected(&self) -> u16 {
         self.rejected
     }
+    #[must_use]
+    pub const fn height(&self) -> Height {
+        self.height
+    }
+    #[must_use]
+    pub const fn partitions(&self) -> u16 {
+        self.partitions
+    }
 }
 
 impl CanonicalEncode for CashAirPublicInputs {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain_id.encode(e)?;
         self.batch_commitment.encode(e)?;
         self.pre_cells.encode(e)?;
         self.post_cells.encode(e)?;
@@ -70,6 +88,7 @@ impl CanonicalEncode for CashAirPublicInputs {
 impl CanonicalDecode for CashAirPublicInputs {
     fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
         let value = Self {
+            chain_id: activechain_protocol_types::ChainId::decode(d)?,
             batch_commitment: Digest384::decode(d)?,
             pre_cells: CoinCellSetRoot::decode(d)?,
             post_cells: CoinCellSetRoot::decode(d)?,
@@ -80,7 +99,8 @@ impl CanonicalDecode for CashAirPublicInputs {
             applied: u16::decode(d)?,
             rejected: u16::decode(d)?,
         };
-        if value.batch_commitment == Digest384::ZERO
+        if value.chain_id.digest() == &Digest384::ZERO
+            || value.batch_commitment == Digest384::ZERO
             || value.pre_cells.digest() == &Digest384::ZERO
             || value.post_cells.digest() == &Digest384::ZERO
             || value.pre_supply.digest() == &Digest384::ZERO
@@ -96,8 +116,8 @@ impl CanonicalDecode for CashAirPublicInputs {
 
 impl CanonicalType for CashAirPublicInputs {
     const TYPE_TAG: u16 = 0x0094;
-    const SCHEMA_VERSION: u16 = 1;
-    const MAX_ENCODED_LEN: usize = 48 * 5 + 8 + 2 * 3;
+    const SCHEMA_VERSION: u16 = 2;
+    const MAX_ENCODED_LEN: usize = 48 * 6 + 8 + 2 * 3;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -258,7 +278,7 @@ impl CanonicalDecode for CashAirProof {
 
 impl CanonicalType for CashAirProof {
     const TYPE_TAG: u16 = 0x0096;
-    const SCHEMA_VERSION: u16 = 1;
+    const SCHEMA_VERSION: u16 = 2;
     const MAX_ENCODED_LEN: usize = CashAirPublicInputs::MAX_ENCODED_LEN
         + PartitionedCashPlan::MAX_ENCODED_LEN
         + 2
@@ -335,7 +355,7 @@ impl CanonicalDecode for AuthenticatedCashAirProofV1 {
 
 impl CanonicalType for AuthenticatedCashAirProofV1 {
     const TYPE_TAG: u16 = 0x009d;
-    const SCHEMA_VERSION: u16 = 2;
+    const SCHEMA_VERSION: u16 = 3;
     const MAX_ENCODED_LEN: usize = CashAirProof::MAX_ENCODED_LEN
         + 48 * 2
         + 1
@@ -378,6 +398,7 @@ pub fn prove_cash_air(
         });
     }
     let public = CashAirPublicInputs {
+        chain_id: pre.definition().chain_id(),
         batch_commitment: commit(DomainTag::CANONICAL_VALUE, batch)
             .map_err(|_| CashAirError::Encoding)?,
         pre_cells: pre.cell_set_root().map_err(map_transition)?,
