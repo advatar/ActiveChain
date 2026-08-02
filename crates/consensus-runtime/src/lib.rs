@@ -37,6 +37,8 @@ use zeroize::Zeroize;
 
 mod cash_state;
 pub use cash_state::FinalizedCashSnapshot;
+mod asset_state;
+pub use asset_state::FinalizedAssetLedgerSnapshot;
 mod compliance;
 pub use compliance::RegulatedTransferAdmission;
 pub mod finalized_block;
