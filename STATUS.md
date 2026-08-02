@@ -262,6 +262,12 @@ Follow-up availability fix tracked by
 Adversarial context-binding follow-up tracked by
 [GitHub issue #706](https://github.com/advatar/ActiveChain/issues/706).
 
+- [ ] Advance capability grants to a v2 issuer-signing transcript that commits the trusted chain
+  genesis, so byte-identical authority cannot move between devnet, testnet, and mainnet.
+- [ ] Refresh canonical authority vectors and add real ML-DSA verification proving same-chain
+  acceptance and cross-chain rejection.
+- [ ] Run targeted protocol-types and verifier tests plus affected strict Clippy, merge the #706
+  chain-binding slice to `main`, prove reachability, and delete its feature branch.
 - [x] Bind every opaque verified authorization to the exact finalized block height at production
   admission, matching the existing P-110 verifier contract.
 - [x] Add a targeted stale-height regression proving an otherwise valid authorization cannot use
