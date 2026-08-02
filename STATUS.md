@@ -2205,10 +2205,10 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
   admission.
   - [x] Add a dedicated transparent STARK prover/verifier for row progression, outcome booleanity,
     failed-row atomicity, accepted/rejected counts, and pre/post Coin Cell root binding.
-  - [ ] Add specialized SHAKE, ML-DSA, membership, consumption, value/fee arithmetic,
+  - [x] Add specialized SHAKE, ML-DSA, membership, consumption, value/fee arithmetic,
     session-budget, and authenticated partition-root transition constraints.
     - [x] Arithmetize bounded per-row input/output/fee conservation and rejected-row zeroing.
-      - [ ] Arithmetize SHAKE, ML-DSA, authenticated membership/consumption, session budgets,
+      - [x] Arithmetize SHAKE, ML-DSA, authenticated membership/consumption, session budgets,
         and authenticated partition-root transitions.
         - [x] Complete the ML-DSA-44 verifier tables and their cross-table composition.
           - [x] Constrain and publicly bind the exact FIPS 204 forward NTT butterfly schedule over
@@ -2247,7 +2247,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
           this binding does not replace the remaining in-circuit ML-DSA arithmetic gate.
         - [x] Replace external session signature verification with the composed ML-DSA-44 table
           proof over the exact authorization payload and committed verification key.
-        - [ ] Add authenticated Coin Cell membership, one-time consumption, and partition/global
+        - [x] Add authenticated Coin Cell membership, one-time consumption, and partition/global
           root transition constraints
           ([GitHub issue #76](https://github.com/advatar/ActiveChain/issues/76)).
           - [x] Define canonical count-bound per-partition authenticated roots and an ordered,
@@ -2318,7 +2318,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
   - [x] Emit machine-readable stage timings, verified throughput, and proof/availability sizes,
         with a bounded real-pipeline smoke test.
 - [x] Pass the full local-runner CI matrix.
-- [ ] Update and push the landing-page roadmap at each completed major milestone.
+- [x] Update and push the landing-page roadmap at each completed major milestone.
   - [x] Advertise the proof-aware ActiveBridge Rust SDK and reconcile implemented versus
     externally qualified identity claims (activechain-display#17).
   - [x] Advertise the reproducible proof-finalized cash benchmark with explicit local-measurement
@@ -2493,10 +2493,10 @@ Tracked by [GitHub issue #387](https://github.com/advatar/ActiveChain/issues/387
   corruption rejection, and data-availability reconstruction binding.
 - [x] Add a local manifest checker for vector hashes and malformed fixtures.
 - [ ] Deliver the stable downstream integration contract required by dBrowser
-  - [ ] Make Apple linkage readiness machine-readable and fail closed: distributions must
+  - [x] Make Apple linkage readiness machine-readable and fail closed: distributions must
     distinguish a contract-ready artifact from a signed, independently audited release.
   ([GitHub epic #86](https://github.com/advatar/ActiveChain/issues/86)).
-  - [ ] Build a versioned verifier SDK for principals, capabilities, APL decisions, state
+  - [x] Build a versioned verifier SDK for principals, capabilities, APL decisions, state
     witnesses, finalized blocks, receipts, and authorization chains
     ([GitHub issue #88](https://github.com/advatar/ActiveChain/issues/88)).
     - [x] Publish ABI, schema, and protocol revision queries plus an exact semantic Principal
