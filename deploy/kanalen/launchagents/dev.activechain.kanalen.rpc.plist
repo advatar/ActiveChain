@@ -13,6 +13,35 @@
   </array>
   <key>WorkingDirectory</key>
   <string>/Users/johansellstrom</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ACTIVECHAIN_WALLET_INGRESS_SNAPSHOT</key>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/chain/cash-ledger.snapshot</string>
+    <key>ACTIVECHAIN_FAUCET_SNAPSHOT</key>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/rpc/faucet.snapshot</string>
+    <key>ACTIVECHAIN_FAUCET_ENABLED</key><string>true</string>
+    <key>ACTIVECHAIN_FAUCET_POLICY_REVISION</key><string>1</string>
+    <key>ACTIVECHAIN_FAUCET_VALID_UNTIL</key><string>1893456000</string>
+    <key>ACTIVECHAIN_FAUCET_GRANT_AMOUNT</key><string>100000000000000000000</string>
+    <key>ACTIVECHAIN_FAUCET_RECIPIENT_COOLDOWN</key><string>86400</string>
+    <key>ACTIVECHAIN_FAUCET_RECIPIENT_LIMIT</key><string>300000000000000000000</string>
+    <key>ACTIVECHAIN_FAUCET_SOURCE_WINDOW</key><string>3600</string>
+    <key>ACTIVECHAIN_FAUCET_SOURCE_LIMIT</key><string>5</string>
+    <key>ACTIVECHAIN_FAUCET_GLOBAL_WINDOW</key><string>3600</string>
+    <key>ACTIVECHAIN_FAUCET_GLOBAL_LIMIT</key><string>100</string>
+    <key>ACTIVECHAIN_FAUCET_OPERATOR_SEED</key>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/chain/keys/faucet-operator.seed</string>
+    <key>ACTIVECHAIN_FAUCET_SOURCE</key>
+    <string>genesis</string>
+    <key>ACTIVECHAIN_FAUCET_SETTLEMENT_JOURNAL</key>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/rpc/faucet-settlement.journal</string>
+    <key>ACTIVECHAIN_FAUCET_FEE</key><string>1000000000000000</string>
+    <key>ACTIVECHAIN_FAUCET_VALIDITY_BLOCKS</key><string>20</string>
+    <key>ACTIVECHAIN_FAUCET_ACTION_SPOOL</key>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/chain/cash-action-spool</string>
+    <key>ACTIVECHAIN_FAUCET_FINALITY_ARCHIVE_DIR</key>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/chain</string>
+  </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>

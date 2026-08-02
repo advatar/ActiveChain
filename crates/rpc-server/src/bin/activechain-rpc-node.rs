@@ -139,7 +139,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 wallet_state.as_ref().ok_or("enabled faucet requires wallet ingress state")?;
             let seed_path = PathBuf::from(required_env("ACTIVECHAIN_FAUCET_OPERATOR_SEED")?);
             let signing_key = load_operator_key(&seed_path)?;
-            let source = parse_principal(&required_env("ACTIVECHAIN_FAUCET_SOURCE")?)?;
+            let source_setting = required_env("ACTIVECHAIN_FAUCET_SOURCE")?;
+            let source = if source_setting == "genesis" {
+                let ingress = ingress.lock().map_err(|_| "wallet ingress lock is poisoned")?;
+                let mut owners = ingress
+                    .ledger()
+                    .cells()
+                    .as_slice()
+                    .iter()
+                    .map(|record| record.cell().owner())
+                    .collect::<Vec<_>>();
+                owners.sort_unstable();
+                owners.dedup();
+                if owners.len() != 1 {
+                    return Err("genesis faucet source requires exactly one cash owner".into());
+                }
+                owners[0]
+            } else {
+                parse_principal(&source_setting)?
+            };
             let journal = PathBuf::from(required_env("ACTIVECHAIN_FAUCET_SETTLEMENT_JOURNAL")?);
             let authorizer = MlDsa44FaucetAuthorizer::new(
                 Arc::clone(ingress),
