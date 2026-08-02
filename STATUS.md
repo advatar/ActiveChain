@@ -262,9 +262,9 @@ Follow-up availability fix tracked by
 Adversarial context-binding follow-up tracked by
 [GitHub issue #706](https://github.com/advatar/ActiveChain/issues/706).
 
-- [ ] Bind every opaque verified authorization to the exact finalized block height at production
+- [x] Bind every opaque verified authorization to the exact finalized block height at production
   admission, matching the existing P-110 verifier contract.
-- [ ] Add a targeted stale-height regression proving an otherwise valid authorization cannot use
+- [x] Add a targeted stale-height regression proving an otherwise valid authorization cannot use
   an expired capability or manipulate a rate window by declaring another height.
 - [ ] Run targeted authorization-kernel and consensus-runtime tests plus affected strict Clippy,
   merge the #706 height slice to `main`, prove reachability, and delete its feature branch.

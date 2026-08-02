@@ -315,6 +315,21 @@ impl VerifiedAuthorization {
     pub const fn envelope_commitment(&self) -> Digest384 {
         self.envelope_commitment
     }
+
+    /// Checks the consensus-owned context that must surround this opaque authorization.
+    #[must_use]
+    pub fn matches_finalized_action_context(
+        &self,
+        finalized_height: u64,
+        actor: PrincipalId,
+        envelope_commitment: Digest384,
+        transition_commitment: Digest384,
+    ) -> bool {
+        self.envelope.height == finalized_height
+            && self.envelope.actor == actor
+            && self.envelope_commitment == envelope_commitment
+            && self.envelope.transition_commitment == transition_commitment
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -1703,6 +1718,34 @@ mod tests {
                 "validity window {valid_from}..={valid_until:?} at height 50"
             );
         }
+    }
+
+    /// An attacker may sign an internally valid envelope at an older height, but the opaque
+    /// authorization must not match a later finalized block. This closes expired-capability and
+    /// rate-window manipulation at the production admission boundary.
+    #[test]
+    fn verified_authorization_requires_the_exact_finalized_action_height() {
+        let stale = rescoped(38, |fields| fields.valid_until = Some(50));
+        let verified = verify_authorization_candidate(
+            &stale,
+            genesis(),
+            EPOCH,
+            state_root(),
+            &Verifier::default(),
+        )
+        .expect("the attacker-declared height is internally valid");
+        assert!(verified.matches_finalized_action_context(
+            50,
+            actor(),
+            verified.envelope_commitment(),
+            verified.transition_commitment(),
+        ));
+        assert!(!verified.matches_finalized_action_context(
+            51,
+            actor(),
+            verified.envelope_commitment(),
+            verified.transition_commitment(),
+        ));
     }
 
     /// Pins the decode-path re-validation of the envelope ordering invariant

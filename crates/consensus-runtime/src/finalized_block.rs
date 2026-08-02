@@ -545,10 +545,12 @@ impl FinalizedBlockCandidate {
                 verifier,
             )
             .map_err(|_| FinalizedBlockAdmissionError::Authorization)?;
-            if verified.actor() != action.sender()
-                || verified.envelope_commitment() != action.authorization_commitment()
-                || verified.transition_commitment() != action.payload_commitment()
-                || candidate.transaction != *transaction
+            if !verified.matches_finalized_action_context(
+                block.height(),
+                action.sender(),
+                action.authorization_commitment(),
+                action.payload_commitment(),
+            ) || candidate.transaction != *transaction
             {
                 return Err(FinalizedBlockAdmissionError::Authorization);
             }
