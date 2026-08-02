@@ -58,8 +58,10 @@ use activechain_transition::{
     TransitionReceipt, apply_transfer_transaction,
 };
 use activechain_wallet_core::{
-    AuthorizedDutyReceiptV1, AuthorizedVerifierBondRegistrationV1, DutyReceiptV1,
-    VerifierBondRegistrationV1,
+    AuthorizedDutyReceiptV1, AuthorizedVerifierBondRegistrationV1, CredentialFormat, DutyReceiptV1,
+    IssuanceSessionState, OpenWalletConsentV1, OpenWalletCredentialOfferV1,
+    OpenWalletCredentialRefV1, OpenWalletPresentationRequestV1, OpenWalletSessionV1,
+    PresentationResponseMode, RequestedCredentialV1, VerifierBondRegistrationV1,
 };
 use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
 use sha2::{Digest as Sha2Digest, Sha256};
@@ -1761,6 +1763,321 @@ type\ttype_tag\tschema_version\tfield\tvalue\n\
     )
 }
 
+/// Fixed OpenWallet issuer metadata URL; every published offer row derives from this exact byte
+/// string.
+const OPENWALLET_ISSUER_URI: &str = "https://issuer.example/openwallet";
+/// Fixed OpenWallet verifier client identifier used by the published presentation request.
+const OPENWALLET_CLIENT_ID: &str = "verifier.example";
+/// Fixed OpenWallet verifier response endpoint used by the published presentation request.
+const OPENWALLET_RESPONSE_URI: &str = "https://verifier.example/openwallet/response";
+/// Fixed expiry height shared by both published OpenWallet sessions.
+const OPENWALLET_SESSION_EXPIRES_AT: u64 = 64;
+
+/// Emits one OpenWallet component that carries no registered type tag, or the shared context block.
+fn openwallet_context_rows(name: &str, fields: &[(&str, String)]) -> String {
+    fields.iter().map(|(field, value)| format!("{name}\t-\t-\t{field}\t{value}\n")).collect()
+}
+
+/// Emits one enveloped OpenWallet value as echoed scalar rows followed by its canonical framing.
+///
+/// Asserts at generation time that the emitted envelope decodes strictly back to the same value so
+/// schema drift can never publish an undecodable vector.
+fn openwallet_rows<T: CanonicalType + Clone + PartialEq + std::fmt::Debug>(
+    name: &str,
+    value: &T,
+    fields: &[(&str, String)],
+) -> String {
+    let body = encode_body(value).expect("OpenWallet vector body must fit its declared bound");
+    let envelope =
+        encode_envelope(value).expect("OpenWallet vector envelope must fit its declared bound");
+    assert_eq!(
+        decode_envelope::<T>(&envelope).as_ref(),
+        Ok(value),
+        "the published {name} envelope must decode strictly"
+    );
+    let commitment =
+        commit(DomainTag::CANONICAL_VALUE, value).expect("OpenWallet commitment input encodes");
+    let derived = [
+        ("body_length", body.len().to_string()),
+        ("body_hex", hexadecimal(&body)),
+        ("envelope_hex", hexadecimal(&envelope)),
+        ("canonical_value_commitment_hex", hexadecimal(commitment.as_bytes())),
+    ];
+    fields
+        .iter()
+        .chain(derived.iter())
+        .map(|(field, text)| {
+            format!("{name}\t0x{:04x}\t{}\t{field}\t{text}\n", T::TYPE_TAG, T::SCHEMA_VERSION,)
+        })
+        .collect()
+}
+
+fn render_openwallet_conformance_v1() -> String {
+    let issuance_session = OpenWalletSessionV1 {
+        session_id: repeated_digest(0x11),
+        relying_party: repeated_digest(0x12),
+        expires_at: OPENWALLET_SESSION_EXPIRES_AT,
+    };
+    let presentation_session = OpenWalletSessionV1 {
+        session_id: repeated_digest(0x21),
+        relying_party: repeated_digest(0x22),
+        expires_at: OPENWALLET_SESSION_EXPIRES_AT,
+    };
+    let issued_credential = OpenWalletCredentialRefV1 {
+        credential_id: repeated_digest(0x31),
+        schema_id: repeated_digest(0x25),
+        issuer: repeated_digest(0x12),
+    };
+
+    let offer = OpenWalletCredentialOfferV1::new(
+        issuance_session,
+        OPENWALLET_ISSUER_URI.as_bytes().to_vec(),
+        vec![repeated_digest(0x13), repeated_digest(0x14)],
+        repeated_digest(0x15),
+        repeated_digest(0x16),
+        repeated_digest(0x17),
+    )
+    .expect("OpenWallet credential offer vector is valid");
+    assert_eq!(
+        offer.state(),
+        IssuanceSessionState::Offered,
+        "a freshly constructed offer must start in the offered state"
+    );
+
+    let requested = vec![
+        RequestedCredentialV1 {
+            format: CredentialFormat::SdJwtVc,
+            schema_id: repeated_digest(0x25),
+            claims_digest: repeated_digest(0x27),
+        },
+        RequestedCredentialV1 {
+            format: CredentialFormat::Mdoc,
+            schema_id: repeated_digest(0x26),
+            claims_digest: repeated_digest(0x28),
+        },
+    ];
+    let request = OpenWalletPresentationRequestV1::new(
+        presentation_session,
+        OPENWALLET_CLIENT_ID.as_bytes().to_vec(),
+        OPENWALLET_RESPONSE_URI.as_bytes().to_vec(),
+        repeated_digest(0x23),
+        repeated_digest(0x24),
+        PresentationResponseMode::DirectPostJwt,
+        requested.clone(),
+    )
+    .expect("OpenWallet presentation request vector is valid");
+    let request_commitment = request.commitment().expect("OpenWallet presentation request commits");
+    assert_eq!(
+        request_commitment,
+        commit(DomainTag::CANONICAL_VALUE, &request).expect("presentation request encodes"),
+        "the exposed request commitment must equal the canonical-value commitment"
+    );
+
+    let consent = OpenWalletConsentV1::new(
+        presentation_session.session_id,
+        request_commitment,
+        vec![repeated_digest(0x31), repeated_digest(0x32)],
+        vec![repeated_digest(0x33), repeated_digest(0x34)],
+        32,
+        96,
+    )
+    .expect("OpenWallet consent vector is valid");
+    assert_eq!(
+        consent.commitment().expect("OpenWallet consent commits"),
+        commit(DomainTag::CANONICAL_VALUE, &consent).expect("consent encodes"),
+        "the exposed consent commitment must equal the canonical-value commitment"
+    );
+    assert_eq!(
+        offer.commitment().expect("OpenWallet credential offer commits"),
+        commit(DomainTag::CANONICAL_VALUE, &offer).expect("credential offer encodes"),
+        "the exposed offer commitment must equal the canonical-value commitment"
+    );
+
+    format!(
+        "# ActiveChain canonical OpenWallet conformance vectors v1.\n\
+# Independent clients must strictly decode each envelope and derive every field from it.\n\
+type\ttype_tag\tschema_version\tfield\tvalue\n\
+{}{}{}{}{}{}{}",
+        openwallet_context_rows(
+            "context",
+            &[
+                (
+                    "profile_revision",
+                    <OpenWalletCredentialOfferV1 as CanonicalType>::SCHEMA_VERSION.to_string(),
+                ),
+                (
+                    "digest_derivation",
+                    "digest384(byte) is the 48-byte string repeating that byte".to_owned(),
+                ),
+                (
+                    "commitment_derivation",
+                    "shake256-384 commit over domain tag 0x0001 (canonical-value) and the \
+                     canonical envelope"
+                        .to_owned(),
+                ),
+                (
+                    "credential_format_codes",
+                    "sd-jwt-vc=0, mdoc=1, w3c-vc=2 encoded as one unsigned byte".to_owned(),
+                ),
+                (
+                    "presentation_response_mode_codes",
+                    "direct-post=0, direct-post-jwt=1, digital-credentials-api=2 encoded as one \
+                     unsigned byte"
+                        .to_owned(),
+                ),
+                (
+                    "issuance_session_state_codes",
+                    "offered=0, authorized=1, completed=2 encoded as one unsigned byte".to_owned(),
+                ),
+                (
+                    "vector_issuance_state",
+                    "the published offer is emitted in the offered state a constructor returns"
+                        .to_owned(),
+                ),
+                (
+                    "ordering_rule",
+                    "configuration ids, selected credentials, and disclosed claims are strictly \
+                     ascending; requested credentials are strictly ascending by (schema_id, \
+                     format)"
+                        .to_owned(),
+                ),
+                (
+                    "uri_rule",
+                    "issuer_uri and response_uri are non-empty, at most 2048 bytes, and start \
+                     with https://"
+                        .to_owned(),
+                ),
+                (
+                    "consent_binding",
+                    "consent.request_commitment is the canonical-value commitment over the \
+                     presentation request in this vector"
+                        .to_owned(),
+                ),
+                ("consent_time_rule", "approved_at must not exceed expires_at".to_owned()),
+                (
+                    "untagged_components",
+                    "OpenWalletSessionV1, OpenWalletCredentialRefV1, and RequestedCredentialV1 \
+                     carry no registered type tag and are only ever encoded inside an enveloped \
+                     parent"
+                        .to_owned(),
+                ),
+            ],
+        ),
+        openwallet_context_rows(
+            "OpenWalletSessionV1",
+            &[
+                ("issuance_session_id_hex", hexadecimal(issuance_session.session_id.as_bytes())),
+                (
+                    "issuance_relying_party_hex",
+                    hexadecimal(issuance_session.relying_party.as_bytes()),
+                ),
+                ("issuance_expires_at", issuance_session.expires_at.to_string()),
+                (
+                    "presentation_session_id_hex",
+                    hexadecimal(presentation_session.session_id.as_bytes()),
+                ),
+                (
+                    "presentation_relying_party_hex",
+                    hexadecimal(presentation_session.relying_party.as_bytes()),
+                ),
+                ("presentation_expires_at", presentation_session.expires_at.to_string()),
+            ],
+        ),
+        openwallet_context_rows(
+            "OpenWalletCredentialRefV1",
+            &[
+                ("credential_id_hex", hexadecimal(issued_credential.credential_id.as_bytes())),
+                ("schema_id_hex", hexadecimal(issued_credential.schema_id.as_bytes())),
+                ("issuer_hex", hexadecimal(issued_credential.issuer.as_bytes())),
+            ],
+        ),
+        openwallet_context_rows(
+            "RequestedCredentialV1",
+            &[
+                ("count", requested.len().to_string()),
+                ("requested_0_format", "sd-jwt-vc".to_owned()),
+                ("requested_0_format_code", (requested[0].format as u8).to_string()),
+                ("requested_0_schema_id_hex", hexadecimal(requested[0].schema_id.as_bytes())),
+                (
+                    "requested_0_claims_digest_hex",
+                    hexadecimal(requested[0].claims_digest.as_bytes()),
+                ),
+                ("requested_1_format", "mdoc".to_owned()),
+                ("requested_1_format_code", (requested[1].format as u8).to_string()),
+                ("requested_1_schema_id_hex", hexadecimal(requested[1].schema_id.as_bytes())),
+                (
+                    "requested_1_claims_digest_hex",
+                    hexadecimal(requested[1].claims_digest.as_bytes()),
+                ),
+            ],
+        ),
+        openwallet_rows(
+            "OpenWalletCredentialOfferV1",
+            &offer,
+            &[
+                ("session_id_hex", hexadecimal(offer.session().session_id.as_bytes())),
+                ("relying_party_hex", hexadecimal(offer.session().relying_party.as_bytes())),
+                ("session_expires_at", offer.session().expires_at.to_string()),
+                ("issuer_uri", OPENWALLET_ISSUER_URI.to_owned()),
+                ("issuer_uri_length", OPENWALLET_ISSUER_URI.len().to_string()),
+                ("issuer_uri_hex", hexadecimal(OPENWALLET_ISSUER_URI.as_bytes())),
+                ("configuration_id_count", "2".to_owned()),
+                ("configuration_id_0_hex", hexadecimal(repeated_digest(0x13).as_bytes())),
+                ("configuration_id_1_hex", hexadecimal(repeated_digest(0x14).as_bytes())),
+                ("authorization_server_hex", hexadecimal(repeated_digest(0x15).as_bytes())),
+                ("grant_nonce_hex", hexadecimal(offer.grant_nonce().as_bytes())),
+                ("consent_digest_hex", hexadecimal(offer.consent_digest().as_bytes())),
+                ("state", "offered".to_owned()),
+                ("state_code", (offer.state() as u8).to_string()),
+            ],
+        ),
+        openwallet_rows(
+            "OpenWalletPresentationRequestV1",
+            &request,
+            &[
+                ("session_id_hex", hexadecimal(request.session().session_id.as_bytes())),
+                ("relying_party_hex", hexadecimal(request.session().relying_party.as_bytes())),
+                ("session_expires_at", request.session().expires_at.to_string()),
+                ("client_id", OPENWALLET_CLIENT_ID.to_owned()),
+                ("client_id_length", OPENWALLET_CLIENT_ID.len().to_string()),
+                ("client_id_hex", hexadecimal(OPENWALLET_CLIENT_ID.as_bytes())),
+                ("response_uri", OPENWALLET_RESPONSE_URI.to_owned()),
+                ("response_uri_length", OPENWALLET_RESPONSE_URI.len().to_string()),
+                ("response_uri_hex", hexadecimal(OPENWALLET_RESPONSE_URI.as_bytes())),
+                ("nonce_hex", hexadecimal(request.nonce().as_bytes())),
+                ("state_hex", hexadecimal(repeated_digest(0x24).as_bytes())),
+                ("response_mode", "direct-post-jwt".to_owned()),
+                ("response_mode_code", (PresentationResponseMode::DirectPostJwt as u8).to_string(),),
+                ("requested_count", request.requested().len().to_string()),
+                (
+                    "requested_0_schema_id_hex",
+                    hexadecimal(request.requested()[0].schema_id.as_bytes()),
+                ),
+                (
+                    "requested_1_schema_id_hex",
+                    hexadecimal(request.requested()[1].schema_id.as_bytes()),
+                ),
+            ],
+        ),
+        openwallet_rows(
+            "OpenWalletConsentV1",
+            &consent,
+            &[
+                ("session_id_hex", hexadecimal(consent.session_id().as_bytes())),
+                ("request_commitment_hex", hexadecimal(consent.request_commitment().as_bytes()),),
+                ("selected_credential_count", "2".to_owned()),
+                ("selected_credential_0_hex", hexadecimal(repeated_digest(0x31).as_bytes())),
+                ("selected_credential_1_hex", hexadecimal(repeated_digest(0x32).as_bytes())),
+                ("disclosed_claim_count", "2".to_owned()),
+                ("disclosed_claim_0_hex", hexadecimal(repeated_digest(0x33).as_bytes())),
+                ("disclosed_claim_1_hex", hexadecimal(repeated_digest(0x34).as_bytes())),
+                ("approved_at", "32".to_owned()),
+                ("expires_at", "96".to_owned()),
+            ],
+        ),
+    )
+}
+
 fn main() {
     let vector = std::env::args().nth(1);
     match vector.as_deref().unwrap_or("principal-v1") {
@@ -1782,6 +2099,7 @@ fn main() {
         "credential-status-table" => print!("{}", render_credential_status_table()),
         "privacy-v1" => print!("{}", render_privacy_v1()),
         "wallet-duty-bond-v1" => print!("{}", render_wallet_duty_bond_v1()),
+        "openwallet-conformance-v1" => print!("{}", render_openwallet_conformance_v1()),
         "envelope-manifest-v1" => print!("{}", render_envelope_manifest_v1()),
         unknown => {
             eprintln!(
@@ -1789,8 +2107,8 @@ fn main() {
                  apl-truth-table, object-transition-v1, object-model-table, state-tree-v1, or \
                  state-tree-model-table, object-vm-v1, object-vm-model-table, devnet-block-v1, or \
                  nonce-model-table, epoch-upgrade-model-table, codec-length-table, credential-v1, \
-                 credential-status-table, privacy-v1, wallet-duty-bond-v1, or \
-                 envelope-manifest-v1"
+                 credential-status-table, privacy-v1, wallet-duty-bond-v1, \
+                 openwallet-conformance-v1, or envelope-manifest-v1"
             );
             std::process::exit(2);
         }
@@ -1810,8 +2128,9 @@ mod tests {
         render_credential_status_table, render_credential_v1, render_devnet_block_v1,
         render_envelope_manifest_v1, render_epoch_upgrade_model_table, render_nonce_model_table,
         render_object_model_table, render_object_transition_v1, render_object_vm_model_table,
-        render_object_vm_v1, render_principal_v1, render_privacy_v1, render_state_tree_model_table,
-        render_state_tree_v1, render_wallet_duty_bond_v1,
+        render_object_vm_v1, render_openwallet_conformance_v1, render_principal_v1,
+        render_privacy_v1, render_state_tree_model_table, render_state_tree_v1,
+        render_wallet_duty_bond_v1,
     };
 
     #[test]
@@ -1922,6 +2241,12 @@ mod tests {
     fn generated_wallet_duty_bond_vector_is_frozen() {
         let published = include_str!("../../../testing/vectors/wallet-duty-bond-v1.tsv");
         assert_eq!(render_wallet_duty_bond_v1(), published);
+    }
+
+    #[test]
+    fn generated_openwallet_conformance_vector_is_frozen() {
+        let published = include_str!("../../../testing/vectors/openwallet-conformance-v1.tsv");
+        assert_eq!(render_openwallet_conformance_v1(), published);
     }
 
     #[test]
