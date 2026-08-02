@@ -10,11 +10,11 @@ use activechain_crypto_provider::verify_ml_dsa44;
 use activechain_payment_types::{
     ConnectorId, EvidenceClass, IdempotencyBindingV1, PaymentApiAuthorizationV1,
     PaymentApiReplayStateV1, PaymentApiSignedAuthorizationV1, PaymentDisputeRecordV1,
-    PaymentDisputeRequestV1, PaymentFinalizedSettlementV1, PaymentIntentId, PaymentIntentV1,
-    PaymentLifecycleRecordV1, PaymentRefundRequestV1, PaymentRefundStateV1, PaymentState,
-    PaymentValidationError, PaymentWebhookCursorV1, PaymentWebhookEventV1,
-    PaymentWebhookSignedEventV1, ProviderObservationV1, RailId, TreasuryDebitPolicyV1,
-    TreasuryDebitRequestV1,
+    PaymentDisputeRequestV1, PaymentFeeSponsorPolicyV1, PaymentFeeSponsorRequestV1,
+    PaymentFinalizedSettlementV1, PaymentIntentId, PaymentIntentV1, PaymentLifecycleRecordV1,
+    PaymentRefundRequestV1, PaymentRefundStateV1, PaymentState, PaymentValidationError,
+    PaymentWebhookCursorV1, PaymentWebhookEventV1, PaymentWebhookSignedEventV1,
+    ProviderObservationV1, RailId, TreasuryDebitPolicyV1, TreasuryDebitRequestV1,
 };
 use activechain_protocol_types::{AssetId, Digest384};
 use sha3::{
@@ -40,6 +40,7 @@ const MAX_API_CLIENTS: usize = 65_535;
 const MAX_REFUND_STATES: usize = 65_535;
 const MAX_DISPUTES: usize = 65_535;
 const MAX_TREASURIES: usize = 65_535;
+const MAX_FEE_SPONSORS: usize = 65_535;
 const MAX_IDEMPOTENCY_BINDINGS: usize = 65_535;
 const MAX_PAYMENT_LIFECYCLES: usize = 65_535;
 const MAX_PAYMENT_INTENTS: usize = 65_535;
@@ -894,6 +895,85 @@ impl CanonicalType for TreasuryJournalV1 {
     const MAX_ENCODED_LEN: usize = 3 + MAX_TREASURIES * TreasuryDebitPolicyV1::MAX_ENCODED_LEN;
 }
 
+/// Crash-safe fee-sponsor budgets and exact nonces, ordered by sponsor principal.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct FeeSponsorshipJournalV1 {
+    policies: Vec<PaymentFeeSponsorPolicyV1>,
+}
+
+impl FeeSponsorshipJournalV1 {
+    pub const TYPE_TAG: u16 = 0x018C;
+
+    pub fn policies(&self) -> &[PaymentFeeSponsorPolicyV1] {
+        &self.policies
+    }
+
+    pub fn register(&mut self, policy: PaymentFeeSponsorPolicyV1) -> Result<(), JournalError> {
+        match self
+            .policies
+            .binary_search_by_key(&policy.sponsor(), PaymentFeeSponsorPolicyV1::sponsor)
+        {
+            Ok(_) => Err(JournalError::InvalidTreasury),
+            Err(_) if self.policies.len() == MAX_FEE_SPONSORS => Err(JournalError::Capacity),
+            Err(index) => {
+                self.policies.insert(index, policy);
+                Ok(())
+            }
+        }
+    }
+
+    pub fn authorize(
+        &mut self,
+        request: &PaymentFeeSponsorRequestV1,
+        timestamp: u64,
+    ) -> Result<(), JournalError> {
+        let index = self
+            .policies
+            .binary_search_by_key(&request.sponsor(), PaymentFeeSponsorPolicyV1::sponsor)
+            .map_err(|_| JournalError::InvalidTreasury)?;
+        self.policies[index] = self.policies[index]
+            .authorize(request, timestamp)
+            .map_err(|_| JournalError::InvalidTreasury)?;
+        Ok(())
+    }
+}
+
+impl CanonicalEncode for FeeSponsorshipJournalV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        encoder.write_length(self.policies.len(), MAX_FEE_SPONSORS)?;
+        for policy in &self.policies {
+            policy.encode(encoder)?;
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for FeeSponsorshipJournalV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let count = decoder.read_length(MAX_FEE_SPONSORS)?;
+        let mut policies = Vec::with_capacity(count);
+        for _ in 0..count {
+            let policy = PaymentFeeSponsorPolicyV1::decode(decoder)?;
+            if policies.last().is_some_and(|previous: &PaymentFeeSponsorPolicyV1| {
+                previous.sponsor() >= policy.sponsor()
+            }) {
+                return Err(DecodeError::InvalidValue(
+                    "fee sponsor policies are not canonically ordered",
+                ));
+            }
+            policies.push(policy);
+        }
+        Ok(Self { policies })
+    }
+}
+
+impl CanonicalType for FeeSponsorshipJournalV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize =
+        3 + MAX_FEE_SPONSORS * PaymentFeeSponsorPolicyV1::MAX_ENCODED_LEN;
+}
+
 /// Crash-safe caller-scoped idempotency bindings ordered by caller and key.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct IdempotencyJournalV1 {
@@ -1403,6 +1483,7 @@ pub struct PaymentSettlementStateV1 {
     treasuries: TreasuryJournalV1,
     authorizations: ApiAuthorizationJournalV1,
     webhooks: WebhookDeliveryJournalV1,
+    sponsorships: FeeSponsorshipJournalV1,
 }
 
 impl PaymentSettlementStateV1 {
@@ -1416,6 +1497,7 @@ impl PaymentSettlementStateV1 {
         treasuries: TreasuryJournalV1,
         authorizations: ApiAuthorizationJournalV1,
         webhooks: WebhookDeliveryJournalV1,
+        sponsorships: FeeSponsorshipJournalV1,
     ) -> Result<Self, JournalError> {
         if settlements.len() > MAX_PAYMENT_INTENTS
             || settlements.windows(2).any(|pair| pair[0].intent() >= pair[1].intent())
@@ -1465,7 +1547,16 @@ impl PaymentSettlementStateV1 {
         }) {
             return Err(JournalError::InvalidDispute);
         }
-        Ok(Self { requests, settlements, refunds, disputes, treasuries, authorizations, webhooks })
+        Ok(Self {
+            requests,
+            settlements,
+            refunds,
+            disputes,
+            treasuries,
+            authorizations,
+            webhooks,
+            sponsorships,
+        })
     }
 
     pub const fn requests(&self) -> &PaymentRequestStateV1 {
@@ -1495,6 +1586,10 @@ impl PaymentSettlementStateV1 {
     pub const fn webhooks(&self) -> &WebhookDeliveryJournalV1 {
         &self.webhooks
     }
+
+    pub const fn sponsorships(&self) -> &FeeSponsorshipJournalV1 {
+        &self.sponsorships
+    }
 }
 
 impl CanonicalEncode for PaymentSettlementStateV1 {
@@ -1508,7 +1603,8 @@ impl CanonicalEncode for PaymentSettlementStateV1 {
         self.disputes.encode(encoder)?;
         self.treasuries.encode(encoder)?;
         self.authorizations.encode(encoder)?;
-        self.webhooks.encode(encoder)
+        self.webhooks.encode(encoder)?;
+        self.sponsorships.encode(encoder)
     }
 }
 
@@ -1528,6 +1624,7 @@ impl CanonicalDecode for PaymentSettlementStateV1 {
             TreasuryJournalV1::decode(decoder)?,
             ApiAuthorizationJournalV1::decode(decoder)?,
             WebhookDeliveryJournalV1::decode(decoder)?,
+            FeeSponsorshipJournalV1::decode(decoder)?,
         )
         .map_err(|_| DecodeError::InvalidValue("invalid payment settlement state"))
     }
@@ -1543,7 +1640,8 @@ impl CanonicalType for PaymentSettlementStateV1 {
         + DisputeJournalV1::MAX_ENCODED_LEN
         + TreasuryJournalV1::MAX_ENCODED_LEN
         + ApiAuthorizationJournalV1::MAX_ENCODED_LEN
-        + WebhookDeliveryJournalV1::MAX_ENCODED_LEN;
+        + WebhookDeliveryJournalV1::MAX_ENCODED_LEN
+        + FeeSponsorshipJournalV1::MAX_ENCODED_LEN;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1591,6 +1689,7 @@ impl DurablePaymentSettlementState {
                 self.snapshot.treasuries.clone(),
                 self.snapshot.authorizations.clone(),
                 self.snapshot.webhooks.clone(),
+                self.snapshot.sponsorships.clone(),
             )?;
             save_snapshot(&next, &self.path)?;
             self.snapshot = next;
@@ -1617,6 +1716,7 @@ impl DurablePaymentSettlementState {
             self.snapshot.treasuries.clone(),
             self.snapshot.authorizations.clone(),
             self.snapshot.webhooks.clone(),
+            self.snapshot.sponsorships.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1667,6 +1767,7 @@ impl DurablePaymentSettlementState {
             self.snapshot.treasuries.clone(),
             self.snapshot.authorizations.clone(),
             self.snapshot.webhooks.clone(),
+            self.snapshot.sponsorships.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1727,6 +1828,7 @@ impl DurablePaymentSettlementState {
             self.snapshot.treasuries.clone(),
             self.snapshot.authorizations.clone(),
             self.snapshot.webhooks.clone(),
+            self.snapshot.sponsorships.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1761,6 +1863,7 @@ impl DurablePaymentSettlementState {
             self.snapshot.treasuries.clone(),
             self.snapshot.authorizations.clone(),
             self.snapshot.webhooks.clone(),
+            self.snapshot.sponsorships.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1781,6 +1884,7 @@ impl DurablePaymentSettlementState {
             self.snapshot.treasuries.clone(),
             self.snapshot.authorizations.clone(),
             self.snapshot.webhooks.clone(),
+            self.snapshot.sponsorships.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1798,6 +1902,7 @@ impl DurablePaymentSettlementState {
             treasuries,
             self.snapshot.authorizations.clone(),
             self.snapshot.webhooks.clone(),
+            self.snapshot.sponsorships.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1819,6 +1924,7 @@ impl DurablePaymentSettlementState {
             treasuries,
             self.snapshot.authorizations.clone(),
             self.snapshot.webhooks.clone(),
+            self.snapshot.sponsorships.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1840,6 +1946,7 @@ impl DurablePaymentSettlementState {
             self.snapshot.treasuries.clone(),
             authorizations,
             self.snapshot.webhooks.clone(),
+            self.snapshot.sponsorships.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1883,6 +1990,7 @@ impl DurablePaymentSettlementState {
             self.snapshot.treasuries.clone(),
             self.snapshot.authorizations.clone(),
             webhooks,
+            self.snapshot.sponsorships.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1899,6 +2007,58 @@ impl DurablePaymentSettlementState {
         verify_ml_dsa44(signed.public_key(), &payload, signed.signature().as_bytes())
             .map_err(|_| JournalError::InvalidDelivery)?;
         self.deliver_webhook(event, timestamp)
+    }
+
+    pub fn register_fee_sponsor(
+        &mut self,
+        policy: PaymentFeeSponsorPolicyV1,
+    ) -> Result<(), JournalError> {
+        let mut sponsorships = self.snapshot.sponsorships.clone();
+        sponsorships.register(policy)?;
+        let next = PaymentSettlementStateV1::new(
+            self.snapshot.requests.clone(),
+            self.snapshot.settlements.clone(),
+            self.snapshot.refunds.clone(),
+            self.snapshot.disputes.clone(),
+            self.snapshot.treasuries.clone(),
+            self.snapshot.authorizations.clone(),
+            self.snapshot.webhooks.clone(),
+            sponsorships,
+        )?;
+        save_snapshot(&next, &self.path)?;
+        self.snapshot = next;
+        Ok(())
+    }
+
+    pub fn authorize_fee_sponsorship(
+        &mut self,
+        request: &PaymentFeeSponsorRequestV1,
+        timestamp: u64,
+    ) -> Result<(), JournalError> {
+        if self
+            .snapshot
+            .requests
+            .intents()
+            .binary_search_by_key(&request.intent(), PaymentIntentV1::intent)
+            .is_err()
+        {
+            return Err(JournalError::InvalidTreasury);
+        }
+        let mut sponsorships = self.snapshot.sponsorships.clone();
+        sponsorships.authorize(request, timestamp)?;
+        let next = PaymentSettlementStateV1::new(
+            self.snapshot.requests.clone(),
+            self.snapshot.settlements.clone(),
+            self.snapshot.refunds.clone(),
+            self.snapshot.disputes.clone(),
+            self.snapshot.treasuries.clone(),
+            self.snapshot.authorizations.clone(),
+            self.snapshot.webhooks.clone(),
+            sponsorships,
+        )?;
+        save_snapshot(&next, &self.path)?;
+        self.snapshot = next;
+        Ok(())
     }
 }
 
@@ -3276,6 +3436,7 @@ mod tests {
                 TreasuryJournalV1::default(),
                 ApiAuthorizationJournalV1::default(),
                 WebhookDeliveryJournalV1::default(),
+                FeeSponsorshipJournalV1::default(),
             ),
             Err(JournalError::InvalidLifecycle)
         );
@@ -3575,6 +3736,93 @@ mod tests {
         std::fs::create_dir(&path).unwrap();
         assert_eq!(
             durable.deliver_webhook(&aggregate_webhook_event(10, 184, 1), 150),
+            Err(JournalError::Persistence)
+        );
+        assert_eq!(durable.snapshot(), &before);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    fn aggregate_fee_sponsor_policy() -> PaymentFeeSponsorPolicyV1 {
+        PaymentFeeSponsorPolicyV1::new(
+            PrincipalId::new(digest(190)),
+            PrincipalId::new(digest(191)),
+            AssetId::new(digest(192)),
+            10,
+            20,
+            0,
+            digest(193),
+            1,
+            1_000,
+        )
+        .unwrap()
+    }
+
+    fn aggregate_fee_sponsor_request(
+        policy: &PaymentFeeSponsorPolicyV1,
+    ) -> PaymentFeeSponsorRequestV1 {
+        PaymentFeeSponsorRequestV1::new(
+            PaymentIntentId::new(digest(10)).unwrap(),
+            PrincipalId::new(digest(190)),
+            PrincipalId::new(digest(191)),
+            AssetAmountV1::new(AssetId::new(digest(192)), 8).unwrap(),
+            AssetAmountV1::new(AssetId::new(digest(194)), 8).unwrap(),
+            digest(196),
+            8,
+            policy.commitment().unwrap(),
+            digest(195),
+            0,
+            1,
+            900,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn atomic_fee_sponsorship_requires_intent_and_survives_restart() {
+        let path = path("atomic-fee-sponsor-restart");
+        let _ = std::fs::remove_file(&path);
+        let mut durable = DurablePaymentSettlementState::open(&path).unwrap();
+        let policy = aggregate_fee_sponsor_policy();
+        durable.register_fee_sponsor(policy.clone()).unwrap();
+        let request = aggregate_fee_sponsor_request(&policy);
+        assert_eq!(
+            durable.authorize_fee_sponsorship(&request, 800),
+            Err(JournalError::InvalidTreasury)
+        );
+        let intent = payment_intent(10, 11, 12, 13);
+        durable.create_intent(intent.clone(), intent_binding(&intent), digest(14), 150).unwrap();
+        durable.authorize_fee_sponsorship(&request, 800).unwrap();
+        assert_eq!(durable.snapshot().sponsorships().policies()[0].spent_units(), 8);
+        assert_eq!(durable.snapshot().sponsorships().policies()[0].next_nonce(), 2);
+        assert_eq!(
+            DurablePaymentSettlementState::open(&path).unwrap().snapshot(),
+            durable.snapshot()
+        );
+        let before = durable.snapshot().clone();
+        assert_eq!(
+            durable.authorize_fee_sponsorship(&request, 800),
+            Err(JournalError::InvalidTreasury)
+        );
+        assert_eq!(durable.snapshot(), &before);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn atomic_fee_sponsorship_failed_write_does_not_charge_sponsor() {
+        let directory = path("atomic-fee-sponsor-failure");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("settlement-state.bin");
+        let mut durable = DurablePaymentSettlementState::open(&path).unwrap();
+        let intent = payment_intent(10, 11, 12, 13);
+        durable.create_intent(intent.clone(), intent_binding(&intent), digest(14), 150).unwrap();
+        let policy = aggregate_fee_sponsor_policy();
+        durable.register_fee_sponsor(policy.clone()).unwrap();
+        let before = durable.snapshot().clone();
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        assert_eq!(
+            durable.authorize_fee_sponsorship(&aggregate_fee_sponsor_request(&policy), 800),
             Err(JournalError::Persistence)
         );
         assert_eq!(durable.snapshot(), &before);
