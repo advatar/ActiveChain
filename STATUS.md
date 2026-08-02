@@ -1019,6 +1019,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
         exact refund accounting as one atomic aggregate successor.
       - [x] Apply refund requests through the complete settlement state, atomically joining the
         first `Finalized` to `RefundPending` edge with cumulative amount and sequence accounting.
+      - [x] Persist dispute opening and exact successors inside that same complete settlement
+        aggregate without promoting external resolution to ActiveChain finality.
 - [x] Add canonical exact-once partial-refund requests and cumulative settlement-bound accounting.
   - [x] Persist a bounded per-intent refund-state journal atomically across settlement registration
     and every accepted partial refund, rejecting replay and corrupt restart state.

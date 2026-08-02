@@ -569,6 +569,10 @@ journal atomically persists opening and each exact next-sequence lifecycle succe
 decoding retains the evidence class that distinguishes client reports, connector-authenticated
 external resolution, chain submission, and finalized ActiveChain evidence. Duplicate or unknown
 disputes, wrong-intent substitution, skipped sequences, illegal state edges, corruption, and failed
+writes do not advance live state. The public complete-settlement aggregate retains this journal
+beside the exact verified settlement, request lifecycle, and refund accounting; dispute opening must
+bind that settlement's commitment, native asset, and a bounded amount. Advancing a dispute replaces
+the same aggregate snapshot and never changes or promotes the payment lifecycle's finality.
 writes do not advance the live record.
 
 ### 8.5 Gas sponsorship
