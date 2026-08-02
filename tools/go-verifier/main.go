@@ -32,17 +32,24 @@ type envelopeMetadata struct {
 type envelopeError string
 
 const (
-	errUnexpectedEnd      envelopeError = "unexpected_end"
-	errTypeMismatch       envelopeError = "type_mismatch"
-	errVersionMismatch    envelopeError = "version_mismatch"
-	errLengthOverflow     envelopeError = "length_overflow"
-	errNonminimalLength   envelopeError = "nonminimal_length"
-	errBodyLimit          envelopeError = "body_limit"
-	errBodyLengthMismatch envelopeError = "body_length_mismatch"
-	errTrailingData       envelopeError = "trailing_data"
-	errPrincipalKind      envelopeError = "principal_kind"
-	errFreezeState        envelopeError = "freeze_state"
-	errUpdateBeforeCreate envelopeError = "update_before_creation"
+	errUnexpectedEnd       envelopeError = "unexpected_end"
+	errTypeMismatch        envelopeError = "type_mismatch"
+	errVersionMismatch     envelopeError = "version_mismatch"
+	errLengthOverflow      envelopeError = "length_overflow"
+	errNonminimalLength    envelopeError = "nonminimal_length"
+	errBodyLimit           envelopeError = "body_limit"
+	errBodyLengthMismatch  envelopeError = "body_length_mismatch"
+	errTrailingData        envelopeError = "trailing_data"
+	errPrincipalKind       envelopeError = "principal_kind"
+	errFreezeState         envelopeError = "freeze_state"
+	errUpdateBeforeCreate  envelopeError = "update_before_creation"
+	errCryptoSuite         envelopeError = "crypto_suite"
+	errKeyLength           envelopeError = "key_length"
+	errPurpose             envelopeError = "purpose"
+	errPurposeSuite        envelopeError = "purpose_suite"
+	errValidityInversion   envelopeError = "validity_inversion"
+	errRevocationInversion envelopeError = "revocation_inversion"
+	errInvalidOption       envelopeError = "invalid_option"
 )
 
 func canonicalLengthWidth(value uint32) int {
@@ -179,7 +186,7 @@ func readNamedHex(path, name string) ([]byte, error) {
 	return nil, fmt.Errorf("%s: missing %s", path, name)
 }
 
-func mutatePrincipalEnvelope(envelope []byte, mutation string) ([]byte, error) {
+func mutateEnvelopeBody(envelope []byte, mutation string) ([]byte, error) {
 	out := append([]byte(nil), envelope...)
 	if mutation == "none" {
 		return out, nil
@@ -218,6 +225,12 @@ func mutatePrincipalEnvelope(envelope []byte, mutation string) ([]byte, error) {
 			return nil, fmt.Errorf("invalid byte mutation %q", mutation)
 		}
 		out[bodyStart+offset] = value[0]
+	case "set_hex":
+		value, err := hex.DecodeString(parts[2])
+		if err != nil || len(value) == 0 || bodyStart+offset+len(value) > len(out) {
+			return nil, fmt.Errorf("invalid bytes mutation %q", mutation)
+		}
+		copy(out[bodyStart+offset:bodyStart+offset+len(value)], value)
 	case "set_u64":
 		value, err := strconv.ParseUint(parts[2], 10, 64)
 		if err != nil || bodyStart+offset+8 > len(out) {
@@ -262,12 +275,157 @@ func verifyPrincipalVector(path string, v vector) error {
 	if err != nil {
 		return fmt.Errorf("case %q: %w", v.name, err)
 	}
-	envelope, err = mutatePrincipalEnvelope(envelope, v.fields[2])
+	envelope, err = mutateEnvelopeBody(envelope, v.fields[2])
 	if err != nil {
 		return fmt.Errorf("case %q: %w", v.name, err)
 	}
 	actual := verifyPrincipalEnvelope(envelope)
 	expected := envelopeError(v.fields[3])
+	if expected == "ok" {
+		expected = ""
+	}
+	if actual != expected {
+		return fmt.Errorf("case %q: expected %q, got %q", v.name, expected, actual)
+	}
+	return nil
+}
+
+type cryptoSuite struct {
+	family    byte
+	parameter uint16
+	encoding  uint16
+	profile   byte
+	keyLength int
+}
+
+func registeredSuite(body []byte) (cryptoSuite, envelopeError) {
+	if len(body) < 6 {
+		return cryptoSuite{}, errUnexpectedEnd
+	}
+	candidate := cryptoSuite{
+		family: body[0], parameter: binary.BigEndian.Uint16(body[1:3]),
+		encoding: binary.BigEndian.Uint16(body[3:5]), profile: body[5],
+	}
+	for _, suite := range []cryptoSuite{
+		{1, 44, 1, 2, 1312}, {1, 65, 1, 3, 1952}, {1, 87, 1, 5, 2592},
+		{2, 0x0192, 1, 3, 48}, {3, 768, 1, 3, 0}, {4, 384, 1, 5, 0},
+	} {
+		if candidate.family == suite.family && candidate.parameter == suite.parameter &&
+			candidate.encoding == suite.encoding && candidate.profile == suite.profile {
+			return suite, ""
+		}
+	}
+	return cryptoSuite{}, errCryptoSuite
+}
+
+func decodeOptionalHeight(body []byte, cursor *int) (*uint64, envelopeError) {
+	if *cursor >= len(body) {
+		return nil, errUnexpectedEnd
+	}
+	tag := body[*cursor]
+	*cursor++
+	if tag == 0 {
+		return nil, ""
+	}
+	if tag != 1 {
+		return nil, errInvalidOption
+	}
+	if *cursor+8 > len(body) {
+		return nil, errUnexpectedEnd
+	}
+	value := binary.BigEndian.Uint64(body[*cursor : *cursor+8])
+	*cursor += 8
+	return &value, ""
+}
+
+func purposeAcceptsSuite(purpose byte, suite cryptoSuite) bool {
+	switch purpose {
+	case 0, 4:
+		return suite.family == 1 && (suite.parameter == 65 || suite.parameter == 87)
+	case 1:
+		return (suite.family == 1 && (suite.parameter == 65 || suite.parameter == 87)) ||
+			(suite.family == 2 && suite.parameter == 0x0192)
+	case 2, 5:
+		return suite.family == 1 && (suite.parameter == 44 || suite.parameter == 65)
+	case 3:
+		return suite.family == 1 && suite.parameter == 44
+	default:
+		return false
+	}
+}
+
+func verifyAuthenticatorEnvelope(input []byte) envelopeError {
+	if _, framingErr := inspectEnvelope(input, 0x0021, 1, 4179); framingErr != "" {
+		return framingErr
+	}
+	_, envelopeWidth, _ := decodeLength(input[4:])
+	body := input[4+envelopeWidth:]
+	if len(body) < 54 {
+		return errUnexpectedEnd
+	}
+	suite, suiteErr := registeredSuite(body[48:54])
+	if suiteErr != "" {
+		return suiteErr
+	}
+	if suite.keyLength == 0 {
+		return errCryptoSuite
+	}
+	keyLength, keyWidth, keyErr := decodeLength(body[54:])
+	if keyErr != "" {
+		return keyErr
+	}
+	if int(keyLength) != suite.keyLength {
+		return errKeyLength
+	}
+	cursor := 54 + keyWidth + int(keyLength)
+	if cursor+1+8 > len(body) {
+		return errUnexpectedEnd
+	}
+	purpose := body[cursor]
+	cursor++
+	if purpose > 5 {
+		return errPurpose
+	}
+	if !purposeAcceptsSuite(purpose, suite) {
+		return errPurposeSuite
+	}
+	validFrom := binary.BigEndian.Uint64(body[cursor : cursor+8])
+	cursor += 8
+	validUntil, optionErr := decodeOptionalHeight(body, &cursor)
+	if optionErr != "" {
+		return optionErr
+	}
+	revokedAt, optionErr := decodeOptionalHeight(body, &cursor)
+	if optionErr != "" {
+		return optionErr
+	}
+	if cursor != len(body) {
+		return errTrailingData
+	}
+	if validUntil != nil && *validUntil < validFrom {
+		return errValidityInversion
+	}
+	if revokedAt != nil && *revokedAt < validFrom {
+		return errRevocationInversion
+	}
+	return ""
+}
+
+func verifyAuthenticatorVector(path string, v vector) error {
+	if len(v.fields) != 5 {
+		return fmt.Errorf("case %q: expected 5 fields", v.name)
+	}
+	source := filepath.Join(filepath.Dir(path), filepath.FromSlash(v.fields[1]))
+	envelope, err := readNamedHex(source, v.fields[2])
+	if err != nil {
+		return fmt.Errorf("case %q: %w", v.name, err)
+	}
+	envelope, err = mutateEnvelopeBody(envelope, v.fields[3])
+	if err != nil {
+		return fmt.Errorf("case %q: %w", v.name, err)
+	}
+	actual := verifyAuthenticatorEnvelope(envelope)
+	expected := envelopeError(v.fields[4])
 	if expected == "ok" {
 		expected = ""
 	}
@@ -336,6 +494,11 @@ func verify(path string) (int, error) {
 				return 0, fmt.Errorf("%s: %w", path, err)
 			}
 		}
+		if filepath.Base(path) == "independent-authenticator-v1.tsv" {
+			if err := verifyAuthenticatorVector(path, v); err != nil {
+				return 0, fmt.Errorf("%s: %w", path, err)
+			}
+		}
 		if len(v.fields) > 1 && strings.Contains(strings.Join(v.fields, " "), "import") &&
 			strings.HasSuffix(path, "independent-client-conformance-v1.tsv") &&
 			strings.Contains(v.fields[len(v.fields)-2], "accept") {
@@ -371,5 +534,5 @@ func main() {
 	if _, err := hex.DecodeString(strings.Repeat("00", 48)); err != nil {
 		os.Exit(1)
 	}
-	fmt.Printf("M0 + codec/principal M1 slices PASS: %d published v1 rows across %d vector files\n", total, len(files))
+	fmt.Printf("M0 + codec/principal/authenticator M1 slices PASS: %d published v1 rows across %d vector files\n", total, len(files))
 }

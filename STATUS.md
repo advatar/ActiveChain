@@ -434,6 +434,8 @@ Tracked by [GitHub issue #345](https://github.com/advatar/ActiveChain/issues/345
           tag/schema, bounds, truncation, and trailing-data rejection (#618).
     - [x] Independently decode Principal v1 bodies and reject invalid kind/freeze tags,
           temporal inversion, truncation, and trailing bytes (#620).
+    - [x] Independently decode AuthenticatorDescriptor v1, registered suites, exact key sizes,
+          purpose compatibility, and validity/revocation ordering (#622).
 
 ## Active milestone — P-060 execution proof system
 

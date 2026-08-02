@@ -67,3 +67,13 @@ func TestIndependentPrincipalSemanticVectors(t *testing.T) {
 		t.Fatalf("expected 6 semantic principal cases, got %d", n)
 	}
 }
+
+func TestIndependentAuthenticatorSemanticVectors(t *testing.T) {
+	n, err := verify("../../testing/vectors/independent-authenticator-v1.tsv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 8 {
+		t.Fatalf("expected 8 semantic authenticator cases, got %d", n)
+	}
+}
