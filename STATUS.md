@@ -688,7 +688,7 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
     preserving full-quorum voting while accepting only the consensus-selected proposer.
   - [x] Raise the bounded consensus peer frame to 32 KiB so a three-validator ML-DSA view-change
     certificate and its successor certified block fit without relaxing oversized-frame rejection.
-  - [ ] Make RPC ingestion consume the canonical crash-journal cash snapshot and independently
+  - [x] Make RPC ingestion consume the canonical crash-journal cash snapshot and independently
     verify it against the separately published quorum finality bundle.
 - [x] Verify the currently deployed Kanalen testnet independently over localhost on the host:
   chain/genesis identity matches, finalized height advances to 4168, and health reports `Healthy`.
