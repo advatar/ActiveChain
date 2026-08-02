@@ -119,6 +119,16 @@ impl FinalizedCashSnapshot {
         Ok(persisted.snapshot)
     }
 
+    /// Loads the canonical envelope materialized by the finalized-round journal.
+    ///
+    /// This representation deliberately does not embed finality: callers at publication
+    /// boundaries must verify it against the separately journaled finality bundle.
+    pub fn load_canonical(path: &Path) -> std::io::Result<Self> {
+        let bytes = std::fs::read(path)?;
+        activechain_canonical_codec::decode_envelope(&bytes)
+            .map_err(|_| std::io::Error::other("canonical cash snapshot malformed"))
+    }
+
     pub fn load(path: &Path) -> std::io::Result<Self> {
         let bytes = std::fs::read(path)?;
         if bytes.len() < 32 {
@@ -216,5 +226,24 @@ mod tests {
             activechain_canonical_codec::decode_envelope::<PersistedFinalizedCash>(&encoded)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn canonical_snapshot_loader_accepts_journal_format_and_rejects_trailing_data() {
+        let cells = CoinCellSet::new(Vec::new()).unwrap();
+        let snapshot = FinalizedCashSnapshot::new(Digest384::new([1; 48]), 7, cells).unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "activechain-canonical-cash-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let encoded = activechain_canonical_codec::encode_envelope(&snapshot).unwrap();
+        std::fs::write(&path, &encoded).unwrap();
+        assert_eq!(FinalizedCashSnapshot::load_canonical(&path).unwrap(), snapshot);
+        let mut malformed = encoded;
+        malformed.push(0);
+        std::fs::write(&path, malformed).unwrap();
+        assert!(FinalizedCashSnapshot::load_canonical(&path).is_err());
+        std::fs::remove_file(path).unwrap();
     }
 }

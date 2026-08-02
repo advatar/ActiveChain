@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let store = DurableRpcStore::load(rpc_path)
         .map_err(|error| format!("could not load RPC index: {error:?}"))?;
     if let (Some(cash_path), Some(finality_path)) = (cash_path, finality_path) {
-        let cash = FinalizedCashSnapshot::load_verified(&cash_path)?;
+        let cash = FinalizedCashSnapshot::load_canonical(&cash_path)?;
         if cash.chain_genesis != genesis || cash.finalized_height != state.finalized_height() {
             return Err("cash snapshot does not match validator finality".into());
         }
