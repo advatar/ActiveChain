@@ -1,118 +1,198 @@
 # ActiveChain
 
-ActiveChain is being built as a formally specified, proof-carrying object ledger with explicit principals, credentials, capabilities, policies, objects, jobs, and verification evidence.
+[![Deterministic kernel](https://github.com/advatar/ActiveChain/actions/workflows/kernel.yml/badge.svg?branch=main)](https://github.com/advatar/ActiveChain/actions/workflows/kernel.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Rust 1.97.1](https://img.shields.io/badge/rust-1.97.1-orange.svg)](rust-toolchain.toml)
 
-The implementation is deliberately starting below networking and consensus. The current Phase 0 slice establishes one deterministic meaning for protocol values before any distributed system is allowed to depend on them.
+ActiveChain is an experimental, proof-carrying object ledger for post-quantum payments,
+verifiable identity, explicit authorization, bounded computation, and independently verifiable
+state transitions. The public-facing protocol is presented as **Actum**; crate and repository names
+retain the `activechain` prefix while that naming transition is completed.
 
-## Security status
+The project treats principals, credentials, capabilities, policies, assets, objects, actions,
+proofs, and receipts as canonical protocol values. Deterministic Rust kernels, cross-implementation
+vectors, executable formal models, and explicit security boundaries are developed together.
 
-**Developmental — no security audit has been completed.** The required pre-launch review is
-defined in [`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md): an independent external
-blockchain/security firm with post-quantum and mobile expertise must audit the consensus and cash
-kernels, PQ cryptography, C ABI/FFI surfaces, mobile keystore handling, OpenWallet
-interoperability, and validator/network abuse resistance, with findings published and fixes
-re-reviewed. Until that completes, the wallet and every testnet are explicitly developmental and
-must not hold value anyone is unwilling to lose.
+> [!WARNING]
+> ActiveChain is developmental software. No independent security audit has been completed. The
+> wallet, testnet, cryptography integration, proof systems, and APIs may change and must not be used
+> to protect real value. See [Security status](#security-status) and [SECURITY.md](SECURITY.md).
 
-For a cross-cutting explanation of principals, wallet and agent keys, capabilities, credentials,
-assets, policies, execution, proofs, recovery, and current implementation boundaries, read
-[`docs/ARCHITECTURE_GUIDE.md`](docs/ARCHITECTURE_GUIDE.md).
+## Why ActiveChain?
 
-## What exists now
+- **Post-quantum authorization:** versioned ML-DSA, ML-KEM, and SLH-DSA roles with explicit
+  downgrade and lifecycle boundaries.
+- **Native identity semantics:** stable principals, rotating control, issuer/status-aware
+  credentials, selective disclosure inputs, and attenuating capabilities.
+- **Proof-carrying execution:** deterministic kernels, transparent proof profiles, proof admission,
+  and independently checkable receipts.
+- **Native payments and assets:** Coin Cell accounting, fee and issuance rules, multi-asset
+  lifecycle operations, and proof-aware payment integration.
+- **Bounded systems:** canonical encodings, total policy evaluation, metered ObjectVM execution,
+  authenticated storage, and explicit resource ceilings.
+- **Verification-first development:** Rust tests, malformed-input vectors, Lean and Tamarin models,
+  Kani harnesses, and independent Go verifier components.
 
-- draft system-boundary, canonical-encoding, and transition specifications under `spec/protocol/`;
-- an initial canonical schema in `schema/activechain.idl`;
-- distinct 384-bit protocol identifier types;
-- a `no_std`, unsafe-free, allocation-bounded canonical codec;
-- strict rejection of wrong tags, unsupported versions, malformed lengths, invalid values, and trailing bytes;
-- SHAKE256 commitments with 384-bit output and registered domain separation;
-- versioned post-quantum suite identifiers, exact key/signature structure, and bounded authenticators;
-- pure principal creation, rotation, freeze, and recovery-initiation transitions;
-- signed capability grants and conservative multi-dimensional delegation attenuation;
-- canonical off-chain credentials with issuer-bound signatures and status-registry snapshots;
-- a pure status/freshness-aware credential verifier that derives bounded APL schema facts;
-- a bounded, total APL evaluator with default deny, forbid precedence, fixed metering, and atomic obligations;
-- an executable Lean APL effect model with proved decision properties and a Rust differential check;
-- versioned objects, bounded disjoint access manifests, and atomic APL-authorized transfer batches;
-- executable Lean models for APL effects, object versioning, and atomic publication;
-- a canonical fixed-depth sparse state tree with compressed membership and non-membership witnesses;
-- executable Lean models for state-key paths and abstract 16-way proof folding;
-- bounded typed ObjectVM bytecode, a static resource/control-flow verifier, and a prepaid-gas interpreter;
-- executable Lean models for ObjectVM copy/move/consume resource semantics and instruction costs;
-- public action envelopes with exact nonce channels, one-shot fee tickets, and six-dimensional resource ceilings;
-- a pure deterministic block kernel with canonical action/block identifiers, receipts, charges, and post-state roots;
-- a minimal semantic-devnet host and an executable Lean nonce/replay model;
-- an executable Lean credential-status model with required/future/stale/revoked precedence;
-- deterministic principal, authority, credential, APL, transition, state-tree, ObjectVM, action, and block vectors;
-- canonical shielded-note, viewing-capability, persistent-nullifier, and atomic native
-  shield/unshield reference boundaries without production privacy claims;
-- unit and property tests for codec safety, authority, policy, transitions, proofs, bytecode, execution, admission, and block application.
+The design is intentionally ambitious. A checked box in [STATUS.md](STATUS.md) means a bounded
+repository milestone was implemented; it does not imply production readiness, external audit, or
+completion of every end-to-end composition gate.
 
-## Workspace
+## Current maturity
+
+Implemented repository surfaces include:
+
+- canonical protocol types, domain-separated commitments, principals, credentials, capabilities,
+  APL authorization, objects, transitions, ObjectVM, sparse state witnesses, and action admission;
+- authenticated post-quantum consensus/finality components, data availability, light-client and
+  verifier APIs, deterministic vectors, and formal refinement artifacts;
+- native cash and multi-asset kernels, wallet and FFI boundaries, payment SDK/connector surfaces,
+  faucet and developmental testnet operations;
+- VCIssuer/OpenID4VCI presentation handoff, external SD-JWT VC and mdoc verification boundaries,
+  private credential predicates, and assurance-preserving policy facts;
+- transparent PQ-ZK and CashAIR components, including authenticated SHAKE, NTT arithmetic tables,
+  bounded aggregation statements, and proof-admission boundaries;
+- bounded validator storage, archive, pruning, rent, checkpoint synchronization, replay
+  accumulators, and storage qualification tools;
+- constrained MCP/A2UI agent interfaces, a private-billboard reference application, and native
+  Apple/Android wallet shells.
+
+Important unfinished work remains. In particular, production security review, complete ML-DSA
+cross-table composition inside CashAIR, production interoperability qualification, deployment
+hardening, and several launch gates remain open. The authoritative implementation ledger is
+[STATUS.md](STATUS.md); security claims are bounded by
+[docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md).
+
+## Architecture at a glance
 
 ```text
-crates/canonical-codec       consensus binary encoding
-crates/action-kernel         public action admission values and replay semantics
-crates/cash-kernel           native Coin Cell money and deterministic issuance
-crates/bytecode-verifier     typed ObjectVM bytecode and static verification
-crates/protocol-types        canonical IDs, principals, authenticators, capabilities
-crates/protocol-commitment   SHAKE256/384 commitment transcript
-crates/principal             pure principal lifecycle state machine
-crates/privacy-kernel        bounded privacy statements and nullifier admission
-crates/capability            mechanical delegation attenuation
-crates/credential            issuer/status-aware credential presentation verification
-crates/policy-kernel         bounded APL AST, requests, evaluation, decisions
-crates/object                exact one-step object ownership transitions
-crates/object-vm             deterministic metered reference interpreter
-crates/transition            access-confined atomic transfer reference kernel
-crates/state-tree            canonical sparse state commitment and witnesses
-crates/wallet-core           OpenWallet-aligned PQ wallet intents and Coin Cell selection
-crates/devnet-kernel         pure deterministic single-node block application
-formal/lean/                 executable APL/object/state-tree models and proofs
-node/semantic-devnet/        minimal host shell around the pure block kernel
-schema/                      canonical schema source
-spec/protocol/               normative protocol drafts
-testing/vectors/             cross-implementation fixtures
-tools/vector-generator/      deterministic vector producer
+wallet / application / agent
+        │ canonical intent + authenticated authority + private proof inputs
+        ▼
+principal + credential + capability + APL authorization
+        │ bounded action and declared state access
+        ▼
+cash / asset / object / ObjectVM / application transition kernels
+        │ receipts + state commitments + proof obligations
+        ▼
+consensus + data availability + authenticated storage
+        │ finalized evidence
+        ▼
+wallet, light client, verifier API, RPC, and independent clients
 ```
 
-All fourteen protocol and semantic-kernel crates compile with `#![no_std]` and `#![forbid(unsafe_code)]`. The semantic-devnet executable, vector generator, and Lean models are host tooling outside the consensus kernel.
+Start with the [architecture guide](docs/ARCHITECTURE_GUIDE.md). Normative protocol drafts live in
+[`spec/protocol/`](spec/protocol/); implementation notes and operational evidence do not override
+those specifications. The [documentation index](docs/README.md) explains the distinction.
 
-### Testnet wallet POC
+## Quick start
 
-Derive a deterministic post-quantum wallet identity for local testnet genesis and operator
-rehearsals:
+### Prerequisites
+
+- Git with submodule support;
+- the Rust toolchain pinned in [`rust-toolchain.toml`](rust-toolchain.toml) (rustup installs it
+  automatically);
+- optional: Lean/Elan, Tamarin, Kani, Go, Docker, Xcode, and Android Studio for their respective
+  verification or platform surfaces.
+
+Clone the repository and its landing-page submodule:
 
 ```sh
-cargo run -p activechain-wallet-core --bin activechain-wallet -- derive 0 1 0
+git clone --recurse-submodules https://github.com/advatar/ActiveChain.git
+cd ActiveChain
+cargo metadata --locked --no-deps >/dev/null
 ```
 
-The command prints the ML-DSA suite, principal commitment, and public key. Secret material is not
-printed or persisted by the CLI; production keystore encryption and node submission are separate
-wallet milestones.
+Run a small deterministic kernel test:
 
-## Verify locally
+```sh
+cargo test --locked -p activechain-canonical-codec
+```
 
-The repository pins Rust 1.97.1. Run:
+Generate a canonical principal vector:
+
+```sh
+cargo run --locked --quiet -p activechain-vector-generator -- principal-v1
+```
+
+Derive a deterministic developmental wallet identity:
+
+```sh
+cargo run --locked -p activechain-wallet-core --bin activechain-wallet -- derive 0 1 0
+```
+
+The wallet command prints public test identity material only. Production keystore and network
+submission requirements are separate launch gates.
+
+## Repository map
+
+| Path | Purpose |
+| --- | --- |
+| [`crates/`](crates/) | Consensus-safe kernels, protocol types, proof systems, storage, wallet, verifier, RPC, payment, and application libraries |
+| [`node/semantic-devnet/`](node/semantic-devnet/) | Host executable around deterministic protocol kernels |
+| [`connectors/`](connectors/) | Bounded external payment connector implementations |
+| [`spec/protocol/`](spec/protocol/) | Normative, versioned protocol drafts |
+| [`schema/`](schema/) | Canonical schema source |
+| [`formal/`](formal/) | Lean and Tamarin models, proof scope, and refinement artifacts |
+| [`testing/vectors/`](testing/vectors/) | Deterministic valid, malformed, and cross-implementation fixtures |
+| [`tools/`](tools/) | Vector generation, distribution, benchmarking, and independent verifier tools |
+| [`mobile/`](mobile/) | Shared mobile guidance and native Apple/Android clients |
+| [`deploy/kanalen/`](deploy/kanalen/) | Developmental Kanalen testnet configuration and operations |
+| [`LandingPage/`](LandingPage/) | Public website submodule |
+
+Most protocol crates are `#![no_std]` and forbid unsafe Rust. Host, FFI, platform, operational, and
+tooling crates have different constraints; check each crate before assuming a kernel guarantee.
+
+## Development workflow
+
+Choose checks proportional to your change while iterating:
 
 ```sh
 cargo fmt --all --check
-cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
-cargo check --locked --target aarch64-apple-ios --lib -p activechain-action-kernel -p activechain-bytecode-verifier -p activechain-canonical-codec -p activechain-credential -p activechain-devnet-kernel -p activechain-protocol-types -p activechain-protocol-commitment -p activechain-principal -p activechain-capability -p activechain-cash-kernel -p activechain-policy-kernel -p activechain-object -p activechain-object-vm -p activechain-transition -p activechain-state-tree
-cargo test --locked --workspace --all-features
-cargo test --locked --workspace --doc
-cargo run --locked --quiet -p activechain-vector-generator -- principal-v1
-cargo run --locked --quiet -p activechain-vector-generator -- authority-v1
-cargo run --locked --quiet -p activechain-vector-generator -- credential-v1
-cargo run --locked --quiet -p activechain-vector-generator -- apl-v1
-cargo run --locked --quiet -p activechain-vector-generator -- object-transition-v1
-cargo run --locked --quiet -p activechain-vector-generator -- state-tree-v1
-cargo run --locked --quiet -p activechain-vector-generator -- object-vm-v1
-cargo run --locked --quiet -p activechain-vector-generator -- devnet-block-v1
-cargo run --locked --quiet -p activechain-semantic-devnet -- empty-block
-cd formal/lean && lake build
+cargo test --locked -p <affected-package>
+cargo clippy --locked -p <affected-package> --all-targets --all-features -- -D warnings
 ```
 
-Implementation progress is tracked in `STATUS.md` and the linked milestone issues, including [credential verification issue #8](https://github.com/advatar/ActiveChain/issues/8).
+Changes to canonical encodings or protocol behavior should also update deterministic vectors,
+malformed fixtures, normative specifications, and applicable formal/refinement evidence. The final
+merge candidate is qualified by the repository's deterministic kernel gate; contributors do not
+need to run every expensive proof and platform job for each small edit.
 
-CI runs on the repository's dedicated macOS ARM64 self-hosted runner. Its pinned installation, operations, and security boundary are documented in `docs/ci/self-hosted-runner.md`.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for branch, issue, test, documentation, commit, and pull
+request expectations.
+
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Architecture guide](docs/ARCHITECTURE_GUIDE.md)
+- [Implementation status](STATUS.md)
+- [Protocol specifications](spec/protocol/)
+- [Formal models and proof scope](formal/README.md)
+- [Testnet release boundary](docs/TESTNET_RELEASE.md)
+- [Security audit requirement](docs/SECURITY_AUDIT.md)
+- [VCIssuer integration](docs/VCISSUER_INTEGRATION_V1.md)
+- [Mobile overview](mobile/README.md)
+
+## Security status
+
+No independent audit has been completed. Internal review, tests, formal models, and proof artifacts
+are evidence inputs—not substitutes for the external audit and remediation process described in
+[docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md). Testnets are developmental and may reset or change
+incompatibly.
+
+Please report suspected vulnerabilities privately according to [SECURITY.md](SECURITY.md). Do not
+open a public issue for an unpatched vulnerability.
+
+## Community and governance
+
+- [Contributing](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Support](SUPPORT.md)
+- [Governance](GOVERNANCE.md)
+
+Project decisions currently use a maintainer-led, issue-and-PR process. Protocol changes require an
+explicit specification and compatibility/security analysis; repository activity or a merged draft
+does not itself establish a production network governance right.
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE).

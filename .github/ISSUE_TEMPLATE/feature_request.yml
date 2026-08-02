@@ -1,0 +1,48 @@
+name: Feature proposal
+description: Propose a scoped capability or protocol improvement
+title: "proposal: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What concrete user, operator, verifier, or protocol problem needs solving?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: State observable acceptance criteria without prescribing an implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Protocol and security boundaries
+      description: Address compatibility, migration, determinism, privacy, authority, resource bounds, and independent verification.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Acceptance evidence
+      description: Tests, vectors, specifications, formal artifacts, rehearsals, or audit evidence needed.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues and specifications.
+          required: true
+        - label: I have not described a private vulnerability here.
+          required: true

@@ -2,6 +2,17 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Open-source documentation and community health
+
+Tracked by [GitHub issue #659](https://github.com/advatar/ActiveChain/issues/659).
+
+- [x] Replace the stale Phase 0 README with accurate architecture, maturity, quick-start,
+  verification, repository-map, contribution, security, support, and license guidance.
+- [x] Add an indexed documentation map and standard contribution, conduct, security, support,
+  governance, license, issue-template, and pull-request-template files.
+- [x] Validate relative links, documented paths, and focused onboarding commands without running
+  the full workspace build or CI.
+
 ## Bounded validator storage and decentralized archives
 
 Tracked by [GitHub issue #397](https://github.com/advatar/ActiveChain/issues/397), with the first
