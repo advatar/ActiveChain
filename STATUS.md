@@ -673,7 +673,8 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
   - [x] Rehearse first and restarted round publication from the exact reset-provisioned cash ledger,
     retaining authoritative state while regenerating only derived publication artifacts.
   - [x] Bootstrap an absent execution snapshot for the existing metadata-only Kanalen history at
-    the exact durable consensus height and finalized block digest without resetting chain identity.
+    the exact next-proposal predecessor height and finalized anchor digest without resetting chain
+    identity, then persist that base before any staged vote.
 - [x] Provision a canonical chain-bound cash ledger during reset from an explicit operator treasury
   principal and validated supply/reserve parameters.
 - [x] Make the Kanalen proposer certify the exact finalized cash root and emit the verifier-ready

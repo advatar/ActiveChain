@@ -88,7 +88,7 @@ fn load_or_create_execution_state(
     }
     let objects = ObjectState::new(Vec::new())
         .map_err(|_| std::io::Error::other("empty execution object state is invalid"))?;
-    ChainState::new(
+    let state = ChainState::new(
         chain_id,
         finalized_height,
         finalized_block_digest,
@@ -98,7 +98,9 @@ fn load_or_create_execution_state(
         Vec::new(),
         ResourcePrices::new(1, 1, 1, 1, 1, 1),
     )
-    .map_err(|_| std::io::Error::other("execution bootstrap construction failed").into())
+    .map_err(|_| std::io::Error::other("execution bootstrap construction failed"))?;
+    save_execution_state(path, &state)?;
+    Ok(state)
 }
 
 fn save_execution_state(path: &Path, state: &ChainState) -> Result<(), Box<dyn std::error::Error>> {
@@ -640,18 +642,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
             )
         });
-    let mut execution_state = execution_state_path
-        .map(Path::new)
-        .zip(chain_id)
-        .map(|(path, chain)| {
-            load_or_create_execution_state(
-                path,
-                chain,
-                state.finalized_height(),
-                state.finalized_block_digest(),
-            )
-        })
-        .transpose()?;
+    let mut execution_state: Option<ChainState> = None;
     let chain_genesis_commitment = snapshot_path
         .as_deref()
         .filter(|path| Path::new(path).exists())
@@ -709,6 +700,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
                 .map_err(|error| format!("validator service configuration failed: {error:?}"))?,
             );
+            if let (Some(chain), Some(execution_path)) = (chain_id, execution_state_path) {
+                let (staging, _) = round_journal_paths(Path::new(execution_path));
+                let required_height = if staging.is_dir() {
+                    let bytes = std::fs::read(staging.join(ROUND_HEIGHT_FILE))?;
+                    u64::from_be_bytes(bytes.try_into().map_err(|_| {
+                        std::io::Error::other("staged execution height is malformed")
+                    })?)
+                    .checked_sub(1)
+                    .ok_or("staged execution height cannot be zero")?
+                } else {
+                    service
+                        .next_proposal_position()
+                        .map_err(|error| {
+                            format!("cannot derive execution bootstrap position: {error:?}")
+                        })?
+                        .0
+                        .checked_sub(1)
+                        .ok_or("next proposal height cannot be zero")?
+                };
+                execution_state = Some(load_or_create_execution_state(
+                    Path::new(execution_path),
+                    chain,
+                    required_height,
+                    state.finalized_block_digest(),
+                )?);
+            }
             if let (
                 Some(chain),
                 Some(execution_path),
@@ -744,10 +761,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let recovered_consensus = service
                         .state()
                         .map_err(|error| format!("recovered consensus read failed: {error:?}"))?;
+                    let required_height = service
+                        .next_proposal_position()
+                        .map_err(|error| {
+                            format!("cannot derive recovered execution position: {error:?}")
+                        })?
+                        .0
+                        .checked_sub(1)
+                        .ok_or("recovered proposal height cannot be zero")?;
                     execution_state = Some(load_or_create_execution_state(
                         Path::new(execution_path),
                         chain,
-                        recovered_consensus.finalized_height(),
+                        required_height,
                         recovered_consensus.finalized_block_digest(),
                     )?);
                 }
