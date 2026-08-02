@@ -2,6 +2,15 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Proof-of-funds guest image identity reconciliation
+
+Tracked by [GitHub issue #741](https://github.com/advatar/ActiveChain/issues/741).
+
+- [ ] Trace the proof-of-funds guest ELF/image change and reconcile every canonical image-ID and
+  vector consumer with the intended reproducible guest.
+- [ ] Pass PQ-ZK tests, canonical vector reproduction, and the exact aggregate deterministic-kernel
+  gate; merge the dependency chain to `main` and verify reachability.
+
 ## Verus parity lockfile reconciliation
 
 Tracked by [GitHub issue #739](https://github.com/advatar/ActiveChain/issues/739).
