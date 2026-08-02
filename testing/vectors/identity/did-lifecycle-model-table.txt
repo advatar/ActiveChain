@@ -1,0 +1,1 @@
+# Frozen Lean/Rust refinement trace for DID controller lifecycle.
