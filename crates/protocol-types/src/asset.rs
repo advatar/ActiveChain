@@ -543,7 +543,7 @@ impl NonFungibleTokenRegistryV1 {
             return Err(AssetDefinitionError::InvalidAssetIdentity);
         }
         if token_ids.len() > MAX_NFT_TOKENS_PER_SERIES
-            || token_ids.iter().any(|token| *token == Digest384::ZERO)
+            || token_ids.contains(&Digest384::ZERO)
             || token_ids.windows(2).any(|pair| pair[0] >= pair[1])
         {
             return Err(AssetDefinitionError::DuplicateNftToken);
@@ -2183,7 +2183,7 @@ impl FungibleCorporateActionRegistryV1 {
 
     pub fn new(action_ids: Vec<Digest384>) -> Result<Self, AssetDefinitionError> {
         if action_ids.len() > MAX_CORPORATE_ACTIONS
-            || action_ids.iter().any(|id| *id == Digest384::ZERO)
+            || action_ids.contains(&Digest384::ZERO)
             || action_ids.windows(2).any(|pair| pair[0] >= pair[1])
         {
             return Err(AssetDefinitionError::InvalidLifecycleTransition);
