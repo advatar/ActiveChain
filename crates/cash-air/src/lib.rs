@@ -35,6 +35,7 @@ mod ml_dsa_matrix_vector;
 mod ml_dsa_ntt;
 mod ml_dsa_ntt_multiply;
 mod ml_dsa_reconstruction;
+mod ml_dsa_sample_in_ball;
 mod ml_dsa_t1_precompute;
 mod ml_dsa_vector_accumulation;
 mod ml_dsa_vector_subtract;
@@ -73,6 +74,9 @@ pub use ml_dsa_ntt_multiply::{
 };
 pub use ml_dsa_reconstruction::{
     MlDsa44ReconstructionStarkProof, prove_ml_dsa44_reconstruction, verify_ml_dsa44_reconstruction,
+};
+pub use ml_dsa_sample_in_ball::{
+    MlDsa44SampleInBallStarkProof, prove_ml_dsa44_sample_in_ball, verify_ml_dsa44_sample_in_ball,
 };
 pub use ml_dsa_t1_precompute::{
     MlDsa44T1PrecomputeStarkProof, prove_ml_dsa44_t1_precompute, verify_ml_dsa44_t1_precompute,

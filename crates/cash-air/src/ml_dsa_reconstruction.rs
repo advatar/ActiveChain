@@ -38,7 +38,7 @@ pub fn prove_ml_dsa44_reconstruction(
     matrix: &Matrix,
     t1: &Vector,
     z: &Vector,
-    challenge: &Polynomial,
+    challenge_seed: &[u8; 32],
     hints: &HintVector,
 ) -> Result<(MlDsa44ReconstructionStarkProof, Vector), &'static str> {
     validate_z(z)?;
@@ -48,7 +48,7 @@ pub fn prove_ml_dsa44_reconstruction(
     let (z_ntt_3, z_hat_3) = prove_ml_dsa_ntt(&z[3])?;
     let z_hat = [z_hat_0, z_hat_1, z_hat_2, z_hat_3];
     let (matrix_product, az_hat) = prove_ml_dsa44_matrix_vector(matrix, &z_hat)?;
-    let (challenge_product, ct1_hat) = prove_ml_dsa44_challenge_product(t1, challenge)?;
+    let (challenge_product, ct1_hat) = prove_ml_dsa44_challenge_product(t1, challenge_seed)?;
     let (subtraction, difference_hat) = prove_ml_dsa44_vector_subtract(&az_hat, &ct1_hat)?;
     let (inverse_0, approximation_0) = prove_ml_dsa_inverse_ntt(&difference_hat[0])?;
     let (inverse_1, approximation_1) = prove_ml_dsa_inverse_ntt(&difference_hat[1])?;
@@ -79,7 +79,7 @@ pub fn verify_ml_dsa44_reconstruction(
     matrix: &Matrix,
     t1: &Vector,
     z: &Vector,
-    challenge: &Polynomial,
+    challenge_seed: &[u8; 32],
     hints: &HintVector,
     output: &Vector,
 ) -> Result<(), &'static str> {
@@ -88,7 +88,7 @@ pub fn verify_ml_dsa44_reconstruction(
         verify_ml_dsa_ntt(ntt_proof, &z[index], &proof.z_hat[index])?;
     }
     verify_ml_dsa44_matrix_vector(proof.matrix_product, matrix, &proof.z_hat, &proof.az_hat)?;
-    verify_ml_dsa44_challenge_product(proof.challenge_product, t1, challenge, &proof.ct1_hat)?;
+    verify_ml_dsa44_challenge_product(proof.challenge_product, t1, challenge_seed, &proof.ct1_hat)?;
     verify_ml_dsa44_vector_subtract(
         proof.subtraction,
         &proof.az_hat,
@@ -119,7 +119,7 @@ fn validate_z(z: &Vector) -> Result<(), &'static str> {
 mod tests {
     use super::*;
 
-    fn fixture() -> (Matrix, Vector, Vector, Polynomial, HintVector) {
+    fn fixture() -> (Matrix, Vector, Vector, [u8; 32], HintVector) {
         let matrix = core::array::from_fn(|row| {
             core::array::from_fn(|column| {
                 core::array::from_fn(|index| {
@@ -141,15 +141,11 @@ mod tests {
                 }
             })
         });
-        let mut challenge = [0_u32; ML_DSA_NTT_COEFFICIENTS];
-        for index in 0..39 {
-            let position = (index * 53 + 7) % ML_DSA_NTT_COEFFICIENTS;
-            challenge[position] = if index % 2 == 0 { 1 } else { ML_DSA_Q - 1 };
-        }
+        let challenge_seed = core::array::from_fn(|index| (index * 13 + 7) as u8);
         let hints = core::array::from_fn(|polynomial| {
             core::array::from_fn(|index| (index + polynomial) % 11 == 0)
         });
-        (matrix, t1, z, challenge, hints)
+        (matrix, t1, z, challenge_seed, hints)
     }
 
     #[test]
