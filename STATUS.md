@@ -681,7 +681,7 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
   cash snapshot plus quorum finality bundle consumed by the fail-closed ingestion runner.
 - [x] Load a real device wallet profile and remove the hard-coded unavailable dashboard path;
   balances remain fail-closed until the linked verifier accepts finalized owner proofs.
-- [ ] Extend Kanalen ingestion/rehearsal, add adversarial tests, deploy, and verify the public RPC.
+- [x] Extend Kanalen ingestion/rehearsal, add adversarial tests, deploy, and verify the public RPC.
   - [x] Repair canonical schema-5 validator safety-snapshot migration so the live chain can retain
     its consensus state while adopting schema-6 view-change and timeout fields.
   - [x] Run all three validator listeners and make round orchestration rotate through candidates,
@@ -690,7 +690,7 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
     certificate and its successor certified block fit without relaxing oversized-frame rejection.
   - [x] Make RPC ingestion consume the canonical crash-journal cash snapshot and independently
     verify it against the separately published quorum finality bundle.
-  - [ ] Update the public TLS probe to the current canonical RPC request and response type tags.
+  - [x] Update the public TLS probe to the current canonical RPC request and response type tags.
 - [x] Verify the currently deployed Kanalen testnet independently over localhost on the host:
   chain/genesis identity matches, finalized height advances to 4168, and health reports `Healthy`.
 - [x] Deploy the schema-2 RPC binary and matching probe without changing validator binaries or
