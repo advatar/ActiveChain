@@ -6,7 +6,7 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Tracked by [GitHub issue #727](https://github.com/advatar/ActiveChain/issues/727).
 
-- [ ] Replace redundant cloning of copyable fungible-asset policies without changing test
+- [x] Replace redundant cloning of copyable fungible-asset policies without changing test
   semantics.
 - [ ] Pass application-primitives tests, strict workspace Clippy, and the deterministic-kernel
   gate; merge the dependency chain to `main` and verify reachability.

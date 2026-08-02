@@ -755,7 +755,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("multi-asset-ledger.bin");
         let (snapshot, asset_a, asset_b, issuer) = multi_asset_fixture();
-        let before_b = snapshot.policy(asset_b).unwrap().clone();
+        let before_b = *snapshot.policy(asset_b).unwrap();
         let policy_a = snapshot.policy(asset_a).unwrap();
         let mint = FungibleMintV1::new(asset_a, issuer, PrincipalId::new(digest(30)), 10, 50, 200)
             .unwrap();
@@ -802,17 +802,14 @@ mod tests {
         assert_eq!(
             MultiAssetLedgerSnapshotV1::new(
                 snapshot.cells().clone(),
-                vec![snapshot.policy(asset_a).unwrap().clone()]
+                vec![*snapshot.policy(asset_a).unwrap()]
             ),
             Err(FungibleTransferPersistenceError::InvalidState)
         );
         assert_eq!(
             MultiAssetLedgerSnapshotV1::new(
                 snapshot.cells().clone(),
-                vec![
-                    snapshot.policy(asset_b).unwrap().clone(),
-                    snapshot.policy(asset_a).unwrap().clone()
-                ]
+                vec![*snapshot.policy(asset_b).unwrap(), *snapshot.policy(asset_a).unwrap()]
             ),
             Err(FungibleTransferPersistenceError::InvalidState)
         );
@@ -828,7 +825,7 @@ mod tests {
             FungibleAssetLifecycle::Registered,
         )
         .unwrap();
-        let mut policies = vec![mismatched, snapshot.policy(asset_b).unwrap().clone()];
+        let mut policies = vec![mismatched, *snapshot.policy(asset_b).unwrap()];
         policies.sort_by_key(|policy| policy.asset_id());
         assert_eq!(
             MultiAssetLedgerSnapshotV1::new(snapshot.cells().clone(), policies),
