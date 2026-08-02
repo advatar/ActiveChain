@@ -2163,8 +2163,8 @@ Detailed remaining implementation slices:
 - [x] Publish deterministic DID controller lifecycle vectors covering create, update, deactivation,
   zero identities, previous-commitment, and authorization failures.
 - [x] Add domain-separated operation commitments for replay-safe DID lifecycle indexing.
-- [ ] Add ML-DSA rotation, ML-KEM agreement, SLH-DSA recovery, deactivation, and DID test vectors.
-- [ ] Add ENS alias records without treating ENS control as protocol authorization.
+- [x] Add ML-DSA rotation, ML-KEM agreement, SLH-DSA recovery, deactivation, and DID test vectors.
+- [x] Add ENS alias records without treating ENS control as protocol authorization.
 - [x] Freeze the VCIssuer-to-ActiveChain handoff for OpenID4VCI-issued SD-JWT VC and mdoc
   presentations as a bounded commitment-only, assurance-preserving, action-bound canonical value.
 - [x] Implement the governed `ExternalIssuerBindingV1` and finalized bounded registry: stable
@@ -2191,8 +2191,10 @@ Detailed remaining implementation slices:
   VCIssuer, and EUWallet with positive and named-boundary negative vectors (#446).
 - [x] Prove bounded external identity authenticity, schema/holder/status/context/replay safety,
   authority separation, assurance monotonicity, minimization, and Rust/model parity (#447).
-- [ ] Complete wallet OpenID4VP transport, consent UX, live trust/status adapters, cross-repository
-  vectors, device qualification, and independent interoperability review.
+- [x] Complete wallet OpenID4VP transport, consent UX, live trust/status adapters, and
+  cross-repository vectors.
+- [ ] Complete physical-device qualification and independent interoperability/privacy/security
+  review ([#569](https://github.com/advatar/ActiveChain/issues/569)).
 
 ## Active milestone — OpenWallet-aligned ActiveChain wallet
 
