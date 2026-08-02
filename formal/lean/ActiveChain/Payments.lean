@@ -433,4 +433,90 @@ theorem acceptedNtzsCoreAmountMeetsMinimum
     ntzsCoreMinimum kind ≤ amount := by
   exact hAccepted
 
+/-! Finalized refund accounting retained by the complete settlement aggregate. -/
+structure RefundAccount where
+  settled : Nat
+  refunded : Nat
+  nextSequence : Nat
+  deriving BEq, DecidableEq, Repr
+
+def admitRefund
+    (current : RefundAccount)
+    (amount sequence : Nat) : Option RefundAccount :=
+  if amount = 0 then none
+  else if sequence = current.nextSequence then
+    if current.refunded + amount ≤ current.settled then
+      some { current with
+        refunded := current.refunded + amount
+        nextSequence := current.nextSequence + 1 }
+    else none
+  else none
+
+theorem acceptedRefundPreservesConservationAndSequence
+    (current next : RefundAccount)
+    (amount sequence : Nat)
+    (accepted : admitRefund current amount sequence = some next) :
+    next.refunded ≤ next.settled ∧
+      sequence = current.nextSequence ∧
+      next.nextSequence = current.nextSequence + 1 := by
+  simp [admitRefund] at accepted
+  rcases accepted with ⟨_, rfl, hBound, rfl⟩
+  exact ⟨hBound, rfl, rfl⟩
+
+theorem rejectedRefundDoesNotProduceSuccessor
+    (current : RefundAccount)
+    (amount sequence : Nat)
+    (zero : amount = 0) :
+    admitRefund current amount sequence = none := by
+  simp [admitRefund, zero]
+
+/-! Exact treasury budget and nonce successor. -/
+structure TreasuryAccount where
+  budget : Nat
+  spent : Nat
+  nextNonce : Nat
+  deriving BEq, DecidableEq, Repr
+
+def authorizeTreasuryDebit
+    (current : TreasuryAccount)
+    (amount nonce : Nat) : Option TreasuryAccount :=
+  if amount = 0 then none
+  else if nonce = current.nextNonce then
+    if current.spent + amount ≤ current.budget then
+      some { current with
+        spent := current.spent + amount
+        nextNonce := current.nextNonce + 1 }
+    else none
+  else none
+
+theorem acceptedTreasuryDebitPreservesBudgetAndNonce
+    (current next : TreasuryAccount)
+    (amount nonce : Nat)
+    (accepted : authorizeTreasuryDebit current amount nonce = some next) :
+    next.spent ≤ next.budget ∧
+      nonce = current.nextNonce ∧
+      next.nextNonce = current.nextNonce + 1 := by
+  simp [authorizeTreasuryDebit] at accepted
+  rcases accepted with ⟨_, rfl, hBound, rfl⟩
+  exact ⟨hBound, rfl, rfl⟩
+
+/-! Webhook delivery advances only for a retained payment intent and the exact cursor. -/
+def advanceWebhookCursor
+    (intentRetained : Bool)
+    (expected supplied : Nat) : Option Nat :=
+  if intentRetained && supplied == expected then some (expected + 1) else none
+
+theorem acceptedWebhookRequiresRetainedIntentAndExactCursor
+    (intentRetained : Bool)
+    (expected supplied next : Nat)
+  (accepted : advanceWebhookCursor intentRetained expected supplied = some next) :
+    intentRetained = true ∧ supplied = expected ∧ next = expected + 1 := by
+  simp [advanceWebhookCursor] at accepted
+  exact ⟨accepted.1.1, accepted.1.2, accepted.2.symm⟩
+
+theorem missingIntentCannotAdvanceWebhook
+    (expected supplied : Nat) :
+    advanceWebhookCursor false expected supplied = none := by
+  simp [advanceWebhookCursor]
+
 end ActiveChain.Payments
