@@ -37,6 +37,7 @@ const TOTAL_PUBLIC_VALUES: usize = STATE_PUBLIC_VALUES * 2;
 pub const CASH_AIR_SHAKE_SUITE_ID: u32 = 0xCA50_0301;
 const KECCAK_ROUNDS: usize = 24;
 pub const MAX_CASH_SHAKE_MESSAGE: usize = 512;
+pub const MAX_CASH_SHAKE_XOF_OUTPUT: usize = 16_384;
 /// Maximum number of Keccak permutations aggregated into one FRI proof.
 ///
 /// A complete authenticated Coin Cell mutation needs 772 SHAKE messages. Keeping
@@ -165,6 +166,29 @@ pub struct KeccakPermutationStarkProof {
 pub struct Shake256StarkProof {
     permutations: Vec<KeccakPermutationStarkProof>,
     digest: [u8; 48],
+}
+
+pub struct Shake256XofStarkProof {
+    proof: Proof<Config>,
+    output: Vec<u8>,
+    permutation_count: usize,
+}
+
+impl Shake256XofStarkProof {
+    #[must_use]
+    pub const fn suite_id() -> u32 {
+        CASH_AIR_SHAKE_SUITE_ID
+    }
+
+    #[must_use]
+    pub fn output(&self) -> &[u8] {
+        &self.output
+    }
+
+    #[must_use]
+    pub const fn permutation_count(&self) -> usize {
+        self.permutation_count
+    }
 }
 
 impl Shake256StarkProof {
@@ -320,6 +344,42 @@ pub fn verify_shake256_384_batch(
         .map_err(|_| "batched SHAKE proof verification failed")
 }
 
+pub fn prove_shake256_xof(
+    message: &[u8],
+    output_length: usize,
+) -> Result<Shake256XofStarkProof, &'static str> {
+    let (bindings, inputs, output) = xof_witness(message, output_length)?;
+    let permutation_count = inputs.len();
+    let air = OrderedBatchKeccakAir { bindings };
+    let trace = generate_trace_rows::<Val>(inputs, 1);
+    let degree_bits = trace.height().ilog2() as usize;
+    let config = config();
+    let (preprocessed, _) = setup_preprocessed(&config, &air, degree_bits)
+        .ok_or("missing SHAKE XOF Keccak binding table")?;
+    let proof = prove_with_preprocessed(&config, &air, trace, &[], Some(&preprocessed));
+    Ok(Shake256XofStarkProof { proof, output, permutation_count })
+}
+
+pub fn verify_shake256_xof(
+    proof: &Shake256XofStarkProof,
+    message: &[u8],
+    expected_output: &[u8],
+) -> Result<(), &'static str> {
+    let (bindings, _, output) = xof_witness(message, expected_output.len())?;
+    if proof.permutation_count != bindings.len()
+        || proof.output != expected_output
+        || output != expected_output
+    {
+        return Err("SHAKE XOF shape or output mismatch");
+    }
+    let air = OrderedBatchKeccakAir { bindings };
+    let config = config();
+    let (_, verifier_key) = setup_preprocessed(&config, &air, proof.proof.degree_bits)
+        .ok_or("missing SHAKE XOF Keccak binding table")?;
+    verify_with_preprocessed(&config, &air, &proof.proof, &[], Some(&verifier_key))
+        .map_err(|_| "SHAKE XOF proof verification failed")
+}
+
 impl Shake256StarkProof {
     #[must_use]
     pub const fn digest(&self) -> [u8; 48] {
@@ -440,7 +500,39 @@ fn permuted_state(mut state: [u64; STATE_LANES]) -> [u64; STATE_LANES] {
 
 type BatchWitness =
     (Vec<([u64; STATE_LANES], [u64; STATE_LANES])>, Vec<[u64; STATE_LANES]>, Vec<[u8; 48]>);
+type XofWitness = (Vec<([u64; STATE_LANES], [u64; STATE_LANES])>, Vec<[u64; STATE_LANES]>, Vec<u8>);
 type AuthenticatedTranscriptBatch = (Vec<Vec<u8>>, Vec<[u8; 48]>);
+
+fn xof_witness(message: &[u8], output_length: usize) -> Result<XofWitness, &'static str> {
+    if output_length == 0 || output_length > MAX_CASH_SHAKE_XOF_OUTPUT {
+        return Err("SHAKE XOF output length is out of bounds");
+    }
+    let mut bindings = Vec::new();
+    let mut inputs = Vec::new();
+    let mut state = [0_u64; STATE_LANES];
+    for block in padded_blocks(message)? {
+        absorb(&mut state, &block);
+        let pre = state;
+        state = permuted_state(state);
+        bindings.push((pre, state));
+        inputs.push(pre);
+    }
+
+    let mut output = Vec::with_capacity(output_length);
+    loop {
+        let rate = squeeze_rate(&state);
+        let take = (output_length - output.len()).min(RATE_BYTES);
+        output.extend_from_slice(&rate[..take]);
+        if output.len() == output_length {
+            break;
+        }
+        let pre = state;
+        state = permuted_state(state);
+        bindings.push((pre, state));
+        inputs.push(pre);
+    }
+    Ok((bindings, inputs, output))
+}
 
 fn batch_witness(messages: &[Vec<u8>]) -> Result<BatchWitness, &'static str> {
     let mut bindings = Vec::new();
@@ -558,6 +650,14 @@ fn squeeze_384(state: &[u64; STATE_LANES]) -> [u8; 48] {
     output
 }
 
+fn squeeze_rate(state: &[u64; STATE_LANES]) -> [u8; RATE_BYTES] {
+    let mut output = [0_u8; RATE_BYTES];
+    for (index, chunk) in output.chunks_exact_mut(8).enumerate() {
+        chunk.copy_from_slice(&state[index].to_le_bytes());
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use activechain_cash_kernel::{
@@ -579,6 +679,14 @@ mod tests {
         let mut hasher = Shake256::default();
         hasher.update(message);
         let mut output = [0_u8; 48];
+        hasher.finalize_xof().read(&mut output);
+        output
+    }
+
+    fn reference_xof(message: &[u8], output_length: usize) -> Vec<u8> {
+        let mut hasher = Shake256::default();
+        hasher.update(message);
+        let mut output = vec![0_u8; output_length];
         hasher.finalize_xof().read(&mut output);
         output
     }
@@ -627,6 +735,32 @@ mod tests {
         let mut wrong = expected;
         wrong[0] ^= 1;
         assert!(verify_shake256_384(&proof, message, wrong).is_err());
+    }
+
+    #[test]
+    fn shake_xof_proves_absorption_and_multiple_squeeze_blocks() {
+        let message = vec![0xa5; RATE_BYTES + 17];
+        let expected = reference_xof(&message, RATE_BYTES * 2 + 1);
+        let proof = prove_shake256_xof(&message, expected.len()).unwrap();
+        assert_eq!(proof.output(), expected);
+        assert_eq!(proof.permutation_count(), 4);
+        verify_shake256_xof(&proof, &message, &expected).unwrap();
+    }
+
+    #[test]
+    fn shake_xof_rejects_message_length_output_and_bound_substitution() {
+        let message = b"ML-DSA bounded XOF";
+        let expected = reference_xof(message, RATE_BYTES + 1);
+        let proof = prove_shake256_xof(message, expected.len()).unwrap();
+
+        assert!(verify_shake256_xof(&proof, b"ML-DSA bounded XOg", &expected).is_err());
+        assert!(verify_shake256_xof(&proof, message, &expected[..RATE_BYTES]).is_err());
+        let mut substituted = expected;
+        substituted[RATE_BYTES] ^= 1;
+        assert!(verify_shake256_xof(&proof, message, &substituted).is_err());
+        assert!(prove_shake256_xof(message, 0).is_err());
+        assert!(prove_shake256_xof(message, MAX_CASH_SHAKE_XOF_OUTPUT + 1).is_err());
+        assert!(prove_shake256_xof(&vec![0; MAX_CASH_SHAKE_MESSAGE + 1], 1).is_err());
     }
 
     #[test]

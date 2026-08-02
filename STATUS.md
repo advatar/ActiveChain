@@ -2228,6 +2228,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
                 NTT with all four `c_hat * t1_2d_hat` product proofs.
           - [x] Compose the complete verifier reconstruction `UseHint(InvNTT(A_hat*z_hat -
                 c_hat*t1_2d_hat), h)` across all four ML-DSA-44 polynomials.
+          - [x] Extend the specialized SHAKE256 AIR to bounded variable-length XOF output,
+                constraining every absorption and squeeze permutation needed by ML-DSA sampling.
           - [x] Constrain ML-DSA-44 public-key/signature bit unpacking, `z` infinity-norm range,
                 and canonical hint decoding, exposing exact decoded verifier inputs.
           - [x] Constrain ML-DSA-44 `UseHint` decomposition, signed low bits, adjustment branches,
