@@ -1221,15 +1221,41 @@ impl FungibleControllerStateV1 {
         rotation: &FungibleControllerRotationV1,
         height: u64,
     ) -> Result<(FungibleAssetPolicyV1, Self), AssetDefinitionError> {
+        let policy_commitment =
+            policy.commitment().map_err(|_| AssetDefinitionError::InvalidSupplyTransition)?;
+        let controller_state_commitment =
+            self.commitment().map_err(|_| AssetDefinitionError::InvalidSupplyTransition)?;
+        let next_policy =
+            FungibleAssetPolicyV1 { authority_set: rotation.replacement_authority_set, ..*policy };
+        let next_policy_commitment =
+            next_policy.commitment().map_err(|_| AssetDefinitionError::InvalidSupplyTransition)?;
+        self.apply_rotation_with_verified_commitments(
+            policy,
+            rotation,
+            height,
+            policy_commitment,
+            controller_state_commitment,
+            next_policy_commitment,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn apply_rotation_with_verified_commitments(
+        &self,
+        policy: &FungibleAssetPolicyV1,
+        rotation: &FungibleControllerRotationV1,
+        height: u64,
+        policy_commitment: Digest384,
+        controller_state_commitment: Digest384,
+        next_policy_commitment: Digest384,
+    ) -> Result<(FungibleAssetPolicyV1, Self), AssetDefinitionError> {
         if self.asset_id != policy.asset_id
             || self.issuer != policy.issuer
             || self.authority_set != policy.authority_set
-            || self.policy_commitment
-                != policy.commitment().map_err(|_| AssetDefinitionError::InvalidSupplyTransition)?
+            || self.policy_commitment != policy_commitment
             || rotation.asset_id != self.asset_id
             || rotation.issuer != self.issuer
-            || rotation.controller_state_commitment
-                != self.commitment().map_err(|_| AssetDefinitionError::InvalidSupplyTransition)?
+            || rotation.controller_state_commitment != controller_state_commitment
             || rotation.current_authority_set != self.authority_set
             || rotation.expected_revision != self.revision
             || !rotation.active_at(height)
@@ -1240,7 +1266,13 @@ impl FungibleControllerStateV1 {
             self.revision.checked_add(1).ok_or(AssetDefinitionError::InvalidSupplyTransition)?;
         let next_policy =
             FungibleAssetPolicyV1 { authority_set: rotation.replacement_authority_set, ..*policy };
-        let next_state = Self::from_policy(&next_policy, revision)?;
+        let next_state = Self {
+            asset_id: next_policy.asset_id,
+            issuer: next_policy.issuer,
+            policy_commitment: next_policy_commitment,
+            authority_set: next_policy.authority_set,
+            revision,
+        };
         Ok((next_policy, next_state))
     }
 }
@@ -2477,6 +2509,102 @@ mod kani_proofs {
         assert!(!attestation.binds_policy_fields(&current, Digest384::new([9; 48])));
         assert_eq!(attestation.supply_issued(), current.supply_issued());
         assert_eq!(attestation.asset_id(), current.asset_id());
+    }
+
+    #[kani::proof]
+    fn controller_rotation_changes_only_authority_and_advances_revision_once() {
+        let current = policy(100, 1_000);
+        let policy_commitment = Digest384::new([9; 48]);
+        let controller_state_commitment = Digest384::new([10; 48]);
+        let next_policy_commitment = Digest384::new([11; 48]);
+        let state = FungibleControllerStateV1 {
+            asset_id: current.asset_id(),
+            issuer: current.issuer(),
+            policy_commitment,
+            authority_set: current.authority_set(),
+            revision: 7,
+        };
+        let replacement = Digest384::new([7; 48]);
+        let rotation = FungibleControllerRotationV1::new(
+            current.asset_id(),
+            current.issuer(),
+            controller_state_commitment,
+            current.authority_set(),
+            replacement,
+            Digest384::new([8; 48]),
+            7,
+            10,
+            20,
+        )
+        .unwrap();
+        let (next, next_state) = state
+            .apply_rotation_with_verified_commitments(
+                &current,
+                &rotation,
+                10,
+                policy_commitment,
+                controller_state_commitment,
+                next_policy_commitment,
+            )
+            .unwrap();
+        assert_eq!(next.asset_id(), current.asset_id());
+        assert_eq!(next.issuer(), current.issuer());
+        assert_eq!(next.supply_cap(), current.supply_cap());
+        assert_eq!(next.supply_issued(), current.supply_issued());
+        assert_eq!(next.lifecycle(), current.lifecycle());
+        assert_eq!(next.authority_set(), replacement);
+        assert_eq!(next_state.asset_id, current.asset_id());
+        assert_eq!(next_state.issuer, current.issuer());
+        assert_eq!(next_state.authority_set, replacement);
+        assert_eq!(next_state.revision(), 8);
+        assert_eq!(next_state.policy_commitment, next_policy_commitment);
+    }
+
+    #[kani::proof]
+    fn controller_rotation_rejects_substitution_and_invalid_height() {
+        let selector: u8 = kani::any();
+        let height: u64 = kani::any();
+        kani::assume(selector <= 6);
+        let current = policy(100, 1_000);
+        let policy_commitment = Digest384::new([9; 48]);
+        let controller_state_commitment = Digest384::new([10; 48]);
+        let next_policy_commitment = Digest384::new([11; 48]);
+        let state = FungibleControllerStateV1 {
+            asset_id: current.asset_id(),
+            issuer: current.issuer(),
+            policy_commitment,
+            authority_set: current.authority_set(),
+            revision: 7,
+        };
+        let rotation = FungibleControllerRotationV1::new(
+            if selector == 1 { AssetId::new(Digest384::new([12; 48])) } else { current.asset_id() },
+            if selector == 2 {
+                PrincipalId::new(Digest384::new([12; 48]))
+            } else {
+                current.issuer()
+            },
+            if selector == 4 { Digest384::new([12; 48]) } else { controller_state_commitment },
+            if selector == 5 { Digest384::new([12; 48]) } else { current.authority_set() },
+            Digest384::new([7; 48]),
+            Digest384::new([8; 48]),
+            if selector == 6 { 8 } else { 7 },
+            10,
+            20,
+        )
+        .unwrap();
+        assert_eq!(
+            state
+                .apply_rotation_with_verified_commitments(
+                    &current,
+                    &rotation,
+                    height,
+                    if selector == 3 { Digest384::new([12; 48]) } else { policy_commitment },
+                    controller_state_commitment,
+                    next_policy_commitment,
+                )
+                .is_ok(),
+            selector == 0 && (10..20).contains(&height)
+        );
     }
 
     #[kani::proof]
