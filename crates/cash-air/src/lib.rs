@@ -29,6 +29,7 @@ mod aggregation;
 mod ml_dsa_challenge_product;
 mod ml_dsa_decoding;
 mod ml_dsa_expanda;
+mod ml_dsa_final_challenge;
 mod ml_dsa_hint;
 mod ml_dsa_inverse_ntt;
 mod ml_dsa_matrix_vector;
@@ -56,6 +57,10 @@ pub use ml_dsa_decoding::{
 };
 pub use ml_dsa_expanda::{
     MlDsa44ExpandAStarkProof, prove_ml_dsa44_expand_a, verify_ml_dsa44_expand_a,
+};
+pub use ml_dsa_final_challenge::{
+    MlDsa44FinalChallengeStarkProof, MlDsa44VerifierStarkProof, prove_ml_dsa44_final_challenge,
+    prove_ml_dsa44_verifier, verify_ml_dsa44_final_challenge, verify_ml_dsa44_verifier,
 };
 pub use ml_dsa_hint::{
     MlDsa44UseHintStarkProof, prove_ml_dsa44_use_hint, verify_ml_dsa44_use_hint,
@@ -97,11 +102,11 @@ pub use shake::{
     AuthenticatedCashShakeStarkProof, BatchedShake256StarkProof,
     MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_CHUNK,
     MAX_AUTHENTICATED_SHAKE_PERMUTATIONS_PER_COMPOSITE, MAX_CASH_SHAKE_MESSAGE,
-    MAX_CASH_SHAKE_XOF_OUTPUT, Shake128XofStarkProof, Shake256StarkProof, Shake256XofStarkProof,
-    authenticated_cash_shake_permutation_count, prove_authenticated_cash_shake, prove_shake128_xof,
-    prove_shake256_384, prove_shake256_384_batch, prove_shake256_xof,
-    verify_authenticated_cash_shake, verify_shake128_xof, verify_shake256_384,
-    verify_shake256_384_batch, verify_shake256_xof,
+    MAX_CASH_SHAKE_XOF_MESSAGE, MAX_CASH_SHAKE_XOF_OUTPUT, Shake128XofStarkProof,
+    Shake256StarkProof, Shake256XofStarkProof, authenticated_cash_shake_permutation_count,
+    prove_authenticated_cash_shake, prove_shake128_xof, prove_shake256_384,
+    prove_shake256_384_batch, prove_shake256_xof, verify_authenticated_cash_shake,
+    verify_shake128_xof, verify_shake256_384, verify_shake256_384_batch, verify_shake256_xof,
 };
 
 /// Registered CashAIR suite identifier. The composite suite explicitly consists

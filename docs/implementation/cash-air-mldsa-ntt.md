@@ -49,14 +49,18 @@ polynomial.
 The reconstruction proof now composes the complete four-polynomial verifier arithmetic path:
 `z` range validation and forward NTT, `A_hat * z_hat`, `c_hat * t1_2d_hat`, modular subtraction,
 inverse NTT, and `UseHint`. The matrix and sparse challenge are now derived from `rho` and
-`c_tilde` through proved SHAKE streams. Proving the final
-`c_tilde = H(mu || w1Encode(w1))` equality and composing every table with the session statement
-remain the end-to-end cryptographic boundaries.
+`c_tilde` through proved SHAKE streams. The final-challenge composition canonically packs all four
+`w1` polynomials at six bits per coefficient, proves SHAKE256 over the exact 64-byte `mu` plus
+768-byte `w1Encode(w1)` transcript, and requires its 32-byte output to equal the decoded signature
+`c_tilde`. Composing every table with the decoded key/signature and session statement remains the
+end-to-end boundary.
 
 The specialized Keccak AIR now also proves bounded SHAKE256 XOF output up to 16,384 bytes in one
-ordered trace. It binds the padded absorption chain and every additional squeeze permutation,
-providing the variable-length transcript boundary required by matrix expansion and challenge
-rejection sampling rather than treating bytes beyond the first 48 as unproved host output.
+ordered trace and accepts bounded XOF messages up to 1,024 bytes, enough for the 832-byte final
+ML-DSA-44 challenge transcript. It binds the padded absorption chain and every additional squeeze
+permutation, providing the variable-length transcript boundary required by matrix expansion and
+challenge rejection sampling rather than treating bytes beyond the first 48 as unproved host
+output.
 
 `ExpandA` uses SHAKE128, so its proof uses the same ordered Keccak AIR with the FIPS SHAKE128
 168-byte rate. For each of the 16 `rho || column || row` streams it proves the exact XOF prefix,
