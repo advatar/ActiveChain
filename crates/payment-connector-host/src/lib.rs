@@ -3680,6 +3680,47 @@ mod tests {
         std::fs::remove_file(path).unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn disk_write_limit_cannot_replace_durable_settlement_state() {
+        const CHILD_PATH_ENV: &str = "ACTIVECHAIN_DISK_LIMIT_CHILD_PATH";
+        if let Some(path) = std::env::var_os(CHILD_PATH_ENV) {
+            let mut durable = DurablePaymentSettlementState::open(PathBuf::from(path)).unwrap();
+            let before = durable.snapshot().clone();
+            assert_eq!(
+                durable.finalize_verified_value(&finalized_settlement(124, 95, 110)),
+                Err(JournalError::Persistence)
+            );
+            assert_eq!(durable.snapshot(), &before);
+            return;
+        }
+
+        let path = path("settlement-state-disk-limit");
+        let temporary = path.with_extension("tmp");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&temporary);
+        let durable = chain_submitted_settlement_state(&path);
+        let before = durable.snapshot().clone();
+        let durable_bytes = std::fs::read(&path).unwrap();
+        drop(durable);
+
+        let executable = std::env::current_exe().unwrap();
+        let status = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("ulimit -f 1; exec \"$1\" tests::disk_write_limit_cannot_replace_durable_settlement_state --exact --test-threads=1")
+            .arg("activechain-disk-limit")
+            .arg(executable)
+            .env(CHILD_PATH_ENV, &path)
+            .status()
+            .unwrap();
+        assert!(status.success() || status.code().is_none());
+        assert_eq!(std::fs::read(&path).unwrap(), durable_bytes);
+        assert_eq!(DurablePaymentSettlementState::open(&path).unwrap().snapshot(), &before);
+
+        let _ = std::fs::remove_file(temporary);
+        std::fs::remove_file(path).unwrap();
+    }
+
     #[test]
     fn atomic_refund_requests_join_lifecycle_and_cumulative_accounting() {
         let path = path("atomic-refund-restart");

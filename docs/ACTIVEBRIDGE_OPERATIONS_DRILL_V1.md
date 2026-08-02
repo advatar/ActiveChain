@@ -37,7 +37,7 @@ Run the separate process-level rehearsal with a duration and worker count:
 scripts/rehearse-activebridge-multiprocess-chaos.sh 30 1
 ```
 
-The runner builds the connector-host test executable once and then invokes it directly from five
+The runner builds the connector-host test executable once and then invokes it directly from six
 independent worker modes. This avoids overlapping Cargo builds while continuously exercising:
 
 - 64-intent aggregate load, periodic restart, and exact snapshot comparison;
@@ -45,12 +45,15 @@ independent worker modes. This avoids overlapping Cargo builds while continuousl
 - invalid terminal edges and reordered provider sequences as a partition/reordering boundary; and
 - partial-state and failed atomic-write rejection under repeated write pressure; and
 - real file-descriptor exhaustion under a 128-descriptor process limit, proving the attempted
-  settlement changes neither live memory nor the restart-decoded durable snapshot.
+  settlement changes neither live memory nor the restart-decoded durable snapshot; and
+- real kernel file-size exhaustion in a child writer, proving an I/O failure or kernel termination
+  cannot replace the authoritative snapshot and restart still decodes the exact pre-state.
 
 Every process must complete at least one full iteration and exit successfully. The command emits a
 versioned JSON record containing the duration, process count, and aggregate iteration count only
 after all workers pass.
 
-This remains deterministic simulator evidence except for the real file-descriptor limit. It does
-not impose kernel-level memory or disk exhaustion; interrupt real sockets; contact a live provider; page an operator; or
+This remains deterministic simulator evidence except for the real file-descriptor and file-size
+limits. It does not impose kernel-level memory exhaustion; interrupt real sockets; contact a live
+provider; page an operator; or
 satisfy independent review and staged-pilot requirements.
