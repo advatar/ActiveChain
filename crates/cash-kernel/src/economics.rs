@@ -945,7 +945,7 @@ pub fn register_assignment(
 mod tests {
     use super::*;
     use activechain_canonical_codec::{decode_envelope, encode_envelope};
-    use alloc::vec;
+    use alloc::{format, string::String, vec};
     fn id(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
     }
@@ -1027,6 +1027,139 @@ mod tests {
         assert_eq!(
             register_assignment(&mut a, assignment()),
             Err(EconomicsError::DuplicateAssignment)
+        );
+    }
+
+    /// Refinement claim: the production `register_assignment`/`settle_duty` kernel and the Lean
+    /// model in `formal/lean/ActiveChain/DutySettlement.lean` produce the same observable
+    /// projection for the same step sequence, byte for byte.
+    #[test]
+    fn rust_duty_settlement_matches_frozen_lean_refinement_table() {
+        fn row(
+            name: &str,
+            accepted: bool,
+            assignments: &[DutyAssignment],
+            settlement: Option<&RewardSettlement>,
+        ) -> String {
+            format!(
+                "{name},{},{},{},{},{},{}\n",
+                if accepted { "accept" } else { "reject" },
+                assignments.len(),
+                assignments.iter().filter(|assignment| assignment.settled).count(),
+                settlement.map_or(0, |value| value.reward),
+                settlement.map_or(0, |value| value.bond_return),
+                settlement.map_or(0, |value| value.slash_amount),
+            )
+        }
+
+        fn duty(
+            duty_id: u8,
+            verifier: u8,
+            bond_amount: u128,
+            reward: u128,
+            deadline: u64,
+        ) -> DutyAssignment {
+            DutyAssignment {
+                id: id(duty_id),
+                verifier: principal(verifier),
+                role: VerifierRole::Finality,
+                target: id(200),
+                bond: CoinCellId::new(id(201)),
+                bond_amount,
+                reward,
+                deadline,
+                settled: false,
+            }
+        }
+
+        let mut assignments: Vec<DutyAssignment> = Vec::new();
+        let mut output = row("genesis", true, &assignments, None);
+
+        register_assignment(&mut assignments, duty(1, 2, 100, 7, 10)).unwrap();
+        output.push_str(&row("register", true, &assignments, None));
+
+        let mut unchanged = assignments.clone();
+        assert_eq!(
+            register_assignment(&mut assignments, duty(1, 2, 100, 7, 10)),
+            Err(EconomicsError::DuplicateAssignment)
+        );
+        assert_eq!(assignments, unchanged);
+        output.push_str(&row("register_replay", false, &assignments, None));
+
+        register_assignment(&mut assignments, duty(2, 3, 200, 9, 20)).unwrap();
+        output.push_str(&row("register_second", true, &assignments, None));
+        register_assignment(&mut assignments, duty(3, 4, 50, 5, 5)).unwrap();
+        output.push_str(&row("register_third", true, &assignments, None));
+
+        let receipt = DutyReceipt { assignment: id(1), evidence: id(9), height: 5 };
+        let settlement = settle_duty(&mut assignments, &receipt, principal(2), None).unwrap();
+        assert_eq!(settlement.bond_return + settlement.slash_amount, 100);
+        output.push_str(&row("settle", true, &assignments, Some(&settlement)));
+
+        unchanged = assignments.clone();
+        assert_eq!(
+            settle_duty(&mut assignments, &receipt, principal(2), None),
+            Err(EconomicsError::AlreadySettled)
+        );
+        assert_eq!(assignments, unchanged);
+        output.push_str(&row("settle_replay", false, &assignments, None));
+
+        let slashed_receipt = DutyReceipt { assignment: id(2), evidence: id(9), height: 12 };
+        let fault = ObjectiveFault { assignment: id(2), evidence: id(8), slash_amount: 30 };
+        let slashed =
+            settle_duty(&mut assignments, &slashed_receipt, principal(3), Some(fault)).unwrap();
+        assert_eq!(slashed.bond_return + slashed.slash_amount, 200);
+        assert!(slashed.slash_amount <= 200);
+        output.push_str(&row("settle_slashed", true, &assignments, Some(&slashed)));
+
+        unchanged = assignments.clone();
+        assert_eq!(
+            settle_duty(
+                &mut assignments,
+                &DutyReceipt { assignment: id(3), evidence: id(9), height: 6 },
+                principal(4),
+                None,
+            ),
+            Err(EconomicsError::Expired)
+        );
+        assert_eq!(assignments, unchanged);
+        output.push_str(&row("settle_expired", false, &assignments, None));
+
+        let live_receipt = DutyReceipt { assignment: id(3), evidence: id(9), height: 4 };
+        assert_eq!(
+            settle_duty(&mut assignments, &live_receipt, principal(99), None),
+            Err(EconomicsError::WrongVerifier)
+        );
+        assert_eq!(assignments, unchanged);
+        output.push_str(&row("settle_wrong_verifier", false, &assignments, None));
+
+        assert_eq!(
+            settle_duty(
+                &mut assignments,
+                &DutyReceipt { assignment: id(3), evidence: id(0), height: 4 },
+                principal(4),
+                None,
+            ),
+            Err(EconomicsError::EmptyEvidence)
+        );
+        assert_eq!(assignments, unchanged);
+        output.push_str(&row("settle_empty_evidence", false, &assignments, None));
+
+        assert_eq!(
+            settle_duty(
+                &mut assignments,
+                &live_receipt,
+                principal(4),
+                Some(ObjectiveFault { assignment: id(3), evidence: id(8), slash_amount: 60 }),
+            ),
+            Err(EconomicsError::InvalidSlash)
+        );
+        assert_eq!(assignments, unchanged);
+        output.push_str(&row("settle_excess_slash", false, &assignments, None));
+
+        assert_eq!(
+            output,
+            include_str!("../../../testing/vectors/cash/duty-settlement-model-table.txt")
         );
     }
 

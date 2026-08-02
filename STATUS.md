@@ -1695,6 +1695,12 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
   - [x] Add a byte-identical Rust/Lean cash-lifecycle refinement trace for authorized issuance,
         one-shot reward redemption, shield/unshield conservation, replay rejection, and canonical
         restart; broader unbounded and block-finality refinement remains open.
+  - [x] Prove one-shot verifier duty settlement, exact bond conservation
+        (`bond_return + slash = bond`), bounded slashing, and rejected-settlement state
+        preservation in Lean, with a byte-identical Rust/Lean refinement trace over the production
+        `register_assignment`/`settle_duty` kernel; cryptographic receipt authorization, principal
+        identity, and Coin Cell custody of bonds and rewards remain production-boundary
+        assumptions.
 - [x] Prove DA reconstruction bounds and fail-closed light-client trust transitions in Lean.
 - [x] Prove canonical envelope rejection, commitment binding, and FFI precondition invariants in Lean.
 - [x] Prove bounded principal rotation/recovery/deactivation and direct-delegation attenuation properties.
