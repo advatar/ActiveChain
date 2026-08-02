@@ -1639,13 +1639,30 @@ impl FungibleHolderControlStateV1 {
         action: &FungibleExceptionalControlActionV1,
         height: u64,
     ) -> Result<Self, AssetDefinitionError> {
-        if !policy.binds_definition(definition)
+        let definition_binding = policy.binds_definition(definition);
+        let policy_commitment =
+            policy.commitment().map_err(|_| AssetDefinitionError::InvalidLifecycleTransition)?;
+        self.apply_with_verified_bindings(
+            policy,
+            action,
+            height,
+            definition_binding,
+            policy_commitment,
+        )
+    }
+
+    fn apply_with_verified_bindings(
+        &self,
+        policy: &FungibleExceptionalControlPolicyV1,
+        action: &FungibleExceptionalControlActionV1,
+        height: u64,
+        definition_binding: bool,
+        policy_commitment: Digest384,
+    ) -> Result<Self, AssetDefinitionError> {
+        if !definition_binding
             || action.asset_id != self.asset_id
             || action.holder != self.holder
-            || action.control_policy_commitment
-                != policy
-                    .commitment()
-                    .map_err(|_| AssetDefinitionError::InvalidLifecycleTransition)?
+            || action.control_policy_commitment != policy_commitment
             || action.authority_set != policy.authority_set
             || action.expected_revision != self.revision
             || !action.active_at(height)
@@ -2691,6 +2708,109 @@ mod kani_proofs {
                     &action,
                     height,
                     if selector == 4 { Digest384::new([12; 48]) } else { Digest384::new([9; 48]) },
+                )
+                .is_ok(),
+            selector == 0 && (10..20).contains(&height)
+        );
+    }
+
+    #[kani::proof]
+    fn exceptional_controls_preserve_identity_and_advance_revision_once() {
+        let selector: u8 = kani::any();
+        kani::assume(selector <= 2);
+        let asset = AssetId::new(Digest384::new([1; 48]));
+        let issuer = PrincipalId::new(Digest384::new([2; 48]));
+        let holder = PrincipalId::new(Digest384::new([3; 48]));
+        let authority = Digest384::new([4; 48]);
+        let policy =
+            FungibleExceptionalControlPolicyV1::new(asset, issuer, authority, true, true).unwrap();
+        let kind = match selector {
+            0 => FungibleExceptionalControlKind::Freeze,
+            1 => FungibleExceptionalControlKind::Unfreeze,
+            _ => FungibleExceptionalControlKind::Clawback,
+        };
+        let frozen = selector == 1;
+        let state = FungibleHolderControlStateV1 { asset_id: asset, holder, revision: 7, frozen };
+        let (recipient, amount) = if selector == 2 {
+            (PrincipalId::new(Digest384::new([5; 48])), 10)
+        } else {
+            (holder, 0)
+        };
+        let action = FungibleExceptionalControlActionV1::new(
+            asset,
+            holder,
+            recipient,
+            Digest384::new([6; 48]),
+            authority,
+            Digest384::new([7; 48]),
+            Digest384::new([8; 48]),
+            kind,
+            amount,
+            7,
+            10,
+            20,
+        )
+        .unwrap();
+        let next = state
+            .apply_with_verified_bindings(&policy, &action, 10, true, Digest384::new([6; 48]))
+            .unwrap();
+        assert_eq!(next.asset_id, asset);
+        assert_eq!(next.holder, holder);
+        assert_eq!(next.revision, 8);
+        assert_eq!(next.frozen, selector == 0 || (selector == 2 && frozen));
+    }
+
+    #[kani::proof]
+    fn exceptional_controls_reject_undeclared_substituted_replayed_and_overflow() {
+        let selector: u8 = kani::any();
+        let height: u64 = kani::any();
+        kani::assume(selector <= 10);
+        let asset = AssetId::new(Digest384::new([1; 48]));
+        let issuer = PrincipalId::new(Digest384::new([2; 48]));
+        let holder = PrincipalId::new(Digest384::new([3; 48]));
+        let authority = Digest384::new([4; 48]);
+        let policy =
+            FungibleExceptionalControlPolicyV1::new(asset, issuer, authority, selector != 7, true)
+                .unwrap();
+        let state = FungibleHolderControlStateV1 {
+            asset_id: asset,
+            holder,
+            revision: if selector == 10 { u64::MAX } else { 7 },
+            frozen: selector != 9,
+        };
+        let action = FungibleExceptionalControlActionV1::new(
+            if selector == 2 { AssetId::new(Digest384::new([9; 48])) } else { asset },
+            if selector == 3 { PrincipalId::new(Digest384::new([9; 48])) } else { holder },
+            holder,
+            if selector == 4 { Digest384::new([9; 48]) } else { Digest384::new([6; 48]) },
+            if selector == 5 { Digest384::new([9; 48]) } else { authority },
+            Digest384::new([7; 48]),
+            Digest384::new([8; 48]),
+            if selector == 8 {
+                FungibleExceptionalControlKind::Freeze
+            } else {
+                FungibleExceptionalControlKind::Unfreeze
+            },
+            0,
+            if selector == 6 {
+                8
+            } else if selector == 10 {
+                u64::MAX
+            } else {
+                7
+            },
+            10,
+            20,
+        )
+        .unwrap();
+        assert_eq!(
+            state
+                .apply_with_verified_bindings(
+                    &policy,
+                    &action,
+                    height,
+                    selector != 1,
+                    Digest384::new([6; 48]),
                 )
                 .is_ok(),
             selector == 0 && (10..20).contains(&height)

@@ -1227,6 +1227,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
         once, and rejects every substituted pre-state binding or invalid execution height.
   - [x] Prove lifecycle controls preserve immutable policy economics and reject substituted
         bindings, invalid heights, illegal transitions, and nonzero-supply retirement.
+  - [x] Prove exceptional holder controls enforce declared powers, preserve identity, advance the
+        exact revision once, and reject substitution, replay, invalid height, and overflow.
 - [x] Define canonical corporate-action envelopes for distributions, splits/consolidations,
   coupons, maturity, record-date voting, and redemption offers.
   - [x] Add bounded exact-once corporate-action admission bound to the finalized asset policy,
