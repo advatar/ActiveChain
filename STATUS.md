@@ -1141,10 +1141,14 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
 
 ## Active testnet release qualification
 
-- [ ] Align the Kanalen promotion preflight with validator snapshot schema 6 and bounded execution
+- [x] Align the Kanalen promotion preflight with validator snapshot schema 6 and bounded execution
   snapshot migration, preserve explicit migration overrides and chain/genesis mismatch rejection,
   then deploy and smoke-test the exact merged revision
-  ([GitHub issue #630](https://github.com/advatar/ActiveChain/issues/630)).
+  ([GitHub issue #630](https://github.com/advatar/ActiveChain/issues/630)). Targeted shell,
+  devnet-migration, validator, and indexer tests passed; Kanalen was promoted to merge revision
+  `b9f25c6`, migrated execution schema 3 to schema 5 atomically, retained schema-6 validator state,
+  advanced public finality from height 10,231 through 10,233, and reported
+  `proposals=1 votes=3 rejected=0` over TLS 1.3.
 - [x] Publish a fail-closed development testnet release gate covering validator finality, Coin Cell
   extraction, RPC, faucet ingress, wallet funding, independent-client conformance, and claims.
 - [x] Publish genesis-reset vectors rejecting old proposals, certificates, snapshots, and faucet
