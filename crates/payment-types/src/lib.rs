@@ -1675,6 +1675,12 @@ impl PaymentApiAuthorizationV1 {
     pub const fn operation(&self) -> PaymentApiOperation {
         self.operation
     }
+    pub const fn request_commitment(&self) -> Digest384 {
+        self.request_commitment
+    }
+    pub const fn intent(&self) -> Option<PaymentIntentId> {
+        self.intent
+    }
     pub const fn sequence(&self) -> u64 {
         self.sequence
     }
