@@ -26,6 +26,7 @@ use winterfell::{
 extern crate alloc;
 
 mod aggregation;
+mod ml_dsa_inverse_ntt;
 mod ml_dsa_ntt;
 mod ml_dsa_ntt_multiply;
 mod session;
@@ -34,6 +35,9 @@ pub use aggregation::{
     CashAggregationChildV1, CashAggregationLevel, CashAggregationStatementV1,
     GLOBAL_CASH_PARTITION, MAX_CASH_AGGREGATION_CHILDREN, cash_aggregation_proof_commitment,
     verify_cash_aggregation,
+};
+pub use ml_dsa_inverse_ntt::{
+    MlDsaInverseNttStarkProof, prove_ml_dsa_inverse_ntt, verify_ml_dsa_inverse_ntt,
 };
 pub use ml_dsa_ntt::{
     ML_DSA_NTT_COEFFICIENTS, ML_DSA_Q, MlDsaNttStarkProof, prove_ml_dsa_ntt, verify_ml_dsa_ntt,

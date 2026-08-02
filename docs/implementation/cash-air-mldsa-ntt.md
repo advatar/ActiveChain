@@ -7,8 +7,10 @@ of `zeta = 1753`.
 For every butterfly the AIR proves the modular product, addition, and subtraction relations with
 explicit quotient witnesses. Addition and subtraction wrap selectors are Boolean constrained. The
 verifier rejects coefficients outside `Z_q` and binds every input, intermediate, twiddle, quotient,
-and output field element through public assertions. A separate inverse-NTT implementation checks
-the forward result round-trips exactly.
+and output field element through public assertions. The inverse table constrains the reverse FIPS
+204 butterfly schedule and composes its mandatory `256^-1 mod q` normalization through the
+separately proved `MultiplyNTT` table. Targeted tests prove the forward/inverse round trip and reject
+substituted inputs, outputs, and out-of-range coefficients.
 
 This explicit binding is intentionally conservative and currently expensive: the verifier
 reconstructs the complete public butterfly schedule. It establishes the arithmetic table before a
@@ -16,8 +18,8 @@ reviewed cross-table commitment/permutation argument replaces that development b
 is not yet enabled at validator ingress and does not make an end-to-end in-circuit ML-DSA claim.
 
 Remaining verifier tables include signature/key decoding and range checks, SHAKE-derived matrix and
-challenge sampling, vector/matrix NTT products, inverse NTT, hint application, infinity norms, and
-the final challenge equality, followed by cross-table composition with the session statement.
+challenge sampling, vector/matrix NTT accumulation, hint application, infinity norms, and the final
+challenge equality, followed by cross-table composition with the session statement.
 
 The companion `MultiplyNTT` table now constrains all 256 coefficient-wise products used by FIPS
 204 NTT-domain polynomial multiplication. Each row proves `left × right = output + q × quotient`,

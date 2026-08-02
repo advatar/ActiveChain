@@ -2188,6 +2188,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
                 composition remain separate subgates.
           - [x] Constrain and publicly bind FIPS 204 coefficient-wise `MultiplyNTT` modular
                 products; vector dot-product accumulation remains a separate subgate.
+          - [x] Constrain FIPS 204 inverse-NTT butterflies and compose the mandatory
+                `256^-1 mod q` scaling through the `MultiplyNTT` table.
         - [x] Bind the exact authorized-transfer envelope and ML-DSA-44 verification key into the
           session STARK public inputs, then compose real signature verification at proof admission;
           this binding does not replace the remaining in-circuit ML-DSA arithmetic gate.
