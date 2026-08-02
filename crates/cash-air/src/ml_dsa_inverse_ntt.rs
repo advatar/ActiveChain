@@ -154,11 +154,13 @@ impl Prover for InverseProver {
     }
 }
 
+#[cfg_attr(test, derive(Clone))]
 struct InverseButterflyProof {
     proof: Proof,
     public: InversePublicInputs,
 }
 
+#[cfg_attr(test, derive(Clone))]
 pub struct MlDsaInverseNttStarkProof {
     butterflies: InverseButterflyProof,
     scaling: MlDsaNttMultiplyStarkProof,

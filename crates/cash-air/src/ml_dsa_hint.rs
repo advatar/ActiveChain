@@ -163,6 +163,7 @@ impl Prover for UseHintProver {
     }
 }
 
+#[cfg_attr(test, derive(Clone))]
 pub struct MlDsa44UseHintStarkProof {
     proof: Proof,
     public: UseHintPublicInputs,
