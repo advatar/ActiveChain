@@ -39,16 +39,19 @@ The verifier precomputation proof constrains every decoded `t1` coefficient to i
 NTT of all four scaled polynomials. This supplies the exact cached `t1_2d_hat` operand used by FIPS
 verification; multiplication by the sampled challenge remains a separate table.
 
-The challenge-product proof validates the fixed ML-DSA-44 challenge shape (exactly 39 nonzero
-coefficients, each `+1` or `-1` in `Z_q`), proves its forward NTT, composes the `t1_2d_hat`
-precomputation, and proves all four `c_hat * t1_2d_hat` products. Deriving that sparse polynomial
-from the challenge seed through SHAKE rejection sampling remains an explicit subsequent boundary.
+The challenge-product proof derives the fixed ML-DSA-44 challenge from the decoded 32-byte
+`c_tilde` seed. Its bounded SHAKE256 proof binds the exact Algorithm 29 stream, including the first
+eight sign bytes, rejection-sampled swap indices, and all 39 signed terms. It then proves the
+challenge's forward NTT, composes the `t1_2d_hat` precomputation, and proves all four
+`c_hat * t1_2d_hat` products. A caller can no longer substitute an independently supplied sparse
+polynomial.
 
 The reconstruction proof now composes the complete four-polynomial verifier arithmetic path:
 `z` range validation and forward NTT, `A_hat * z_hat`, `c_hat * t1_2d_hat`, modular subtraction,
-inverse NTT, and `UseHint`. The externally supplied matrix and sparse challenge remain public and
-fully bound; deriving them from `rho` and the challenge seed through SHAKE, then proving the final
-challenge-hash equality, are the remaining end-to-end cryptographic boundaries.
+inverse NTT, and `UseHint`. The matrix and sparse challenge are now derived from `rho` and
+`c_tilde` through proved SHAKE streams. Proving the final
+`c_tilde = H(mu || w1Encode(w1))` equality and composing every table with the session statement
+remain the end-to-end cryptographic boundaries.
 
 The specialized Keccak AIR now also proves bounded SHAKE256 XOF output up to 16,384 bytes in one
 ordered trace. It binds the padded absorption chain and every additional squeeze permutation,
