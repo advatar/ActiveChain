@@ -1220,7 +1220,7 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   fail-closed until an authenticated NFT membership tree is published.
 - [x] Add canonical request round-trip coverage for the NFT query tag and retain unsupported
   proof rejection until the finalized root schema is extended.
-- [ ] Enforce issuer/controller authority, supply conservation, declared controls, and corporate
+- [x] Enforce issuer/controller authority, supply conservation, declared controls, and corporate
   actions in consensus, persistence, authorization, and formal proofs.
   - [x] Admit exact policy/authority/window-bound corporate actions as validator payloads and
     commit their replay-safe registry successor in consensus asset-ledger state.
