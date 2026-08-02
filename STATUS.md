@@ -6,7 +6,7 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Tracked by [GitHub issue #731](https://github.com/advatar/ActiveChain/issues/731).
 
-- [ ] Reconcile the two merged canonical identities with the P-134 machine-readable and published
+- [x] Reconcile the two merged canonical identities with the P-134 machine-readable and published
   cumulative counts without changing staffing estimates or gates.
 - [ ] Pass registry/budget validation, strict workspace Clippy, and the deterministic-kernel gate;
   merge the dependency chain to `main` and verify reachability.
