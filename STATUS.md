@@ -266,7 +266,7 @@ Adversarial context-binding follow-up tracked by
   genesis, so byte-identical authority cannot move between devnet, testnet, and mainnet.
 - [x] Refresh canonical authority vectors and add real ML-DSA verification proving same-chain
   acceptance and cross-chain rejection.
-- [ ] Run targeted protocol-types and verifier tests plus affected strict Clippy, merge the #706
+- [x] Run targeted protocol-types and verifier tests plus affected strict Clippy, merge the #706
   chain-binding slice to `main`, prove reachability, and delete its feature branch.
 - [x] Bind every opaque verified authorization to the exact finalized block height at production
   admission, matching the existing P-110 verifier contract.
