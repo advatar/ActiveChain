@@ -1,0 +1,9 @@
+case	source	field	mutation	expected
+canonical	authority/authority-v1.txt	authenticator_envelope_hex	none	ok
+unregistered_suite	authority/authority-v1.txt	authenticator_envelope_hex	set:48:04	crypto_suite
+wrong_key_length	authority/authority-v1.txt	authenticator_envelope_hex	set_hex:49:002c000102	key_length
+invalid_purpose	authority/authority-v1.txt	authenticator_envelope_hex	set:2008:06	purpose
+incompatible_purpose	authority/authority-v1.txt	authenticator_envelope_hex	set:2008:03	purpose_suite
+validity_inversion	authority/authority-v1.txt	authenticator_envelope_hex	set_u64:2018:41	validity_inversion
+truncated	authority/authority-v1.txt	authenticator_envelope_hex	truncate:1	body_length_mismatch
+trailing	authority/authority-v1.txt	authenticator_envelope_hex	append:00	trailing_data
