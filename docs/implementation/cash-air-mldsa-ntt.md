@@ -18,3 +18,9 @@ is not yet enabled at validator ingress and does not make an end-to-end in-circu
 Remaining verifier tables include signature/key decoding and range checks, SHAKE-derived matrix and
 challenge sampling, vector/matrix NTT products, inverse NTT, hint application, infinity norms, and
 the final challenge equality, followed by cross-table composition with the session statement.
+
+The companion `MultiplyNTT` table now constrains all 256 coefficient-wise products used by FIPS
+204 NTT-domain polynomial multiplication. Each row proves `left × right = output + q × quotient`,
+and the verifier binds both operands, every quotient, and the complete output. Vector dot-product
+accumulation and matrix-row composition remain open rather than being inferred from independent
+pointwise proofs.
