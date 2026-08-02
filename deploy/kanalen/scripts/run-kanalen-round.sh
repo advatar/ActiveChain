@@ -48,9 +48,9 @@ round_complete=0
 proposer_snapshot=
 for validator in 0 1 2; do
   case "$validator" in
-    0) peers="--peer=2@127.0.0.1:49154 --peer=3@127.0.0.1:49155" ;;
-    1) peers="--peer=1@127.0.0.1:49153 --peer=3@127.0.0.1:49155" ;;
-    2) peers="--peer=1@127.0.0.1:49153 --peer=2@127.0.0.1:49154" ;;
+    0) candidate_port=49153; peers="--peer=2@127.0.0.1:49154 --peer=3@127.0.0.1:49155" ;;
+    1) candidate_port=49154; peers="--peer=1@127.0.0.1:49153 --peer=3@127.0.0.1:49155" ;;
+    2) candidate_port=49155; peers="--peer=1@127.0.0.1:49153 --peer=2@127.0.0.1:49154" ;;
   esac
   label="dev.activechain.kanalen.validator$validator"
   plist="$deployment_root/current/launchagents/$label.plist"
@@ -74,6 +74,15 @@ for validator in 0 1 2; do
     proposer_snapshot="$state_root/validator-$validator.snapshot"
   fi
   "$launchctl_bin" bootstrap "$launch_domain" "$plist"
+  attempts=0
+  until nc -z 127.0.0.1 "$candidate_port"; do
+    attempts=$((attempts + 1))
+    test "$attempts" -lt 50 || {
+      echo "validator $validator did not recover its listener" >&2
+      exit 1
+    }
+    sleep 0.1
+  done
   test "$round_complete" -eq 0 || break
 done
 test "$round_complete" -eq 1 || {
