@@ -1023,6 +1023,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
         aggregate without promoting external resolution to ActiveChain finality.
       - [x] Persist treasury policy registration and exact debit authorization inside the complete
         settlement aggregate so budget and nonce state cannot diverge from payment evidence.
+      - [x] Consume authenticated API replay state inside the complete settlement aggregate so an
+        acknowledged authorization cannot diverge from retained payment evidence.
 - [x] Add canonical exact-once partial-refund requests and cumulative settlement-bound accounting.
   - [x] Persist a bounded per-intent refund-state journal atomically across settlement registration
     and every accepted partial refund, rejecting replay and corrupt restart state.

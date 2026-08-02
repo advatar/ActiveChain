@@ -1401,6 +1401,7 @@ pub struct PaymentSettlementStateV1 {
     refunds: RefundJournalV1,
     disputes: DisputeJournalV1,
     treasuries: TreasuryJournalV1,
+    authorizations: ApiAuthorizationJournalV1,
 }
 
 impl PaymentSettlementStateV1 {
@@ -1412,6 +1413,7 @@ impl PaymentSettlementStateV1 {
         refunds: RefundJournalV1,
         disputes: DisputeJournalV1,
         treasuries: TreasuryJournalV1,
+        authorizations: ApiAuthorizationJournalV1,
     ) -> Result<Self, JournalError> {
         if settlements.len() > MAX_PAYMENT_INTENTS
             || settlements.windows(2).any(|pair| pair[0].intent() >= pair[1].intent())
@@ -1461,7 +1463,7 @@ impl PaymentSettlementStateV1 {
         }) {
             return Err(JournalError::InvalidDispute);
         }
-        Ok(Self { requests, settlements, refunds, disputes, treasuries })
+        Ok(Self { requests, settlements, refunds, disputes, treasuries, authorizations })
     }
 
     pub const fn requests(&self) -> &PaymentRequestStateV1 {
@@ -1483,6 +1485,10 @@ impl PaymentSettlementStateV1 {
     pub const fn treasuries(&self) -> &TreasuryJournalV1 {
         &self.treasuries
     }
+
+    pub const fn authorizations(&self) -> &ApiAuthorizationJournalV1 {
+        &self.authorizations
+    }
 }
 
 impl CanonicalEncode for PaymentSettlementStateV1 {
@@ -1494,7 +1500,8 @@ impl CanonicalEncode for PaymentSettlementStateV1 {
         }
         self.refunds.encode(encoder)?;
         self.disputes.encode(encoder)?;
-        self.treasuries.encode(encoder)
+        self.treasuries.encode(encoder)?;
+        self.authorizations.encode(encoder)
     }
 }
 
@@ -1512,6 +1519,7 @@ impl CanonicalDecode for PaymentSettlementStateV1 {
             RefundJournalV1::decode(decoder)?,
             DisputeJournalV1::decode(decoder)?,
             TreasuryJournalV1::decode(decoder)?,
+            ApiAuthorizationJournalV1::decode(decoder)?,
         )
         .map_err(|_| DecodeError::InvalidValue("invalid payment settlement state"))
     }
@@ -1525,7 +1533,8 @@ impl CanonicalType for PaymentSettlementStateV1 {
         + MAX_PAYMENT_INTENTS * PaymentFinalizedSettlementV1::MAX_ENCODED_LEN
         + RefundJournalV1::MAX_ENCODED_LEN
         + DisputeJournalV1::MAX_ENCODED_LEN
-        + TreasuryJournalV1::MAX_ENCODED_LEN;
+        + TreasuryJournalV1::MAX_ENCODED_LEN
+        + ApiAuthorizationJournalV1::MAX_ENCODED_LEN;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1571,6 +1580,7 @@ impl DurablePaymentSettlementState {
                 self.snapshot.refunds.clone(),
                 self.snapshot.disputes.clone(),
                 self.snapshot.treasuries.clone(),
+                self.snapshot.authorizations.clone(),
             )?;
             save_snapshot(&next, &self.path)?;
             self.snapshot = next;
@@ -1595,6 +1605,7 @@ impl DurablePaymentSettlementState {
             self.snapshot.refunds.clone(),
             self.snapshot.disputes.clone(),
             self.snapshot.treasuries.clone(),
+            self.snapshot.authorizations.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1643,6 +1654,7 @@ impl DurablePaymentSettlementState {
             refunds,
             self.snapshot.disputes.clone(),
             self.snapshot.treasuries.clone(),
+            self.snapshot.authorizations.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1701,6 +1713,7 @@ impl DurablePaymentSettlementState {
             refunds,
             self.snapshot.disputes.clone(),
             self.snapshot.treasuries.clone(),
+            self.snapshot.authorizations.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1733,6 +1746,7 @@ impl DurablePaymentSettlementState {
             self.snapshot.refunds.clone(),
             disputes,
             self.snapshot.treasuries.clone(),
+            self.snapshot.authorizations.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1751,6 +1765,7 @@ impl DurablePaymentSettlementState {
             self.snapshot.refunds.clone(),
             disputes,
             self.snapshot.treasuries.clone(),
+            self.snapshot.authorizations.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1766,6 +1781,7 @@ impl DurablePaymentSettlementState {
             self.snapshot.refunds.clone(),
             self.snapshot.disputes.clone(),
             treasuries,
+            self.snapshot.authorizations.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1785,10 +1801,44 @@ impl DurablePaymentSettlementState {
             self.snapshot.refunds.clone(),
             self.snapshot.disputes.clone(),
             treasuries,
+            self.snapshot.authorizations.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
         Ok(())
+    }
+
+    pub fn authorize_api_call(
+        &mut self,
+        authorization: &PaymentApiAuthorizationV1,
+        timestamp: u64,
+    ) -> Result<(), JournalError> {
+        let mut authorizations = self.snapshot.authorizations.clone();
+        authorizations.authorize(authorization, timestamp)?;
+        let next = PaymentSettlementStateV1::new(
+            self.snapshot.requests.clone(),
+            self.snapshot.settlements.clone(),
+            self.snapshot.refunds.clone(),
+            self.snapshot.disputes.clone(),
+            self.snapshot.treasuries.clone(),
+            authorizations,
+        )?;
+        save_snapshot(&next, &self.path)?;
+        self.snapshot = next;
+        Ok(())
+    }
+
+    pub fn authorize_signed_api_call(
+        &mut self,
+        signed: &PaymentApiSignedAuthorizationV1,
+        timestamp: u64,
+    ) -> Result<(), JournalError> {
+        let authorization = signed.authorization();
+        let payload =
+            authorization.signing_payload().map_err(|_| JournalError::InvalidAuthorization)?;
+        verify_ml_dsa44(signed.public_key(), &payload, signed.signature().as_bytes())
+            .map_err(|_| JournalError::InvalidAuthorization)?;
+        self.authorize_api_call(authorization, timestamp)
     }
 }
 
@@ -3164,6 +3214,7 @@ mod tests {
                 RefundJournalV1::default(),
                 DisputeJournalV1::default(),
                 TreasuryJournalV1::default(),
+                ApiAuthorizationJournalV1::default(),
             ),
             Err(JournalError::InvalidLifecycle)
         );
@@ -3362,6 +3413,44 @@ mod tests {
         std::fs::remove_file(&path).unwrap();
         std::fs::create_dir(&path).unwrap();
         assert_eq!(durable.authorize_treasury_debit(&request, 800), Err(JournalError::Persistence));
+        assert_eq!(durable.snapshot(), &before);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn atomic_api_replay_state_survives_restart_and_rejects_replay() {
+        let path = path("atomic-api-replay");
+        let _ = std::fs::remove_file(&path);
+        let mut durable = DurablePaymentSettlementState::open(&path).unwrap();
+        let first = api_authorization(170, 171, 1);
+        durable.authorize_api_call(&first, 150).unwrap();
+        assert_eq!(durable.snapshot().authorizations().states()[0].next_sequence(), 2);
+        assert_eq!(
+            DurablePaymentSettlementState::open(&path).unwrap().snapshot(),
+            durable.snapshot()
+        );
+        let before = durable.snapshot().clone();
+        assert_eq!(
+            durable.authorize_api_call(&first, 150),
+            Err(JournalError::InvalidAuthorization)
+        );
+        assert_eq!(durable.snapshot(), &before);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn atomic_api_failed_write_does_not_consume_authorization() {
+        let directory = path("atomic-api-failure");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("settlement-state.bin");
+        let mut durable = DurablePaymentSettlementState::open(&path).unwrap();
+        let before = durable.snapshot().clone();
+        std::fs::create_dir(&path).unwrap();
+        assert_eq!(
+            durable.authorize_api_call(&api_authorization(172, 173, 1), 150),
+            Err(JournalError::Persistence)
+        );
         assert_eq!(durable.snapshot(), &before);
         std::fs::remove_dir_all(directory).unwrap();
     }
