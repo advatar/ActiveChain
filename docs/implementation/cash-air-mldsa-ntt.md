@@ -23,6 +23,7 @@ challenge equality, followed by cross-table composition with the session stateme
 
 The companion `MultiplyNTT` table now constrains all 256 coefficient-wise products used by FIPS
 204 NTT-domain polynomial multiplication. Each row proves `left × right = output + q × quotient`,
-and the verifier binds both operands, every quotient, and the complete output. Vector dot-product
-accumulation and matrix-row composition remain open rather than being inferred from independent
-pointwise proofs.
+and the verifier binds both operands, every quotient, and the complete output. The ML-DSA-44 vector
+accumulation proof composes four such proofs for a matrix row, then proves the three coefficient-wise
+reduced additions with Boolean wrap witnesses. Full matrix construction and SHAKE-derived matrix
+binding remain open rather than being inferred from an independently supplied row.
