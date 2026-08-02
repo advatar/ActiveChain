@@ -2134,7 +2134,11 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
   - [x] Apply sponsored value transfer, sender change, sponsor fee change, and paymaster budget
         advancement atomically so a rejected sponsorship mutates no state.
 - [x] Implement the first accountable verifier-duty kernel: role-scoped bond lots, one-shot assignments, fixed rewards, receipt validation, and bounded objective penalties.
-- [ ] Add random audit assignments and commit/reveal challenge rewards without passive-verifier inflation.
+- [x] Add random audit assignments and commit/reveal challenge rewards without passive-verifier inflation.
+  - [x] Select one auditor from a canonical eligible set using finalized randomness, target binding,
+        and rejection sampling without modulo bias.
+  - [x] Seal challenge evidence behind a commitment bound to the challenger and duty, enforce reveal
+        and resolution deadlines, and settle the assigned reward at most once.
 - [x] Add deterministic one-shot challenge assignments and bounded challenge reward resolution.
 - [x] Add deterministic fee quotes from base, resource, and congestion components.
 - [ ] Build a reproducible proof-finalized cash throughput benchmark with real PQ, DA, state, and proof work.
