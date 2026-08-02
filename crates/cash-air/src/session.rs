@@ -1,4 +1,5 @@
 use activechain_canonical_codec::encode_envelope;
+use activechain_protocol_types::ML_DSA44_PUBLIC_KEY_LENGTH;
 use activechain_wallet_core::{
     AuthorizedCashTransferV1, CashSessionAdmissionWitnessV1, TransactionIngress, WalletError,
 };
@@ -15,6 +16,11 @@ use winterfell::{
     crypto::{DefaultRandomCoin, MerkleTree, hashers::Blake3_256},
     math::{FieldElement, ToElements, fields::f128::BaseElement},
     matrix::ColMatrix,
+};
+
+use crate::{
+    ML_DSA44_SIGNATURE_LENGTH, MlDsa44CrossTableStarkProof, prove_ml_dsa44_cross_table,
+    verify_ml_dsa44_cross_table,
 };
 
 const BIT_ROWS: usize = 128;
@@ -198,6 +204,12 @@ pub enum CashSessionProofError {
     Proving,
 }
 
+/// Session budget proof composed with the in-circuit ML-DSA-44 verifier tables.
+pub struct AuthorizedCashSessionMlDsaStarkProof {
+    session: CashSessionStarkProof,
+    authorization: MlDsa44CrossTableStarkProof,
+}
+
 impl CashSessionStarkProof {
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -241,6 +253,29 @@ pub fn prove_authorized_session(
     Ok((proof, witness))
 }
 
+/// Proves authoritative session admission and the exact ML-DSA authorization committed by it.
+pub fn prove_authorized_session_mldsa(
+    ingress: &TransactionIngress,
+    authorized: &AuthorizedCashTransferV1,
+    height: u64,
+) -> Result<
+    (AuthorizedCashSessionMlDsaStarkProof, CashSessionAdmissionWitnessV1),
+    CashSessionProofError,
+> {
+    let (session, witness) = prove_authorized_session(ingress, authorized, height)?;
+    let public_key = ingress
+        .authorization_key(authorized.request().signer())
+        .ok_or(CashSessionProofError::Admission(WalletError::UnknownAuthorizationKey))?;
+    let key: &[u8; ML_DSA44_PUBLIC_KEY_LENGTH] = public_key;
+    let signature: &[u8; ML_DSA44_SIGNATURE_LENGTH] =
+        authorized.signature().as_bytes().try_into().map_err(|_| CashSessionProofError::Proving)?;
+    let payload =
+        authorized.request().signing_payload().map_err(|_| CashSessionProofError::Proving)?;
+    let authorization = prove_ml_dsa44_cross_table(key, signature, &payload)
+        .map_err(|_| CashSessionProofError::Proving)?;
+    Ok((AuthorizedCashSessionMlDsaStarkProof { session, authorization }, witness))
+}
+
 pub fn verify_session_budget(
     proof: CashSessionStarkProof,
     witness: &CashSessionAdmissionWitnessV1,
@@ -261,6 +296,29 @@ pub fn verify_authorized_session(
     authorized.verify(public_key).map_err(|_| "cash session ML-DSA authorization is invalid")?;
     let expected = public_inputs(witness, authorization_commitment(authorized, public_key)?)?;
     verify_proof(proof, expected)
+}
+
+/// Verifies the session statement using the composed ML-DSA tables rather than host verification.
+pub fn verify_authorized_session_mldsa(
+    proof: AuthorizedCashSessionMlDsaStarkProof,
+    witness: &CashSessionAdmissionWitnessV1,
+    authorized: &AuthorizedCashTransferV1,
+    public_key: &[u8],
+) -> Result<(), &'static str> {
+    let key: &[u8; ML_DSA44_PUBLIC_KEY_LENGTH] =
+        public_key.try_into().map_err(|_| "cash session ML-DSA public key length is invalid")?;
+    let signature: &[u8; ML_DSA44_SIGNATURE_LENGTH] = authorized
+        .signature()
+        .as_bytes()
+        .try_into()
+        .map_err(|_| "cash session ML-DSA signature length is invalid")?;
+    let payload = authorized
+        .request()
+        .signing_payload()
+        .map_err(|_| "cash session authorization payload encoding failed")?;
+    verify_ml_dsa44_cross_table(proof.authorization, key, signature, &payload)?;
+    let expected = public_inputs(witness, authorization_commitment(authorized, public_key)?)?;
+    verify_proof(proof.session, expected)
 }
 
 fn verify_proof(
