@@ -376,6 +376,84 @@ mod tests {
         );
     }
 
+    /// Pins the prefix-scope attack: a child prefix selector with FEWER
+    /// significant bits covers strictly more identifiers than its parent and
+    /// must not be accepted as an attenuation.
+    #[test]
+    fn prefix_scopes_cannot_be_widened_by_dropping_bits() {
+        let mut bytes = [0; 48];
+        bytes[0] = 0xf0;
+        let narrow = Digest384::new(bytes);
+
+        let mut parent = parent_fields();
+        parent.resource_scope = ResourceSelector::prefix(narrow, 8).expect("normalized prefix");
+        parent.data_scope = DataSelector::prefix(narrow, 8).expect("normalized prefix");
+        let parent = grant(parent, 1);
+
+        let mut child = child_fields();
+        child.resource_scope = ResourceSelector::prefix(narrow, 4).expect("normalized prefix");
+        child.data_scope = DataSelector::prefix(narrow, 8).expect("normalized prefix");
+        assert_eq!(
+            verify_attenuation(&parent, &grant(child, 2)),
+            Err(AttenuationError::ResourceScopeBroadened)
+        );
+
+        let mut child = child_fields();
+        child.resource_scope = ResourceSelector::prefix(narrow, 8).expect("normalized prefix");
+        child.data_scope = DataSelector::prefix(narrow, 4).expect("normalized prefix");
+        assert_eq!(
+            verify_attenuation(&parent, &grant(child, 2)),
+            Err(AttenuationError::DataScopeBroadened)
+        );
+
+        let mut child = child_fields();
+        child.resource_scope = ResourceSelector::prefix(narrow, 12).expect("normalized prefix");
+        child.data_scope = DataSelector::exact(narrow);
+        assert_eq!(verify_attenuation(&parent, &grant(child, 2)), Ok(()));
+    }
+
+    /// Pins the rate-limit window attack: keeping `maximum_uses` while
+    /// lengthening the window multiplies the permitted long-run rate, so a
+    /// window change in either direction must be rejected.
+    #[test]
+    fn rate_limit_windows_cannot_be_lengthened_or_shortened() {
+        let mut parent = parent_fields();
+        parent.rate_limit = Some(RateLimit::new(10, 100).expect("valid rate"));
+        let parent = grant(parent, 1);
+
+        for window in [10, 1_000] {
+            let mut child = child_fields();
+            child.rate_limit = Some(RateLimit::new(10, window).expect("valid rate"));
+            assert_eq!(
+                verify_attenuation(&parent, &grant(child, 2)),
+                Err(AttenuationError::RateLimitBroadened)
+            );
+        }
+    }
+
+    /// Pins the delegation-depth bound: remaining depth must strictly decrease
+    /// at every hop, so a chain can never be longer than the root's `u8` depth
+    /// and can never be extended by holding depth constant or raising it.
+    #[test]
+    fn delegation_depth_strictly_decreases_at_every_hop() {
+        for (parent_depth, child_depth) in [(3_u8, 3_u8), (3, 4), (3, u8::MAX), (1, 200)] {
+            let mut parent = parent_fields();
+            parent.delegation_depth_remaining = parent_depth;
+            let mut child = child_fields();
+            child.delegation_depth_remaining = child_depth;
+            assert_eq!(
+                verify_attenuation(&grant(parent, 1), &grant(child, 2)),
+                Err(AttenuationError::DelegationDepthNotReduced)
+            );
+        }
+
+        let mut parent = parent_fields();
+        parent.delegation_depth_remaining = u8::MAX;
+        let mut child = child_fields();
+        child.delegation_depth_remaining = u8::MAX - 1;
+        assert_eq!(verify_attenuation(&grant(parent, 1), &grant(child, 2)), Ok(()));
+    }
+
     proptest! {
         #[test]
         fn bounded_numeric_children_never_amplify(
