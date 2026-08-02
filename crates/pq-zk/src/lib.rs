@@ -3,10 +3,18 @@
 //! ActiveChain PQ-ZK v1 transparent STARK profile.
 
 use activechain_canonical_codec::{CanonicalType, encode_envelope};
+use activechain_cash_air::{
+    CashAggregationLeafInputV1, CashAggregationLevel, CashAggregationNodeV1,
+    CashAggregationStatementV1, cash_aggregation_journal, recursive_cash_child_journals,
+};
 use activechain_pq_zk_methods::{
     ACTIVECHAIN_PQ_ZK_GUEST_ELF as GUEST_ELF, ACTIVECHAIN_PQ_ZK_GUEST_ID as GUEST_ID,
     BILLBOARD_POST_ELF, BILLBOARD_POST_ID, BILLBOARD_WITHDRAW_ELF, BILLBOARD_WITHDRAW_ID,
-    PRIVATE_IDENTITY_ELF, PRIVATE_IDENTITY_ID, PROOF_OF_FUNDS_ELF, PROOF_OF_FUNDS_ID,
+    CASH_RECURSIVE_GLOBAL_ELF, CASH_RECURSIVE_GLOBAL_ID, CASH_RECURSIVE_LEAF_ELF,
+    CASH_RECURSIVE_LEAF_ID, CASH_RECURSIVE_MICROBATCH_ELF, CASH_RECURSIVE_MICROBATCH_ID,
+    CASH_RECURSIVE_PARTITION_ELF, CASH_RECURSIVE_PARTITION_ID, CASH_RECURSIVE_SLOT_ELF,
+    CASH_RECURSIVE_SLOT_ID, PRIVATE_IDENTITY_ELF, PRIVATE_IDENTITY_ID, PROOF_OF_FUNDS_ELF,
+    PROOF_OF_FUNDS_ID,
 };
 use activechain_privacy_kernel::{PrivateIdentityRelationInputV1, ProofOfFundsRelationInputV1};
 use activechain_private_billboard::{PostRelationInput, WithdrawalRelationInput};
@@ -36,6 +44,13 @@ pub struct PrivateIdentityPqZkProof {
     receipt: Receipt,
 }
 
+/// An unconditional RISC Zero receipt for one level of the recursive cash tree.
+pub struct RecursiveCashProof {
+    receipt: Receipt,
+    node: CashAggregationNodeV1,
+    image_id: [u32; 8],
+}
+
 const POST_JOURNAL_DOMAIN: &[u8] = b"ACTIVECHAIN-BILLBOARD-POST-RISC0-STARK-V1";
 const WITHDRAW_JOURNAL_DOMAIN: &[u8] = b"ACTIVECHAIN-BILLBOARD-WITHDRAW-RISC0-STARK-V1";
 const PROOF_OF_FUNDS_JOURNAL_DOMAIN: &[u8] = b"ACTIVECHAIN-PROOF-OF-FUNDS-RISC0-STARK-V1";
@@ -47,6 +62,115 @@ pub enum PqZkError {
     Verification,
     WrongReceiptKind,
     WrongPublicStatement,
+}
+
+struct RecursiveCashMethod {
+    elf: &'static [u8],
+    image_id: [u32; 8],
+    child_image_id: [u32; 8],
+}
+
+fn recursive_cash_method(level: CashAggregationLevel) -> Result<RecursiveCashMethod, PqZkError> {
+    match level {
+        CashAggregationLevel::Microbatch => Ok(RecursiveCashMethod {
+            elf: CASH_RECURSIVE_MICROBATCH_ELF,
+            image_id: CASH_RECURSIVE_MICROBATCH_ID,
+            child_image_id: CASH_RECURSIVE_LEAF_ID,
+        }),
+        CashAggregationLevel::Partition => Ok(RecursiveCashMethod {
+            elf: CASH_RECURSIVE_PARTITION_ELF,
+            image_id: CASH_RECURSIVE_PARTITION_ID,
+            child_image_id: CASH_RECURSIVE_MICROBATCH_ID,
+        }),
+        CashAggregationLevel::CashSlot => Ok(RecursiveCashMethod {
+            elf: CASH_RECURSIVE_SLOT_ELF,
+            image_id: CASH_RECURSIVE_SLOT_ID,
+            child_image_id: CASH_RECURSIVE_PARTITION_ID,
+        }),
+        CashAggregationLevel::GlobalTransition => Ok(RecursiveCashMethod {
+            elf: CASH_RECURSIVE_GLOBAL_ELF,
+            image_id: CASH_RECURSIVE_GLOBAL_ID,
+            child_image_id: CASH_RECURSIVE_SLOT_ID,
+        }),
+        CashAggregationLevel::Proof => Err(PqZkError::WrongPublicStatement),
+    }
+}
+
+fn verify_recursive_cash_receipt(
+    receipt: &Receipt,
+    image_id: [u32; 8],
+    node: &CashAggregationNodeV1,
+) -> Result<(), PqZkError> {
+    receipt.inner.succinct().map_err(|_| PqZkError::WrongReceiptKind)?;
+    receipt.verify(image_id).map_err(|_| PqZkError::Verification)?;
+    let expected = cash_aggregation_journal(node).map_err(|_| PqZkError::WrongPublicStatement)?;
+    if receipt.journal.bytes != expected {
+        return Err(PqZkError::WrongPublicStatement);
+    }
+    Ok(())
+}
+
+/// Proves one fully authenticated CashAIR payment leaf inside the pinned RISC Zero guest.
+pub fn prove_recursive_cash_leaf(
+    input: &CashAggregationLeafInputV1,
+) -> Result<RecursiveCashProof, PqZkError> {
+    let node = input.verify().map_err(|_| PqZkError::WrongPublicStatement)?;
+    let encoded = encode_envelope(input).map_err(|_| PqZkError::Prover)?;
+    let env = ExecutorEnv::builder()
+        .write(&encoded)
+        .map_err(|_| PqZkError::Prover)?
+        .build()
+        .map_err(|_| PqZkError::Prover)?;
+    let receipt = default_prover()
+        .prove_with_opts(env, CASH_RECURSIVE_LEAF_ELF, &ProverOpts::succinct())
+        .map_err(|_| PqZkError::Prover)?
+        .receipt;
+    verify_recursive_cash_receipt(&receipt, CASH_RECURSIVE_LEAF_ID, &node)?;
+    Ok(RecursiveCashProof { receipt, node, image_id: CASH_RECURSIVE_LEAF_ID })
+}
+
+/// Recursively proves one canonical microbatch, partition, slot, or global transition.
+/// Every child receipt is attached as a proven assumption and the resulting receipt is required
+/// to be unconditional before it is returned.
+pub fn prove_recursive_cash_aggregation(
+    statement: &CashAggregationStatementV1,
+    children: &[RecursiveCashProof],
+) -> Result<RecursiveCashProof, PqZkError> {
+    let method = recursive_cash_method(statement.level())?;
+    let journals =
+        recursive_cash_child_journals(statement, statement.level(), &method.child_image_id)
+            .map_err(|_| PqZkError::WrongPublicStatement)?;
+    if children.len() != journals.len() {
+        return Err(PqZkError::WrongPublicStatement);
+    }
+    let encoded = encode_envelope(statement).map_err(|_| PqZkError::Prover)?;
+    let mut builder = ExecutorEnv::builder();
+    builder.write(&encoded).map_err(|_| PqZkError::Prover)?;
+    for (child, journal) in children.iter().zip(&journals) {
+        if child.image_id != method.child_image_id || child.receipt.journal.bytes != *journal {
+            return Err(PqZkError::WrongPublicStatement);
+        }
+        verify_recursive_cash_receipt(&child.receipt, method.child_image_id, &child.node)?;
+        builder.add_assumption(child.receipt.clone());
+    }
+    let env = builder.build().map_err(|_| PqZkError::Prover)?;
+    let receipt = default_prover()
+        .prove_with_opts(env, method.elf, &ProverOpts::succinct())
+        .map_err(|_| PqZkError::Prover)?
+        .receipt;
+    let node = CashAggregationNodeV1::from_statement(statement);
+    verify_recursive_cash_receipt(&receipt, method.image_id, &node)?;
+    Ok(RecursiveCashProof { receipt, node, image_id: method.image_id })
+}
+
+pub fn verify_recursive_cash_proof(
+    proof: &RecursiveCashProof,
+    expected: &CashAggregationNodeV1,
+) -> Result<(), PqZkError> {
+    if &proof.node != expected {
+        return Err(PqZkError::WrongPublicStatement);
+    }
+    verify_recursive_cash_receipt(&proof.receipt, proof.image_id, expected)
 }
 
 #[must_use]
@@ -335,6 +459,93 @@ mod tests {
         );
         assert_ne!(statement_for(b"same"), statement_for(b"different"));
         assert_ne!(statement_for(b"same"), PublicStatement([0; 32]));
+    }
+
+    #[test]
+    fn all_recursive_cash_guests_require_the_pinned_child_claim() {
+        use activechain_cash_air::{
+            CashAggregationChildV1, CashAggregationLevel, CashAggregationNodeV1,
+            CashAggregationStatementV1, cash_aggregation_journal, recursive_cash_child_journals,
+        };
+        use risc0_zkvm::ReceiptClaim;
+
+        let cases = [
+            (
+                CashAggregationLevel::Microbatch,
+                3,
+                CashAggregationLevel::Proof,
+                3,
+                activechain_pq_zk_methods::CASH_RECURSIVE_LEAF_ID,
+                activechain_pq_zk_methods::CASH_RECURSIVE_MICROBATCH_ELF,
+            ),
+            (
+                CashAggregationLevel::Partition,
+                3,
+                CashAggregationLevel::Microbatch,
+                3,
+                activechain_pq_zk_methods::CASH_RECURSIVE_MICROBATCH_ID,
+                activechain_pq_zk_methods::CASH_RECURSIVE_PARTITION_ELF,
+            ),
+            (
+                CashAggregationLevel::CashSlot,
+                activechain_cash_air::GLOBAL_CASH_PARTITION,
+                CashAggregationLevel::Partition,
+                3,
+                activechain_pq_zk_methods::CASH_RECURSIVE_PARTITION_ID,
+                activechain_pq_zk_methods::CASH_RECURSIVE_SLOT_ELF,
+            ),
+            (
+                CashAggregationLevel::GlobalTransition,
+                activechain_cash_air::GLOBAL_CASH_PARTITION,
+                CashAggregationLevel::CashSlot,
+                activechain_cash_air::GLOBAL_CASH_PARTITION,
+                activechain_pq_zk_methods::CASH_RECURSIVE_SLOT_ID,
+                activechain_pq_zk_methods::CASH_RECURSIVE_GLOBAL_ELF,
+            ),
+        ];
+        for (level, partition, child_level, child_partition, child_image_id, elf) in cases {
+            let chain_id = ChainId::new(digest(1));
+            let child = CashAggregationChildV1::new_recursive(
+                chain_id,
+                9,
+                child_level,
+                child_partition,
+                digest(10),
+                digest(11),
+                1,
+                0,
+                7,
+                &child_image_id,
+            )
+            .unwrap();
+            let statement = CashAggregationStatementV1::new(
+                chain_id,
+                9,
+                level,
+                partition,
+                digest(10),
+                digest(11),
+                1,
+                0,
+                7,
+                vec![child],
+            )
+            .unwrap();
+            let child_journal = recursive_cash_child_journals(&statement, level, &child_image_id)
+                .unwrap()
+                .remove(0);
+            let claim = ReceiptClaim::ok(child_image_id, child_journal);
+            let encoded = encode_envelope(&statement).unwrap();
+            let mut builder = risc0_zkvm::ExecutorEnv::builder();
+            builder.write(&encoded).unwrap().add_assumption(claim);
+            let session =
+                risc0_zkvm::default_executor().execute(builder.build().unwrap(), elf).unwrap();
+            assert_eq!(
+                session.journal.bytes,
+                cash_aggregation_journal(&CashAggregationNodeV1::from_statement(&statement))
+                    .unwrap()
+            );
+        }
     }
 
     #[test]

@@ -433,6 +433,7 @@ name = "activechain-pq-zk"
 version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
+ "activechain-cash-air",
  "activechain-pq-zk-methods",
  "activechain-privacy-kernel",
  "activechain-private-billboard",

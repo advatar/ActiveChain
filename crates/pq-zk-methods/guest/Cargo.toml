@@ -15,6 +15,7 @@ strip = "symbols"
 
 [dependencies]
 activechain-canonical-codec = { path = "../../canonical-codec" }
+activechain-cash-air = { path = "../../cash-air" }
 activechain-private-billboard = { path = "../../private-billboard", default-features = false }
 activechain-privacy-kernel = { path = "../../privacy-kernel" }
 risc0-zkvm = { version = "=3.0.5", default-features = false, features = ["std"] }
@@ -39,3 +40,23 @@ path = "src/bin/proof_of_funds.rs"
 [[bin]]
 name = "private-identity"
 path = "src/bin/private_identity.rs"
+
+[[bin]]
+name = "cash-recursive-leaf"
+path = "src/bin/cash_recursive_leaf.rs"
+
+[[bin]]
+name = "cash-recursive-microbatch"
+path = "src/bin/cash_recursive_microbatch.rs"
+
+[[bin]]
+name = "cash-recursive-partition"
+path = "src/bin/cash_recursive_partition.rs"
+
+[[bin]]
+name = "cash-recursive-slot"
+path = "src/bin/cash_recursive_slot.rs"
+
+[[bin]]
+name = "cash-recursive-global"
+path = "src/bin/cash_recursive_global.rs"

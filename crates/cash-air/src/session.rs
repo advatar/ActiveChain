@@ -323,7 +323,7 @@ pub fn verify_authorized_session_mldsa(
     verify_proof(proof.session, expected)
 }
 
-fn verify_authorized_witness_binding(
+pub fn verify_authorized_witness_binding(
     witness: &CashSessionAdmissionWitnessV1,
     authorized: &AuthorizedCashTransferV1,
 ) -> Result<(), &'static str> {
