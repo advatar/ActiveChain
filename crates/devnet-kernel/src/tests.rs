@@ -4,21 +4,26 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use activechain_action_kernel::{
-    ACTION_PROTOCOL_VERSION, ActionEnvelope, FeeTicket, NonceChannel, ResourcePrices,
-    ResourceVector, ValidityInterval, action_id,
+    ACTION_PROTOCOL_VERSION, ActionEnvelope, ActionPayloadV2, FeeTicket, NonceChannel,
+    ResourcePrices, ResourceVector, ValidityInterval, action_id,
 };
 use activechain_canonical_codec::{
     CanonicalEncode, CanonicalType, Encoder, decode_envelope, encode_body, encode_envelope,
+};
+use activechain_cash_kernel::{
+    CoinCellOrigin, FungibleBurnV1, FungibleCoinCell, FungibleCoinCellRecord, FungibleCoinCellSet,
+    FungibleMintV1, FungibleRedemptionV1,
 };
 use activechain_policy_kernel::{
     APL_LANGUAGE_VERSION, ActorBinding, PolicyEffect, PolicyPredicate, PolicyRequest,
     PolicyRequestFields, PolicyRule, PolicySet,
 };
-use activechain_protocol_commitment::{DomainTag, commit};
+use activechain_protocol_commitment::{DomainTag, coin_cell_id, commit};
 use activechain_protocol_types::{
-    AccessManifest, AccessManifestFields, ChainId, Digest384, FreezeState, Object, ObjectFields,
-    ObjectFlags, ObjectId, ObjectOwner, ObjectVersionRef, PrincipalId, ResourceSelector,
-    TransactionId,
+    AccessManifest, AccessManifestFields, AssetId, ChainId, Digest384, FreezeState,
+    FungibleAssetLifecycle, FungibleAssetPolicyV1, FungibleIssuerApprovalV1,
+    FungibleIssuerOperation, Object, ObjectFields, ObjectFlags, ObjectId, ObjectOwner,
+    ObjectVersionRef, PrincipalId, ResourceSelector, TransactionId,
 };
 use activechain_state_tree::{StateCommitment, commit_objects};
 use activechain_transition::{
@@ -27,9 +32,9 @@ use activechain_transition::{
 };
 
 use crate::{
-    ActionOutcome, ActionReceipt, BlockApplyError, BlockReceipt, ChainState, DevnetBlock,
-    FeeAccount, MAX_BLOCK_ACTIONS, MAX_FEE_TICKET_LIFETIME, MAX_USED_FEE_TICKETS, UsedFeeTicket,
-    apply_block,
+    ActionOutcome, ActionReceipt, BlockApplyError, BlockReceipt, ChainState,
+    ConsensusAssetLedgerV1, DevnetBlock, FeeAccount, MAX_BLOCK_ACTIONS, MAX_FEE_TICKET_LIFETIME,
+    MAX_USED_FEE_TICKETS, UsedFeeTicket, apply_block,
 };
 
 fn digest(byte: u8) -> Digest384 {
@@ -211,6 +216,184 @@ fn block_at(state: &ChainState, height: u64, actions: Vec<ActionEnvelope>) -> De
         commit(DomainTag::CANONICAL_VALUE, state).expect("complete pre-state commits");
     DevnetBlock::new(chain_id(), height, state.head_block_id(), pre_state, pre_chain_state, actions)
         .expect("test block is bounded")
+}
+
+fn issuer_mint_state_and_action() -> (ChainState, ActionEnvelope) {
+    let asset = AssetId::new(digest(0x81));
+    let policy = FungibleAssetPolicyV1::new(
+        asset,
+        sender(),
+        digest(0x82),
+        digest(0x83),
+        digest(0x84),
+        digest(0x85),
+        100,
+        90,
+        FungibleAssetLifecycle::Registered,
+    )
+    .unwrap();
+    let approval = FungibleIssuerApprovalV1::new(
+        asset,
+        policy.commitment().unwrap(),
+        policy.authority_set(),
+        digest(0x86),
+        FungibleIssuerOperation::Mint,
+        10,
+        90,
+        1,
+        2,
+    )
+    .unwrap();
+    let mint =
+        FungibleMintV1::new(asset, sender(), PrincipalId::new(digest(0x87)), 10, 90, 100).unwrap();
+    let payload = ActionPayloadV2::mint(1, mint, approval).unwrap();
+    let origin = CoinCellOrigin::new(TransactionId::new(digest(0x8a)), 0);
+    let cell = FungibleCoinCell::new(origin, asset, PrincipalId::new(digest(0x8b)), 90, 0).unwrap();
+    let cells = FungibleCoinCellSet::new(vec![FungibleCoinCellRecord::new(
+        coin_cell_id(&origin).unwrap(),
+        cell,
+    )])
+    .unwrap();
+    let state = ChainState::new_with_asset_ledger(
+        chain_id(),
+        0,
+        Digest384::ZERO,
+        ObjectState::new(vec![object()]).unwrap(),
+        vec![NonceChannel::new(sender(), 0, 5)],
+        vec![FeeAccount::new(sender(), 100_000_000, 5)],
+        vec![],
+        prices(),
+        ConsensusAssetLedgerV1::new(cells, vec![policy]).unwrap(),
+    )
+    .unwrap();
+    let ticket = FeeTicket::new(
+        ObjectId::new(digest(0x88)),
+        sender(),
+        3_000_000,
+        1,
+        5,
+        resources(2_000_000),
+    )
+    .unwrap();
+    let action = ActionEnvelope::new_payload(
+        ACTION_PROTOCOL_VERSION,
+        chain_id(),
+        sender(),
+        ticket,
+        0,
+        5,
+        ValidityInterval::new(1, 1).unwrap(),
+        resources(2_000_000),
+        payload.commitment().unwrap(),
+        payload,
+        approval.approval_commitment(),
+    )
+    .unwrap();
+    (state, action)
+}
+
+#[test]
+fn issuer_mint_atomically_advances_consensus_ledger_and_receipt_commitments() {
+    let (state, action) = issuer_mint_state_and_action();
+    let output = apply_block(&state, &block(&state, vec![action])).unwrap();
+    assert_eq!(output.state().asset_ledger().policies()[0].supply_issued(), 100);
+    assert_eq!(output.state().asset_ledger().cells().as_slice().len(), 2);
+    match output.receipt().action_receipts()[0].outcome() {
+        ActionOutcome::AssetTransition { pre_ledger, post_ledger } => {
+            assert_ne!(pre_ledger, post_ledger)
+        }
+        other => panic!("unexpected issuer outcome: {other:?}"),
+    }
+}
+
+#[test]
+fn issuer_mint_replay_fails_against_exact_supply_pre_state() {
+    let (state, action) = issuer_mint_state_and_action();
+    let output = apply_block(&state, &block(&state, vec![action.clone()])).unwrap();
+    let replay = ActionEnvelope::new_payload(
+        action.protocol_version(),
+        action.chain_id(),
+        action.sender(),
+        FeeTicket::new(
+            ObjectId::new(digest(0x89)),
+            sender(),
+            3_000_000,
+            2,
+            6,
+            resources(2_000_000),
+        )
+        .unwrap(),
+        action.nonce_channel(),
+        6,
+        ValidityInterval::new(2, 2).unwrap(),
+        action.maximum_resources(),
+        action.payload_commitment(),
+        action.payload().clone(),
+        action.authorization_commitment(),
+    );
+    assert!(replay.is_err(), "payload height prevents cross-height replay before execution");
+    assert_eq!(output.state().asset_ledger().policies()[0].supply_issued(), 100);
+}
+
+#[test]
+fn issuer_burn_and_redemption_consume_exact_cells_and_supply() {
+    for operation in [FungibleIssuerOperation::Burn, FungibleIssuerOperation::Redemption] {
+        let asset = AssetId::new(digest(0x91));
+        let policy = FungibleAssetPolicyV1::new(
+            asset,
+            sender(),
+            digest(0x92),
+            digest(0x93),
+            digest(0x94),
+            digest(0x95),
+            100,
+            90,
+            FungibleAssetLifecycle::Registered,
+        )
+        .unwrap();
+        let origin = CoinCellOrigin::new(TransactionId::new(digest(0x96)), 0);
+        let cell = FungibleCoinCell::new(origin, asset, sender(), 90, 0).unwrap();
+        let ledger = ConsensusAssetLedgerV1::new(
+            FungibleCoinCellSet::new(vec![FungibleCoinCellRecord::new(
+                coin_cell_id(&origin).unwrap(),
+                cell,
+            )])
+            .unwrap(),
+            vec![policy],
+        )
+        .unwrap();
+        let approval = FungibleIssuerApprovalV1::new(
+            asset,
+            policy.commitment().unwrap(),
+            policy.authority_set(),
+            digest(0x97),
+            operation,
+            90,
+            90,
+            1,
+            2,
+        )
+        .unwrap();
+        let payload = match operation {
+            FungibleIssuerOperation::Burn => ActionPayloadV2::burn(
+                1,
+                FungibleBurnV1::new(asset, sender(), vec![cell], 90).unwrap(),
+                approval,
+            )
+            .unwrap(),
+            FungibleIssuerOperation::Redemption => ActionPayloadV2::redemption(
+                1,
+                FungibleRedemptionV1::new(asset, sender(), vec![cell], 90, digest(0x98)).unwrap(),
+                approval,
+            )
+            .unwrap(),
+            FungibleIssuerOperation::Mint => unreachable!(),
+        };
+        let next = ledger.apply(&payload, 1).unwrap();
+        assert_eq!(next.policies()[0].supply_issued(), 0);
+        assert!(next.cells().as_slice().is_empty());
+        assert!(next.apply(&payload, 1).is_err(), "replay must fail against successor state");
+    }
 }
 
 #[test]
@@ -524,7 +707,7 @@ fn expired_ticket_records_prune_but_nonce_still_rejects_replay_after_restart() {
     let output =
         apply_block(&initial, &block(&initial, vec![first])).expect("first action applies");
     let persisted = encode_envelope(output.state()).expect("state snapshot encodes");
-    assert_eq!(<ChainState as CanonicalType>::SCHEMA_VERSION, 2);
+    assert_eq!(<ChainState as CanonicalType>::SCHEMA_VERSION, 3);
     let restarted: ChainState = decode_envelope(&persisted).expect("state snapshot decodes");
     let replay = envelope_at(
         0x54,
@@ -655,6 +838,46 @@ fn legacy_state_snapshot(state: &ChainState, used: &[ObjectId]) -> Vec<u8> {
     envelope.write_length(body.len(), 2_000_000).unwrap();
     envelope.write_raw(&body).unwrap();
     envelope.finish()
+}
+
+fn schema_2_state_snapshot(state: &ChainState) -> Vec<u8> {
+    let mut body = Encoder::new(2_000_000);
+    state.chain_id().encode(&mut body).unwrap();
+    state.height().encode(&mut body).unwrap();
+    state.head_block_id().encode(&mut body).unwrap();
+    state.objects().encode(&mut body).unwrap();
+    body.write_length(state.nonce_channels().len(), 64).unwrap();
+    for value in state.nonce_channels() {
+        value.encode(&mut body).unwrap();
+    }
+    body.write_length(state.fee_accounts().len(), 64).unwrap();
+    for value in state.fee_accounts() {
+        value.encode(&mut body).unwrap();
+    }
+    body.write_length(state.used_fee_tickets().len(), 256).unwrap();
+    for value in state.used_fee_tickets() {
+        value.encode(&mut body).unwrap();
+    }
+    state.resource_prices().encode(&mut body).unwrap();
+    let body = body.finish();
+    let mut envelope = Encoder::new(body.len() + 16);
+    envelope.write_u16(<ChainState as CanonicalType>::TYPE_TAG).unwrap();
+    envelope.write_u16(2).unwrap();
+    envelope.write_length(body.len(), 2_000_000).unwrap();
+    envelope.write_raw(&body).unwrap();
+    envelope.finish()
+}
+
+#[test]
+fn schema_2_snapshot_migrates_with_an_explicit_empty_asset_ledger() {
+    let state = genesis();
+    let (migrated, did_migrate) =
+        ChainState::decode_snapshot(&schema_2_state_snapshot(&state), vec![]).unwrap();
+    assert!(did_migrate);
+    assert_eq!(migrated.objects(), state.objects());
+    assert_eq!(migrated.fee_accounts(), state.fee_accounts());
+    assert!(migrated.asset_ledger().policies().is_empty());
+    assert!(migrated.asset_ledger().cells().as_slice().is_empty());
 }
 
 #[test]

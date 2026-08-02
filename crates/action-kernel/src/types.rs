@@ -3,10 +3,12 @@
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
+use activechain_cash_kernel::{FungibleBurnV1, FungibleMintV1, FungibleRedemptionV1};
 use activechain_policy_kernel::ActorBinding;
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
-    Amount, ChainId, Digest384, Height, ObjectId, PrincipalId, TransactionId,
+    Amount, ChainId, Digest384, FungibleIssuerApprovalV1, FungibleIssuerOperation, Height,
+    ObjectId, PrincipalId, TransactionId,
 };
 use activechain_transition::TransferTransaction;
 
@@ -442,6 +444,199 @@ pub enum NonceAdvanceError {
     SequenceExhausted,
 }
 
+/// Versioned validator payload union. Variant tags are consensus-visible.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ActionPayloadV2 {
+    Transfer(TransferTransaction),
+    FungibleMint {
+        height: Height,
+        mint: FungibleMintV1,
+        approval: FungibleIssuerApprovalV1,
+    },
+    FungibleBurn {
+        height: Height,
+        burn: FungibleBurnV1,
+        approval: FungibleIssuerApprovalV1,
+    },
+    FungibleRedemption {
+        height: Height,
+        redemption: FungibleRedemptionV1,
+        approval: FungibleIssuerApprovalV1,
+    },
+}
+
+impl ActionPayloadV2 {
+    pub const TYPE_TAG: u16 = 0x0190;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 1 + TransferTransaction::MAX_ENCODED_LEN;
+
+    pub fn mint(
+        height: Height,
+        mint: FungibleMintV1,
+        approval: FungibleIssuerApprovalV1,
+    ) -> Result<Self, ActionPayloadValidationError> {
+        if !approval.active_at(height)
+            || approval.operation() != FungibleIssuerOperation::Mint
+            || approval.asset_id() != mint.asset_id()
+            || approval.amount() != mint.amount()
+            || approval.supply_before() != mint.supply_before()
+        {
+            return Err(ActionPayloadValidationError::ApprovalMismatch);
+        }
+        Ok(Self::FungibleMint { height, mint, approval })
+    }
+
+    pub fn burn(
+        height: Height,
+        burn: FungibleBurnV1,
+        approval: FungibleIssuerApprovalV1,
+    ) -> Result<Self, ActionPayloadValidationError> {
+        if !approval.active_at(height)
+            || approval.operation() != FungibleIssuerOperation::Burn
+            || approval.asset_id() != burn.asset_id()
+            || approval.amount() != burn.amount()
+        {
+            return Err(ActionPayloadValidationError::ApprovalMismatch);
+        }
+        Ok(Self::FungibleBurn { height, burn, approval })
+    }
+
+    pub fn redemption(
+        height: Height,
+        redemption: FungibleRedemptionV1,
+        approval: FungibleIssuerApprovalV1,
+    ) -> Result<Self, ActionPayloadValidationError> {
+        if !approval.active_at(height)
+            || approval.operation() != FungibleIssuerOperation::Redemption
+            || approval.asset_id() != redemption.asset_id()
+            || approval.amount() != redemption.amount()
+        {
+            return Err(ActionPayloadValidationError::ApprovalMismatch);
+        }
+        Ok(Self::FungibleRedemption { height, redemption, approval })
+    }
+
+    pub const fn height(&self) -> Height {
+        match self {
+            Self::Transfer(value) => value.height(),
+            Self::FungibleMint { height, .. }
+            | Self::FungibleBurn { height, .. }
+            | Self::FungibleRedemption { height, .. } => *height,
+        }
+    }
+
+    pub fn transfer(&self) -> Option<&TransferTransaction> {
+        match self {
+            Self::Transfer(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub const fn issuer_approval(&self) -> Option<&FungibleIssuerApprovalV1> {
+        match self {
+            Self::Transfer(_) => None,
+            Self::FungibleMint { approval, .. }
+            | Self::FungibleBurn { approval, .. }
+            | Self::FungibleRedemption { approval, .. } => Some(approval),
+        }
+    }
+
+    pub fn object_accesses(&self) -> usize {
+        match self {
+            Self::Transfer(value) => value.commands().len(),
+            Self::FungibleMint { .. } => 1,
+            Self::FungibleBurn { burn, .. } => burn.inputs().len(),
+            Self::FungibleRedemption { redemption, .. } => redemption.inputs().len(),
+        }
+    }
+
+    fn sender_matches(&self, sender: PrincipalId) -> bool {
+        match self {
+            Self::Transfer(value) => value
+                .commands()
+                .iter()
+                .all(|command| command.request().actor() == ActorBinding::Principal(sender)),
+            Self::FungibleMint { mint, .. } => mint.issuer() == sender,
+            Self::FungibleBurn { burn, .. } => burn.authority() == sender,
+            Self::FungibleRedemption { redemption, .. } => redemption.authority() == sender,
+        }
+    }
+
+    pub fn commitment(&self) -> Result<Digest384, EncodeError> {
+        match self {
+            Self::Transfer(value) => commit(DomainTag::CANONICAL_VALUE, value),
+            _ => commit(DomainTag::CANONICAL_VALUE, self),
+        }
+    }
+}
+
+impl CanonicalEncode for ActionPayloadV2 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        match self {
+            Self::Transfer(value) => {
+                0_u8.encode(encoder)?;
+                value.encode(encoder)
+            }
+            Self::FungibleMint { height, mint, approval } => {
+                1_u8.encode(encoder)?;
+                height.encode(encoder)?;
+                mint.encode(encoder)?;
+                approval.encode(encoder)
+            }
+            Self::FungibleBurn { height, burn, approval } => {
+                2_u8.encode(encoder)?;
+                height.encode(encoder)?;
+                burn.encode(encoder)?;
+                approval.encode(encoder)
+            }
+            Self::FungibleRedemption { height, redemption, approval } => {
+                3_u8.encode(encoder)?;
+                height.encode(encoder)?;
+                redemption.encode(encoder)?;
+                approval.encode(encoder)
+            }
+        }
+    }
+}
+
+impl CanonicalDecode for ActionPayloadV2 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(decoder)? {
+            0 => Ok(Self::Transfer(TransferTransaction::decode(decoder)?)),
+            1 => Self::mint(
+                u64::decode(decoder)?,
+                FungibleMintV1::decode(decoder)?,
+                FungibleIssuerApprovalV1::decode(decoder)?,
+            )
+            .map_err(|_| DecodeError::InvalidValue("invalid fungible mint action payload")),
+            2 => Self::burn(
+                u64::decode(decoder)?,
+                FungibleBurnV1::decode(decoder)?,
+                FungibleIssuerApprovalV1::decode(decoder)?,
+            )
+            .map_err(|_| DecodeError::InvalidValue("invalid fungible burn action payload")),
+            3 => Self::redemption(
+                u64::decode(decoder)?,
+                FungibleRedemptionV1::decode(decoder)?,
+                FungibleIssuerApprovalV1::decode(decoder)?,
+            )
+            .map_err(|_| DecodeError::InvalidValue("invalid fungible redemption action payload")),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "ActionPayloadV2", tag }),
+        }
+    }
+}
+
+impl CanonicalType for ActionPayloadV2 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ActionPayloadValidationError {
+    ApprovalMismatch,
+}
+
 /// Canonical public development action envelope.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ActionEnvelope {
@@ -454,7 +649,7 @@ pub struct ActionEnvelope {
     validity: ValidityInterval,
     maximum_resources: ResourceVector,
     payload_commitment: Digest384,
-    payload: TransferTransaction,
+    payload: ActionPayloadV2,
     authorization_commitment: Digest384,
 }
 
@@ -462,9 +657,9 @@ impl ActionEnvelope {
     /// Registered action-envelope type tag.
     pub const TYPE_TAG: u16 = 0x0071;
     /// Initial action-envelope schema version.
-    pub const SCHEMA_VERSION: u16 = 1;
+    pub const SCHEMA_VERSION: u16 = 2;
     /// Worst-case canonical action-envelope body length.
-    pub const MAX_ENCODED_LEN: usize = 1_265_778;
+    pub const MAX_ENCODED_LEN: usize = 1_265_779;
 
     /// Validates protocol, payload, actor, validity, and ticket-resource binding.
     #[allow(clippy::too_many_arguments)]
@@ -481,22 +676,47 @@ impl ActionEnvelope {
         payload: TransferTransaction,
         authorization_commitment: Digest384,
     ) -> Result<Self, ActionEnvelopeError> {
+        Self::new_payload(
+            protocol_version,
+            chain_id,
+            sender,
+            fee_ticket,
+            nonce_channel,
+            sequence,
+            validity,
+            maximum_resources,
+            payload_commitment,
+            ActionPayloadV2::Transfer(payload),
+            authorization_commitment,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_payload(
+        protocol_version: u16,
+        chain_id: ChainId,
+        sender: PrincipalId,
+        fee_ticket: FeeTicket,
+        nonce_channel: u16,
+        sequence: u64,
+        validity: ValidityInterval,
+        maximum_resources: ResourceVector,
+        payload_commitment: Digest384,
+        payload: ActionPayloadV2,
+        authorization_commitment: Digest384,
+    ) -> Result<Self, ActionEnvelopeError> {
         if protocol_version != ACTION_PROTOCOL_VERSION {
             return Err(ActionEnvelopeError::UnsupportedProtocolVersion(protocol_version));
         }
-        let expected_payload = commit(DomainTag::CANONICAL_VALUE, &payload)
-            .map_err(ActionEnvelopeError::PayloadEncoding)?;
+        let expected_payload =
+            payload.commitment().map_err(ActionEnvelopeError::PayloadEncoding)?;
         if payload_commitment != expected_payload {
             return Err(ActionEnvelopeError::PayloadCommitmentMismatch);
         }
         if !validity.contains(payload.height()) {
             return Err(ActionEnvelopeError::PayloadHeightOutsideValidity);
         }
-        let actor_matches = payload
-            .commands()
-            .iter()
-            .all(|command| command.request().actor() == ActorBinding::Principal(sender));
-        if !actor_matches {
+        if !payload.sender_matches(sender) {
             return Err(ActionEnvelopeError::SenderActorMismatch);
         }
         if !maximum_resources.fits_within(fee_ticket.permitted_resources()) {
@@ -573,7 +793,7 @@ impl ActionEnvelope {
 
     /// Borrows the exact typed transfer payload.
     #[must_use]
-    pub const fn payload(&self) -> &TransferTransaction {
+    pub const fn payload(&self) -> &ActionPayloadV2 {
         &self.payload
     }
 
@@ -602,7 +822,7 @@ impl CanonicalEncode for ActionEnvelope {
 
 impl CanonicalDecode for ActionEnvelope {
     fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
-        Self::new(
+        Self::new_payload(
             u16::decode(decoder)?,
             ChainId::decode(decoder)?,
             PrincipalId::decode(decoder)?,
@@ -612,7 +832,7 @@ impl CanonicalDecode for ActionEnvelope {
             ValidityInterval::decode(decoder)?,
             ResourceVector::decode(decoder)?,
             Digest384::decode(decoder)?,
-            TransferTransaction::decode(decoder)?,
+            ActionPayloadV2::decode(decoder)?,
             Digest384::decode(decoder)?,
         )
         .map_err(action_envelope_decode_error)

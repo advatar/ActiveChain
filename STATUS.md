@@ -1169,6 +1169,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
     revalidating exact commitments and revision bindings on restart.
   - [x] Authenticate the complete policy/Cell ledger through a canonical state-tree anchor proven
     against finalized post-state, and reverify the joined evidence on restart.
+  - [x] Admit threshold-approved fungible mint, burn, and redemption as versioned validator action
+    payloads that atomically advance the consensus multi-asset ledger.
 - [x] Define canonical corporate-action envelopes for distributions, splits/consolidations,
   coupons, maturity, record-date voting, and redemption offers.
   - [x] Add bounded exact-once corporate-action admission bound to the finalized asset policy,

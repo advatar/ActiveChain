@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 
-use activechain_action_kernel::{NonceAdvanceError, ResourceVector, action_id};
+use activechain_action_kernel::{ActionPayloadV2, NonceAdvanceError, ResourceVector, action_id};
 use activechain_canonical_codec::{EncodeError, encode_envelope};
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{Digest384, PrincipalId};
@@ -58,6 +58,7 @@ pub fn apply_block(
     }
 
     let mut objects = state.objects().clone();
+    let mut asset_ledger = state.asset_ledger().clone();
     let mut nonce_channels = Vec::from(state.nonce_channels());
     let mut fee_accounts = Vec::from(state.fee_accounts());
     let mut used_fee_tickets = Vec::from(state.used_fee_tickets());
@@ -135,25 +136,49 @@ pub fn apply_block(
             encode_envelope(action).map_err(BlockApplyError::EnvelopeEncoding)?.len();
         let encoded_bytes = u64::try_from(encoded_length)
             .map_err(|_| BlockApplyError::ResourceCountOverflow { index })?;
-        let object_accesses = u64::try_from(action.payload().commands().len())
+        let object_accesses = u64::try_from(action.payload().object_accesses())
             .map_err(|_| BlockApplyError::ResourceCountOverflow { index })?;
-        let transition = apply_transfer_transaction(&objects, action.payload())
-            .map_err(BlockApplyError::Transition)?;
-        let resources_used = ResourceVector::new(
-            u64::from(transition.receipt().policy_steps()),
-            object_accesses,
-            object_accesses,
-            0,
-            0,
-            encoded_bytes,
-        );
+        let candidate = match action.payload() {
+            ActionPayloadV2::Transfer(transfer) => {
+                let transition = apply_transfer_transaction(&objects, transfer)
+                    .map_err(BlockApplyError::Transition)?;
+                (
+                    Some(transition.state().clone()),
+                    None,
+                    ActionOutcome::Transition(transition.receipt()),
+                    u64::from(transition.receipt().policy_steps()),
+                )
+            }
+            payload => {
+                let pre = commit(DomainTag::CANONICAL_VALUE, &asset_ledger)
+                    .map_err(BlockApplyError::CommitmentEncoding)?;
+                let next = asset_ledger
+                    .apply(payload, block.height())
+                    .map_err(BlockApplyError::AssetTransition)?;
+                let post = commit(DomainTag::CANONICAL_VALUE, &next)
+                    .map_err(BlockApplyError::CommitmentEncoding)?;
+                (
+                    None,
+                    Some(next),
+                    ActionOutcome::AssetTransition { pre_ledger: pre, post_ledger: post },
+                    1,
+                )
+            }
+        };
+        let resources_used =
+            ResourceVector::new(candidate.3, object_accesses, object_accesses, 0, 0, encoded_bytes);
 
         let (outcome, resource_charge) = if resources_used.fits_within(action.maximum_resources()) {
-            objects = transition.state().clone();
+            if let Some(next) = candidate.0 {
+                objects = next;
+            }
+            if let Some(next) = candidate.1 {
+                asset_ledger = next;
+            }
             let charge = resources_used
                 .checked_charge(state.resource_prices())
                 .ok_or(BlockApplyError::ResourceChargeOverflow { index })?;
-            (ActionOutcome::Transition(transition.receipt()), charge)
+            (candidate.2, charge)
         } else {
             (ActionOutcome::ResourceLimitExceeded, maximum_charge)
         };
@@ -180,7 +205,7 @@ pub fn apply_block(
     }
 
     let post_state = commit_objects(objects.objects()).map_err(BlockApplyError::StateTree)?;
-    let next_state = ChainState::new(
+    let next_state = ChainState::new_with_asset_ledger(
         state.chain_id(),
         block.height(),
         block_id,
@@ -189,6 +214,7 @@ pub fn apply_block(
         fee_accounts,
         used_fee_tickets,
         state.resource_prices(),
+        asset_ledger,
     )
     .map_err(BlockApplyError::InvalidChainState)?;
     let post_chain_state = next_state.commitment().map_err(BlockApplyError::CommitmentEncoding)?;
@@ -322,6 +348,8 @@ pub enum BlockApplyError {
     StateTree(StateTreeError),
     /// The underlying total transfer kernel hit an implementation invariant.
     Transition(TransitionError),
+    /// An issuer operation did not match the exact consensus asset pre-state.
+    AssetTransition(activechain_cash_kernel::NativeMoneyError),
     /// Generated receipt bounds were inconsistent.
     InvalidBlockReceipt(BlockReceiptError),
     /// Generated explicit chain state violated its bounds or ordering.

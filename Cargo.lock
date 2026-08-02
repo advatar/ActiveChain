@@ -26,6 +26,7 @@ name = "activechain-action-kernel"
 version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
+ "activechain-cash-kernel",
  "activechain-policy-kernel",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
@@ -245,6 +246,7 @@ version = "0.1.0"
 dependencies = [
  "activechain-action-kernel",
  "activechain-canonical-codec",
+ "activechain-cash-kernel",
  "activechain-policy-kernel",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
