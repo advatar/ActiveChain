@@ -10,6 +10,7 @@ mod agent_enrollment;
 mod agent_management;
 mod cash_authorization;
 mod cash_persistence;
+mod keystore;
 mod openid4vp;
 mod openwallet;
 mod presentation_consent;
@@ -37,6 +38,10 @@ pub use cash_authorization::{
 };
 pub use cash_persistence::{
     FinalizedIdentityKeyProof, FinalizedIdentityKeyVerifier, authenticator_set_root,
+};
+pub use keystore::{
+    KEYSTORE_ENCODED_LENGTH, KEYSTORE_MIN_ITERATIONS, KEYSTORE_SALT_LENGTH, KEYSTORE_SEED_LENGTH,
+    is_keystore, open_seed, seal_seed,
 };
 pub use openid4vp::{
     LiveTrustStatusAnchorV1, MAX_OPENID4VP_TRANSPORT_SESSIONS, OpenId4VpBoundedResponseV1,

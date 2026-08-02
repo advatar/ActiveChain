@@ -11,6 +11,9 @@ use activechain_wallet_core::{
     AuthorizedVerifierBondRegistrationV1, CashAuthorizationRequestV1, CashSessionGrantV1,
     DutyReceiptV1, VerifierBondRegistrationV1,
 };
+use activechain_wallet_core::{
+    KEYSTORE_MIN_ITERATIONS, KEYSTORE_SALT_LENGTH, is_keystore, open_seed, seal_seed,
+};
 use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
 use sha3::{
     Shake256,
@@ -29,7 +32,9 @@ const USAGE: &str = "usage: activechain-wallet <command>\n\
 <reveal-deadline> <resolution-deadline>\n\
   duty-receipt <key-file> <chain-id> <assignment> <evidence> <height>\n\
   bond <key-file> <chain-id> <role> <bond-cell> <bond-amount> <valid-until>\n\
-  redeem-witness <witness-hex-file> <settlement>";
+  protect <plain-key-file> <keystore-file>\n\
+  redeem-witness <witness-hex-file> <settlement>\n\
+protected keystores read the passphrase from ACTIVECHAIN_WALLET_PASSPHRASE";
 
 fn hex(bytes: &[u8]) -> String {
     const TABLE: &[u8; 16] = b"0123456789abcdef";
@@ -62,15 +67,35 @@ fn parse_digest(text: &str) -> Result<Digest384, String> {
     Ok(Digest384::new(bytes))
 }
 
-fn load_signing_key(path: &str) -> Result<SigningKey<MlDsa44>, String> {
-    let bytes = std::fs::read(Path::new(path)).map_err(|error| format!("{path}: {error}"))?;
+fn passphrase() -> Result<Vec<u8>, String> {
+    let value = env::var("ACTIVECHAIN_WALLET_PASSPHRASE")
+        .map_err(|_| "set ACTIVECHAIN_WALLET_PASSPHRASE to open a protected keystore")?;
+    if value.is_empty() {
+        return Err("the keystore passphrase must not be empty".into());
+    }
+    Ok(value.into_bytes())
+}
+
+fn plain_seed(bytes: &[u8]) -> Result<[u8; 32], String> {
     let (magic, seed) =
         bytes.split_at_checked(KEY_FILE_MAGIC.len()).ok_or("key file is truncated")?;
     if magic != KEY_FILE_MAGIC {
         return Err("key file has an unknown format".into());
     }
-    let mut seed: [u8; 32] =
-        seed.try_into().map_err(|_| "key file seed must be exactly 32 bytes")?;
+    seed.try_into().map_err(|_| "key file seed must be exactly 32 bytes".into())
+}
+
+fn load_signing_key(path: &str) -> Result<SigningKey<MlDsa44>, String> {
+    let bytes = std::fs::read(Path::new(path)).map_err(|error| format!("{path}: {error}"))?;
+    let mut seed = if is_keystore(&bytes) {
+        let mut secret = passphrase()?;
+        let seed = open_seed(&bytes, &secret)
+            .map_err(|_| "keystore rejected: wrong passphrase or tampered file")?;
+        secret.zeroize();
+        seed
+    } else {
+        plain_seed(&bytes)?
+    };
     let key = SigningKey::<MlDsa44>::from_seed(&Seed::from(seed));
     seed.zeroize();
     Ok(key)
@@ -398,6 +423,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "authorized_bond_registration={}",
                 hex(&encode_envelope(&authorized).map_err(|_| "envelope encoding failed")?)
             );
+        }
+        "protect" => {
+            let [plain_file, keystore_file] = arguments.as_slice() else {
+                return Err(USAGE.into());
+            };
+            let bytes = std::fs::read(Path::new(plain_file))
+                .map_err(|error| format!("{plain_file}: {error}"))?;
+            let mut seed = plain_seed(&bytes)?;
+            let mut secret = passphrase()?;
+            let mut salt = [0_u8; KEYSTORE_SALT_LENGTH];
+            getrandom::fill(&mut salt).map_err(|_| "operating-system randomness unavailable")?;
+            let sealed = seal_seed(&seed, &secret, salt, KEYSTORE_MIN_ITERATIONS)
+                .map_err(|error| format!("keystore sealing failed: {error:?}"))?;
+            seed.zeroize();
+            secret.zeroize();
+            #[cfg(unix)]
+            let mut file = {
+                use std::os::unix::fs::OpenOptionsExt as _;
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .open(Path::new(keystore_file))?
+            };
+            #[cfg(not(unix))]
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(Path::new(keystore_file))?;
+            file.write_all(&sealed)?;
+            file.sync_all()?;
+            println!("keystore_file={keystore_file}");
+            println!("iterations={KEYSTORE_MIN_ITERATIONS}");
         }
         "redeem-witness" => {
             let [witness_file, settlement] = arguments.as_slice() else {
