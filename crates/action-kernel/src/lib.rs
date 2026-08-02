@@ -8,9 +8,9 @@ extern crate alloc;
 mod types;
 
 pub use types::{
-    ACTION_PROTOCOL_VERSION, ActionEnvelope, ActionEnvelopeError, FeeTicket, FeeTicketError,
-    NonceAdvanceError, NonceChannel, ResourcePrices, ResourceVector, ValidityInterval,
-    ValidityIntervalError, action_id,
+    ACTION_PROTOCOL_VERSION, ActionEnvelope, ActionEnvelopeError, ActionPayloadV2,
+    ActionPayloadValidationError, FeeTicket, FeeTicketError, NonceAdvanceError, NonceChannel,
+    ResourcePrices, ResourceVector, ValidityInterval, ValidityIntervalError, action_id,
 };
 
 #[cfg(test)]

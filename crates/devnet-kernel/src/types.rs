@@ -3,14 +3,17 @@
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 
-use activechain_action_kernel::{ActionEnvelope, NonceChannel, ResourcePrices, ResourceVector};
+use activechain_action_kernel::{
+    ActionEnvelope, ActionPayloadV2, NonceChannel, ResourcePrices, ResourceVector,
+};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     decode_envelope, inspect_canonical_envelope,
 };
+use activechain_cash_kernel::{FungibleCoinCellSet, NativeMoneyError};
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
-    Amount, ChainId, Digest384, Height, ObjectId, PrincipalId, TransactionId,
+    Amount, ChainId, Digest384, FungibleAssetPolicyV1, Height, ObjectId, PrincipalId, TransactionId,
 };
 use activechain_state_tree::StateCommitment;
 use activechain_transition::{ObjectState, TransitionReceipt};
@@ -39,6 +42,17 @@ const LEGACY_CHAIN_STATE_MAX_ENCODED_LEN: usize = 48
     + MAX_NONCE_CHANNELS * NonceChannel::ENCODED_LENGTH
     + 2
     + MAX_USED_FEE_TICKETS * 48
+    + ResourcePrices::ENCODED_LENGTH;
+const SCHEMA_2_CHAIN_STATE_MAX_ENCODED_LEN: usize = 48
+    + 8
+    + 48
+    + ObjectState::MAX_ENCODED_LEN
+    + 2
+    + MAX_NONCE_CHANNELS * NonceChannel::ENCODED_LENGTH
+    + 2
+    + MAX_FEE_ACCOUNTS * FeeAccount::ENCODED_LENGTH
+    + 2
+    + MAX_USED_FEE_TICKETS * UsedFeeTicket::ENCODED_LENGTH
     + ResourcePrices::ENCODED_LENGTH;
 
 /// Canonically ordered fee-paying account with an exact ticket-issuance nonce.
@@ -167,7 +181,7 @@ impl DevnetBlock {
     /// Full-state-bound development-block schema version.
     pub const SCHEMA_VERSION: u16 = 2;
     /// Worst-case canonical development-block body length.
-    pub const MAX_ENCODED_LEN: usize = 40_505_105;
+    pub const MAX_ENCODED_LEN: usize = 40_505_137;
 
     /// Enforces the block action-count bound. Ordering is commitment-dependent and checked later.
     pub fn new(
@@ -274,6 +288,8 @@ pub enum DevnetBlockError {
 pub enum ActionOutcome {
     /// P-030 returned its canonical success or semantic-failure receipt.
     Transition(TransitionReceipt),
+    /// An issuer operation atomically advanced the canonical asset ledger.
+    AssetTransition { pre_ledger: Digest384, post_ledger: Digest384 },
     /// Measured work exceeded at least one independent envelope ceiling.
     ResourceLimitExceeded,
 }
@@ -286,6 +302,11 @@ impl CanonicalEncode for ActionOutcome {
                 receipt.encode(encoder)
             }
             Self::ResourceLimitExceeded => 1_u8.encode(encoder),
+            Self::AssetTransition { pre_ledger, post_ledger } => {
+                2_u8.encode(encoder)?;
+                pre_ledger.encode(encoder)?;
+                post_ledger.encode(encoder)
+            }
         }
     }
 }
@@ -295,6 +316,10 @@ impl CanonicalDecode for ActionOutcome {
         match u8::decode(decoder)? {
             0 => Ok(Self::Transition(TransitionReceipt::decode(decoder)?)),
             1 => Ok(Self::ResourceLimitExceeded),
+            2 => Ok(Self::AssetTransition {
+                pre_ledger: Digest384::decode(decoder)?,
+                post_ledger: Digest384::decode(decoder)?,
+            }),
             tag => Err(DecodeError::InvalidEnumTag { type_name: "ActionOutcome", tag }),
         }
     }
@@ -545,6 +570,122 @@ pub struct ChainState {
     fee_accounts: Vec<FeeAccount>,
     used_fee_tickets: Vec<UsedFeeTicket>,
     resource_prices: ResourcePrices,
+    asset_ledger: ConsensusAssetLedgerV1,
+}
+
+/// Canonically ordered consensus state for all fungible assets.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConsensusAssetLedgerV1 {
+    cells: FungibleCoinCellSet,
+    policies: Vec<FungibleAssetPolicyV1>,
+}
+
+impl ConsensusAssetLedgerV1 {
+    pub const TYPE_TAG: u16 = 0x0191;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_POLICIES: usize = 256;
+    pub fn new(
+        cells: FungibleCoinCellSet,
+        policies: Vec<FungibleAssetPolicyV1>,
+    ) -> Result<Self, ChainStateError> {
+        if policies.len() > Self::MAX_POLICIES
+            || !policies.windows(2).all(|p| p[0].asset_id() < p[1].asset_id())
+        {
+            return Err(ChainStateError::AssetPoliciesNotStrictlyIncreasing);
+        }
+        for record in cells.as_slice() {
+            if policies.binary_search_by_key(&record.cell().asset_id(), |p| p.asset_id()).is_err() {
+                return Err(ChainStateError::AssetLedgerSupplyMismatch);
+            }
+        }
+        for policy in &policies {
+            let supply = cells
+                .as_slice()
+                .iter()
+                .filter(|r| r.cell().asset_id() == policy.asset_id())
+                .try_fold(0_u128, |sum, r| sum.checked_add(r.cell().amount()))
+                .ok_or(ChainStateError::AssetLedgerSupplyMismatch)?;
+            if supply != policy.supply_issued() {
+                return Err(ChainStateError::AssetLedgerSupplyMismatch);
+            }
+        }
+        Ok(Self { cells, policies })
+    }
+    pub const fn cells(&self) -> &FungibleCoinCellSet {
+        &self.cells
+    }
+    pub fn policies(&self) -> &[FungibleAssetPolicyV1] {
+        &self.policies
+    }
+    pub(crate) fn apply(
+        &self,
+        payload: &ActionPayloadV2,
+        height: Height,
+    ) -> Result<Self, NativeMoneyError> {
+        let asset_id = match payload {
+            ActionPayloadV2::FungibleMint { mint, .. } => mint.asset_id(),
+            ActionPayloadV2::FungibleBurn { burn, .. } => burn.asset_id(),
+            ActionPayloadV2::FungibleRedemption { redemption, .. } => redemption.asset_id(),
+            ActionPayloadV2::Transfer(_) => return Err(NativeMoneyError::InvalidInputs),
+        };
+        let index = self
+            .policies
+            .binary_search_by_key(&asset_id, |p| p.asset_id())
+            .map_err(|_| NativeMoneyError::InvalidInputs)?;
+        let policy = &self.policies[index];
+        let (cells, next_policy) = match payload {
+            ActionPayloadV2::FungibleMint { mint, approval, .. } => {
+                self.cells.apply_mint(mint, policy, approval, height)?
+            }
+            ActionPayloadV2::FungibleBurn { burn, approval, .. } => {
+                self.cells.apply_burn(burn, policy, approval, height)?
+            }
+            ActionPayloadV2::FungibleRedemption { redemption, approval, .. } => {
+                self.cells.apply_redemption(redemption, policy, approval, height)?
+            }
+            ActionPayloadV2::Transfer(_) => unreachable!(),
+        };
+        let mut policies = self.policies.clone();
+        policies[index] = next_policy;
+        Ok(Self { cells, policies })
+    }
+}
+impl Default for ConsensusAssetLedgerV1 {
+    fn default() -> Self {
+        Self {
+            cells: FungibleCoinCellSet::new(Vec::new()).expect("empty cell set"),
+            policies: Vec::new(),
+        }
+    }
+}
+impl CanonicalEncode for ConsensusAssetLedgerV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.cells.encode(e)?;
+        e.write_length(self.policies.len(), Self::MAX_POLICIES)?;
+        for policy in &self.policies {
+            policy.encode(e)?;
+        }
+        Ok(())
+    }
+}
+impl CanonicalDecode for ConsensusAssetLedgerV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let cells = FungibleCoinCellSet::decode(d)?;
+        let n = d.read_length(Self::MAX_POLICIES)?;
+        let mut policies = Vec::with_capacity(n);
+        for _ in 0..n {
+            policies.push(FungibleAssetPolicyV1::decode(d)?);
+        }
+        Self::new(cells, policies)
+            .map_err(|_| DecodeError::InvalidValue("invalid consensus asset ledger"))
+    }
+}
+impl CanonicalType for ConsensusAssetLedgerV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = FungibleCoinCellSet::MAX_ENCODED_LEN
+        + 2
+        + Self::MAX_POLICIES * FungibleAssetPolicyV1::MAX_ENCODED_LEN;
 }
 
 impl ChainState {
@@ -564,6 +705,47 @@ impl ChainState {
     ) -> Result<(Self, bool), DecodeError> {
         if let Ok(state) = decode_envelope::<Self>(input) {
             return Ok((state, false));
+        }
+        if let Ok(envelope) = inspect_canonical_envelope(
+            input,
+            Self::TYPE_TAG,
+            2,
+            SCHEMA_2_CHAIN_STATE_MAX_ENCODED_LEN,
+        ) {
+            let mut decoder = Decoder::new(envelope.body());
+            let chain_id = ChainId::decode(&mut decoder)?;
+            let height = u64::decode(&mut decoder)?;
+            let head_block_id = Digest384::decode(&mut decoder)?;
+            let objects = ObjectState::decode(&mut decoder)?;
+            let channel_count = decoder.read_length(MAX_NONCE_CHANNELS)?;
+            let mut channels = Vec::with_capacity(channel_count);
+            for _ in 0..channel_count {
+                channels.push(NonceChannel::decode(&mut decoder)?);
+            }
+            let account_count = decoder.read_length(MAX_FEE_ACCOUNTS)?;
+            let mut accounts = Vec::with_capacity(account_count);
+            for _ in 0..account_count {
+                accounts.push(FeeAccount::decode(&mut decoder)?);
+            }
+            let ticket_count = decoder.read_length(MAX_USED_FEE_TICKETS)?;
+            let mut tickets = Vec::with_capacity(ticket_count);
+            for _ in 0..ticket_count {
+                tickets.push(UsedFeeTicket::decode(&mut decoder)?);
+            }
+            let resource_prices = ResourcePrices::decode(&mut decoder)?;
+            decoder.finish()?;
+            return Self::new(
+                chain_id,
+                height,
+                head_block_id,
+                objects,
+                channels,
+                accounts,
+                tickets,
+                resource_prices,
+            )
+            .map(|state| (state, true))
+            .map_err(|_| DecodeError::InvalidValue("invalid migrated schema-2 chain state"));
         }
         let envelope = inspect_canonical_envelope(
             input,
@@ -651,6 +833,31 @@ impl ChainState {
         used_fee_tickets: Vec<UsedFeeTicket>,
         resource_prices: ResourcePrices,
     ) -> Result<Self, ChainStateError> {
+        Self::new_with_asset_ledger(
+            chain_id,
+            height,
+            head_block_id,
+            objects,
+            nonce_channels,
+            fee_accounts,
+            used_fee_tickets,
+            resource_prices,
+            ConsensusAssetLedgerV1::default(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_asset_ledger(
+        chain_id: ChainId,
+        height: Height,
+        head_block_id: Digest384,
+        objects: ObjectState,
+        nonce_channels: Vec<NonceChannel>,
+        fee_accounts: Vec<FeeAccount>,
+        used_fee_tickets: Vec<UsedFeeTicket>,
+        resource_prices: ResourcePrices,
+        asset_ledger: ConsensusAssetLedgerV1,
+    ) -> Result<Self, ChainStateError> {
         if nonce_channels.len() > MAX_NONCE_CHANNELS {
             return Err(ChainStateError::TooManyNonceChannels {
                 actual: nonce_channels.len(),
@@ -694,6 +901,7 @@ impl ChainState {
             fee_accounts,
             used_fee_tickets,
             resource_prices,
+            asset_ledger,
         })
     }
 
@@ -744,6 +952,9 @@ impl ChainState {
     pub const fn resource_prices(&self) -> ResourcePrices {
         self.resource_prices
     }
+    pub const fn asset_ledger(&self) -> &ConsensusAssetLedgerV1 {
+        &self.asset_ledger
+    }
 }
 
 impl CanonicalEncode for ChainState {
@@ -764,7 +975,8 @@ impl CanonicalEncode for ChainState {
         for ticket in &self.used_fee_tickets {
             ticket.encode(encoder)?;
         }
-        self.resource_prices.encode(encoder)
+        self.resource_prices.encode(encoder)?;
+        self.asset_ledger.encode(encoder)
     }
 }
 
@@ -789,7 +1001,7 @@ impl CanonicalDecode for ChainState {
         for _ in 0..ticket_count {
             tickets.push(UsedFeeTicket::decode(decoder)?);
         }
-        Self::new(
+        Self::new_with_asset_ledger(
             chain_id,
             height,
             head_block_id,
@@ -798,6 +1010,7 @@ impl CanonicalDecode for ChainState {
             accounts,
             tickets,
             ResourcePrices::decode(decoder)?,
+            ConsensusAssetLedgerV1::decode(decoder)?,
         )
         .map_err(|_| DecodeError::InvalidValue("invalid durable chain state"))
     }
@@ -805,7 +1018,7 @@ impl CanonicalDecode for ChainState {
 
 impl CanonicalType for ChainState {
     const TYPE_TAG: u16 = 0x007b;
-    const SCHEMA_VERSION: u16 = 2;
+    const SCHEMA_VERSION: u16 = 3;
     const MAX_ENCODED_LEN: usize = 48
         + 8
         + 48
@@ -816,7 +1029,8 @@ impl CanonicalType for ChainState {
         + MAX_FEE_ACCOUNTS * FeeAccount::ENCODED_LENGTH
         + 2
         + MAX_USED_FEE_TICKETS * UsedFeeTicket::ENCODED_LENGTH
-        + ResourcePrices::ENCODED_LENGTH;
+        + ResourcePrices::ENCODED_LENGTH
+        + ConsensusAssetLedgerV1::MAX_ENCODED_LEN;
 }
 
 pub(crate) fn nonce_key_order(left: &NonceChannel, right: &NonceChannel) -> Ordering {
@@ -826,16 +1040,27 @@ pub(crate) fn nonce_key_order(left: &NonceChannel, right: &NonceChannel) -> Orde
 /// Explicit chain-state construction failures.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ChainStateError {
+    AssetPoliciesNotStrictlyIncreasing,
+    AssetLedgerSupplyMismatch,
     /// Too many replay-protection channels were supplied.
-    TooManyNonceChannels { actual: usize, maximum: usize },
+    TooManyNonceChannels {
+        actual: usize,
+        maximum: usize,
+    },
     /// Channel keys are duplicated or not in sender/channel order.
     NonceChannelsNotStrictlyIncreasing,
     /// Too many funded fee accounts were supplied.
-    TooManyFeeAccounts { actual: usize, maximum: usize },
+    TooManyFeeAccounts {
+        actual: usize,
+        maximum: usize,
+    },
     /// Fee accounts are duplicated or not in payer order.
     FeeAccountsNotStrictlyIncreasing,
     /// The bounded development ticket history is full.
-    TooManyUsedFeeTickets { actual: usize, maximum: usize },
+    TooManyUsedFeeTickets {
+        actual: usize,
+        maximum: usize,
+    },
     /// Ticket identifiers are duplicated or not ordered.
     UsedFeeTicketsNotStrictlyIncreasing,
     /// A retained ticket is already expired or exceeds the fixed replay window.

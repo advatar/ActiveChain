@@ -11,9 +11,9 @@ mod types;
 pub use apply::{BlockApplyError, BlockOutput, apply_block};
 pub use types::{
     ActionOutcome, ActionReceipt, BlockReceipt, BlockReceiptError, ChainState, ChainStateError,
-    DevnetBlock, DevnetBlockError, FEE_TICKET_ADMISSION_CHARGE, FeeAccount, MAX_BLOCK_ACTIONS,
-    MAX_FEE_ACCOUNTS, MAX_FEE_TICKET_LIFETIME, MAX_NONCE_CHANNELS, MAX_USED_FEE_TICKETS,
-    UsedFeeTicket,
+    ConsensusAssetLedgerV1, DevnetBlock, DevnetBlockError, FEE_TICKET_ADMISSION_CHARGE, FeeAccount,
+    MAX_BLOCK_ACTIONS, MAX_FEE_ACCOUNTS, MAX_FEE_TICKET_LIFETIME, MAX_NONCE_CHANNELS,
+    MAX_USED_FEE_TICKETS, UsedFeeTicket,
 };
 
 #[cfg(test)]

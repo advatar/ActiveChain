@@ -145,7 +145,7 @@ fn action_envelope_round_trips_and_identifier_binds_authorization_evidence() {
         envelope.validity(),
         envelope.maximum_resources(),
         envelope.payload_commitment(),
-        envelope.payload().clone(),
+        envelope.payload().transfer().expect("transfer payload").clone(),
         digest(0x51),
     )
     .expect("changed evidence remains structural");

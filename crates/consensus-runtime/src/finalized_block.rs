@@ -9,6 +9,7 @@ use activechain_data_availability::AvailabilityBatch;
 use activechain_devnet_kernel::{BlockReceipt, ChainState, DevnetBlock, apply_block};
 use activechain_finality_types::commit_parts as commitment;
 pub use activechain_finality_types::{FinalizedBlockHeader, ProofPublicInputs};
+use activechain_protocol_types::FungibleIssuerApprovalV1;
 use activechain_protocol_types::{Digest384, PrincipalId, QuorumCertificate};
 
 #[allow(clippy::too_many_arguments)]
@@ -132,6 +133,7 @@ pub trait ExecutionProofVerifier {
 /// External cryptographic observations required by the deterministic composition predicate.
 pub trait FinalizedBlockVerifier: ExecutionProofVerifier + AuthorizationVerifier {
     fn verify_certificate(&self, certificate: &QuorumCertificate) -> bool;
+    fn verify_issuer_approval(&self, approval: &FungibleIssuerApprovalV1) -> bool;
 }
 impl<F: Fn(u16, Digest384, &[u8]) -> bool> ExecutionProofVerifier for F {
     fn verify(&self, proof_system: u16, statement: Digest384, proof: &[u8]) -> bool {
@@ -165,12 +167,27 @@ impl FinalizedBlockCandidate {
         if block.chain_id() != state.chain_id() || block.height() != self.certificate.height() {
             return Err(FinalizedBlockAdmissionError::Context);
         }
-        if block.actions().len() != self.authorization_candidates.len() {
+        let transfer_count =
+            block.actions().iter().filter(|action| action.payload().transfer().is_some()).count();
+        if transfer_count != self.authorization_candidates.len() {
             return Err(FinalizedBlockAdmissionError::Authorization);
         }
-        let mut verified_authorizations = Vec::with_capacity(block.actions().len());
-        for (action, candidate) in block.actions().iter().zip(self.authorization_candidates.iter())
-        {
+        let mut verified_authorizations = Vec::with_capacity(transfer_count);
+        let mut candidates = self.authorization_candidates.iter();
+        for action in block.actions() {
+            let Some(transaction) = action.payload().transfer() else {
+                let approval = action
+                    .payload()
+                    .issuer_approval()
+                    .ok_or(FinalizedBlockAdmissionError::Authorization)?;
+                if action.authorization_commitment() != approval.approval_commitment()
+                    || !verifier.verify_issuer_approval(approval)
+                {
+                    return Err(FinalizedBlockAdmissionError::Authorization);
+                }
+                continue;
+            };
+            let candidate = candidates.next().ok_or(FinalizedBlockAdmissionError::Authorization)?;
             let verified = verify_authorization_candidate(
                 candidate,
                 chain_genesis_commitment,
@@ -182,7 +199,7 @@ impl FinalizedBlockCandidate {
             if verified.actor() != action.sender()
                 || verified.envelope_commitment() != action.authorization_commitment()
                 || verified.transition_commitment() != action.payload_commitment()
-                || candidate.transaction != *action.payload()
+                || candidate.transaction != *transaction
             {
                 return Err(FinalizedBlockAdmissionError::Authorization);
             }
@@ -272,6 +289,9 @@ mod tests {
     }
     impl FinalizedBlockVerifier for AcceptAll {
         fn verify_certificate(&self, _certificate: &QuorumCertificate) -> bool {
+            true
+        }
+        fn verify_issuer_approval(&self, _approval: &FungibleIssuerApprovalV1) -> bool {
             true
         }
     }
@@ -382,14 +402,14 @@ mod tests {
         assert_eq!(
             digest,
             Digest384::new([
-                75, 31, 241, 62, 249, 164, 191, 150, 83, 3, 113, 136, 73, 188, 88, 185, 176, 91,
-                10, 217, 255, 1, 156, 36, 230, 28, 62, 186, 224, 152, 90, 130, 172, 171, 237, 20,
-                187, 77, 86, 162, 105, 25, 46, 235, 11, 56, 153, 143,
+                36, 172, 138, 9, 83, 100, 172, 1, 41, 192, 222, 157, 127, 238, 98, 227, 250, 200,
+                191, 244, 220, 211, 145, 50, 94, 172, 245, 194, 153, 172, 172, 11, 214, 149, 124,
+                70, 44, 219, 45, 194, 69, 238, 201, 247, 33, 95, 79, 137,
             ])
         );
         assert_eq!(
             include_str!("../../../testing/vectors/consensus/finalized-block-v1.txt"),
-            "header_type_tag=0x0079\nheader_schema_version=2\nproof_inputs_type_tag=0x0078\nproof_inputs_schema_version=2\nheader_digest=4b1ff13ef9a4bf965303718849bc58b9b05b0ad9ff019c24e61c3ebae0985a82acabed14bb4d56a269192eeb0b38998f\n"
+            "header_type_tag=0x0079\nheader_schema_version=2\nproof_inputs_type_tag=0x0078\nproof_inputs_schema_version=2\nheader_digest=24ac8a095364ac0129c0de9d7fee62e3fac8bff4dcd391325eacf5c299acac0bd6957c462cdb2dc245eec9f7215f4f89\n"
         );
         let context = ConsensusVoteContext::new_with_revision(genesis, 7, root, 4).unwrap();
         let certificate = QuorumCertificate::new(
