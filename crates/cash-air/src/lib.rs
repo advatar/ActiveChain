@@ -27,6 +27,7 @@ extern crate alloc;
 
 mod aggregation;
 mod ml_dsa_ntt;
+mod ml_dsa_ntt_multiply;
 mod session;
 mod shake;
 pub use aggregation::{
@@ -36,6 +37,9 @@ pub use aggregation::{
 };
 pub use ml_dsa_ntt::{
     ML_DSA_NTT_COEFFICIENTS, ML_DSA_Q, MlDsaNttStarkProof, prove_ml_dsa_ntt, verify_ml_dsa_ntt,
+};
+pub use ml_dsa_ntt_multiply::{
+    MlDsaNttMultiplyStarkProof, prove_ml_dsa_ntt_multiply, verify_ml_dsa_ntt_multiply,
 };
 pub use session::{
     CashSessionProofError, CashSessionStarkProof, prove_authorized_session, prove_session_budget,
