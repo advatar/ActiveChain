@@ -530,6 +530,9 @@ impl OpenWalletAdapterV1 {
         offer: OpenWalletCredentialOfferV1,
         height: u64,
     ) -> Result<(), WalletError> {
+        if offer.state != IssuanceSessionState::Offered {
+            return Err(WalletError::PolicyDenied);
+        }
         if offer.session.expires_at < height
             || self.consumed_nonces.binary_search(&offer.grant_nonce).is_ok()
             || self.issuance.iter().any(|item| item.session.session_id == offer.session.session_id)
@@ -621,13 +624,31 @@ impl OpenWalletAdapterV1 {
             || consent.request_commitment
                 != request.commitment().map_err(|_| WalletError::MalformedAuthorization)?
             || self.consumed_nonces.binary_search(&request.nonce).is_ok()
-            || consent.selected_credentials.iter().any(|id| {
-                self.credentials.binary_search_by_key(id, |item| item.credential_id).is_err()
-            })
         {
             return Err(WalletError::PolicyDenied);
         }
-        self.consumed_nonces.push(request.nonce);
+        // Every disclosed credential must be held and must answer a requested schema, and every
+        // requested schema must be answered. This rejects both over-disclosure of unrelated
+        // credentials and selections that do not satisfy the verifier's request.
+        let disclosed: Vec<Digest384> = consent
+            .selected_credentials
+            .iter()
+            .map(|id| {
+                self.credentials
+                    .binary_search_by_key(id, |item| item.credential_id)
+                    .map(|index| self.credentials[index].schema_id)
+                    .map_err(|_| WalletError::PolicyDenied)
+            })
+            .collect::<Result<_, _>>()?;
+        if disclosed
+            .iter()
+            .any(|held| !request.requested.iter().any(|want| want.schema_id == *held))
+            || request.requested.iter().any(|want| !disclosed.contains(&want.schema_id))
+        {
+            return Err(WalletError::PolicyDenied);
+        }
+        let nonce = request.nonce;
+        self.consumed_nonces.push(nonce);
         self.consumed_nonces.sort();
         Ok(())
     }
@@ -872,10 +893,103 @@ mod tests {
         assert_eq!(adapter.begin_issuance(offer(70), 21), Err(WalletError::Replay));
     }
 
+    /// Regression for #678: a decoded offer must never arrive pre-authorized.
+    ///
+    /// `decode` restores the wire-supplied state, so without an explicit check `begin_issuance`
+    /// would admit an offer already marked `Authorized` and `complete_issuance` would register a
+    /// credential without `authorize_issuance` — the only step that verifies `consent_digest`
+    /// ever running.
+    #[test]
+    fn decoded_offers_cannot_arrive_pre_authorized_and_skip_consent() {
+        let mut adapter = OpenWalletAdapterV1::new();
+        let mut forged = offer(30);
+        forged.state = IssuanceSessionState::Authorized;
+        let wire = encode_envelope(&forged).unwrap();
+        let decoded = decode_envelope::<OpenWalletCredentialOfferV1>(&wire).unwrap();
+        assert_eq!(decoded.state(), IssuanceSessionState::Authorized);
+
+        assert_eq!(adapter.begin_issuance(decoded, 1), Err(WalletError::PolicyDenied));
+        assert!(issuance_state(&adapter, digest(30)).is_none());
+        assert_eq!(
+            adapter.complete_issuance(digest(30), credential(70), digest(42), 1),
+            Err(WalletError::UnknownSession)
+        );
+        assert!(adapter.credentials.is_empty());
+        assert!(adapter.consumed_nonces.is_empty());
+
+        // A `Completed` offer is refused on the same grounds.
+        let mut finished = offer(30);
+        finished.state = IssuanceSessionState::Completed;
+        assert_eq!(adapter.begin_issuance(finished, 1), Err(WalletError::PolicyDenied));
+
+        // The honest offer for the same session still admits and requires real consent.
+        adapter.begin_issuance(offer(30), 1).unwrap();
+        assert_eq!(issuance_state(&adapter, digest(30)), Some(IssuanceSessionState::Offered));
+        assert_eq!(
+            adapter.complete_issuance(digest(30), credential(70), digest(42), 1),
+            Err(WalletError::Replay)
+        );
+        assert_eq!(
+            adapter.authorize_issuance(digest(30), digest(99), 1),
+            Err(WalletError::PolicyDenied)
+        );
+        adapter.authorize_issuance(digest(30), digest(43), 1).unwrap();
+    }
+
+    /// Regression for #678: disclosure must answer the request and disclose nothing beyond it.
+    #[test]
+    fn presentation_approval_binds_selected_credentials_to_the_requested_schemas() {
+        let mut adapter = OpenWalletAdapterV1::new();
+        // request(40) asks for schema digest(44); credential(90) carries unrelated schema
+        // digest(91), and credential(43) carries the requested one.
+        adapter.register_credential(credential(90)).unwrap();
+        adapter.register_credential(credential(43)).unwrap();
+        let pending = request(40);
+        adapter.begin_presentation(pending.clone(), 1).unwrap();
+        let commitment = pending.commitment().unwrap();
+
+        let unrelated = OpenWalletConsentV1::new(
+            digest(40),
+            commitment,
+            vec![digest(90)],
+            vec![digest(45)],
+            1,
+            10,
+        )
+        .unwrap();
+        assert_eq!(adapter.approve_presentation(&unrelated, 1), Err(WalletError::PolicyDenied));
+
+        // Disclosing an unrequested credential alongside the requested one over-discloses.
+        let over = OpenWalletConsentV1::new(
+            digest(40),
+            commitment,
+            vec![digest(43), digest(90)],
+            vec![digest(45)],
+            1,
+            10,
+        )
+        .unwrap();
+        assert_eq!(adapter.approve_presentation(&over, 1), Err(WalletError::PolicyDenied));
+
+        // Nothing was consumed by the rejected attempts.
+        assert!(adapter.consumed_nonces.is_empty());
+        let exact = OpenWalletConsentV1::new(
+            digest(40),
+            commitment,
+            vec![digest(43)],
+            vec![digest(45)],
+            1,
+            10,
+        )
+        .unwrap();
+        adapter.approve_presentation(&exact, 1).unwrap();
+    }
+
     #[test]
     fn presentation_approval_requires_registered_selected_credentials() {
         let mut adapter = OpenWalletAdapterV1::new();
-        adapter.register_credential(credential(20)).unwrap();
+        // credential(43) carries schema digest(44), exactly what request(40) asks for.
+        adapter.register_credential(credential(43)).unwrap();
         let pending = request(40);
         adapter.begin_presentation(pending.clone(), 1).unwrap();
         let commitment = pending.commitment().unwrap();
@@ -895,7 +1009,7 @@ mod tests {
         let partial = OpenWalletConsentV1::new(
             digest(40),
             commitment,
-            vec![digest(20), digest(99)],
+            vec![digest(43), digest(99)],
             vec![digest(45)],
             1,
             10,
@@ -907,7 +1021,7 @@ mod tests {
         let honest = OpenWalletConsentV1::new(
             digest(40),
             commitment,
-            vec![digest(20)],
+            vec![digest(43)],
             vec![digest(45)],
             1,
             10,
@@ -981,11 +1095,11 @@ mod tests {
         assert_eq!(adapter.begin_presentation(pending.clone(), 1), Err(WalletError::Replay));
         assert_eq!(adapter.begin_presentation(request(40), 21), Err(WalletError::Replay));
 
-        adapter.register_credential(credential(20)).unwrap();
+        adapter.register_credential(credential(43)).unwrap();
         let consent = OpenWalletConsentV1::new(
             digest(40),
             pending.commitment().unwrap(),
-            vec![digest(20)],
+            vec![digest(43)],
             vec![digest(45)],
             1,
             10,
