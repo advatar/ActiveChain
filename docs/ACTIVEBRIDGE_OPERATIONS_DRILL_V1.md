@@ -6,7 +6,7 @@ Run the package-scoped rehearsal from the repository root:
 scripts/rehearse-activebridge-recovery.sh
 ```
 
-The command runs twelve named, serial tests over the production nTZS attempt journal and complete
+The command runs thirteen named, serial tests over the production nTZS attempt journal and complete
 payment settlement aggregate. A successful result establishes that:
 
 - exact request preparation is idempotent while changed retries conflict;
@@ -16,6 +16,8 @@ payment settlement aggregate. A successful result establishes that:
 - refund and dispute substitutions or replays fail closed;
 - failed treasury, API replay, and fee-sponsorship writes consume neither budget nor nonce;
 - webhook cursors require a retained intent and survive restart without accepting replay; and
+- a 64-intent workload preserves exact retries, lifecycle and webhook state across eight periodic
+  complete-aggregate process reopens; and
 - a complete finalized refund cannot exist without its settlement-bound cumulative accounting.
 
 The script exits on the first failure and emits a versioned JSON success record only after every

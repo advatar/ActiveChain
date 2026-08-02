@@ -3278,8 +3278,8 @@ mod tests {
             durable.create_intent(intent.clone(), binding.clone(), digest(14), 150),
             Ok(intent.intent())
         );
-        assert_eq!(durable.snapshot().intents(), &[intent.clone()]);
-        assert_eq!(durable.snapshot().idempotency().bindings(), &[binding.clone()]);
+        assert_eq!(durable.snapshot().intents(), std::slice::from_ref(&intent));
+        assert_eq!(durable.snapshot().idempotency().bindings(), std::slice::from_ref(&binding));
         assert_eq!(durable.snapshot().lifecycles().records()[0].state(), PaymentState::Created);
         let restarted = DurablePaymentRequestState::open(&path).unwrap();
         assert_eq!(restarted.snapshot(), durable.snapshot());
@@ -3948,6 +3948,75 @@ mod tests {
         );
         assert_eq!(durable.snapshot(), &before);
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn bounded_multi_intent_restart_soak_preserves_complete_aggregate() {
+        const INTENT_COUNT: u8 = 64;
+        let path = path("bounded-multi-intent-restart-soak");
+        let _ = std::fs::remove_file(&path);
+        let mut durable = DurablePaymentSettlementState::open(&path).unwrap();
+
+        for intent_byte in 1..=INTENT_COUNT {
+            let intent = payment_intent(
+                intent_byte,
+                70,
+                70_u8.wrapping_add(intent_byte),
+                140_u8.wrapping_add(intent_byte),
+            );
+            let binding = intent_binding(&intent);
+            assert_eq!(
+                durable.create_intent(intent.clone(), binding.clone(), digest(14), 150),
+                Ok(intent.intent())
+            );
+            assert_eq!(
+                durable.create_intent(intent.clone(), binding, digest(14), 150),
+                Ok(intent.intent())
+            );
+            durable
+                .advance_lifecycle(lifecycle_successor(intent_byte, 2, PaymentState::AwaitingPayer))
+                .unwrap();
+            durable
+                .advance_lifecycle(lifecycle_successor(
+                    intent_byte,
+                    3,
+                    PaymentState::ProviderPending,
+                ))
+                .unwrap();
+            durable
+                .deliver_webhook(
+                    &aggregate_webhook_event(intent_byte, 150_u8.wrapping_add(intent_byte), 1),
+                    150,
+                )
+                .unwrap();
+
+            if intent_byte % 8 == 0 {
+                let restarted = DurablePaymentSettlementState::open(&path).unwrap();
+                assert_eq!(restarted.snapshot(), durable.snapshot());
+                durable = restarted;
+            }
+        }
+
+        assert_eq!(durable.snapshot().requests().intents().len(), usize::from(INTENT_COUNT));
+        assert_eq!(
+            durable.snapshot().requests().lifecycles().records().len(),
+            usize::from(INTENT_COUNT)
+        );
+        assert!(
+            durable
+                .snapshot()
+                .requests()
+                .lifecycles()
+                .records()
+                .iter()
+                .all(|record| record.state() == PaymentState::ProviderPending)
+        );
+        assert_eq!(durable.snapshot().webhooks().cursors().len(), usize::from(INTENT_COUNT));
+        assert_eq!(
+            DurablePaymentSettlementState::open(&path).unwrap().snapshot(),
+            durable.snapshot()
+        );
+        std::fs::remove_file(path).unwrap();
     }
 
     fn aggregate_fee_sponsor_policy() -> PaymentFeeSponsorPolicyV1 {
