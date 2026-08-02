@@ -2,6 +2,15 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Light-client devnet vector hash reconciliation
+
+Tracked by [GitHub issue #743](https://github.com/advatar/ActiveChain/issues/743).
+
+- [ ] Align the stale light-client devnet-block requirement hash with the generated canonical vector
+  and primary verifier manifest.
+- [ ] Pass complete verifier-manifest/proof-conformance checks and the exact aggregate
+  deterministic-kernel gate; merge the dependency chain to `main` and verify reachability.
+
 ## Proof-of-funds guest image identity reconciliation
 
 Tracked by [GitHub issue #741](https://github.com/advatar/ActiveChain/issues/741).
