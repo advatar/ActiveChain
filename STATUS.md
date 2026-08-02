@@ -2144,7 +2144,12 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
         and resolution deadlines, and settle the assigned reward at most once.
 - [x] Add deterministic one-shot challenge assignments and bounded challenge reward resolution.
 - [x] Add deterministic fee quotes from base, resource, and congestion components.
-- [ ] Build a reproducible proof-finalized cash throughput benchmark with real PQ, DA, state, and proof work.
+- [x] Build a reproducible proof-finalized cash throughput benchmark with real PQ, DA, state, and
+      proof work.
+  - [x] Measure deterministic ML-DSA authorization, authenticated Coin Cell execution, CashAIR
+        proving and verification, and Reed-Solomon availability reconstruction in one pipeline.
+  - [x] Emit machine-readable stage timings, verified throughput, and proof/availability sizes,
+        with a bounded real-pipeline smoke test.
 - [x] Pass the full local-runner CI matrix.
 - [ ] Update and push the landing-page roadmap at each completed major milestone.
   - [x] Advertise the proof-aware ActiveBridge Rust SDK and reconcile implemented versus

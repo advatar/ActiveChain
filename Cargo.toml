@@ -60,6 +60,7 @@ members = [
     "node/semantic-devnet",
     "tools/vector-generator",
     "tools/apple-distribution",
+    "tools/cash-throughput-benchmark",
 ]
 resolver = "3"
 
