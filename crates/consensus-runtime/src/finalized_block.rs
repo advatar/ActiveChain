@@ -1,7 +1,7 @@
 //! Complete typed finalized-block composition boundary.
 
 use activechain_authorization_kernel::{
-    AuthorizationCandidate, AuthorizationReplayStore, AuthorizationVerifier,
+    AuthorizationCandidate, AuthorizationReplayStore, AuthorizationVerifier, CredentialMaterial,
     verify_authorization_candidate,
 };
 use activechain_canonical_codec::{EncodeError, decode_envelope, encode_envelope};
@@ -10,7 +10,10 @@ use activechain_devnet_kernel::{BlockReceipt, ChainState, DevnetBlock, apply_blo
 use activechain_finality_types::commit_parts as commitment;
 pub use activechain_finality_types::{FinalizedBlockHeader, ProofPublicInputs};
 use activechain_protocol_types::FungibleIssuerApprovalV1;
-use activechain_protocol_types::{Digest384, PrincipalId, QuorumCertificate};
+use activechain_protocol_types::{
+    CapabilityGrant, Credential, Digest384, PrincipalId, QuorumCertificate, ValidatorGenesis,
+    ValidatorVote,
+};
 
 #[allow(clippy::too_many_arguments)]
 fn derive_proof_public_inputs(
@@ -108,6 +111,7 @@ pub struct FinalizedBlockCandidate {
     pub claimed_header: FinalizedBlockHeader,
     pub proof: VerifiedExecutionProof,
     pub certificate: QuorumCertificate,
+    pub certificate_votes: Vec<ValidatorVote>,
     pub data_shards: usize,
     pub parity_shards: usize,
 }
@@ -132,8 +136,91 @@ pub trait ExecutionProofVerifier {
 
 /// External cryptographic observations required by the deterministic composition predicate.
 pub trait FinalizedBlockVerifier: ExecutionProofVerifier + AuthorizationVerifier {
-    fn verify_certificate(&self, certificate: &QuorumCertificate) -> bool;
+    fn verify_certificate(&self, certificate: &QuorumCertificate, votes: &[ValidatorVote]) -> bool;
     fn verify_issuer_approval(&self, approval: &FungibleIssuerApprovalV1) -> bool;
+}
+
+/// Forces real genesis-key and stake verification around an execution/authorization verifier.
+pub struct GenesisBackedFinalizedBlockVerifier<V> {
+    genesis: ValidatorGenesis,
+    inner: V,
+}
+
+impl<V> GenesisBackedFinalizedBlockVerifier<V> {
+    pub fn new(genesis: ValidatorGenesis, inner: V) -> Self {
+        Self { genesis, inner }
+    }
+}
+
+impl<V: ExecutionProofVerifier> ExecutionProofVerifier for GenesisBackedFinalizedBlockVerifier<V> {
+    fn verify(&self, proof_system: u16, statement: Digest384, proof: &[u8]) -> bool {
+        self.inner.verify(proof_system, statement, proof)
+    }
+}
+
+impl<V: AuthorizationVerifier> AuthorizationVerifier for GenesisBackedFinalizedBlockVerifier<V> {
+    fn verify_actor_signature(
+        &self,
+        envelope: &activechain_authorization_kernel::AuthorizationEnvelope,
+    ) -> bool {
+        self.inner.verify_actor_signature(envelope)
+    }
+    fn verify_finalized_context(
+        &self,
+        envelope: &activechain_authorization_kernel::AuthorizationEnvelope,
+    ) -> bool {
+        self.inner.verify_finalized_context(envelope)
+    }
+    fn verify_credential_signature(&self, credential: &Credential) -> bool {
+        self.inner.verify_credential_signature(credential)
+    }
+    fn verify_credential_status(&self, material: &CredentialMaterial) -> bool {
+        self.inner.verify_credential_status(material)
+    }
+    fn verify_capability_signature(&self, capability: &CapabilityGrant) -> bool {
+        self.inner.verify_capability_signature(capability)
+    }
+    fn verify_capability_active(
+        &self,
+        capability: &CapabilityGrant,
+        height: u64,
+        state_root: Digest384,
+    ) -> bool {
+        self.inner.verify_capability_active(capability, height, state_root)
+    }
+}
+
+impl<V: FinalizedBlockVerifier> FinalizedBlockVerifier for GenesisBackedFinalizedBlockVerifier<V> {
+    fn verify_certificate(&self, certificate: &QuorumCertificate, votes: &[ValidatorVote]) -> bool {
+        if certificate.genesis_commitment() != self.genesis.genesis_commitment()
+            || certificate.epoch() != self.genesis.epoch()
+            || certificate.protocol_revision() != self.genesis.protocol_revision()
+            || certificate.validator_set_root() != self.genesis.validator_set_root()
+        {
+            return false;
+        }
+        let Ok(validator_set) = self.genesis.validator_set() else {
+            return false;
+        };
+        let mut keyed_votes = Vec::with_capacity(votes.len());
+        for vote in votes {
+            let Some(entry) =
+                self.genesis.entries().iter().find(|entry| entry.validator() == vote.validator())
+            else {
+                return false;
+            };
+            keyed_votes.push((entry.public_key().as_slice(), vote.clone()));
+        }
+        activechain_crypto_provider::verify_quorum_certificate(
+            certificate,
+            &validator_set,
+            &keyed_votes,
+        )
+        .is_ok()
+    }
+    fn verify_issuer_approval(&self, approval: &FungibleIssuerApprovalV1) -> bool {
+        self.inner.verify_issuer_approval(approval)
+    }
 }
 impl<F: Fn(u16, Digest384, &[u8]) -> bool> ExecutionProofVerifier for F {
     fn verify(&self, proof_system: u16, statement: Digest384, proof: &[u8]) -> bool {
@@ -237,7 +324,7 @@ impl FinalizedBlockCandidate {
             || self.certificate.protocol_revision() != protocol_revision
             || self.certificate.validator_set_root() != validator_set_root
             || self.certificate.block_digest() != digest
-            || !verifier.verify_certificate(&self.certificate)
+            || !verifier.verify_certificate(&self.certificate, &self.certificate_votes)
         {
             return Err(FinalizedBlockAdmissionError::Certificate);
         }
@@ -280,6 +367,7 @@ mod tests {
     use activechain_protocol_types::{ChainId, ConsensusVoteContext};
     use activechain_state_tree::{StateCommitment, commit_objects};
     use activechain_transition::ObjectState;
+    use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
 
     struct AcceptAll;
     impl ExecutionProofVerifier for AcceptAll {
@@ -288,8 +376,12 @@ mod tests {
         }
     }
     impl FinalizedBlockVerifier for AcceptAll {
-        fn verify_certificate(&self, _certificate: &QuorumCertificate) -> bool {
-            true
+        fn verify_certificate(
+            &self,
+            _certificate: &QuorumCertificate,
+            votes: &[ValidatorVote],
+        ) -> bool {
+            votes.len() == 1
         }
         fn verify_issuer_approval(&self, _approval: &FungibleIssuerApprovalV1) -> bool {
             true
@@ -389,6 +481,115 @@ mod tests {
         (state, block, inputs, proof, header, genesis, root)
     }
 
+    fn certificate_vote(certificate: &QuorumCertificate) -> ValidatorVote {
+        ValidatorVote::new(
+            PrincipalId::new(Digest384::new([31; 48])),
+            ConsensusVoteContext::new_with_revision(
+                certificate.genesis_commitment(),
+                certificate.epoch(),
+                certificate.validator_set_root(),
+                certificate.protocol_revision(),
+            )
+            .unwrap(),
+            certificate.height(),
+            certificate.round(),
+            certificate.block_digest(),
+            certificate.proposal_commitment(),
+            activechain_protocol_types::ProtocolSignature::new(
+                activechain_protocol_types::CryptoSuiteId::ML_DSA_44,
+                vec![0; 2420],
+            )
+            .unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn genesis_backed_verifier_requires_real_pq_votes_and_exact_stake_context() {
+        use activechain_protocol_types::{
+            BlockProposal, ConsensusBlockRef, CryptoSuiteId, ProposalJustification,
+            ProtocolSignature, ValidatorGenesisEntry,
+        };
+        let key = SigningKey::<MlDsa44>::from_seed(&Seed::from([41; 32]));
+        let validator = PrincipalId::new(Digest384::new([42; 48]));
+        let genesis = ValidatorGenesis::new_with_revision(
+            7,
+            1,
+            4,
+            vec![
+                ValidatorGenesisEntry::new(validator, 1, key.verifying_key().encode().into())
+                    .unwrap(),
+            ],
+        )
+        .unwrap();
+        let context = ConsensusVoteContext::new_with_revision(
+            genesis.genesis_commitment(),
+            genesis.epoch(),
+            genesis.validator_set_root(),
+            genesis.protocol_revision(),
+        )
+        .unwrap();
+        let placeholder = ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2420]).unwrap();
+        let proposal = BlockProposal::new(
+            validator,
+            context,
+            1,
+            0,
+            Digest384::new([43; 48]),
+            ProposalJustification::Finalized(
+                ConsensusBlockRef::new(
+                    context.genesis_commitment(),
+                    context.genesis_commitment(),
+                    0,
+                    0,
+                )
+                .unwrap(),
+            ),
+            placeholder.clone(),
+        )
+        .unwrap();
+        let unsigned = ValidatorVote::new(
+            validator,
+            context,
+            1,
+            0,
+            proposal.block_digest(),
+            proposal.commitment(),
+            placeholder,
+        )
+        .unwrap();
+        let vote = ValidatorVote::new(
+            validator,
+            context,
+            1,
+            0,
+            proposal.block_digest(),
+            proposal.commitment(),
+            ProtocolSignature::new(
+                CryptoSuiteId::ML_DSA_44,
+                key.sign(&unsigned.signing_payload()).encode().to_vec(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let validator_set = genesis.validator_set().unwrap();
+        let mut collector = crate::VoteCollector::new(
+            proposal,
+            genesis.genesis_commitment(),
+            genesis.validator_set_root(),
+            genesis.protocol_revision(),
+        );
+        collector
+            .add_vote(&validator_set, key.verifying_key().encode().as_slice(), vote.clone())
+            .unwrap();
+        let certificate = collector.finalize(genesis.epoch(), &validator_set).unwrap();
+        let verifier = GenesisBackedFinalizedBlockVerifier::new(genesis, AcceptAll);
+        assert!(verifier.verify_certificate(&certificate, core::slice::from_ref(&vote)));
+        assert!(!verifier.verify_certificate(&certificate, &[]));
+        let forged = certificate_vote(&certificate);
+        assert!(!verifier.verify_certificate(&certificate, &[forged]));
+    }
+
     #[test]
     fn typed_finalization_recomputes_every_binding_and_rejects_substitution() {
         let (state, block, _inputs, proof, header, genesis, root) = fixture();
@@ -429,6 +630,7 @@ mod tests {
             claimed_header: header,
             proof: proof.clone(),
             certificate: certificate.clone(),
+            certificate_votes: vec![certificate_vote(&certificate)],
             data_shards: 1,
             parity_shards: 1,
         };
@@ -461,6 +663,7 @@ mod tests {
             },
             proof: proof.clone(),
             certificate: certificate.clone(),
+            certificate_votes: vec![certificate_vote(&certificate)],
             data_shards: 1,
             parity_shards: 1,
         };
@@ -503,6 +706,7 @@ mod tests {
                 claimed_header: FinalizedBlockHeader { inputs: mutated, ..header },
                 proof: proof.clone(),
                 certificate: certificate.clone(),
+                certificate_votes: vec![certificate_vote(&certificate)],
                 data_shards: 1,
                 parity_shards: 1,
             };
@@ -549,7 +753,8 @@ mod tests {
             authorization_candidates: vec![],
             claimed_header: header,
             proof: proof.clone(),
-            certificate,
+            certificate: certificate.clone(),
+            certificate_votes: vec![certificate_vote(&certificate)],
             data_shards: 1,
             parity_shards: 1,
         }
