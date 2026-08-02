@@ -1071,8 +1071,12 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
           provider dispatch, forced reconciliation, restart, replay, and failed-write atomicity.
     - [x] Add validated, crash-safe export and restoration for the complete joined payment
           settlement aggregate, rejecting corrupt backups without mutating live state.
-    - [ ] Complete sustained soak/chaos, operator incident exercises, independent review, and
-          staged external-rail pilots.
+    - [ ] Complete sustained soak/chaos qualification.
+      - [x] Run a bounded deterministic multi-intent persistence soak with exact retries,
+            lifecycle and webhook mutation, and periodic complete-aggregate restart verification.
+      - [ ] Run time-based multi-process load, outage, partition, and resource-exhaustion chaos.
+    - [ ] Complete operator incident exercises, independent review, and staged external-rail
+          pilots.
 - [x] Add canonical exact-once partial-refund requests and cumulative settlement-bound accounting.
   - [x] Persist a bounded per-intent refund-state journal atomically across settlement registration
     and every accepted partial refund, rejecting replay and corrupt restart state.

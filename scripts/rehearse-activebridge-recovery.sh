@@ -29,8 +29,10 @@ run_exact activechain-payment-connector-host \
 run_exact activechain-payment-connector-host \
   tests::atomic_webhook_cursor_requires_retained_intent_and_survives_restart
 run_exact activechain-payment-connector-host \
+  tests::bounded_multi_intent_restart_soak_preserves_complete_aggregate
+run_exact activechain-payment-connector-host \
   tests::atomic_fee_sponsorship_failed_write_does_not_charge_sponsor
 run_exact activechain-payment-connector-host \
   tests::finalized_refund_requires_complete_accounting_and_survives_restart
 
-echo '{"schema":"activechain-activebridge-recovery-drill-v1","scenarios":12,"result":"passed"}'
+echo '{"schema":"activechain-activebridge-recovery-drill-v1","scenarios":13,"result":"passed"}'
