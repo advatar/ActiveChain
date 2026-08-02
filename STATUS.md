@@ -266,7 +266,7 @@ Adversarial context-binding follow-up tracked by
   admission, matching the existing P-110 verifier contract.
 - [x] Add a targeted stale-height regression proving an otherwise valid authorization cannot use
   an expired capability or manipulate a rate window by declaring another height.
-- [ ] Run targeted authorization-kernel and consensus-runtime tests plus affected strict Clippy,
+- [x] Run targeted authorization-kernel and consensus-runtime tests plus affected strict Clippy,
   merge the #706 height slice to `main`, prove reachability, and delete its feature branch.
 
 - [x] Replace the permanently capped invocation replay map with a constant-size witnessed
