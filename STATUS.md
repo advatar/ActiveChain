@@ -1312,6 +1312,11 @@ Detailed remaining implementation slices:
   ([GitHub issue #568](https://github.com/advatar/ActiveChain/issues/568)).
 - [ ] Cross-device VCIssuer/EUWallet interoperability qualification
   ([GitHub issue #569](https://github.com/advatar/ActiveChain/issues/569)).
+  - [x] Add a fail-closed cross-repository digest, privacy and evidence-schema qualification harness
+    plus an honest supported/blocked compatibility matrix.
+  - [ ] Complete physical Android qualification ([#578](https://github.com/advatar/ActiveChain/issues/578)),
+    independent review ([#579](https://github.com/advatar/ActiveChain/issues/579)), and physical Apple
+    end-to-end qualification ([#580](https://github.com/advatar/ActiveChain/issues/580)).
 
 ## Active dBrowser downstream qualification
 
