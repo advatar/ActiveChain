@@ -101,8 +101,10 @@ pub use crypto::{
     CryptoSuiteError, CryptoSuiteId, ProtocolSignature, SignatureError,
 };
 pub use did::{
-    DidControllerOperationV1, DidControllerRecordV1, DidOperationKind, DidRecordError,
-    DidResolutionV1, derive_activechain_did,
+    DidControllerOperationV1, DidControllerRecordV1, DidDocumentV1, DidKeyAgreementMethodV1,
+    DidOperationAuthorizationV1, DidOperationKind, DidRecordError, DidResolutionCheckpointV1,
+    DidResolutionV1, MAX_DID_AUTHENTICATION_METHODS, MAX_DID_KEY_AGREEMENT_METHODS,
+    ML_KEM_768_PUBLIC_KEY_LENGTH, derive_activechain_did,
 };
 pub use external_identity::{
     ExternalCredentialSchemaMappingV1, ExternalCredentialSchemaRegistryV1,

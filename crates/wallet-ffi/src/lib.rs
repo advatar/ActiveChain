@@ -2,10 +2,11 @@
 
 use activechain_canonical_codec::{decode_envelope, encode_envelope};
 use activechain_cash_kernel::{CoinCellSet, CoinTransfer, FungibleCoinCellSet};
+use activechain_crypto_provider::verify_did_signature;
 use activechain_proposal_gateway::{ActionIntentV1, ActionKindV1, AuthorizedActionIntentV1};
 use activechain_protocol_types::{
-    CapabilityId, ChainId, CoinCellId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature,
-    TransactionId,
+    AuthenticatorId, CapabilityId, ChainId, CoinCellId, CryptoSuiteId, DidControllerOperationV1,
+    DidOperationAuthorizationV1, Digest384, PrincipalId, ProtocolSignature, TransactionId,
 };
 use activechain_wallet_core::{
     AgentConnectionKind, AgentLifecycle, AgentRegistryCommandV1, AgentRegistryV1,
@@ -1418,6 +1419,161 @@ fn verify_proposal_signature(public_key: &[u8], signature: &[u8], payload: &[u8]
     key.verify(payload, &signature).is_ok()
 }
 
+/// Produces one network-bound DID authorization through caller-owned opaque custody and
+/// re-verifies the returned signature before releasing the canonical envelope.
+pub fn authorize_did_operation<F>(
+    operation: &DidControllerOperationV1,
+    chain_genesis: Digest384,
+    approved_commitment: Digest384,
+    authorizer: AuthenticatorId,
+    suite: CryptoSuiteId,
+    public_key: &[u8],
+    sign: F,
+) -> Result<Vec<u8>, u32>
+where
+    F: FnOnce(&[u8]) -> Vec<u8>,
+{
+    if operation.commitment().map_err(|_| WALLET_MALFORMED)? != approved_commitment {
+        return Err(WALLET_APPROVAL_MISMATCH);
+    }
+    let signature_len = suite.signature_length().ok_or(WALLET_INVALID_SIGNATURE)?;
+    let unsigned = DidOperationAuthorizationV1::new(
+        chain_genesis,
+        operation,
+        authorizer,
+        ProtocolSignature::new(suite, vec![0; signature_len])
+            .map_err(|_| WALLET_INVALID_SIGNATURE)?,
+    )
+    .map_err(|_| WALLET_MALFORMED)?;
+    let payload = unsigned.signing_payload();
+    let signature = sign(&payload);
+    verify_did_signature(suite, public_key, &payload, &signature)
+        .map_err(|_| WALLET_INVALID_SIGNATURE)?;
+    let authorization = DidOperationAuthorizationV1::new(
+        chain_genesis,
+        operation,
+        authorizer,
+        ProtocolSignature::new(suite, signature).map_err(|_| WALLET_INVALID_SIGNATURE)?,
+    )
+    .map_err(|_| WALLET_MALFORMED)?;
+    encode_envelope(&authorization).map_err(|_| WALLET_MALFORMED)
+}
+
+fn did_signature_suite(value: u32) -> Option<CryptoSuiteId> {
+    match value {
+        0 => Some(CryptoSuiteId::ML_DSA_65),
+        1 => Some(CryptoSuiteId::ML_DSA_87),
+        2 => Some(CryptoSuiteId::SLH_DSA_SHAKE_192S),
+        _ => None,
+    }
+}
+
+/// Signs one reviewed DID lifecycle operation using a native custody callback.
+///
+/// # Safety
+/// Every non-empty input must be readable for its declared/fixed length. Output pointers must be
+/// writable. The callback receives only the exact network-bound signing payload and writes the
+/// suite-exact signature; no secret key crosses this boundary.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn activechain_wallet_authorize_did_operation(
+    operation: *const u8,
+    operation_len: u32,
+    chain_genesis: *const u8,
+    approved_commitment: *const u8,
+    authorizer: *const u8,
+    suite: u32,
+    public_key: *const u8,
+    public_key_len: u32,
+    callback: Option<ActivechainWalletSignCallback>,
+    callback_context: *mut c_void,
+    output: *mut u8,
+    output_capacity: u32,
+    required_len: *mut u32,
+) -> u32 {
+    if operation.is_null()
+        || operation_len == 0
+        || operation_len > MAX_WALLET_INPUT
+        || chain_genesis.is_null()
+        || approved_commitment.is_null()
+        || authorizer.is_null()
+        || public_key.is_null()
+        || public_key_len == 0
+        || callback.is_none()
+        || required_len.is_null()
+        || (output.is_null() && output_capacity != 0)
+    {
+        return if operation_len > MAX_WALLET_INPUT {
+            WALLET_TOO_LARGE
+        } else {
+            WALLET_NULL_POINTER
+        };
+    }
+    let Some(suite) = did_signature_suite(suite) else { return WALLET_INVALID_SIGNATURE };
+    let Some(expected_key_len) = suite.verification_key_length() else {
+        return WALLET_INVALID_SIGNATURE;
+    };
+    if public_key_len as usize != expected_key_len {
+        return WALLET_INVALID_SIGNATURE;
+    }
+    let operation_bytes = unsafe { core::slice::from_raw_parts(operation, operation_len as usize) };
+    let Ok(operation) = decode_envelope::<DidControllerOperationV1>(operation_bytes) else {
+        return WALLET_MALFORMED;
+    };
+    let chain_genesis = Digest384::new(
+        unsafe { core::slice::from_raw_parts(chain_genesis, 48) }.try_into().unwrap(),
+    );
+    let approved_commitment = Digest384::new(
+        unsafe { core::slice::from_raw_parts(approved_commitment, 48) }.try_into().unwrap(),
+    );
+    let authorizer = AuthenticatorId::new(Digest384::new(
+        unsafe { core::slice::from_raw_parts(authorizer, 48) }.try_into().unwrap(),
+    ));
+    let public_key = unsafe { core::slice::from_raw_parts(public_key, public_key_len as usize) };
+    let signature_len = suite.signature_length().unwrap();
+    let mut callback_failed = false;
+    let result = authorize_did_operation(
+        &operation,
+        chain_genesis,
+        approved_commitment,
+        authorizer,
+        suite,
+        public_key,
+        |payload| {
+            let mut signature = vec![0; signature_len];
+            let status = unsafe {
+                callback.unwrap()(
+                    callback_context,
+                    payload.as_ptr(),
+                    payload.len() as u32,
+                    signature.as_mut_ptr(),
+                    signature_len as u32,
+                )
+            };
+            if status == 0 {
+                signature
+            } else {
+                callback_failed = true;
+                Vec::new()
+            }
+        },
+    );
+    if callback_failed {
+        return WALLET_CALLBACK_FAILED;
+    }
+    let encoded = match result {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let Ok(required) = u32::try_from(encoded.len()) else { return WALLET_TOO_LARGE };
+    unsafe { *required_len = required };
+    if output_capacity < required {
+        return WALLET_BUFFER_TOO_SMALL;
+    }
+    unsafe { core::ptr::copy_nonoverlapping(encoded.as_ptr(), output, encoded.len()) };
+    WALLET_OK
+}
+
 /// Safe Rust entry point for authorizing an already reviewed MCP proposal.
 ///
 /// The caller retains custody of the signing key through `sign`; this function enforces the same
@@ -1935,8 +2091,10 @@ mod tests {
     use super::*;
     use activechain_canonical_codec::encode_envelope;
     use activechain_cash_kernel::{CoinCell, CoinCellOrigin, CoinCellRecord};
-    use activechain_protocol_types::TransactionId;
-    use ml_dsa::{EncodedSignature, Keypair, MlDsa44, Signature, Signer, SigningKey, Verifier};
+    use activechain_protocol_types::{DidControllerRecordV1, DidOperationKind, TransactionId};
+    use ml_dsa::{
+        EncodedSignature, Keypair, MlDsa44, MlDsa65, Signature, Signer, SigningKey, Verifier,
+    };
 
     fn approval_vector() -> std::collections::BTreeMap<&'static str, &'static str> {
         include_str!("../../../testing/vectors/wallet-canonical-approval-v1.txt")
@@ -1962,9 +2120,142 @@ mod tests {
         Digest384::new([byte; 48])
     }
 
+    unsafe extern "C" fn did_sign_callback(
+        context: *mut c_void,
+        payload: *const u8,
+        payload_len: u32,
+        signature_out: *mut u8,
+        signature_len: u32,
+    ) -> u32 {
+        if context.is_null()
+            || payload.is_null()
+            || signature_out.is_null()
+            || signature_len != 3_309
+        {
+            return 1;
+        }
+        let key = unsafe { &*context.cast::<SigningKey<MlDsa65>>() };
+        let payload = unsafe { core::slice::from_raw_parts(payload, payload_len as usize) };
+        let signature = key.sign(payload).encode();
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                signature.as_slice().as_ptr(),
+                signature_out,
+                signature.len(),
+            );
+        }
+        0
+    }
+
     #[test]
     fn revision_is_stable() {
         assert_eq!(activechain_wallet_ffi_revision(), 4);
+    }
+
+    #[test]
+    fn native_callback_signs_only_the_approved_network_bound_did_operation() {
+        let principal = PrincipalId::new(digest(1));
+        let next = DidControllerRecordV1::new(
+            principal,
+            digest(2),
+            digest(3),
+            digest(4),
+            Some(digest(5)),
+            None,
+            2,
+            true,
+        )
+        .unwrap();
+        let operation = DidControllerOperationV1::new(
+            DidOperationKind::Update,
+            principal,
+            Some(digest(6)),
+            next,
+            digest(7),
+        )
+        .unwrap();
+        let encoded = encode_envelope(&operation).unwrap();
+        let commitment = operation.commitment().unwrap();
+        let authorizer = AuthenticatorId::new(digest(8));
+        let genesis = digest(9);
+        let key = SigningKey::<MlDsa65>::from_seed(&ml_dsa::Seed::from([10; 32]));
+        let public_key = key.verifying_key().encode();
+        let mut required = 0;
+        assert_eq!(
+            unsafe {
+                activechain_wallet_authorize_did_operation(
+                    encoded.as_ptr(),
+                    encoded.len() as u32,
+                    genesis.as_bytes().as_ptr(),
+                    commitment.as_bytes().as_ptr(),
+                    authorizer.digest().as_bytes().as_ptr(),
+                    0,
+                    public_key.as_slice().as_ptr(),
+                    public_key.len() as u32,
+                    Some(did_sign_callback),
+                    (&key as *const SigningKey<MlDsa65>).cast_mut().cast(),
+                    core::ptr::null_mut(),
+                    0,
+                    &mut required,
+                )
+            },
+            WALLET_BUFFER_TOO_SMALL
+        );
+        let mut authorization = vec![0; required as usize];
+        assert_eq!(
+            unsafe {
+                activechain_wallet_authorize_did_operation(
+                    encoded.as_ptr(),
+                    encoded.len() as u32,
+                    genesis.as_bytes().as_ptr(),
+                    commitment.as_bytes().as_ptr(),
+                    authorizer.digest().as_bytes().as_ptr(),
+                    0,
+                    public_key.as_slice().as_ptr(),
+                    public_key.len() as u32,
+                    Some(did_sign_callback),
+                    (&key as *const SigningKey<MlDsa65>).cast_mut().cast(),
+                    authorization.as_mut_ptr(),
+                    authorization.len() as u32,
+                    &mut required,
+                )
+            },
+            WALLET_OK
+        );
+        let decoded = decode_envelope::<DidOperationAuthorizationV1>(&authorization).unwrap();
+        assert!(decoded.binds(genesis, &operation));
+        assert!(
+            verify_did_signature(
+                CryptoSuiteId::ML_DSA_65,
+                public_key.as_slice(),
+                &decoded.signing_payload(),
+                decoded.signature().as_bytes(),
+            )
+            .is_ok()
+        );
+
+        let mut wrong = *commitment.as_bytes();
+        wrong[0] ^= 1;
+        assert_eq!(
+            unsafe {
+                activechain_wallet_authorize_did_operation(
+                    encoded.as_ptr(),
+                    encoded.len() as u32,
+                    genesis.as_bytes().as_ptr(),
+                    wrong.as_ptr(),
+                    authorizer.digest().as_bytes().as_ptr(),
+                    0,
+                    public_key.as_slice().as_ptr(),
+                    public_key.len() as u32,
+                    Some(did_sign_callback),
+                    (&key as *const SigningKey<MlDsa65>).cast_mut().cast(),
+                    authorization.as_mut_ptr(),
+                    authorization.len() as u32,
+                    &mut required,
+                )
+            },
+            WALLET_APPROVAL_MISMATCH
+        );
     }
 
     #[test]

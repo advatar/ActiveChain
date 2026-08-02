@@ -4,10 +4,14 @@
 extern crate alloc;
 
 use activechain_protocol_types::{
-    BlockProposal, MAX_VALIDATORS_PER_EPOCH, ML_DSA44_PUBLIC_KEY_LENGTH, PrincipalId,
+    BlockProposal, CryptoSuiteId, DidControllerOperationV1, DidControllerRecordV1, DidDocumentV1,
+    DidOperationAuthorizationV1, MAX_VALIDATORS_PER_EPOCH, ML_DSA44_PUBLIC_KEY_LENGTH, PrincipalId,
     QuorumCertificate, ValidatorGenesis, ValidatorSet, ValidatorVote, ViewChangeCertificate,
 };
-use ml_dsa::{EncodedSignature, EncodedVerifyingKey, MlDsa44, Signature, Verifier, VerifyingKey};
+use ml_dsa::{
+    EncodedSignature, EncodedVerifyingKey, MlDsa44, MlDsa65, MlDsa87, Signature, Verifier,
+    VerifyingKey,
+};
 use ml_kem::{
     DecapsulationKey, EncapsulationKey, MlKem768, Seed as KemSeed,
     kem::{Encapsulate, KeyExport, TryDecapsulate},
@@ -16,6 +20,10 @@ use ml_kem::{
 use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
+};
+use slh_dsa::{
+    Shake192s, Signature as SlhSignature, VerifyingKey as SlhVerifyingKey,
+    signature::Verifier as SlhVerifier,
 };
 
 pub const MAX_PROTECTED_PAYLOAD: usize = 64 * 1024;
@@ -182,6 +190,89 @@ pub enum VerificationError {
     StakeOverflow,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DidVerificationError {
+    ContextMismatch,
+    InvalidAuthorizer,
+    UnsupportedSuite,
+    InvalidKeyLength,
+    InvalidSignatureLength,
+    MalformedSignature,
+    InvalidSignature,
+    InvalidLifecycle,
+}
+
+/// Verifies the exact network-bound DID operation signature before applying its role-bound
+/// canonical document transition.
+pub fn verify_did_operation_authorization(
+    current: &DidControllerRecordV1,
+    current_document: &DidDocumentV1,
+    operation: &DidControllerOperationV1,
+    next_document: &DidDocumentV1,
+    authorization: &DidOperationAuthorizationV1,
+    expected_chain_genesis: activechain_protocol_types::Digest384,
+    finalized_height: u64,
+) -> Result<DidControllerRecordV1, DidVerificationError> {
+    if !authorization.binds(expected_chain_genesis, operation) {
+        return Err(DidVerificationError::ContextMismatch);
+    }
+    let method = current_document
+        .method(authorization.authorizer())
+        .ok_or(DidVerificationError::InvalidAuthorizer)?;
+    if method.scheme() != authorization.signature().suite() {
+        return Err(DidVerificationError::InvalidAuthorizer);
+    }
+    let payload = authorization.signing_payload();
+    verify_did_signature(
+        method.scheme(),
+        method.verification_key(),
+        &payload,
+        authorization.signature().as_bytes(),
+    )?;
+    current
+        .apply_document_operation(
+            current_document,
+            operation,
+            next_document,
+            authorization.authorizer(),
+            finalized_height,
+        )
+        .map_err(|_| DidVerificationError::InvalidLifecycle)
+}
+
+pub fn verify_did_signature(
+    suite: CryptoSuiteId,
+    public_key: &[u8],
+    message: &[u8],
+    signature: &[u8],
+) -> Result<(), DidVerificationError> {
+    macro_rules! verify {
+        ($parameters:ty) => {{
+            let key: EncodedVerifyingKey<$parameters> =
+                public_key.try_into().map_err(|_| DidVerificationError::InvalidKeyLength)?;
+            let signature: EncodedSignature<$parameters> =
+                signature.try_into().map_err(|_| DidVerificationError::InvalidSignatureLength)?;
+            let key = VerifyingKey::<$parameters>::decode(&key);
+            let signature = Signature::<$parameters>::decode(&signature)
+                .ok_or(DidVerificationError::MalformedSignature)?;
+            key.verify(message, &signature).map_err(|_| DidVerificationError::InvalidSignature)
+        }};
+    }
+    match suite {
+        CryptoSuiteId::ML_DSA_65 => verify!(MlDsa65),
+        CryptoSuiteId::ML_DSA_87 => verify!(MlDsa87),
+        CryptoSuiteId::SLH_DSA_SHAKE_192S => {
+            let key = SlhVerifyingKey::<Shake192s>::try_from(public_key)
+                .map_err(|_| DidVerificationError::InvalidKeyLength)?;
+            let signature = SlhSignature::<Shake192s>::try_from(signature)
+                .map_err(|_| DidVerificationError::InvalidSignatureLength)?;
+            SlhVerifier::verify(&key, message, &signature)
+                .map_err(|_| DidVerificationError::InvalidSignature)
+        }
+        _ => Err(DidVerificationError::UnsupportedSuite),
+    }
+}
+
 /// Finalized validator public keys used by the production verifier boundary.
 ///
 /// The registry is deliberately immutable and ordered. Callers must replace it only when a
@@ -340,10 +431,14 @@ pub fn verify_quorum_certificate(
 mod tests {
     use super::*;
     use activechain_protocol_types::{
-        ConsensusVoteContext, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature,
-        QuorumCertificate, ValidatorSet, ValidatorVote, ValidatorWeight,
+        AuthenticatorDescriptor, AuthenticatorId, AuthenticatorPurpose, ConsensusVoteContext,
+        CryptoSuiteId, DidControllerOperationV1, DidControllerRecordV1, DidDocumentV1,
+        DidKeyAgreementMethodV1, DidOperationAuthorizationV1, DidOperationKind, Digest384,
+        ML_KEM_768_PUBLIC_KEY_LENGTH, PrincipalId, ProtocolSignature, QuorumCertificate,
+        ValidatorSet, ValidatorVote, ValidatorWeight,
     };
-    use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
+    use ml_dsa::{Keypair, MlDsa44, MlDsa65, Seed, Signer, SigningKey};
+    use slh_dsa::{Shake192s, SigningKey as SlhSigningKey, signature::Signer as SlhSigner};
     #[test]
     fn verifies_a_real_ml_dsa44_signature() {
         let seed = Seed::default();
@@ -615,5 +710,198 @@ mod tests {
         let mut tampered = envelope.clone();
         tampered.encrypted_payload[0] ^= 1;
         assert_eq!(tampered.open(&recipient, b"chain-1"), Err(KemError::AuthenticationFailed));
+    }
+
+    #[test]
+    fn did_authorization_verifies_real_signature_context_and_role() {
+        let digest = |byte| Digest384::new([byte; 48]);
+        let principal = PrincipalId::new(digest(1));
+        let authorizer = AuthenticatorId::new(digest(2));
+        let signing_key = SigningKey::<MlDsa65>::from_seed(&Seed::from([7; 32]));
+        let control = AuthenticatorDescriptor::new(
+            authorizer,
+            CryptoSuiteId::ML_DSA_65,
+            signing_key.verifying_key().encode().to_vec(),
+            AuthenticatorPurpose::Control,
+            1,
+            None,
+            None,
+        )
+        .unwrap();
+        let agreement = DidKeyAgreementMethodV1::new(
+            AuthenticatorId::new(digest(3)),
+            CryptoSuiteId::ML_KEM_768,
+            vec![3; ML_KEM_768_PUBLIC_KEY_LENGTH],
+            1,
+            None,
+            None,
+        )
+        .unwrap();
+        let current_document =
+            DidDocumentV1::new(principal, vec![control.clone()], vec![agreement.clone()], None)
+                .unwrap();
+        let next_document =
+            DidDocumentV1::new(principal, vec![control], vec![agreement], Some(digest(4))).unwrap();
+        let current = DidControllerRecordV1::from_document(&current_document, 1, true).unwrap();
+        let next = DidControllerRecordV1::from_document(&next_document, 2, true).unwrap();
+        let operation = DidControllerOperationV1::new(
+            DidOperationKind::Update,
+            principal,
+            Some(current.commitment().unwrap()),
+            next,
+            digest(5),
+        )
+        .unwrap();
+        let genesis = digest(6);
+        let unsigned = DidOperationAuthorizationV1::new(
+            genesis,
+            &operation,
+            authorizer,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_65, vec![0; 3_309]).unwrap(),
+        )
+        .unwrap();
+        let signed = DidOperationAuthorizationV1::new(
+            genesis,
+            &operation,
+            authorizer,
+            ProtocolSignature::new(
+                CryptoSuiteId::ML_DSA_65,
+                signing_key.sign(&unsigned.signing_payload()).encode().to_vec(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            verify_did_operation_authorization(
+                &current,
+                &current_document,
+                &operation,
+                &next_document,
+                &signed,
+                genesis,
+                1,
+            ),
+            Ok(next)
+        );
+        assert_eq!(
+            verify_did_operation_authorization(
+                &current,
+                &current_document,
+                &operation,
+                &next_document,
+                &signed,
+                digest(9),
+                1,
+            ),
+            Err(DidVerificationError::ContextMismatch)
+        );
+    }
+
+    #[test]
+    fn did_recovery_verifies_real_slh_dsa_and_rejects_controller_substitution() {
+        let digest = |byte| Digest384::new([byte; 48]);
+        let principal = PrincipalId::new(digest(1));
+        let control_key = SigningKey::<MlDsa65>::from_seed(&Seed::from([7; 32]));
+        let control_id = AuthenticatorId::new(digest(2));
+        let recovery_id = AuthenticatorId::new(digest(3));
+        let recovery_key =
+            SlhSigningKey::<Shake192s>::slh_keygen_internal(&[8; 24], &[9; 24], &[10; 24]);
+        let current_document = DidDocumentV1::new(
+            principal,
+            vec![
+                AuthenticatorDescriptor::new(
+                    control_id,
+                    CryptoSuiteId::ML_DSA_65,
+                    control_key.verifying_key().encode().to_vec(),
+                    AuthenticatorPurpose::Control,
+                    1,
+                    None,
+                    None,
+                )
+                .unwrap(),
+                AuthenticatorDescriptor::new(
+                    recovery_id,
+                    CryptoSuiteId::SLH_DSA_SHAKE_192S,
+                    recovery_key.verifying_key().to_bytes().to_vec(),
+                    AuthenticatorPurpose::Recovery,
+                    1,
+                    None,
+                    None,
+                )
+                .unwrap(),
+            ],
+            vec![
+                DidKeyAgreementMethodV1::new(
+                    AuthenticatorId::new(digest(4)),
+                    CryptoSuiteId::ML_KEM_768,
+                    vec![4; ML_KEM_768_PUBLIC_KEY_LENGTH],
+                    1,
+                    None,
+                    None,
+                )
+                .unwrap(),
+            ],
+            None,
+        )
+        .unwrap();
+        let next_document = current_document.clone();
+        let current = DidControllerRecordV1::from_document(&current_document, 1, true).unwrap();
+        let next = DidControllerRecordV1::from_document(&next_document, 2, true).unwrap();
+        let operation = DidControllerOperationV1::new(
+            DidOperationKind::Recover,
+            principal,
+            Some(current.commitment().unwrap()),
+            next,
+            digest(5),
+        )
+        .unwrap();
+        let genesis = digest(6);
+        let unsigned = DidOperationAuthorizationV1::new(
+            genesis,
+            &operation,
+            recovery_id,
+            ProtocolSignature::new(CryptoSuiteId::SLH_DSA_SHAKE_192S, vec![0; 16_224]).unwrap(),
+        )
+        .unwrap();
+        let signature = SlhSigner::try_sign(&recovery_key, &unsigned.signing_payload()).unwrap();
+        let signed = DidOperationAuthorizationV1::new(
+            genesis,
+            &operation,
+            recovery_id,
+            ProtocolSignature::new(CryptoSuiteId::SLH_DSA_SHAKE_192S, Vec::<u8>::from(&signature))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            verify_did_operation_authorization(
+                &current,
+                &current_document,
+                &operation,
+                &next_document,
+                &signed,
+                genesis,
+                1,
+            ),
+            Ok(next)
+        );
+        let wrong_role = DidOperationAuthorizationV1::new(
+            genesis,
+            &operation,
+            control_id,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_65, vec![0; 3_309]).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            verify_did_operation_authorization(
+                &current,
+                &current_document,
+                &operation,
+                &next_document,
+                &wrong_role,
+                genesis,
+                1,
+            )
+            .is_err()
+        );
     }
 }

@@ -37,6 +37,10 @@
 
 #define ACTIVECHAIN_WALLET_OPENWALLET_CONSENT 3
 
+#define ACTIVECHAIN_WALLET_DID_ML_DSA_65 0
+#define ACTIVECHAIN_WALLET_DID_ML_DSA_87 1
+#define ACTIVECHAIN_WALLET_DID_SLH_DSA_SHAKE_192S 2
+
 typedef uint32_t (*activechain_wallet_sign_callback)(
     void *context,
     const uint8_t *payload,
@@ -494,6 +498,31 @@ uint32_t activechain_wallet_proposal_approval(const uint8_t *intent,
                                               uint32_t intent_len,
                                               uint64_t current_finalized_height,
                                               struct ActivechainWalletProposalApproval *approval_out);
+
+/**
+ * Signs one reviewed canonical DID lifecycle operation through caller-owned native custody.
+ *
+ * The callback receives only the exact chain-genesis-bound signing payload. The returned
+ * suite-exact signature is independently verified before the authorization envelope is released.
+ * No secret key bytes cross this boundary.
+ *
+ * # Safety
+ * Inputs must be readable for their declared/fixed lengths and outputs must be writable.
+ */
+uint32_t activechain_wallet_authorize_did_operation(
+    const uint8_t *operation,
+    uint32_t operation_len,
+    const uint8_t *chain_genesis,
+    const uint8_t *approved_commitment,
+    const uint8_t *authorizer,
+    uint32_t suite,
+    const uint8_t *public_key,
+    uint32_t public_key_len,
+    activechain_wallet_sign_callback callback,
+    void *callback_context,
+    uint8_t *output,
+    uint32_t output_capacity,
+    uint32_t *required_len);
 
 /**
  * Signs exactly one reviewed canonical MCP action intent through caller-owned native custody.
