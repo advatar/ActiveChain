@@ -259,6 +259,16 @@ Tracked by [GitHub issue #334](https://github.com/advatar/ActiveChain/issues/334
 Follow-up availability fix tracked by
 [GitHub issue #705](https://github.com/advatar/ActiveChain/issues/705).
 
+Adversarial context-binding follow-up tracked by
+[GitHub issue #706](https://github.com/advatar/ActiveChain/issues/706).
+
+- [x] Bind every opaque verified authorization to the exact finalized block height at production
+  admission, matching the existing P-110 verifier contract.
+- [x] Add a targeted stale-height regression proving an otherwise valid authorization cannot use
+  an expired capability or manipulate a rate window by declaring another height.
+- [ ] Run targeted authorization-kernel and consensus-runtime tests plus affected strict Clippy,
+  merge the #706 height slice to `main`, prove reachability, and delete its feature branch.
+
 - [x] Replace the permanently capped invocation replay map with a constant-size witnessed
   accumulator commitment, preserving fail-closed replay rejection across restart while allowing
   more than 4,096 valid authorizations.
