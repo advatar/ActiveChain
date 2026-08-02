@@ -100,6 +100,21 @@ declared, either source reporting revocation fails closed. A verified companion 
 credential schema fact at the P-023 boundary and never supplies actor authentication, a capability,
 an approval, spending authority, or an APL permit.
 
+### TLS proof of funds
+
+The v1 proof-of-funds relation is the pinned RISC Zero guest identified by the published
+`PROOF_OF_FUNDS_ID`. Its private witness contains one non-negative `u128` amount in exact decimal
+units and commitments to the TLS evidence, holder, currency, institution set, and single-observation
+aggregation rule. The relation enforces the inclusive minimum and optional maximum without placing
+the amount, account identifier, institution name, transactions, or TLS transcript in its journal.
+
+The public journal commits to `ProofOfFundsPublicInputsV1`, which binds the canonical predicate plus
+chain genesis, verifier, purpose, finalized status root and height, assurance provenance, and any
+issuer-upgrade authorization. The predicate independently binds chain, action, audience, asset,
+currency, decimal scale, institution set, aggregation rule, policy revision, observation window,
+nonce, and expiry. Self-issued evidence cannot claim issuer-upgraded or regulated assurance.
+Acceptance additionally requires fresh non-revoked status and atomic nullifier consumption.
+
 ## 6. Total failure classes
 
 Failures include not-yet-issued, not-yet-valid, expired, subject mismatch, unaccepted issuer/schema, issuer-evidence mismatch, missing or mismatched issuance-log evidence, missing or unexpected status material, registry mismatch, future or stale registry, status-evidence mismatch, revoked, suspended, commitment encoding, and too many derived APL facts.

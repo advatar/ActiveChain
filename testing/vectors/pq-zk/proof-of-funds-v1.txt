@@ -1,0 +1,4 @@
+profile=ACTIVECHAIN-PROOF-OF-FUNDS-RISC0-STARK-V1
+image_id_u32_le=2355345551,2666909728,1563350380,557567658,3380757146,112970895,3943319856,3346298778
+relation=single-observation-inclusive-u128-range-v1
+journal=domain||public_inputs_commitment_48||nullifier_48

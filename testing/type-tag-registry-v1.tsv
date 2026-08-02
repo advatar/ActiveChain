@@ -288,3 +288,5 @@
 0x019B	1	EnsAliasRecordV1	crates/protocol-types/src/did_alias.rs
 0x019C	1	EnsAliasOperationV1	crates/protocol-types/src/did_alias.rs
 0x019D	1	EnsAliasRegistryV1	crates/protocol-types/src/did_alias.rs
+0x019E	1	ProofOfFundsPublicInputsV1	crates/privacy-kernel/src/proof_of_funds.rs
+0x019F	1	ProofOfFundsRelationInputV1	crates/privacy-kernel/src/proof_of_funds.rs

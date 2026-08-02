@@ -1133,6 +1133,33 @@ impl ProofOfFundsPredicateV1 {
     pub const fn evidence_commitment(self) -> Digest384 {
         self.evidence_commitment
     }
+    pub const fn holder_binding(self) -> Digest384 {
+        self.holder_binding
+    }
+    pub const fn currency_commitment(self) -> Digest384 {
+        self.currency_commitment
+    }
+    pub const fn decimals(self) -> u8 {
+        self.decimals
+    }
+    pub const fn minimum_amount(self) -> u128 {
+        self.minimum_amount
+    }
+    pub const fn maximum_amount(self) -> Option<u128> {
+        self.maximum_amount
+    }
+    pub const fn institution_set_commitment(self) -> Digest384 {
+        self.institution_set_commitment
+    }
+    pub const fn aggregation_rule_commitment(self) -> Digest384 {
+        self.aggregation_rule_commitment
+    }
+    pub const fn nonce(self) -> Digest384 {
+        self.nonce
+    }
+    pub const fn policy_revision(self) -> u64 {
+        self.policy_revision
+    }
     pub const fn valid_at(self, height: Height) -> bool {
         height >= self.observed_until_height && height < self.expires_height
     }

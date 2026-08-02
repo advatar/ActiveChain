@@ -12,6 +12,7 @@ extern crate alloc;
 mod builder;
 mod network;
 mod persistence;
+mod proof_of_funds;
 mod protected;
 
 pub use builder::{
@@ -24,6 +25,11 @@ pub use persistence::{
     ProtectedStateSnapshot,
 };
 
+pub use proof_of_funds::{
+    ProofOfFundsError, ProofOfFundsProofVerifier, ProofOfFundsPublicInputsV1,
+    ProofOfFundsRelationInputV1, ProofOfFundsWitnessV1, VerifiedProofOfFundsV1,
+    verify_proof_of_funds, witness_satisfies,
+};
 pub use protected::{
     CommitteeKind, MAX_COMMITTEE_MEMBERS, MAX_ORDERING_ITEMS, OrderingError, ProtectedCommittee,
     ProtectedEnvelope, ProtectedOrdering,

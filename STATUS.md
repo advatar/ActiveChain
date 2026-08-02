@@ -1298,7 +1298,7 @@ Detailed remaining implementation slices:
 
 - [ ] Production OpenID4VP transport and live trust/status adapters
   ([GitHub issue #562](https://github.com/advatar/ActiveChain/issues/562)).
-- [ ] TLS evidence proof-of-funds predicate circuits
+- [x] TLS evidence proof-of-funds predicate circuits
   ([GitHub issue #563](https://github.com/advatar/ActiveChain/issues/563)).
 - [ ] Private age, residency, and jurisdiction predicate proofs
   ([GitHub issue #564](https://github.com/advatar/ActiveChain/issues/564)).

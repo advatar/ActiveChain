@@ -106,6 +106,22 @@
       "source": "external-companion-credential-v1.tsv",
       "sha256": "43947d42754c12b3a3341c8b410dada6697406a7c6dfb3785354a7dc4183c0ec",
       "status": "valid"
+    },
+    {
+      "id": "proof-of-funds-risc0-v1",
+      "type_tag": "0x015A,0x019E-0x019F",
+      "schema_version": 1,
+      "source": "proof-of-funds-risc0-v1.tsv",
+      "sha256": "246b778e6780d04541b36f3ce6d530ffba46d40b9de9ef0bb90c2e135ba70aaf",
+      "status": "valid"
+    },
+    {
+      "id": "proof-of-funds-image-v1",
+      "type_tag": "0x019F",
+      "schema_version": 1,
+      "source": "pq-zk/proof-of-funds-v1.txt",
+      "sha256": "d88eef56be700d488c46b8fc058bf7584a14d4b1f6cd1b83ca1e3c811471c4ef",
+      "status": "valid"
     }
   ],
   "malformed_cases": [
