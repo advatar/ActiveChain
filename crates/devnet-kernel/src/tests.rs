@@ -1252,6 +1252,52 @@ fn schema_4_state_snapshot(state: &ChainState) -> Vec<u8> {
     encoded.finish()
 }
 
+fn append_legacy_snapshot_body(
+    input: &[u8],
+    type_tag: u16,
+    schema_version: u16,
+    suffix: &[u8],
+) -> Vec<u8> {
+    let envelope = activechain_canonical_codec::inspect_canonical_envelope(
+        input,
+        type_tag,
+        schema_version,
+        2_000_000,
+    )
+    .unwrap();
+    let mut body = Encoder::new(2_000_000);
+    body.write_raw(envelope.body()).unwrap();
+    body.write_raw(suffix).unwrap();
+    let body = body.finish();
+    let mut encoded = Encoder::new(body.len() + 16);
+    encoded.write_u16(type_tag).unwrap();
+    encoded.write_u16(schema_version).unwrap();
+    encoded.write_length(body.len(), 2_000_000).unwrap();
+    encoded.write_raw(&body).unwrap();
+    encoded.finish()
+}
+
+fn schema_1_asset_ledger_with_substituted_supply(ledger: &ConsensusAssetLedgerV1) -> Vec<u8> {
+    let snapshot = schema_1_asset_ledger_snapshot(ledger);
+    let envelope = activechain_canonical_codec::inspect_canonical_envelope(
+        &snapshot,
+        <ConsensusAssetLedgerV1 as CanonicalType>::TYPE_TAG,
+        1,
+        2_000_000,
+    )
+    .unwrap();
+    let mut body = envelope.body().to_vec();
+    let issued_offset = body.len() - 17;
+    let substituted = ledger.policies()[0].supply_issued().checked_add(1).unwrap();
+    body[issued_offset..issued_offset + 16].copy_from_slice(&substituted.to_be_bytes());
+    let mut encoded = Encoder::new(body.len() + 16);
+    encoded.write_u16(<ConsensusAssetLedgerV1 as CanonicalType>::TYPE_TAG).unwrap();
+    encoded.write_u16(1).unwrap();
+    encoded.write_length(body.len(), 2_000_000).unwrap();
+    encoded.write_raw(&body).unwrap();
+    encoded.finish()
+}
+
 #[test]
 fn standalone_schema_1_asset_ledger_migrates_without_losing_state() {
     let (state, _) = issuer_mint_state_and_action();
@@ -1280,6 +1326,34 @@ fn schema_2_asset_ledger_and_schema_4_chain_state_migrate_controller_revisions()
     assert!(chain_migrated);
     assert_eq!(chain.asset_ledger().policies(), original.policies());
     assert_eq!(chain.asset_ledger().controller_revisions(), &[0]);
+}
+
+#[test]
+fn legacy_asset_migration_rejects_supply_mismatch_and_partial_upgrade_suffixes() {
+    let (state, _) = issuer_mint_state_and_action();
+    let ledger = state.asset_ledger();
+    assert!(
+        ConsensusAssetLedgerV1::decode_snapshot(&schema_1_asset_ledger_with_substituted_supply(
+            ledger
+        ))
+        .is_err()
+    );
+
+    let partial_ledger = append_legacy_snapshot_body(
+        &schema_2_asset_ledger_snapshot(ledger),
+        <ConsensusAssetLedgerV1 as CanonicalType>::TYPE_TAG,
+        2,
+        &0_u64.to_be_bytes(),
+    );
+    assert!(ConsensusAssetLedgerV1::decode_snapshot(&partial_ledger).is_err());
+
+    let partial_chain = append_legacy_snapshot_body(
+        &schema_4_state_snapshot(&state),
+        <ChainState as CanonicalType>::TYPE_TAG,
+        4,
+        &0_u64.to_be_bytes(),
+    );
+    assert!(ChainState::decode_snapshot(&partial_chain, vec![]).is_err());
 }
 
 #[test]
