@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -75,5 +76,44 @@ func TestIndependentAuthenticatorSemanticVectors(t *testing.T) {
 	}
 	if n != 8 {
 		t.Fatalf("expected 8 semantic authenticator cases, got %d", n)
+	}
+}
+
+func TestIndependentCapabilitySemanticVectors(t *testing.T) {
+	n, err := verify("../../testing/vectors/independent-capability-v1.tsv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 25 {
+		t.Fatalf("expected 25 semantic capability cases, got %d", n)
+	}
+}
+
+func TestCapabilityScopeSubset(t *testing.T) {
+	global := scope{kind: 0}
+	exactValue := bytes.Repeat([]byte{0xa5}, 48)
+	exact := scope{kind: 1, bits: 384, value: exactValue}
+	other := scope{kind: 1, bits: 384, value: bytes.Repeat([]byte{0x5a}, 48)}
+	prefix := scope{kind: 2, bits: 8, value: append([]byte{0xa5}, make([]byte, 47)...)}
+	narrower := scope{kind: 2, bits: 16, value: append([]byte{0xa5, 0x10}, make([]byte, 46)...)}
+
+	cases := []struct {
+		name          string
+		child, parent scope
+		want          bool
+	}{
+		{"anything under global", other, global, true},
+		{"global not under exact", global, exact, false},
+		{"same exact", exact, exact, true},
+		{"different exact", other, exact, false},
+		{"narrower prefix", narrower, prefix, true},
+		{"different prefix", other, prefix, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := scopeSubset(tc.child, tc.parent); got != tc.want {
+				t.Fatalf("scopeSubset() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

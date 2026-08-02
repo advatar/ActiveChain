@@ -291,11 +291,12 @@ func verifyPrincipalVector(path string, v vector) error {
 }
 
 type cryptoSuite struct {
-	family    byte
-	parameter uint16
-	encoding  uint16
-	profile   byte
-	keyLength int
+	family          byte
+	parameter       uint16
+	encoding        uint16
+	profile         byte
+	keyLength       int
+	signatureLength int
 }
 
 func registeredSuite(body []byte) (cryptoSuite, envelopeError) {
@@ -307,8 +308,9 @@ func registeredSuite(body []byte) (cryptoSuite, envelopeError) {
 		encoding: binary.BigEndian.Uint16(body[3:5]), profile: body[5],
 	}
 	for _, suite := range []cryptoSuite{
-		{1, 44, 1, 2, 1312}, {1, 65, 1, 3, 1952}, {1, 87, 1, 5, 2592},
-		{2, 0x0192, 1, 3, 48}, {3, 768, 1, 3, 0}, {4, 384, 1, 5, 0},
+		{1, 44, 1, 2, 1312, 2420}, {1, 65, 1, 3, 1952, 3309},
+		{1, 87, 1, 5, 2592, 4627}, {2, 0x0192, 1, 3, 48, 16224},
+		{3, 768, 1, 3, 0, 0}, {4, 384, 1, 5, 0, 0},
 	} {
 		if candidate.family == suite.family && candidate.parameter == suite.parameter &&
 			candidate.encoding == suite.encoding && candidate.profile == suite.profile {
@@ -499,6 +501,11 @@ func verify(path string) (int, error) {
 				return 0, fmt.Errorf("%s: %w", path, err)
 			}
 		}
+		if filepath.Base(path) == "independent-capability-v1.tsv" {
+			if err := verifyCapabilityVector(path, v); err != nil {
+				return 0, fmt.Errorf("%s: %w", path, err)
+			}
+		}
 		if len(v.fields) > 1 && strings.Contains(strings.Join(v.fields, " "), "import") &&
 			strings.HasSuffix(path, "independent-client-conformance-v1.tsv") &&
 			strings.Contains(v.fields[len(v.fields)-2], "accept") {
@@ -534,5 +541,5 @@ func main() {
 	if _, err := hex.DecodeString(strings.Repeat("00", 48)); err != nil {
 		os.Exit(1)
 	}
-	fmt.Printf("M0 + codec/principal/authenticator M1 slices PASS: %d published v1 rows across %d vector files\n", total, len(files))
+	fmt.Printf("M0 + identity/authorization M1 slices PASS: %d published v1 rows across %d vector files\n", total, len(files))
 }
