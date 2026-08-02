@@ -2182,6 +2182,10 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
     - [x] Arithmetize bounded per-row input/output/fee conservation and rejected-row zeroing.
       - [ ] Arithmetize SHAKE, ML-DSA, authenticated membership/consumption, session budgets,
         and authenticated partition-root transitions.
+        - [ ] Complete the ML-DSA-44 verifier tables and their cross-table composition.
+          - [x] Constrain and publicly bind the exact FIPS 204 forward NTT butterfly schedule over
+                q=8,380,417; inverse NTT, matrix products, hints, norms, decoding, and challenge
+                composition remain separate subgates.
         - [x] Bind the exact authorized-transfer envelope and ML-DSA-44 verification key into the
           session STARK public inputs, then compose real signature verification at proof admission;
           this binding does not replace the remaining in-circuit ML-DSA arithmetic gate.
