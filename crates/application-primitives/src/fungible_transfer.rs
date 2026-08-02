@@ -192,7 +192,7 @@ impl DurableFungibleAssetLedger {
             .cells
             .apply_transfer(transfer, &self.snapshot.policy, holder_state, height)
             .map_err(|_| FungibleTransferPersistenceError::InvalidTransfer)?;
-        self.persist(FungibleAssetLedgerSnapshotV1::new(cells, self.snapshot.policy.clone())?)
+        self.persist(FungibleAssetLedgerSnapshotV1::new(cells, self.snapshot.policy)?)
     }
 
     pub fn mint(

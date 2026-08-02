@@ -155,7 +155,7 @@ impl DurableCredentialReceiptLedger {
             Ok(_) => return Err(CredentialReceiptJournalError::InvalidOrReplayedNullifier),
             Err(index) => index,
         };
-        receipts.insert(index, receipt.clone());
+        receipts.insert(index, *receipt);
         let next = CredentialReceiptLedgerV1::new(nullifiers, receipts)?;
         save_receipt_ledger_atomic(&next, &self.path)?;
         self.ledger = next;
