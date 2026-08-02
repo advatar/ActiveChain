@@ -2,6 +2,17 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Consensus canonical fixture drift recovery
+
+Tracked by [GitHub issue #729](https://github.com/advatar/ActiveChain/issues/729).
+
+- [ ] Reconcile the finalized-block canonical digest vector with the current schema-three proof
+  inputs and document the source of the change.
+- [ ] Generate a structurally valid empty-history schema-four snapshot fixture and retain
+  fail-closed malformed/non-empty legacy rejection.
+- [ ] Pass the consensus-runtime suite, strict workspace Clippy, and the deterministic-kernel gate;
+  merge the dependency chain to `main` and verify reachability.
+
 ## Fungible transfer test strict-Clippy recovery
 
 Tracked by [GitHub issue #727](https://github.com/advatar/ActiveChain/issues/727).
