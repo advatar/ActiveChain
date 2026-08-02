@@ -21,9 +21,10 @@ use activechain_policy_kernel::{
 use activechain_protocol_commitment::{DomainTag, coin_cell_id, commit};
 use activechain_protocol_types::{
     AccessManifest, AccessManifestFields, AssetId, ChainId, Digest384, FreezeState,
-    FungibleAssetLifecycle, FungibleAssetPolicyV1, FungibleIssuerApprovalV1,
-    FungibleIssuerOperation, Object, ObjectFields, ObjectFlags, ObjectId, ObjectOwner,
-    ObjectVersionRef, PrincipalId, ResourceSelector, TransactionId,
+    FungibleAssetLifecycle, FungibleAssetPolicyV1, FungibleCorporateActionKind,
+    FungibleCorporateActionV1, FungibleIssuerApprovalV1, FungibleIssuerOperation, Object,
+    ObjectFields, ObjectFlags, ObjectId, ObjectOwner, ObjectVersionRef, PrincipalId,
+    ResourceSelector, TransactionId,
 };
 use activechain_state_tree::{StateCommitment, commit_objects};
 use activechain_transition::{
@@ -333,6 +334,106 @@ fn issuer_mint_replay_fails_against_exact_supply_pre_state() {
     );
     assert!(replay.is_err(), "payload height prevents cross-height replay before execution");
     assert_eq!(output.state().asset_ledger().policies()[0].supply_issued(), 100);
+}
+
+#[test]
+fn corporate_action_atomically_advances_consensus_registry_and_rejects_replay() {
+    let asset = AssetId::new(digest(0xa1));
+    let policy = FungibleAssetPolicyV1::new(
+        asset,
+        sender(),
+        digest(0xa2),
+        digest(0xa3),
+        digest(0xa4),
+        digest(0xa5),
+        100,
+        0,
+        FungibleAssetLifecycle::Registered,
+    )
+    .unwrap();
+    let action = FungibleCorporateActionV1::new(
+        asset,
+        sender(),
+        policy.commitment().unwrap(),
+        policy.authority_set(),
+        digest(0xa6),
+        digest(0xa7),
+        FungibleCorporateActionKind::Distribution,
+        1,
+        1,
+        2,
+        5,
+        1,
+        1,
+    )
+    .unwrap();
+    let payload = ActionPayloadV2::corporate_action(1, action).unwrap();
+    let ledger =
+        ConsensusAssetLedgerV1::new(FungibleCoinCellSet::new(vec![]).unwrap(), vec![policy])
+            .unwrap();
+    let next = ledger.apply(&payload, 1).unwrap();
+    assert_eq!(next.corporate_actions().action_ids(), &[action.action_id().unwrap()]);
+    assert_eq!(next.cells(), ledger.cells());
+    assert_eq!(next.policies(), ledger.policies());
+    assert!(next.apply(&payload, 1).is_err());
+
+    let state = ChainState::new_with_asset_ledger(
+        chain_id(),
+        0,
+        Digest384::ZERO,
+        ObjectState::new(vec![object()]).unwrap(),
+        vec![NonceChannel::new(sender(), 0, 5)],
+        vec![FeeAccount::new(sender(), 100_000_000, 5)],
+        vec![],
+        prices(),
+        ledger,
+    )
+    .unwrap();
+    let ticket = FeeTicket::new(
+        ObjectId::new(digest(0xa8)),
+        sender(),
+        3_000_000,
+        1,
+        5,
+        resources(2_000_000),
+    )
+    .unwrap();
+    assert_eq!(
+        ActionEnvelope::new_payload(
+            ACTION_PROTOCOL_VERSION,
+            chain_id(),
+            sender(),
+            ticket,
+            0,
+            5,
+            ValidityInterval::new(1, 1).unwrap(),
+            resources(2_000_000),
+            payload.commitment().unwrap(),
+            payload.clone(),
+            digest(0xff),
+        ),
+        Err(activechain_action_kernel::ActionEnvelopeError::AuthorizationCommitmentMismatch)
+    );
+    let envelope = ActionEnvelope::new_payload(
+        ACTION_PROTOCOL_VERSION,
+        chain_id(),
+        sender(),
+        ticket,
+        0,
+        5,
+        ValidityInterval::new(1, 1).unwrap(),
+        resources(2_000_000),
+        payload.commitment().unwrap(),
+        payload,
+        action.approval_commitment(),
+    )
+    .unwrap();
+    let output = apply_block(&state, &block(&state, vec![envelope])).unwrap();
+    assert_eq!(output.state().asset_ledger().corporate_actions().action_ids().len(), 1);
+    assert!(matches!(
+        output.receipt().action_receipts()[0].outcome(),
+        ActionOutcome::AssetTransition { pre_ledger, post_ledger } if pre_ledger != post_ledger
+    ));
 }
 
 #[test]
@@ -707,7 +808,7 @@ fn expired_ticket_records_prune_but_nonce_still_rejects_replay_after_restart() {
     let output =
         apply_block(&initial, &block(&initial, vec![first])).expect("first action applies");
     let persisted = encode_envelope(output.state()).expect("state snapshot encodes");
-    assert_eq!(<ChainState as CanonicalType>::SCHEMA_VERSION, 3);
+    assert_eq!(<ChainState as CanonicalType>::SCHEMA_VERSION, 4);
     let restarted: ChainState = decode_envelope(&persisted).expect("state snapshot decodes");
     let replay = envelope_at(
         0x54,
@@ -866,6 +967,70 @@ fn schema_2_state_snapshot(state: &ChainState) -> Vec<u8> {
     envelope.write_length(body.len(), 2_000_000).unwrap();
     envelope.write_raw(&body).unwrap();
     envelope.finish()
+}
+
+fn schema_3_state_snapshot(state: &ChainState) -> Vec<u8> {
+    let bytes = schema_2_state_snapshot(state);
+    let envelope = activechain_canonical_codec::inspect_canonical_envelope(
+        &bytes,
+        <ChainState as CanonicalType>::TYPE_TAG,
+        2,
+        2_000_000,
+    )
+    .unwrap();
+    let mut body = Encoder::new(2_000_000);
+    body.write_raw(envelope.body()).unwrap();
+    state.asset_ledger().cells().encode(&mut body).unwrap();
+    body.write_length(state.asset_ledger().policies().len(), 256).unwrap();
+    for policy in state.asset_ledger().policies() {
+        policy.encode(&mut body).unwrap();
+    }
+    let body = body.finish();
+    let mut encoded = Encoder::new(body.len() + 16);
+    encoded.write_u16(<ChainState as CanonicalType>::TYPE_TAG).unwrap();
+    encoded.write_u16(3).unwrap();
+    encoded.write_length(body.len(), 2_000_000).unwrap();
+    encoded.write_raw(&body).unwrap();
+    encoded.finish()
+}
+
+fn schema_1_asset_ledger_snapshot(ledger: &ConsensusAssetLedgerV1) -> Vec<u8> {
+    let mut body = Encoder::new(2_000_000);
+    ledger.cells().encode(&mut body).unwrap();
+    body.write_length(ledger.policies().len(), 256).unwrap();
+    for policy in ledger.policies() {
+        policy.encode(&mut body).unwrap();
+    }
+    let body = body.finish();
+    let mut encoded = Encoder::new(body.len() + 16);
+    encoded.write_u16(<ConsensusAssetLedgerV1 as CanonicalType>::TYPE_TAG).unwrap();
+    encoded.write_u16(1).unwrap();
+    encoded.write_length(body.len(), 2_000_000).unwrap();
+    encoded.write_raw(&body).unwrap();
+    encoded.finish()
+}
+
+#[test]
+fn standalone_schema_1_asset_ledger_migrates_without_losing_state() {
+    let (state, _) = issuer_mint_state_and_action();
+    let original = state.asset_ledger();
+    let (migrated, did_migrate) =
+        ConsensusAssetLedgerV1::decode_snapshot(&schema_1_asset_ledger_snapshot(original)).unwrap();
+    assert!(did_migrate);
+    assert_eq!(migrated.cells(), original.cells());
+    assert_eq!(migrated.policies(), original.policies());
+    assert!(migrated.corporate_actions().action_ids().is_empty());
+}
+
+#[test]
+fn schema_3_asset_ledger_migrates_with_empty_corporate_action_registry() {
+    let (state, _) = issuer_mint_state_and_action();
+    let (migrated, did_migrate) =
+        ChainState::decode_snapshot(&schema_3_state_snapshot(&state), vec![]).unwrap();
+    assert!(did_migrate);
+    assert_eq!(migrated.asset_ledger().cells(), state.asset_ledger().cells());
+    assert_eq!(migrated.asset_ledger().policies(), state.asset_ledger().policies());
+    assert!(migrated.asset_ledger().corporate_actions().action_ids().is_empty());
 }
 
 #[test]

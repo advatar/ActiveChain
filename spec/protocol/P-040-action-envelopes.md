@@ -6,7 +6,10 @@
 
 ## 1. Scope
 
-This revision defines the public development envelope admitted by the single-node semantic devnet. It binds an existing P-030 transfer transaction to one chain, public sender, validity interval, exact nonce channel, one-shot fee ticket, multidimensional resource ceiling, and authorization-evidence commitment.
+This revision defines the public development envelope admitted by the single-node semantic devnet.
+It binds a versioned transfer, fungible issuer, or corporate-action payload to one chain, public
+sender, validity interval, exact nonce channel, one-shot fee ticket, multidimensional resource
+ceiling, and authorization-evidence commitment.
 
 Protected payloads, cryptographic signature verification, fee markets, networking, and consensus are later refinements. The public envelope is not a substitute for P-041 privacy or production authentication.
 
@@ -54,7 +57,14 @@ The channel advances and the fee ticket is consumed for every admitted action, e
 
 The ticket expiry MUST equal the envelope `valid_until`, and the inclusive interval may span at most seven height increments (`valid_until - valid_from <= 7`). A consumed identifier is retained through its expiry height and pruned only before applying a later height. Since a block contains at most 32 actions, no conforming state can retain more than `32 * (7 + 1) = 256` identifiers. After identifier pruning, the durable payer nonce continues to reject replay.
 
-`ChainState` schema 2 stores fee accounts and each consumed identifier's expiry. Bounded schema-1 migration is allowed only for an empty legacy replay set and requires the operator to supply canonical fee accounts. A non-empty schema-1 replay set lacks expiry and payer-nonce evidence and MUST fail closed.
+`ChainState` schema 4 stores fee accounts, each consumed identifier's expiry, the authoritative
+multi-asset ledger, and its exact-once corporate-action registry. Schema 3 migrates by preserving
+the complete asset policy and Coin Cell ledger and initializing an empty corporate-action registry.
+The standalone `ConsensusAssetLedgerV1` envelope advances to schema 2 with the same lossless
+schema-1 migration rule. `ActionPayloadV2` advances to schema 2 for the corporate-action variant.
+Bounded schema-1 migration is allowed only for an empty legacy replay set and requires the operator
+to supply canonical fee accounts. A non-empty schema-1 replay set lacks expiry and payer-nonce
+evidence and MUST fail closed.
 
 ## 5. Public action envelope
 
@@ -70,11 +80,17 @@ sequence
 validity
 maximum_resources
 payload_commitment
-TransferTransactionV1 payload
+ActionPayloadV2 payload
 authorization_commitment
 ```
 
-`payload_commitment` is the P-002 canonical-value commitment to the exact typed transfer payload. Every transfer command's policy request actor MUST be `Principal(sender)`; private actors require a later protected-envelope profile. The fee payer MUST equal the sender in this development profile.
+`payload_commitment` is the P-002 canonical-value commitment to the exact typed payload. Every
+transfer command's policy request actor MUST be `Principal(sender)`; issuer payloads bind the
+sender to their declared issuer or authority. A corporate action additionally requires
+`authorization_commitment` to equal its declared threshold-approval commitment, and execution
+admits its identifier exactly once against the current policy commitment, authority set, and
+half-open finalized-height window. Private actors require a later protected-envelope profile. The
+fee payer MUST equal the sender in this development profile.
 
 The authorization commitment binds evidence checked by an external development adapter. This draft does not claim to verify a signature and MUST NOT be used as production authentication.
 
@@ -90,7 +106,8 @@ A development block orders envelopes by strictly increasing transaction identifi
 FeeTicketV1      type 0x0070, schema 1, max body       176 bytes
 ActionEnvelopeV1 type 0x0071, schema 1, max body 1,265,778 bytes
 NonceChannelV1   type 0x0072, schema 1, max body        58 bytes
-ChainState        type 0x007b, schema 2, bounded fee accounts and expiring replay records
+ChainState        type 0x007b, schema 4, bounded fee accounts, expiring replay records,
+                  native asset ledger, and exact-once corporate-action registry
 DevnetBlock       type 0x0073, schema 2, full pre-chain-state commitment
 BlockReceipt      type 0x0074, schema 2, full pre/post-chain-state commitments
 ```

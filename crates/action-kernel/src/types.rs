@@ -7,8 +7,8 @@ use activechain_cash_kernel::{FungibleBurnV1, FungibleMintV1, FungibleRedemption
 use activechain_policy_kernel::ActorBinding;
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
-    Amount, ChainId, Digest384, FungibleIssuerApprovalV1, FungibleIssuerOperation, Height,
-    ObjectId, PrincipalId, TransactionId,
+    Amount, ChainId, Digest384, FungibleCorporateActionV1, FungibleIssuerApprovalV1,
+    FungibleIssuerOperation, Height, ObjectId, PrincipalId, TransactionId,
 };
 use activechain_transition::TransferTransaction;
 
@@ -463,11 +463,15 @@ pub enum ActionPayloadV2 {
         redemption: FungibleRedemptionV1,
         approval: FungibleIssuerApprovalV1,
     },
+    FungibleCorporateAction {
+        height: Height,
+        action: FungibleCorporateActionV1,
+    },
 }
 
 impl ActionPayloadV2 {
     pub const TYPE_TAG: u16 = 0x0190;
-    pub const SCHEMA_VERSION: u16 = 1;
+    pub const SCHEMA_VERSION: u16 = 2;
     pub const MAX_ENCODED_LEN: usize = 1 + TransferTransaction::MAX_ENCODED_LEN;
 
     pub fn mint(
@@ -516,12 +520,23 @@ impl ActionPayloadV2 {
         Ok(Self::FungibleRedemption { height, redemption, approval })
     }
 
+    pub fn corporate_action(
+        height: Height,
+        action: FungibleCorporateActionV1,
+    ) -> Result<Self, ActionPayloadValidationError> {
+        if !action.active_at(height) {
+            return Err(ActionPayloadValidationError::ApprovalMismatch);
+        }
+        Ok(Self::FungibleCorporateAction { height, action })
+    }
+
     pub const fn height(&self) -> Height {
         match self {
             Self::Transfer(value) => value.height(),
             Self::FungibleMint { height, .. }
             | Self::FungibleBurn { height, .. }
-            | Self::FungibleRedemption { height, .. } => *height,
+            | Self::FungibleRedemption { height, .. }
+            | Self::FungibleCorporateAction { height, .. } => *height,
         }
     }
 
@@ -538,6 +553,7 @@ impl ActionPayloadV2 {
             Self::FungibleMint { approval, .. }
             | Self::FungibleBurn { approval, .. }
             | Self::FungibleRedemption { approval, .. } => Some(approval),
+            Self::FungibleCorporateAction { .. } => None,
         }
     }
 
@@ -547,6 +563,7 @@ impl ActionPayloadV2 {
             Self::FungibleMint { .. } => 1,
             Self::FungibleBurn { burn, .. } => burn.inputs().len(),
             Self::FungibleRedemption { redemption, .. } => redemption.inputs().len(),
+            Self::FungibleCorporateAction { .. } => 1,
         }
     }
 
@@ -559,6 +576,7 @@ impl ActionPayloadV2 {
             Self::FungibleMint { mint, .. } => mint.issuer() == sender,
             Self::FungibleBurn { burn, .. } => burn.authority() == sender,
             Self::FungibleRedemption { redemption, .. } => redemption.authority() == sender,
+            Self::FungibleCorporateAction { action, .. } => action.issuer() == sender,
         }
     }
 
@@ -595,6 +613,11 @@ impl CanonicalEncode for ActionPayloadV2 {
                 redemption.encode(encoder)?;
                 approval.encode(encoder)
             }
+            Self::FungibleCorporateAction { height, action } => {
+                4_u8.encode(encoder)?;
+                height.encode(encoder)?;
+                action.encode(encoder)
+            }
         }
     }
 }
@@ -621,6 +644,11 @@ impl CanonicalDecode for ActionPayloadV2 {
                 FungibleIssuerApprovalV1::decode(decoder)?,
             )
             .map_err(|_| DecodeError::InvalidValue("invalid fungible redemption action payload")),
+            4 => Self::corporate_action(
+                u64::decode(decoder)?,
+                FungibleCorporateActionV1::decode(decoder)?,
+            )
+            .map_err(|_| DecodeError::InvalidValue("invalid fungible corporate action payload")),
             tag => Err(DecodeError::InvalidEnumTag { type_name: "ActionPayloadV2", tag }),
         }
     }
@@ -718,6 +746,11 @@ impl ActionEnvelope {
         }
         if !payload.sender_matches(sender) {
             return Err(ActionEnvelopeError::SenderActorMismatch);
+        }
+        if let ActionPayloadV2::FungibleCorporateAction { action, .. } = &payload
+            && authorization_commitment != action.approval_commitment()
+        {
+            return Err(ActionEnvelopeError::AuthorizationCommitmentMismatch);
         }
         if !maximum_resources.fits_within(fee_ticket.permitted_resources()) {
             return Err(ActionEnvelopeError::ResourcesExceedTicket);
@@ -858,6 +891,8 @@ pub enum ActionEnvelopeError {
     PayloadHeightOutsideValidity,
     /// A command request is private or names another public actor.
     SenderActorMismatch,
+    /// A corporate action must carry the exact threshold-approval commitment it declares.
+    AuthorizationCommitmentMismatch,
     /// The envelope ceiling exceeds one ticket dimension.
     ResourcesExceedTicket,
 }
@@ -883,6 +918,9 @@ fn action_envelope_decode_error(error: ActionEnvelopeError) -> DecodeError {
         }
         ActionEnvelopeError::SenderActorMismatch => {
             DecodeError::InvalidValue("action sender does not bind every request actor")
+        }
+        ActionEnvelopeError::AuthorizationCommitmentMismatch => {
+            DecodeError::InvalidValue("action authorization commitment does not match")
         }
         ActionEnvelopeError::ResourcesExceedTicket => {
             DecodeError::InvalidValue("action resources exceed its fee ticket")
