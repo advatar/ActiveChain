@@ -8,12 +8,13 @@ use activechain_canonical_codec::{
 };
 use activechain_crypto_provider::verify_ml_dsa44;
 use activechain_payment_types::{
-    ConnectorId, IdempotencyBindingV1, PaymentApiAuthorizationV1, PaymentApiReplayStateV1,
-    PaymentApiSignedAuthorizationV1, PaymentDisputeRecordV1, PaymentDisputeRequestV1,
-    PaymentFinalizedSettlementV1, PaymentIntentId, PaymentIntentV1, PaymentLifecycleRecordV1,
-    PaymentRefundRequestV1, PaymentRefundStateV1, PaymentState, PaymentValidationError,
-    PaymentWebhookCursorV1, PaymentWebhookEventV1, PaymentWebhookSignedEventV1,
-    ProviderObservationV1, RailId, TreasuryDebitPolicyV1, TreasuryDebitRequestV1,
+    ConnectorId, EvidenceClass, IdempotencyBindingV1, PaymentApiAuthorizationV1,
+    PaymentApiReplayStateV1, PaymentApiSignedAuthorizationV1, PaymentDisputeRecordV1,
+    PaymentDisputeRequestV1, PaymentFinalizedSettlementV1, PaymentIntentId, PaymentIntentV1,
+    PaymentLifecycleRecordV1, PaymentRefundRequestV1, PaymentRefundStateV1, PaymentState,
+    PaymentValidationError, PaymentWebhookCursorV1, PaymentWebhookEventV1,
+    PaymentWebhookSignedEventV1, ProviderObservationV1, RailId, TreasuryDebitPolicyV1,
+    TreasuryDebitRequestV1,
 };
 use activechain_protocol_types::{AssetId, Digest384};
 use sha3::{
@@ -1608,6 +1609,59 @@ impl DurablePaymentSettlementState {
         self.snapshot = next;
         Ok(commitment)
     }
+
+    /// Atomically joins refund accounting to the first refund-pending lifecycle successor.
+    pub fn request_refund(
+        &mut self,
+        request: &PaymentRefundRequestV1,
+        timestamp: u64,
+    ) -> Result<(), JournalError> {
+        let index = self
+            .snapshot
+            .requests
+            .intents()
+            .binary_search_by_key(&request.intent(), PaymentIntentV1::intent)
+            .map_err(|_| JournalError::InvalidRefund)?;
+        if self
+            .snapshot
+            .settlements
+            .binary_search_by_key(&request.intent(), PaymentFinalizedSettlementV1::intent)
+            .is_err()
+        {
+            return Err(JournalError::InvalidRefund);
+        }
+
+        let lifecycle = &self.snapshot.requests.lifecycles().records()[index];
+        let requests = match lifecycle.state() {
+            PaymentState::Finalized => {
+                let sequence =
+                    lifecycle.sequence().checked_add(1).ok_or(JournalError::InvalidLifecycle)?;
+                let record = PaymentLifecycleRecordV1::new(
+                    request.intent(),
+                    sequence,
+                    PaymentState::RefundPending,
+                    EvidenceClass::UntrustedClientReport,
+                    request.commitment().map_err(|_| JournalError::InvalidRefund)?,
+                    None,
+                    0,
+                    None,
+                    0,
+                )
+                .map_err(|_| JournalError::InvalidLifecycle)?;
+                self.snapshot.requests.lifecycle_successor(record)?
+            }
+            PaymentState::RefundPending => self.snapshot.requests.clone(),
+            _ => return Err(JournalError::InvalidRefund),
+        };
+
+        let mut refunds = self.snapshot.refunds.clone();
+        refunds.apply(request, timestamp)?;
+        let next =
+            PaymentSettlementStateV1::new(requests, self.snapshot.settlements.clone(), refunds)?;
+        save_snapshot(&next, &self.path)?;
+        self.snapshot = next;
+        Ok(())
+    }
 }
 
 impl PaymentRequestStateV1 {
@@ -2915,6 +2969,29 @@ mod tests {
         durable
     }
 
+    fn settlement_refund_request(
+        settlement: &PaymentFinalizedSettlementV1,
+        refund: u8,
+        amount: u128,
+        sequence: u64,
+        expected: u128,
+    ) -> PaymentRefundRequestV1 {
+        PaymentRefundRequestV1::new(
+            PaymentRefundId::new(digest(refund)).unwrap(),
+            settlement.intent(),
+            PrincipalId::new(digest(131)),
+            settlement.commitment().unwrap(),
+            AssetAmountV1::new(settlement.settled_amount().asset(), amount).unwrap(),
+            digest(132),
+            digest(refund.wrapping_add(1)),
+            sequence,
+            expected,
+            100,
+            200,
+        )
+        .unwrap()
+    }
+
     #[test]
     fn settlement_state_persists_full_evidence_request_and_refund_accounting_together() {
         let path = path("settlement-state-restart");
@@ -2964,6 +3041,83 @@ mod tests {
         std::fs::remove_file(&path).unwrap();
         std::fs::create_dir(&path).unwrap();
         assert_eq!(durable.finalize_verified_value(&settlement), Err(JournalError::Persistence));
+        assert_eq!(durable.snapshot(), &before);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn atomic_refund_requests_join_lifecycle_and_cumulative_accounting() {
+        let path = path("atomic-refund-restart");
+        let _ = std::fs::remove_file(&path);
+        let mut durable = chain_submitted_settlement_state(&path);
+        let settlement = finalized_settlement(124, 95, 110);
+        durable.finalize_verified_value(&settlement).unwrap();
+
+        let first = settlement_refund_request(&settlement, 140, 40, 1, 0);
+        durable.request_refund(&first, 150).unwrap();
+        let first_record = durable.snapshot().requests().lifecycles().records()[0].clone();
+        assert_eq!(first_record.state(), PaymentState::RefundPending);
+        assert_eq!(first_record.observation_commitment(), first.commitment().unwrap());
+        assert_eq!(durable.snapshot().refunds().states()[0].refunded_units(), 40);
+        assert_eq!(durable.snapshot().refunds().states()[0].next_sequence(), 2);
+        assert_eq!(
+            DurablePaymentSettlementState::open(&path).unwrap().snapshot(),
+            durable.snapshot()
+        );
+
+        let before_replay = durable.snapshot().clone();
+        assert_eq!(durable.request_refund(&first, 150), Err(JournalError::InvalidRefund));
+        assert_eq!(durable.snapshot(), &before_replay);
+
+        let second = settlement_refund_request(&settlement, 142, 55, 2, 40);
+        durable.request_refund(&second, 150).unwrap();
+        assert_eq!(durable.snapshot().requests().lifecycles().records()[0], first_record);
+        assert_eq!(durable.snapshot().refunds().states()[0].refunded_units(), 95);
+        assert_eq!(durable.snapshot().refunds().states()[0].next_sequence(), 3);
+        assert_eq!(
+            DurablePaymentSettlementState::open(&path).unwrap().snapshot(),
+            durable.snapshot()
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn atomic_refund_rejects_substitution_over_refund_and_failed_write() {
+        let directory = path("atomic-refund-failure");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("settlement-state.bin");
+        let mut durable = chain_submitted_settlement_state(&path);
+        let settlement = finalized_settlement(124, 95, 110);
+        durable.finalize_verified_value(&settlement).unwrap();
+        let before = durable.snapshot().clone();
+
+        let over_refund = settlement_refund_request(&settlement, 143, 96, 1, 0);
+        assert_eq!(durable.request_refund(&over_refund, 150), Err(JournalError::InvalidRefund));
+        let wrong_settlement = PaymentRefundRequestV1::new(
+            PaymentRefundId::new(digest(144)).unwrap(),
+            settlement.intent(),
+            PrincipalId::new(digest(131)),
+            digest(145),
+            AssetAmountV1::new(settlement.settled_amount().asset(), 40).unwrap(),
+            digest(132),
+            digest(146),
+            1,
+            0,
+            100,
+            200,
+        )
+        .unwrap();
+        assert_eq!(
+            durable.request_refund(&wrong_settlement, 150),
+            Err(JournalError::InvalidRefund)
+        );
+        assert_eq!(durable.snapshot(), &before);
+
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        let valid = settlement_refund_request(&settlement, 147, 40, 1, 0);
+        assert_eq!(durable.request_refund(&valid, 150), Err(JournalError::Persistence));
         assert_eq!(durable.snapshot(), &before);
         std::fs::remove_dir_all(directory).unwrap();
     }
