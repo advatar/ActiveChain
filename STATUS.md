@@ -2230,6 +2230,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
                 c_hat*t1_2d_hat), h)` across all four ML-DSA-44 polynomials.
           - [x] Extend the specialized SHAKE256 AIR to bounded variable-length XOF output,
                 constraining every absorption and squeeze permutation needed by ML-DSA sampling.
+          - [ ] Prove bounded SHAKE128 XOF output and bind all 16 ML-DSA-44 `ExpandA(rho)`
+                rejection-sampled NTT polynomials, including the rejection fallback path.
           - [x] Constrain ML-DSA-44 public-key/signature bit unpacking, `z` infinity-norm range,
                 and canonical hint decoding, exposing exact decoded verifier inputs.
           - [x] Constrain ML-DSA-44 `UseHint` decomposition, signed low bits, adjustment branches,
