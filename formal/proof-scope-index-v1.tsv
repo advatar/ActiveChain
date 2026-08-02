@@ -11,11 +11,13 @@ authorization	formal/AUTHORIZATION_CHAIN_PROOF_SCOPE.md	authenticated finalized 
 block-composition	formal/BLOCK_COMPOSITION_PROOF_SCOPE.md	proof verifier soundness	prover and DA availability	retain-minimize-fix-claim
 cash	formal/CASH_AUTHORIZATION_PROOF_SCOPE.md	finalized authority evidence	external finality refinement	retain-minimize-fix-claim
 cash-authorization	formal/CASH_AUTHORIZATION_PROOF_SCOPE.md	ML-DSA authenticity	cryptographic internals	retain-minimize-fix-claim
+cash-lifecycle	formal/CASH_LIFECYCLE_PROOF_SCOPE.md	authenticated settlement inputs and accumulator correctness	cryptographic unforgeability, durability and block-level finality binding	retain-minimize-fix-claim
 consensus-auth	formal/CONSENSUS_PROOF_SCOPE.md	Dolev-Yao perfect cryptography	conflicting-QC composition target	timeout-explicit-unproved
 consensus-history	formal/CONSENSUS_HISTORY_PROOF_SCOPE.md	finalized-tip comparability	Rust QC/lock/reconfiguration trace refinement	retain-minimize-fix-claim
 consensus-safety	formal/CONSENSUS_TLA_PROOF_SCOPE.md	bounded validators and views	unbounded refinement	retain-minimize-fix-claim
 credential	formal/TRACE_CONFORMANCE_SCOPE.md	preverified issuer and status evidence	issuer and registry provenance	retain-minimize-fix-claim
 data-availability	formal/DA_PROOF_SCOPE.md	honest shard threshold	production state-machine refinement	retain-minimize-fix-claim
+duty-settlement	formal/DUTY_SETTLEMENT_PROOF_SCOPE.md	authenticated duty receipts and adjudicated objective faults	cryptographic authorization, principal identity and Coin Cell custody	retain-minimize-fix-claim
 envelope	formal/ENVELOPE_PROOF_SCOPE.md	canonical primitive semantics	foreign memory and compiler correspondence	retain-minimize-fix-claim
 epoch-upgrade	formal/EPOCH_UPGRADE_PROOF_SCOPE.md	finalized upgrade authorization	trace refinement only	retain-minimize-fix-claim
 external-identity	formal/EXTERNAL_IDENTITY_REFINEMENT_SCOPE.md	pinned verifier results, finalized roots and collision resistance	crypto, compiler, OS, transport, entropy and independent review	retain-minimize-fix-claim

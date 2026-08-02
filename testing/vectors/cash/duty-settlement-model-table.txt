@@ -1,1 +1,12 @@
-# Frozen Lean/Rust refinement trace for verifier duty settlement.
+genesis,accept,0,0,0,0,0
+register,accept,1,0,0,0,0
+register_replay,reject,1,0,0,0,0
+register_second,accept,2,0,0,0,0
+register_third,accept,3,0,0,0,0
+settle,accept,3,1,7,100,0
+settle_replay,reject,3,1,0,0,0
+settle_slashed,accept,3,2,9,170,30
+settle_expired,reject,3,2,0,0,0
+settle_wrong_verifier,reject,3,2,0,0,0
+settle_empty_evidence,reject,3,2,0,0,0
+settle_excess_slash,reject,3,2,0,0,0

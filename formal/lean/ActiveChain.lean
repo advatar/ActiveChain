@@ -9,6 +9,7 @@ import ActiveChain.CashLifecycle
 import ActiveChain.ConsensusHistory
 import ActiveChain.Credential
 import ActiveChain.DA
+import ActiveChain.DutySettlement
 import ActiveChain.Envelope
 import ActiveChain.EpochUpgrade
 import ActiveChain.ExternalIdentity
