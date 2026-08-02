@@ -1,0 +1,13 @@
+case	expected_type	expected_schema	max_body	envelope_hex	expected
+canonical_one_byte	0x1234	1	1	1234000101aa	ok
+canonical_empty	0x1234	1	0	1234000100	ok
+wrong_type	0x1234	1	1	1235000101aa	type_mismatch
+wrong_schema	0x1234	1	1	1234000201aa	version_mismatch
+truncated_header	0x1234	1	1	123400	unexpected_end
+missing_length	0x1234	1	1	12340001	unexpected_end
+nonminimal_length	0x1234	1	1	123400018100aa	nonminimal_length
+truncated_body	0x1234	1	2	1234000102aa	body_length_mismatch
+trailing_data	0x1234	1	1	1234000101aabb	trailing_data
+body_limit	0x1234	1	0	1234000101aa	body_limit
+u32_length_overflow	0x1234	1	16	123400018080808010	length_overflow
+unterminated_length	0x1234	1	16	123400018080808080	length_overflow

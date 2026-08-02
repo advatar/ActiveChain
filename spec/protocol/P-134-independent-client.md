@@ -60,9 +60,11 @@ linked before M1 starts.
 3. **M2:** differential replay of a fixed multi-block trace matches roots, receipts, and finality.
 4. **M3:** two weeks of shadow verification on Kanalen testnet with divergence telemetry.
 
-The checked-in Go program is currently **M0 only**: it validates vector-file structure and
-independence metadata, but does not decode protocol envelopes, verify ML-DSA, replay cash or state,
-or compare finality roots. Its success is not M1 or M2 evidence.
+The checked-in Go program has completed M0 plus the first M1 semantic family: it independently
+validates canonical envelope framing, exact type/schema, minimal bounded ULEB128 lengths, and
+truncation/trailing-data rejection against language-neutral vectors. M1 remains incomplete because
+schema bodies, ML-DSA, authorization, cash/state transitions, finality, and light-client proofs are
+not yet independently verified. Its success is not M2 evidence.
 
 M2 is the public v1.0 testnet launch gate. A Rust-only bootstrap may run solely as a labelled
 development network; it is not the “live and verified testnet.” M3 is required before any
