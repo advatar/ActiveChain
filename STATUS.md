@@ -2132,6 +2132,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [ ] Build a reproducible proof-finalized cash throughput benchmark with real PQ, DA, state, and proof work.
 - [x] Pass the full local-runner CI matrix.
 - [ ] Update and push the landing-page roadmap at each completed major milestone.
+  - [x] Advertise the proof-aware ActiveBridge Rust SDK and reconcile implemented versus
+    externally qualified identity claims (activechain-display#17).
 
 ## Planned milestone — `did:activechain` identity method
 
