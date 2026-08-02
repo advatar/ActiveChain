@@ -20,3 +20,6 @@ zeroize = "1.8"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+activechain-accumulator.workspace = true

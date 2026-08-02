@@ -2224,6 +2224,6 @@ mod tests {
             PrivateIdentityDisclosurePreview::new(vec![digest(1)], principal(3), digest(4), true)
                 .unwrap();
         assert_eq!(correlated.warning, PrivateIdentityInferenceWarning::CrossAudienceLinkability);
-        assert_eq!(format!("{preview:?}").contains("birth"), false);
+        assert!(!format!("{preview:?}").contains("birth"));
     }
 }
