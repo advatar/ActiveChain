@@ -1381,7 +1381,10 @@ Tracked by [GitHub issue #165](https://github.com/advatar/ActiveChain/issues/165
 - [x] Compose asset-specific identity policies with APL and authorization without global KYC.
 - [x] Add wallet consent/disclosure controls, pinned issuer/profile policy tooling,
   cross-repository interoperability vectors, privacy analysis, and replay/correlation tests.
-- [ ] Complete independent interoperability, privacy, and security review gates.
+- [x] Complete the #165 ActiveChain implementation scope and retain commitment-only identity facts
+  without raw credential material or global KYC state.
+- [ ] Complete independent interoperability, privacy, and security review gates under #569 and
+  #579; these external evidence gates do not reopen the completed #165 implementation scope.
 
 ## Active integration — TLS evidence, wallet credentials, and ZK predicates
 
