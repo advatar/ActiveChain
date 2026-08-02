@@ -6,7 +6,9 @@ use activechain_canonical_codec::{CanonicalType, encode_envelope};
 use activechain_pq_zk_methods::{
     ACTIVECHAIN_PQ_ZK_GUEST_ELF as GUEST_ELF, ACTIVECHAIN_PQ_ZK_GUEST_ID as GUEST_ID,
     BILLBOARD_POST_ELF, BILLBOARD_POST_ID, BILLBOARD_WITHDRAW_ELF, BILLBOARD_WITHDRAW_ID,
+    PROOF_OF_FUNDS_ELF, PROOF_OF_FUNDS_ID,
 };
+use activechain_privacy_kernel::ProofOfFundsRelationInputV1;
 use activechain_private_billboard::{PostRelationInput, WithdrawalRelationInput};
 use activechain_protocol_types::Digest384;
 use risc0_zkvm::{ExecutorEnv, ProverOpts, Receipt, default_executor, default_prover};
@@ -27,9 +29,13 @@ pub struct PqZkProof {
 pub struct BillboardPqZkProof {
     receipt: Receipt,
 }
+pub struct ProofOfFundsPqZkProof {
+    receipt: Receipt,
+}
 
 const POST_JOURNAL_DOMAIN: &[u8] = b"ACTIVECHAIN-BILLBOARD-POST-RISC0-STARK-V1";
 const WITHDRAW_JOURNAL_DOMAIN: &[u8] = b"ACTIVECHAIN-BILLBOARD-WITHDRAW-RISC0-STARK-V1";
+const PROOF_OF_FUNDS_JOURNAL_DOMAIN: &[u8] = b"ACTIVECHAIN-PROOF-OF-FUNDS-RISC0-STARK-V1";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PqZkError {
@@ -92,6 +98,47 @@ fn expected_relation_journal(domain: &[u8], public: Digest384, permit: Digest384
     expected.extend_from_slice(public.as_bytes());
     expected.extend_from_slice(permit.as_bytes());
     expected
+}
+
+pub fn execute_proof_of_funds_relation(
+    input: &ProofOfFundsRelationInputV1,
+) -> Result<Vec<u8>, PqZkError> {
+    default_executor()
+        .execute(relation_env(input)?, PROOF_OF_FUNDS_ELF)
+        .map(|session| session.journal.bytes)
+        .map_err(|_| PqZkError::Verification)
+}
+
+pub fn prove_proof_of_funds(
+    input: &ProofOfFundsRelationInputV1,
+) -> Result<ProofOfFundsPqZkProof, PqZkError> {
+    let receipt = default_prover()
+        .prove_with_opts(relation_env(input)?, PROOF_OF_FUNDS_ELF, &ProverOpts::succinct())
+        .map_err(|_| PqZkError::Prover)?
+        .receipt;
+    let proof = ProofOfFundsPqZkProof { receipt };
+    verify_proof_of_funds(
+        &proof,
+        input.public.commitment().map_err(|_| PqZkError::WrongPublicStatement)?,
+        input.public.predicate.nonce(),
+    )?;
+    Ok(proof)
+}
+
+pub fn verify_proof_of_funds(
+    proof: &ProofOfFundsPqZkProof,
+    predicate: Digest384,
+    nullifier: Digest384,
+) -> Result<(), PqZkError> {
+    proof.receipt.inner.succinct().map_err(|_| PqZkError::WrongReceiptKind)?;
+    proof.receipt.verify(PROOF_OF_FUNDS_ID).map_err(|_| PqZkError::Verification)?;
+    let mut expected = PROOF_OF_FUNDS_JOURNAL_DOMAIN.to_vec();
+    expected.extend_from_slice(predicate.as_bytes());
+    expected.extend_from_slice(nullifier.as_bytes());
+    if proof.receipt.journal.bytes != expected {
+        return Err(PqZkError::WrongPublicStatement);
+    }
+    Ok(())
 }
 
 pub fn execute_post_relation(input: &PostRelationInput) -> Result<Vec<u8>, PqZkError> {
@@ -364,6 +411,89 @@ mod tests {
         eprintln!("billboard-withdrawal-user-cycles={}", withdrawal_session.cycles());
         assert!(post_session.cycles() <= 1 << 22);
         assert!(withdrawal_session.cycles() <= 1 << 22);
+    }
+
+    #[test]
+    fn proof_of_funds_guest_enforces_private_range_and_exact_public_journal() {
+        use activechain_privacy_kernel::{
+            ProofOfFundsPublicInputsV1, ProofOfFundsRelationInputV1, ProofOfFundsWitnessV1,
+        };
+        use activechain_protocol_types::{
+            AssetId, ChainId, CredentialAssuranceClassV1, PrincipalId, ProofOfFundsPredicateV1,
+            TransactionId,
+        };
+        let d = |n| Digest384::new([n; 48]);
+        let predicate = ProofOfFundsPredicateV1::new(
+            d(1),
+            d(2),
+            d(3),
+            ChainId::new(d(4)),
+            PrincipalId::new(d(5)),
+            TransactionId::new(d(6)),
+            d(7),
+            d(8),
+            Some(AssetId::new(d(9))),
+            2,
+            10_000,
+            Some(20_000),
+            d(10),
+            d(11),
+            1,
+            80,
+            90,
+            110,
+        )
+        .unwrap();
+        let input = ProofOfFundsRelationInputV1 {
+            public: ProofOfFundsPublicInputsV1::new(
+                predicate,
+                d(12),
+                PrincipalId::new(d(13)),
+                d(14),
+                d(15),
+                CredentialAssuranceClassV1::HolderSelfIssued,
+                None,
+                100,
+            )
+            .unwrap(),
+            witness: ProofOfFundsWitnessV1 {
+                amount_units: 15_000,
+                decimals: 2,
+                currency_commitment: d(8),
+                institution_set_commitment: d(10),
+                holder_binding: d(3),
+                evidence_commitment: d(1),
+                aggregation_rule_commitment: d(11),
+                observation_count: 1,
+            },
+        };
+        let journal = super::execute_proof_of_funds_relation(&input).unwrap();
+        assert_eq!(
+            journal,
+            super::expected_relation_journal(
+                super::PROOF_OF_FUNDS_JOURNAL_DOMAIN,
+                input.public.commitment().unwrap(),
+                predicate.nonce()
+            )
+        );
+        let mut below = input;
+        below.witness.amount_units = 9_999;
+        assert!(super::execute_proof_of_funds_relation(&below).is_err());
+    }
+
+    #[test]
+    fn proof_of_funds_image_id_matches_published_vector() {
+        let vector = include_str!("../../../testing/vectors/pq-zk/proof-of-funds-v1.txt");
+        let words: Vec<u32> = vector
+            .lines()
+            .find_map(|line| line.strip_prefix("image_id_u32_le="))
+            .unwrap()
+            .split(',')
+            .map(|word| word.parse().unwrap())
+            .collect();
+        let published: [u32; 8] = words.try_into().unwrap();
+        assert_eq!(activechain_pq_zk_methods::PROOF_OF_FUNDS_ID, published);
+        assert!(vector.contains("journal=domain||public_inputs_commitment_48||nullifier_48"));
     }
 
     #[test]

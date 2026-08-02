@@ -3,7 +3,8 @@ name = "activechain-privacy-kernel"
 description = "Bounded canonical privacy statements and fail-closed nullifier admission for ActiveChain"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+# Kept compatible with the pinned RISC Zero guest toolchain.
+rust-version = "1.94"
 repository.workspace = true
 publish = false
 
@@ -12,6 +13,7 @@ activechain-accumulator.workspace = true
 activechain-canonical-codec.workspace = true
 activechain-protocol-commitment.workspace = true
 activechain-protocol-types.workspace = true
+sha3.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

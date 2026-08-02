@@ -18,8 +18,20 @@ name = "activechain-pq-zk-guest"
 version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
+ "activechain-privacy-kernel",
  "activechain-private-billboard",
  "risc0-zkvm",
+ "sha3",
+]
+
+[[package]]
+name = "activechain-privacy-kernel"
+version = "0.1.0"
+dependencies = [
+ "activechain-accumulator",
+ "activechain-canonical-codec",
+ "activechain-protocol-commitment",
+ "activechain-protocol-types",
  "sha3",
 ]
 

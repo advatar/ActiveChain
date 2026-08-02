@@ -14,6 +14,7 @@ reproducible-build = ["activechain-pq-zk-methods/reproducible-build"]
 [dependencies]
 activechain-canonical-codec.workspace = true
 activechain-private-billboard.workspace = true
+activechain-privacy-kernel.workspace = true
 activechain-pq-zk-methods = { path = "../pq-zk-methods" }
 activechain-protocol-types.workspace = true
 risc0-zkvm = { workspace = true, features = ["client", "disable-dev-mode", "prove"] }
