@@ -6,7 +6,7 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Tracked by [GitHub issue #739](https://github.com/advatar/ActiveChain/issues/739).
 
-- [ ] Regenerate and audit the isolated Verus parity lockfile against its pinned manifest and
+- [x] Regenerate and audit the isolated Verus parity lockfile against its pinned manifest and
   production dependency graph.
 - [ ] Pass all Verus contracts and the exact aggregate deterministic-kernel gate; merge the
   dependency chain to `main` and verify reachability.
