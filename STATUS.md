@@ -2364,6 +2364,23 @@ Detailed remaining implementation slices:
   records exclusively for deactivation operations.
 - [x] Publish deterministic DID controller lifecycle vectors covering create, update, deactivation,
   zero identities, previous-commitment, and authorization failures.
+- [x] Prove DID controller lifecycle safety in Lean: `createRequiresFreshIdentity` (an accepted
+  create carries no previous commitment, starts at sequence 1, and applies only to an unregistered
+  principal), `sequenceIsStrictlyMonotone` (every accepted update/recover/deactivate strictly
+  increases the record sequence; the model's sequences are unbounded `Nat`, so the `u64` ceiling
+  stays covered by the [#683](https://github.com/advatar/ActiveChain/issues/683) `checked_add`
+  regression test rather than by the model),
+  `operationBindsPreviousCommitment` and `staleOrForeignCommitmentIsRejected`,
+  `deactivationIsTerminal` (also proved under an arbitrary trace),
+  `controlCannotAuthorizeRecovery`/`recoveryCannotAuthorizeUpdateOrDeactivate`, and
+  `rejectedOperationsPreserveState`, with a byte-identical 17-step Rust/Lean refinement trace over
+  the production `DidControllerOperationV1::new` and
+  `DidControllerRecordV1::apply_document_operation`
+  (`testing/vectors/did-lifecycle-model-table.txt`,
+  `scripts/check-did-lifecycle-refinement.sh`); commitment collision resistance, ML-DSA/SLH-DSA
+  signature unforgeability, canonical encoding, authenticator validity windows, and finalized
+  registry storage remain production-boundary assumptions
+  ([#700](https://github.com/advatar/ActiveChain/issues/700)).
 - [x] Add domain-separated operation commitments for replay-safe DID lifecycle indexing.
 - [x] Add ML-DSA rotation, ML-KEM agreement, SLH-DSA recovery, deactivation, and DID test vectors.
 - [x] Add ENS alias records without treating ENS control as protocol authorization.

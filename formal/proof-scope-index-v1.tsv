@@ -17,6 +17,7 @@ consensus-history	formal/CONSENSUS_HISTORY_PROOF_SCOPE.md	finalized-tip comparab
 consensus-safety	formal/CONSENSUS_TLA_PROOF_SCOPE.md	bounded validators and views	unbounded refinement	retain-minimize-fix-claim
 credential	formal/TRACE_CONFORMANCE_SCOPE.md	preverified issuer and status evidence	issuer and registry provenance	retain-minimize-fix-claim
 data-availability	formal/DA_PROOF_SCOPE.md	honest shard threshold	production state-machine refinement	retain-minimize-fix-claim
+did-lifecycle	formal/DID_LIFECYCLE_PROOF_SCOPE.md	authenticated lifecycle operations and collision-free record commitments	signature unforgeability, canonical encoding, authenticator validity windows and finalized registry storage	retain-minimize-fix-claim
 duty-settlement	formal/DUTY_SETTLEMENT_PROOF_SCOPE.md	authenticated duty receipts and adjudicated objective faults	cryptographic authorization, principal identity and Coin Cell custody	retain-minimize-fix-claim
 envelope	formal/ENVELOPE_PROOF_SCOPE.md	canonical primitive semantics	foreign memory and compiler correspondence	retain-minimize-fix-claim
 epoch-upgrade	formal/EPOCH_UPGRADE_PROOF_SCOPE.md	finalized upgrade authorization	trace refinement only	retain-minimize-fix-claim
