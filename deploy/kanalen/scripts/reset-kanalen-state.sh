@@ -37,6 +37,9 @@ for path in \
   chain/genesis.bin \
   chain/cash-ledger.snapshot \
   chain/execution.snapshot \
+  chain/execution.authorization \
+  chain/execution.round-staging \
+  chain/execution.round-committed \
   chain/finalized-cash.snapshot \
   chain/finality.bundle \
   chain/pending-cash-actions.batch \
@@ -59,7 +62,10 @@ for path in \
 done
 
 for path in "$deployment_root"/chain/pending-cash-actions.batch.finalized-* \
-  "$deployment_root"/chain/finality.bundle.finalized-*; do
+  "$deployment_root"/chain/finality.bundle.finalized-* \
+  "$deployment_root"/chain/validator-*.sessions \
+  "$deployment_root"/chain/validator-*.pq-sessions \
+  "$deployment_root"/chain/execution.snapshot.pre-*; do
   if test -f "$path"; then
     mv "$path" "$rollback/chain/$(basename "$path")"
   fi
