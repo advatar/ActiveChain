@@ -1400,6 +1400,7 @@ pub struct PaymentSettlementStateV1 {
     settlements: Vec<PaymentFinalizedSettlementV1>,
     refunds: RefundJournalV1,
     disputes: DisputeJournalV1,
+    treasuries: TreasuryJournalV1,
 }
 
 impl PaymentSettlementStateV1 {
@@ -1410,6 +1411,7 @@ impl PaymentSettlementStateV1 {
         settlements: Vec<PaymentFinalizedSettlementV1>,
         refunds: RefundJournalV1,
         disputes: DisputeJournalV1,
+        treasuries: TreasuryJournalV1,
     ) -> Result<Self, JournalError> {
         if settlements.len() > MAX_PAYMENT_INTENTS
             || settlements.windows(2).any(|pair| pair[0].intent() >= pair[1].intent())
@@ -1459,7 +1461,7 @@ impl PaymentSettlementStateV1 {
         }) {
             return Err(JournalError::InvalidDispute);
         }
-        Ok(Self { requests, settlements, refunds, disputes })
+        Ok(Self { requests, settlements, refunds, disputes, treasuries })
     }
 
     pub const fn requests(&self) -> &PaymentRequestStateV1 {
@@ -1477,6 +1479,10 @@ impl PaymentSettlementStateV1 {
     pub const fn disputes(&self) -> &DisputeJournalV1 {
         &self.disputes
     }
+
+    pub const fn treasuries(&self) -> &TreasuryJournalV1 {
+        &self.treasuries
+    }
 }
 
 impl CanonicalEncode for PaymentSettlementStateV1 {
@@ -1487,7 +1493,8 @@ impl CanonicalEncode for PaymentSettlementStateV1 {
             settlement.encode(encoder)?;
         }
         self.refunds.encode(encoder)?;
-        self.disputes.encode(encoder)
+        self.disputes.encode(encoder)?;
+        self.treasuries.encode(encoder)
     }
 }
 
@@ -1504,6 +1511,7 @@ impl CanonicalDecode for PaymentSettlementStateV1 {
             settlements,
             RefundJournalV1::decode(decoder)?,
             DisputeJournalV1::decode(decoder)?,
+            TreasuryJournalV1::decode(decoder)?,
         )
         .map_err(|_| DecodeError::InvalidValue("invalid payment settlement state"))
     }
@@ -1516,7 +1524,8 @@ impl CanonicalType for PaymentSettlementStateV1 {
         + 3
         + MAX_PAYMENT_INTENTS * PaymentFinalizedSettlementV1::MAX_ENCODED_LEN
         + RefundJournalV1::MAX_ENCODED_LEN
-        + DisputeJournalV1::MAX_ENCODED_LEN;
+        + DisputeJournalV1::MAX_ENCODED_LEN
+        + TreasuryJournalV1::MAX_ENCODED_LEN;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1561,6 +1570,7 @@ impl DurablePaymentSettlementState {
                 self.snapshot.settlements.clone(),
                 self.snapshot.refunds.clone(),
                 self.snapshot.disputes.clone(),
+                self.snapshot.treasuries.clone(),
             )?;
             save_snapshot(&next, &self.path)?;
             self.snapshot = next;
@@ -1584,6 +1594,7 @@ impl DurablePaymentSettlementState {
             self.snapshot.settlements.clone(),
             self.snapshot.refunds.clone(),
             self.snapshot.disputes.clone(),
+            self.snapshot.treasuries.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1631,6 +1642,7 @@ impl DurablePaymentSettlementState {
             settlements,
             refunds,
             self.snapshot.disputes.clone(),
+            self.snapshot.treasuries.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1688,6 +1700,7 @@ impl DurablePaymentSettlementState {
             self.snapshot.settlements.clone(),
             refunds,
             self.snapshot.disputes.clone(),
+            self.snapshot.treasuries.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1719,6 +1732,7 @@ impl DurablePaymentSettlementState {
             self.snapshot.settlements.clone(),
             self.snapshot.refunds.clone(),
             disputes,
+            self.snapshot.treasuries.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1736,6 +1750,41 @@ impl DurablePaymentSettlementState {
             self.snapshot.settlements.clone(),
             self.snapshot.refunds.clone(),
             disputes,
+            self.snapshot.treasuries.clone(),
+        )?;
+        save_snapshot(&next, &self.path)?;
+        self.snapshot = next;
+        Ok(())
+    }
+
+    pub fn register_treasury(&mut self, policy: TreasuryDebitPolicyV1) -> Result<(), JournalError> {
+        let mut treasuries = self.snapshot.treasuries.clone();
+        treasuries.register(policy)?;
+        let next = PaymentSettlementStateV1::new(
+            self.snapshot.requests.clone(),
+            self.snapshot.settlements.clone(),
+            self.snapshot.refunds.clone(),
+            self.snapshot.disputes.clone(),
+            treasuries,
+        )?;
+        save_snapshot(&next, &self.path)?;
+        self.snapshot = next;
+        Ok(())
+    }
+
+    pub fn authorize_treasury_debit(
+        &mut self,
+        request: &TreasuryDebitRequestV1,
+        timestamp: u64,
+    ) -> Result<(), JournalError> {
+        let mut treasuries = self.snapshot.treasuries.clone();
+        treasuries.authorize(request, timestamp)?;
+        let next = PaymentSettlementStateV1::new(
+            self.snapshot.requests.clone(),
+            self.snapshot.settlements.clone(),
+            self.snapshot.refunds.clone(),
+            self.snapshot.disputes.clone(),
+            treasuries,
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -3114,6 +3163,7 @@ mod tests {
                 Vec::new(),
                 RefundJournalV1::default(),
                 DisputeJournalV1::default(),
+                TreasuryJournalV1::default(),
             ),
             Err(JournalError::InvalidLifecycle)
         );
@@ -3270,6 +3320,48 @@ mod tests {
         std::fs::remove_file(&path).unwrap();
         std::fs::create_dir(&path).unwrap();
         assert_eq!(durable.open_dispute(&request, 150), Err(JournalError::Persistence));
+        assert_eq!(durable.snapshot(), &before);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn atomic_treasury_state_survives_restart_and_replay_fails_closed() {
+        let path = path("atomic-treasury-restart");
+        let _ = std::fs::remove_file(&path);
+        let mut durable = DurablePaymentSettlementState::open(&path).unwrap();
+        let policy = treasury_policy(160);
+        durable.register_treasury(policy.clone()).unwrap();
+        let request = treasury_request(&policy, 40, 0, 1);
+        durable.authorize_treasury_debit(&request, 800).unwrap();
+        assert_eq!(durable.snapshot().treasuries().policies()[0].spent_units(), 40);
+        assert_eq!(durable.snapshot().treasuries().policies()[0].next_nonce(), 2);
+        assert_eq!(
+            DurablePaymentSettlementState::open(&path).unwrap().snapshot(),
+            durable.snapshot()
+        );
+        let before = durable.snapshot().clone();
+        assert_eq!(
+            durable.authorize_treasury_debit(&request, 800),
+            Err(JournalError::InvalidTreasury)
+        );
+        assert_eq!(durable.snapshot(), &before);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn atomic_treasury_failed_write_does_not_advance_budget_or_nonce() {
+        let directory = path("atomic-treasury-failure");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("settlement-state.bin");
+        let mut durable = DurablePaymentSettlementState::open(&path).unwrap();
+        let policy = treasury_policy(161);
+        durable.register_treasury(policy.clone()).unwrap();
+        let request = treasury_request(&policy, 40, 0, 1);
+        let before = durable.snapshot().clone();
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        assert_eq!(durable.authorize_treasury_debit(&request, 800), Err(JournalError::Persistence));
         assert_eq!(durable.snapshot(), &before);
         std::fs::remove_dir_all(directory).unwrap();
     }
