@@ -658,6 +658,8 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
     of permitting a production caller to validate a bare quorum-certificate commitment.
   - [x] Bind the exact pre/post cash roots and ordered authorized cash-action root into typed proof
     public inputs, then make finalized admission recompute those values from staged ingress.
+  - [x] Provide a production draft builder for canonical cash-only execution blocks so validator
+    rounds vote over the exact header later consumed by typed finalized-block admission.
 - [x] Require finalized-cash publication to load a canonical invariant-checked, chain-bound cash
   ledger instead of synthesizing an empty Coin Cell set.
 - [ ] Make a fresh Kanalen reset provision the genesis cash state consumed by that execution path,

@@ -45,8 +45,8 @@ pub mod finalized_block;
 pub use finalized_block::{
     DirectExecutionProofV1, DirectExecutionProofVerifier, ExecutionProofVerifier, FinalizedBlock,
     FinalizedBlockAdmissionError, FinalizedBlockCandidate, FinalizedBlockHeader,
-    FinalizedBlockVerifier, GenesisBackedFinalizedBlockVerifier, ProofPublicInputs,
-    VerifiedExecutionProof,
+    FinalizedBlockVerifier, GenesisBackedFinalizedBlockVerifier, PreparedDirectFinalizedBlock,
+    ProofPublicInputs, VerifiedExecutionProof,
 };
 mod pq_session;
 pub use pq_session::{PqPeerSession, PqSessionContext, PqSessionStore, SESSION_TTL_SECS};
