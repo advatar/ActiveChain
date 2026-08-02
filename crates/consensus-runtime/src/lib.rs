@@ -58,9 +58,22 @@ pub use proof_liveness::{
 
 /// Canonical wallet transaction admission owned by the validator runtime.
 /// Authenticated network handlers can delegate here after peer/session checks.
+#[derive(Clone)]
 pub struct WalletTransactionGateway {
     ingress: activechain_wallet_core::TransactionIngress,
     snapshot_path: std::path::PathBuf,
+}
+
+/// Unpublished all-or-nothing cash successor bound to its exact durable pre-state.
+pub struct PreparedWalletTransactionBatch {
+    pre_ledger: activechain_cash_kernel::CashLedger,
+    next: WalletTransactionGateway,
+}
+
+impl PreparedWalletTransactionBatch {
+    pub fn ledger(&self) -> &activechain_cash_kernel::CashLedger {
+        self.next.ledger()
+    }
 }
 
 impl WalletTransactionGateway {
@@ -92,12 +105,63 @@ impl WalletTransactionGateway {
         })
     }
 
+    pub fn from_ledger(
+        ledger: activechain_cash_kernel::CashLedger,
+        snapshot_path: std::path::PathBuf,
+    ) -> Result<Self, activechain_cash_kernel::CashTransitionError> {
+        Ok(Self {
+            ingress: activechain_wallet_core::TransactionIngress::from_ledger(ledger)?,
+            snapshot_path,
+        })
+    }
+
     pub fn submit_envelope(
         &mut self,
         envelope: &[u8],
         height: u64,
     ) -> Result<(), activechain_wallet_core::WalletError> {
         self.ingress.submit_envelope_durable(envelope, height, &self.snapshot_path)
+    }
+
+    /// Applies a complete ordered batch to a clone without publishing any state.
+    pub fn prepare_envelope_batch(
+        &self,
+        envelopes: &[Vec<u8>],
+        height: u64,
+    ) -> Result<PreparedWalletTransactionBatch, activechain_wallet_core::WalletError> {
+        let mut next = self.clone();
+        next.ingress.prune_replay_state(height);
+        for envelope in envelopes {
+            let authorized =
+                decode_envelope::<activechain_wallet_core::AuthorizedCashTransferV1>(envelope)
+                    .map_err(|_| activechain_wallet_core::WalletError::MalformedAuthorization)?;
+            let transaction = TransactionId::new(
+                authorized
+                    .request()
+                    .intent_id()
+                    .map_err(|_| activechain_wallet_core::WalletError::MalformedAuthorization)?,
+            );
+            if self.ingress.transaction_admitted(transaction) {
+                continue;
+            }
+            next.ingress.submit_envelope(envelope, height)?;
+        }
+        Ok(PreparedWalletTransactionBatch { pre_ledger: self.ledger().clone(), next })
+    }
+
+    /// Durably publishes a previously prepared batch after consensus certifies its exact root.
+    pub fn commit_prepared(
+        &mut self,
+        prepared: PreparedWalletTransactionBatch,
+    ) -> Result<(), activechain_wallet_core::WalletError> {
+        if prepared.next.snapshot_path != self.snapshot_path
+            || prepared.pre_ledger != *self.ledger()
+        {
+            return Err(activechain_wallet_core::WalletError::Persistence);
+        }
+        prepared.next.ingress.save_atomic(&self.snapshot_path)?;
+        *self = prepared.next;
+        Ok(())
     }
 
     /// Admits a faucet settlement only when the caller presents the exact
@@ -4810,25 +4874,20 @@ mod tests {
             ),
             Err(activechain_wallet_core::WalletError::PolicyDenied)
         );
-        let transaction = gateway
-            .submit_faucet_authorized_envelope(
-                &envelope,
-                digest(30),
-                PrincipalId::new(digest(11)),
-                10,
-                1,
-            )
-            .unwrap();
+        let pre_ledger = gateway.ledger().clone();
+        assert!(gateway.prepare_envelope_batch(&[envelope.clone(), envelope.clone()], 1).is_err());
+        assert_eq!(gateway.ledger(), &pre_ledger, "rejected batch must not mutate live state");
+        let prepared = gateway.prepare_envelope_batch(&[envelope.clone()], 1).unwrap();
+        let stale_prepared = gateway.prepare_envelope_batch(&[envelope.clone()], 1).unwrap();
+        assert_ne!(prepared.ledger(), &pre_ledger);
+        assert_eq!(gateway.ledger(), &pre_ledger, "prepared state remains unpublished");
+        gateway.commit_prepared(prepared).unwrap();
         assert_eq!(
-            gateway.submit_faucet_authorized_envelope(
-                &envelope,
-                digest(30),
-                PrincipalId::new(digest(11)),
-                10,
-                1,
-            ),
-            Ok(transaction)
+            gateway.commit_prepared(stale_prepared),
+            Err(activechain_wallet_core::WalletError::Persistence)
         );
+        let retried = gateway.prepare_envelope_batch(&[envelope], 2).unwrap();
+        assert_eq!(retried.ledger(), gateway.ledger(), "certified retry is idempotent");
         let restored =
             WalletTransactionGateway::load_snapshot(&snapshot_path, ChainId::new(digest(1)))
                 .unwrap();

@@ -47,6 +47,7 @@ mkdir -p "$rollback/chain" "$rollback/rpc"
 for path in \
   chain/genesis.bin \
   chain/cash-ledger.snapshot \
+  chain/pending-cash-actions.batch \
   chain/keys \
   chain/validator-0.snapshot \
   chain/validator-1.snapshot \

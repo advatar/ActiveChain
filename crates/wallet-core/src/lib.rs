@@ -331,6 +331,20 @@ impl TransactionIngress {
         })
     }
 
+    /// Wraps an invariant-checked canonical ledger as an initially empty durable ingress state.
+    pub fn from_ledger(ledger: CashLedger) -> Result<Self, CashTransitionError> {
+        ledger.verify_invariants()?;
+        let chain_id = ledger.definition().chain_id();
+        Ok(Self {
+            ledger,
+            chain_id,
+            authorization_lanes: Vec::new(),
+            consumed_inputs: Vec::new(),
+            non_authoritative_accepted: Vec::new(),
+            persistence_faulted: false,
+        })
+    }
+
     /// Installs or rotates a cash key only after verifying finalized identity provenance.
     pub fn install_finalized_authorization_key<V: FinalizedIdentityKeyVerifier>(
         &mut self,

@@ -2,8 +2,8 @@ use activechain_canonical_codec::{decode_envelope, encode_envelope};
 use activechain_cash_kernel::CashLedger;
 use activechain_consensus_runtime::{
     FinalizedCashSnapshot, PeerIngressMetricsSnapshot, PeerIngressMonitor, PeerListener,
-    ValidatorService, load_genesis, load_snapshot, load_snapshot_chain_genesis_commitment,
-    save_snapshot,
+    ValidatorService, WalletTransactionGateway, load_genesis, load_snapshot,
+    load_snapshot_chain_genesis_commitment, save_snapshot,
 };
 use activechain_finality_types::{
     FinalityCertificateBundle, FinalizedBlockHeader, ProofPublicInputs,
@@ -41,10 +41,13 @@ fn parse_chain_id(value: &str) -> Result<ChainId, &'static str> {
     Ok(ChainId::new(Digest384::new(bytes)))
 }
 
-fn load_authoritative_cash_ledger(
+fn load_authoritative_cash_gateway(
     path: &Path,
     chain_id: ChainId,
-) -> Result<CashLedger, Box<dyn std::error::Error>> {
+) -> Result<WalletTransactionGateway, Box<dyn std::error::Error>> {
+    if let Ok(gateway) = WalletTransactionGateway::load_snapshot(path, chain_id) {
+        return Ok(gateway);
+    }
     let bytes = std::fs::read(path)?;
     let ledger: CashLedger = decode_envelope(&bytes)
         .map_err(|_| std::io::Error::other("cash ledger snapshot is not canonical"))?;
@@ -54,7 +57,32 @@ fn load_authoritative_cash_ledger(
     if ledger.definition().chain_id() != chain_id {
         return Err(std::io::Error::other("cash ledger belongs to another chain").into());
     }
-    Ok(ledger)
+    WalletTransactionGateway::from_ledger(ledger, path.to_path_buf())
+        .map_err(|_| std::io::Error::other("cash ingress construction failed").into())
+}
+
+const MAX_CASH_ROUND_ACTIONS: usize = 32;
+
+fn load_cash_action_batch(path: &Path) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
+    let bytes = std::fs::read(path)?;
+    let mut offset = 0_usize;
+    let mut actions = Vec::new();
+    while offset < bytes.len() {
+        if actions.len() == MAX_CASH_ROUND_ACTIONS || bytes.len() - offset < 4 {
+            return Err(std::io::Error::other("cash action batch is malformed or oversized").into());
+        }
+        let length = u32::from_be_bytes(bytes[offset..offset + 4].try_into().unwrap()) as usize;
+        offset += 4;
+        if length == 0
+            || length > activechain_wallet_core::MAX_INGRESS_FRAME
+            || bytes.len() - offset < length
+        {
+            return Err(std::io::Error::other("cash action frame is malformed or oversized").into());
+        }
+        actions.push(bytes[offset..offset + length].to_vec());
+        offset += length;
+    }
+    Ok(actions)
 }
 
 fn kanalen_finalized_header(
@@ -164,6 +192,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         extras.iter().find_map(|value| value.strip_prefix("--finalized-cash-out="));
     let finality_out = extras.iter().find_map(|value| value.strip_prefix("--finality-out="));
     let cash_ledger = extras.iter().find_map(|value| value.strip_prefix("--cash-ledger="));
+    let cash_actions = extras.iter().find_map(|value| value.strip_prefix("--cash-actions="));
     if finalized_cash_out.is_some() != finality_out.is_some()
         || finalized_cash_out.is_some() != chain_id.is_some()
         || finalized_cash_out.is_some() != cash_ledger.is_some()
@@ -172,10 +201,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--chain-id-hex, --cash-ledger, --finalized-cash-out, and --finality-out must be supplied together".into(),
         );
     }
-    let authoritative_cash = cash_ledger
+    if cash_actions.is_some() && cash_ledger.is_none() {
+        return Err("--cash-actions requires --cash-ledger".into());
+    }
+    let mut authoritative_cash = cash_ledger
         .map(Path::new)
         .zip(chain_id)
-        .map(|(path, chain)| load_authoritative_cash_ledger(path, chain))
+        .map(|(path, chain)| load_authoritative_cash_gateway(path, chain))
         .transpose()?;
     let peer_specs: Vec<&str> =
         extras.iter().filter_map(|value| value.strip_prefix("--peer=")).collect();
@@ -332,15 +364,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     std::thread::sleep(std::time::Duration::from_millis(25));
                 }
             }
+            let prepared_cash = match (authoritative_cash.as_ref(), cash_actions) {
+                (Some(gateway), Some(path)) => Some(
+                    gateway
+                        .prepare_envelope_batch(
+                            &load_cash_action_batch(Path::new(path))?,
+                            next_height,
+                        )
+                        .map_err(|error| {
+                            format!("cash action batch rejected atomically: {error:?}")
+                        })?,
+                ),
+                _ => None,
+            };
             let cash_snapshot = if chain_id.is_some() {
+                let ledger = prepared_cash
+                    .as_ref()
+                    .map(|prepared| prepared.ledger())
+                    .or_else(|| authoritative_cash.as_ref().map(|gateway| gateway.ledger()))
+                    .ok_or("authoritative cash ledger is required for a published round")?;
                 Some(FinalizedCashSnapshot::new(
                     genesis.genesis_commitment(),
                     next_height,
-                    authoritative_cash
-                        .as_ref()
-                        .ok_or("authoritative cash ledger is required for a published round")?
-                        .cells()
-                        .clone(),
+                    ledger.cells().clone(),
                 )?)
             } else {
                 None
@@ -384,6 +430,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     certified.votes().to_vec(),
                 )
                 .map_err(|_| "certified Kanalen finality bundle is invalid")?;
+                if let Some(prepared) = prepared_cash {
+                    authoritative_cash
+                        .as_mut()
+                        .ok_or("authoritative cash gateway disappeared")?
+                        .commit_prepared(prepared)
+                        .map_err(|error| {
+                            format!("certified cash state persistence failed: {error:?}")
+                        })?;
+                    if let Some(path) = cash_actions {
+                        let finalized = format!("{path}.finalized-{next_height}");
+                        std::fs::rename(path, finalized)?;
+                    }
+                }
                 publish_finalized_cash(
                     Path::new(cash_path),
                     Path::new(finality_path),
@@ -562,14 +621,39 @@ mod tests {
             .join(format!("activechain-authoritative-cash-{}.snapshot", std::process::id()));
         let _ = std::fs::remove_file(&path);
         std::fs::write(&path, encode_envelope(&cash_ledger(chain)).unwrap()).unwrap();
-        let loaded = load_authoritative_cash_ledger(&path, chain).unwrap();
-        assert_eq!(loaded.definition().chain_id(), chain);
-        assert!(!loaded.cells().as_slice().is_empty());
+        let loaded = load_authoritative_cash_gateway(&path, chain).unwrap();
+        assert_eq!(loaded.ledger().definition().chain_id(), chain);
+        assert!(!loaded.ledger().cells().as_slice().is_empty());
         assert!(
-            load_authoritative_cash_ledger(&path, ChainId::new(Digest384::new([81; 48]))).is_err()
+            load_authoritative_cash_gateway(&path, ChainId::new(Digest384::new([81; 48]))).is_err()
+        );
+        let ingress =
+            activechain_wallet_core::TransactionIngress::from_ledger(cash_ledger(chain)).unwrap();
+        std::fs::write(&path, encode_envelope(&ingress).unwrap()).unwrap();
+        assert_eq!(
+            load_authoritative_cash_gateway(&path, chain).unwrap().ledger().definition().chain_id(),
+            chain
         );
         std::fs::write(&path, b"not canonical").unwrap();
-        assert!(load_authoritative_cash_ledger(&path, chain).is_err());
+        assert!(load_authoritative_cash_gateway(&path, chain).is_err());
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn cash_action_batch_is_strictly_framed_and_bounded() {
+        let path = std::env::temp_dir()
+            .join(format!("activechain-cash-actions-{}.batch", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&3_u32.to_be_bytes());
+        bytes.extend_from_slice(&[1, 2, 3]);
+        bytes.extend_from_slice(&1_u32.to_be_bytes());
+        bytes.push(4);
+        std::fs::write(&path, &bytes).unwrap();
+        assert_eq!(load_cash_action_batch(&path).unwrap(), vec![vec![1, 2, 3], vec![4]]);
+        bytes.pop();
+        std::fs::write(&path, &bytes).unwrap();
+        assert!(load_cash_action_batch(&path).is_err());
         std::fs::remove_file(path).unwrap();
     }
 }
