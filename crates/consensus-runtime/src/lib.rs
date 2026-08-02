@@ -347,7 +347,7 @@ impl AuthorizedFaucetSettlementAdapter for ValidatorFaucetSettlementAdapter {
 }
 
 const PEER_BODY_DOMAIN: &[u8] = b"ACTIVECHAIN-PEER-BODY-V1";
-pub const MAX_PEER_FRAME_LEN: usize = 16 * 1024;
+pub const MAX_PEER_FRAME_LEN: usize = 32 * 1024;
 pub const PEER_FRAME_DEADLINE: Duration = Duration::from_secs(5);
 pub const PEER_SESSION_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 pub const PEER_SESSION_LIFETIME: Duration = Duration::from_secs(5 * 60);
