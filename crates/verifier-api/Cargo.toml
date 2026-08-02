@@ -17,6 +17,7 @@ activechain-consensus-verifier.workspace = true
 activechain-devnet-kernel.workspace = true
 activechain-finality-types.workspace = true
 activechain-policy-kernel.workspace = true
+activechain-payment-types.workspace = true
 activechain-protocol-commitment = { path = "../protocol-commitment", version = "0.1.0" }
 activechain-protocol-types.workspace = true
 activechain-state-tree.workspace = true

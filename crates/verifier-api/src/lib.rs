@@ -11,6 +11,7 @@ use activechain_canonical_codec::{
 use activechain_cash_kernel::{CoinCellMembershipProof, CoinCellRecord};
 use activechain_devnet_kernel::BlockReceipt;
 use activechain_finality_types::{FinalityCertificateBundle, commit_parts};
+use activechain_payment_types::{PaymentFinalizedSettlementV1, payment_finality_proof_commitment};
 use activechain_policy_kernel::PolicyDecision;
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
@@ -649,6 +650,48 @@ pub fn verify_block_receipt_with_chain_genesis(
     verify_block_receipt_with_finality(finality, receipt)
 }
 
+/// Verifies the exact finality bundle and block receipt committed by a payment settlement.
+pub fn verify_payment_finalized_settlement(
+    settlement: &[u8],
+    finality: &[u8],
+    receipt: &[u8],
+    expected_chain_genesis: Digest384,
+) -> Result<PaymentFinalizedSettlementV1, VerifyError> {
+    let total = settlement
+        .len()
+        .checked_add(finality.len())
+        .and_then(|length| length.checked_add(receipt.len()))
+        .ok_or(VerifyError::TooLarge)?;
+    if total > MAX_ENVELOPE_LENGTH {
+        return Err(VerifyError::TooLarge);
+    }
+    inspect_envelope(
+        settlement,
+        PaymentFinalizedSettlementV1::TYPE_TAG,
+        PaymentFinalizedSettlementV1::SCHEMA_VERSION,
+    )?;
+    let settlement =
+        decode_envelope::<PaymentFinalizedSettlementV1>(settlement).map_err(VerifyError::Decode)?;
+    let verified_receipt =
+        verify_block_receipt_with_chain_genesis(finality, receipt, expected_chain_genesis)?;
+    let receipt_commitment =
+        commit(DomainTag::CANONICAL_VALUE, &verified_receipt).map_err(|_| {
+            VerifyError::Decode(DecodeError::InvalidValue("payment receipt could not be committed"))
+        })?;
+    if verified_receipt.block_id() != settlement.finalized_block()
+        || verified_receipt.height() != settlement.finalized_height()
+        || receipt_commitment != settlement.receipt_commitment()
+        || payment_finality_proof_commitment(finality) != settlement.proof_commitment()
+        || !verified_receipt
+            .action_receipts()
+            .iter()
+            .any(|action| action.transaction_id() == settlement.transaction())
+    {
+        return Err(VerifyError::RelationMismatch);
+    }
+    Ok(settlement)
+}
+
 fn verify_block_receipt_with_finality(
     finality: FinalityCertificateBundle,
     receipt: &[u8],
@@ -719,6 +762,10 @@ mod tests {
         CoinCell, CoinCellOrigin, CoinCellRecord, CoinCellSet, prove_coin_cell_membership,
     };
     use activechain_devnet_kernel::{ActionOutcome, ActionReceipt};
+    use activechain_payment_types::{
+        AssetAmountV1, PaymentFinalizedSettlementV1, PaymentIntentId,
+        payment_finality_proof_commitment,
+    };
     use activechain_policy_kernel::DecisionResult;
     use activechain_protocol_types::{
         ActionId, AssetId, BoundedActionSet, CapabilityGrantFields, CapabilityId,
@@ -1408,6 +1455,95 @@ mod tests {
         assert_eq!(
             verify_block_receipt_code(&finality, &wrong_version),
             VerifyError::VersionMismatch.code()
+        );
+    }
+
+    #[test]
+    fn payment_settlement_verifier_binds_finality_receipt_and_action_transaction() {
+        let pre_state = StateCommitment::new(digest(60), 2);
+        let post_state = StateCommitment::new(digest(61), 3);
+        let transaction = TransactionId::new(digest(70));
+        let receipt = BlockReceipt::new(
+            digest(62),
+            9,
+            pre_state,
+            post_state,
+            digest(64),
+            digest(65),
+            vec![ActionReceipt::new(
+                transaction,
+                ActionOutcome::ResourceLimitExceeded,
+                ResourceVector::new(1, 0, 0, 0, 0, 1),
+                0,
+                1,
+                post_state,
+            )],
+        )
+        .unwrap();
+        let receipt_commitment = commit(DomainTag::CANONICAL_VALUE, &receipt).unwrap();
+        let bundle =
+            finality_bundle_with_inputs(receipt_commitment, pre_state, post_state, digest(50));
+        let trusted_genesis = bundle.validator_genesis().genesis_commitment();
+        let finality = encode_envelope(&bundle).unwrap();
+        let receipt_bytes = encode_envelope(&receipt).unwrap();
+        let settlement = PaymentFinalizedSettlementV1::new(
+            PaymentIntentId::new(digest(71)).unwrap(),
+            transaction,
+            AssetAmountV1::new(AssetId::new(digest(72)), 95).unwrap(),
+            9,
+            receipt.block_id(),
+            receipt_commitment,
+            payment_finality_proof_commitment(&finality),
+        )
+        .unwrap();
+        let encoded = encode_envelope(&settlement).unwrap();
+        assert_eq!(
+            verify_payment_finalized_settlement(
+                &encoded,
+                &finality,
+                &receipt_bytes,
+                trusted_genesis,
+            ),
+            Ok(settlement)
+        );
+
+        let wrong_proof = PaymentFinalizedSettlementV1::new(
+            settlement.intent(),
+            transaction,
+            settlement.settled_amount(),
+            9,
+            receipt.block_id(),
+            receipt_commitment,
+            digest(73),
+        )
+        .unwrap();
+        assert_eq!(
+            verify_payment_finalized_settlement(
+                &encode_envelope(&wrong_proof).unwrap(),
+                &finality,
+                &receipt_bytes,
+                trusted_genesis,
+            ),
+            Err(VerifyError::RelationMismatch)
+        );
+        let wrong_transaction = PaymentFinalizedSettlementV1::new(
+            settlement.intent(),
+            TransactionId::new(digest(74)),
+            settlement.settled_amount(),
+            9,
+            receipt.block_id(),
+            receipt_commitment,
+            payment_finality_proof_commitment(&finality),
+        )
+        .unwrap();
+        assert_eq!(
+            verify_payment_finalized_settlement(
+                &encode_envelope(&wrong_transaction).unwrap(),
+                &finality,
+                &receipt_bytes,
+                trusted_genesis,
+            ),
+            Err(VerifyError::RelationMismatch)
         );
     }
 

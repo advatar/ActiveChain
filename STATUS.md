@@ -1013,6 +1013,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
   - [x] Bind each finalized payment successor to one canonical intent, exact native asset/amount,
     transaction, finalized height/block, receipt commitment, and proof commitment, and persist it
     through the joined request-state boundary.
+    - [x] Cryptographically verify the trusted-genesis finality bundle and canonical block receipt,
+      including exact action-transaction inclusion and evidence commitments, before finalization.
 - [x] Add canonical exact-once partial-refund requests and cumulative settlement-bound accounting.
   - [x] Persist a bounded per-intent refund-state journal atomically across settlement registration
     and every accepted partial refund, rejecting replay and corrupt restart state.
