@@ -728,6 +728,7 @@ dependencies = [
  "activechain-accumulator",
  "activechain-canonical-codec",
  "activechain-cash-kernel",
+ "activechain-crypto-provider",
  "activechain-principal",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
