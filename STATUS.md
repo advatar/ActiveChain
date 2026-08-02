@@ -1701,6 +1701,17 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
         `register_assignment`/`settle_duty` kernel; cryptographic receipt authorization, principal
         identity, and Coin Cell custody of bonds and rewards remain production-boundary
         assumptions.
+  - [x] Prove OpenWallet consent-bound issuance in Lean: `issuanceRequiresConsent` (an accepted
+        `completeIssuance` in any reachable state implies the trace contains an `authorizeIssuance`
+        step carrying exactly the offer's consent digest), `preAuthorizedOffersAreRejected` (the
+        [#678](https://github.com/advatar/ActiveChain/issues/678) regression: an offer decoded in
+        any state other than `offered` is refused and the step is a no-op), `grantNonceIsOneShot`,
+        `disclosureAnswersTheRequest` (no over-disclosure and no unanswered requested schema), and
+        `rejectedTransitionsPreserveState`, with a byte-identical 14-step Rust/Lean refinement trace
+        over the production `OpenWalletAdapterV1` (`testing/vectors/credential/openwallet-consent-model-table.txt`,
+        `scripts/check-openwallet-consent-refinement.sh`); canonical decoding, cryptographic issuer
+        authentication, credential-content validity, and digest collision resistance remain
+        production-boundary assumptions recorded in `formal/OPENWALLET_CONSENT_PROOF_SCOPE.md`.
 - [x] Prove DA reconstruction bounds and fail-closed light-client trust transitions in Lean.
 - [x] Prove canonical envelope rejection, commitment binding, and FFI precondition invariants in Lean.
 - [x] Prove bounded principal rotation/recovery/deactivation and direct-delegation attenuation properties.

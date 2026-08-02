@@ -1457,6 +1457,167 @@ mod tests {
         assert_eq!(consent.request_commitment(), pending.commitment().unwrap());
     }
 
+    /// Refinement claim: the production `OpenWalletAdapterV1` and the Lean model in
+    /// `formal/lean/ActiveChain/OpenWalletConsent.lean` produce the same observable projection for
+    /// the same step sequence, byte for byte. The projection is the open session count, the held
+    /// credential count, the issuance table size split by session state, the pending presentation
+    /// count, and the consumed nonce count.
+    #[test]
+    fn rust_openwallet_consent_matches_frozen_lean_refinement_table() {
+        fn projection(adapter: &OpenWalletAdapterV1) -> [usize; 8] {
+            let count = |state: IssuanceSessionState| {
+                adapter.issuance.iter().filter(|item| item.state == state).count()
+            };
+            [
+                adapter.sessions.len(),
+                adapter.credentials.len(),
+                adapter.issuance.len(),
+                count(IssuanceSessionState::Offered),
+                count(IssuanceSessionState::Authorized),
+                count(IssuanceSessionState::Completed),
+                adapter.presentations.len(),
+                adapter.consumed_nonces.len(),
+            ]
+        }
+
+        fn row(name: &str, accepted: bool, adapter: &OpenWalletAdapterV1) -> String {
+            let [sessions, credentials, issuance, offered, authorized, completed, pending, nonces] =
+                projection(adapter);
+            format!(
+                "{name},{},{sessions},{credentials},{issuance},{offered},{authorized},\
+                 {completed},{pending},{nonces}\n",
+                if accepted { "accept" } else { "reject" },
+            )
+        }
+
+        fn offer_with(
+            session_byte: u8,
+            configuration: u8,
+            server: u8,
+            grant_nonce: u8,
+            consent: u8,
+        ) -> OpenWalletCredentialOfferV1 {
+            OpenWalletCredentialOfferV1::new(
+                session(session_byte),
+                b"https://issuer.example".to_vec(),
+                vec![digest(configuration)],
+                digest(server),
+                digest(grant_nonce),
+                digest(consent),
+            )
+            .expect("refinement fixture offer is valid")
+        }
+
+        let mut adapter = OpenWalletAdapterV1::new();
+        let mut output = row("genesis", true, &adapter);
+
+        // The honest offer arrives in the `Offered` state and is admitted.
+        adapter.begin_issuance(offer_with(1, 10, 11, 12, 13), 1).unwrap();
+        output.push_str(&row("begin_issuance", true, &adapter));
+
+        // Regression for #678: a wire-decoded offer that declares itself already `Authorized`
+        // would otherwise skip `authorize_issuance`, the only step that checks `consent_digest`.
+        let mut forged = offer_with(30, 34, 35, 32, 33);
+        forged.state = IssuanceSessionState::Authorized;
+        let decoded = decode_envelope::<OpenWalletCredentialOfferV1>(
+            &encode_envelope(&forged).expect("forged offer encodes"),
+        )
+        .expect("forged offer decodes");
+        assert_eq!(decoded.state(), IssuanceSessionState::Authorized);
+        let mut unchanged = projection(&adapter);
+        assert_eq!(adapter.begin_issuance(decoded, 1), Err(WalletError::PolicyDenied));
+        assert_eq!(projection(&adapter), unchanged);
+        output.push_str(&row("begin_issuance_pre_authorized", false, &adapter));
+
+        unchanged = projection(&adapter);
+        assert_eq!(
+            adapter.authorize_issuance(digest(1), digest(99), 5),
+            Err(WalletError::PolicyDenied)
+        );
+        assert_eq!(projection(&adapter), unchanged);
+        output.push_str(&row("authorize_wrong_consent", false, &adapter));
+
+        adapter.authorize_issuance(digest(1), digest(13), 5).unwrap();
+        output.push_str(&row("authorize", true, &adapter));
+
+        adapter.complete_issuance(digest(1), credential(50), digest(12), 5).unwrap();
+        output.push_str(&row("complete", true, &adapter));
+
+        unchanged = projection(&adapter);
+        assert_eq!(
+            adapter.complete_issuance(digest(1), credential(60), digest(12), 5),
+            Err(WalletError::Replay)
+        );
+        assert_eq!(projection(&adapter), unchanged);
+        output.push_str(&row("complete_replay", false, &adapter));
+
+        // credential(70) carries the unrequested schema digest(71); credential(50) carries the
+        // requested schema digest(51).
+        adapter.register_credential(credential(70)).unwrap();
+        output.push_str(&row("register_unrelated_credential", true, &adapter));
+
+        let requested = OpenWalletPresentationRequestV1::new(
+            session(40),
+            b"verifier.example".to_vec(),
+            b"https://verifier.example/response".to_vec(),
+            digest(45),
+            digest(46),
+            PresentationResponseMode::DirectPostJwt,
+            vec![RequestedCredentialV1 {
+                format: CredentialFormat::Mdoc,
+                schema_id: digest(51),
+                claims_digest: digest(47),
+            }],
+        )
+        .expect("refinement fixture request is valid");
+        let commitment = requested.commitment().expect("request commits canonically");
+        adapter.begin_presentation(requested, 6).unwrap();
+        output.push_str(&row("begin_presentation", true, &adapter));
+
+        let consent_for = |selected: Vec<Digest384>| {
+            OpenWalletConsentV1::new(digest(40), commitment, selected, vec![digest(48)], 1, 15)
+                .expect("refinement fixture consent is valid")
+        };
+
+        unchanged = projection(&adapter);
+        assert_eq!(
+            adapter.approve_presentation(&consent_for(vec![digest(70)]), 7),
+            Err(WalletError::PolicyDenied)
+        );
+        assert_eq!(projection(&adapter), unchanged);
+        output.push_str(&row("approve_unrelated_schema", false, &adapter));
+
+        assert_eq!(
+            adapter.approve_presentation(&consent_for(vec![digest(50), digest(70)]), 7),
+            Err(WalletError::PolicyDenied)
+        );
+        assert_eq!(projection(&adapter), unchanged);
+        output.push_str(&row("approve_over_disclosure", false, &adapter));
+
+        adapter.approve_presentation(&consent_for(vec![digest(50)]), 7).unwrap();
+        output.push_str(&row("approve_exact", true, &adapter));
+
+        unchanged = projection(&adapter);
+        assert_eq!(
+            adapter.approve_presentation(&consent_for(vec![digest(50)]), 7),
+            Err(WalletError::PolicyDenied)
+        );
+        assert_eq!(projection(&adapter), unchanged);
+        output.push_str(&row("approve_replay", false, &adapter));
+
+        assert_eq!(
+            adapter.begin_issuance(offer_with(80, 82, 83, 12, 84), 7),
+            Err(WalletError::Replay)
+        );
+        assert_eq!(projection(&adapter), unchanged);
+        output.push_str(&row("begin_issuance_replayed_nonce", false, &adapter));
+
+        assert_eq!(
+            output,
+            include_str!("../../../testing/vectors/credential/openwallet-consent-model-table.txt")
+        );
+    }
+
     #[test]
     fn enveloped_openwallet_types_reject_out_of_range_enum_tags() {
         let mut envelope = encode_envelope(&offer(1)).unwrap();

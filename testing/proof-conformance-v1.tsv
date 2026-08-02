@@ -30,6 +30,7 @@ kani-protocol	formal/KANI_PROTOCOL_TYPES_PROOF_SCOPE.md	crates/protocol-types/sr
 nonce	formal/lean/ActiveChain/Nonce.lean	testing/vectors/devnet/nonce-model-table.txt	differential
 object	formal/lean/ActiveChain/Object.lean	testing/vectors/object/object-model-table.txt	differential
 object-vm	formal/lean/ActiveChain/ObjectVM.lean	testing/vectors/vm/object-vm-model-table.txt	differential
+openwallet-consent	formal/lean/ActiveChain/OpenWalletConsent.lean	testing/vectors/credential/openwallet-consent-model-table.txt	differential
 pq-session	formal/tamarin/activechain_pq_session.spthy	testing/vectors/consensus/pq-session-v2.txt	trace
 pq-zk	formal/lean/ActiveChain/PqZk.lean	testing/vectors/pq-zk/profile-v1.txt	trace
 proof-pipeline	formal/tla/ActiveChainProofPipeline.tla	crates/consensus-runtime/src/proof_pipeline.rs	trace
