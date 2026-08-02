@@ -1399,6 +1399,7 @@ pub struct PaymentSettlementStateV1 {
     requests: PaymentRequestStateV1,
     settlements: Vec<PaymentFinalizedSettlementV1>,
     refunds: RefundJournalV1,
+    disputes: DisputeJournalV1,
 }
 
 impl PaymentSettlementStateV1 {
@@ -1408,6 +1409,7 @@ impl PaymentSettlementStateV1 {
         requests: PaymentRequestStateV1,
         settlements: Vec<PaymentFinalizedSettlementV1>,
         refunds: RefundJournalV1,
+        disputes: DisputeJournalV1,
     ) -> Result<Self, JournalError> {
         if settlements.len() > MAX_PAYMENT_INTENTS
             || settlements.windows(2).any(|pair| pair[0].intent() >= pair[1].intent())
@@ -1450,7 +1452,14 @@ impl PaymentSettlementStateV1 {
                 return Err(JournalError::InvalidLifecycle);
             }
         }
-        Ok(Self { requests, settlements, refunds })
+        if disputes.records().iter().any(|record| {
+            settlements
+                .binary_search_by_key(&record.intent(), PaymentFinalizedSettlementV1::intent)
+                .is_err()
+        }) {
+            return Err(JournalError::InvalidDispute);
+        }
+        Ok(Self { requests, settlements, refunds, disputes })
     }
 
     pub const fn requests(&self) -> &PaymentRequestStateV1 {
@@ -1464,6 +1473,10 @@ impl PaymentSettlementStateV1 {
     pub const fn refunds(&self) -> &RefundJournalV1 {
         &self.refunds
     }
+
+    pub const fn disputes(&self) -> &DisputeJournalV1 {
+        &self.disputes
+    }
 }
 
 impl CanonicalEncode for PaymentSettlementStateV1 {
@@ -1473,7 +1486,8 @@ impl CanonicalEncode for PaymentSettlementStateV1 {
         for settlement in &self.settlements {
             settlement.encode(encoder)?;
         }
-        self.refunds.encode(encoder)
+        self.refunds.encode(encoder)?;
+        self.disputes.encode(encoder)
     }
 }
 
@@ -1485,8 +1499,13 @@ impl CanonicalDecode for PaymentSettlementStateV1 {
         for _ in 0..count {
             settlements.push(PaymentFinalizedSettlementV1::decode(decoder)?);
         }
-        Self::new(requests, settlements, RefundJournalV1::decode(decoder)?)
-            .map_err(|_| DecodeError::InvalidValue("invalid payment settlement state"))
+        Self::new(
+            requests,
+            settlements,
+            RefundJournalV1::decode(decoder)?,
+            DisputeJournalV1::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid payment settlement state"))
     }
 }
 
@@ -1496,7 +1515,8 @@ impl CanonicalType for PaymentSettlementStateV1 {
     const MAX_ENCODED_LEN: usize = PaymentRequestStateV1::MAX_ENCODED_LEN
         + 3
         + MAX_PAYMENT_INTENTS * PaymentFinalizedSettlementV1::MAX_ENCODED_LEN
-        + RefundJournalV1::MAX_ENCODED_LEN;
+        + RefundJournalV1::MAX_ENCODED_LEN
+        + DisputeJournalV1::MAX_ENCODED_LEN;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1540,6 +1560,7 @@ impl DurablePaymentSettlementState {
                 requests,
                 self.snapshot.settlements.clone(),
                 self.snapshot.refunds.clone(),
+                self.snapshot.disputes.clone(),
             )?;
             save_snapshot(&next, &self.path)?;
             self.snapshot = next;
@@ -1562,6 +1583,7 @@ impl DurablePaymentSettlementState {
             requests,
             self.snapshot.settlements.clone(),
             self.snapshot.refunds.clone(),
+            self.snapshot.disputes.clone(),
         )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
@@ -1604,7 +1626,12 @@ impl DurablePaymentSettlementState {
             PaymentRefundStateV1::new(verified.intent(), commitment, verified.settled_amount())
                 .map_err(|_| JournalError::InvalidRefund)?,
         )?;
-        let next = PaymentSettlementStateV1::new(requests, settlements, refunds)?;
+        let next = PaymentSettlementStateV1::new(
+            requests,
+            settlements,
+            refunds,
+            self.snapshot.disputes.clone(),
+        )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
         Ok(commitment)
@@ -1656,8 +1683,60 @@ impl DurablePaymentSettlementState {
 
         let mut refunds = self.snapshot.refunds.clone();
         refunds.apply(request, timestamp)?;
-        let next =
-            PaymentSettlementStateV1::new(requests, self.snapshot.settlements.clone(), refunds)?;
+        let next = PaymentSettlementStateV1::new(
+            requests,
+            self.snapshot.settlements.clone(),
+            refunds,
+            self.snapshot.disputes.clone(),
+        )?;
+        save_snapshot(&next, &self.path)?;
+        self.snapshot = next;
+        Ok(())
+    }
+
+    pub fn open_dispute(
+        &mut self,
+        request: &PaymentDisputeRequestV1,
+        timestamp: u64,
+    ) -> Result<(), JournalError> {
+        let index = self
+            .snapshot
+            .settlements
+            .binary_search_by_key(&request.intent(), PaymentFinalizedSettlementV1::intent)
+            .map_err(|_| JournalError::InvalidDispute)?;
+        let settlement = &self.snapshot.settlements[index];
+        if request.settlement_commitment()
+            != settlement.commitment().map_err(|_| JournalError::InvalidDispute)?
+            || request.amount().asset() != settlement.settled_amount().asset()
+            || request.amount().atomic_units() > settlement.settled_amount().atomic_units()
+        {
+            return Err(JournalError::InvalidDispute);
+        }
+        let mut disputes = self.snapshot.disputes.clone();
+        disputes.open(request, timestamp)?;
+        let next = PaymentSettlementStateV1::new(
+            self.snapshot.requests.clone(),
+            self.snapshot.settlements.clone(),
+            self.snapshot.refunds.clone(),
+            disputes,
+        )?;
+        save_snapshot(&next, &self.path)?;
+        self.snapshot = next;
+        Ok(())
+    }
+
+    pub fn advance_dispute(
+        &mut self,
+        next_record: PaymentDisputeRecordV1,
+    ) -> Result<(), JournalError> {
+        let mut disputes = self.snapshot.disputes.clone();
+        disputes.advance(next_record)?;
+        let next = PaymentSettlementStateV1::new(
+            self.snapshot.requests.clone(),
+            self.snapshot.settlements.clone(),
+            self.snapshot.refunds.clone(),
+            disputes,
+        )?;
         save_snapshot(&next, &self.path)?;
         self.snapshot = next;
         Ok(())
@@ -3034,6 +3113,7 @@ mod tests {
                 finalized_requests,
                 Vec::new(),
                 RefundJournalV1::default(),
+                DisputeJournalV1::default(),
             ),
             Err(JournalError::InvalidLifecycle)
         );
@@ -3118,6 +3198,78 @@ mod tests {
         std::fs::create_dir(&path).unwrap();
         let valid = settlement_refund_request(&settlement, 147, 40, 1, 0);
         assert_eq!(durable.request_refund(&valid, 150), Err(JournalError::Persistence));
+        assert_eq!(durable.snapshot(), &before);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    fn settlement_dispute_request(
+        settlement: &PaymentFinalizedSettlementV1,
+    ) -> PaymentDisputeRequestV1 {
+        PaymentDisputeRequestV1::new(
+            PaymentDisputeId::new(digest(150)).unwrap(),
+            settlement.intent(),
+            PrincipalId::new(digest(151)),
+            settlement.commitment().unwrap(),
+            AssetAmountV1::new(settlement.settled_amount().asset(), 40).unwrap(),
+            digest(152),
+            digest(153),
+            digest(154),
+            100,
+            200,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn atomic_dispute_state_survives_restart_and_exact_successor() {
+        let path = path("atomic-dispute-restart");
+        let _ = std::fs::remove_file(&path);
+        let mut durable = chain_submitted_settlement_state(&path);
+        let settlement = finalized_settlement(124, 95, 110);
+        durable.finalize_verified_value(&settlement).unwrap();
+        let request = settlement_dispute_request(&settlement);
+        durable.open_dispute(&request, 150).unwrap();
+        assert_eq!(durable.snapshot().disputes().records()[0].state(), PaymentDisputeState::Open);
+        let evidence = dispute_successor(150, 10, 2, PaymentDisputeState::EvidenceSubmitted);
+        durable.advance_dispute(evidence).unwrap();
+        assert_eq!(durable.snapshot().disputes().records()[0].sequence(), 2);
+        assert_eq!(
+            DurablePaymentSettlementState::open(&path).unwrap().snapshot(),
+            durable.snapshot()
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn atomic_dispute_rejects_substitution_replay_and_failed_write() {
+        let directory = path("atomic-dispute-failure");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("settlement-state.bin");
+        let mut durable = chain_submitted_settlement_state(&path);
+        let settlement = finalized_settlement(124, 95, 110);
+        durable.finalize_verified_value(&settlement).unwrap();
+        let request = settlement_dispute_request(&settlement);
+        let before = durable.snapshot().clone();
+        let substituted = PaymentDisputeRequestV1::new(
+            request.dispute(),
+            settlement.intent(),
+            PrincipalId::new(digest(151)),
+            digest(155),
+            AssetAmountV1::new(settlement.settled_amount().asset(), 40).unwrap(),
+            digest(152),
+            digest(153),
+            digest(154),
+            100,
+            200,
+        )
+        .unwrap();
+        assert_eq!(durable.open_dispute(&substituted, 150), Err(JournalError::InvalidDispute));
+        assert_eq!(durable.snapshot(), &before);
+
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        assert_eq!(durable.open_dispute(&request, 150), Err(JournalError::Persistence));
         assert_eq!(durable.snapshot(), &before);
         std::fs::remove_dir_all(directory).unwrap();
     }

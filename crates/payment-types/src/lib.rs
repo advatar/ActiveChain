@@ -2055,6 +2055,14 @@ impl PaymentDisputeRequestV1 {
         self.intent
     }
 
+    pub const fn settlement_commitment(&self) -> Digest384 {
+        self.settlement_commitment
+    }
+
+    pub const fn amount(&self) -> AssetAmountV1 {
+        self.amount
+    }
+
     pub const fn active_at(&self, timestamp: u64) -> bool {
         timestamp >= self.opened_at && timestamp < self.expires_at
     }
