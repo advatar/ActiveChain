@@ -653,6 +653,9 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
   - [x] Stage bounded authorized cash batches against durable validator ingress, certify the exact
     successor root, and publish the complete successor only after quorum finality; rejected or
     duplicate batches leave the authoritative ingress unchanged.
+  - [x] Make finalized-block admission carry the exact signed vote set and provide a genesis-backed
+    verifier that checks ML-DSA signatures, canonical vote commitments, and stake quorum instead
+    of permitting a production caller to validate a bare quorum-certificate commitment.
 - [x] Require finalized-cash publication to load a canonical invariant-checked, chain-bound cash
   ledger instead of synthesizing an empty Coin Cell set.
 - [ ] Make a fresh Kanalen reset provision the genesis cash state consumed by that execution path,

@@ -44,7 +44,8 @@ pub use compliance::RegulatedTransferAdmission;
 pub mod finalized_block;
 pub use finalized_block::{
     ExecutionProofVerifier, FinalizedBlock, FinalizedBlockAdmissionError, FinalizedBlockCandidate,
-    FinalizedBlockHeader, FinalizedBlockVerifier, ProofPublicInputs, VerifiedExecutionProof,
+    FinalizedBlockHeader, FinalizedBlockVerifier, GenesisBackedFinalizedBlockVerifier,
+    ProofPublicInputs, VerifiedExecutionProof,
 };
 mod pq_session;
 pub use pq_session::{PqPeerSession, PqSessionContext, PqSessionStore, SESSION_TTL_SECS};
