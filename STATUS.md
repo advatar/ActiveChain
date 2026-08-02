@@ -6,7 +6,7 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Tracked by [GitHub issue #745](https://github.com/advatar/ActiveChain/issues/745).
 
-- [ ] Regenerate and audit the verifier C header against the exported production ABI.
+- [x] Regenerate and audit the verifier C header against the exported production ABI.
 - [ ] Pass header validation, Apple distribution reproducibility, and the exact aggregate
   deterministic-kernel gate; merge the dependency chain to `main` and verify reachability.
 
