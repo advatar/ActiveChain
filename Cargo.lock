@@ -135,6 +135,7 @@ dependencies = [
  "activechain-protocol-commitment",
  "activechain-protocol-types",
  "activechain-wallet-core",
+ "ml-dsa",
  "p3-air",
  "p3-baby-bear",
  "p3-challenger",
