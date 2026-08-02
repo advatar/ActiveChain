@@ -2236,6 +2236,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
                 exact Algorithm 29 rejection, swap, and sign-bit procedure.
           - [x] Bind canonical ML-DSA-44 `w1Encode` and prove the final
                 `c_tilde = SHAKE256(mu || w1Encode(w1), 32)` verifier equality.
+          - [ ] Compose decoding, `tr`/`mu` hashing, `ExpandA`, reconstruction, and final challenge
+                equality against one canonical ML-DSA-44 key, signature, and cash payload.
           - [x] Constrain ML-DSA-44 public-key/signature bit unpacking, `z` infinity-norm range,
                 and canonical hint decoding, exposing exact decoded verifier inputs.
           - [x] Constrain ML-DSA-44 `UseHint` decomposition, signed low bits, adjustment branches,
