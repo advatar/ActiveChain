@@ -57,3 +57,13 @@ func TestCodecRejectsNonminimalLengthAndTrailingBytes(t *testing.T) {
 		t.Fatalf("trailing data: got %q", got)
 	}
 }
+
+func TestIndependentPrincipalSemanticVectors(t *testing.T) {
+	n, err := verify("../../testing/vectors/independent-principal-v1.tsv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 6 {
+		t.Fatalf("expected 6 semantic principal cases, got %d", n)
+	}
+}

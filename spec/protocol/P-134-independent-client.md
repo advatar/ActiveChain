@@ -62,7 +62,8 @@ linked before M1 starts.
 
 The checked-in Go program has completed M0 plus the first M1 semantic family: it independently
 validates canonical envelope framing, exact type/schema, minimal bounded ULEB128 lengths, and
-truncation/trailing-data rejection against language-neutral vectors. M1 remains incomplete because
+truncation/trailing-data rejection against language-neutral vectors. It also independently decodes
+Principal v1 and enforces its enum and temporal invariants. M1 remains incomplete because other
 schema bodies, ML-DSA, authorization, cash/state transitions, finality, and light-client proofs are
 not yet independently verified. Its success is not M2 evidence.
 
