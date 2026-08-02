@@ -127,7 +127,7 @@ pub struct AuthorizationChain {
 
 impl AuthorizationChain {
     pub const TYPE_TAG: u16 = 0x007f;
-    pub const SCHEMA_VERSION: u16 = 1;
+    pub const SCHEMA_VERSION: u16 = 2;
     pub const MAX_ENCODED_LEN: usize =
         48 + 8 + 1 + MAX_AUTHORIZATION_CHAIN_DEPTH * CapabilityGrant::MAX_ENCODED_LEN;
 
@@ -1087,7 +1087,7 @@ mod tests {
         );
 
         let mut wrong_version = child.clone();
-        wrong_version[3] = 2;
+        wrong_version[2..4].copy_from_slice(&(CapabilityGrant::SCHEMA_VERSION + 1).to_be_bytes());
         assert_eq!(
             verify_capability_attenuation_code(&parent, &wrong_version),
             VerifyError::VersionMismatch.code()
@@ -1550,6 +1550,13 @@ mod tests {
         ];
         let objects = identities.iter().map(|entry| entry.0.clone()).collect::<Vec<_>>();
         let state = commit_objects(&objects).unwrap();
+        let provisional = finality_bundle_with_inputs(
+            digest(47),
+            StateCommitment::new(digest(42), 0),
+            state,
+            digest(50),
+        );
+        let genesis = provisional.validator_genesis().genesis_commitment();
         let unsigned_capability = |id: u8,
                                    issuer: PrincipalId,
                                    holder: PrincipalId,
@@ -1582,7 +1589,7 @@ mod tests {
             .unwrap()
         };
         let sign_capability = |unsigned: CapabilityGrant, key: &SigningKey<MlDsa65>| {
-            let signature = key.sign(&unsigned.signing_payload().unwrap());
+            let signature = key.sign(&unsigned.signing_payload(genesis).unwrap());
             CapabilityGrant::new(
                 unsigned.fields().clone(),
                 ProtocolSignature::new(CryptoSuiteId::ML_DSA_65, signature.encode().to_vec())
@@ -1602,14 +1609,27 @@ mod tests {
             unsigned_capability(104, child_issuer, actor_id, Some(105), 0, false),
             &child_key,
         );
+        let root_authenticator = AuthenticatorDescriptor::new(
+            AuthenticatorId::new(digest(101)),
+            CryptoSuiteId::ML_DSA_65,
+            root_key.verifying_key().encode().to_vec(),
+            AuthenticatorPurpose::Control,
+            1,
+            Some(12),
+            None,
+        )
+        .unwrap();
+        assert!(signed_authorization::verify_signature(
+            root_authenticator.clone(),
+            root.issuer_signature(),
+            &root.signing_payload(genesis).unwrap(),
+        ));
+        assert!(!signed_authorization::verify_signature(
+            root_authenticator,
+            root.issuer_signature(),
+            &root.signing_payload(digest(0xee)).unwrap(),
+        ));
         let chain = AuthorizationChain::new(actor_id, 9, vec![root, child]).unwrap();
-        let provisional = finality_bundle_with_inputs(
-            digest(47),
-            StateCommitment::new(digest(42), 0),
-            state,
-            digest(50),
-        );
-        let genesis = provisional.validator_genesis().genesis_commitment();
         let mut capability_ids = chain
             .capabilities()
             .iter()

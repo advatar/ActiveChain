@@ -81,10 +81,11 @@ only because issuance, delegation, authorization, or revocation is unreachable.
   ML-DSA provider.
 - The model does not reveal or compromise signing keys and therefore makes no post-compromise,
   rotation, recovery, side-channel, or implementation-fault claim.
-- P-021 credentials and P-022 grants do not themselves contain a chain identifier. This model binds
-  their exact identifiers into a chain/epoch-specific signed action request and uses keys registered
-  in that context. Reuse of the same issuer key and artifact across independently configured chains
-  remains a protocol-policy question outside this finite context.
+- P-021 credentials do not themselves contain a chain identifier. CapabilityGrant v2 issuer
+  signatures bind the finalized chain genesis even though the canonical grant body does not repeat
+  it. This model binds credential and capability identifiers into a chain/epoch-specific signed
+  action request and uses keys registered in that context; it abstracts the concrete v2 capability
+  signing transcript rather than proving its byte-level construction.
 - The revocation properties above are proved of the Tamarin model, in which every transition
   consults finalized revocation state. They are **not** implemented by every production entry
   point. In particular `verify_signed_authorization_chain` (crates/verifier-api) does not read a

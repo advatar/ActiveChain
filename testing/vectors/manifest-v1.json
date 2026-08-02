@@ -22,9 +22,9 @@
     {
       "id": "signed-authorization-chain-v1",
       "type_tag": "0x0020,0x0028,0x0030,0x0050,0x0055,0x007A,0x007D,0x01A9",
-      "schema_version": 1,
+      "schema_version": 2,
       "source": "signed-authorization-chain-v1.tsv",
-      "sha256": "2a162f0b5fa1fd58d5f85bf490d6c4b5e06dba9eeb4027ee703293b1955b8a28",
+      "sha256": "081a5675ccb382d8092b64cb0bc7a602e29adcf252e9a014d5003b2b449cd917",
       "status": "valid"
     },
     {
@@ -40,7 +40,7 @@
       "type_tag": "0x0022",
       "schema_version": 1,
       "source": "authority/authority-v1.txt",
-      "sha256": "fe02d6aea31062e898de45f707fb09b20a8b5009f3c24f87fae52ee814b52da1",
+      "sha256": "e76322b7595d35bf2b9581509774937708e580b4be7b7178ea5a1083773ac277",
       "status": "valid"
     },
     {

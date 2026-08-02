@@ -209,7 +209,7 @@ pub struct SignedAuthorizationChainV1 {
 
 impl SignedAuthorizationChainV1 {
     pub const TYPE_TAG: u16 = 0x01a9;
-    pub const SCHEMA_VERSION: u16 = 1;
+    pub const SCHEMA_VERSION: u16 = 2;
     pub const MAX_ENCODED_LEN: usize = MAX_AUTHORIZATION_ENVELOPE_LEN
         + AuthorizationChain::MAX_ENCODED_LEN
         + 1
@@ -340,7 +340,9 @@ pub fn verify_signed_authorization_chain(
         if !verify_signature(
             key,
             capability.issuer_signature(),
-            &capability.signing_payload().map_err(|_| VerifyError::RelationMismatch)?,
+            &capability
+                .signing_payload(trusted_genesis)
+                .map_err(|_| VerifyError::RelationMismatch)?,
         ) {
             return Err(VerifyError::RelationMismatch);
         }
@@ -384,7 +386,7 @@ fn verify_controller(
     set.authenticator(witness.authenticator_id).cloned().ok_or(VerifyError::RelationMismatch)
 }
 
-fn verify_signature(
+pub(super) fn verify_signature(
     authenticator: AuthenticatorDescriptor,
     signature: &ProtocolSignature,
     payload: &[u8],

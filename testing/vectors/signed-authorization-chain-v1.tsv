@@ -16,6 +16,7 @@ wrong_actor_purpose	purpose	invalid	actor requires session authenticator
 wrong_issuer_purpose	purpose	invalid	issuer requires control authenticator
 actor_signature	actor_signature	invalid	ML-DSA verification
 capability_signature	issuer_signature	invalid	ML-DSA verification
+cross_chain_capability	chain_genesis	invalid	capability v2 signature binds trusted genesis
 capability_field	authority_field	invalid	canonical signing payload binding
 truncated	envelope_truncate	invalid	strict canonical framing
 trailing	envelope_plus_byte	invalid	strict canonical framing
