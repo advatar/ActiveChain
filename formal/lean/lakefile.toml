@@ -1,6 +1,6 @@
 name = "activechain-formal"
 version = "0.1.0"
-defaultTargets = ["ActiveChain", "aplTruthTable", "credentialStatusTable", "externalIdentityTable", "objectTable", "stateTreeTable", "objectVMTable", "nonceTable", "epochUpgradeTable", "codecLengthTable"]
+defaultTargets = ["ActiveChain", "aplTruthTable", "credentialStatusTable", "externalIdentityTable", "objectTable", "stateTreeTable", "objectVMTable", "nonceTable", "epochUpgradeTable", "consensusHistoryTable", "codecLengthTable"]
 
 [[lean_lib]]
 name = "ActiveChain"
@@ -36,6 +36,10 @@ root = "NonceTable"
 [[lean_exe]]
 name = "epochUpgradeTable"
 root = "EpochUpgradeTable"
+
+[[lean_exe]]
+name = "consensusHistoryTable"
+root = "ConsensusHistoryTable"
 
 [[lean_exe]]
 name = "codecLengthTable"

@@ -24,3 +24,21 @@ correspondence, liveness, and independent review are also outside this theorem.
 
 Counterexamples or a failure to establish the comparable-tip premise must be treated as a protocol
 or implementation defect; they must not be hidden by weakening prefix comparability.
+
+## Bounded executable refinement trace
+
+`ConsensusHistoryTable.lean` and the production `ValidatorService` test independently emit
+`testing/vectors/consensus/consensus-history-model-table.txt`. The byte-identical rows cover a
+timeout-quorum view change with a skipped round, durable restart of the finalized tip, exact epoch
+activation without tip rewriting, and post-activation finalization. The Rust path uses real
+ML-DSA-44 validator signing, persistent snapshots, the two-QC commit rule, and validator-set
+activation.
+
+This differential trace removes the prior absence of any production witness for these transitions.
+It remains bounded evidence, not an unbounded simulation theorem for every Rust execution.
+
+Run the focused gate with:
+
+```sh
+bash scripts/check-consensus-history-refinement.sh
+```

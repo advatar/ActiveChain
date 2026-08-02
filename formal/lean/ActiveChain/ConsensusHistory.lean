@@ -112,4 +112,63 @@ theorem restartPreservesCrossHistoryPrefixSafety
     PrefixComparable (restore left) (restore right) := by
   exact comparableFinalizedTipsImplyPrefixHistories left.finalized right.finalized safeTips
 
+/-- Bounded observable projection emitted by the production validator trace. -/
+structure RuntimeTraceState where
+  finalizedHeight : Nat
+  finalizedView : Nat
+  activeEpoch : Nat
+  deriving BEq, DecidableEq, Repr
+
+/-- A committed runtime tip advances height, never regresses view, and uses the active epoch. -/
+def finalizeRuntime
+    (state : RuntimeTraceState)
+    (height view epoch : Nat) : Option RuntimeTraceState :=
+  if state.finalizedHeight < height ∧ state.finalizedView ≤ view ∧ epoch = state.activeEpoch then
+    some { finalizedHeight := height, finalizedView := view, activeEpoch := epoch }
+  else
+    none
+
+/-- Exact epoch activation changes authority context without rewriting the finalized tip. -/
+def activateRuntimeEpoch (state : RuntimeTraceState) (nextEpoch : Nat) : Option RuntimeTraceState :=
+  if nextEpoch = state.activeEpoch + 1 then
+    some { state with activeEpoch := nextEpoch }
+  else
+    none
+
+def restartRuntime (state : RuntimeTraceState) : RuntimeTraceState := state
+
+theorem restartRuntimePreservesState (state : RuntimeTraceState) :
+    restartRuntime state = state := by
+  rfl
+
+theorem activationPreservesFinalizedTip
+    (state next : RuntimeTraceState)
+    (accepted : activateRuntimeEpoch state next.activeEpoch = some next) :
+    next.finalizedHeight = state.finalizedHeight ∧ next.finalizedView = state.finalizedView := by
+  simp only [activateRuntimeEpoch] at accepted
+  split at accepted
+  case isTrue =>
+    have nextEq := Option.some.inj accepted
+    exact ⟨
+      (congrArg RuntimeTraceState.finalizedHeight nextEq).symm,
+      (congrArg RuntimeTraceState.finalizedView nextEq).symm
+    ⟩
+  case isFalse => contradiction
+
+theorem acceptedFinalizationIsMonotonic
+    (state next : RuntimeTraceState)
+    (height view epoch : Nat)
+    (accepted : finalizeRuntime state height view epoch = some next) :
+    state.finalizedHeight < next.finalizedHeight ∧
+      state.finalizedView ≤ next.finalizedView ∧ next.activeEpoch = state.activeEpoch := by
+  simp only [finalizeRuntime] at accepted
+  split at accepted
+  case isTrue condition =>
+    have nextEq := Option.some.inj accepted
+    have heightEq := congrArg RuntimeTraceState.finalizedHeight nextEq
+    have viewEq := congrArg RuntimeTraceState.finalizedView nextEq
+    have epochEq := congrArg RuntimeTraceState.activeEpoch nextEq
+    exact ⟨heightEq ▸ condition.1, viewEq ▸ condition.2.1, epochEq ▸ condition.2.2⟩
+  case isFalse => contradiction
+
 end ActiveChain.ConsensusHistory

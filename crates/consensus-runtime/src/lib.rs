@@ -6674,6 +6674,109 @@ mod tests {
     }
 
     #[test]
+    fn rust_consensus_history_trace_matches_frozen_lean_refinement_table() {
+        use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
+
+        fn row(name: &str, state: ConsensusState) -> String {
+            format!(
+                "{name},accept,{},{},{}\n",
+                state.finalized_height(),
+                state.finalized_round(),
+                state.epoch()
+            )
+        }
+
+        let validator = PrincipalId::new(Digest384::new([201; 48]));
+        let signer = ValidatorSigner::from_seed(validator, [202; 32]);
+        let current = ValidatorGenesis::new(
+            1,
+            1,
+            vec![
+                ValidatorGenesisEntry::new(validator, 1, signer.public_key().try_into().unwrap())
+                    .unwrap(),
+            ],
+        )
+        .unwrap();
+        let path = std::env::temp_dir()
+            .join(format!("activechain-consensus-history-refinement-{}.bin", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let service = ValidatorService::from_genesis(
+            ConsensusState::new_with_validator_set_root(1, current.validator_set_root()),
+            &current,
+            path.clone(),
+        )
+        .unwrap();
+        finalize_single_validator_proof(
+            &service,
+            &signer,
+            &current,
+            1,
+            Digest384::new([203; 48]),
+            1,
+        );
+        service.timeout_round(&signer, 2, 1, 3).unwrap();
+        service.propose_round(&signer, 2, 2, Digest384::new([204; 48]), 4).unwrap();
+        let mut output = row("skipped_view", service.state().unwrap());
+        drop(service);
+        let restored = load_snapshot(&path).unwrap();
+        output.push_str(&row("restart", restored));
+        std::fs::remove_file(&path).unwrap();
+
+        let next_signer = ValidatorSigner::from_seed(validator, [205; 32]);
+        let next = ValidatorGenesis::new(
+            2,
+            3,
+            vec![
+                ValidatorGenesisEntry::new(
+                    validator,
+                    1,
+                    next_signer.public_key().try_into().unwrap(),
+                )
+                .unwrap(),
+            ],
+        )
+        .unwrap();
+        let service = ValidatorService::from_genesis(
+            ConsensusState::new_with_validator_set_root(1, current.validator_set_root()),
+            &current,
+            path.clone(),
+        )
+        .unwrap();
+        let authorization = ConsensusUpgradeAuthorization::new(
+            1,
+            3,
+            1,
+            2,
+            current.validator_set_root(),
+            next.validator_set_root(),
+            1,
+            1,
+        )
+        .unwrap();
+        let proof = finalize_single_validator_proof(
+            &service,
+            &signer,
+            &current,
+            1,
+            authorization.commitment(),
+            1,
+        );
+        service.propose_round(&signer, 2, 1, Digest384::new([206; 48]), 3).unwrap();
+        service.activate_finalized_validator_set(&authorization, &proof, &next).unwrap();
+        output.push_str(&row("epoch_activation", service.state().unwrap()));
+        service.propose_round(&next_signer, 3, 2, Digest384::new([207; 48]), 5).unwrap();
+        service.propose_round(&next_signer, 4, 3, Digest384::new([208; 48]), 7).unwrap();
+        output.push_str(&row("post_activation", service.state().unwrap()));
+        drop(service);
+        std::fs::remove_file(path).unwrap();
+
+        assert_eq!(
+            output,
+            include_str!("../../../testing/vectors/consensus/consensus-history-model-table.txt")
+        );
+    }
+
+    #[test]
     fn protocol_upgrade_rejects_stale_revision_certificates() {
         use activechain_protocol_types::{ValidatorGenesis, ValidatorGenesisEntry};
         let validator = PrincipalId::new(Digest384::new([80; 48]));
