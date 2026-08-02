@@ -23,6 +23,12 @@
   effective diff and current normative requirements, run the relevant tests, and explicitly
   retire branches whose work is superseded, duplicated, stale, or unsafe.
 - Other agents may be working in the same repo; mind your own business and avoid unrelated investigation or edits.
+- Claim a work unit BEFORE implementing it: push the issue branch with one small initial commit
+  and open a draft PR titled "<area>: <unit> (#<issue>)" whose body starts with
+  "Claimed by <agent-name> — in progress". A unit with an open draft PR or a pushed
+  `feat/<issue>-*` branch belongs to that agent; pick a different unit instead of duplicating it.
+  Convert the draft to ready only when the unit is qualified. If a claim goes untouched for more
+  than a day, comment on the PR before taking it over.
 - When you have unchecked tasks, complete them one by one after passing tests, do not stop
 - If any open issue or unchecked roadmap task remains, do not stop to report status to the user;
   continue directly with the next actionable step. Pause only when a genuinely blocking decision
