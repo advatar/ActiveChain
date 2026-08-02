@@ -2207,6 +2207,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
                 ML-DSA-44 matrix-vector multiplication.
           - [x] Constrain the decoded 10-bit `t1` range, multiply all four polynomials by `2^13`
                 modulo q, and compose their forward NTT proofs for verifier precomputation.
+          - [x] Validate the exact ML-DSA-44 `tau=39` sparse challenge polynomial and compose its
+                NTT with all four `c_hat * t1_2d_hat` product proofs.
           - [x] Constrain ML-DSA-44 public-key/signature bit unpacking, `z` infinity-norm range,
                 and canonical hint decoding, exposing exact decoded verifier inputs.
           - [x] Constrain ML-DSA-44 `UseHint` decomposition, signed low bits, adjustment branches,

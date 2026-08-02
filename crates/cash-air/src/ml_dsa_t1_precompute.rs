@@ -10,12 +10,14 @@ const POWER_2_D: u32 = 1 << 13;
 type Polynomial = [u32; ML_DSA_NTT_COEFFICIENTS];
 type Vector = [Polynomial; ML_DSA_44_VECTOR_DIMENSION];
 
+#[cfg_attr(test, derive(Clone))]
 struct T1PolynomialProof {
     scale: MlDsaNttMultiplyStarkProof,
     ntt: MlDsaNttStarkProof,
 }
 
 /// Proof composition for the cached FIPS verifier value `NTT(2^d * t1)`.
+#[cfg_attr(test, derive(Clone))]
 pub struct MlDsa44T1PrecomputeStarkProof {
     polynomials: [T1PolynomialProof; ML_DSA_44_VECTOR_DIMENSION],
 }
