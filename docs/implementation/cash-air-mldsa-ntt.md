@@ -54,3 +54,9 @@ The specialized Keccak AIR now also proves bounded SHAKE256 XOF output up to 16,
 ordered trace. It binds the padded absorption chain and every additional squeeze permutation,
 providing the variable-length transcript boundary required by matrix expansion and challenge
 rejection sampling rather than treating bytes beyond the first 48 as unproved host output.
+
+`ExpandA` uses SHAKE128, so its proof uses the same ordered Keccak AIR with the FIPS SHAKE128
+168-byte rate. For each of the 16 `rho || column || row` streams it proves the exact XOF prefix,
+applies Algorithm 30's 23-bit rejection rule, and binds the first 256 accepted coefficients. The
+bounded proof supports the specified fallback beyond the initial 840 bytes instead of assuming the
+overwhelmingly likely fast path.

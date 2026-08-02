@@ -30,11 +30,13 @@ use activechain_cash_kernel::{
 use activechain_protocol_types::Digest384;
 
 const RATE_BYTES: usize = 136;
+const SHAKE128_RATE_BYTES: usize = 168;
 const STATE_LANES: usize = 25;
 const LIMBS_PER_LANE: usize = 4;
 const STATE_PUBLIC_VALUES: usize = STATE_LANES * LIMBS_PER_LANE;
 const TOTAL_PUBLIC_VALUES: usize = STATE_PUBLIC_VALUES * 2;
 pub const CASH_AIR_SHAKE_SUITE_ID: u32 = 0xCA50_0301;
+pub const CASH_AIR_SHAKE128_XOF_SUITE_ID: u32 = 0xCA50_0302;
 const KECCAK_ROUNDS: usize = 24;
 pub const MAX_CASH_SHAKE_MESSAGE: usize = 512;
 pub const MAX_CASH_SHAKE_XOF_OUTPUT: usize = 16_384;
@@ -172,6 +174,29 @@ pub struct Shake256XofStarkProof {
     proof: Proof<Config>,
     output: Vec<u8>,
     permutation_count: usize,
+}
+
+pub struct Shake128XofStarkProof {
+    proof: Proof<Config>,
+    output: Vec<u8>,
+    permutation_count: usize,
+}
+
+impl Shake128XofStarkProof {
+    #[must_use]
+    pub const fn suite_id() -> u32 {
+        CASH_AIR_SHAKE128_XOF_SUITE_ID
+    }
+
+    #[must_use]
+    pub fn output(&self) -> &[u8] {
+        &self.output
+    }
+
+    #[must_use]
+    pub const fn permutation_count(&self) -> usize {
+        self.permutation_count
+    }
 }
 
 impl Shake256XofStarkProof {
@@ -348,16 +373,17 @@ pub fn prove_shake256_xof(
     message: &[u8],
     output_length: usize,
 ) -> Result<Shake256XofStarkProof, &'static str> {
-    let (bindings, inputs, output) = xof_witness(message, output_length)?;
-    let permutation_count = inputs.len();
-    let air = OrderedBatchKeccakAir { bindings };
-    let trace = generate_trace_rows::<Val>(inputs, 1);
-    let degree_bits = trace.height().ilog2() as usize;
-    let config = config();
-    let (preprocessed, _) = setup_preprocessed(&config, &air, degree_bits)
-        .ok_or("missing SHAKE XOF Keccak binding table")?;
-    let proof = prove_with_preprocessed(&config, &air, trace, &[], Some(&preprocessed));
+    let (proof, output, permutation_count) = prove_xof::<RATE_BYTES>(message, output_length)?;
     Ok(Shake256XofStarkProof { proof, output, permutation_count })
+}
+
+pub fn prove_shake128_xof(
+    message: &[u8],
+    output_length: usize,
+) -> Result<Shake128XofStarkProof, &'static str> {
+    let (proof, output, permutation_count) =
+        prove_xof::<SHAKE128_RATE_BYTES>(message, output_length)?;
+    Ok(Shake128XofStarkProof { proof, output, permutation_count })
 }
 
 pub fn verify_shake256_xof(
@@ -365,19 +391,27 @@ pub fn verify_shake256_xof(
     message: &[u8],
     expected_output: &[u8],
 ) -> Result<(), &'static str> {
-    let (bindings, _, output) = xof_witness(message, expected_output.len())?;
-    if proof.permutation_count != bindings.len()
-        || proof.output != expected_output
-        || output != expected_output
-    {
-        return Err("SHAKE XOF shape or output mismatch");
-    }
-    let air = OrderedBatchKeccakAir { bindings };
-    let config = config();
-    let (_, verifier_key) = setup_preprocessed(&config, &air, proof.proof.degree_bits)
-        .ok_or("missing SHAKE XOF Keccak binding table")?;
-    verify_with_preprocessed(&config, &air, &proof.proof, &[], Some(&verifier_key))
-        .map_err(|_| "SHAKE XOF proof verification failed")
+    verify_xof::<RATE_BYTES>(
+        &proof.proof,
+        proof.permutation_count,
+        &proof.output,
+        message,
+        expected_output,
+    )
+}
+
+pub fn verify_shake128_xof(
+    proof: &Shake128XofStarkProof,
+    message: &[u8],
+    expected_output: &[u8],
+) -> Result<(), &'static str> {
+    verify_xof::<SHAKE128_RATE_BYTES>(
+        &proof.proof,
+        proof.permutation_count,
+        &proof.output,
+        message,
+        expected_output,
+    )
 }
 
 impl Shake256StarkProof {
@@ -473,21 +507,29 @@ fn state_values<F: PrimeField64>(pre: [u64; STATE_LANES], post: [u64; STATE_LANE
 }
 
 fn padded_blocks(message: &[u8]) -> Result<Vec<[u8; RATE_BYTES]>, &'static str> {
+    padded_blocks_for::<RATE_BYTES>(message)
+}
+
+fn padded_blocks_for<const RATE: usize>(message: &[u8]) -> Result<Vec<[u8; RATE]>, &'static str> {
     if message.len() > MAX_CASH_SHAKE_MESSAGE {
         return Err("SHAKE message exceeds CashAIR bound");
     }
-    let block_count = message.len() / RATE_BYTES + 1;
-    let mut blocks = vec![[0_u8; RATE_BYTES]; block_count];
+    let block_count = message.len() / RATE + 1;
+    let mut blocks = vec![[0_u8; RATE]; block_count];
     for (index, byte) in message.iter().copied().enumerate() {
-        blocks[index / RATE_BYTES][index % RATE_BYTES] = byte;
+        blocks[index / RATE][index % RATE] = byte;
     }
     let suffix_index = message.len();
-    blocks[suffix_index / RATE_BYTES][suffix_index % RATE_BYTES] ^= 0x1f;
-    blocks.last_mut().unwrap()[RATE_BYTES - 1] ^= 0x80;
+    blocks[suffix_index / RATE][suffix_index % RATE] ^= 0x1f;
+    blocks.last_mut().unwrap()[RATE - 1] ^= 0x80;
     Ok(blocks)
 }
 
 fn absorb(state: &mut [u64; STATE_LANES], block: &[u8; RATE_BYTES]) {
+    absorb_for(state, block);
+}
+
+fn absorb_for<const RATE: usize>(state: &mut [u64; STATE_LANES], block: &[u8; RATE]) {
     for (index, chunk) in block.chunks_exact(8).enumerate() {
         state[index] ^= u64::from_le_bytes(chunk.try_into().unwrap());
     }
@@ -503,15 +545,56 @@ type BatchWitness =
 type XofWitness = (Vec<([u64; STATE_LANES], [u64; STATE_LANES])>, Vec<[u64; STATE_LANES]>, Vec<u8>);
 type AuthenticatedTranscriptBatch = (Vec<Vec<u8>>, Vec<[u8; 48]>);
 
-fn xof_witness(message: &[u8], output_length: usize) -> Result<XofWitness, &'static str> {
+fn prove_xof<const RATE: usize>(
+    message: &[u8],
+    output_length: usize,
+) -> Result<(Proof<Config>, Vec<u8>, usize), &'static str> {
+    let (bindings, inputs, output) = xof_witness::<RATE>(message, output_length)?;
+    let permutation_count = inputs.len();
+    let air = OrderedBatchKeccakAir { bindings };
+    let trace = generate_trace_rows::<Val>(inputs, 1);
+    let degree_bits = trace.height().ilog2() as usize;
+    let config = config();
+    let (preprocessed, _) = setup_preprocessed(&config, &air, degree_bits)
+        .ok_or("missing SHAKE XOF Keccak binding table")?;
+    let proof = prove_with_preprocessed(&config, &air, trace, &[], Some(&preprocessed));
+    Ok((proof, output, permutation_count))
+}
+
+fn verify_xof<const RATE: usize>(
+    proof: &Proof<Config>,
+    permutation_count: usize,
+    proof_output: &[u8],
+    message: &[u8],
+    expected_output: &[u8],
+) -> Result<(), &'static str> {
+    let (bindings, _, output) = xof_witness::<RATE>(message, expected_output.len())?;
+    if permutation_count != bindings.len()
+        || proof_output != expected_output
+        || output != expected_output
+    {
+        return Err("SHAKE XOF shape or output mismatch");
+    }
+    let air = OrderedBatchKeccakAir { bindings };
+    let config = config();
+    let (_, verifier_key) = setup_preprocessed(&config, &air, proof.degree_bits)
+        .ok_or("missing SHAKE XOF Keccak binding table")?;
+    verify_with_preprocessed(&config, &air, proof, &[], Some(&verifier_key))
+        .map_err(|_| "SHAKE XOF proof verification failed")
+}
+
+fn xof_witness<const RATE: usize>(
+    message: &[u8],
+    output_length: usize,
+) -> Result<XofWitness, &'static str> {
     if output_length == 0 || output_length > MAX_CASH_SHAKE_XOF_OUTPUT {
         return Err("SHAKE XOF output length is out of bounds");
     }
     let mut bindings = Vec::new();
     let mut inputs = Vec::new();
     let mut state = [0_u64; STATE_LANES];
-    for block in padded_blocks(message)? {
-        absorb(&mut state, &block);
+    for block in padded_blocks_for::<RATE>(message)? {
+        absorb_for(&mut state, &block);
         let pre = state;
         state = permuted_state(state);
         bindings.push((pre, state));
@@ -520,8 +603,8 @@ fn xof_witness(message: &[u8], output_length: usize) -> Result<XofWitness, &'sta
 
     let mut output = Vec::with_capacity(output_length);
     loop {
-        let rate = squeeze_rate(&state);
-        let take = (output_length - output.len()).min(RATE_BYTES);
+        let rate = squeeze_rate_for::<RATE>(&state);
+        let take = (output_length - output.len()).min(RATE);
         output.extend_from_slice(&rate[..take]);
         if output.len() == output_length {
             break;
@@ -650,8 +733,8 @@ fn squeeze_384(state: &[u64; STATE_LANES]) -> [u8; 48] {
     output
 }
 
-fn squeeze_rate(state: &[u64; STATE_LANES]) -> [u8; RATE_BYTES] {
-    let mut output = [0_u8; RATE_BYTES];
+fn squeeze_rate_for<const RATE: usize>(state: &[u64; STATE_LANES]) -> [u8; RATE] {
+    let mut output = [0_u8; RATE];
     for (index, chunk) in output.chunks_exact_mut(8).enumerate() {
         chunk.copy_from_slice(&state[index].to_le_bytes());
     }
@@ -669,7 +752,7 @@ mod tests {
     };
     use activechain_protocol_types::{ChainId, Digest384, PrincipalId};
     use sha3::{
-        Shake256,
+        Shake128, Shake256,
         digest::{ExtendableOutput, Update, XofReader},
     };
 
@@ -685,6 +768,14 @@ mod tests {
 
     fn reference_xof(message: &[u8], output_length: usize) -> Vec<u8> {
         let mut hasher = Shake256::default();
+        hasher.update(message);
+        let mut output = vec![0_u8; output_length];
+        hasher.finalize_xof().read(&mut output);
+        output
+    }
+
+    fn reference_xof128(message: &[u8], output_length: usize) -> Vec<u8> {
+        let mut hasher = Shake128::default();
         hasher.update(message);
         let mut output = vec![0_u8; output_length];
         hasher.finalize_xof().read(&mut output);
@@ -761,6 +852,20 @@ mod tests {
         assert!(prove_shake256_xof(message, 0).is_err());
         assert!(prove_shake256_xof(message, MAX_CASH_SHAKE_XOF_OUTPUT + 1).is_err());
         assert!(prove_shake256_xof(&vec![0; MAX_CASH_SHAKE_MESSAGE + 1], 1).is_err());
+    }
+
+    #[test]
+    fn shake128_xof_matches_standard_across_absorb_and_squeeze_boundaries() {
+        let message = vec![0x3c; SHAKE128_RATE_BYTES + 1];
+        let expected = reference_xof128(&message, SHAKE128_RATE_BYTES * 2 + 1);
+        let proof = prove_shake128_xof(&message, expected.len()).unwrap();
+        assert_eq!(proof.output(), expected);
+        assert_eq!(proof.permutation_count(), 4);
+        verify_shake128_xof(&proof, &message, &expected).unwrap();
+
+        let mut substituted = expected;
+        substituted[SHAKE128_RATE_BYTES] ^= 1;
+        assert!(verify_shake128_xof(&proof, &message, &substituted).is_err());
     }
 
     #[test]
