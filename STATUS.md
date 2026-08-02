@@ -6,7 +6,7 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Tracked by [GitHub issue #733](https://github.com/advatar/ActiveChain/issues/733).
 
-- [ ] Repin both TLA runners and proof-scope records to the official published v1.8.0 release
+- [x] Repin both TLA runners and proof-scope records to the official published v1.8.0 release
   asset digest, with an alignment regression.
 - [ ] Pass both TLA model suites and the exact aggregate deterministic-kernel gate; merge the
   dependency chain to `main` and verify reachability.

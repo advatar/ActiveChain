@@ -54,7 +54,7 @@ bash scripts/check-tla-consensus.sh
 ```
 
 The runner pins the TLA+ tools v1.8.0 jar by SHA-256
-`cc4803dce2a8ffaf0f5920a9dc39df4b5ee34ab4cb53fb58ac557277a7e516b3` and executes it with
+`e22f8ffb4bacdea0a871f444dd94fe5fb0d8013b3388ae39e82e26f852c735d5` and executes it with
 Eclipse Temurin 21.0.8 using OCI image digest
 `sha256:db1689535962d757a5adabf57387584ed543d38c0b9d1fe870123ea362ad73b0`. The repository does not
 depend on an unpinned host Java installation.
