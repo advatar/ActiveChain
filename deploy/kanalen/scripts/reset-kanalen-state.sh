@@ -20,19 +20,8 @@ test -x "$deployment_root/current/bin/cash-genesis-tool" || {
   exit 1
 }
 
-cash_owner=${ACTIVECHAIN_CASH_GENESIS_OWNER_HEX:-$(sed -n 's/^ACTIVECHAIN_CASH_GENESIS_OWNER_HEX=//p' "$deployment_root/current/network.env")}
 cash_supply=${ACTIVECHAIN_CASH_GENESIS_SUPPLY:-$(sed -n 's/^ACTIVECHAIN_CASH_GENESIS_SUPPLY=//p' "$deployment_root/current/network.env")}
 cash_reserve=${ACTIVECHAIN_CASH_SECURITY_RESERVE:-$(sed -n 's/^ACTIVECHAIN_CASH_SECURITY_RESERVE=//p' "$deployment_root/current/network.env")}
-case "$cash_owner" in
-  *[!0-9a-f]*|'')
-    echo "an explicit hexadecimal ACTIVECHAIN_CASH_GENESIS_OWNER_HEX is required" >&2
-    exit 1
-    ;;
-esac
-test "${#cash_owner}" -eq 96 || {
-  echo "cash genesis owner has the wrong length" >&2
-  exit 1
-}
 case "$cash_supply:$cash_reserve" in
   *[!0-9:]*|:|*:)
     echo "cash genesis supply and reserve must be explicit unsigned integers" >&2
@@ -77,9 +66,14 @@ test "${#genesis_commitment}" -eq 96 || {
   exit 1
 }
 chain_id=$(sed -n 's/^ACTIVECHAIN_CHAIN_ID_HEX=//p' "$deployment_root/current/network.env")
-"$deployment_root/current/bin/cash-genesis-tool" \
-  "$deployment_root/chain/cash-ledger.snapshot" "$chain_id" "$cash_owner" \
-  "$cash_supply" "$cash_reserve"
+operator_seed="$deployment_root/chain/keys/faucet-operator.seed"
+openssl rand 32 > "$operator_seed"
+chmod 600 "$operator_seed"
+cash_output=$("$deployment_root/current/bin/cash-genesis-tool" \
+  "$deployment_root/chain/cash-ledger.snapshot" "$chain_id" operator \
+  "$cash_supply" "$cash_reserve" "--operator-seed=$operator_seed")
+cash_owner=$(printf '%s\n' "$cash_output" | sed -n 's/^cash_genesis_owner=//p')
+test "${#cash_owner}" -eq 96 || { echo "cash genesis owner derivation failed" >&2; exit 1; }
 
 runtime_network_env="$deployment_root/network.env"
 network_env_temp="$runtime_network_env.tmp.$$"
@@ -87,6 +81,7 @@ trap 'rm -f "$network_env_temp"' EXIT
 sed '/^ACTIVECHAIN_GENESIS_COMMITMENT_HEX=/d' \
   "$deployment_root/current/network.env" >"$network_env_temp"
 printf 'ACTIVECHAIN_GENESIS_COMMITMENT_HEX=%s\n' "$genesis_commitment" >>"$network_env_temp"
+printf 'ACTIVECHAIN_CASH_GENESIS_OWNER_HEX=%s\n' "$cash_owner" >>"$network_env_temp"
 chmod 644 "$network_env_temp"
 mv "$network_env_temp" "$runtime_network_env"
 trap - EXIT

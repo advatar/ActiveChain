@@ -455,6 +455,50 @@ impl TransactionIngress {
         })
     }
 
+    /// Installs the sole controller for a pristine genesis allocation.
+    ///
+    /// This is intentionally unavailable once any lane, session, input, or transaction state
+    /// exists; subsequent key changes require finalized identity evidence.
+    pub fn bootstrap_genesis_authorization_key(
+        &mut self,
+        sender: PrincipalId,
+        public_key: [u8; ML_DSA44_PUBLIC_KEY_LENGTH],
+    ) -> Result<(), WalletError> {
+        if !self.authorization_lanes.is_empty()
+            || !self.consumed_inputs.is_empty()
+            || !self.non_authoritative_accepted.is_empty()
+            || !self.ledger.cells().as_slice().iter().any(|cell| cell.cell().owner() == sender)
+        {
+            return Err(WalletError::PolicyDenied);
+        }
+        let commitment = |domain: &[u8]| {
+            let mut hasher = sha3::Shake256::default();
+            use sha3::digest::{ExtendableOutput, Update, XofReader};
+            hasher.update(domain);
+            hasher.update(self.chain_id.digest().as_bytes());
+            hasher.update(sender.into_digest().as_bytes());
+            hasher.update(&public_key);
+            let mut bytes = [0; 48];
+            XofReader::read(&mut hasher.finalize_xof(), &mut bytes);
+            Digest384::new(bytes)
+        };
+        self.authorization_lanes.push(CashAuthorizationLane {
+            sender,
+            public_key,
+            next_nonce: 0,
+            consumed_sessions: Vec::new(),
+            session_budgets: Vec::new(),
+            identity_sequence: 0,
+            authenticator_id: AuthenticatorId::new(commitment(
+                b"ACTIVECHAIN-CASH-GENESIS-AUTHENTICATOR-V1",
+            )),
+            finalized_state_root: commitment(b"ACTIVECHAIN-CASH-GENESIS-STATE-V1"),
+            finalized_height: 0,
+            finality_proof: commitment(b"ACTIVECHAIN-CASH-GENESIS-PROOF-V1"),
+        });
+        Ok(())
+    }
+
     /// Installs or rotates a cash key only after verifying finalized identity provenance.
     pub fn install_finalized_authorization_key<V: FinalizedIdentityKeyVerifier>(
         &mut self,
@@ -1929,6 +1973,31 @@ mod tests {
         );
         assert_eq!(ingress, before);
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn genesis_authorization_bootstrap_is_owner_bound_and_one_shot() {
+        let owner = PrincipalId::new(digest(90));
+        let key = SigningKey::<MlDsa44>::from_seed(&Seed::from([90; 32]));
+        let mut ingress = TransactionIngress::from_genesis(&test_economy(owner)).unwrap();
+        assert_eq!(ingress.next_nonce(owner), None);
+        ingress
+            .bootstrap_genesis_authorization_key(owner, key.verifying_key().encode().into())
+            .unwrap();
+        assert_eq!(ingress.next_nonce(owner), Some(0));
+        assert_eq!(
+            ingress
+                .bootstrap_genesis_authorization_key(owner, key.verifying_key().encode().into(),),
+            Err(WalletError::PolicyDenied)
+        );
+        let mut wrong_owner = TransactionIngress::from_genesis(&test_economy(owner)).unwrap();
+        assert_eq!(
+            wrong_owner.bootstrap_genesis_authorization_key(
+                PrincipalId::new(digest(91)),
+                key.verifying_key().encode().into(),
+            ),
+            Err(WalletError::PolicyDenied)
+        );
     }
 
     #[test]

@@ -5,6 +5,7 @@ use activechain_cash_kernel::{
     CashLedger, GenesisAllocation, GenesisEconomy, NativeAssetDefinition,
 };
 use activechain_protocol_types::{ChainId, Digest384, PrincipalId};
+use ml_dsa::{Keypair, MlDsa44, Seed, SigningKey};
 use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
@@ -77,18 +78,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "usage: cash-genesis-tool <output> <chain-id-hex> <treasury-principal-hex> <genesis-supply> <security-reserve>",
     )?;
     let chain = ChainId::new(parse_digest(&args.next().ok_or("missing chain ID")?, "chain ID")?);
-    let owner = PrincipalId::new(parse_digest(
-        &args.next().ok_or("missing treasury principal")?,
-        "treasury principal",
-    )?);
+    let owner_argument = args.next().ok_or("missing treasury principal")?;
     let genesis_supply: u128 = args.next().ok_or("missing genesis supply")?.parse()?;
     let security_reserve: u128 = args.next().ok_or("missing security reserve")?.parse()?;
+    let operator_seed = args
+        .next()
+        .map(|argument| {
+            argument
+                .strip_prefix("--operator-seed=")
+                .map(std::path::PathBuf::from)
+                .ok_or("unexpected trailing argument")
+        })
+        .transpose()?;
     if args.next().is_some() {
         return Err("unexpected trailing argument".into());
     }
+    let signing_key = operator_seed.as_deref().map(load_operator_key).transpose()?;
+    let owner = if owner_argument == "operator" {
+        let key = signing_key.as_ref().ok_or("operator owner requires --operator-seed")?;
+        operator_principal(key.verifying_key().encode().as_slice())
+    } else {
+        PrincipalId::new(parse_digest(&owner_argument, "treasury principal")?)
+    };
     let ledger = ledger(chain, owner, genesis_supply, security_reserve)?;
-    let ingress = activechain_wallet_core::TransactionIngress::from_ledger(ledger.clone())
+    let mut ingress = activechain_wallet_core::TransactionIngress::from_ledger(ledger.clone())
         .map_err(|_| "cash ingress construction failed")?;
+    if let Some(key) = signing_key {
+        ingress
+            .bootstrap_genesis_authorization_key(owner, key.verifying_key().encode().into())
+            .map_err(|_| "cash genesis authorization bootstrap failed")?;
+    }
     let bytes = encode_envelope(&ingress).map_err(|_| "cash ingress encoding failed")?;
     let mut file = fs::OpenOptions::new().write(true).create_new(true).open(Path::new(&output))?;
     file.write_all(&bytes)?;
@@ -96,7 +115,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cash_cell_count={}", ledger.cells().as_slice().len());
     println!("cash_genesis_supply={genesis_supply}");
     println!("cash_security_reserve={security_reserve}");
+    println!("cash_genesis_owner={}", hex(owner.into_digest().as_bytes()));
     Ok(())
+}
+
+fn load_operator_key(path: &Path) -> Result<SigningKey<MlDsa44>, Box<dyn std::error::Error>> {
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_file() {
+        return Err("operator seed must be a regular file".into());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return Err("operator seed must not be group/world accessible".into());
+        }
+    }
+    let bytes = fs::read(path)?;
+    if bytes.len() != 32 {
+        return Err("operator seed must contain exactly 32 bytes".into());
+    }
+    let mut seed = [0; 32];
+    seed.copy_from_slice(&bytes);
+    Ok(SigningKey::<MlDsa44>::from_seed(&Seed::from(seed)))
+}
+
+fn operator_principal(public_key: &[u8]) -> PrincipalId {
+    let mut hasher = Shake256::default();
+    hasher.update(b"ACTIVECHAIN-KANALEN-FAUCET-OPERATOR-V1");
+    hasher.update(public_key);
+    let mut output = [0; 48];
+    hasher.finalize_xof().read(&mut output);
+    PrincipalId::new(Digest384::new(output))
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[cfg(test)]

@@ -838,6 +838,9 @@ Tracked by [GitHub issue #167](https://github.com/advatar/ActiveChain/issues/167
     exact committed cash-action root, and durably reconcile matching pending faucet receipts.
   - [ ] Verify the finalized recipient Coin Cell membership as part of reconciliation and deploy
     the treasury-controlled signer configuration on Kanalen.
+  - [x] Add a pristine-genesis-only ML-DSA treasury authorization bootstrap and derive the
+    Kanalen treasury principal from a newly generated, permission-restricted faucet operator key.
+  - [ ] Perform the authorized Kanalen reset, update pinned client genesis, and qualify live funding.
 - [x] Qualify the current RPC/faucet boundary with 27 server tests covering finalized ingestion,
   owner scoping, cross-chain rejection, durable restart, faucet limits, malformed evidence, and
   typed adapter installation.
