@@ -466,8 +466,11 @@ Tracked by [GitHub issue #345](https://github.com/advatar/ActiveChain/issues/345
     decomposition; host-side trace construction checks are defense in depth only.
   - [x] Replace the ignored full composite proof with a bounded accepted-row fixture that runs in
     ordinary CI and retains the separate full-depth benchmark gate.
-  - [ ] Pass focused CashAIR tests and clippy, then the frozen deterministic-kernel gate; merge and
-    verify the issue commits are reachable from `origin/main`.
+  - [ ] Qualify and integrate the completed CashAIR hardening work.
+    - [x] Pass focused CashAIR tests and Clippy (25 tests passed, one explicit full-depth
+          benchmark gate ignored; targeted all-target/all-feature Clippy passed on 2026-08-02).
+    - [ ] Pass the frozen deterministic-kernel gate, merge, and verify the issue commits are
+          reachable from `origin/main`.
 - [x] Redesign authenticated CashAIR receipt aggregation to fit the existing bounded ingress
   ceiling instead of enlarging it; add compact accepted-row encode/decode/verify qualification
   ([#379](https://github.com/advatar/ActiveChain/issues/379)).

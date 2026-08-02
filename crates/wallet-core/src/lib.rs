@@ -98,7 +98,7 @@ impl PrivateIdentityDisclosurePreview {
         predicates.dedup();
         if predicates.is_empty()
             || predicates.len() > 3
-            || predicates.iter().any(|v| *v == Digest384::ZERO)
+            || predicates.contains(&Digest384::ZERO)
             || audience.digest() == &Digest384::ZERO
             || purpose == Digest384::ZERO
         {

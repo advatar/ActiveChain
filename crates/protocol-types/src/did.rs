@@ -528,10 +528,10 @@ impl DidResolutionV1 {
         if did == Digest384::ZERO {
             return Err(DidRecordError::InvalidIdentity);
         }
-        if let Some(value) = record {
-            if !value.active() || derive_activechain_did(value.principal()) != Ok(did) {
-                return Err(DidRecordError::InvalidIdentity);
-            }
+        if let Some(value) = record
+            && (!value.active() || derive_activechain_did(value.principal()) != Ok(did))
+        {
+            return Err(DidRecordError::InvalidIdentity);
         }
         Ok(Self { did, finalized_height, record })
     }

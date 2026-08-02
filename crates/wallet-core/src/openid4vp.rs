@@ -515,6 +515,7 @@ pub trait OpenId4VpLiveResolver {
         profile: Digest384,
     ) -> Option<LiveTrustStatusAnchorV1>;
 }
+#[allow(clippy::too_many_arguments)]
 pub fn resolve_live_context(
     resolver: &impl OpenId4VpLiveResolver,
     verifier: PrincipalId,
@@ -543,6 +544,7 @@ pub fn resolve_live_context(
     Ok((metadata, anchor))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn bind_openwallet_request(
     request: &OpenWalletPresentationRequestV1,
     metadata: &PinnedVerifierMetadataV1,
