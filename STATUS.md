@@ -1294,6 +1294,21 @@ Tracked by [GitHub issue #165](https://github.com/advatar/ActiveChain/issues/165
 
 Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169).
 
+Detailed remaining implementation slices:
+
+- [ ] Production OpenID4VP transport and live trust/status adapters
+  ([GitHub issue #562](https://github.com/advatar/ActiveChain/issues/562)).
+- [ ] TLS evidence proof-of-funds predicate circuits
+  ([GitHub issue #563](https://github.com/advatar/ActiveChain/issues/563)).
+- [ ] Private age, residency, and jurisdiction predicate proofs
+  ([GitHub issue #564](https://github.com/advatar/ActiveChain/issues/564)).
+- [ ] Assurance-preserving ML-DSA companion credentials
+  ([GitHub issue #565](https://github.com/advatar/ActiveChain/issues/565)).
+- [ ] Evidence-to-credential-to-APL refinement and non-escalation proofs
+  ([GitHub issue #568](https://github.com/advatar/ActiveChain/issues/568)).
+- [ ] Cross-device VCIssuer/EUWallet interoperability qualification
+  ([GitHub issue #569](https://github.com/advatar/ActiveChain/issues/569)).
+
 ## Active dBrowser downstream qualification
 
 - [x] Publish the stable verifier SDK, wallet ABI, RPC/light-client, artifact-readiness, and
@@ -2100,6 +2115,13 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [ ] Update and push the landing-page roadmap at each completed major milestone.
 
 ## Planned milestone — `did:activechain` identity method
+
+Detailed remaining implementation slices:
+
+- [ ] Post-quantum key lifecycle and deterministic DID vectors
+  ([GitHub issue #566](https://github.com/advatar/ActiveChain/issues/566)).
+- [ ] Non-authoritative ENS aliases
+  ([GitHub issue #567](https://github.com/advatar/ActiveChain/issues/567)).
 
 - [x] Freeze the method-specific identifier, PQ verification methods, resolver boundary, and
   finalized lifecycle operations in `spec/protocol/P-095-activechain-did-method.md`.
