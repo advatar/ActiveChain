@@ -26,12 +26,16 @@ use winterfell::{
 extern crate alloc;
 
 mod aggregation;
+mod ml_dsa_ntt;
 mod session;
 mod shake;
 pub use aggregation::{
     CashAggregationChildV1, CashAggregationLevel, CashAggregationStatementV1,
     GLOBAL_CASH_PARTITION, MAX_CASH_AGGREGATION_CHILDREN, cash_aggregation_proof_commitment,
     verify_cash_aggregation,
+};
+pub use ml_dsa_ntt::{
+    ML_DSA_NTT_COEFFICIENTS, ML_DSA_Q, MlDsaNttStarkProof, prove_ml_dsa_ntt, verify_ml_dsa_ntt,
 };
 pub use session::{
     CashSessionProofError, CashSessionStarkProof, prove_authorized_session, prove_session_budget,
