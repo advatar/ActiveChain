@@ -33,3 +33,8 @@ accumulation proof composes four such proofs for a matrix row, then proves the t
 reduced additions with Boolean wrap witnesses. The matrix-vector proof composes all four fixed
 ML-DSA-44 rows. SHAKE-derived matrix construction and binding remain open rather than being inferred
 from an independently supplied matrix.
+
+The verifier precomputation proof constrains every decoded `t1` coefficient to its canonical
+10-bit range, composes coefficient-wise multiplication by `2^13` modulo q, and proves the forward
+NTT of all four scaled polynomials. This supplies the exact cached `t1_2d_hat` operand used by FIPS
+verification; multiplication by the sampled challenge remains a separate table.

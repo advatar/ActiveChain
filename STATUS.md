@@ -2205,6 +2205,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
                 the fixed ML-DSA-44 matrix-row/vector dot product.
           - [x] Compose four proven matrix-row dot products into the complete fixed 4x4
                 ML-DSA-44 matrix-vector multiplication.
+          - [x] Constrain the decoded 10-bit `t1` range, multiply all four polynomials by `2^13`
+                modulo q, and compose their forward NTT proofs for verifier precomputation.
           - [x] Constrain ML-DSA-44 public-key/signature bit unpacking, `z` infinity-norm range,
                 and canonical hint decoding, exposing exact decoded verifier inputs.
           - [x] Constrain ML-DSA-44 `UseHint` decomposition, signed low bits, adjustment branches,
