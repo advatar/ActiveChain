@@ -963,6 +963,12 @@ impl PaymentLifecycleRecordV1 {
     pub const fn evidence_class(&self) -> EvidenceClass {
         self.evidence_class
     }
+
+    /// Returns the exact evidence commitment carried by this lifecycle record.
+    #[must_use]
+    pub const fn observation_commitment(&self) -> Digest384 {
+        self.observation_commitment
+    }
 }
 
 impl CanonicalEncode for PaymentLifecycleRecordV1 {
@@ -1888,6 +1894,10 @@ impl PaymentRefundStateV1 {
 
     pub const fn settled_amount(&self) -> AssetAmountV1 {
         self.settled_amount
+    }
+
+    pub const fn settlement_commitment(&self) -> Digest384 {
+        self.settlement_commitment
     }
 
     pub const fn next_sequence(&self) -> u64 {

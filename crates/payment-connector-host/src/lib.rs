@@ -11,9 +11,9 @@ use activechain_payment_types::{
     ConnectorId, IdempotencyBindingV1, PaymentApiAuthorizationV1, PaymentApiReplayStateV1,
     PaymentApiSignedAuthorizationV1, PaymentDisputeRecordV1, PaymentDisputeRequestV1,
     PaymentFinalizedSettlementV1, PaymentIntentId, PaymentIntentV1, PaymentLifecycleRecordV1,
-    PaymentRefundRequestV1, PaymentRefundStateV1, PaymentValidationError, PaymentWebhookCursorV1,
-    PaymentWebhookEventV1, PaymentWebhookSignedEventV1, ProviderObservationV1, RailId,
-    TreasuryDebitPolicyV1, TreasuryDebitRequestV1,
+    PaymentRefundRequestV1, PaymentRefundStateV1, PaymentState, PaymentValidationError,
+    PaymentWebhookCursorV1, PaymentWebhookEventV1, PaymentWebhookSignedEventV1,
+    ProviderObservationV1, RailId, TreasuryDebitPolicyV1, TreasuryDebitRequestV1,
 };
 use activechain_protocol_types::{AssetId, Digest384};
 use sha3::{
@@ -1193,6 +1193,77 @@ impl PaymentRequestStateV1 {
     pub const fn lifecycles(&self) -> &PaymentLifecycleJournalV1 {
         &self.lifecycles
     }
+
+    fn create_intent_successor(
+        &self,
+        intent: PaymentIntentV1,
+        binding: IdempotencyBindingV1,
+        observation_commitment: Digest384,
+        timestamp: u64,
+    ) -> Result<(Self, PaymentIntentId, bool), JournalError> {
+        if !intent.active_at(timestamp)
+            || binding.intent() != intent.intent()
+            || binding.caller() != intent.merchant()
+            || binding.idempotency_key() != intent.idempotency_key()
+            || binding.request_body_commitment()
+                != intent.commitment().map_err(|_| JournalError::InvalidIdempotency)?
+        {
+            return Err(JournalError::InvalidIdempotency);
+        }
+        let mut next = self.clone();
+        let (bound_intent, changed) = next.idempotency.bind(binding, timestamp)?;
+        if !changed {
+            let index = next
+                .intents
+                .binary_search_by_key(&bound_intent, PaymentIntentV1::intent)
+                .map_err(|_| JournalError::InvalidIdempotency)?;
+            if next.intents[index] != intent {
+                return Err(JournalError::InvalidIdempotency);
+            }
+            return Ok((next, bound_intent, false));
+        }
+        let index = next
+            .intents
+            .binary_search_by_key(&intent.intent(), PaymentIntentV1::intent)
+            .map_or_else(|index| index, |_| usize::MAX);
+        if index == usize::MAX {
+            return Err(JournalError::InvalidIdempotency);
+        }
+        let intent_id = intent.intent();
+        next.intents.insert(index, intent);
+        next.lifecycles.create(intent_id, observation_commitment)?;
+        Ok((Self::new(next.intents, next.idempotency, next.lifecycles)?, intent_id, true))
+    }
+
+    fn lifecycle_successor(
+        &self,
+        next_record: PaymentLifecycleRecordV1,
+    ) -> Result<Self, JournalError> {
+        let mut next = self.clone();
+        next.lifecycles.advance(next_record)?;
+        Self::new(next.intents, next.idempotency, next.lifecycles)
+    }
+
+    fn finalized_successor(
+        &self,
+        settlement: &PaymentFinalizedSettlementV1,
+    ) -> Result<(Self, Digest384), JournalError> {
+        let index = self
+            .intents
+            .binary_search_by_key(&settlement.intent(), PaymentIntentV1::intent)
+            .map_err(|_| JournalError::InvalidLifecycle)?;
+        if !self.intents[index].accepts_settlement(settlement.settled_amount()) {
+            return Err(JournalError::InvalidLifecycle);
+        }
+        let sequence = self.lifecycles.records()[index]
+            .sequence()
+            .checked_add(1)
+            .ok_or(JournalError::InvalidLifecycle)?;
+        let record =
+            settlement.finalized_record(sequence).map_err(|_| JournalError::InvalidLifecycle)?;
+        let commitment = settlement.commitment().map_err(|_| JournalError::InvalidLifecycle)?;
+        Ok((self.lifecycle_successor(record)?, commitment))
+    }
 }
 
 impl CanonicalEncode for PaymentRequestStateV1 {
@@ -1261,40 +1332,16 @@ impl DurablePaymentRequestState {
         observation_commitment: Digest384,
         timestamp: u64,
     ) -> Result<PaymentIntentId, JournalError> {
-        if !intent.active_at(timestamp)
-            || binding.intent() != intent.intent()
-            || binding.caller() != intent.merchant()
-            || binding.idempotency_key() != intent.idempotency_key()
-            || binding.request_body_commitment()
-                != intent.commitment().map_err(|_| JournalError::InvalidIdempotency)?
-        {
-            return Err(JournalError::InvalidIdempotency);
+        let (next, intent_id, changed) = self.snapshot.create_intent_successor(
+            intent,
+            binding,
+            observation_commitment,
+            timestamp,
+        )?;
+        if changed {
+            next.save_atomic(&self.path)?;
+            self.snapshot = next;
         }
-        let mut next = self.snapshot.clone();
-        let (bound_intent, changed) = next.idempotency.bind(binding, timestamp)?;
-        if !changed {
-            let index = next
-                .intents
-                .binary_search_by_key(&bound_intent, PaymentIntentV1::intent)
-                .map_err(|_| JournalError::InvalidIdempotency)?;
-            if next.intents[index] != intent {
-                return Err(JournalError::InvalidIdempotency);
-            }
-            return Ok(bound_intent);
-        }
-        let index = next
-            .intents
-            .binary_search_by_key(&intent.intent(), PaymentIntentV1::intent)
-            .map_or_else(|index| index, |_| usize::MAX);
-        if index == usize::MAX {
-            return Err(JournalError::InvalidIdempotency);
-        }
-        let intent_id = intent.intent();
-        next.intents.insert(index, intent);
-        next.lifecycles.create(intent_id, observation_commitment)?;
-        let next = PaymentRequestStateV1::new(next.intents, next.idempotency, next.lifecycles)?;
-        next.save_atomic(&self.path)?;
-        self.snapshot = next;
         Ok(intent_id)
     }
 
@@ -1302,9 +1349,13 @@ impl DurablePaymentRequestState {
         &mut self,
         next_record: PaymentLifecycleRecordV1,
     ) -> Result<(), JournalError> {
-        let mut next = self.snapshot.clone();
-        next.lifecycles.advance(next_record)?;
-        let next = PaymentRequestStateV1::new(next.intents, next.idempotency, next.lifecycles)?;
+        if matches!(
+            next_record.state(),
+            PaymentState::Finalized | PaymentState::RefundPending | PaymentState::Refunded
+        ) {
+            return Err(JournalError::InvalidLifecycle);
+        }
+        let next = self.snapshot.lifecycle_successor(next_record)?;
         next.save_atomic(&self.path)?;
         self.snapshot = next;
         Ok(())
@@ -1316,23 +1367,204 @@ impl DurablePaymentRequestState {
         &mut self,
         settlement: &PaymentFinalizedSettlementV1,
     ) -> Result<Digest384, JournalError> {
-        let index = self
-            .snapshot
-            .intents
-            .binary_search_by_key(&settlement.intent(), PaymentIntentV1::intent)
-            .map_err(|_| JournalError::InvalidLifecycle)?;
-        if !self.snapshot.intents[index].accepts_settlement(settlement.settled_amount()) {
+        let (next, commitment) = self.snapshot.finalized_successor(settlement)?;
+        next.save_atomic(&self.path)?;
+        self.snapshot = next;
+        Ok(commitment)
+    }
+
+    fn finalize_verified_settlement(
+        &mut self,
+        settlement: &PaymentFinalizedSettlementV1,
+        finality: &[u8],
+        receipt: &[u8],
+        trusted_chain_genesis: Digest384,
+    ) -> Result<Digest384, JournalError> {
+        let encoded = encode_envelope(settlement).map_err(|_| JournalError::InvalidLifecycle)?;
+        let verified = activechain_verifier_api::verify_payment_finalized_settlement(
+            &encoded,
+            finality,
+            receipt,
+            trusted_chain_genesis,
+        )
+        .map_err(|_| JournalError::InvalidLifecycle)?;
+        self.finalize_settlement(&verified)
+    }
+}
+
+/// Complete payment state retaining verified settlement evidence and exact refund accounting.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct PaymentSettlementStateV1 {
+    requests: PaymentRequestStateV1,
+    settlements: Vec<PaymentFinalizedSettlementV1>,
+    refunds: RefundJournalV1,
+}
+
+impl PaymentSettlementStateV1 {
+    pub const TYPE_TAG: u16 = 0x0189;
+
+    pub fn new(
+        requests: PaymentRequestStateV1,
+        settlements: Vec<PaymentFinalizedSettlementV1>,
+        refunds: RefundJournalV1,
+    ) -> Result<Self, JournalError> {
+        if settlements.len() > MAX_PAYMENT_INTENTS
+            || settlements.windows(2).any(|pair| pair[0].intent() >= pair[1].intent())
+            || settlements.len() != refunds.states().len()
+        {
             return Err(JournalError::InvalidLifecycle);
         }
-        let sequence = self.snapshot.lifecycles.records()[index]
-            .sequence()
-            .checked_add(1)
-            .ok_or(JournalError::InvalidLifecycle)?;
-        let record =
-            settlement.finalized_record(sequence).map_err(|_| JournalError::InvalidLifecycle)?;
-        let commitment = settlement.commitment().map_err(|_| JournalError::InvalidLifecycle)?;
-        self.advance_lifecycle(record)?;
-        Ok(commitment)
+        for (settlement, refund) in settlements.iter().zip(refunds.states()) {
+            if settlement.intent() != refund.intent()
+                || settlement.settled_amount() != refund.settled_amount()
+                || settlement.commitment().map_err(|_| JournalError::InvalidLifecycle)?
+                    != refund.settlement_commitment()
+            {
+                return Err(JournalError::InvalidLifecycle);
+            }
+        }
+        for (intent, lifecycle) in requests.intents().iter().zip(requests.lifecycles().records()) {
+            let settlement = settlements
+                .binary_search_by_key(&intent.intent(), PaymentFinalizedSettlementV1::intent)
+                .ok()
+                .map(|index| &settlements[index]);
+            if let Some(settlement) = settlement {
+                if matches!(
+                    lifecycle.state(),
+                    PaymentState::Created
+                        | PaymentState::AwaitingPayer
+                        | PaymentState::ProviderPending
+                        | PaymentState::ExternallyConfirmed
+                        | PaymentState::ChainSubmitted
+                ) || (lifecycle.state() == PaymentState::Finalized
+                    && lifecycle.observation_commitment()
+                        != settlement.commitment().map_err(|_| JournalError::InvalidLifecycle)?)
+                {
+                    return Err(JournalError::InvalidLifecycle);
+                }
+            } else if matches!(
+                lifecycle.state(),
+                PaymentState::Finalized | PaymentState::RefundPending | PaymentState::Refunded
+            ) {
+                return Err(JournalError::InvalidLifecycle);
+            }
+        }
+        Ok(Self { requests, settlements, refunds })
+    }
+
+    pub const fn requests(&self) -> &PaymentRequestStateV1 {
+        &self.requests
+    }
+
+    pub fn settlements(&self) -> &[PaymentFinalizedSettlementV1] {
+        &self.settlements
+    }
+
+    pub const fn refunds(&self) -> &RefundJournalV1 {
+        &self.refunds
+    }
+}
+
+impl CanonicalEncode for PaymentSettlementStateV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.requests.encode(encoder)?;
+        encoder.write_length(self.settlements.len(), MAX_PAYMENT_INTENTS)?;
+        for settlement in &self.settlements {
+            settlement.encode(encoder)?;
+        }
+        self.refunds.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for PaymentSettlementStateV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let requests = PaymentRequestStateV1::decode(decoder)?;
+        let count = decoder.read_length(MAX_PAYMENT_INTENTS)?;
+        let mut settlements = Vec::with_capacity(count);
+        for _ in 0..count {
+            settlements.push(PaymentFinalizedSettlementV1::decode(decoder)?);
+        }
+        Self::new(requests, settlements, RefundJournalV1::decode(decoder)?)
+            .map_err(|_| DecodeError::InvalidValue("invalid payment settlement state"))
+    }
+}
+
+impl CanonicalType for PaymentSettlementStateV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = PaymentRequestStateV1::MAX_ENCODED_LEN
+        + 3
+        + MAX_PAYMENT_INTENTS * PaymentFinalizedSettlementV1::MAX_ENCODED_LEN
+        + RefundJournalV1::MAX_ENCODED_LEN;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DurablePaymentSettlementState {
+    path: std::path::PathBuf,
+    snapshot: PaymentSettlementStateV1,
+}
+
+impl DurablePaymentSettlementState {
+    pub fn open(path: impl AsRef<Path>) -> Result<Self, JournalError> {
+        let path = path.as_ref().to_path_buf();
+        let snapshot = match std::fs::metadata(&path) {
+            Ok(_) => load_snapshot(&path)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                PaymentSettlementStateV1::default()
+            }
+            Err(_) => return Err(JournalError::Persistence),
+        };
+        Ok(Self { path, snapshot })
+    }
+
+    pub const fn snapshot(&self) -> &PaymentSettlementStateV1 {
+        &self.snapshot
+    }
+
+    pub fn create_intent(
+        &mut self,
+        intent: PaymentIntentV1,
+        binding: IdempotencyBindingV1,
+        observation_commitment: Digest384,
+        timestamp: u64,
+    ) -> Result<PaymentIntentId, JournalError> {
+        let (requests, intent_id, changed) = self.snapshot.requests.create_intent_successor(
+            intent,
+            binding,
+            observation_commitment,
+            timestamp,
+        )?;
+        if changed {
+            let next = PaymentSettlementStateV1::new(
+                requests,
+                self.snapshot.settlements.clone(),
+                self.snapshot.refunds.clone(),
+            )?;
+            save_snapshot(&next, &self.path)?;
+            self.snapshot = next;
+        }
+        Ok(intent_id)
+    }
+
+    pub fn advance_lifecycle(
+        &mut self,
+        next_record: PaymentLifecycleRecordV1,
+    ) -> Result<(), JournalError> {
+        if matches!(
+            next_record.state(),
+            PaymentState::Finalized | PaymentState::RefundPending | PaymentState::Refunded
+        ) {
+            return Err(JournalError::InvalidLifecycle);
+        }
+        let requests = self.snapshot.requests.lifecycle_successor(next_record)?;
+        let next = PaymentSettlementStateV1::new(
+            requests,
+            self.snapshot.settlements.clone(),
+            self.snapshot.refunds.clone(),
+        )?;
+        save_snapshot(&next, &self.path)?;
+        self.snapshot = next;
+        Ok(())
     }
 
     pub fn finalize_verified_settlement(
@@ -1350,7 +1582,31 @@ impl DurablePaymentRequestState {
             trusted_chain_genesis,
         )
         .map_err(|_| JournalError::InvalidLifecycle)?;
-        self.finalize_settlement(&verified)
+        self.finalize_verified_value(&verified)
+    }
+
+    fn finalize_verified_value(
+        &mut self,
+        verified: &PaymentFinalizedSettlementV1,
+    ) -> Result<Digest384, JournalError> {
+        let (requests, commitment) = self.snapshot.requests.finalized_successor(verified)?;
+        let mut settlements = self.snapshot.settlements.clone();
+        let index = settlements
+            .binary_search_by_key(&verified.intent(), PaymentFinalizedSettlementV1::intent)
+            .map_or_else(|index| index, |_| usize::MAX);
+        if index == usize::MAX {
+            return Err(JournalError::InvalidLifecycle);
+        }
+        settlements.insert(index, *verified);
+        let mut refunds = self.snapshot.refunds.clone();
+        refunds.register(
+            PaymentRefundStateV1::new(verified.intent(), commitment, verified.settled_amount())
+                .map_err(|_| JournalError::InvalidRefund)?,
+        )?;
+        let next = PaymentSettlementStateV1::new(requests, settlements, refunds)?;
+        save_snapshot(&next, &self.path)?;
+        self.snapshot = next;
+        Ok(commitment)
     }
 }
 
@@ -2637,6 +2893,77 @@ mod tests {
             durable.finalize_settlement(&finalized_settlement(124, 95, 110)),
             Err(JournalError::Persistence)
         );
+        assert_eq!(durable.snapshot(), &before);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    fn chain_submitted_settlement_state(path: &Path) -> DurablePaymentSettlementState {
+        let intent = payment_intent(10, 11, 12, 13);
+        let mut durable = DurablePaymentSettlementState::open(path).unwrap();
+        durable.create_intent(intent.clone(), intent_binding(&intent), digest(14), 150).unwrap();
+        for (sequence, state) in [
+            PaymentState::AwaitingPayer,
+            PaymentState::ProviderPending,
+            PaymentState::ExternallyConfirmed,
+            PaymentState::ChainSubmitted,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            durable.advance_lifecycle(lifecycle_successor(10, sequence as u64 + 2, state)).unwrap();
+        }
+        durable
+    }
+
+    #[test]
+    fn settlement_state_persists_full_evidence_request_and_refund_accounting_together() {
+        let path = path("settlement-state-restart");
+        let _ = std::fs::remove_file(&path);
+        let mut durable = chain_submitted_settlement_state(&path);
+        let settlement = finalized_settlement(124, 95, 110);
+        let commitment = durable.finalize_verified_value(&settlement).unwrap();
+        assert_eq!(durable.snapshot().settlements(), &[settlement]);
+        assert_eq!(durable.snapshot().refunds().states()[0].intent(), settlement.intent());
+        assert_eq!(
+            durable.snapshot().refunds().states()[0].settled_amount(),
+            settlement.settled_amount()
+        );
+        assert_eq!(durable.snapshot().refunds().states()[0].settlement_commitment(), commitment);
+        assert_eq!(
+            DurablePaymentSettlementState::open(&path).unwrap().snapshot(),
+            durable.snapshot()
+        );
+        let before = durable.snapshot().clone();
+        assert_eq!(
+            durable.finalize_verified_value(&settlement),
+            Err(JournalError::InvalidLifecycle)
+        );
+        assert_eq!(durable.snapshot(), &before);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn settlement_state_rejects_partial_state_and_failed_atomic_write() {
+        let directory = path("settlement-state-directory");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("settlement-state.bin");
+        let mut durable = chain_submitted_settlement_state(&path);
+        let settlement = finalized_settlement(124, 95, 110);
+        let (finalized_requests, _) =
+            durable.snapshot().requests().finalized_successor(&settlement).unwrap();
+        assert_eq!(
+            PaymentSettlementStateV1::new(
+                finalized_requests,
+                Vec::new(),
+                RefundJournalV1::default(),
+            ),
+            Err(JournalError::InvalidLifecycle)
+        );
+        let before = durable.snapshot().clone();
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        assert_eq!(durable.finalize_verified_value(&settlement), Err(JournalError::Persistence));
         assert_eq!(durable.snapshot(), &before);
         std::fs::remove_dir_all(directory).unwrap();
     }

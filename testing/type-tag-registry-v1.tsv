@@ -267,3 +267,4 @@
 0x0186	1	PaymentLifecycleJournalV1	crates/payment-connector-host/src/lib.rs
 0x0187	1	PaymentRequestStateV1	crates/payment-connector-host/src/lib.rs
 0x0188	1	PaymentFinalizedSettlementV1	crates/payment-types/src/lib.rs
+0x0189	1	PaymentSettlementStateV1	crates/payment-connector-host/src/lib.rs
