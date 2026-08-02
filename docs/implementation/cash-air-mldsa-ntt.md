@@ -17,9 +17,14 @@ reconstructs the complete public butterfly schedule. It establishes the arithmet
 reviewed cross-table commitment/permutation argument replaces that development boundary. The table
 is not yet enabled at validator ingress and does not make an end-to-end in-circuit ML-DSA claim.
 
-Remaining verifier tables include signature/key decoding and range checks, SHAKE-derived matrix and
-challenge sampling, vector/matrix NTT accumulation, hint application, infinity norms, and the final
-challenge equality, followed by cross-table composition with the session statement.
+The decoding table now binds the exact ML-DSA-44 public-key and signature bytes, constrains all
+10-bit `t1` and 18-bit `z` unpacking, proves the strict FIPS 204 `z` infinity-norm bound, and rejects
+non-canonical sparse-hint cuts, ordering, weight, and padding. It exposes `rho`, the challenge seed,
+decoded polynomials, and the hint bitmap for subsequent tables.
+
+Remaining verifier tables include SHAKE-derived matrix and challenge sampling, full matrix-row
+composition, hint application arithmetic, the final challenge equality, and cross-table composition
+with the session statement.
 
 The companion `MultiplyNTT` table now constrains all 256 coefficient-wise products used by FIPS
 204 NTT-domain polynomial multiplication. Each row proves `left × right = output + q × quotient`,
