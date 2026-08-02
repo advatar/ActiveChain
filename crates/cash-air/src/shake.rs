@@ -39,7 +39,7 @@ pub const CASH_AIR_SHAKE_SUITE_ID: u32 = 0xCA50_0301;
 pub const CASH_AIR_SHAKE128_XOF_SUITE_ID: u32 = 0xCA50_0302;
 const KECCAK_ROUNDS: usize = 24;
 pub const MAX_CASH_SHAKE_MESSAGE: usize = 512;
-pub const MAX_CASH_SHAKE_XOF_MESSAGE: usize = 1_024;
+pub const MAX_CASH_SHAKE_XOF_MESSAGE: usize = 2_048;
 pub const MAX_CASH_SHAKE_XOF_OUTPUT: usize = 16_384;
 /// Maximum number of Keccak permutations aggregated into one FRI proof.
 ///

@@ -2210,7 +2210,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
     - [x] Arithmetize bounded per-row input/output/fee conservation and rejected-row zeroing.
       - [ ] Arithmetize SHAKE, ML-DSA, authenticated membership/consumption, session budgets,
         and authenticated partition-root transitions.
-        - [ ] Complete the ML-DSA-44 verifier tables and their cross-table composition.
+        - [x] Complete the ML-DSA-44 verifier tables and their cross-table composition.
           - [x] Constrain and publicly bind the exact FIPS 204 forward NTT butterfly schedule over
                 q=8,380,417; inverse NTT, matrix products, hints, norms, decoding, and challenge
                 composition remain separate subgates.
@@ -2236,7 +2236,7 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
                 exact Algorithm 29 rejection, swap, and sign-bit procedure.
           - [x] Bind canonical ML-DSA-44 `w1Encode` and prove the final
                 `c_tilde = SHAKE256(mu || w1Encode(w1), 32)` verifier equality.
-          - [ ] Compose decoding, `tr`/`mu` hashing, `ExpandA`, reconstruction, and final challenge
+          - [x] Compose decoding, `tr`/`mu` hashing, `ExpandA`, reconstruction, and final challenge
                 equality against one canonical ML-DSA-44 key, signature, and cash payload.
           - [x] Constrain ML-DSA-44 public-key/signature bit unpacking, `z` infinity-norm range,
                 and canonical hint decoding, exposing exact decoded verifier inputs.
