@@ -32,6 +32,7 @@ mod ml_dsa_inverse_ntt;
 mod ml_dsa_matrix_vector;
 mod ml_dsa_ntt;
 mod ml_dsa_ntt_multiply;
+mod ml_dsa_t1_precompute;
 mod ml_dsa_vector_accumulation;
 mod session;
 mod shake;
@@ -58,6 +59,9 @@ pub use ml_dsa_ntt::{
 };
 pub use ml_dsa_ntt_multiply::{
     MlDsaNttMultiplyStarkProof, prove_ml_dsa_ntt_multiply, verify_ml_dsa_ntt_multiply,
+};
+pub use ml_dsa_t1_precompute::{
+    MlDsa44T1PrecomputeStarkProof, prove_ml_dsa44_t1_precompute, verify_ml_dsa44_t1_precompute,
 };
 pub use ml_dsa_vector_accumulation::{
     ML_DSA_44_VECTOR_DIMENSION, MlDsaVectorAccumulationStarkProof,
