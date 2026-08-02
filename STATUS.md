@@ -2294,6 +2294,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
     - [x] Define canonical bounded aggregation statements and a composed verifier that binds
       ordered child-proof commitments, partition ownership, resource totals, and contiguous
       pre/post roots at every level; recursive in-circuit child-proof verification remains open.
+    - [ ] Require every proof-level aggregation child to be a canonical, independently verified
+      `CashAirReceiptV1` rather than an opaque byte string.
 - [x] Add the cash-specific capacity and fee market, refundable deposits, sponsorship, and paymasters.
   - [x] Adjust deterministic base fees from bounded target-capacity utilization and quote exact
         base, resource, and congestion charges.
