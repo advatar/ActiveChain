@@ -1078,6 +1078,10 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
         - [x] Exercise concurrent process-level load/restart, simulated provider outage,
               partition/reordering, and failed-write pressure for a bounded wall-clock duration.
         - [ ] Complete kernel-level memory, disk, and file-descriptor exhaustion qualification.
+          - [x] Prove real file-descriptor exhaustion cannot advance live or durable aggregate
+                state.
+          - [ ] Prove real memory and disk exhaustion cannot advance live or durable aggregate
+                state.
     - [ ] Complete operator incident exercises, independent review, and staged external-rail
           pilots.
 - [x] Add canonical exact-once partial-refund requests and cumulative settlement-bound accounting.

@@ -3656,6 +3656,30 @@ mod tests {
         std::fs::remove_dir_all(directory).unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn file_descriptor_exhaustion_cannot_advance_live_or_durable_settlement_state() {
+        let path = path("settlement-state-fd-exhaustion");
+        let _ = std::fs::remove_file(&path);
+        let mut durable = chain_submitted_settlement_state(&path);
+        let settlement = finalized_settlement(124, 95, 110);
+        let before = durable.snapshot().clone();
+        let durable_bytes = std::fs::read(&path).unwrap();
+
+        let mut descriptors = Vec::new();
+        while let Ok(file) = std::fs::File::open("/dev/null") {
+            descriptors.push(file);
+        }
+        assert!(!descriptors.is_empty());
+        assert_eq!(durable.finalize_verified_value(&settlement), Err(JournalError::Persistence));
+        assert_eq!(durable.snapshot(), &before);
+
+        drop(descriptors);
+        assert_eq!(std::fs::read(&path).unwrap(), durable_bytes);
+        assert_eq!(DurablePaymentSettlementState::open(&path).unwrap().snapshot(), &before);
+        std::fs::remove_file(path).unwrap();
+    }
+
     #[test]
     fn atomic_refund_requests_join_lifecycle_and_cumulative_accounting() {
         let path = path("atomic-refund-restart");
