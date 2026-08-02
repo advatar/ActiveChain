@@ -23,8 +23,9 @@ every reservation and receipt write interruption, before/after-settlement uncert
 snapshot replacement, checksum rejection, restart reconciliation, concurrent idempotency,
 wrong-network rejection, cooldowns, and finalized receipt structure.
 
-This proof does **not** establish end-to-end supply conservation or exactly-one finalized Coin Cell
-issuance by itself. The runtime now writes a transcript-bound reservation before settlement and the
-wallet/validator adapters make exact transaction submission idempotent, while finalized receipt
-verification remains a separate requirement tracked by issue #167. The public faucet and in-app
-funding control must remain disabled until all of that issue's proof obligations are discharged.
+These Kani harnesses do **not**, by themselves, establish end-to-end supply conservation or
+exactly-one finalized Coin Cell issuance. Those properties are composed with the Lean faucet model,
+the transcript-bound durable reservation, idempotent wallet/validator transaction ingress, exact
+cash-action/finality reconciliation, and the shipped wallet state-proof verifier. The Kanalen live
+qualification exercises that composed path; it does not turn the filesystem, cryptographic
+primitives, validator quorum, trusted clock, or peer-address provenance into Kani-proved facts.

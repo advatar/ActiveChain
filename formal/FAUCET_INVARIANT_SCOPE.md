@@ -28,5 +28,11 @@ properties until a refinement from the journal codec and write protocol is prove
 `certificateVerified` represents the result of the separately qualified finality verifier rather
 than assuming that a caller-set Boolean is sufficient in production.
 
+The targeted runtime qualification covers every journal publication failpoint, replay and
+concurrent duplicate submission, exact cooldown edges, recipient/source/global exhaustion, policy
+tightening across restart, expiry, snapshot corruption, raw abuse-identifier non-persistence, and
+the live Kanalen finalized owner Coin Cell proof. This is evidence for the composed implementation,
+not a claim that the external assumptions above have been eliminated.
+
 Out of scope: availability, external identity uniqueness, challenge-provider honesty, and
 production-value claims. Those remain explicit operational assumptions and launch gates.
