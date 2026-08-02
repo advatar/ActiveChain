@@ -214,6 +214,9 @@ fn materialize_committed_cash_round(
             .ok_or_else(|| std::io::Error::other("journal requires the cash action path"))?;
         let archive = std::path::PathBuf::from(format!("{}.finalized-{height}", source.display()));
         atomic_materialize(&archive, &std::fs::read(action_member)?)?;
+        let finality_archive =
+            std::path::PathBuf::from(format!("{}.finalized-{height}", finality_path.display()));
+        atomic_materialize(&finality_archive, &finality)?;
         if source.exists() {
             std::fs::remove_file(source)?;
         }

@@ -12,6 +12,8 @@ cash_snapshot="$state_root/finalized-cash.snapshot"
 finality_bundle="$state_root/finality.bundle"
 cash_ledger="$state_root/cash-ledger.snapshot"
 cash_actions="$state_root/pending-cash-actions.batch"
+cash_action_spool="$state_root/cash-action-spool"
+cash_action_inflight="$state_root/cash-action-spool.inflight"
 
 test -f "$network_env" || {
   echo "runtime network manifest is missing: $network_env" >&2
@@ -29,6 +31,18 @@ test -f "$cash_ledger" || {
 
 mkdir "$lock" 2>/dev/null || exit 0
 trap 'rmdir "$lock"' EXIT
+
+if test ! -e "$cash_actions" && test -d "$cash_action_spool"; then
+  if find "$cash_action_spool" -type f -name '*.action' -print -quit | grep -q .; then
+    test ! -e "$cash_action_inflight" || {
+      echo "stale faucet action inflight directory requires recovery: $cash_action_inflight" >&2
+      exit 1
+    }
+    mv "$cash_action_spool" "$cash_action_inflight"
+    mkdir "$cash_action_spool"
+    find "$cash_action_inflight" -type f -name '*.action' -print | LC_ALL=C sort | xargs cat > "$cash_actions"
+  fi
+fi
 
 for port in 49153 49154 49155; do
   attempts=0
@@ -104,3 +118,7 @@ test -f "$finality_bundle" || {
 "$binary_root/activechain-rpc-ingest" \
   "$proposer_snapshot" "$rpc_snapshot" \
   "$cash_snapshot" "$finality_bundle"
+if test ! -e "$cash_actions" && test -d "$cash_action_inflight"; then
+  find "$cash_action_inflight" -type f -name '*.action' -delete
+  rmdir "$cash_action_inflight"
+fi

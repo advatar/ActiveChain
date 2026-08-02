@@ -160,19 +160,31 @@ impl WalletTransactionGateway {
         let mut action_ids = Vec::with_capacity(envelopes.len());
         next.ingress.prune_replay_state(height);
         for envelope in envelopes {
-            let authorized =
-                decode_envelope::<activechain_wallet_core::AuthorizedCashTransferV1>(envelope)
+            let operator =
+                decode_envelope::<activechain_wallet_core::OperatorFaucetAuthorizationV1>(envelope)
+                    .ok();
+            let transaction =
+                if let Some(operator) = operator.as_ref() {
+                    TransactionId::new(operator.transfer().request().intent_id().map_err(|_| {
+                        activechain_wallet_core::WalletError::MalformedAuthorization
+                    })?)
+                } else {
+                    let authorized = decode_envelope::<
+                        activechain_wallet_core::AuthorizedCashTransferV1,
+                    >(envelope)
                     .map_err(|_| activechain_wallet_core::WalletError::MalformedAuthorization)?;
-            let transaction = TransactionId::new(
-                authorized
-                    .request()
-                    .intent_id()
-                    .map_err(|_| activechain_wallet_core::WalletError::MalformedAuthorization)?,
-            );
+                    TransactionId::new(authorized.request().intent_id().map_err(|_| {
+                        activechain_wallet_core::WalletError::MalformedAuthorization
+                    })?)
+                };
             if self.ingress.transaction_admitted(transaction) {
                 continue;
             }
-            next.ingress.submit_envelope(envelope, height)?;
+            if let Some(operator) = operator.as_ref() {
+                next.ingress.submit_operator_faucet_authorization(operator, height)?;
+            } else {
+                next.ingress.submit_envelope(envelope, height)?;
+            }
             action_ids.push(transaction);
         }
         Ok(PreparedWalletTransactionBatch { pre_ledger: self.ledger().clone(), next, action_ids })
@@ -4931,7 +4943,6 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
-        gateway.register_session(&authorized_grant, 1).unwrap();
         let signature = cash_key.sign(&request.signing_payload().unwrap());
         let authorized = activechain_wallet_core::AuthorizedCashTransferV1::new(
             request,
@@ -4984,10 +4995,21 @@ mod tests {
             Err(activechain_wallet_core::WalletError::PolicyDenied)
         );
         let pre_ledger = gateway.ledger().clone();
-        assert!(gateway.prepare_envelope_batch(&[envelope.clone(), envelope.clone()], 1).is_err());
+        let operator_authorization = activechain_wallet_core::OperatorFaucetAuthorizationV1::new(
+            authorized_grant,
+            authorized,
+        )
+        .unwrap();
+        let operator_envelope = encode_envelope(&operator_authorization).unwrap();
+        assert!(
+            gateway
+                .prepare_envelope_batch(&[operator_envelope.clone(), operator_envelope.clone()], 1,)
+                .is_err()
+        );
         assert_eq!(gateway.ledger(), &pre_ledger, "rejected batch must not mutate live state");
-        let prepared = gateway.prepare_envelope_batch(&[envelope.clone()], 1).unwrap();
-        let stale_prepared = gateway.prepare_envelope_batch(&[envelope.clone()], 1).unwrap();
+        let prepared = gateway.prepare_envelope_batch(&[operator_envelope.clone()], 1).unwrap();
+        let stale_prepared =
+            gateway.prepare_envelope_batch(&[operator_envelope.clone()], 1).unwrap();
         assert_eq!(prepared.action_ids().len(), 1);
         assert_ne!(prepared.pre_cash_cell_root(), prepared.post_cash_cell_root());
         assert_ne!(prepared.ledger(), &pre_ledger);
@@ -4997,7 +5019,7 @@ mod tests {
             gateway.commit_prepared(stale_prepared),
             Err(activechain_wallet_core::WalletError::Persistence)
         );
-        let retried = gateway.prepare_envelope_batch(&[envelope], 2).unwrap();
+        let retried = gateway.prepare_envelope_batch(&[operator_envelope], 2).unwrap();
         assert_eq!(retried.ledger(), gateway.ledger(), "certified retry is idempotent");
         assert!(retried.action_ids().is_empty());
         assert_eq!(retried.pre_cash_cell_root(), retried.post_cash_cell_root());
