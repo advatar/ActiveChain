@@ -20,8 +20,19 @@ to the same envelope and key commitment without calling host signature verificat
 Cash proof aggregation uses a canonical four-level statement (microbatch, partition, cash slot,
 and global transition). Every level binds the ordered child-proof commitments, exact partition
 ownership, contiguous pre/post roots, applied/rejected counts, and checked resource totals. The
-composed verifier checks the supplied child bytes against those commitments. Recursive in-circuit
-verification of the child proofs remains a separate open gate and is not implied by this format.
+basic composed verifier checks supplied child bytes against those commitments. The proof-leaf
+verifier additionally accepts exactly one authorized payment per leaf and recomputes every child
+field: it verifies the complete session/ML-DSA proof, verifies the partition-authenticated CashAIR
+receipt, opens the exact one-transfer batch commitment, derives chain and height, derives the
+coordinator partition from the first input under the proved partition count, and recomputes the
+fixed resource charge. Cross-partition state mutations remain bound inside that receipt. Recursive
+in-circuit verification of the child proofs remains a separate open gate and is not implied by this
+host-composed verifier.
+
+The CashAIR parent statement itself binds the chain identifier, batch commitment, execution height,
+and partition count in dedicated public-input trace columns at both trace boundaries. These values
+are not trusted from the receipt wrapper. The session verifier also rejects a witness unless its
+chain, signer, session, height window, amount, and fee match the exact authorized transfer.
 
 Formal assurance must state circuit bounds, field-width assumptions, transcript domains, recursive
 composition limits, and trusted setup/parameter provenance. The reference CashAIR re-execution

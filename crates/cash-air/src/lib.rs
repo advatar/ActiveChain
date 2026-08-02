@@ -44,9 +44,9 @@ mod ml_dsa_vector_subtract;
 mod session;
 mod shake;
 pub use aggregation::{
-    CashAggregationChildV1, CashAggregationLevel, CashAggregationStatementV1,
-    GLOBAL_CASH_PARTITION, MAX_CASH_AGGREGATION_CHILDREN, cash_aggregation_proof_commitment,
-    verify_cash_aggregation,
+    CashAggregationChildV1, CashAggregationLeafEvidenceV1, CashAggregationLevel,
+    CashAggregationStatementV1, GLOBAL_CASH_PARTITION, MAX_CASH_AGGREGATION_CHILDREN,
+    cash_aggregation_proof_commitment, verify_cash_aggregation, verify_cash_aggregation_leaves,
 };
 pub use ml_dsa_challenge_product::{
     MlDsa44ChallengeProductStarkProof, prove_ml_dsa44_challenge_product,
@@ -402,7 +402,7 @@ impl CanonicalDecode for CashAirReceiptV1 {
 }
 impl CanonicalType for CashAirReceiptV1 {
     const TYPE_TAG: u16 = 0x0104;
-    const SCHEMA_VERSION: u16 = 1;
+    const SCHEMA_VERSION: u16 = 2;
     const MAX_ENCODED_LEN: usize = 4 + CashAirProof::MAX_ENCODED_LEN + 4 + MAX_CASH_AIR_PROOF_BYTES;
 }
 
@@ -591,7 +591,7 @@ impl CanonicalDecode for AuthenticatedCashAirReceiptV1 {
 }
 impl CanonicalType for AuthenticatedCashAirReceiptV1 {
     const TYPE_TAG: u16 = 0x0108;
-    const SCHEMA_VERSION: u16 = 3;
+    const SCHEMA_VERSION: u16 = 4;
     const MAX_ENCODED_LEN: usize = MAX_CASH_AIR_COMPOSITE_BYTES;
 }
 
@@ -641,7 +641,12 @@ const AMOUNT_BIT_WIDTH: usize = 64;
 const AMOUNT_COLUMN_COUNT: usize = 3;
 const AMOUNT_BIT_START: usize = CORE_TRACE_WIDTH;
 const AMOUNT_BIT_COLUMNS: usize = AMOUNT_BIT_WIDTH * AMOUNT_COLUMN_COUNT;
-const TRACE_WIDTH: usize = CORE_TRACE_WIDTH + AMOUNT_BIT_COLUMNS;
+const STATEMENT_START: usize = CORE_TRACE_WIDTH + AMOUNT_BIT_COLUMNS;
+const BATCH_COMMITMENT_0: usize = STATEMENT_START;
+const CHAIN_ID_0: usize = BATCH_COMMITMENT_0 + 3;
+const HEIGHT: usize = CHAIN_ID_0 + 3;
+const PARTITIONS: usize = HEIGHT + 1;
+const TRACE_WIDTH: usize = PARTITIONS + 1;
 const STEP: usize = 0;
 const APPLIED: usize = 1;
 const REJECTED: usize = 2;
@@ -661,6 +666,10 @@ const fn amount_bit_column(amount: usize, bit: usize) -> usize {
 
 #[derive(Clone, Debug)]
 pub struct CashStarkPublicInputs {
+    batch_commitment: [BaseElement; 3],
+    chain_id: [BaseElement; 3],
+    height: BaseElement,
+    partitions: BaseElement,
     pre_root: [BaseElement; 3],
     post_root: [BaseElement; 3],
     applied: BaseElement,
@@ -674,8 +683,11 @@ pub struct CashStarkPublicInputs {
 
 impl ToElements<BaseElement> for CashStarkPublicInputs {
     fn to_elements(&self) -> Vec<BaseElement> {
-        self.pre_root
+        self.batch_commitment
             .into_iter()
+            .chain(self.chain_id)
+            .chain([self.height, self.partitions])
+            .chain(self.pre_root)
             .chain(self.post_root)
             .chain([self.applied, self.rejected, self.authenticated_mode])
             .chain(self.authenticated_pre_root)
@@ -726,7 +738,7 @@ impl Air for CashAir {
         degrees[10] = TransitionConstraintDegree::new(1);
         degrees
             .extend(core::iter::repeat_n(TransitionConstraintDegree::new(1), AMOUNT_COLUMN_COUNT));
-        let assertions = 22
+        let assertions = 38
             + public.authenticated_row_roots.len() * 3
             + public.amount_rows.len() * (AMOUNT_COLUMN_COUNT + AMOUNT_BIT_COLUMNS);
         Self { context: AirContext::new(trace_info, degrees, assertions, options), public }
@@ -785,6 +797,24 @@ impl Air for CashAir {
             Assertion::single(AUTHENTICATED_MODE, 0, self.public.authenticated_mode),
             Assertion::single(AUTHENTICATED_MODE, last, self.public.authenticated_mode),
         ];
+        for limb in 0..3 {
+            assertions.push(Assertion::single(
+                BATCH_COMMITMENT_0 + limb,
+                0,
+                self.public.batch_commitment[limb],
+            ));
+            assertions.push(Assertion::single(
+                BATCH_COMMITMENT_0 + limb,
+                last,
+                self.public.batch_commitment[limb],
+            ));
+            assertions.push(Assertion::single(CHAIN_ID_0 + limb, 0, self.public.chain_id[limb]));
+            assertions.push(Assertion::single(CHAIN_ID_0 + limb, last, self.public.chain_id[limb]));
+        }
+        assertions.push(Assertion::single(HEIGHT, 0, self.public.height));
+        assertions.push(Assertion::single(HEIGHT, last, self.public.height));
+        assertions.push(Assertion::single(PARTITIONS, 0, self.public.partitions));
+        assertions.push(Assertion::single(PARTITIONS, last, self.public.partitions));
         for limb in 0..3 {
             assertions.push(Assertion::single(ROOT_0 + limb, 0, self.public.pre_root[limb]));
             assertions.push(Assertion::single(ROOT_0 + limb, last, self.public.post_root[limb]));
@@ -862,6 +892,10 @@ impl Prover for CashProver {
             }
         }
         CashStarkPublicInputs {
+            batch_commitment: core::array::from_fn(|limb| trace.get(BATCH_COMMITMENT_0 + limb, 0)),
+            chain_id: core::array::from_fn(|limb| trace.get(CHAIN_ID_0 + limb, 0)),
+            height: trace.get(HEIGHT, 0),
+            partitions: trace.get(PARTITIONS, 0),
             pre_root: [trace.get(ROOT_0, 0), trace.get(ROOT_0 + 1, 0), trace.get(ROOT_0 + 2, 0)],
             post_root: [
                 trace.get(ROOT_0, last),
@@ -1146,12 +1180,27 @@ fn build_trace(
         trace.set(AUTHENTICATED_MODE, index, authenticated_mode);
         set_authenticated_root(&mut trace, index, authenticated_root);
     }
+    let public = proof.public();
+    let batch_commitment = digest_elements(public.batch_commitment())?;
+    let chain_id = digest_elements(*public.chain_id().digest())?;
+    for row in 0..length {
+        for limb in 0..3 {
+            trace.set(BATCH_COMMITMENT_0 + limb, row, batch_commitment[limb]);
+            trace.set(CHAIN_ID_0 + limb, row, chain_id[limb]);
+        }
+        trace.set(HEIGHT, row, BaseElement::new(public.height().into()));
+        trace.set(PARTITIONS, row, BaseElement::new(public.partitions().into()));
+    }
     Ok(trace)
 }
 
 fn public_inputs(proof: &CashAirProof) -> Result<CashStarkPublicInputs, &'static str> {
     let public = proof.public();
     Ok(CashStarkPublicInputs {
+        batch_commitment: digest_elements(public.batch_commitment())?,
+        chain_id: digest_elements(*public.chain_id().digest())?,
+        height: BaseElement::new(public.height().into()),
+        partitions: BaseElement::new(public.partitions().into()),
         pre_root: root_elements(public.pre_cells())?,
         post_root: root_elements(public.post_cells())?,
         applied: BaseElement::new(public.applied().into()),
@@ -1515,6 +1564,22 @@ mod tests {
         let mut wrong_row = prove_authenticated_parent(&trace).unwrap();
         wrong_row.public.authenticated_row_roots[0][0] += BaseElement::new(1);
         assert!(verify(wrong_row).is_err());
+
+        let mut wrong_batch = prove_authenticated_parent(&trace).unwrap();
+        wrong_batch.public.batch_commitment[0] += BaseElement::new(1);
+        assert!(verify(wrong_batch).is_err());
+
+        let mut wrong_chain = prove_authenticated_parent(&trace).unwrap();
+        wrong_chain.public.chain_id[0] += BaseElement::new(1);
+        assert!(verify(wrong_chain).is_err());
+
+        let mut wrong_height = prove_authenticated_parent(&trace).unwrap();
+        wrong_height.public.height += BaseElement::new(1);
+        assert!(verify(wrong_height).is_err());
+
+        let mut wrong_partitions = prove_authenticated_parent(&trace).unwrap();
+        wrong_partitions.public.partitions += BaseElement::new(1);
+        assert!(verify(wrong_partitions).is_err());
     }
 
     #[test]

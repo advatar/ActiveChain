@@ -2,12 +2,20 @@ use alloc::vec::Vec;
 
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
+    decode_envelope,
 };
+use activechain_cash_kernel::{CashTransferV1, cash_partition_for};
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{ChainId, Digest384};
+use activechain_wallet_core::{AuthorizedCashTransferV1, CashSessionAdmissionWitnessV1};
 use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
+};
+
+use crate::{
+    AuthenticatedCashAirReceiptV1, AuthorizedCashSessionMlDsaStarkProof,
+    verify_authorized_session_mldsa,
 };
 
 pub const MAX_CASH_AGGREGATION_CHILDREN: usize = 1024;
@@ -36,6 +44,106 @@ pub fn verify_cash_aggregation(
         })
     {
         return Err("cash aggregation child proof commitment mismatch");
+    }
+    Ok(())
+}
+
+/// Complete verifier inputs for one proof-level aggregation child.
+///
+/// Leaves deliberately contain exactly one authorized payment. This makes chain, height,
+/// coordinator partition, result counters, and resource charging derivable rather than
+/// caller-asserted while retaining cross-partition state transitions inside the authenticated
+/// CashAIR receipt.
+pub struct CashAggregationLeafEvidenceV1<'a> {
+    receipt: &'a [u8],
+    session_proof: AuthorizedCashSessionMlDsaStarkProof,
+    witness: &'a CashSessionAdmissionWitnessV1,
+    authorized: &'a AuthorizedCashTransferV1,
+    public_key: &'a [u8],
+}
+
+impl<'a> CashAggregationLeafEvidenceV1<'a> {
+    #[must_use]
+    pub const fn new(
+        receipt: &'a [u8],
+        session_proof: AuthorizedCashSessionMlDsaStarkProof,
+        witness: &'a CashSessionAdmissionWitnessV1,
+        authorized: &'a AuthorizedCashTransferV1,
+        public_key: &'a [u8],
+    ) -> Self {
+        Self { receipt, session_proof, witness, authorized, public_key }
+    }
+
+    fn verify(self) -> Result<(ChainId, u64, CashAggregationChildV1), &'static str> {
+        AuthenticatedCashAirReceiptV1::verify_bytes(self.receipt)?;
+        let receipt: AuthenticatedCashAirReceiptV1 =
+            decode_envelope(self.receipt).map_err(|_| "malformed aggregation leaf receipt")?;
+        verify_authorized_session_mldsa(
+            self.session_proof,
+            self.witness,
+            self.authorized,
+            self.public_key,
+        )?;
+        derive_cash_aggregation_leaf(&receipt, self.receipt, self.witness, self.authorized)
+    }
+}
+
+fn derive_cash_aggregation_leaf(
+    receipt: &AuthenticatedCashAirReceiptV1,
+    receipt_bytes: &[u8],
+    witness: &CashSessionAdmissionWitnessV1,
+    authorized: &AuthorizedCashTransferV1,
+) -> Result<(ChainId, u64, CashAggregationChildV1), &'static str> {
+    let request = authorized.request();
+    let batch = CashTransferV1::new(alloc::vec![request.transfer().clone()])
+        .map_err(|_| "invalid aggregation leaf transfer")?;
+    let execution = receipt.trace.execution();
+    let public = execution.public();
+    let batch_commitment =
+        commit(DomainTag::CANONICAL_VALUE, &batch).map_err(|_| "leaf batch encoding failed")?;
+    if execution.rows().len() != 1
+        || public.chain_id() != request.chain_id()
+        || public.batch_commitment() != batch_commitment
+        || public.height() != witness.height()
+    {
+        return Err("aggregation leaf does not match the authorized payment");
+    }
+    let coordinator = request
+        .transfer()
+        .inputs()
+        .first()
+        .copied()
+        .map(|input| cash_partition_for(input, public.partitions()))
+        .ok_or("aggregation leaf has no coordinator input")?;
+    let child = CashAggregationChildV1::new(
+        CashAggregationLevel::Proof,
+        coordinator,
+        receipt.trace.pre_root(),
+        receipt.trace.post_root(),
+        cash_aggregation_proof_commitment(receipt_bytes),
+        u32::from(public.applied()),
+        u32::from(public.rejected()),
+        batch.resource_units(),
+    )?;
+    Ok((request.chain_id(), witness.height(), child))
+}
+
+/// Verifies a microbatch by deriving every proof child from complete cryptographic evidence.
+pub fn verify_cash_aggregation_leaves(
+    statement: &CashAggregationStatementV1,
+    leaves: Vec<CashAggregationLeafEvidenceV1<'_>>,
+) -> Result<(), &'static str> {
+    if statement.level != CashAggregationLevel::Microbatch
+        || leaves.len() != statement.children.len()
+    {
+        return Err("cash aggregation leaf shape mismatch");
+    }
+    statement.verify()?;
+    for (claimed, leaf) in statement.children.iter().zip(leaves) {
+        let (chain_id, slot, derived) = leaf.verify()?;
+        if chain_id != statement.chain_id || slot != statement.slot || &derived != claimed {
+            return Err("cash aggregation leaf statement mismatch");
+        }
     }
     Ok(())
 }
@@ -340,11 +448,177 @@ impl CanonicalType for CashAggregationStatementV1 {
 #[cfg(test)]
 mod tests {
     use activechain_canonical_codec::{decode_envelope, encode_envelope};
+    use activechain_cash_kernel::{
+        CashLedger, CashTransferV1, CoinMintTransition, CoinTransfer, EpochEconomicsTransition,
+        GenesisAllocation, GenesisEconomy, NativeAssetDefinition, cash_partition_for,
+        prove_authenticated_cash_air,
+    };
+    use activechain_protocol_types::{CoinCellId, CryptoSuiteId, PrincipalId, ProtocolSignature};
+    use activechain_wallet_core::{
+        AuthorizedCashTransferV1, CashAuthorizationRequestV1, CashSessionAdmissionWitnessV1,
+    };
 
     use super::*;
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
+    }
+
+    fn principal(byte: u8) -> PrincipalId {
+        PrincipalId::new(digest(byte))
+    }
+
+    fn settlement(pre_supply: u128) -> EpochEconomicsTransition {
+        let target = activechain_cash_kernel::epoch_security_budget(pre_supply, 0).unwrap();
+        EpochEconomicsTransition::new(
+            1,
+            pre_supply,
+            0,
+            target - 20,
+            0,
+            target,
+            20,
+            activechain_cash_kernel::basis_points_amount(1_000_000, 150).unwrap(),
+            0,
+            digest(20),
+            digest(21),
+            digest(22),
+            digest(23),
+            pre_supply + 20,
+        )
+        .unwrap()
+    }
+
+    fn leaf_fixture()
+    -> (AuthenticatedCashAirReceiptV1, AuthorizedCashTransferV1, CashSessionAdmissionWitnessV1)
+    {
+        let definition = NativeAssetDefinition::new(
+            ChainId::new(digest(1)),
+            b"ACT".to_vec(),
+            18,
+            1_000_000,
+            150,
+            digest(2),
+            digest(3),
+            digest(4),
+        )
+        .unwrap();
+        let economy = GenesisEconomy::new(
+            definition,
+            vec![
+                GenesisAllocation::new(principal(10), 700_000, 100_000).unwrap(),
+                GenesisAllocation::new(principal(12), 100_000, 0).unwrap(),
+            ],
+            100_000,
+        )
+        .unwrap();
+        let mut ledger = CashLedger::from_genesis(&economy).unwrap();
+        ledger
+            .apply_mint(
+                &CoinMintTransition::new(digest(2), principal(10), 20, 1, 1).unwrap(),
+                &settlement(1_000_000),
+            )
+            .unwrap();
+        let ids = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .filter(|record| record.cell().owner() == principal(10))
+            .map(|record| record.id())
+            .collect::<Vec<CoinCellId>>();
+        let transfer =
+            CoinTransfer::new(principal(10), principal(30), vec![ids[0]], ids[1], 25, 1, 20)
+                .unwrap();
+        let batch = CashTransferV1::new(vec![transfer.clone()]).unwrap();
+        let (trace, _) = prove_authenticated_cash_air(&ledger, &batch, 3, 16).unwrap();
+        let proof_bytes = trace
+            .mutations()
+            .iter()
+            .map(|mutation| {
+                mutation.as_ref().map(|mutation| {
+                    mutation.mutations().iter().map(|_| vec![1]).collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        let receipt = AuthenticatedCashAirReceiptV1::new(trace, vec![1], proof_bytes).unwrap();
+        let request = CashAuthorizationRequestV1::new(
+            ChainId::new(digest(1)),
+            principal(10),
+            0,
+            digest(40),
+            10,
+            transfer,
+        )
+        .unwrap();
+        let authorized = AuthorizedCashTransferV1::new(
+            request,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2_420]).unwrap(),
+        )
+        .unwrap();
+        let witness = CashSessionAdmissionWitnessV1::new(
+            ChainId::new(digest(1)),
+            principal(10),
+            digest(40),
+            3,
+            1,
+            10,
+            25,
+            1,
+            100,
+            0,
+            26,
+        )
+        .unwrap();
+        (receipt, authorized, witness)
+    }
+
+    #[test]
+    fn verified_leaf_fields_are_derived_from_exact_payment_and_partition_trace() {
+        let (receipt, authorized, witness) = leaf_fixture();
+        let receipt_bytes = b"exact authenticated receipt bytes";
+        let (chain_id, slot, child) =
+            derive_cash_aggregation_leaf(&receipt, receipt_bytes, &witness, &authorized).unwrap();
+        assert_eq!(chain_id, ChainId::new(digest(1)));
+        assert_eq!(slot, 3);
+        assert_eq!(child.level, CashAggregationLevel::Proof);
+        assert_eq!(child.applied, 1);
+        assert_eq!(child.rejected, 0);
+        assert_eq!(child.resource_units, 52);
+        assert_eq!(
+            child.partition,
+            cash_partition_for(authorized.request().transfer().inputs()[0], 16)
+        );
+        assert_eq!(child.pre_root, receipt.trace.pre_root());
+        assert_eq!(child.post_root, receipt.trace.post_root());
+        assert_eq!(child.proof_commitment, cash_aggregation_proof_commitment(receipt_bytes));
+
+        let substituted = CoinTransfer::new(
+            principal(10),
+            principal(30),
+            authorized.request().transfer().inputs().to_vec(),
+            authorized.request().transfer().fee_reserve(),
+            24,
+            1,
+            20,
+        )
+        .unwrap();
+        let request = CashAuthorizationRequestV1::new(
+            ChainId::new(digest(1)),
+            principal(10),
+            0,
+            digest(40),
+            10,
+            substituted,
+        )
+        .unwrap();
+        let substituted = AuthorizedCashTransferV1::new(
+            request,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2_420]).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            derive_cash_aggregation_leaf(&receipt, receipt_bytes, &witness, &substituted).is_err()
+        );
     }
 
     fn child(partition: u16, pre: u8, post: u8, proof: &[u8]) -> CashAggregationChildV1 {

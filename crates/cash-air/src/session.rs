@@ -293,6 +293,7 @@ pub fn verify_authorized_session(
     authorized: &AuthorizedCashTransferV1,
     public_key: &[u8],
 ) -> Result<(), &'static str> {
+    verify_authorized_witness_binding(witness, authorized)?;
     authorized.verify(public_key).map_err(|_| "cash session ML-DSA authorization is invalid")?;
     let expected = public_inputs(witness, authorization_commitment(authorized, public_key)?)?;
     verify_proof(proof, expected)
@@ -305,6 +306,7 @@ pub fn verify_authorized_session_mldsa(
     authorized: &AuthorizedCashTransferV1,
     public_key: &[u8],
 ) -> Result<(), &'static str> {
+    verify_authorized_witness_binding(witness, authorized)?;
     let key: &[u8; ML_DSA44_PUBLIC_KEY_LENGTH] =
         public_key.try_into().map_err(|_| "cash session ML-DSA public key length is invalid")?;
     let signature: &[u8; ML_DSA44_SIGNATURE_LENGTH] = authorized
@@ -319,6 +321,27 @@ pub fn verify_authorized_session_mldsa(
     verify_ml_dsa44_cross_table(proof.authorization, key, signature, &payload)?;
     let expected = public_inputs(witness, authorization_commitment(authorized, public_key)?)?;
     verify_proof(proof.session, expected)
+}
+
+fn verify_authorized_witness_binding(
+    witness: &CashSessionAdmissionWitnessV1,
+    authorized: &AuthorizedCashTransferV1,
+) -> Result<(), &'static str> {
+    let request = authorized.request();
+    let transfer = request.transfer();
+    if witness.chain_id() != request.chain_id()
+        || witness.signer() != request.signer()
+        || request.signer() != transfer.sender()
+        || witness.session_id() != request.session_id()
+        || witness.height() > request.session_expires_at()
+        || witness.height() > transfer.valid_until()
+        || witness.expires_at() < request.session_expires_at()
+        || witness.amount() != transfer.amount()
+        || witness.fee() != transfer.fee()
+    {
+        return Err("cash session witness does not match the authorized transfer");
+    }
+    Ok(())
 }
 
 fn verify_proof(
@@ -475,14 +498,18 @@ fn proof_options() -> ProofOptions {
 
 #[cfg(test)]
 mod tests {
-    use activechain_protocol_types::{ChainId, Digest384, PrincipalId};
+    use activechain_cash_kernel::CoinTransfer;
+    use activechain_protocol_types::{
+        ChainId, CoinCellId, CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature,
+    };
     use activechain_wallet_core::CashSessionAdmissionWitnessV1;
+    use activechain_wallet_core::{AuthorizedCashTransferV1, CashAuthorizationRequestV1};
 
     use winterfell::math::fields::f128::BaseElement;
 
     use super::{
         AUTHORIZATION_LIMBS, prove_session_budget, prove_session_budget_bound, public_inputs,
-        verify_proof, verify_session_budget,
+        verify_authorized_witness_binding, verify_proof, verify_session_budget,
     };
 
     fn digest(byte: u8) -> Digest384 {
@@ -502,6 +529,33 @@ mod tests {
             max,
             pre,
             pre + amount + fee,
+        )
+        .unwrap()
+    }
+
+    fn authorized() -> AuthorizedCashTransferV1 {
+        let transfer = CoinTransfer::new(
+            PrincipalId::new(digest(2)),
+            PrincipalId::new(digest(4)),
+            vec![CoinCellId::new(digest(5))],
+            CoinCellId::new(digest(6)),
+            10,
+            1,
+            10,
+        )
+        .unwrap();
+        let request = CashAuthorizationRequestV1::new(
+            ChainId::new(digest(1)),
+            PrincipalId::new(digest(2)),
+            0,
+            digest(3),
+            10,
+            transfer,
+        )
+        .unwrap();
+        AuthorizedCashTransferV1::new(
+            request,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2_420]).unwrap(),
         )
         .unwrap()
     }
@@ -533,6 +587,29 @@ mod tests {
         let proof = prove_session_budget_bound(&admission, authorization).unwrap();
         assert!(verify_proof(proof, public_inputs(&admission, substituted).unwrap()).is_err());
         assert_eq!(authorization.len(), AUTHORIZATION_LIMBS);
+    }
+
+    #[test]
+    fn authorized_transfer_fields_must_match_the_session_witness() {
+        let authorized = authorized();
+        assert!(verify_authorized_witness_binding(&witness(10, 1, 0, 100), &authorized).is_ok());
+        assert!(verify_authorized_witness_binding(&witness(9, 1, 0, 100), &authorized).is_err());
+
+        let wrong_chain = CashSessionAdmissionWitnessV1::new(
+            ChainId::new(digest(9)),
+            PrincipalId::new(digest(2)),
+            digest(3),
+            5,
+            1,
+            10,
+            10,
+            1,
+            100,
+            0,
+            11,
+        )
+        .unwrap();
+        assert!(verify_authorized_witness_binding(&wrong_chain, &authorized).is_err());
     }
 
     #[test]
