@@ -101,6 +101,7 @@ const ROUND_INGRESS_FILE: &str = "cash-ingress.snapshot";
 const ROUND_EXECUTION_FILE: &str = "execution.snapshot";
 const ROUND_CASH_FILE: &str = "finalized-cash.snapshot";
 const ROUND_FINALITY_FILE: &str = "finality.bundle";
+const ROUND_HEADER_FILE: &str = "finalized-header.bin";
 const ROUND_HEIGHT_FILE: &str = "height";
 const ROUND_ACTIONS_FILE: &str = "cash-actions.batch";
 
@@ -130,6 +131,7 @@ fn remove_round_directory(path: &Path) -> std::io::Result<()> {
         ROUND_EXECUTION_FILE,
         ROUND_CASH_FILE,
         ROUND_FINALITY_FILE,
+        ROUND_HEADER_FILE,
         ROUND_HEIGHT_FILE,
         ROUND_ACTIONS_FILE,
     ] {
@@ -153,6 +155,7 @@ fn materialize_committed_cash_round(
     let execution = std::fs::read(committed.join(ROUND_EXECUTION_FILE))?;
     let cash = std::fs::read(committed.join(ROUND_CASH_FILE))?;
     let finality = std::fs::read(committed.join(ROUND_FINALITY_FILE))?;
+    let header = std::fs::read(committed.join(ROUND_HEADER_FILE))?;
     let height_bytes = std::fs::read(committed.join(ROUND_HEIGHT_FILE))?;
     let height = u64::from_be_bytes(
         height_bytes
@@ -167,12 +170,16 @@ fn materialize_committed_cash_round(
         .map_err(|_| std::io::Error::other("cash round journal cash snapshot is malformed"))?;
     let decoded_finality: FinalityCertificateBundle = decode_envelope(&finality)
         .map_err(|_| std::io::Error::other("cash round journal finality is malformed"))?;
+    let decoded_header: FinalizedBlockHeader = decode_envelope(&header)
+        .map_err(|_| std::io::Error::other("cash round journal header is malformed"))?;
     if encode_envelope(&decoded_ingress).map_err(|_| "journal ingress encoding failed")? != ingress
         || encode_envelope(&decoded_execution).map_err(|_| "journal execution encoding failed")?
             != execution
         || encode_envelope(&decoded_cash).map_err(|_| "journal cash encoding failed")? != cash
         || encode_envelope(&decoded_finality).map_err(|_| "journal finality encoding failed")?
             != finality
+        || encode_envelope(&decoded_header).map_err(|_| "journal header encoding failed")? != header
+        || decoded_header != decoded_finality.header()
         || decoded_execution.height() != height
         || decoded_cash.finalized_height != height
         || decoded_finality.header().inputs.height != height
@@ -200,34 +207,49 @@ fn materialize_committed_cash_round(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn commit_cash_round_transaction(
+fn stage_cash_round_transaction(
     execution_path: &Path,
-    cash_ledger_path: &Path,
-    cash_snapshot_path: &Path,
-    finality_path: &Path,
     cash_actions_path: Option<&Path>,
     height: u64,
     ingress: &[u8],
     execution: &[u8],
     cash: &[u8],
-    finality: &[u8],
+    header: &[u8],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (staging, committed) = round_journal_paths(execution_path);
     if committed.exists() {
         return Err(std::io::Error::other("a committed cash round requires recovery").into());
     }
     if staging.exists() {
-        remove_round_directory(&staging)?;
+        return Err(std::io::Error::other("a staged cash round requires recovery").into());
     }
     std::fs::create_dir(&staging)?;
     write_synced(&staging.join(ROUND_INGRESS_FILE), ingress)?;
     write_synced(&staging.join(ROUND_EXECUTION_FILE), execution)?;
     write_synced(&staging.join(ROUND_CASH_FILE), cash)?;
-    write_synced(&staging.join(ROUND_FINALITY_FILE), finality)?;
+    write_synced(&staging.join(ROUND_HEADER_FILE), header)?;
     write_synced(&staging.join(ROUND_HEIGHT_FILE), &height.to_be_bytes())?;
     if let Some(path) = cash_actions_path {
         write_synced(&staging.join(ROUND_ACTIONS_FILE), &std::fs::read(path)?)?;
     }
+    std::fs::File::open(&staging)?.sync_all()?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn commit_staged_cash_round_transaction(
+    execution_path: &Path,
+    cash_ledger_path: &Path,
+    cash_snapshot_path: &Path,
+    finality_path: &Path,
+    cash_actions_path: Option<&Path>,
+    finality: &[u8],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (staging, committed) = round_journal_paths(execution_path);
+    if committed.exists() || !staging.is_dir() {
+        return Err(std::io::Error::other("cash round staging state is invalid").into());
+    }
+    write_synced(&staging.join(ROUND_FINALITY_FILE), finality)?;
     std::fs::File::open(&staging)?.sync_all()?;
     std::fs::rename(&staging, &committed)?;
     if let Some(parent) = committed.parent() {
@@ -247,6 +269,10 @@ const MAX_CASH_ROUND_ACTIONS: usize = 32;
 
 fn load_cash_action_batch(path: &Path) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
     let bytes = std::fs::read(path)?;
+    parse_cash_action_batch(&bytes)
+}
+
+fn parse_cash_action_batch(bytes: &[u8]) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
     let mut offset = 0_usize;
     let mut actions = Vec::new();
     while offset < bytes.len() {
@@ -265,6 +291,180 @@ fn load_cash_action_batch(path: &Path) -> Result<Vec<Vec<u8>>, Box<dyn std::erro
         offset += length;
     }
     Ok(actions)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn recover_staged_cash_round(
+    service: &ValidatorService,
+    signer: &activechain_consensus_runtime::ValidatorSigner,
+    genesis: &ValidatorGenesis,
+    chain_id: ChainId,
+    gateway: &WalletTransactionGateway,
+    execution_state: &ChainState,
+    execution_path: &Path,
+    cash_ledger_path: &Path,
+    cash_snapshot_path: &Path,
+    finality_path: &Path,
+    cash_actions_path: Option<&Path>,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    let (staging, _) = round_journal_paths(execution_path);
+    if !staging.exists() {
+        return Ok(false);
+    }
+    let height_bytes = std::fs::read(staging.join(ROUND_HEIGHT_FILE))?;
+    let height = u64::from_be_bytes(
+        height_bytes
+            .try_into()
+            .map_err(|_| std::io::Error::other("staged cash round height is malformed"))?,
+    );
+    let header_bytes = std::fs::read(staging.join(ROUND_HEADER_FILE))?;
+    let header: FinalizedBlockHeader = decode_envelope(&header_bytes)
+        .map_err(|_| std::io::Error::other("staged finalized header is malformed"))?;
+    if encode_envelope(&header).map_err(|_| "staged header encoding failed")? != header_bytes
+        || header.inputs.chain_id != chain_id
+        || header.inputs.height != height
+    {
+        return Err(std::io::Error::other("staged finalized header context is invalid").into());
+    }
+    let digest = header.digest().map_err(|_| "staged finalized header digest failed")?;
+    let Some(certified) = service
+        .certified_block(digest)
+        .map_err(|error| format!("staged certificate lookup failed: {error:?}"))?
+    else {
+        remove_round_directory(&staging)?;
+        return Ok(false);
+    };
+    if execution_state.height().checked_add(1) != Some(height) {
+        return Err(std::io::Error::other("staged execution height is not the next state").into());
+    }
+    let action_member = staging.join(ROUND_ACTIONS_FILE);
+    let prepared = if action_member.exists() {
+        Some(
+            gateway
+                .prepare_envelope_batch(
+                    &parse_cash_action_batch(&std::fs::read(action_member)?)?,
+                    height,
+                )
+                .map_err(|error| format!("staged cash actions no longer admit: {error:?}"))?,
+        )
+    } else {
+        None
+    };
+    let expected_ingress = prepared
+        .as_ref()
+        .map_or_else(
+            || gateway.encoded_ingress_snapshot(),
+            |prepared| prepared.encoded_ingress_snapshot(),
+        )
+        .map_err(|_| std::io::Error::other("staged cash ingress encoding failed"))?;
+    if expected_ingress != std::fs::read(staging.join(ROUND_INGRESS_FILE))? {
+        return Err(std::io::Error::other("staged cash ingress does not rederive").into());
+    }
+    let ledger = prepared.as_ref().map_or(gateway.ledger(), |prepared| prepared.ledger());
+    let snapshot =
+        FinalizedCashSnapshot::new(genesis.genesis_commitment(), height, ledger.cells().clone())?;
+    if encode_envelope(&snapshot).map_err(|_| "staged cash snapshot encoding failed")?
+        != std::fs::read(staging.join(ROUND_CASH_FILE))?
+    {
+        return Err(std::io::Error::other("staged cash snapshot does not rederive").into());
+    }
+    let block = DevnetBlock::new(
+        chain_id,
+        height,
+        execution_state.head_block_id(),
+        commit_objects(execution_state.objects().objects())
+            .map_err(|_| std::io::Error::other("execution object root failed"))?,
+        execution_state
+            .commitment()
+            .map_err(|_| std::io::Error::other("execution state commitment failed"))?,
+        Vec::new(),
+    )
+    .map_err(|_| std::io::Error::other("staged execution block construction failed"))?;
+    let pre_root =
+        prepared.as_ref().map_or(snapshot.cash_cell_root, |prepared| prepared.pre_cash_cell_root());
+    let action_ids =
+        prepared.as_ref().map_or_else(Vec::new, |prepared| prepared.action_ids().to_vec());
+    let supply = gateway.ledger().supply().current_total_supply();
+    let draft = PreparedDirectFinalizedBlock::new(
+        execution_state,
+        &block,
+        genesis.epoch(),
+        genesis.protocol_revision(),
+        genesis.validator_set_root(),
+        supply,
+        0,
+        0,
+        pre_root,
+        &action_ids,
+        snapshot.cash_cell_root,
+        1,
+        1,
+        signer.validator(),
+    )
+    .map_err(|_| std::io::Error::other("staged finalized draft does not rederive"))?;
+    if draft.header() != &header
+        || encode_envelope(draft.next_state()).map_err(|_| "staged execution encoding failed")?
+            != std::fs::read(staging.join(ROUND_EXECUTION_FILE))?
+    {
+        return Err(std::io::Error::other("staged finalized draft components do not match").into());
+    }
+    let authorization_path = execution_path.with_extension("authorization");
+    let authorization_store = if authorization_path.exists() {
+        let store = AuthorizationReplayStore::load(authorization_path)?;
+        if store.chain_genesis_commitment() != genesis.genesis_commitment()
+            || store.epoch() != genesis.epoch()
+        {
+            return Err(std::io::Error::other("authorization replay context changed").into());
+        }
+        store
+    } else {
+        AuthorizationReplayStore::new(
+            authorization_path,
+            genesis.genesis_commitment(),
+            genesis.epoch(),
+        )
+        .map_err(|_| std::io::Error::other("authorization replay store construction failed"))?
+    };
+    let admitted = draft
+        .into_candidate(certified.certificate().clone(), certified.votes().to_vec())
+        .admit(
+            execution_state,
+            genesis.genesis_commitment(),
+            genesis.epoch(),
+            genesis.protocol_revision(),
+            genesis.validator_set_root(),
+            supply,
+            0,
+            0,
+            pre_root,
+            &action_ids,
+            snapshot.cash_cell_root,
+            &authorization_store,
+            &GenesisBackedFinalizedBlockVerifier::new(
+                genesis.clone(),
+                CashOnlyFinalizedBlockVerifier,
+            ),
+        )
+        .map_err(|error| format!("staged finalized admission failed: {error:?}"))?;
+    if admitted.header != header {
+        return Err(std::io::Error::other("staged admitted header changed").into());
+    }
+    let bundle = FinalityCertificateBundle::new(
+        header,
+        genesis.clone(),
+        certified.certificate().clone(),
+        certified.votes().to_vec(),
+    )
+    .map_err(|_| std::io::Error::other("staged finality bundle construction failed"))?;
+    commit_staged_cash_round_transaction(
+        execution_path,
+        cash_ledger_path,
+        cash_snapshot_path,
+        finality_path,
+        cash_actions_path,
+        &encode_envelope(&bundle).map_err(|_| "staged finality encoding failed")?,
+    )?;
+    Ok(true)
 }
 
 fn kanalen_finalized_header(
@@ -401,12 +601,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )?;
         }
     }
-    let authoritative_cash = cash_ledger
+    let mut authoritative_cash = cash_ledger
         .map(Path::new)
         .zip(chain_id)
         .map(|(path, chain)| load_authoritative_cash_gateway(path, chain))
         .transpose()?;
-    let execution_state = execution_state_path
+    let mut execution_state = execution_state_path
         .map(Path::new)
         .zip(chain_id)
         .map(|(path, chain)| load_or_create_execution_state(path, chain))
@@ -490,6 +690,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
                 .map_err(|error| format!("validator service configuration failed: {error:?}"))?,
             );
+            if let (
+                Some(chain),
+                Some(execution_path),
+                Some(cash_ledger_path),
+                Some(cash_snapshot_path),
+                Some(finality_path),
+                Some(gateway),
+                Some(execution),
+            ) = (
+                chain_id,
+                execution_state_path,
+                cash_ledger,
+                finalized_cash_out,
+                finality_out,
+                authoritative_cash.as_ref(),
+                execution_state.as_ref(),
+            ) {
+                if recover_staged_cash_round(
+                    &service,
+                    &signer,
+                    genesis,
+                    chain,
+                    gateway,
+                    execution,
+                    Path::new(execution_path),
+                    Path::new(cash_ledger_path),
+                    Path::new(cash_snapshot_path),
+                    Path::new(finality_path),
+                    cash_actions.map(Path::new),
+                )? {
+                    authoritative_cash =
+                        Some(load_authoritative_cash_gateway(Path::new(cash_ledger_path), chain)?);
+                    execution_state =
+                        Some(load_or_create_execution_state(Path::new(execution_path), chain)?);
+                }
+            }
             let listener_thread_service = std::sync::Arc::clone(&service);
             let listener_thread_signer = std::sync::Arc::clone(&signer);
             std::thread::spawn(move || {
@@ -642,6 +878,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .map_err(|_| std::io::Error::other("canonical finalized cash draft construction failed").into())
                 })
                 .transpose()?;
+            if let Some(draft) = publication_draft.as_ref() {
+                let ingress_bytes = prepared_cash.as_ref().map_or_else(
+                    || {
+                        authoritative_cash
+                            .as_ref()
+                            .ok_or("authoritative cash gateway disappeared")?
+                            .encoded_ingress_snapshot()
+                            .map_err(|_| "cash ingress encoding failed")
+                    },
+                    |prepared| {
+                        prepared
+                            .encoded_ingress_snapshot()
+                            .map_err(|_| "prepared cash ingress encoding failed")
+                    },
+                )?;
+                stage_cash_round_transaction(
+                    Path::new(execution_state_path.unwrap()),
+                    cash_actions.map(Path::new),
+                    next_height,
+                    &ingress_bytes,
+                    &encode_envelope(draft.next_state())
+                        .map_err(|_| "execution state encoding failed")?,
+                    &encode_envelope(cash_snapshot.as_ref().unwrap())
+                        .map_err(|_| "finalized cash snapshot encoding failed")?,
+                    &encode_envelope(draft.header())
+                        .map_err(|_| "finalized header encoding failed")?,
+                )?;
+            }
             let block_digest = match publication_draft.as_ref() {
                 Some(draft) => draft
                     .header()
@@ -737,41 +1001,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     certified.votes().to_vec(),
                 )
                 .map_err(|_| "certified Kanalen finality bundle is invalid")?;
-                let ingress_bytes = prepared_cash.as_ref().map_or_else(
-                    || {
-                        authoritative_cash
-                            .as_ref()
-                            .ok_or("authoritative cash gateway disappeared")?
-                            .encoded_ingress_snapshot()
-                            .map_err(|_| "cash ingress encoding failed")
-                    },
-                    |prepared| {
-                        prepared
-                            .encoded_ingress_snapshot()
-                            .map_err(|_| "prepared cash ingress encoding failed")
-                    },
-                )?;
-                let execution_bytes = encode_envelope(&admitted.next_state)
-                    .map_err(|_| "execution state encoding failed")?;
-                let snapshot = cash_snapshot
-                    .as_ref()
-                    .ok_or("authoritative cash snapshot was not materialized")?;
-                let cash_bytes = encode_envelope(snapshot)
-                    .map_err(|_| "finalized cash snapshot encoding failed")?;
                 let finality_bytes =
                     encode_envelope(&bundle).map_err(|_| "finality bundle encoding failed")?;
                 let execution_path =
                     Path::new(execution_state_path.ok_or("execution state path disappeared")?);
-                commit_cash_round_transaction(
+                commit_staged_cash_round_transaction(
                     execution_path,
                     Path::new(cash_ledger.ok_or("cash ledger path disappeared")?),
                     Path::new(cash_path),
                     Path::new(finality_path),
                     cash_actions.map(Path::new),
-                    next_height,
-                    &ingress_bytes,
-                    &execution_bytes,
-                    &cash_bytes,
                     &finality_bytes,
                 )?;
             }
@@ -1127,17 +1366,23 @@ mod tests {
         let finality_path = missing_parent.join("finality.bundle");
         let actions_path = root.join("actions.batch");
         std::fs::write(&actions_path, b"authorized-actions").unwrap();
+        stage_cash_round_transaction(
+            &execution_path,
+            Some(&actions_path),
+            9,
+            &ingress,
+            &execution_bytes,
+            &cash_bytes,
+            &encode_envelope(&bundle.header()).unwrap(),
+        )
+        .unwrap();
         assert!(
-            commit_cash_round_transaction(
+            commit_staged_cash_round_transaction(
                 &execution_path,
                 &cash_path,
                 &snapshot_path,
                 &finality_path,
                 Some(&actions_path),
-                9,
-                &ingress,
-                &execution_bytes,
-                &cash_bytes,
                 &finality_bytes,
             )
             .is_err()
@@ -1164,6 +1409,119 @@ mod tests {
             std::fs::read(root.join("actions.batch.finalized-9")).unwrap(),
             b"authorized-actions"
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn staged_round_recovers_from_durable_consensus_certificate_before_next_round() {
+        let root = std::env::temp_dir()
+            .join(format!("activechain-staged-round-recovery-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir(&root).unwrap();
+        let chain = ChainId::new(Digest384::new([96; 48]));
+        let validator = PrincipalId::new(Digest384::new([97; 48]));
+        let key = SigningKey::<MlDsa44>::from_seed(&Seed::from([98; 32]));
+        let genesis = ValidatorGenesis::new_with_revision(
+            1,
+            1,
+            1,
+            vec![
+                ValidatorGenesisEntry::new(validator, 1, key.verifying_key().encode().into())
+                    .unwrap(),
+            ],
+        )
+        .unwrap();
+        let signer = activechain_consensus_runtime::ValidatorSigner::from_seed(validator, [98; 32]);
+        let execution_path = root.join("execution.snapshot");
+        let cash_path = root.join("cash-ingress.snapshot");
+        let snapshot_path = root.join("finalized-cash.snapshot");
+        let finality_path = root.join("finality.bundle");
+        let gateway =
+            WalletTransactionGateway::from_ledger(cash_ledger(chain), cash_path.clone()).unwrap();
+        let execution = load_or_create_execution_state(&execution_path, chain).unwrap();
+        let block = DevnetBlock::new(
+            chain,
+            1,
+            execution.head_block_id(),
+            commit_objects(execution.objects().objects()).unwrap(),
+            execution.commitment().unwrap(),
+            Vec::new(),
+        )
+        .unwrap();
+        let cash_root =
+            activechain_cash_kernel::authenticated_coin_cell_root(gateway.ledger().cells())
+                .unwrap()
+                .into_digest();
+        let draft = PreparedDirectFinalizedBlock::new(
+            &execution,
+            &block,
+            genesis.epoch(),
+            genesis.protocol_revision(),
+            genesis.validator_set_root(),
+            gateway.ledger().supply().current_total_supply(),
+            0,
+            0,
+            cash_root,
+            &[],
+            cash_root,
+            1,
+            1,
+            validator,
+        )
+        .unwrap();
+        let snapshot = FinalizedCashSnapshot::new(
+            genesis.genesis_commitment(),
+            1,
+            gateway.ledger().cells().clone(),
+        )
+        .unwrap();
+        stage_cash_round_transaction(
+            &execution_path,
+            None,
+            1,
+            &gateway.encoded_ingress_snapshot().unwrap(),
+            &encode_envelope(draft.next_state()).unwrap(),
+            &encode_envelope(&snapshot).unwrap(),
+            &encode_envelope(draft.header()).unwrap(),
+        )
+        .unwrap();
+        let service = ValidatorService::from_active_manifest(
+            ConsensusState::new_with_consensus_context(
+                genesis.epoch(),
+                genesis.validator_set_root(),
+                genesis.protocol_revision(),
+            )
+            .unwrap(),
+            &genesis,
+            genesis.genesis_commitment(),
+            root.join("validator.snapshot"),
+        )
+        .unwrap();
+        service.propose_round(&signer, 1, 0, draft.header().digest().unwrap(), 1).unwrap();
+        assert!(service.certified_block(draft.header().digest().unwrap()).unwrap().is_some());
+        assert!(
+            recover_staged_cash_round(
+                &service,
+                &signer,
+                &genesis,
+                chain,
+                &gateway,
+                &execution,
+                &execution_path,
+                &cash_path,
+                &snapshot_path,
+                &finality_path,
+                None,
+            )
+            .unwrap()
+        );
+        assert_eq!(load_or_create_execution_state(&execution_path, chain).unwrap().height(), 1);
+        assert_eq!(
+            load_authoritative_cash_gateway(&cash_path, chain).unwrap().ledger().cells(),
+            gateway.ledger().cells()
+        );
+        assert!(snapshot_path.is_file());
+        assert!(finality_path.is_file());
         std::fs::remove_dir_all(root).unwrap();
     }
 
