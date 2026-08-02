@@ -26,3 +26,19 @@ native asset type. The object `type_id` commits to the query kind and canonical 
 the finalized header's `post_state`. Supply attestations and settlement receipts additionally bind
 their own finalized height to the record height. A caller cannot relabel one asset record family as
 another or substitute metadata while retaining a valid proof.
+
+## Finalized multi-asset ledger anchor
+
+`AssetLedgerAnchorV1` is the canonical state-object value that commits the complete
+`MultiAssetLedgerSnapshotV1`: every fungible Coin Cell and the strictly ordered policy registry.
+`FinalizedAssetLedgerSnapshot` is accepted only after the trusted-genesis finality bundle proves
+the named height and post-state, a sparse state-tree membership proof authenticates the exact
+anchor object in that post-state, the object type and `value_root` bind the canonical anchor, and
+the anchor commitment matches the supplied complete ledger. Ledger construction independently
+requires every cell to resolve to a policy and every policy supply to equal its checked cell total.
+
+The joined ledger, anchor object, membership proof, and finality evidence are persisted together
+and fully reverified on restart. Wrong genesis/height, object or policy substitution, malformed
+membership, corruption, and failed writes are fail-closed. This establishes the authenticated
+state target for versioned validator issuer-action admission; it does not by itself claim that the
+current transfer-only action envelope executes mint, burn, redemption, or corporate actions.

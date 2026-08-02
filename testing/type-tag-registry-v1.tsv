@@ -272,3 +272,5 @@
 0x018B	1	PaymentFeeSponsorRequestV1	crates/payment-types/src/lib.rs
 0x018C	1	FeeSponsorshipJournalV1	crates/payment-connector-host/src/lib.rs
 0x018D	1	PaymentFinalizedRefundV1	crates/payment-types/src/lib.rs
+0x018E	1	AssetLedgerAnchorV1	crates/application-primitives/src/fungible_transfer.rs
+0x018F	1	FinalizedAssetLedgerSnapshot	crates/consensus-runtime/src/asset_state.rs

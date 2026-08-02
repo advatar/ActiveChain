@@ -52,9 +52,9 @@ pub use controller_rotation::{
 pub use corporate_action::{CorporateActionPersistenceError, DurableCorporateActionRegistry};
 #[cfg(feature = "std")]
 pub use fungible_transfer::{
-    DurableFungibleAssetLedger, DurableFungibleTransferLedger, DurableMultiAssetLedger,
-    FungibleAssetLedgerSnapshotV1, FungibleTransferPersistenceError, MAX_FUNGIBLE_ASSET_POLICIES,
-    MultiAssetLedgerSnapshotV1,
+    AssetLedgerAnchorV1, DurableFungibleAssetLedger, DurableFungibleTransferLedger,
+    DurableMultiAssetLedger, FungibleAssetLedgerSnapshotV1, FungibleTransferPersistenceError,
+    MAX_FUNGIBLE_ASSET_POLICIES, MultiAssetLedgerSnapshotV1, asset_ledger_anchor_type_id,
 };
 #[cfg(feature = "std")]
 pub use holder_control::{

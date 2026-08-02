@@ -5,8 +5,10 @@ use activechain_canonical_codec::{
 use activechain_cash_kernel::{
     FungibleBurnV1, FungibleCoinCellSet, FungibleMintV1, FungibleRedemptionV1, FungibleTransferV1,
 };
+use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
-    AssetId, FungibleAssetPolicyV1, FungibleHolderControlStateV1, FungibleIssuerApprovalV1, Height,
+    AssetId, Digest384, FungibleAssetPolicyV1, FungibleHolderControlStateV1,
+    FungibleIssuerApprovalV1, Height,
 };
 use std::{
     io::Write,
@@ -15,6 +17,76 @@ use std::{
 };
 
 pub const MAX_FUNGIBLE_ASSET_POLICIES: usize = 4096;
+
+/// Canonical public state-tree value authenticating one complete multi-asset ledger.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AssetLedgerAnchorV1 {
+    finalized_height: Height,
+    ledger_commitment: Digest384,
+}
+
+impl AssetLedgerAnchorV1 {
+    pub const TYPE_TAG: u16 = 0x018E;
+
+    pub fn new(
+        finalized_height: Height,
+        ledger_commitment: Digest384,
+    ) -> Result<Self, FungibleTransferPersistenceError> {
+        if finalized_height == 0 || ledger_commitment == Digest384::ZERO {
+            return Err(FungibleTransferPersistenceError::InvalidState);
+        }
+        Ok(Self { finalized_height, ledger_commitment })
+    }
+
+    pub fn from_ledger(
+        finalized_height: Height,
+        ledger: &MultiAssetLedgerSnapshotV1,
+    ) -> Result<Self, FungibleTransferPersistenceError> {
+        let ledger_commitment = commit(DomainTag::CANONICAL_VALUE, ledger)
+            .map_err(|_| FungibleTransferPersistenceError::InvalidState)?;
+        Self::new(finalized_height, ledger_commitment)
+    }
+
+    pub const fn finalized_height(self) -> Height {
+        self.finalized_height
+    }
+    pub const fn ledger_commitment(self) -> Digest384 {
+        self.ledger_commitment
+    }
+
+    pub fn commitment(&self) -> Result<Digest384, FungibleTransferPersistenceError> {
+        commit(DomainTag::CANONICAL_VALUE, self)
+            .map_err(|_| FungibleTransferPersistenceError::InvalidState)
+    }
+}
+
+impl CanonicalEncode for AssetLedgerAnchorV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.finalized_height.encode(encoder)?;
+        self.ledger_commitment.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for AssetLedgerAnchorV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(u64::decode(decoder)?, Digest384::decode(decoder)?)
+            .map_err(|_| DecodeError::InvalidValue("invalid asset ledger anchor"))
+    }
+}
+
+impl CanonicalType for AssetLedgerAnchorV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 56;
+}
+
+#[must_use]
+pub const fn asset_ledger_anchor_type_id() -> Digest384 {
+    let mut bytes = [0_u8; 48];
+    bytes[46] = 0x01;
+    bytes[47] = 0x8E;
+    Digest384::new(bytes)
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FungibleTransferPersistenceError {
