@@ -1568,7 +1568,7 @@ Tracked by [GitHub issue #42](https://github.com/advatar/ActiveChain/issues/42).
 
 Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
 
-- [ ] Recover and reconcile the unpublished consensus-safety and authorization-chain proof work
+- [x] Recover and reconcile the unpublished consensus-safety and authorization-chain proof work
   against current `origin/main`
   ([GitHub issue #127](https://github.com/advatar/ActiveChain/issues/127)).
 - [x] Prove the initial wallet-agent HITL and replay properties in Tamarin.
@@ -1670,7 +1670,7 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
     checked addition, and forward branch selection. Full verifier-to-interpreter composition and
     whole-run determinism remain outside this bounded result after the corresponding 180-second
     Kani queries timed out without a counterexample.
-- [ ] Add TLA+ consensus/reconfiguration/crash models, Verus refinement proofs, and Kani bounded
+- [x] Add TLA+ consensus/reconfiguration/crash models, Verus refinement proofs, and Kani bounded
   checks for decoders, arithmetic, persistence, FFI, and network admission.
   - [x] Pin TLA+ tools and exhaustively check the first finite consensus safety model on the local
     runner.
