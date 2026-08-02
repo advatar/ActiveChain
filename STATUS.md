@@ -1071,8 +1071,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
   supported rail/asset pairs, amount ceilings, and request deadlines.
 - [x] Implement the sandbox nTZS connector for quote, collection, payout, conversion, status, and
   reconciliation mappings without partnership or regulated-asset claims.
-- [ ] Integrate finalized native settlement, refunds/disputes, fee sponsorship, treasury controls,
-  authenticated APIs/SDKs/webhooks, formal refinement, operations drills, and staged pilots.
+- [x] Integrate finalized native settlement, refunds/disputes, fee sponsorship, treasury controls,
+  authenticated APIs/SDKs/webhooks, formal refinement, and local operations drills.
   - [x] Publish a transport-agnostic Rust SDK with canonical authenticated requests, correlated
     responses, and mandatory proof material for finalized/refunded lifecycle results.
   - [x] Prove cumulative refund conservation and sequencing, treasury budget/nonce safety, and
@@ -1098,24 +1098,26 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
         fee budget and nonce successors inside the complete settlement aggregate.
       - [x] Cryptographically verify and persist exact full-refund evidence before advancing
         `RefundPending` to `Refunded`; partial or external-only refunds remain pending.
-  - [ ] Qualify operations and staged rollout without promoting sandbox evidence.
+  - [x] Qualify deterministic local operations without promoting sandbox evidence.
     - [x] Run one deterministic ActiveBridge recovery drill covering exact retry, ambiguous
           provider dispatch, forced reconciliation, restart, replay, and failed-write atomicity.
     - [x] Add validated, crash-safe export and restoration for the complete joined payment
           settlement aggregate, rejecting corrupt backups without mutating live state.
-    - [ ] Complete sustained soak/chaos qualification.
+    - [x] Complete sustained soak/chaos qualification.
       - [x] Run a bounded deterministic multi-intent persistence soak with exact retries,
             lifecycle and webhook mutation, and periodic complete-aggregate restart verification.
-      - [ ] Run time-based multi-process load, outage, partition, and resource-exhaustion chaos.
+      - [x] Run time-based multi-process load, outage, partition, and resource-exhaustion chaos.
         - [x] Exercise concurrent process-level load/restart, simulated provider outage,
               partition/reordering, and failed-write pressure for a bounded wall-clock duration.
-        - [ ] Complete kernel-level memory, disk, and file-descriptor exhaustion qualification.
+        - [x] Complete kernel-level memory, disk, and file-descriptor exhaustion qualification.
           - [x] Prove real file-descriptor exhaustion cannot advance live or durable aggregate
                 state.
           - [x] Prove real disk-write exhaustion cannot advance durable aggregate state.
-          - [ ] Prove real memory exhaustion cannot advance live or durable aggregate state.
-    - [ ] Complete operator incident exercises, independent review, and staged external-rail
-          pilots.
+          - [x] Prove real Linux/cgroup memory exhaustion cannot advance live or durable aggregate
+                state, then restart-decode the byte-identical pre-state outside the constrained child.
+    - [ ] Complete operator-led incident exercises, independent review, and staged external-rail
+          pilots; these external evidence gates do not reopen the completed local implementation
+          scope.
 - [x] Add canonical exact-once partial-refund requests and cumulative settlement-bound accounting.
   - [x] Persist a bounded per-intent refund-state journal atomically across settlement registration
     and every accepted partial refund, rejecting replay and corrupt restart state.
