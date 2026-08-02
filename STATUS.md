@@ -1296,7 +1296,7 @@ Tracked by [GitHub issue #169](https://github.com/advatar/ActiveChain/issues/169
 
 Detailed remaining implementation slices:
 
-- [ ] Production OpenID4VP transport and live trust/status adapters
+- [x] Production OpenID4VP transport and live trust/status adapters
   ([GitHub issue #562](https://github.com/advatar/ActiveChain/issues/562)).
 - [x] TLS evidence proof-of-funds predicate circuits
   ([GitHub issue #563](https://github.com/advatar/ActiveChain/issues/563)).

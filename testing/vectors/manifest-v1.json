@@ -138,6 +138,14 @@
       "source": "pq-zk/private-identity-v1.txt",
       "sha256": "bf63bbc00070a49e6f7f9ac1b62e6052c16c04e0a9659ba125efd641c45a8489",
       "status": "valid"
+    },
+    {
+      "id": "openid4vp-transport-v1",
+      "type_tag": "0x01A2-0x01A6",
+      "schema_version": 1,
+      "source": "openid4vp-transport-v1.tsv",
+      "sha256": "33769dff63c1acf6e72100c3fbeb2b0c5805ef8bee8f12f1ae098d1d4daad924",
+      "status": "valid"
     }
   ],
   "malformed_cases": [

@@ -10,6 +10,7 @@ mod agent_enrollment;
 mod agent_management;
 mod cash_authorization;
 mod cash_persistence;
+mod openid4vp;
 mod openwallet;
 mod presentation_consent;
 mod subject_association;
@@ -35,6 +36,12 @@ pub use cash_authorization::{
 };
 pub use cash_persistence::{
     FinalizedIdentityKeyProof, FinalizedIdentityKeyVerifier, authenticator_set_root,
+};
+pub use openid4vp::{
+    LiveTrustStatusAnchorV1, MAX_OPENID4VP_TRANSPORT_SESSIONS, OpenId4VpBoundedResponseV1,
+    OpenId4VpLiveResolver, OpenId4VpTransportRequestV1, OpenId4VpTransportSnapshotV1,
+    OpenId4VpTransportStateV1, PinnedVerifierMetadataV1, bind_openwallet_request,
+    resolve_live_context,
 };
 pub use openwallet::{
     CredentialFormat, IssuanceSessionState, OpenWalletAdapterV1, OpenWalletConsentV1,
