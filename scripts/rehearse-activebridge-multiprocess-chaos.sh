@@ -35,7 +35,11 @@ run_worker() {
   local deadline=$((SECONDS + duration_seconds))
   local iterations=0
   while (( SECONDS < deadline )); do
-    "$test_binary" "$test_name" --exact --test-threads=1 >/dev/null
+    if [[ "$mode" == "fd-exhaustion" ]]; then
+      (ulimit -n 128 && "$test_binary" "$test_name" --exact --test-threads=1 >/dev/null)
+    else
+      "$test_binary" "$test_name" --exact --test-threads=1 >/dev/null
+    fi
     iterations=$((iterations + 1))
   done
   if (( iterations == 0 )); then
@@ -53,6 +57,7 @@ modes=(
   "outage:simulator::tests::contract_suite_covers_success_rejection_reversal_and_unknown"
   "partition:simulator::tests::invalid_terminal_edges_and_sequence_faults_fail_closed"
   "write-pressure:tests::settlement_state_rejects_partial_state_and_failed_atomic_write"
+  "fd-exhaustion:tests::file_descriptor_exhaustion_cannot_advance_live_or_durable_settlement_state"
 )
 
 pids=()
@@ -82,5 +87,5 @@ for result in "$work_directory"/*.result; do
   total_iterations=$((total_iterations + iterations))
 done
 
-printf '{"schema":"activechain-activebridge-multiprocess-chaos-v1","duration_seconds":%s,"workers_per_mode":%s,"modes":4,"processes":%s,"iterations":%s,"result":"passed"}\n' \
-  "$duration_seconds" "$workers_per_mode" "$((workers_per_mode * 4))" "$total_iterations"
+printf '{"schema":"activechain-activebridge-multiprocess-chaos-v1","duration_seconds":%s,"workers_per_mode":%s,"modes":5,"processes":%s,"iterations":%s,"result":"passed"}\n' \
+  "$duration_seconds" "$workers_per_mode" "$((workers_per_mode * 5))" "$total_iterations"
