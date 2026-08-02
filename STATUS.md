@@ -1610,6 +1610,9 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
     - [x] Cover valid chains, malformed/stale/conflicting proposals, serialization, and restart recovery with tests.
   - [ ] Prove any two finalized histories are prefix-comparable, including view changes, epoch
     changes, and restart recovery.
+    - [x] Prove the abstract history-lifting theorem: consensus-supplied comparable finalized tips
+          yield prefix-comparable full histories, durable restart preserves the exact history, and
+          an epoch change remains a parent-bound extension; production trace refinement remains.
   - [x] Verify canonical signer ordering, vote-set-root recomputation, and checked stake arithmetic
     at the Rust QC boundary.
 - [x] Prove abstract cash conservation, authorized issuance, burn, and reward no-double-mint properties in Lean.
