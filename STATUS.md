@@ -681,6 +681,8 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
 - [x] Load a real device wallet profile and remove the hard-coded unavailable dashboard path;
   balances remain fail-closed until the linked verifier accepts finalized owner proofs.
 - [ ] Extend Kanalen ingestion/rehearsal, add adversarial tests, deploy, and verify the public RPC.
+  - [x] Repair canonical schema-5 validator safety-snapshot migration so the live chain can retain
+    its consensus state while adopting schema-6 view-change and timeout fields.
 - [x] Verify the currently deployed Kanalen testnet independently over localhost on the host:
   chain/genesis identity matches, finalized height advances to 4168, and health reports `Healthy`.
 - [x] Deploy the schema-2 RPC binary and matching probe without changing validator binaries or
