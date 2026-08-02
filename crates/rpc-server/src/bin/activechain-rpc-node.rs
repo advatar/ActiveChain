@@ -8,6 +8,7 @@ use activechain_rpc_server::{
 use activechain_rpc_types::RpcAccessMode;
 use ml_dsa::{MlDsa44, Seed, SigningKey};
 use std::{
+    collections::BTreeSet,
     env,
     net::TcpListener,
     path::PathBuf,
@@ -177,7 +178,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         server
     };
+    let finality_archive =
+        env::var_os("ACTIVECHAIN_FAUCET_FINALITY_ARCHIVE_DIR").map(PathBuf::from);
+    let mut reconciled_archives = BTreeSet::new();
     loop {
+        if let Some(directory) = finality_archive.as_ref() {
+            reconcile_faucet_archives(&server, directory, &mut reconciled_archives)?;
+        }
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|_| "system clock predates Unix epoch")?
@@ -186,6 +193,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("RPC request rejected: {error:?}");
         }
     }
+}
+
+fn reconcile_faucet_archives(
+    server: &RpcServer,
+    directory: &PathBuf,
+    reconciled: &mut BTreeSet<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for entry in std::fs::read_dir(directory)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(height) = name.strip_prefix("pending-cash-actions.batch.finalized-") else {
+            continue;
+        };
+        if reconciled.contains(&name) {
+            continue;
+        }
+        let finality = directory.join(format!("finality.bundle.finalized-{height}"));
+        if !finality.is_file() {
+            continue;
+        }
+        let batch = std::fs::read(entry.path())?;
+        let proof = std::fs::read(finality)?;
+        server
+            .reconcile_faucet_finality(&batch, &proof)
+            .map_err(|error| format!("could not reconcile faucet archive {name}: {error:?}"))?;
+        reconciled.insert(name);
+    }
+    Ok(())
 }
 
 enum FaucetIngress {

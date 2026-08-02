@@ -955,6 +955,70 @@ where
 }
 
 impl RpcServer {
+    /// Reconciles faucet receipts only when the exact cash transaction set is committed by the
+    /// supplied finalized certificate. Wallets still verify the resulting owner Coin Cell proof
+    /// independently before displaying funds.
+    pub fn reconcile_faucet_finality(
+        &self,
+        batch: &[u8],
+        finality: &[u8],
+    ) -> Result<usize, FaucetError> {
+        let faucet = self.faucet.as_ref().ok_or(FaucetError::InvalidTransition)?;
+        let mut offset = 0usize;
+        let mut ids = Vec::new();
+        while offset < batch.len() {
+            if batch.len() - offset < 4 || ids.len() == 32 {
+                return Err(FaucetError::InvalidTransition);
+            }
+            let length = u32::from_be_bytes(
+                batch[offset..offset + 4].try_into().map_err(|_| FaucetError::InvalidTransition)?,
+            ) as usize;
+            offset += 4;
+            if length == 0 || batch.len() - offset < length {
+                return Err(FaucetError::InvalidTransition);
+            }
+            let envelope = &batch[offset..offset + length];
+            offset += length;
+            let transaction = if let Ok(operator) =
+                decode_envelope::<activechain_wallet_core::OperatorFaucetAuthorizationV1>(envelope)
+            {
+                operator.transfer().request().intent_id()
+            } else {
+                decode_envelope::<AuthorizedCashTransferV1>(envelope)
+                    .map_err(|_| FaucetError::InvalidTransition)?
+                    .request()
+                    .intent_id()
+            }
+            .map_err(|_| FaucetError::InvalidTransition)?;
+            ids.push(TransactionId::new(transaction));
+        }
+        let mut committed = Vec::with_capacity(ids.len() * 48);
+        for id in &ids {
+            committed.extend_from_slice(id.digest().as_bytes());
+        }
+        let mut faucet = faucet.write().map_err(|_| FaucetError::Persistence)?;
+        let bundle = activechain_verifier_api::verify_finality_bundle_with_chain_genesis(
+            finality,
+            faucet.policy().genesis_commitment,
+        )
+        .map_err(|_| FaucetError::InvalidFinalityEvidence)?;
+        if commit_parts(b"ACTIVECHAIN-BLOCK-CASH-ACTIONS-V1", &[&committed])
+            != bundle.header().inputs.cash_action_root
+        {
+            return Err(FaucetError::InvalidFinalityEvidence);
+        }
+        let height = bundle.header().inputs.height;
+        let block = bundle.header().digest().map_err(|_| FaucetError::InvalidFinalityEvidence)?;
+        let pending = faucet.pending_transactions();
+        let mut reconciled = 0;
+        for (reference, transaction) in pending {
+            if ids.contains(&transaction) {
+                faucet.finalize_verified(reference, height, block, finality.to_vec())?;
+                reconciled += 1;
+            }
+        }
+        Ok(reconciled)
+    }
     pub fn new(store: Arc<DurableRpcStore>) -> Self {
         Self {
             store,

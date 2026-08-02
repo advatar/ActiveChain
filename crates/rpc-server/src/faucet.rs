@@ -591,6 +591,19 @@ impl DurableFaucet {
             .map(|record| &record.receipt)
     }
 
+    pub fn pending_transactions(&self) -> Vec<(Digest384, TransactionId)> {
+        self.records
+            .iter()
+            .filter_map(|record| {
+                (record.receipt.state() == FaucetState::Pending)
+                    .then(|| {
+                        record.receipt.transaction_id().map(|id| (record.receipt.reference(), id))
+                    })
+                    .flatten()
+            })
+            .collect()
+    }
+
     pub fn finalize(
         &mut self,
         reference: Digest384,
