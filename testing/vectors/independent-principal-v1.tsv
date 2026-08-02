@@ -1,0 +1,7 @@
+case	source	mutation	expected
+canonical	canonical/principal-v1.txt	none	ok
+invalid_kind	canonical/principal-v1.txt	set:48:06	principal_kind
+invalid_freeze	canonical/principal-v1.txt	set:201:03	freeze_state
+update_before_creation	canonical/principal-v1.txt	set_u64:274:41	update_before_creation
+truncated_body	canonical/principal-v1.txt	truncate:1	body_length_mismatch
+trailing_byte	canonical/principal-v1.txt	append:00	trailing_data

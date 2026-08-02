@@ -432,6 +432,8 @@ Tracked by [GitHub issue #345](https://github.com/advatar/ActiveChain/issues/345
   - [ ] Implement M1 semantic verification families independently in Go.
     - [x] Decode and validate canonical envelope framing, minimal length encoding, exact
           tag/schema, bounds, truncation, and trailing-data rejection (#618).
+    - [x] Independently decode Principal v1 bodies and reject invalid kind/freeze tags,
+          temporal inversion, truncation, and trailing bytes (#620).
 
 ## Active milestone — P-060 execution proof system
 

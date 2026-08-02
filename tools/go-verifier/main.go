@@ -5,6 +5,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"flag"
@@ -39,6 +40,9 @@ const (
 	errBodyLimit          envelopeError = "body_limit"
 	errBodyLengthMismatch envelopeError = "body_length_mismatch"
 	errTrailingData       envelopeError = "trailing_data"
+	errPrincipalKind      envelopeError = "principal_kind"
+	errFreezeState        envelopeError = "freeze_state"
+	errUpdateBeforeCreate envelopeError = "update_before_creation"
 )
 
 func canonicalLengthWidth(value uint32) int {
@@ -156,6 +160,123 @@ func verifyCodecVector(v vector) error {
 	return nil
 }
 
+func readNamedHex(path, name string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	s := bufio.NewScanner(f)
+	prefix := name + "="
+	for s.Scan() {
+		if strings.HasPrefix(s.Text(), prefix) {
+			return hex.DecodeString(strings.TrimPrefix(s.Text(), prefix))
+		}
+	}
+	if err := s.Err(); err != nil {
+		return nil, err
+	}
+	return nil, fmt.Errorf("%s: missing %s", path, name)
+}
+
+func mutatePrincipalEnvelope(envelope []byte, mutation string) ([]byte, error) {
+	out := append([]byte(nil), envelope...)
+	if mutation == "none" {
+		return out, nil
+	}
+	if strings.HasPrefix(mutation, "append:") {
+		value, err := hex.DecodeString(strings.TrimPrefix(mutation, "append:"))
+		if err != nil {
+			return nil, err
+		}
+		return append(out, value...), nil
+	}
+	if strings.HasPrefix(mutation, "truncate:") {
+		count, err := strconv.Atoi(strings.TrimPrefix(mutation, "truncate:"))
+		if err != nil || count < 0 || count > len(out) {
+			return nil, fmt.Errorf("invalid truncation %q", mutation)
+		}
+		return out[:len(out)-count], nil
+	}
+	length, width, lengthErr := decodeLength(out[4:])
+	if lengthErr != "" || int(length)+4+width != len(out) {
+		return nil, fmt.Errorf("base principal envelope is not canonical")
+	}
+	bodyStart := 4 + width
+	parts := strings.Split(mutation, ":")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("invalid mutation %q", mutation)
+	}
+	offset, err := strconv.Atoi(parts[1])
+	if err != nil || offset < 0 {
+		return nil, fmt.Errorf("invalid mutation offset %q", parts[1])
+	}
+	switch parts[0] {
+	case "set":
+		value, err := hex.DecodeString(parts[2])
+		if err != nil || len(value) != 1 || bodyStart+offset >= len(out) {
+			return nil, fmt.Errorf("invalid byte mutation %q", mutation)
+		}
+		out[bodyStart+offset] = value[0]
+	case "set_u64":
+		value, err := strconv.ParseUint(parts[2], 10, 64)
+		if err != nil || bodyStart+offset+8 > len(out) {
+			return nil, fmt.Errorf("invalid u64 mutation %q", mutation)
+		}
+		binary.BigEndian.PutUint64(out[bodyStart+offset:bodyStart+offset+8], value)
+	default:
+		return nil, fmt.Errorf("unknown mutation %q", mutation)
+	}
+	return out, nil
+}
+
+func verifyPrincipalEnvelope(input []byte) envelopeError {
+	if _, framingErr := inspectEnvelope(input, 0x0020, 1, 282); framingErr != "" {
+		return framingErr
+	}
+	_, width, _ := decodeLength(input[4:])
+	body := input[4+width:]
+	if len(body) != 282 {
+		return errBodyLengthMismatch
+	}
+	if body[48] > 5 {
+		return errPrincipalKind
+	}
+	if body[201] > 2 {
+		return errFreezeState
+	}
+	created := binary.BigEndian.Uint64(body[266:274])
+	updated := binary.BigEndian.Uint64(body[274:282])
+	if updated < created {
+		return errUpdateBeforeCreate
+	}
+	return ""
+}
+
+func verifyPrincipalVector(path string, v vector) error {
+	if len(v.fields) != 4 {
+		return fmt.Errorf("case %q: expected 4 fields", v.name)
+	}
+	source := filepath.Join(filepath.Dir(path), filepath.FromSlash(v.fields[1]))
+	envelope, err := readNamedHex(source, "envelope_hex")
+	if err != nil {
+		return fmt.Errorf("case %q: %w", v.name, err)
+	}
+	envelope, err = mutatePrincipalEnvelope(envelope, v.fields[2])
+	if err != nil {
+		return fmt.Errorf("case %q: %w", v.name, err)
+	}
+	actual := verifyPrincipalEnvelope(envelope)
+	expected := envelopeError(v.fields[3])
+	if expected == "ok" {
+		expected = ""
+	}
+	if actual != expected {
+		return fmt.Errorf("case %q: expected %q, got %q", v.name, expected, actual)
+	}
+	return nil
+}
+
 func readVectors(path string) ([]vector, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -210,6 +331,11 @@ func verify(path string) (int, error) {
 				return 0, fmt.Errorf("%s: %w", path, err)
 			}
 		}
+		if filepath.Base(path) == "independent-principal-v1.tsv" {
+			if err := verifyPrincipalVector(path, v); err != nil {
+				return 0, fmt.Errorf("%s: %w", path, err)
+			}
+		}
 		if len(v.fields) > 1 && strings.Contains(strings.Join(v.fields, " "), "import") &&
 			strings.HasSuffix(path, "independent-client-conformance-v1.tsv") &&
 			strings.Contains(v.fields[len(v.fields)-2], "accept") {
@@ -245,5 +371,5 @@ func main() {
 	if _, err := hex.DecodeString(strings.Repeat("00", 48)); err != nil {
 		os.Exit(1)
 	}
-	fmt.Printf("M0 + canonical-codec M1 slice PASS: %d published v1 rows across %d vector files\n", total, len(files))
+	fmt.Printf("M0 + codec/principal M1 slices PASS: %d published v1 rows across %d vector files\n", total, len(files))
 }
