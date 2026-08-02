@@ -22,6 +22,11 @@ This revision specifies canonical capability grants and the conservative mechani
 - immutable constraint commitment;
 - suite-tagged issuer signature.
 
+The issuer signs `ACTIVECHAIN-CAPABILITY-GRANT-V1 || canonical_envelope(unsigned_grant)`, where
+`unsigned_grant` preserves the registered signature suite and replaces only the signature bytes
+with that suite's exact-length all-zero value. This binds every authority field and the suite while
+avoiding a second unsigned schema.
+
 `None` for a numeric limit means unbounded. A grant with `delegation_allowed = false` MUST have zero remaining depth. A grant with delegation enabled MUST have positive remaining depth. A grant cannot name itself as parent.
 
 ## 3. Holder binding

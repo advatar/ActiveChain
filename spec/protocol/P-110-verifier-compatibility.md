@@ -74,6 +74,14 @@ authenticator-set commitments, and reject frozen, future-updated, inactive, expi
 purpose-substituted controller evidence. Caller-provided principal or key bytes alone are never
 authority.
 
+`SignedAuthorizationChainV1` joins the canonical authorization envelope, the mechanically verified
+capability chain, and exactly one finalized controller witness for the actor followed by one for
+each capability issuer. The verifier requires matching actor, height, epoch, genesis, finalized
+state root, freeze state, and ordered capability identifiers; verifies the actor under an active
+session authenticator; verifies every capability issuer under an active control authenticator; and
+checks the real ML-DSA signature over each domain-separated canonical unsigned payload. Missing,
+reordered, substituted, inactive, or cryptographically invalid links fail closed.
+
 ## Light-client requirements
 
 Before a light client trusts state it MUST verify a consecutive two-QC proposal chain that commits

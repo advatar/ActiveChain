@@ -2,7 +2,7 @@
 
 extern crate alloc;
 
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
@@ -605,6 +605,21 @@ impl CapabilityGrant {
     pub const fn issuer_signature(&self) -> &ProtocolSignature {
         &self.issuer_signature
     }
+
+    /// Returns the domain-separated canonical payload authenticated by the issuer signature.
+    pub fn signing_payload(&self) -> Result<Vec<u8>, EncodeError> {
+        let signature_length =
+            self.issuer_signature.suite().signature_length().ok_or(EncodeError::LengthOverflow)?;
+        let unsigned = Self::new(
+            self.fields.clone(),
+            ProtocolSignature::new(self.issuer_signature.suite(), vec![0; signature_length])
+                .map_err(|_| EncodeError::LengthOverflow)?,
+        )
+        .map_err(|_| EncodeError::LengthOverflow)?;
+        let mut payload = b"ACTIVECHAIN-CAPABILITY-GRANT-V1".to_vec();
+        payload.extend_from_slice(&activechain_canonical_codec::encode_envelope(&unsigned)?);
+        Ok(payload)
+    }
 }
 
 impl CanonicalEncode for CapabilityGrant {
@@ -847,5 +862,21 @@ mod tests {
             CapabilityGrant::new(invalid, signature()),
             Err(CapabilityValidationError::DepthPresentWhenDelegationForbidden)
         );
+    }
+
+    #[test]
+    fn capability_signing_payload_binds_fields_but_not_signature_bytes() {
+        let first = CapabilityGrant::new(grant_fields(), signature()).unwrap();
+        let second = CapabilityGrant::new(
+            grant_fields(),
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0xa5; 2_420]).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(first.signing_payload().unwrap(), second.signing_payload().unwrap());
+
+        let mut changed = grant_fields();
+        changed.monetary_limit = Some(999);
+        let changed = CapabilityGrant::new(changed, signature()).unwrap();
+        assert_ne!(first.signing_payload().unwrap(), changed.signing_payload().unwrap());
     }
 }
