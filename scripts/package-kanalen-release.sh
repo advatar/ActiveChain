@@ -14,6 +14,8 @@ for binary in validator-node genesis-tool cash-genesis-tool activechain-rpc-node
 done
 install -m 755 "$repo_root/deploy/kanalen/scripts/run-kanalen-round.sh" "$release_dir/scripts/run-kanalen-round.sh"
 install -m 755 "$repo_root/deploy/kanalen/scripts/reset-kanalen-state.sh" "$release_dir/scripts/reset-kanalen-state.sh"
+install -m 755 "$repo_root/scripts/check-validator-snapshot.sh" "$release_dir/scripts/check-validator-snapshot.sh"
+install -m 755 "$repo_root/scripts/check-execution-snapshot.sh" "$release_dir/scripts/check-execution-snapshot.sh"
 for launchagent in "$repo_root"/deploy/kanalen/launchagents/*.plist; do
   install -m 644 "$launchagent" "$release_dir/launchagents/$(basename "$launchagent")"
 done

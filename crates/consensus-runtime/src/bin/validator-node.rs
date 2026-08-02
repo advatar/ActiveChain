@@ -74,15 +74,17 @@ fn load_or_create_execution_state(
 ) -> Result<ChainState, Box<dyn std::error::Error>> {
     if path.exists() {
         let bytes = std::fs::read(path)?;
-        let state: ChainState = decode_envelope(&bytes)
+        let (state, migrated) = ChainState::decode_snapshot(&bytes, Vec::new())
             .map_err(|_| std::io::Error::other("execution state is not canonical"))?;
-        if encode_envelope(&state).map_err(|_| "execution state encoding failed")? != bytes
-            || state.chain_id() != chain_id
-            || state.height() != finalized_height
-        {
+        if state.chain_id() != chain_id || state.height() != finalized_height {
             return Err(
                 std::io::Error::other("execution state is noncanonical or cross-chain").into()
             );
+        }
+        if migrated {
+            save_execution_state(path, &state)?;
+        } else if encode_envelope(&state).map_err(|_| "execution state encoding failed")? != bytes {
+            return Err(std::io::Error::other("execution state is not canonical").into());
         }
         return Ok(state);
     }
