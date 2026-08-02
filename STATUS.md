@@ -1662,6 +1662,9 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
     - [x] Prove the abstract history-lifting theorem: consensus-supplied comparable finalized tips
           yield prefix-comparable full histories, durable restart preserves the exact history, and
           an epoch change remains a parent-bound extension; production trace refinement remains.
+    - [x] Add a byte-identical Rust/Lean executable refinement trace covering skipped-view
+          finalization, durable restart, exact epoch activation, and post-activation finalization;
+          the unbounded production trace theorem remains open.
   - [x] Verify canonical signer ordering, vote-set-root recomputation, and checked stake arithmetic
     at the Rust QC boundary.
 - [x] Prove abstract cash conservation, authorized issuance, burn, and reward no-double-mint properties in Lean.

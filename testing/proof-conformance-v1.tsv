@@ -12,7 +12,7 @@ block-composition	formal/lean/ActiveChain/BlockComposition.lean	testing/vectors/
 cash	formal/lean/ActiveChain/Cash.lean	testing/vectors/cash/native-money-v1.txt	trace
 cash-authorization	formal/lean/ActiveChain/CashAuthorization.lean	crates/wallet-core/src/lib.rs	trace
 consensus-auth	formal/tamarin/activechain_consensus.spthy	crates/consensus-runtime/src/lib.rs	trace
-consensus-history	formal/lean/ActiveChain/ConsensusHistory.lean	crates/consensus-runtime/src/lib.rs	external-boundary
+consensus-history	formal/lean/ActiveChain/ConsensusHistory.lean	testing/vectors/consensus/consensus-history-model-table.txt	differential
 consensus-safety	formal/tla/ActiveChainConsensus.tla	crates/consensus-runtime/src/lib.rs	trace
 credential	formal/lean/ActiveChain/Credential.lean	testing/vectors/credential/credential-status-table.txt	differential
 data-availability	formal/lean/ActiveChain/DA.lean	testing/vectors/availability/availability-v1.txt	trace

@@ -1,0 +1,4 @@
+skipped_view,accept,1,0,1
+restart,accept,1,0,1
+epoch_activation,accept,1,0,2
+post_activation,accept,3,2,2
