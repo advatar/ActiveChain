@@ -268,3 +268,6 @@
 0x0187	1	PaymentRequestStateV1	crates/payment-connector-host/src/lib.rs
 0x0188	1	PaymentFinalizedSettlementV1	crates/payment-types/src/lib.rs
 0x0189	1	PaymentSettlementStateV1	crates/payment-connector-host/src/lib.rs
+0x018A	1	PaymentFeeSponsorPolicyV1	crates/payment-types/src/lib.rs
+0x018B	1	PaymentFeeSponsorRequestV1	crates/payment-types/src/lib.rs
+0x018C	1	FeeSponsorshipJournalV1	crates/payment-connector-host/src/lib.rs

@@ -589,7 +589,6 @@ writes do not advance live state. The public complete-settlement aggregate retai
 beside the exact verified settlement, request lifecycle, and refund accounting; dispute opening must
 bind that settlement's commitment, native asset, and a bounded amount. Advancing a dispute replaces
 the same aggregate snapshot and never changes or promotes the payment lifecycle's finality.
-writes do not advance the live record.
 
 ### 8.5 Gas sponsorship
 
@@ -600,6 +599,13 @@ Reuse Cash Plane paymasters:
 - reimbursement in the payment asset is bounded by the signed quote;
 - sponsorship failure cannot debit the user;
 - receipts separate provider, connector, paymaster, and protocol fees.
+
+`PaymentFeeSponsorPolicyV1` bounds one sponsor/paymaster pair by exact fee asset, per-operation
+maximum, cumulative budget, policy revision, nonce, and expiry. Each canonical sponsorship request
+binds one retained payment intent, the exact fee, quote commitment and maximum reimbursement,
+policy commitment, idempotency commitment, expected spend, nonce, and expiry. Authorization and
+the complete payment snapshot advance atomically; unknown intents, replay, substitution, quote
+overrun, budget overrun, expiry, and failed storage do not charge the sponsor or debit the user.
 
 ## 9. Authorization, identity, and privacy
 

@@ -1027,6 +1027,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
         acknowledged authorization cannot diverge from retained payment evidence.
       - [x] Persist exact webhook delivery cursors inside the complete settlement aggregate and
         reject delivery for events whose payment intent is not retained there.
+      - [x] Add canonical paymaster sponsorship policy and exact authorization, then persist its
+        fee budget and nonce successors inside the complete settlement aggregate.
 - [x] Add canonical exact-once partial-refund requests and cumulative settlement-bound accounting.
   - [x] Persist a bounded per-intent refund-state journal atomically across settlement registration
     and every accepted partial refund, rejecting replay and corrupt restart state.

@@ -2633,6 +2633,260 @@ impl CanonicalType for TreasuryDebitRequestV1 {
     const MAX_ENCODED_LEN: usize = 48 * 6 + 64 + 1 + 16 + 8 * 3;
 }
 
+/// Bounded paymaster policy for sponsoring payment network fees.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PaymentFeeSponsorPolicyV1 {
+    sponsor: PrincipalId,
+    paymaster: PrincipalId,
+    fee_asset: AssetId,
+    maximum_fee_units: u128,
+    budget_units: u128,
+    spent_units: u128,
+    policy_revision: Digest384,
+    next_nonce: u64,
+    expires_at: u64,
+}
+
+impl PaymentFeeSponsorPolicyV1 {
+    pub const TYPE_TAG: u16 = 0x018A;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        sponsor: PrincipalId,
+        paymaster: PrincipalId,
+        fee_asset: AssetId,
+        maximum_fee_units: u128,
+        budget_units: u128,
+        spent_units: u128,
+        policy_revision: Digest384,
+        next_nonce: u64,
+        expires_at: u64,
+    ) -> Result<Self, PaymentValidationError> {
+        if sponsor.digest() == &Digest384::ZERO
+            || paymaster.digest() == &Digest384::ZERO
+            || fee_asset.digest() == &Digest384::ZERO
+            || maximum_fee_units == 0
+            || budget_units == 0
+            || spent_units > budget_units
+            || policy_revision == Digest384::ZERO
+            || next_nonce == 0
+            || expires_at == 0
+        {
+            return Err(PaymentValidationError::InvalidBinding);
+        }
+        Ok(Self {
+            sponsor,
+            paymaster,
+            fee_asset,
+            maximum_fee_units,
+            budget_units,
+            spent_units,
+            policy_revision,
+            next_nonce,
+            expires_at,
+        })
+    }
+
+    pub const fn sponsor(&self) -> PrincipalId {
+        self.sponsor
+    }
+    pub const fn spent_units(&self) -> u128 {
+        self.spent_units
+    }
+    pub const fn next_nonce(&self) -> u64 {
+        self.next_nonce
+    }
+
+    pub fn commitment(&self) -> Result<Digest384, PaymentValidationError> {
+        let bytes = encode_envelope(self).map_err(|_| PaymentValidationError::InvalidBinding)?;
+        let mut hasher = Shake256::default();
+        hasher.update(b"ACTIVECHAIN-PAYMENT-FEE-SPONSOR-POLICY-V1");
+        hasher.update(&bytes);
+        let mut output = [0_u8; 48];
+        hasher.finalize_xof().read(&mut output);
+        Ok(Digest384::new(output))
+    }
+
+    pub fn authorize(
+        &self,
+        request: &PaymentFeeSponsorRequestV1,
+        timestamp: u64,
+    ) -> Result<Self, PaymentValidationError> {
+        if request.sponsor != self.sponsor
+            || request.paymaster != self.paymaster
+            || request.fee.asset() != self.fee_asset
+            || request.fee.atomic_units() > self.maximum_fee_units
+            || request.policy_commitment != self.commitment()?
+            || request.expected_spent_units != self.spent_units
+            || request.nonce != self.next_nonce
+            || timestamp >= request.expires_at
+            || request.expires_at > self.expires_at
+        {
+            return Err(PaymentValidationError::InvalidBinding);
+        }
+        let spent_units = self
+            .spent_units
+            .checked_add(request.fee.atomic_units())
+            .ok_or(PaymentValidationError::InvalidAmountBound)?;
+        if spent_units > self.budget_units {
+            return Err(PaymentValidationError::InvalidAmountBound);
+        }
+        let next_nonce =
+            self.next_nonce.checked_add(1).ok_or(PaymentValidationError::InvalidSequence)?;
+        Ok(Self { spent_units, next_nonce, ..self.clone() })
+    }
+}
+
+impl CanonicalEncode for PaymentFeeSponsorPolicyV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.sponsor.encode(encoder)?;
+        self.paymaster.encode(encoder)?;
+        self.fee_asset.encode(encoder)?;
+        self.maximum_fee_units.encode(encoder)?;
+        self.budget_units.encode(encoder)?;
+        self.spent_units.encode(encoder)?;
+        self.policy_revision.encode(encoder)?;
+        self.next_nonce.encode(encoder)?;
+        self.expires_at.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for PaymentFeeSponsorPolicyV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            PrincipalId::decode(decoder)?,
+            PrincipalId::decode(decoder)?,
+            AssetId::decode(decoder)?,
+            u128::decode(decoder)?,
+            u128::decode(decoder)?,
+            u128::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid payment fee sponsor policy"))
+    }
+}
+
+impl CanonicalType for PaymentFeeSponsorPolicyV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = PAYMENT_SCHEMA_REVISION;
+    const MAX_ENCODED_LEN: usize = 256;
+}
+
+/// One exact request to sponsor a payment fee and bind its reimbursement terms.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PaymentFeeSponsorRequestV1 {
+    intent: PaymentIntentId,
+    sponsor: PrincipalId,
+    paymaster: PrincipalId,
+    fee: AssetAmountV1,
+    reimbursement: AssetAmountV1,
+    quote_commitment: Digest384,
+    maximum_reimbursement_units: u128,
+    policy_commitment: Digest384,
+    idempotency_commitment: Digest384,
+    expected_spent_units: u128,
+    nonce: u64,
+    expires_at: u64,
+}
+
+impl PaymentFeeSponsorRequestV1 {
+    pub const TYPE_TAG: u16 = 0x018B;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        intent: PaymentIntentId,
+        sponsor: PrincipalId,
+        paymaster: PrincipalId,
+        fee: AssetAmountV1,
+        reimbursement: AssetAmountV1,
+        quote_commitment: Digest384,
+        maximum_reimbursement_units: u128,
+        policy_commitment: Digest384,
+        idempotency_commitment: Digest384,
+        expected_spent_units: u128,
+        nonce: u64,
+        expires_at: u64,
+    ) -> Result<Self, PaymentValidationError> {
+        if sponsor.digest() == &Digest384::ZERO
+            || paymaster.digest() == &Digest384::ZERO
+            || policy_commitment == Digest384::ZERO
+            || idempotency_commitment == Digest384::ZERO
+            || quote_commitment == Digest384::ZERO
+            || reimbursement.atomic_units() > maximum_reimbursement_units
+            || nonce == 0
+            || expires_at == 0
+        {
+            return Err(PaymentValidationError::InvalidBinding);
+        }
+        Ok(Self {
+            intent,
+            sponsor,
+            paymaster,
+            fee,
+            reimbursement,
+            quote_commitment,
+            maximum_reimbursement_units,
+            policy_commitment,
+            idempotency_commitment,
+            expected_spent_units,
+            nonce,
+            expires_at,
+        })
+    }
+
+    pub const fn intent(&self) -> PaymentIntentId {
+        self.intent
+    }
+    pub const fn sponsor(&self) -> PrincipalId {
+        self.sponsor
+    }
+}
+
+impl CanonicalEncode for PaymentFeeSponsorRequestV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.intent.encode(encoder)?;
+        self.sponsor.encode(encoder)?;
+        self.paymaster.encode(encoder)?;
+        self.fee.encode(encoder)?;
+        self.reimbursement.encode(encoder)?;
+        self.quote_commitment.encode(encoder)?;
+        self.maximum_reimbursement_units.encode(encoder)?;
+        self.policy_commitment.encode(encoder)?;
+        self.idempotency_commitment.encode(encoder)?;
+        self.expected_spent_units.encode(encoder)?;
+        self.nonce.encode(encoder)?;
+        self.expires_at.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for PaymentFeeSponsorRequestV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            PaymentIntentId::decode(decoder)?,
+            PrincipalId::decode(decoder)?,
+            PrincipalId::decode(decoder)?,
+            AssetAmountV1::decode(decoder)?,
+            AssetAmountV1::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            u128::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            u128::decode(decoder)?,
+            u64::decode(decoder)?,
+            u64::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid payment fee sponsor request"))
+    }
+}
+
+impl CanonicalType for PaymentFeeSponsorRequestV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = PAYMENT_SCHEMA_REVISION;
+    const MAX_ENCODED_LEN: usize = 464;
+}
+
 /// Durable binding from a caller's idempotency key to one exact request and operation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IdempotencyBindingV1 {
@@ -3732,6 +3986,95 @@ mod tests {
         assert_eq!(
             policy.authorize(&wrong_asset, 800),
             Err(PaymentValidationError::InvalidBinding)
+        );
+    }
+
+    fn fee_sponsor_policy() -> PaymentFeeSponsorPolicyV1 {
+        PaymentFeeSponsorPolicyV1::new(
+            principal(20),
+            principal(21),
+            AssetId::new(digest(22)),
+            10,
+            20,
+            0,
+            digest(23),
+            1,
+            1_000,
+        )
+        .unwrap()
+    }
+
+    fn fee_sponsor_request(
+        policy: &PaymentFeeSponsorPolicyV1,
+        fee_units: u128,
+        expected: u128,
+        nonce: u64,
+    ) -> PaymentFeeSponsorRequestV1 {
+        PaymentFeeSponsorRequestV1::new(
+            intent_id(),
+            principal(20),
+            principal(21),
+            amount(22, fee_units),
+            amount(24, fee_units),
+            digest(26),
+            fee_units,
+            policy.commitment().unwrap(),
+            digest(25 + nonce as u8),
+            expected,
+            nonce,
+            900,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn fee_sponsor_authorization_is_bounded_exact_and_canonical() {
+        let policy = fee_sponsor_policy();
+        let request = fee_sponsor_request(&policy, 8, 0, 1);
+        assert_eq!(
+            decode_envelope::<PaymentFeeSponsorPolicyV1>(&encode_envelope(&policy).unwrap()),
+            Ok(policy.clone())
+        );
+        assert_eq!(
+            decode_envelope::<PaymentFeeSponsorRequestV1>(&encode_envelope(&request).unwrap()),
+            Ok(request.clone())
+        );
+        let advanced = policy.authorize(&request, 800).unwrap();
+        assert_eq!(advanced.spent_units(), 8);
+        assert_eq!(advanced.next_nonce(), 2);
+        assert_eq!(advanced.authorize(&request, 800), Err(PaymentValidationError::InvalidBinding));
+    }
+
+    #[test]
+    fn fee_sponsor_rejects_per_request_and_period_budget_overrun() {
+        let policy = fee_sponsor_policy();
+        assert_eq!(
+            PaymentFeeSponsorRequestV1::new(
+                intent_id(),
+                principal(20),
+                principal(21),
+                amount(22, 8),
+                amount(24, 8),
+                digest(26),
+                7,
+                policy.commitment().unwrap(),
+                digest(27),
+                0,
+                1,
+                900,
+            ),
+            Err(PaymentValidationError::InvalidBinding)
+        );
+        assert_eq!(
+            policy.authorize(&fee_sponsor_request(&policy, 11, 0, 1), 800),
+            Err(PaymentValidationError::InvalidBinding)
+        );
+        let first = policy.authorize(&fee_sponsor_request(&policy, 10, 0, 1), 800).unwrap();
+        let second = first.authorize(&fee_sponsor_request(&first, 10, 10, 2), 800).unwrap();
+        assert_eq!(second.spent_units(), 20);
+        assert_eq!(
+            second.authorize(&fee_sponsor_request(&second, 1, 20, 3), 800),
+            Err(PaymentValidationError::InvalidAmountBound)
         );
     }
 
