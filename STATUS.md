@@ -6,7 +6,7 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Tracked by [GitHub issue #725](https://github.com/advatar/ActiveChain/issues/725).
 
-- [ ] Remove superseded validator helpers, preserve staged-cash recovery semantics, and eliminate
+- [x] Remove superseded validator helpers, preserve staged-cash recovery semantics, and eliminate
   redundant test clones flagged by strict Clippy.
 - [ ] Pass consensus-runtime tests, strict workspace Clippy, and the deterministic-kernel gate;
   merge the dependency chain to `main` and verify reachability.

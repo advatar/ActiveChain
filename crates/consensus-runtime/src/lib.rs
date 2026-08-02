@@ -5007,9 +5007,10 @@ mod tests {
                 .is_err()
         );
         assert_eq!(gateway.ledger(), &pre_ledger, "rejected batch must not mutate live state");
-        let prepared = gateway.prepare_envelope_batch(&[operator_envelope.clone()], 1).unwrap();
+        let prepared =
+            gateway.prepare_envelope_batch(std::slice::from_ref(&operator_envelope), 1).unwrap();
         let stale_prepared =
-            gateway.prepare_envelope_batch(&[operator_envelope.clone()], 1).unwrap();
+            gateway.prepare_envelope_batch(std::slice::from_ref(&operator_envelope), 1).unwrap();
         assert_eq!(prepared.action_ids().len(), 1);
         assert_ne!(prepared.pre_cash_cell_root(), prepared.post_cash_cell_root());
         assert_ne!(prepared.ledger(), &pre_ledger);
