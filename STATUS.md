@@ -1236,6 +1236,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
         bindings, invalid heights, illegal transitions, and nonzero-supply retirement.
   - [x] Prove exceptional holder controls enforce declared powers, preserve identity, advance the
         exact revision once, and reject substitution, replay, invalid height, and overflow.
+  - [x] Prove an authorized clawback changes only Coin Cell ownership while preserving origin,
+        asset, amount, and creation height, with malformed cell/action bindings rejected.
 - [x] Define canonical corporate-action envelopes for distributions, splits/consolidations,
   coupons, maturity, record-date voting, and redemption offers.
   - [x] Add bounded exact-once corporate-action admission bound to the finalized asset policy,
