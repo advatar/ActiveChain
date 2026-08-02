@@ -49,6 +49,7 @@ set -- "$binary_root/validator-node" \
   --key-file="$state_root/keys/validator-0.key" \
   --chain-id-hex="$chain_id" \
   --cash-ledger="$cash_ledger" \
+  --execution-state="$state_root/execution.snapshot" \
   --finalized-cash-out="$cash_snapshot" \
   --finality-out="$finality_bundle" \
   --peer=2@127.0.0.1:49154 --peer=3@127.0.0.1:49155

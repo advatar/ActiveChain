@@ -1,15 +1,20 @@
+use activechain_action_kernel::ResourcePrices;
+use activechain_authorization_kernel::AuthorizationReplayStore;
 use activechain_canonical_codec::{decode_envelope, encode_envelope};
 use activechain_cash_kernel::CashLedger;
 use activechain_consensus_runtime::{
-    FinalizedCashSnapshot, PeerIngressMetricsSnapshot, PeerIngressMonitor, PeerListener,
+    CashOnlyFinalizedBlockVerifier, FinalizedCashSnapshot, GenesisBackedFinalizedBlockVerifier,
+    PeerIngressMetricsSnapshot, PeerIngressMonitor, PeerListener, PreparedDirectFinalizedBlock,
     ValidatorService, WalletTransactionGateway, load_genesis, load_snapshot,
     load_snapshot_chain_genesis_commitment, save_snapshot,
 };
+use activechain_devnet_kernel::{ChainState, DevnetBlock};
 use activechain_finality_types::{
     FinalityCertificateBundle, FinalizedBlockHeader, ProofPublicInputs,
 };
 use activechain_protocol_types::{ChainId, ConsensusState, Digest384, ValidatorGenesis};
-use activechain_state_tree::StateCommitment;
+use activechain_state_tree::{StateCommitment, commit_objects};
+use activechain_transition::ObjectState;
 use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
@@ -59,6 +64,37 @@ fn load_authoritative_cash_gateway(
     }
     WalletTransactionGateway::from_ledger(ledger, path.to_path_buf())
         .map_err(|_| std::io::Error::other("cash ingress construction failed").into())
+}
+
+fn load_or_create_execution_state(
+    path: &Path,
+    chain_id: ChainId,
+) -> Result<ChainState, Box<dyn std::error::Error>> {
+    if path.exists() {
+        let bytes = std::fs::read(path)?;
+        let state: ChainState = decode_envelope(&bytes)
+            .map_err(|_| std::io::Error::other("execution state is not canonical"))?;
+        if encode_envelope(&state).map_err(|_| "execution state encoding failed")? != bytes
+            || state.chain_id() != chain_id
+        {
+            return Err(
+                std::io::Error::other("execution state is noncanonical or cross-chain").into()
+            );
+        }
+        return Ok(state);
+    }
+    let objects = ObjectState::new(Vec::new())
+        .map_err(|_| std::io::Error::other("empty execution object state is invalid"))?;
+    ChainState::genesis(chain_id, objects, Vec::new(), ResourcePrices::new(1, 1, 1, 1, 1, 1))
+        .map_err(|_| std::io::Error::other("execution genesis construction failed").into())
+}
+
+fn save_execution_state(path: &Path, state: &ChainState) -> Result<(), Box<dyn std::error::Error>> {
+    let bytes = encode_envelope(state).map_err(|_| "execution state encoding failed")?;
+    let temporary = path.with_extension("tmp");
+    std::fs::write(&temporary, bytes)?;
+    std::fs::rename(temporary, path)?;
+    Ok(())
 }
 
 const MAX_CASH_ROUND_ACTIONS: usize = 32;
@@ -205,12 +241,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let finality_out = extras.iter().find_map(|value| value.strip_prefix("--finality-out="));
     let cash_ledger = extras.iter().find_map(|value| value.strip_prefix("--cash-ledger="));
     let cash_actions = extras.iter().find_map(|value| value.strip_prefix("--cash-actions="));
+    let execution_state_path =
+        extras.iter().find_map(|value| value.strip_prefix("--execution-state="));
     if finalized_cash_out.is_some() != finality_out.is_some()
         || finalized_cash_out.is_some() != chain_id.is_some()
         || finalized_cash_out.is_some() != cash_ledger.is_some()
+        || finalized_cash_out.is_some() != execution_state_path.is_some()
     {
         return Err(
-            "--chain-id-hex, --cash-ledger, --finalized-cash-out, and --finality-out must be supplied together".into(),
+            "--chain-id-hex, --cash-ledger, --execution-state, --finalized-cash-out, and --finality-out must be supplied together".into(),
         );
     }
     if cash_actions.is_some() && cash_ledger.is_none() {
@@ -220,6 +259,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(Path::new)
         .zip(chain_id)
         .map(|(path, chain)| load_authoritative_cash_gateway(path, chain))
+        .transpose()?;
+    let mut execution_state = execution_state_path
+        .map(Path::new)
+        .zip(chain_id)
+        .map(|(path, chain)| load_or_create_execution_state(path, chain))
         .transpose()?;
     let peer_specs: Vec<&str> =
         extras.iter().filter_map(|value| value.strip_prefix("--peer=")).collect();
@@ -403,27 +447,60 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 None
             };
-            let publication_header =
-                chain_id.zip(cash_snapshot.as_ref()).map(|(chain_id, cash)| {
-                    let (pre_root, action_root) = prepared_cash.as_ref().map_or_else(
-                        || (cash.cash_cell_root, cash_action_root(&[])),
-                        |prepared| {
-                            (prepared.pre_cash_cell_root(), cash_action_root(prepared.action_ids()))
-                        },
-                    );
-                    kanalen_finalized_header(
-                        genesis,
+            let publication_draft = chain_id
+                .zip(cash_snapshot.as_ref())
+                .map(|(chain_id, cash)| -> Result<PreparedDirectFinalizedBlock, Box<dyn std::error::Error>> {
+                    let pre_root = prepared_cash.as_ref().map_or(cash.cash_cell_root, |prepared| {
+                        prepared.pre_cash_cell_root()
+                    });
+                    let state = execution_state
+                        .as_ref()
+                        .ok_or("execution state is required for a published round")?;
+                    if state.height().checked_add(1) != Some(next_height) {
+                        return Err("execution state height does not match consensus round".into());
+                    }
+                    let block = DevnetBlock::new(
                         chain_id,
                         next_height,
-                        pre_root,
-                        action_root,
-                        cash.cash_cell_root,
+                        state.head_block_id(),
+                        commit_objects(state.objects().objects())
+                            .map_err(|_| std::io::Error::other("execution object root failed"))?,
+                        state
+                            .commitment()
+                            .map_err(|_| std::io::Error::other("execution state commitment failed"))?,
+                        Vec::new(),
                     )
-                });
-            let block_digest = match publication_header {
-                Some(header) => {
-                    header.digest().map_err(|_| "Kanalen finalized header encoding failed")?
-                }
+                    .map_err(|_| std::io::Error::other("canonical cash execution block construction failed"))?;
+                    let supply = authoritative_cash
+                        .as_ref()
+                        .ok_or("authoritative cash gateway disappeared")?
+                        .ledger()
+                        .supply()
+                        .current_total_supply();
+                    PreparedDirectFinalizedBlock::new(
+                        state,
+                        &block,
+                        genesis.epoch(),
+                        genesis.protocol_revision(),
+                        genesis.validator_set_root(),
+                        supply,
+                        0,
+                        0,
+                        pre_root,
+                        prepared_cash.as_ref().map_or(&[][..], |prepared| prepared.action_ids()),
+                        cash.cash_cell_root,
+                        1,
+                        1,
+                        signer.validator(),
+                    )
+                    .map_err(|_| std::io::Error::other("canonical finalized cash draft construction failed").into())
+                })
+                .transpose()?;
+            let block_digest = match publication_draft.as_ref() {
+                Some(draft) => draft
+                    .header()
+                    .digest()
+                    .map_err(|_| "Kanalen finalized header encoding failed")?,
                 None => digest_parts(
                     b"ACTIVECHAIN-TESTNET-NETWORK-ROUND-V2",
                     &[
@@ -444,10 +521,69 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &peer_ids,
                 )
                 .map_err(|error| format!("network round failed: {error:?}"))?;
-            if let (Some(header), Some(cash_path), Some(finality_path)) =
-                (publication_header, finalized_cash_out, finality_out)
+            if let (Some(draft), Some(cash_path), Some(finality_path)) =
+                (publication_draft, finalized_cash_out, finality_out)
             {
                 let certified = certified.ok_or("network round did not produce a certificate")?;
+                let pre_root = prepared_cash.as_ref().map_or_else(
+                    || cash_snapshot.as_ref().unwrap().cash_cell_root,
+                    |prepared| prepared.pre_cash_cell_root(),
+                );
+                let action_ids = prepared_cash
+                    .as_ref()
+                    .map_or_else(Vec::new, |prepared| prepared.action_ids().to_vec());
+                let post_root = cash_snapshot.as_ref().unwrap().cash_cell_root;
+                let supply = authoritative_cash
+                    .as_ref()
+                    .ok_or("authoritative cash gateway disappeared")?
+                    .ledger()
+                    .supply()
+                    .current_total_supply();
+                let authorization_path =
+                    Path::new(execution_state_path.ok_or("execution state path disappeared")?)
+                        .with_extension("authorization");
+                let authorization_store = if authorization_path.exists() {
+                    let store = AuthorizationReplayStore::load(authorization_path)?;
+                    if store.chain_genesis_commitment() != genesis.genesis_commitment()
+                        || store.epoch() != genesis.epoch()
+                    {
+                        return Err(
+                            "authorization replay store belongs to another consensus context"
+                                .into(),
+                        );
+                    }
+                    store
+                } else {
+                    AuthorizationReplayStore::new(
+                        authorization_path,
+                        genesis.genesis_commitment(),
+                        genesis.epoch(),
+                    )
+                    .map_err(|_| "authorization replay store construction failed")?
+                };
+                let verifier = GenesisBackedFinalizedBlockVerifier::new(
+                    genesis.clone(),
+                    CashOnlyFinalizedBlockVerifier,
+                );
+                let admitted = draft
+                    .into_candidate(certified.certificate().clone(), certified.votes().to_vec())
+                    .admit(
+                        execution_state.as_ref().unwrap(),
+                        genesis.genesis_commitment(),
+                        genesis.epoch(),
+                        genesis.protocol_revision(),
+                        genesis.validator_set_root(),
+                        supply,
+                        0,
+                        0,
+                        pre_root,
+                        &action_ids,
+                        post_root,
+                        &authorization_store,
+                        &verifier,
+                    )
+                    .map_err(|error| format!("typed finalized cash admission failed: {error:?}"))?;
+                let header = admitted.header;
                 let bundle = FinalityCertificateBundle::new(
                     header,
                     genesis.clone(),
@@ -475,6 +611,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .as_ref()
                         .ok_or("authoritative cash snapshot was not materialized")?,
                     &bundle,
+                )?;
+                execution_state = Some(admitted.next_state);
+                save_execution_state(
+                    Path::new(execution_state_path.unwrap()),
+                    execution_state.as_ref().unwrap(),
                 )?;
             }
             println!("completed network round: finalized_height={}", state.finalized_height());
@@ -670,6 +811,27 @@ mod tests {
         );
         std::fs::write(&path, b"not canonical").unwrap();
         assert!(load_authoritative_cash_gateway(&path, chain).is_err());
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn execution_state_is_canonical_chain_bound_and_restart_safe() {
+        let chain = ChainId::new(Digest384::new([82; 48]));
+        let path = std::env::temp_dir()
+            .join(format!("activechain-validator-execution-{}.snapshot", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let state = load_or_create_execution_state(&path, chain).unwrap();
+        assert_eq!(state.height(), 0);
+        assert_eq!(state.chain_id(), chain);
+        save_execution_state(&path, &state).unwrap();
+        assert_eq!(load_or_create_execution_state(&path, chain).unwrap(), state);
+        assert!(
+            load_or_create_execution_state(&path, ChainId::new(Digest384::new([83; 48]))).is_err()
+        );
+        let mut malformed = std::fs::read(&path).unwrap();
+        malformed.push(0);
+        std::fs::write(&path, malformed).unwrap();
+        assert!(load_or_create_execution_state(&path, chain).is_err());
         std::fs::remove_file(path).unwrap();
     }
 

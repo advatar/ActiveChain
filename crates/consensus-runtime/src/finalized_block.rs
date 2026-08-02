@@ -203,6 +203,67 @@ impl ExecutionProofVerifier for DirectExecutionProofVerifier {
     }
 }
 
+/// Fail-closed verifier used by production cash-only rounds. It accepts only canonical direct
+/// execution proofs; any unexpected authorization or issuer action is rejected.
+pub struct CashOnlyFinalizedBlockVerifier;
+
+impl ExecutionProofVerifier for CashOnlyFinalizedBlockVerifier {
+    fn verify(&self, proof_system: u16, statement: Digest384, proof: &[u8]) -> bool {
+        DirectExecutionProofVerifier.verify(proof_system, statement, proof)
+    }
+}
+
+impl AuthorizationVerifier for CashOnlyFinalizedBlockVerifier {
+    fn verify_actor_signature(
+        &self,
+        _envelope: &activechain_authorization_kernel::AuthorizationEnvelope,
+    ) -> bool {
+        false
+    }
+
+    fn verify_finalized_context(
+        &self,
+        _envelope: &activechain_authorization_kernel::AuthorizationEnvelope,
+    ) -> bool {
+        false
+    }
+
+    fn verify_credential_signature(&self, _credential: &Credential) -> bool {
+        false
+    }
+
+    fn verify_credential_status(&self, _material: &CredentialMaterial) -> bool {
+        false
+    }
+
+    fn verify_capability_signature(&self, _capability: &CapabilityGrant) -> bool {
+        false
+    }
+
+    fn verify_capability_active(
+        &self,
+        _capability: &CapabilityGrant,
+        _height: u64,
+        _state_root: Digest384,
+    ) -> bool {
+        false
+    }
+}
+
+impl FinalizedBlockVerifier for CashOnlyFinalizedBlockVerifier {
+    fn verify_certificate(
+        &self,
+        _certificate: &QuorumCertificate,
+        _votes: &[ValidatorVote],
+    ) -> bool {
+        false
+    }
+
+    fn verify_issuer_approval(&self, _approval: &FungibleIssuerApprovalV1) -> bool {
+        false
+    }
+}
+
 /// Canonical pre-vote material for a cash-only round. The resulting header is the exact statement
 /// validators must sign and `into_candidate` preserves those bytes for post-vote admission.
 #[derive(Clone, Debug, Eq, PartialEq)]
