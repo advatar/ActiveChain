@@ -49,6 +49,8 @@ chmod +x "$deployment/current/scripts/run-kanalen-round.sh"
 : > "$deployment/rpc/rpc-index.snapshot"
 printf '#!/bin/sh\nexit 0\n' > "$test_root/bin/nc"
 chmod +x "$test_root/bin/nc"
+printf '#!/bin/sh\nexit 0\n' > "$test_root/bin/launchctl"
+chmod +x "$test_root/bin/launchctl"
 
 cat > "$deployment/current/bin/validator-node" <<'EOF'
 #!/bin/sh

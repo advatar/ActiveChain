@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>dev.activechain.kanalen.validator0</string>
+  <key>ProgramArguments</key><array>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/current/bin/validator-node</string>
+    <string>49153</string>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/chain/validator-0.snapshot</string>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/chain/genesis.bin</string>
+    <string>0</string><string>0</string>
+    <string>--key-file=/Users/johansellstrom/activechain-deploy/kanalen/chain/keys/validator-0.key</string>
+  </array>
+  <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/Users/johansellstrom/activechain-deploy/kanalen/logs/validator-0.log</string>
+  <key>StandardErrorPath</key><string>/Users/johansellstrom/activechain-deploy/kanalen/logs/validator-0.log</string>
+</dict></plist>

@@ -30,7 +30,7 @@ test -f "$cash_ledger" || {
 mkdir "$lock" 2>/dev/null || exit 0
 trap 'rmdir "$lock"' EXIT
 
-for port in 49154 49155; do
+for port in 49153 49154 49155; do
   attempts=0
   until nc -z 127.0.0.1 "$port"; do
     attempts=$((attempts + 1))
@@ -42,29 +42,44 @@ for port in 49154 49155; do
   done
 done
 
-attempt=1
-max_attempts=3
-set -- "$binary_root/validator-node" \
-  49150 "$state_root/validator-0.snapshot" "$state_root/genesis.bin" 0 0 --once \
-  --key-file="$state_root/keys/validator-0.key" \
-  --chain-id-hex="$chain_id" \
-  --cash-ledger="$cash_ledger" \
-  --execution-state="$state_root/execution.snapshot" \
-  --finalized-cash-out="$cash_snapshot" \
-  --finality-out="$finality_bundle" \
-  --peer=2@127.0.0.1:49154 --peer=3@127.0.0.1:49155
-if test -s "$cash_actions"; then
-  set -- "$@" --cash-actions="$cash_actions"
-fi
-while ! "$@"; do
-  if test "$attempt" -ge "$max_attempts"; then
-    echo "validator round failed after $max_attempts attempts" >&2
-    exit 1
+launchctl_bin=${ACTIVECHAIN_LAUNCHCTL:-launchctl}
+launch_domain="gui/$(id -u)"
+round_complete=0
+proposer_snapshot=
+for validator in 0 1 2; do
+  case "$validator" in
+    0) peers="--peer=2@127.0.0.1:49154 --peer=3@127.0.0.1:49155" ;;
+    1) peers="--peer=1@127.0.0.1:49153 --peer=3@127.0.0.1:49155" ;;
+    2) peers="--peer=1@127.0.0.1:49153 --peer=2@127.0.0.1:49154" ;;
+  esac
+  label="dev.activechain.kanalen.validator$validator"
+  plist="$deployment_root/current/launchagents/$label.plist"
+  "$launchctl_bin" bootout "$launch_domain/$label" 2>/dev/null || true
+  set -- "$binary_root/validator-node" \
+    49150 "$state_root/validator-$validator.snapshot" "$state_root/genesis.bin" 0 "$validator" --once \
+    --key-file="$state_root/keys/validator-$validator.key" \
+    --chain-id-hex="$chain_id" \
+    --cash-ledger="$cash_ledger" \
+    --execution-state="$state_root/execution.snapshot" \
+    --finalized-cash-out="$cash_snapshot" \
+    --finality-out="$finality_bundle"
+  for peer in $peers; do
+    set -- "$@" "$peer"
+  done
+  if test -s "$cash_actions"; then
+    set -- "$@" --cash-actions="$cash_actions"
   fi
-  echo "validator round attempt $attempt failed; retrying" >&2
-  attempt=$((attempt + 1))
-  sleep 1
+  if "$@"; then
+    round_complete=1
+    proposer_snapshot="$state_root/validator-$validator.snapshot"
+  fi
+  "$launchctl_bin" bootstrap "$launch_domain" "$plist"
+  test "$round_complete" -eq 0 || break
 done
+test "$round_complete" -eq 1 || {
+  echo "no eligible validator completed the round" >&2
+  exit 1
+}
 if test ! -f "$rpc_snapshot"; then
   "$binary_root/activechain-rpc-bootstrap" \
     "$state_root/genesis.bin" "$chain_id" "$rpc_snapshot"
@@ -78,5 +93,5 @@ test -f "$finality_bundle" || {
   exit 1
 }
 "$binary_root/activechain-rpc-ingest" \
-  "$state_root/validator-0.snapshot" "$rpc_snapshot" \
+  "$proposer_snapshot" "$rpc_snapshot" \
   "$cash_snapshot" "$finality_bundle"

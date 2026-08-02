@@ -7,12 +7,15 @@ output_dir="${2:?usage: package-kanalen-release.sh <release-id> <output-dir> [ca
 target_dir="${3:-$repo_root/target/release}"
 
 release_dir="$output_dir/$release_id"
-mkdir -p "$release_dir/bin" "$release_dir/scripts"
+mkdir -p "$release_dir/bin" "$release_dir/scripts" "$release_dir/launchagents"
 for binary in validator-node genesis-tool cash-genesis-tool activechain-rpc-node activechain-rpc-ingest activechain-rpc-bootstrap activechain-rpc-probe; do
   test -x "$target_dir/$binary"
   install -m 755 "$target_dir/$binary" "$release_dir/bin/$binary"
 done
 install -m 755 "$repo_root/deploy/kanalen/scripts/run-kanalen-round.sh" "$release_dir/scripts/run-kanalen-round.sh"
 install -m 755 "$repo_root/deploy/kanalen/scripts/reset-kanalen-state.sh" "$release_dir/scripts/reset-kanalen-state.sh"
+for launchagent in "$repo_root"/deploy/kanalen/launchagents/*.plist; do
+  install -m 644 "$launchagent" "$release_dir/launchagents/$(basename "$launchagent")"
+done
 printf '%s\n' "$release_id" > "$release_dir/REVISION"
 printf 'packaged Kanalen release %s at %s\n' "$release_id" "$release_dir"

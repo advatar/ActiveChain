@@ -13,7 +13,10 @@ fake_path="$test_root/bin"
 mkdir -p "$binary_root" "$state_root/keys" "$rpc_root" "$fake_path"
 printf 'ACTIVECHAIN_CHAIN_ID_HEX=%096d\n' 0 > "$deployment_root/network.env"
 : > "$state_root/genesis.bin"
-: > "$state_root/keys/validator-0.key"
+for validator in 0 1 2; do
+  : > "$state_root/keys/validator-$validator.key"
+  : > "$state_root/validator-$validator.snapshot"
+done
 : > "$state_root/cash-ledger.snapshot"
 : > "$state_root/pending-cash-actions.batch"
 : > "$rpc_root/rpc-index.snapshot"
@@ -23,6 +26,8 @@ chmod +x "$test_root/run-kanalen-round.sh"
 
 printf '#!/bin/sh\nexit 0\n' > "$fake_path/nc"
 chmod +x "$fake_path/nc"
+printf '#!/bin/sh\nexit 0\n' > "$fake_path/launchctl"
+chmod +x "$fake_path/launchctl"
 cat > "$binary_root/validator-node" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$@" > "$ACTIVECHAIN_VALIDATOR_ARGUMENTS"
@@ -72,6 +77,7 @@ grep -q 'refusing unauthenticated RPC publication' "$test_root/missing-finality.
 printf '\000\000\000\001\001' > "$state_root/pending-cash-actions.batch"
 cat > "$binary_root/validator-node" <<'EOF'
 #!/bin/sh
+test "$5" != 0 || exit 1
 printf '%s\n' "$@" > "$ACTIVECHAIN_VALIDATOR_ARGUMENTS"
 for argument in "$@"; do
   case "$argument" in
@@ -82,7 +88,7 @@ done
 EOF
 chmod +x "$binary_root/validator-node"
 run_round
-test "$(sed -n '1p' "$test_root/ingest-arguments")" = "$state_root/validator-0.snapshot"
+test "$(sed -n '1p' "$test_root/ingest-arguments")" = "$state_root/validator-1.snapshot"
 test "$(sed -n '2p' "$test_root/ingest-arguments")" = "$rpc_root/rpc-index.snapshot"
 test "$(sed -n '3p' "$test_root/ingest-arguments")" = "$state_root/finalized-cash.snapshot"
 test "$(sed -n '4p' "$test_root/ingest-arguments")" = "$state_root/finality.bundle"
@@ -92,5 +98,7 @@ grep -q "^--finalized-cash-out=$state_root/finalized-cash.snapshot$" "$test_root
 grep -q "^--finality-out=$state_root/finality.bundle$" "$test_root/validator-arguments"
 grep -q "^--cash-ledger=$state_root/cash-ledger.snapshot$" "$test_root/validator-arguments"
 grep -q "^--cash-actions=$state_root/pending-cash-actions.batch$" "$test_root/validator-arguments"
+grep -q '^--peer=1@127.0.0.1:49153$' "$test_root/validator-arguments"
+grep -q '^--peer=3@127.0.0.1:49155$' "$test_root/validator-arguments"
 
 echo "Kanalen finalized-cash publication gate passed"
