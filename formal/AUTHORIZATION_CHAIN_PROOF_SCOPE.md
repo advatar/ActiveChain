@@ -85,6 +85,15 @@ only because issuance, delegation, authorization, or revocation is unreachable.
   their exact identifiers into a chain/epoch-specific signed action request and uses keys registered
   in that context. Reuse of the same issuer key and artifact across independently configured chains
   remains a protocol-policy question outside this finite context.
+- The revocation properties above are proved of the Tamarin model, in which every transition
+  consults finalized revocation state. They are **not** implemented by every production entry
+  point. In particular `verify_signed_authorization_chain` (crates/verifier-api) does not read a
+  capability revocation registry and exposes no hook to supply one, so a chain naming a
+  `revocation_registry` verifies regardless of revocation evidence. Relying parties that treat
+  that function — including its FFI export — as the authorization decision do not inherit the
+  modeled revocation guarantee. Tracked as a conformance gap in
+  [#706](https://github.com/advatar/ActiveChain/issues/706); the authorization kernel's
+  `verify_capability_active` boundary is the path that does carry a revocation predicate.
 - State membership is an exact proof term paired with an honestly committed finalized-object fact.
   SHAKE256 collision resistance, the P-031 96-level proof fold, canonical decoding, checkpoint
   finality, validator-set changes, and state sync are separate proof and implementation obligations.

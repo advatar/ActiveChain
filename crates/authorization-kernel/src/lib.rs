@@ -640,6 +640,12 @@ impl AuthorizationGateway {
     }
     pub fn load(snapshot_path: PathBuf) -> std::io::Result<Self> {
         let snapshot = load_snapshot(&snapshot_path)?;
+        if snapshot.chain_genesis_commitment == Digest384::ZERO {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "authorization gateway snapshot has zero genesis",
+            ));
+        }
         Ok(Self {
             inner: Mutex::new(RuntimeState {
                 state: snapshot.state,
@@ -1245,6 +1251,16 @@ mod tests {
         assert_eq!(gateway.admit(exhausted, &Verifier::default()), Err(AuthorizationError::Budget));
         let restarted = AuthorizationGateway::load(path.clone()).unwrap();
         assert_eq!(restarted.state().unwrap().objects()[0].owner(), ObjectOwner::Shared);
+        // A snapshot declaring a zero genesis must be refused on load, exactly as
+        // AuthorizationGateway::new refuses one. Restoring it would produce a gateway whose
+        // context no AuthorizationEnvelope can ever match.
+        let mut zeroed = load_snapshot(&path).unwrap();
+        zeroed.chain_genesis_commitment = Digest384::ZERO;
+        let zero_path = path.with_extension("zero");
+        save_snapshot(&zero_path, &zeroed).unwrap();
+        assert!(AuthorizationGateway::load(zero_path.clone()).is_err());
+        let _ = std::fs::remove_file(zero_path);
+
         let mut bytes = std::fs::read(&path).unwrap();
         bytes[10] ^= 1;
         std::fs::write(&path, bytes).unwrap();
