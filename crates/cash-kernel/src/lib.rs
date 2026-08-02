@@ -99,7 +99,7 @@ mod tests {
     use activechain_protocol_types::{
         AssetId, ChainId, CoinCellId, Digest384, PrincipalId, TransactionId,
     };
-    use alloc::{vec, vec::Vec};
+    use alloc::{format, string::String, vec, vec::Vec};
     use proptest::prelude::*;
 
     use super::{
@@ -1185,6 +1185,118 @@ mod tests {
         );
         assert_eq!(shield_first.redeemed_reward_count(), 0);
         assert_eq!(shield_first, shielded);
+    }
+
+    #[test]
+    fn rust_cash_lifecycle_matches_frozen_lean_refinement_table() {
+        fn row(name: &str, accepted: bool, ledger: &CashLedger) -> String {
+            format!(
+                "{name},{},{},{},{}\n",
+                if accepted { "accept" } else { "reject" },
+                ledger.supply().current_total_supply(),
+                ledger.shielded_state().pool_balance(),
+                ledger.redeemed_reward_count()
+            )
+        }
+
+        let economy = economy();
+        let mut ledger = CashLedger::from_genesis(&economy).unwrap();
+        let mut output = row("genesis", true, &ledger);
+        let fee_reserve = ledger
+            .apply_mint(
+                &CoinMintTransition::new(digest(2), principal(10), 20, 1, 1).unwrap(),
+                &settlement(1_000_000, 20, 1),
+            )
+            .unwrap();
+        output.push_str(&row("issuance", true, &ledger));
+
+        let pool_cell = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .find(|record| record.cell().owner() == principal(10) && record.id() != fee_reserve)
+            .unwrap()
+            .id();
+        let reward = RewardSettlement {
+            assignment: digest(90),
+            verifier: principal(12),
+            reward: 100,
+            bond_return: 0,
+            slash_amount: 0,
+        };
+        let redemption = RewardRedemption {
+            settlement: reward.assignment,
+            replay_witness: reward_replay_witness(reward.assignment),
+            pool_owner: principal(10),
+            pool_cell,
+            fee_reserve,
+            height: 2,
+        };
+        ledger.redeem_reward(&reward, &redemption).unwrap();
+        output.push_str(&row("reward", true, &ledger));
+        let reward_state = ledger.clone();
+        assert!(ledger.redeem_reward(&reward, &redemption).is_err());
+        assert_eq!(ledger, reward_state);
+        output.push_str(&row("reward_replay", false, &ledger));
+
+        ledger = decode_envelope(&encode_envelope(&ledger).unwrap()).unwrap();
+        output.push_str(&row("restart", true, &ledger));
+        let mut owner_cells = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .filter(|record| record.cell().owner() == principal(12))
+            .collect::<Vec<_>>();
+        owner_cells.sort_by_key(|record| record.cell().amount());
+        let shield_fee = owner_cells[0].id();
+        let shield_input = owner_cells.last().unwrap().id();
+        let shield = ShieldIntent::new(
+            economy.definition().chain_id(),
+            ledger.asset_id().unwrap(),
+            principal(12),
+            vec![shield_input],
+            shield_fee,
+            400,
+            7,
+            vec![digest(92)],
+            20,
+        )
+        .unwrap();
+        let shield_proof = VerifiedPrivacyProof {
+            public_inputs_commitment: commit(DomainTag::PRIVACY_PUBLIC_INPUTS, &shield).unwrap(),
+            verified: true,
+        };
+        ledger.apply_shield(&shield, shield_proof, 3).unwrap();
+        output.push_str(&row("shield", true, &ledger));
+
+        let unshield = UnshieldIntent::new(
+            economy.definition().chain_id(),
+            ledger.asset_id().unwrap(),
+            ledger.shielded_state().anchor(),
+            principal(12),
+            100,
+            3,
+            vec![digest(70)],
+            nullifier_witnesses(&[digest(70)]),
+            vec![digest(80)],
+            30,
+        )
+        .unwrap();
+        let unshield_proof = VerifiedPrivacyProof {
+            public_inputs_commitment: commit(DomainTag::PRIVACY_PUBLIC_INPUTS, &unshield).unwrap(),
+            verified: true,
+        };
+        ledger.apply_unshield(&unshield, unshield_proof, 4).unwrap();
+        output.push_str(&row("unshield", true, &ledger));
+        let unshielded = ledger.clone();
+        assert!(ledger.apply_unshield(&unshield, unshield_proof, 4).is_err());
+        assert_eq!(ledger, unshielded);
+        output.push_str(&row("unshield_replay", false, &ledger));
+
+        assert_eq!(
+            output,
+            include_str!("../../../testing/vectors/cash/cash-lifecycle-model-table.txt")
+        );
     }
 
     #[test]

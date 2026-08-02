@@ -11,6 +11,7 @@ authorization	formal/lean/ActiveChain/AuthorizationChain.lean	testing/vectors/au
 block-composition	formal/lean/ActiveChain/BlockComposition.lean	testing/vectors/consensus/finalized-block-v1.txt	trace
 cash	formal/lean/ActiveChain/Cash.lean	testing/vectors/cash/native-money-v1.txt	trace
 cash-authorization	formal/lean/ActiveChain/CashAuthorization.lean	crates/wallet-core/src/lib.rs	trace
+cash-lifecycle	formal/lean/ActiveChain/CashLifecycle.lean	testing/vectors/cash/cash-lifecycle-model-table.txt	differential
 consensus-auth	formal/tamarin/activechain_consensus.spthy	crates/consensus-runtime/src/lib.rs	trace
 consensus-history	formal/lean/ActiveChain/ConsensusHistory.lean	testing/vectors/consensus/consensus-history-model-table.txt	differential
 consensus-safety	formal/tla/ActiveChainConsensus.tla	crates/consensus-runtime/src/lib.rs	trace

@@ -5,6 +5,7 @@ import ActiveChain.BlockComposition
 import ActiveChain.Billboard
 import ActiveChain.Cash
 import ActiveChain.CashAuthorization
+import ActiveChain.CashLifecycle
 import ActiveChain.ConsensusHistory
 import ActiveChain.Credential
 import ActiveChain.DA
