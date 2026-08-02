@@ -107,6 +107,8 @@ Action subset checking is bounded by 32 actions. Selectors are at most 51 bytes.
 
 Successful attenuation alone does not authenticate the issuer, establish holder control, prove non-revocation, or reserve mutable budgets. Those predicates remain mandatory in the complete authorization intersection.
 
+Because budget reservation is deferred, a limit declared on a capability bounds that capability alone. An issuer that delegates to several children MUST NOT assume its own limit caps their combined spend: each attenuated child is individually bounded by the parent's limits, so N siblings may each spend up to the parent's ceiling. Aggregating a delegation subtree's spend against every ancestor requires the mutable budget objects specified by a later revision. Implementations MUST NOT present per-capability accounting as a subtree spend ceiling.
+
 ## 12. Test vectors and formal properties
 
 Authority vectors contain a parent and accepted child plus commitments. Unit tests mutate every authority dimension and require the corresponding rejection. Property tests range over numeric limits and MUST establish:
