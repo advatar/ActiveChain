@@ -1276,6 +1276,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
   and replay-protected offline dry-run workflows.
 - [x] Extend the issuer CLI with canonical controller-state, rotation-envelope, and exact offline
   policy/controller post-state dry-run workflows.
+- [x] Add a P-020-scoped issuer recovery-initiation CLI that binds the exact issuer principal,
+      recovery authority, challenge window, evidence/bond, and post-challenge controller rotation.
 - [x] Add an issuer-console controller-rotation review derived from exact canonical pre/post
   policy and controller state, authorities, revision, approval, and finalized execution window.
 - [x] Add an issuer-console review surface derived from the exact approved NFT manifest, series,
