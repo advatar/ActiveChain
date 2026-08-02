@@ -1225,6 +1225,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
     payloads that atomically advance the consensus multi-asset ledger.
   - [x] Prove controller rotation preserves immutable policy economics, advances revision exactly
         once, and rejects every substituted pre-state binding or invalid execution height.
+  - [x] Prove lifecycle controls preserve immutable policy economics and reject substituted
+        bindings, invalid heights, illegal transitions, and nonzero-supply retirement.
 - [x] Define canonical corporate-action envelopes for distributions, splits/consolidations,
   coupons, maturity, record-date voting, and redemption offers.
   - [x] Add bounded exact-once corporate-action admission bound to the finalized asset policy,
