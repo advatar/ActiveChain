@@ -16,6 +16,7 @@ import ActiveChain.ExternalIdentity
 import ActiveChain.Faucet
 import ActiveChain.Object
 import ActiveChain.ObjectVM
+import ActiveChain.OpenWalletConsent
 import ActiveChain.Payments
 import ActiveChain.PqZk
 import ActiveChain.Nonce

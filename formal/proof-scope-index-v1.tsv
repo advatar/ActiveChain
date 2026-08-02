@@ -30,6 +30,7 @@ kani-protocol	formal/KANI_PROTOCOL_TYPES_PROOF_SCOPE.md	fixed digest contents	cr
 nonce	formal/TRACE_CONFORMANCE_SCOPE.md	finite model table	compiler correspondence	retain-minimize-fix-claim
 object	formal/TRACE_CONFORMANCE_SCOPE.md	frozen transition table	unbounded refinement	retain-minimize-fix-claim
 object-vm	formal/KANI_OBJECT_VM_PROOF_SCOPE.md	verified bytecode admission	whole-run composition	timeout-explicit-unproved
+openwallet-consent	formal/OPENWALLET_CONSENT_PROOF_SCOPE.md	canonically decoded offers and authenticated issuers	cryptographic issuer authentication, credential content validity and digest collision resistance	retain-minimize-fix-claim
 pq-session	formal/PQ_SESSION_PROOF_SCOPE.md	Dolev-Yao cryptography	KDF and primitive internals	retain-minimize-fix-claim
 pq-zk	formal/TRACE_CONFORMANCE_SCOPE.md	proof-system soundness	guest compiler and cryptographic soundness	external-assumption
 proof-pipeline	formal/PROOF_PIPELINE_TLA_PROOF_SCOPE.md	proof-system soundness	crash liveness and Rust refinement	external-assumption
