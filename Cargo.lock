@@ -168,6 +168,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-cash-throughput-benchmark"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-cash-air",
+ "activechain-cash-kernel",
+ "activechain-data-availability",
+ "activechain-protocol-types",
+ "activechain-wallet-core",
+ "ml-dsa",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "activechain-consensus-runtime"
 version = "0.1.0"
 dependencies = [
