@@ -22,6 +22,12 @@ Mechanically checked properties:
   idempotent, and changed request/provider-reference bindings are rejected.
 - typed nTZS transfer destinations set exactly one provider field and accepted core requests meet
   their operation minimum.
+- every accepted partial refund advances the exact sequence once and keeps cumulative refunds at
+  or below the finalized settled amount; zero-value refund requests have no successor.
+- every accepted treasury debit advances the exact nonce once and keeps cumulative spend within
+  the declared budget.
+- a webhook cursor advances only for a retained payment intent and the exact expected cursor;
+  missing-intent delivery cannot advance.
 
 The Rust crate additionally checks intent identity across successors, exact asset identity,
 minimum-output ordering, checked fee arithmetic, idempotency-body binding, canonical round trips,
