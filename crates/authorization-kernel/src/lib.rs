@@ -338,6 +338,18 @@ impl CanonicalDecode for BudgetUsage {
     }
 }
 
+/// Epoch-scoped replay barrier and per-capability budget usage.
+///
+/// Budget accounting is keyed on the individual capability that authorized an invocation, so a
+/// capability cannot exceed its own declared limits. It does NOT aggregate a delegated
+/// capability's spend against its ancestors: two siblings attenuated from one parent may each
+/// carry that parent's full ceiling and each spend it, so an ancestor's limits bound each
+/// descendant individually rather than their combined total.
+///
+/// This matches P-022, which defers mutable budget objects to a separate refinement and states
+/// that attenuation alone does not reserve budgets. Subtree reservation belongs to that
+/// refinement; until it exists, these limits must not be read as a spend ceiling over a
+/// delegation subtree. See issue #704.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct AuthorizationLedger {
     invocations: BTreeMap<Digest384, Digest384>,
