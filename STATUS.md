@@ -647,7 +647,7 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
 - [x] Enable the Kanalen ingestion runner to publish finalized cash snapshots when validator
   output and its matching finality bundle are available; retain metadata-only ingestion until
   then.
-- [ ] Make the production validator round execute or load the authoritative cash transition,
+- [x] Make the production validator round execute or load the authoritative cash transition,
   verify it through the non-test finalized-block verifier, and atomically emit the matching
   finalized cash snapshot plus certificate bundle; metadata consensus alone is insufficient.
   - [x] Stage bounded authorized cash batches against durable validator ingress, certify the exact
@@ -664,11 +664,11 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
     direct-reexecution proof verification, and genesis-backed post-vote admission before emission.
   - [x] Commit admitted execution state, authorized cash ingress, finality artifacts, and action
     archival through one write-ahead journal with idempotent partial-materialization recovery.
-  - [ ] Recover a precommitted round when consensus persisted its certificate before the artifact
+  - [x] Recover a precommitted round when consensus persisted its certificate before the artifact
     journal was promoted, closing the final certification-to-publication crash window.
 - [x] Require finalized-cash publication to load a canonical invariant-checked, chain-bound cash
   ledger instead of synthesizing an empty Coin Cell set.
-- [ ] Make a fresh Kanalen reset provision the genesis cash state consumed by that execution path,
+- [x] Make a fresh Kanalen reset provision the genesis cash state consumed by that execution path,
   then prove the first and restarted rounds publish matching cash/finality artifacts.
   - [x] Rehearse first and restarted round publication from the exact reset-provisioned cash ledger,
     retaining authoritative state while regenerating only derived publication artifacts.

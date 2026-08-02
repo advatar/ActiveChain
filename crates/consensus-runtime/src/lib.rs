@@ -3846,6 +3846,22 @@ impl ValidatorService {
     pub fn state(&self) -> Result<ConsensusState, ValidatorServiceError> {
         self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned).map(|engine| engine.state())
     }
+
+    /// Returns the durable certificate material for an exact finalized block digest. This is used
+    /// by crash recovery to finish a precommitted publication after consensus persisted first.
+    pub fn certified_block(
+        &self,
+        block_digest: Digest384,
+    ) -> Result<Option<CertifiedBlock>, ValidatorServiceError> {
+        let engine = self.engine.lock().map_err(|_| ValidatorServiceError::Poisoned)?;
+        engine
+            .certified_blocks
+            .values()
+            .find(|record| record.certificate.block_digest() == block_digest)
+            .map(CertifiedBlockRecord::proof)
+            .transpose()
+            .map_err(ValidatorServiceError::Transport)
+    }
     /// Persists an execution-produced cash snapshot only when it exactly matches this validator's
     /// finalized consensus identity and height. Execution remains the source of Coin Cells; this
     /// boundary prevents an operator from publishing an optimistic or cross-chain snapshot.
