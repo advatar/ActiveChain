@@ -541,24 +541,34 @@ impl FungibleCoinCell {
         action: &FungibleExceptionalControlActionV1,
         height: Height,
     ) -> Result<(Self, FungibleHolderControlStateV1), NativeMoneyError> {
+        self.validate_clawback_action(action)?;
+        let next_state = state
+            .apply(definition, policy, action, height)
+            .map_err(|_| NativeMoneyError::MintAuthorityMismatch)?;
+        let next = self.apply_verified_clawback(action)?;
+        Ok((next, next_state))
+    }
+
+    fn validate_clawback_action(
+        self,
+        action: &FungibleExceptionalControlActionV1,
+    ) -> Result<(), NativeMoneyError> {
         if action.kind() != FungibleExceptionalControlKind::Clawback
-            || self.asset_id != state.asset_id()
-            || self.owner != state.holder()
+            || action.asset_id() != self.asset_id
+            || action.holder() != self.owner
             || action.amount() != self.amount
         {
             return Err(NativeMoneyError::InvalidInputs);
         }
-        let next_state = state
-            .apply(definition, policy, action, height)
-            .map_err(|_| NativeMoneyError::MintAuthorityMismatch)?;
-        let next = Self::new(
-            self.origin,
-            self.asset_id,
-            action.recipient(),
-            self.amount,
-            self.creation_height,
-        )?;
-        Ok((next, next_state))
+        Ok(())
+    }
+
+    fn apply_verified_clawback(
+        self,
+        action: &FungibleExceptionalControlActionV1,
+    ) -> Result<Self, NativeMoneyError> {
+        self.validate_clawback_action(action)?;
+        Self::new(self.origin, self.asset_id, action.recipient(), self.amount, self.creation_height)
     }
 }
 
@@ -1575,6 +1585,87 @@ impl CanonicalType for FungibleSettlementReceiptV1 {
     const TYPE_TAG: u16 = Self::TYPE_TAG;
     const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    fn cell() -> FungibleCoinCell {
+        FungibleCoinCell::new(
+            CoinCellOrigin::new(TransactionId::new(Digest384::new([1; 48])), 3),
+            AssetId::new(Digest384::new([2; 48])),
+            PrincipalId::new(Digest384::new([3; 48])),
+            42,
+            7,
+        )
+        .unwrap()
+    }
+
+    #[kani::proof]
+    fn verified_clawback_changes_only_owner() {
+        let current = cell();
+        let recipient = PrincipalId::new(Digest384::new([4; 48]));
+        let action = FungibleExceptionalControlActionV1::new(
+            current.asset_id(),
+            current.owner(),
+            recipient,
+            Digest384::new([5; 48]),
+            Digest384::new([6; 48]),
+            Digest384::new([7; 48]),
+            Digest384::new([8; 48]),
+            FungibleExceptionalControlKind::Clawback,
+            current.amount(),
+            0,
+            10,
+            20,
+        )
+        .unwrap();
+        let next = current.apply_verified_clawback(&action).unwrap();
+        assert_eq!(next.owner(), recipient);
+        assert_eq!(next.origin(), current.origin());
+        assert_eq!(next.asset_id(), current.asset_id());
+        assert_eq!(next.amount(), current.amount());
+        assert_eq!(next.creation_height(), current.creation_height());
+    }
+
+    #[kani::proof]
+    fn clawback_rejects_wrong_kind_asset_holder_or_amount() {
+        let selector: u8 = kani::any();
+        kani::assume(selector <= 3);
+        let current = cell();
+        let holder =
+            if selector == 2 { PrincipalId::new(Digest384::new([9; 48])) } else { current.owner() };
+        let kind = if selector == 0 {
+            FungibleExceptionalControlKind::Freeze
+        } else {
+            FungibleExceptionalControlKind::Clawback
+        };
+        let (recipient, amount) = if selector == 0 {
+            (holder, 0)
+        } else {
+            (
+                PrincipalId::new(Digest384::new([4; 48])),
+                if selector == 3 { 41 } else { current.amount() },
+            )
+        };
+        let action = FungibleExceptionalControlActionV1::new(
+            if selector == 1 { AssetId::new(Digest384::new([9; 48])) } else { current.asset_id() },
+            holder,
+            recipient,
+            Digest384::new([5; 48]),
+            Digest384::new([6; 48]),
+            Digest384::new([7; 48]),
+            Digest384::new([8; 48]),
+            kind,
+            amount,
+            0,
+            10,
+            20,
+        )
+        .unwrap();
+        assert_eq!(current.apply_verified_clawback(&action), Err(NativeMoneyError::InvalidInputs));
+    }
 }
 
 #[cfg(test)]
