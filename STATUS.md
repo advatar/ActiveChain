@@ -686,6 +686,8 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
     its consensus state while adopting schema-6 view-change and timeout fields.
   - [x] Run all three validator listeners and make round orchestration rotate through candidates,
     preserving full-quorum voting while accepting only the consensus-selected proposer.
+  - [x] Raise the bounded consensus peer frame to 32 KiB so a three-validator ML-DSA view-change
+    certificate and its successor certified block fit without relaxing oversized-frame rejection.
 - [x] Verify the currently deployed Kanalen testnet independently over localhost on the host:
   chain/genesis identity matches, finalized height advances to 4168, and health reports `Healthy`.
 - [x] Deploy the schema-2 RPC binary and matching probe without changing validator binaries or
