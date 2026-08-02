@@ -39,6 +39,7 @@ pub const CASH_AIR_SHAKE_SUITE_ID: u32 = 0xCA50_0301;
 pub const CASH_AIR_SHAKE128_XOF_SUITE_ID: u32 = 0xCA50_0302;
 const KECCAK_ROUNDS: usize = 24;
 pub const MAX_CASH_SHAKE_MESSAGE: usize = 512;
+pub const MAX_CASH_SHAKE_XOF_MESSAGE: usize = 1_024;
 pub const MAX_CASH_SHAKE_XOF_OUTPUT: usize = 16_384;
 /// Maximum number of Keccak permutations aggregated into one FRI proof.
 ///
@@ -507,11 +508,14 @@ fn state_values<F: PrimeField64>(pre: [u64; STATE_LANES], post: [u64; STATE_LANE
 }
 
 fn padded_blocks(message: &[u8]) -> Result<Vec<[u8; RATE_BYTES]>, &'static str> {
-    padded_blocks_for::<RATE_BYTES>(message)
+    padded_blocks_for::<RATE_BYTES>(message, MAX_CASH_SHAKE_MESSAGE)
 }
 
-fn padded_blocks_for<const RATE: usize>(message: &[u8]) -> Result<Vec<[u8; RATE]>, &'static str> {
-    if message.len() > MAX_CASH_SHAKE_MESSAGE {
+fn padded_blocks_for<const RATE: usize>(
+    message: &[u8],
+    maximum_message_length: usize,
+) -> Result<Vec<[u8; RATE]>, &'static str> {
+    if message.len() > maximum_message_length {
         return Err("SHAKE message exceeds CashAIR bound");
     }
     let block_count = message.len() / RATE + 1;
@@ -593,7 +597,7 @@ fn xof_witness<const RATE: usize>(
     let mut bindings = Vec::new();
     let mut inputs = Vec::new();
     let mut state = [0_u64; STATE_LANES];
-    for block in padded_blocks_for::<RATE>(message)? {
+    for block in padded_blocks_for::<RATE>(message, MAX_CASH_SHAKE_XOF_MESSAGE)? {
         absorb_for(&mut state, &block);
         let pre = state;
         state = permuted_state(state);
@@ -851,7 +855,7 @@ mod tests {
         assert!(verify_shake256_xof(&proof, message, &substituted).is_err());
         assert!(prove_shake256_xof(message, 0).is_err());
         assert!(prove_shake256_xof(message, MAX_CASH_SHAKE_XOF_OUTPUT + 1).is_err());
-        assert!(prove_shake256_xof(&vec![0; MAX_CASH_SHAKE_MESSAGE + 1], 1).is_err());
+        assert!(prove_shake256_xof(&vec![0; MAX_CASH_SHAKE_XOF_MESSAGE + 1], 1).is_err());
     }
 
     #[test]

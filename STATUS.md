@@ -2234,6 +2234,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
                 rejection-sampled NTT polynomials, including the rejection fallback path.
           - [x] Prove bounded SHAKE256 output and bind ML-DSA-44 `SampleInBall(c_tilde)` to the
                 exact Algorithm 29 rejection, swap, and sign-bit procedure.
+          - [x] Bind canonical ML-DSA-44 `w1Encode` and prove the final
+                `c_tilde = SHAKE256(mu || w1Encode(w1), 32)` verifier equality.
           - [x] Constrain ML-DSA-44 public-key/signature bit unpacking, `z` infinity-norm range,
                 and canonical hint decoding, exposing exact decoded verifier inputs.
           - [x] Constrain ML-DSA-44 `UseHint` decomposition, signed low bits, adjustment branches,
