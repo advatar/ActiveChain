@@ -2154,6 +2154,8 @@ Tracked by [GitHub issue #14](https://github.com/advatar/ActiveChain/issues/14).
 - [ ] Update and push the landing-page roadmap at each completed major milestone.
   - [x] Advertise the proof-aware ActiveBridge Rust SDK and reconcile implemented versus
     externally qualified identity claims (activechain-display#17).
+  - [x] Advertise the reproducible proof-finalized cash benchmark with explicit local-measurement
+        and non-production caveats (activechain-display#19).
 
 ## Planned milestone — `did:activechain` identity method
 
