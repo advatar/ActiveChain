@@ -236,7 +236,8 @@ pub fn admit_external_presentation(
     verified: VerifiedExternalPresentation,
     policy: &ExternalCredentialAcceptancePolicy,
     expected_subject_binding: Digest384,
-) -> Result<(VerifiedExternalCredentialFact, ExternalAdmissionReceipt), ExternalAdmissionReceipt> {
+) -> Result<(VerifiedExternalCredentialFact, ExternalAdmissionReceipt), Box<ExternalAdmissionReceipt>>
+{
     let p = verified.presentation();
     let policy_commitment = policy.commitment();
     let receipt = |result| ExternalAdmissionReceipt {
@@ -270,7 +271,7 @@ pub fn admit_external_presentation(
         None
     };
     if let Some(e) = failure {
-        return Err(receipt(ExternalAdmissionResult::Rejected(e)));
+        return Err(Box::new(receipt(ExternalAdmissionResult::Rejected(e))));
     }
     let fact = VerifiedExternalCredentialFact {
         issuer: p.issuer(),
