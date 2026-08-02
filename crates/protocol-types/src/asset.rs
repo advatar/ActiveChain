@@ -1026,13 +1026,21 @@ impl FungibleAssetPolicyV1 {
         action: &FungibleAssetLifecycleActionV1,
         height: u64,
     ) -> Result<Self, AssetDefinitionError> {
+        let policy_commitment =
+            self.commitment().map_err(|_| AssetDefinitionError::InvalidLifecycleTransition)?;
+        self.apply_lifecycle_action_with_verified_commitment(action, height, policy_commitment)
+    }
+
+    fn apply_lifecycle_action_with_verified_commitment(
+        &self,
+        action: &FungibleAssetLifecycleActionV1,
+        height: u64,
+        policy_commitment: Digest384,
+    ) -> Result<Self, AssetDefinitionError> {
         if !action.active_at(height)
             || action.asset_id() != self.asset_id
             || action.authority_set() != self.authority_set
-            || action.expected_policy()
-                != self
-                    .commitment()
-                    .map_err(|_| AssetDefinitionError::InvalidLifecycleTransition)?
+            || action.expected_policy() != policy_commitment
         {
             return Err(AssetDefinitionError::InvalidLifecycleTransition);
         }
@@ -2601,6 +2609,88 @@ mod kani_proofs {
                     if selector == 3 { Digest384::new([12; 48]) } else { policy_commitment },
                     controller_state_commitment,
                     next_policy_commitment,
+                )
+                .is_ok(),
+            selector == 0 && (10..20).contains(&height)
+        );
+    }
+
+    #[kani::proof]
+    fn lifecycle_controls_preserve_economics_and_change_only_lifecycle() {
+        let selector: u8 = kani::any();
+        kani::assume(selector <= 2);
+        let supply = if selector == 2 { 0 } else { 40 };
+        let lifecycle = if selector == 1 {
+            FungibleAssetLifecycle::Paused
+        } else {
+            FungibleAssetLifecycle::Registered
+        };
+        let current = FungibleAssetPolicyV1 { lifecycle, ..policy(supply, 100) };
+        let action_kind = match selector {
+            0 => FungibleAssetLifecycleAction::Pause,
+            1 => FungibleAssetLifecycleAction::Resume,
+            _ => FungibleAssetLifecycleAction::Retire,
+        };
+        let action = FungibleAssetLifecycleActionV1::new(
+            current.asset_id(),
+            Digest384::new([9; 48]),
+            current.authority_set(),
+            Digest384::new([10; 48]),
+            Digest384::new([11; 48]),
+            action_kind,
+            10,
+            20,
+        )
+        .unwrap();
+        let next = current
+            .apply_lifecycle_action_with_verified_commitment(&action, 10, Digest384::new([9; 48]))
+            .unwrap();
+        assert_eq!(next.asset_id, current.asset_id);
+        assert_eq!(next.issuer, current.issuer);
+        assert_eq!(next.reserve_commitment, current.reserve_commitment);
+        assert_eq!(next.redemption_policy, current.redemption_policy);
+        assert_eq!(next.jurisdiction_profile, current.jurisdiction_profile);
+        assert_eq!(next.authority_set, current.authority_set);
+        assert_eq!(next.supply_cap, current.supply_cap);
+        assert_eq!(next.supply_issued, current.supply_issued);
+        assert_eq!(
+            next.lifecycle,
+            match selector {
+                0 => FungibleAssetLifecycle::Paused,
+                1 => FungibleAssetLifecycle::Registered,
+                _ => FungibleAssetLifecycle::Retired,
+            }
+        );
+    }
+
+    #[kani::proof]
+    fn lifecycle_controls_reject_substitution_invalid_height_and_illegal_transition() {
+        let selector: u8 = kani::any();
+        let height: u64 = kani::any();
+        kani::assume(selector <= 6);
+        let supply = if selector == 6 { 1 } else { 0 };
+        let current = policy(supply, 100);
+        let action = FungibleAssetLifecycleActionV1::new(
+            if selector == 1 { AssetId::new(Digest384::new([12; 48])) } else { current.asset_id() },
+            if selector == 2 { Digest384::new([12; 48]) } else { Digest384::new([9; 48]) },
+            if selector == 3 { Digest384::new([12; 48]) } else { current.authority_set() },
+            Digest384::new([10; 48]),
+            Digest384::new([11; 48]),
+            if selector == 5 {
+                FungibleAssetLifecycleAction::Resume
+            } else {
+                FungibleAssetLifecycleAction::Retire
+            },
+            10,
+            20,
+        )
+        .unwrap();
+        assert_eq!(
+            current
+                .apply_lifecycle_action_with_verified_commitment(
+                    &action,
+                    height,
+                    if selector == 4 { Digest384::new([12; 48]) } else { Digest384::new([9; 48]) },
                 )
                 .is_ok(),
             selector == 0 && (10..20).contains(&height)
