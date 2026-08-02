@@ -93,7 +93,7 @@ mod tests {
         CanonicalType, Decoder, Encoder, decode_envelope, encode_envelope,
     };
     use activechain_privacy_kernel::{
-        NullifierWitness, ShieldIntent, UnshieldIntent, VerifiedPrivacyProof,
+        NullifierWitness, PrivacyError, ShieldIntent, UnshieldIntent, VerifiedPrivacyProof,
     };
     use activechain_protocol_commitment::{DomainTag, cash_transition_id, commit};
     use activechain_protocol_types::{
@@ -1410,6 +1410,1017 @@ mod tests {
             crate::types::effective_stake_basis_points(4, 3),
             Err(NativeMoneyError::SupplyPartitionMismatch)
         );
+    }
+
+    // ============ adversarial regression tests (issue #14) ============
+    //
+    // Each test pins a defence against a concrete attack on the native cash
+    // plane. All of them were first run as exploit attempts against the
+    // production API and were refused; they exist so that the refusal stays.
+
+    fn minted_fixture() -> (GenesisEconomy, CashLedger, CoinCellId, CoinCellId) {
+        let economy = economy();
+        let mut ledger = CashLedger::from_genesis(&economy).unwrap();
+        let minted = ledger
+            .apply_mint(
+                &CoinMintTransition::new(digest(2), principal(10), 20, 1, 1).unwrap(),
+                &settlement(1_000_000, 20, 1),
+            )
+            .unwrap();
+        let owned = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .find(|record| record.cell().owner() == principal(10) && record.id() != minted)
+            .unwrap()
+            .id();
+        (economy, ledger, owned, minted)
+    }
+
+    fn shielded_fixture() -> (GenesisEconomy, CashLedger) {
+        let (economy, mut ledger, input, fee_reserve) = minted_fixture();
+        let shield = ShieldIntent::new(
+            economy.definition().chain_id(),
+            ledger.asset_id().unwrap(),
+            principal(10),
+            vec![input],
+            fee_reserve,
+            400,
+            0,
+            vec![digest(60)],
+            20,
+        )
+        .unwrap();
+        let proof = VerifiedPrivacyProof {
+            public_inputs_commitment: commit(DomainTag::PRIVACY_PUBLIC_INPUTS, &shield).unwrap(),
+            verified: true,
+        };
+        ledger.apply_shield(&shield, proof, 2).unwrap();
+        (economy, ledger)
+    }
+
+    fn multi_cell_fixture() -> (CashLedger, Vec<CoinCellId>) {
+        let mut ledger = CashLedger::from_genesis(&economy()).unwrap();
+        let mut issued = 0_u128;
+        for epoch in 1..=3_u64 {
+            let pre = ledger.supply().current_total_supply();
+            let amount = crate::types::epoch_security_budget(pre, 0).unwrap();
+            ledger
+                .apply_mint(
+                    &CoinMintTransition::new(digest(2), principal(10), amount, epoch, epoch)
+                        .unwrap(),
+                    &settlement_with_window(pre, amount, epoch, 0, 1_000_000, issued),
+                )
+                .unwrap();
+            issued += amount;
+        }
+        let ids = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .filter(|record| record.cell().owner() == principal(10))
+            .map(|record| record.id())
+            .collect::<Vec<_>>();
+        (ledger, ids)
+    }
+
+    /// Attack: forge wire bytes for a transfer or shield whose fee reserve is
+    /// also a value input, or whose inputs repeat, so the kernel counts the
+    /// same Coin Cell twice and mints the duplicate as change. The decoders
+    /// must refuse what the constructors refuse.
+    #[test]
+    fn canonical_decoding_refuses_double_counted_inputs_and_nullifiers() {
+        use activechain_canonical_codec::{CanonicalDecode, CanonicalEncode};
+        let first = CoinCellId::new(digest(1));
+        let second = CoinCellId::new(digest(2));
+
+        let transfer_body = |inputs: &[CoinCellId], reserve: CoinCellId| {
+            let mut encoder = Encoder::new(CoinTransfer::MAX_ENCODED_LEN);
+            principal(10).encode(&mut encoder).unwrap();
+            principal(20).encode(&mut encoder).unwrap();
+            encoder.write_length(inputs.len(), super::MAX_TRANSFER_INPUTS).unwrap();
+            for id in inputs {
+                id.encode(&mut encoder).unwrap();
+            }
+            reserve.encode(&mut encoder).unwrap();
+            100_u128.encode(&mut encoder).unwrap();
+            1_u128.encode(&mut encoder).unwrap();
+            10_u64.encode(&mut encoder).unwrap();
+            encoder.finish()
+        };
+        let control = transfer_body(&[first], second);
+        assert!(CoinTransfer::decode(&mut Decoder::new(&control)).is_ok());
+        assert!(
+            CoinTransfer::decode(&mut Decoder::new(&transfer_body(&[first, first], second)))
+                .is_err()
+        );
+        assert!(CoinTransfer::decode(&mut Decoder::new(&transfer_body(&[first], first))).is_err());
+
+        let shield_body = |inputs: &[CoinCellId], reserve: CoinCellId| {
+            let mut encoder = Encoder::new(<ShieldIntent as CanonicalType>::MAX_ENCODED_LEN);
+            ChainId::new(digest(1)).encode(&mut encoder).unwrap();
+            AssetId::new(digest(2)).encode(&mut encoder).unwrap();
+            principal(10).encode(&mut encoder).unwrap();
+            encoder
+                .write_length(inputs.len(), activechain_privacy_kernel::MAX_SHIELDED_ITEMS)
+                .unwrap();
+            for id in inputs {
+                id.encode(&mut encoder).unwrap();
+            }
+            reserve.encode(&mut encoder).unwrap();
+            100_u128.encode(&mut encoder).unwrap();
+            1_u128.encode(&mut encoder).unwrap();
+            encoder.write_length(1, activechain_privacy_kernel::MAX_SHIELDED_ITEMS).unwrap();
+            digest(60).encode(&mut encoder).unwrap();
+            20_u64.encode(&mut encoder).unwrap();
+            encoder.finish()
+        };
+        assert!(ShieldIntent::decode(&mut Decoder::new(&shield_body(&[first], second))).is_ok());
+        assert!(ShieldIntent::decode(&mut Decoder::new(&shield_body(&[first], first))).is_err());
+        assert!(
+            ShieldIntent::decode(&mut Decoder::new(&shield_body(&[first, first], second))).is_err()
+        );
+
+        let witnesses = nullifier_witnesses(&[digest(70)]);
+        let mut encoder = Encoder::new(<UnshieldIntent as CanonicalType>::MAX_ENCODED_LEN);
+        ChainId::new(digest(1)).encode(&mut encoder).unwrap();
+        AssetId::new(digest(2)).encode(&mut encoder).unwrap();
+        digest(50).encode(&mut encoder).unwrap();
+        principal(12).encode(&mut encoder).unwrap();
+        100_u128.encode(&mut encoder).unwrap();
+        0_u128.encode(&mut encoder).unwrap();
+        encoder.write_length(2, activechain_privacy_kernel::MAX_SHIELDED_ITEMS).unwrap();
+        digest(70).encode(&mut encoder).unwrap();
+        digest(70).encode(&mut encoder).unwrap();
+        witnesses[0].encode(&mut encoder).unwrap();
+        witnesses[0].encode(&mut encoder).unwrap();
+        encoder.write_length(0, activechain_privacy_kernel::MAX_SHIELDED_ITEMS).unwrap();
+        30_u64.encode(&mut encoder).unwrap();
+        let duplicated = encoder.finish();
+        assert!(UnshieldIntent::decode(&mut Decoder::new(&duplicated)).is_err());
+    }
+
+    /// Attack: mint value through the reward path by pointing the pool cell and
+    /// the fee reserve at the same Coin Cell, by redeeming a reward larger than
+    /// the pool, or by draining a pool cell the redeemer does not own.
+    #[test]
+    fn reward_redemption_cannot_create_value() {
+        let reward = |amount| RewardSettlement {
+            assignment: digest(90),
+            verifier: principal(12),
+            reward: amount,
+            bond_return: 0,
+            slash_amount: 0,
+        };
+        let redemption = |pool_owner, pool_cell, fee_reserve| RewardRedemption {
+            settlement: digest(90),
+            replay_witness: reward_replay_witness(digest(90)),
+            pool_owner,
+            pool_cell,
+            fee_reserve,
+            height: 2,
+        };
+
+        let (_, mut ledger, pool_cell, fee_reserve) = minted_fixture();
+        let before = ledger.clone();
+        assert_eq!(
+            ledger.redeem_reward(&reward(100), &redemption(principal(10), pool_cell, pool_cell)),
+            Err(CashTransitionError::Invalid(NativeMoneyError::FeeReserveAlsoInput))
+        );
+        assert_eq!(ledger, before);
+        assert_eq!(
+            ledger.redeem_reward(
+                &reward(10_000_000),
+                &redemption(principal(10), pool_cell, fee_reserve)
+            ),
+            Err(CashTransitionError::Invalid(NativeMoneyError::InsufficientValue))
+        );
+        assert_eq!(ledger, before);
+        assert_eq!(
+            ledger.redeem_reward(&reward(100), &redemption(principal(12), pool_cell, fee_reserve)),
+            Err(CashTransitionError::Invalid(NativeMoneyError::WrongOwner))
+        );
+        assert_eq!(ledger, before);
+    }
+
+    /// Attack: pay a transfer fee from someone else's Coin Cell, or leave the
+    /// declared fee reserve unspent. The reserve must be owned by the sender
+    /// and must actually be consumed into the security reserve.
+    #[test]
+    fn transfer_fee_reserve_must_be_owned_and_is_consumed() {
+        let (_, mut ledger, owned, reserve) = minted_fixture();
+        let foreign = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .find(|record| record.cell().owner() == principal(12))
+            .unwrap()
+            .id();
+        let before = ledger.clone();
+        let stolen =
+            CoinTransfer::new(principal(10), principal(20), vec![owned], foreign, 500, 7, 10)
+                .unwrap();
+        assert_eq!(
+            ledger.apply_transfer(&stolen, 1),
+            Err(CashTransitionError::Invalid(NativeMoneyError::WrongOwner))
+        );
+        assert_eq!(ledger, before);
+
+        let overflowing =
+            CoinTransfer::new(principal(10), principal(20), vec![owned], reserve, u128::MAX, 1, 10)
+                .unwrap();
+        assert_eq!(
+            ledger.apply_transfer(&overflowing, 1),
+            Err(CashTransitionError::Invalid(NativeMoneyError::AmountOverflow))
+        );
+        assert_eq!(ledger, before);
+
+        let reserve_before = ledger.supply().security_reserve_balance();
+        let circulating_before = ledger.supply().circulating_supply();
+        let transfer =
+            CoinTransfer::new(principal(10), principal(20), vec![owned], reserve, 500, 7, 10)
+                .unwrap();
+        ledger.apply_transfer(&transfer, 1).unwrap();
+        assert!(ledger.cells().as_slice().iter().all(|record| record.id() != reserve));
+        assert!(ledger.cells().as_slice().iter().all(|record| record.id() != owned));
+        assert_eq!(ledger.supply().security_reserve_balance(), reserve_before + 7);
+        assert_eq!(ledger.supply().circulating_supply(), circulating_before - 7);
+        ledger.verify_invariants().unwrap();
+    }
+
+    /// Attack: have an authorized paymaster sponsor a fee larger than the
+    /// balance of the reserve cell it offers, so the ledger credits an
+    /// unfunded fee to the security reserve.
+    #[test]
+    fn sponsored_transfer_rejects_an_underfunded_sponsor_reserve() {
+        let mut ledger = CashLedger::from_genesis(&economy()).unwrap();
+        let sender_input = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .find(|record| record.cell().owner() == principal(10))
+            .unwrap()
+            .id();
+        let sponsor_reserve = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .find(|record| record.cell().owner() == principal(12))
+            .unwrap()
+            .id();
+        let transfer = CoinTransfer::new(
+            principal(10),
+            principal(20),
+            vec![sender_input],
+            sponsor_reserve,
+            500,
+            200_000,
+            100,
+        )
+        .unwrap();
+        let mut policy = CashPaymasterPolicyV1::new(
+            principal(12),
+            vec![principal(10)],
+            200_000,
+            1_000_000,
+            0,
+            1,
+            0,
+            100,
+        )
+        .unwrap();
+        let transfer_id = cash_transition_id(&transfer).unwrap();
+        let request = CashPaymasterRequestV1::new(
+            principal(12),
+            principal(10),
+            *transfer_id.digest(),
+            policy.commitment().unwrap(),
+            digest(90),
+            200_000,
+            0,
+            1,
+            0,
+            100,
+        )
+        .unwrap();
+        let before = ledger.clone();
+        let policy_before = policy.clone();
+        assert_eq!(
+            ledger.apply_sponsored_transfer(&mut policy, &request, &transfer, 10),
+            Err(CashTransitionError::Invalid(NativeMoneyError::InsufficientValue))
+        );
+        assert_eq!(ledger, before);
+        assert_eq!(policy, policy_before);
+    }
+
+    /// Attack: burn more than the declared inputs hold, burn a cell owned by
+    /// someone else, or replay a burn (in memory and after a restart) so the
+    /// same value leaves the supply twice.
+    #[test]
+    fn burn_accounting_is_bounded_owned_and_not_replayable() {
+        let (_, mut ledger, owned, _) = minted_fixture();
+        let before = ledger.clone();
+        let too_much = CoinBurnTransition::new(principal(10), vec![owned], 10_000_000, 10).unwrap();
+        assert_eq!(
+            ledger.apply_burn(&too_much, 1),
+            Err(CashTransitionError::Invalid(NativeMoneyError::BurnExceedsInputs))
+        );
+        assert_eq!(ledger, before);
+
+        let not_owned = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .find(|record| record.cell().owner() == principal(12))
+            .unwrap()
+            .id();
+        let foreign = CoinBurnTransition::new(principal(10), vec![not_owned], 10, 10).unwrap();
+        assert_eq!(
+            ledger.apply_burn(&foreign, 1),
+            Err(CashTransitionError::Invalid(NativeMoneyError::WrongOwner))
+        );
+        assert_eq!(ledger, before);
+
+        let burn = CoinBurnTransition::new(principal(10), vec![owned], 100, 10).unwrap();
+        let supply_before = ledger.supply().current_total_supply();
+        ledger.apply_burn(&burn, 1).unwrap();
+        assert_eq!(ledger.supply().current_total_supply(), supply_before - 100);
+        assert_eq!(ledger.supply().cumulative_burn(), 100);
+        let burned = ledger.clone();
+        assert_eq!(
+            ledger.apply_burn(&burn, 1),
+            Err(CashTransitionError::Invalid(NativeMoneyError::MissingCell))
+        );
+        assert_eq!(ledger, burned);
+
+        let mut restarted: CashLedger =
+            decode_envelope(&encode_envelope(&ledger).unwrap()).unwrap();
+        assert_eq!(restarted, ledger);
+        assert_eq!(restarted.supply().cumulative_burn(), 100);
+        assert_eq!(
+            restarted.apply_burn(&burn, 1),
+            Err(CashTransitionError::Invalid(NativeMoneyError::MissingCell))
+        );
+        assert_eq!(restarted, ledger);
+    }
+
+    /// Attack: replay a settled transfer against a ledger restored from its own
+    /// canonical snapshot, in the hope that the spent-input evidence did not
+    /// survive encoding.
+    #[test]
+    fn transfer_replay_finds_no_input_after_a_restart() {
+        let (_, mut ledger, owned, reserve) = minted_fixture();
+        let transfer =
+            CoinTransfer::new(principal(10), principal(20), vec![owned], reserve, 500, 7, 10)
+                .unwrap();
+        ledger.apply_transfer(&transfer, 1).unwrap();
+        let mut restarted: CashLedger =
+            decode_envelope(&encode_envelope(&ledger).unwrap()).unwrap();
+        assert_eq!(restarted, ledger);
+        assert_eq!(
+            restarted.apply_transfer(&transfer, 1),
+            Err(CashTransitionError::Invalid(NativeMoneyError::MissingCell))
+        );
+        assert_eq!(restarted, ledger);
+    }
+
+    /// Attack: spend one Coin Cell twice inside a single batch, either as the
+    /// value input of two transfers, as a shared fee reserve, or as a shared
+    /// secondary input that the first-input batch ordering does not compare.
+    #[test]
+    fn batched_transfers_cannot_spend_one_cell_twice() {
+        let (mut ledger, ids) = multi_cell_fixture();
+        assert!(ids.len() >= 4);
+
+        let repeated = vec![
+            CoinTransfer::new(principal(10), principal(30), vec![ids[0]], ids[1], 10, 1, 20)
+                .unwrap(),
+            CoinTransfer::new(principal(10), principal(31), vec![ids[0]], ids[2], 10, 1, 20)
+                .unwrap(),
+        ];
+        assert_eq!(CashTransferV1::new(repeated), Err(NativeMoneyError::InputsNotOrdered));
+
+        let shared_reserve = {
+            let mut transfers = vec![
+                CoinTransfer::new(principal(10), principal(30), vec![ids[0]], ids[2], 10, 1, 20)
+                    .unwrap(),
+                CoinTransfer::new(principal(10), principal(31), vec![ids[1]], ids[2], 10, 1, 20)
+                    .unwrap(),
+            ];
+            transfers.sort_by_key(|transfer| transfer.inputs()[0]);
+            CashTransferV1::new(transfers).unwrap()
+        };
+        let supply = ledger.supply().current_total_supply();
+        let receipt = ledger.apply_partitioned_batch(&shared_reserve, 5, 8).unwrap();
+        assert_eq!((receipt.applied(), receipt.rejected()), (1, 1));
+        assert_eq!(ledger.supply().current_total_supply(), supply);
+        ledger.verify_invariants().unwrap();
+
+        let (mut ledger, ids) = multi_cell_fixture();
+        let shared_input = {
+            let mut first = vec![ids[0], ids[3]];
+            first.sort_unstable();
+            let mut second = vec![ids[1], ids[3]];
+            second.sort_unstable();
+            let mut transfers = vec![
+                CoinTransfer::new(principal(10), principal(30), first, ids[2], 10, 1, 20).unwrap(),
+                CoinTransfer::new(principal(10), principal(31), second, ids[2], 10, 1, 20).unwrap(),
+            ];
+            transfers.sort_by_key(|transfer| transfer.inputs()[0]);
+            CashTransferV1::new(transfers).unwrap()
+        };
+        let supply = ledger.supply().current_total_supply();
+        let receipt = ledger.apply_partitioned_batch(&shared_input, 5, 8).unwrap();
+        assert_eq!((receipt.applied(), receipt.rejected()), (1, 1));
+        assert_eq!(ledger.supply().current_total_supply(), supply);
+        ledger.verify_invariants().unwrap();
+    }
+
+    /// Attack: unshield more than the shielded pool holds, hide the excess in
+    /// the fee, or overflow `amount + fee` so the debit wraps. Also pins that a
+    /// fully drained pool with a zero anchor cannot be unshielded again.
+    #[test]
+    fn unshield_cannot_drain_more_than_the_shielded_pool() {
+        let (economy, ledger) = shielded_fixture();
+        let pool = ledger.shielded_state().pool_balance();
+        let intent = |amount, fee, nullifier, change| {
+            UnshieldIntent::new(
+                economy.definition().chain_id(),
+                ledger.asset_id().unwrap(),
+                ledger.shielded_state().anchor(),
+                principal(12),
+                amount,
+                fee,
+                vec![nullifier],
+                nullifier_witnesses(&[nullifier]),
+                vec![change],
+                30,
+            )
+            .unwrap()
+        };
+        for (amount, fee, expected) in [
+            (pool + 1, 0_u128, CashTransitionError::Privacy(PrivacyError::ZeroValue)),
+            (pool, 1, CashTransitionError::Privacy(PrivacyError::ZeroValue)),
+            (u128::MAX, 1, CashTransitionError::Invalid(NativeMoneyError::AmountOverflow)),
+        ] {
+            let mut candidate = ledger.clone();
+            let intent = intent(amount, fee, digest(70), digest(80));
+            let proof = VerifiedPrivacyProof {
+                public_inputs_commitment: commit(DomainTag::PRIVACY_PUBLIC_INPUTS, &intent)
+                    .unwrap(),
+                verified: true,
+            };
+            assert_eq!(candidate.apply_unshield(&intent, proof, 3), Err(expected));
+            assert_eq!(candidate, ledger);
+        }
+
+        let mut drained = ledger.clone();
+        let full = intent(pool, 0, digest(70), digest(80));
+        let proof = VerifiedPrivacyProof {
+            public_inputs_commitment: commit(DomainTag::PRIVACY_PUBLIC_INPUTS, &full).unwrap(),
+            verified: true,
+        };
+        drained.apply_unshield(&full, proof, 3).unwrap();
+        assert_eq!(drained.shielded_state().pool_balance(), 0);
+        assert_eq!(drained.shielded_state().anchor(), Digest384::ZERO);
+        let empty = drained.clone();
+        let after = UnshieldIntent::new(
+            economy.definition().chain_id(),
+            drained.asset_id().unwrap(),
+            drained.shielded_state().anchor(),
+            principal(12),
+            1,
+            0,
+            vec![digest(71)],
+            nullifier_witnesses(&[digest(71)]),
+            vec![digest(82)],
+            30,
+        )
+        .unwrap();
+        let proof = VerifiedPrivacyProof {
+            public_inputs_commitment: commit(DomainTag::PRIVACY_PUBLIC_INPUTS, &after).unwrap(),
+            verified: true,
+        };
+        assert_eq!(
+            drained.apply_unshield(&after, proof, 4),
+            Err(CashTransitionError::Privacy(PrivacyError::ZeroValue))
+        );
+        assert_eq!(drained, empty);
+    }
+
+    /// Attack: spend a shielded note twice by replaying its nullifier against a
+    /// ledger restored from a snapshot, with a witness freshly derived from an
+    /// empty accumulator, or by presenting a witness from another accumulator
+    /// domain.
+    #[test]
+    fn spent_nullifiers_cannot_be_replayed_across_restart_or_domains() {
+        let (economy, mut ledger) = shielded_fixture();
+        let intent = UnshieldIntent::new(
+            economy.definition().chain_id(),
+            ledger.asset_id().unwrap(),
+            ledger.shielded_state().anchor(),
+            principal(12),
+            100,
+            0,
+            vec![digest(70)],
+            nullifier_witnesses(&[digest(70)]),
+            vec![digest(80)],
+            30,
+        )
+        .unwrap();
+        let proof = VerifiedPrivacyProof {
+            public_inputs_commitment: commit(DomainTag::PRIVACY_PUBLIC_INPUTS, &intent).unwrap(),
+            verified: true,
+        };
+        ledger.apply_unshield(&intent, proof, 3).unwrap();
+
+        let mut restarted: CashLedger =
+            decode_envelope(&encode_envelope(&ledger).unwrap()).unwrap();
+        assert_eq!(restarted, ledger);
+        let replay = UnshieldIntent::new(
+            economy.definition().chain_id(),
+            restarted.asset_id().unwrap(),
+            restarted.shielded_state().anchor(),
+            principal(12),
+            100,
+            0,
+            vec![digest(70)],
+            nullifier_witnesses(&[digest(70)]),
+            vec![digest(81)],
+            30,
+        )
+        .unwrap();
+        let replay_proof = VerifiedPrivacyProof {
+            public_inputs_commitment: commit(DomainTag::PRIVACY_PUBLIC_INPUTS, &replay).unwrap(),
+            verified: true,
+        };
+        assert_eq!(
+            restarted.apply_unshield(&replay, replay_proof, 4),
+            Err(CashTransitionError::Privacy(PrivacyError::InvalidNullifierWitness))
+        );
+        assert_eq!(restarted, ledger);
+
+        let cross_domain = {
+            let reference = ReferenceSet::new(AccumulatorDomain::SpentInput);
+            let witness = reference.non_membership_witness(digest(72).into_bytes()).unwrap();
+            NullifierWitness::new(
+                digest(72),
+                witness.siblings.into_iter().map(Digest384::new).collect(),
+            )
+            .unwrap()
+        };
+        let borrowed = UnshieldIntent::new(
+            economy.definition().chain_id(),
+            restarted.asset_id().unwrap(),
+            restarted.shielded_state().anchor(),
+            principal(12),
+            100,
+            0,
+            vec![digest(72)],
+            vec![cross_domain],
+            vec![digest(83)],
+            30,
+        )
+        .unwrap();
+        let borrowed_proof = VerifiedPrivacyProof {
+            public_inputs_commitment: commit(DomainTag::PRIVACY_PUBLIC_INPUTS, &borrowed).unwrap(),
+            verified: true,
+        };
+        assert_eq!(
+            restarted.apply_unshield(&borrowed, borrowed_proof, 4),
+            Err(CashTransitionError::Privacy(PrivacyError::InvalidNullifierWitness))
+        );
+        assert_eq!(restarted, ledger);
+    }
+
+    /// Attack: reuse a verified privacy proof for a different statement, or
+    /// replay a shield across chains and assets. The kernel must bind the proof
+    /// to the exact intent it verified.
+    #[test]
+    fn privacy_proofs_bind_chain_asset_and_amount() {
+        let (economy, ledger) = shielded_fixture();
+        let honest = UnshieldIntent::new(
+            economy.definition().chain_id(),
+            ledger.asset_id().unwrap(),
+            ledger.shielded_state().anchor(),
+            principal(12),
+            100,
+            0,
+            vec![digest(70)],
+            nullifier_witnesses(&[digest(70)]),
+            vec![digest(80)],
+            30,
+        )
+        .unwrap();
+        let proof = VerifiedPrivacyProof {
+            public_inputs_commitment: commit(DomainTag::PRIVACY_PUBLIC_INPUTS, &honest).unwrap(),
+            verified: true,
+        };
+        let inflated = UnshieldIntent::new(
+            economy.definition().chain_id(),
+            ledger.asset_id().unwrap(),
+            ledger.shielded_state().anchor(),
+            principal(12),
+            300,
+            0,
+            vec![digest(70)],
+            nullifier_witnesses(&[digest(70)]),
+            vec![digest(80)],
+            30,
+        )
+        .unwrap();
+        let mut candidate = ledger.clone();
+        assert_eq!(
+            candidate.apply_unshield(&inflated, proof, 3),
+            Err(CashTransitionError::Privacy(PrivacyError::PublicInputMismatch))
+        );
+        assert_eq!(candidate, ledger);
+
+        let (_, mut public_ledger, owned, reserve) = minted_fixture();
+        let before = public_ledger.clone();
+        let shield = |chain, asset| {
+            ShieldIntent::new(
+                chain,
+                asset,
+                principal(10),
+                vec![owned],
+                reserve,
+                100,
+                0,
+                vec![digest(60)],
+                20,
+            )
+            .unwrap()
+        };
+        let foreign_chain = shield(ChainId::new(digest(99)), public_ledger.asset_id().unwrap());
+        let proof = VerifiedPrivacyProof {
+            public_inputs_commitment: commit(DomainTag::PRIVACY_PUBLIC_INPUTS, &foreign_chain)
+                .unwrap(),
+            verified: true,
+        };
+        assert_eq!(
+            public_ledger.apply_shield(&foreign_chain, proof, 3),
+            Err(CashTransitionError::Privacy(PrivacyError::WrongChain))
+        );
+        assert_eq!(public_ledger, before);
+
+        let foreign_asset = shield(public_ledger.definition().chain_id(), AssetId::new(digest(98)));
+        let proof = VerifiedPrivacyProof {
+            public_inputs_commitment: commit(DomainTag::PRIVACY_PUBLIC_INPUTS, &foreign_asset)
+                .unwrap(),
+            verified: true,
+        };
+        assert_eq!(
+            public_ledger.apply_shield(&foreign_asset, proof, 3),
+            Err(CashTransitionError::Privacy(PrivacyError::PublicInputMismatch))
+        );
+        assert_eq!(public_ledger, before);
+    }
+
+    /// Attack: shield more value than the declared inputs hold, or shield a
+    /// Coin Cell owned by another principal, to credit the shielded pool with
+    /// value that never left the public partition.
+    #[test]
+    fn shield_requires_owned_and_sufficient_public_inputs() {
+        let (economy, mut ledger, owned, reserve) = minted_fixture();
+        let before = ledger.clone();
+        let intent = ShieldIntent::new(
+            economy.definition().chain_id(),
+            ledger.asset_id().unwrap(),
+            principal(10),
+            vec![owned],
+            reserve,
+            10_000_000,
+            0,
+            vec![digest(60)],
+            20,
+        )
+        .unwrap();
+        let proof = VerifiedPrivacyProof {
+            public_inputs_commitment: commit(DomainTag::PRIVACY_PUBLIC_INPUTS, &intent).unwrap(),
+            verified: true,
+        };
+        assert_eq!(
+            ledger.apply_shield(&intent, proof, 3),
+            Err(CashTransitionError::Invalid(NativeMoneyError::InsufficientValue))
+        );
+        assert_eq!(ledger, before);
+
+        let foreign_input = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .find(|record| record.cell().owner() == principal(12))
+            .unwrap()
+            .id();
+        let intent = ShieldIntent::new(
+            economy.definition().chain_id(),
+            ledger.asset_id().unwrap(),
+            principal(10),
+            vec![foreign_input],
+            reserve,
+            100,
+            0,
+            vec![digest(60)],
+            20,
+        )
+        .unwrap();
+        let proof = VerifiedPrivacyProof {
+            public_inputs_commitment: commit(DomainTag::PRIVACY_PUBLIC_INPUTS, &intent).unwrap(),
+            verified: true,
+        };
+        assert_eq!(
+            ledger.apply_shield(&intent, proof, 3),
+            Err(CashTransitionError::Invalid(NativeMoneyError::WrongOwner))
+        );
+        assert_eq!(ledger, before);
+    }
+
+    /// Attack: replay an expired transfer, burn, or shield at a later height.
+    #[test]
+    fn expired_transitions_are_refused_at_every_entry_point() {
+        let (economy, mut ledger, owned, reserve) = minted_fixture();
+        let before = ledger.clone();
+        let transfer =
+            CoinTransfer::new(principal(10), principal(20), vec![owned], reserve, 100, 1, 5)
+                .unwrap();
+        assert_eq!(
+            ledger.apply_transfer(&transfer, 6),
+            Err(CashTransitionError::Invalid(NativeMoneyError::Expired))
+        );
+        assert_eq!(ledger, before);
+
+        let burn = CoinBurnTransition::new(principal(10), vec![owned], 100, 5).unwrap();
+        assert_eq!(
+            ledger.apply_burn(&burn, 6),
+            Err(CashTransitionError::Invalid(NativeMoneyError::Expired))
+        );
+        assert_eq!(ledger, before);
+
+        let shield = ShieldIntent::new(
+            economy.definition().chain_id(),
+            ledger.asset_id().unwrap(),
+            principal(10),
+            vec![owned],
+            reserve,
+            100,
+            0,
+            vec![digest(60)],
+            5,
+        )
+        .unwrap();
+        let proof = VerifiedPrivacyProof {
+            public_inputs_commitment: commit(DomainTag::PRIVACY_PUBLIC_INPUTS, &shield).unwrap(),
+            verified: true,
+        };
+        assert_eq!(
+            ledger.apply_shield(&shield, proof, 6),
+            Err(CashTransitionError::Privacy(PrivacyError::Expired))
+        );
+        assert_eq!(ledger, before);
+    }
+
+    /// Attack (defect class #678): hand-assemble a canonical ledger snapshot
+    /// that pairs a modest supply commitment with a richer Coin Cell set, or an
+    /// inflated shielded pool, so that decoding restores value the transition
+    /// rules never issued. Every decoder, including the legacy migration paths,
+    /// must re-check the supply partition.
+    #[test]
+    fn forged_ledger_snapshots_cannot_restore_unissued_value() {
+        use activechain_canonical_codec::{CanonicalDecode, CanonicalEncode};
+        use activechain_privacy_kernel::{NullifierSet, ShieldedCashState};
+
+        let (_, rich, _, _) = minted_fixture();
+        let poor = CashLedger::from_genesis(&economy()).unwrap();
+
+        let current = |supply_source: &CashLedger, cell_source: &CashLedger| {
+            let mut encoder = Encoder::new(<CashLedger as CanonicalType>::MAX_ENCODED_LEN);
+            supply_source.definition().encode(&mut encoder).unwrap();
+            supply_source.supply().encode(&mut encoder).unwrap();
+            cell_source.cells().encode(&mut encoder).unwrap();
+            supply_source.shielded_state().encode(&mut encoder).unwrap();
+            supply_source.redeemed_reward_root().encode(&mut encoder).unwrap();
+            supply_source.redeemed_reward_count().encode(&mut encoder).unwrap();
+            encoder.finish()
+        };
+        assert_eq!(CashLedger::decode(&mut Decoder::new(&current(&poor, &poor))).unwrap(), poor);
+        assert_eq!(
+            CashLedger::decode(&mut Decoder::new(&current(&poor, &rich))),
+            Err(activechain_canonical_codec::DecodeError::InvalidValue("invalid cash ledger"))
+        );
+
+        let legacy_v2 = |supply_source: &CashLedger, cell_source: &CashLedger| {
+            let mut encoder = Encoder::new(<CashLedger as CanonicalType>::MAX_ENCODED_LEN);
+            supply_source.definition().encode(&mut encoder).unwrap();
+            supply_source.supply().encode(&mut encoder).unwrap();
+            cell_source.cells().encode(&mut encoder).unwrap();
+            supply_source.shielded_state().encode_legacy_v1(&mut encoder).unwrap();
+            encoder.write_length(0, super::LEGACY_MAX_REDEEMED_REWARDS).unwrap();
+            encoder.finish()
+        };
+        assert_eq!(
+            CashLedger::decode_legacy_v2(&mut Decoder::new(&legacy_v2(&poor, &poor))).unwrap(),
+            poor
+        );
+        assert!(CashLedger::decode_legacy_v2(&mut Decoder::new(&legacy_v2(&poor, &rich))).is_err());
+
+        let legacy_v1 = |supply_source: &CashLedger, cell_source: &CashLedger| {
+            let mut encoder = Encoder::new(<CashLedger as CanonicalType>::MAX_ENCODED_LEN);
+            let supply = supply_source.supply();
+            supply_source.definition().encode(&mut encoder).unwrap();
+            supply.genesis_supply().encode(&mut encoder).unwrap();
+            supply.cumulative_security_issuance().encode(&mut encoder).unwrap();
+            supply.cumulative_burn().encode(&mut encoder).unwrap();
+            supply.current_total_supply().encode(&mut encoder).unwrap();
+            supply.circulating_supply().encode(&mut encoder).unwrap();
+            supply.locked_vesting_supply().encode(&mut encoder).unwrap();
+            supply.staked_supply().encode(&mut encoder).unwrap();
+            supply.security_reserve_balance().encode(&mut encoder).unwrap();
+            supply.last_settled_epoch().encode(&mut encoder).unwrap();
+            cell_source.cells().encode(&mut encoder).unwrap();
+            supply_source.shielded_state().encode_legacy_v1(&mut encoder).unwrap();
+            encoder.write_length(0, super::LEGACY_MAX_REDEEMED_REWARDS).unwrap();
+            encoder.finish()
+        };
+        assert!(CashLedger::decode_legacy_v1(&mut Decoder::new(&legacy_v1(&poor, &poor))).is_ok());
+        assert!(CashLedger::decode_legacy_v1(&mut Decoder::new(&legacy_v1(&poor, &rich))).is_err());
+
+        let inflated = ShieldedCashState::new(1_000, digest(77), NullifierSet::empty()).unwrap();
+        let mut encoder = Encoder::new(<CashLedger as CanonicalType>::MAX_ENCODED_LEN);
+        poor.definition().encode(&mut encoder).unwrap();
+        poor.supply().encode(&mut encoder).unwrap();
+        poor.cells().encode(&mut encoder).unwrap();
+        inflated.encode(&mut encoder).unwrap();
+        poor.redeemed_reward_root().encode(&mut encoder).unwrap();
+        poor.redeemed_reward_count().encode(&mut encoder).unwrap();
+        let forged = encoder.finish();
+        assert!(CashLedger::decode(&mut Decoder::new(&forged)).is_err());
+    }
+
+    /// Attack: create value outside the issuance path by settling an epoch that
+    /// declares issuance through the zero-issuance route, by minting to the
+    /// zero principal, or by declaring genesis allocations that exceed the
+    /// genesis supply.
+    #[test]
+    fn value_creation_outside_the_issuance_path_is_refused() {
+        let mut ledger = CashLedger::from_genesis(&economy()).unwrap();
+        let before = ledger.clone();
+        assert_eq!(
+            ledger.apply_zero_issuance_settlement(&settlement(1_000_000, 20, 1)),
+            Err(CashTransitionError::Invalid(NativeMoneyError::IssuanceFormulaMismatch))
+        );
+        assert_eq!(ledger, before);
+
+        let mint = CoinMintTransition::new(digest(2), PrincipalId::new(Digest384::ZERO), 20, 1, 1)
+            .unwrap();
+        assert_eq!(
+            ledger.apply_mint(&mint, &settlement(1_000_000, 20, 1)),
+            Err(CashTransitionError::Invalid(NativeMoneyError::InvalidInputs))
+        );
+        assert_eq!(ledger, before);
+
+        let definition = NativeAssetDefinition::new(
+            ChainId::new(digest(1)),
+            b"ACT".to_vec(),
+            18,
+            1_000_000,
+            150,
+            digest(2),
+            digest(3),
+            digest(4),
+        )
+        .unwrap();
+        assert_eq!(
+            GenesisEconomy::new(
+                definition,
+                vec![GenesisAllocation::new(principal(10), 900_000, 0).unwrap()],
+                100_001,
+            ),
+            Err(NativeMoneyError::GenesisSupplyMismatch)
+        );
+    }
+
+    /// Pins that every applied transfer keeps the four supply partitions and
+    /// the Coin Cell set summing to exactly the committed total supply.
+    #[test]
+    fn value_is_conserved_across_a_transfer_walk() {
+        let (mut ledger, _) = multi_cell_fixture();
+        let total = ledger.supply().current_total_supply();
+        let mut recipients =
+            [principal(10), principal(20), principal(21), principal(22)].into_iter().cycle();
+        for (height, step) in (10_u64..).zip(0..12_u64) {
+            let cells = ledger
+                .cells()
+                .as_slice()
+                .iter()
+                .filter(|record| record.cell().amount() > 10)
+                .map(|record| (record.id(), record.cell().owner(), record.cell().amount()))
+                .collect::<Vec<_>>();
+            let Some(&(_, owner, _)) = cells.first() else { break };
+            let mine =
+                cells.iter().filter(|(_, candidate, _)| *candidate == owner).collect::<Vec<_>>();
+            if mine.len() < 2 {
+                break;
+            }
+            let transfer = CoinTransfer::new(
+                owner,
+                recipients.next().unwrap(),
+                vec![mine[0].0],
+                mine[1].0,
+                (mine[0].2 / 2).max(1),
+                u128::from((step % 3) + 1),
+                1_000,
+            )
+            .unwrap();
+            ledger.apply_transfer(&transfer, height).unwrap();
+            ledger.verify_invariants().unwrap();
+            let held: u128 =
+                ledger.cells().as_slice().iter().map(|record| record.cell().amount()).sum();
+            assert_eq!(
+                held + ledger.shielded_state().pool_balance()
+                    + ledger.supply().security_reserve_balance()
+                    + ledger.supply().locked_vesting_supply()
+                    + ledger.supply().staked_supply(),
+                total
+            );
+            assert_eq!(ledger.supply().current_total_supply(), total);
+        }
+    }
+
+    /// Attack (defect class #683): drive value arithmetic to the `u128`
+    /// boundary and check that no addition wraps and no subtraction saturates
+    /// into a conservation break.
+    #[test]
+    fn supply_arithmetic_is_checked_at_the_u128_boundary() {
+        let definition = NativeAssetDefinition::new(
+            ChainId::new(digest(1)),
+            b"ACT".to_vec(),
+            18,
+            u128::MAX,
+            150,
+            digest(2),
+            digest(3),
+            digest(4),
+        )
+        .unwrap();
+        let economy = GenesisEconomy::new(
+            definition,
+            vec![
+                GenesisAllocation::new(principal(10), u128::MAX - 6, 1).unwrap(),
+                GenesisAllocation::new(principal(10), 2, 0).unwrap(),
+                GenesisAllocation::new(principal(12), 1, 0).unwrap(),
+            ],
+            2,
+        )
+        .unwrap();
+        let mut ledger = CashLedger::from_genesis(&economy).unwrap();
+        ledger.verify_invariants().unwrap();
+        let big = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .find(|record| record.cell().amount() == u128::MAX - 6)
+            .unwrap()
+            .id();
+        let small = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .find(|record| record.cell().owner() == principal(10) && record.id() != big)
+            .unwrap()
+            .id();
+
+        let before = ledger.clone();
+        let overflowing =
+            CoinTransfer::new(principal(10), principal(20), vec![big], small, u128::MAX, 1, 10)
+                .unwrap();
+        assert_eq!(
+            ledger.apply_transfer(&overflowing, 1),
+            Err(CashTransitionError::Invalid(NativeMoneyError::AmountOverflow))
+        );
+        assert_eq!(ledger, before);
+
+        let transfer =
+            CoinTransfer::new(principal(10), principal(20), vec![big], small, u128::MAX - 6, 1, 10)
+                .unwrap();
+        ledger.apply_transfer(&transfer, 1).unwrap();
+        ledger.verify_invariants().unwrap();
+        assert_eq!(ledger.supply().current_total_supply(), u128::MAX);
+
+        let huge = ledger
+            .cells()
+            .as_slice()
+            .iter()
+            .find(|record| record.cell().amount() == u128::MAX - 6)
+            .unwrap()
+            .id();
+        let burn = CoinBurnTransition::new(principal(20), vec![huge], u128::MAX - 6, 10).unwrap();
+        ledger.apply_burn(&burn, 1).unwrap();
+        ledger.verify_invariants().unwrap();
+        assert_eq!(ledger.supply().cumulative_burn(), u128::MAX - 6);
+        assert_eq!(ledger.supply().current_total_supply(), 6);
+        let restarted: CashLedger = decode_envelope(&encode_envelope(&ledger).unwrap()).unwrap();
+        assert_eq!(restarted, ledger);
     }
 
     proptest::proptest! {
