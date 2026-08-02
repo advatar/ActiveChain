@@ -36,7 +36,12 @@ mkdir -p "$rollback/chain" "$rollback/rpc"
 for path in \
   chain/genesis.bin \
   chain/cash-ledger.snapshot \
+  chain/execution.snapshot \
+  chain/finalized-cash.snapshot \
+  chain/finality.bundle \
   chain/pending-cash-actions.batch \
+  chain/cash-action-spool \
+  chain/cash-action-spool.inflight \
   chain/keys \
   chain/validator-0.snapshot \
   chain/validator-1.snapshot \
@@ -44,10 +49,19 @@ for path in \
   chain/validator-1.pq-sessions \
   chain/validator-2.pq-sessions \
   network.env \
-  rpc/rpc-index.snapshot; do
+  rpc/rpc-index.snapshot \
+  rpc/faucet.snapshot \
+  rpc/faucet-settlement.journal; do
   if test -e "$deployment_root/$path"; then
     mkdir -p "$rollback/$(dirname "$path")"
     mv "$deployment_root/$path" "$rollback/$path"
+  fi
+done
+
+for path in "$deployment_root"/chain/pending-cash-actions.batch.finalized-* \
+  "$deployment_root"/chain/finality.bundle.finalized-*; do
+  if test -f "$path"; then
+    mv "$path" "$rollback/chain/$(basename "$path")"
   fi
 done
 
