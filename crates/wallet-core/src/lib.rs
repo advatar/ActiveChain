@@ -623,6 +623,20 @@ impl TransactionIngress {
         Some((session.spent, session.max_spend, session.valid_from, session.expires_at))
     }
 
+    /// Returns the exact ML-DSA-44 verification key currently authorized for `sender`.
+    /// Proof systems use this read-only boundary to bind signature verification to the same
+    /// finalized key state as authoritative transaction admission.
+    #[must_use]
+    pub fn authorization_key(
+        &self,
+        sender: PrincipalId,
+    ) -> Option<&[u8; ML_DSA44_PUBLIC_KEY_LENGTH]> {
+        self.authorization_lanes
+            .binary_search_by_key(&sender, |lane| lane.sender)
+            .ok()
+            .map(|index| &self.authorization_lanes[index].public_key)
+    }
+
     /// Executes the authoritative admission path on a clone and returns its exact budget witness.
     pub fn preview_authorized_session_witness(
         &self,

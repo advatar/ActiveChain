@@ -29,13 +29,17 @@ const REMAINING: usize = 6;
 const SPEND_CARRY: usize = 7;
 const POST_CARRY: usize = 8;
 const LIMIT_CARRY: usize = 9;
-const TRACE_WIDTH: usize = 10;
+const AUTHORIZATION_START: usize = 10;
+const AUTHORIZATION_LIMBS: usize = 6;
+const TRACE_WIDTH: usize = AUTHORIZATION_START + AUTHORIZATION_LIMBS;
 const PUBLIC_VALUES: usize = 5;
 const WITNESS_DOMAIN: &[u8] = b"ACTIVECHAIN-CASH-SESSION-AIR-WITNESS-V1";
+const AUTHORIZATION_DOMAIN: &[u8] = b"ACTIVECHAIN-CASH-SESSION-AIR-AUTHORIZATION-V1";
 
 #[derive(Clone, Debug)]
 struct SessionPublicInputs {
     witness_commitment: [BaseElement; 6],
+    authorization_commitment: [BaseElement; AUTHORIZATION_LIMBS],
     bits: [[BaseElement; BIT_ROWS]; PUBLIC_VALUES],
 }
 
@@ -43,6 +47,7 @@ impl ToElements<BaseElement> for SessionPublicInputs {
     fn to_elements(&self) -> Vec<BaseElement> {
         self.witness_commitment
             .into_iter()
+            .chain(self.authorization_commitment)
             .chain(self.bits.iter().flat_map(|bits| bits.iter().copied()))
             .collect()
     }
@@ -60,12 +65,17 @@ impl Air for SessionAir {
     fn new(trace_info: TraceInfo, public: Self::PublicInputs, options: ProofOptions) -> Self {
         assert_eq!(trace_info.width(), TRACE_WIDTH);
         assert_eq!(trace_info.length(), TRACE_LENGTH);
-        let mut degrees = vec![TransitionConstraintDegree::new(2); 13];
+        let mut degrees = vec![TransitionConstraintDegree::new(2); 13 + AUTHORIZATION_LIMBS];
         for degree in &mut degrees[10..] {
             *degree = TransitionConstraintDegree::new(1);
         }
         Self {
-            context: AirContext::new(trace_info, degrees, PUBLIC_VALUES * BIT_ROWS + 6, options),
+            context: AirContext::new(
+                trace_info,
+                degrees,
+                PUBLIC_VALUES * BIT_ROWS + 6 + AUTHORIZATION_LIMBS,
+                options,
+            ),
             public,
         }
     }
@@ -78,7 +88,7 @@ impl Air for SessionAir {
     ) {
         let current = frame.current();
         let next = frame.next();
-        for column in 0..TRACE_WIDTH {
+        for column in 0..AUTHORIZATION_START {
             result[column] = current[column] * (current[column] - E::ONE);
         }
         result[10] = current[AMOUNT] + current[FEE] + current[SPEND_CARRY]
@@ -90,10 +100,14 @@ impl Air for SessionAir {
         result[12] = current[POST] + current[REMAINING] + current[LIMIT_CARRY]
             - current[MAX]
             - E::from(2_u8) * next[LIMIT_CARRY];
+        for index in 0..AUTHORIZATION_LIMBS {
+            let column = AUTHORIZATION_START + index;
+            result[13 + index] = next[column] - current[column];
+        }
     }
 
     fn get_assertions(&self) -> Vec<Assertion<Self::BaseField>> {
-        let mut assertions = Vec::with_capacity(PUBLIC_VALUES * BIT_ROWS + 6);
+        let mut assertions = Vec::with_capacity(PUBLIC_VALUES * BIT_ROWS + 6 + AUTHORIZATION_LIMBS);
         for row in 0..BIT_ROWS {
             for (column, bits) in
                 [AMOUNT, FEE, PRE, POST, MAX].into_iter().zip(self.public.bits.iter())
@@ -104,6 +118,9 @@ impl Air for SessionAir {
         for carry in [SPEND_CARRY, POST_CARRY, LIMIT_CARRY] {
             assertions.push(Assertion::single(carry, 0, BaseElement::ZERO));
             assertions.push(Assertion::single(carry, BIT_ROWS, BaseElement::ZERO));
+        }
+        for (index, limb) in self.public.authorization_commitment.iter().copied().enumerate() {
+            assertions.push(Assertion::single(AUTHORIZATION_START + index, 0, limb));
         }
         assertions
     }
@@ -191,8 +208,15 @@ impl CashSessionStarkProof {
 pub fn prove_session_budget(
     witness: &CashSessionAdmissionWitnessV1,
 ) -> Result<CashSessionStarkProof, &'static str> {
-    let public = public_inputs(witness)?;
-    let trace = build_trace(witness)?;
+    prove_session_budget_bound(witness, [BaseElement::ZERO; AUTHORIZATION_LIMBS])
+}
+
+fn prove_session_budget_bound(
+    witness: &CashSessionAdmissionWitnessV1,
+    authorization_commitment: [BaseElement; AUTHORIZATION_LIMBS],
+) -> Result<CashSessionStarkProof, &'static str> {
+    let public = public_inputs(witness, authorization_commitment)?;
+    let trace = build_trace(witness, authorization_commitment)?;
     let prover = SessionProver { options: proof_options(), public: public.clone() };
     let proof = prover.prove(trace).map_err(|_| "cash session proving failed")?;
     Ok(CashSessionStarkProof { proof, public })
@@ -207,7 +231,13 @@ pub fn prove_authorized_session(
     let witness = ingress
         .preview_authorized_session_witness(authorized, height)
         .map_err(CashSessionProofError::Admission)?;
-    let proof = prove_session_budget(&witness).map_err(|_| CashSessionProofError::Proving)?;
+    let public_key = ingress
+        .authorization_key(authorized.request().signer())
+        .ok_or(CashSessionProofError::Admission(WalletError::UnknownAuthorizationKey))?;
+    let authorization_commitment = authorization_commitment(authorized, public_key)
+        .map_err(|_| CashSessionProofError::Proving)?;
+    let proof = prove_session_budget_bound(&witness, authorization_commitment)
+        .map_err(|_| CashSessionProofError::Proving)?;
     Ok((proof, witness))
 }
 
@@ -215,7 +245,28 @@ pub fn verify_session_budget(
     proof: CashSessionStarkProof,
     witness: &CashSessionAdmissionWitnessV1,
 ) -> Result<(), &'static str> {
-    let expected = public_inputs(witness)?;
+    let expected = public_inputs(witness, [BaseElement::ZERO; AUTHORIZATION_LIMBS])?;
+    verify_proof(proof, expected)
+}
+
+/// Verifies both the session AIR and the exact ML-DSA-44 authorization/key pair bound into its
+/// public statement. This is a composed cryptographic verifier; in-circuit ML-DSA arithmetic
+/// remains a separate protocol gate.
+pub fn verify_authorized_session(
+    proof: CashSessionStarkProof,
+    witness: &CashSessionAdmissionWitnessV1,
+    authorized: &AuthorizedCashTransferV1,
+    public_key: &[u8],
+) -> Result<(), &'static str> {
+    authorized.verify(public_key).map_err(|_| "cash session ML-DSA authorization is invalid")?;
+    let expected = public_inputs(witness, authorization_commitment(authorized, public_key)?)?;
+    verify_proof(proof, expected)
+}
+
+fn verify_proof(
+    proof: CashSessionStarkProof,
+    expected: SessionPublicInputs,
+) -> Result<(), &'static str> {
     if proof.public.to_elements() != expected.to_elements() {
         return Err("cash session public inputs do not match witness");
     }
@@ -230,6 +281,7 @@ pub fn verify_session_budget(
 
 fn build_trace(
     witness: &CashSessionAdmissionWitnessV1,
+    authorization_commitment: [BaseElement; AUTHORIZATION_LIMBS],
 ) -> Result<TraceTable<BaseElement>, &'static str> {
     let spend = witness.amount().checked_add(witness.fee()).ok_or("cash session spend overflow")?;
     let remaining = witness
@@ -246,6 +298,11 @@ fn build_trace(
         remaining,
     ];
     let mut trace = TraceTable::new(TRACE_WIDTH, TRACE_LENGTH);
+    for row in 0..TRACE_LENGTH {
+        for (index, limb) in authorization_commitment.iter().copied().enumerate() {
+            trace.set(AUTHORIZATION_START + index, row, limb);
+        }
+    }
     let mut spend_carry = 0_u128;
     let mut post_carry = 0_u128;
     let mut limit_carry = 0_u128;
@@ -299,6 +356,7 @@ fn build_trace(
 
 fn public_inputs(
     witness: &CashSessionAdmissionWitnessV1,
+    authorization_commitment: [BaseElement; AUTHORIZATION_LIMBS],
 ) -> Result<SessionPublicInputs, &'static str> {
     let encoded = encode_envelope(witness).map_err(|_| "cash session witness encoding failed")?;
     let mut hasher = Shake256::default();
@@ -320,7 +378,28 @@ fn public_inputs(
         witness.max_spend(),
     ];
     let bits = values.map(|value| core::array::from_fn(|bit| BaseElement::new((value >> bit) & 1)));
-    Ok(SessionPublicInputs { witness_commitment, bits })
+    Ok(SessionPublicInputs { witness_commitment, authorization_commitment, bits })
+}
+
+fn authorization_commitment(
+    authorized: &AuthorizedCashTransferV1,
+    public_key: &[u8],
+) -> Result<[BaseElement; AUTHORIZATION_LIMBS], &'static str> {
+    let encoded =
+        encode_envelope(authorized).map_err(|_| "cash authorization envelope encoding failed")?;
+    let mut hasher = Shake256::default();
+    hasher.update(AUTHORIZATION_DOMAIN);
+    hasher.update(&(public_key.len() as u64).to_be_bytes());
+    hasher.update(public_key);
+    hasher.update(&(encoded.len() as u64).to_be_bytes());
+    hasher.update(&encoded);
+    let mut commitment = [0_u8; 48];
+    hasher.finalize_xof().read(&mut commitment);
+    Ok(core::array::from_fn(|index| {
+        let mut limb = [0_u8; 8];
+        limb.copy_from_slice(&commitment[index * 8..(index + 1) * 8]);
+        BaseElement::new(u64::from_be_bytes(limb).into())
+    }))
 }
 
 fn proof_options() -> ProofOptions {
@@ -341,7 +420,12 @@ mod tests {
     use activechain_protocol_types::{ChainId, Digest384, PrincipalId};
     use activechain_wallet_core::CashSessionAdmissionWitnessV1;
 
-    use super::{prove_session_budget, verify_session_budget};
+    use winterfell::math::fields::f128::BaseElement;
+
+    use super::{
+        AUTHORIZATION_LIMBS, prove_session_budget, prove_session_budget_bound, public_inputs,
+        verify_proof, verify_session_budget,
+    };
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
@@ -377,6 +461,20 @@ mod tests {
         let substituted = witness(9, 2, 7, 100);
         let proof = prove_session_budget(&admission).unwrap();
         assert!(verify_session_budget(proof, &substituted).is_err());
+    }
+
+    #[test]
+    fn proof_is_bound_to_the_exact_authorization_commitment() {
+        let admission = witness(10, 1, 7, 100);
+        let authorization = core::array::from_fn(|index| BaseElement::new(index as u128 + 1));
+        let substituted = core::array::from_fn(|index| BaseElement::new(index as u128 + 2));
+        let proof = prove_session_budget_bound(&admission, authorization).unwrap();
+
+        verify_proof(proof, public_inputs(&admission, authorization).unwrap()).unwrap();
+
+        let proof = prove_session_budget_bound(&admission, authorization).unwrap();
+        assert!(verify_proof(proof, public_inputs(&admission, substituted).unwrap()).is_err());
+        assert_eq!(authorization.len(), AUTHORIZATION_LIMBS);
     }
 
     #[test]
