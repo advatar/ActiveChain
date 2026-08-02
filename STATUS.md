@@ -1213,6 +1213,8 @@ Tracked by [GitHub issue #164](https://github.com/advatar/ActiveChain/issues/164
 - [x] Add a Kani proof boundary for NFT transfer identity preservation and non-owner rejection.
 - [x] Prove approved NFT manifest minting advances exact supply, preserves series/token identity,
       and rejects every substituted approval, manifest, pre-state, or execution-height binding.
+- [x] Prove the NFT token-registry successor preserves existing identities, inserts each approved
+      token exactly once in canonical order, and matches finalized minted supply.
 - [x] Add a canonical NFT Coin Cell record wrapper for proof-bearing RPC/indexing integration.
 - [x] Reserve an explicit RPC query kind for NFT Coin Cells; proof verification remains
   fail-closed until an authenticated NFT membership tree is published.
