@@ -1,0 +1,8 @@
+genesis,accept,1000000,0,0
+issuance,accept,1000020,0,0
+reward,accept,1000020,0,1
+reward_replay,reject,1000020,0,1
+restart,accept,1000020,0,1
+shield,accept,1000020,400,1
+unshield,accept,1000020,297,1
+unshield_replay,reject,1000020,297,1

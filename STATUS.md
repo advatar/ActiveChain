@@ -1681,6 +1681,9 @@ Tracked by [GitHub issue #16](https://github.com/advatar/ActiveChain/issues/16).
     - [x] Canonically snapshot the ledger, key provenance, nonces, sessions, and input barriers.
     - [x] Persist successful authoritative admission atomically before acknowledgement and fail closed on corrupt state.
     - [x] Test rotation/provenance rejection, restart replay safety, corruption, and failed-write atomicity.
+  - [x] Add a byte-identical Rust/Lean cash-lifecycle refinement trace for authorized issuance,
+        one-shot reward redemption, shield/unshield conservation, replay rejection, and canonical
+        restart; broader unbounded and block-finality refinement remains open.
 - [x] Prove DA reconstruction bounds and fail-closed light-client trust transitions in Lean.
 - [x] Prove canonical envelope rejection, commitment binding, and FFI precondition invariants in Lean.
 - [x] Prove bounded principal rotation/recovery/deactivation and direct-delegation attenuation properties.
