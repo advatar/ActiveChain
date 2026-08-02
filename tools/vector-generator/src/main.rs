@@ -13,9 +13,10 @@ use activechain_bytecode_verifier::{
     VmInstruction, VmProgram, VmValueType, VmVerificationError, verify,
 };
 use activechain_canonical_codec::{
-    CanonicalType, canonical_length_prefix_len, encode_body, encode_envelope,
+    CanonicalType, canonical_length_prefix_len, decode_envelope, encode_body, encode_envelope,
 };
 use activechain_capability::verify_attenuation;
+use activechain_cash_kernel::VerifierRole;
 use activechain_credential::{
     CredentialStatus, CredentialVerificationError, PresentationContext, PreverifiedIssuerEvidence,
     PreverifiedStatusEvidence, canonical_schema_facts, credential_id,
@@ -42,11 +43,11 @@ use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
     AccessManifest, AccessManifestFields, ActionId, AuthenticatorDescriptor, AuthenticatorId,
     AuthenticatorPurpose, BoundedActionSet, CREDENTIAL_FORMAT_VERSION, CapabilityGrant,
-    CapabilityGrantFields, CapabilityId, ChainId, Credential, CredentialAcceptancePolicy,
-    CredentialId, CredentialStatement, CredentialStatusRegistry, CryptoSuiteId, DataSelector,
-    Digest384, FreezeState, HolderBinding, Object, ObjectFields, ObjectFlags, ObjectId,
-    ObjectOwner, ObjectVersionRef, Principal, PrincipalId, PrincipalKind, ProtocolSignature,
-    RateLimit, RecoveryRequest, ResourceSelector,
+    CapabilityGrantFields, CapabilityId, ChainId, CoinCellId, Credential,
+    CredentialAcceptancePolicy, CredentialId, CredentialStatement, CredentialStatusRegistry,
+    CryptoSuiteId, DataSelector, Digest384, FreezeState, HolderBinding, Object, ObjectFields,
+    ObjectFlags, ObjectId, ObjectOwner, ObjectVersionRef, Principal, PrincipalId, PrincipalKind,
+    ProtocolSignature, RateLimit, RecoveryRequest, ResourceSelector,
 };
 use activechain_state_tree::{
     StateCommitment, StateProof, commit_objects, partition_id, path_nibble, prove_object,
@@ -56,6 +57,11 @@ use activechain_transition::{
     ObjectState, ReceiptResult, TRANSFER_OBJECT_ACTION_ID, TransferCommand, TransferTransaction,
     TransitionReceipt, apply_transfer_transaction,
 };
+use activechain_wallet_core::{
+    AuthorizedDutyReceiptV1, AuthorizedVerifierBondRegistrationV1, DutyReceiptV1,
+    VerifierBondRegistrationV1,
+};
+use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
 use sha2::{Digest as Sha2Digest, Sha256};
 use sha3::{Shake256, digest::ExtendableOutput, digest::Update, digest::XofReader};
 
@@ -1583,6 +1589,178 @@ fn render_credential_status_table() -> String {
     output
 }
 
+/// Domain separator the wallet binary uses to derive a principal from an ML-DSA-44 public key.
+const WALLET_PRINCIPAL_DOMAIN: &str = "ACTIVECHAIN-WALLET-PUBLIC-KEY-ID-V1";
+/// Domain separator prefixed to the canonical duty-receipt envelope before signing.
+const DUTY_RECEIPT_SIGNING_DOMAIN: &str = "ACTIVECHAIN-DUTY-RECEIPT-ML-DSA-44-V1";
+/// Domain separator prefixed to the canonical bond-registration envelope before signing.
+const VERIFIER_BOND_SIGNING_DOMAIN: &str = "ACTIVECHAIN-VERIFIER-BOND-ML-DSA-44-V1";
+/// Fixed ML-DSA-44 seed shared with the wallet binary's tests; the vectors carry no randomness.
+const WALLET_VECTOR_SEED: [u8; 32] = [7; 32];
+
+/// Derives the wallet principal over the ML-DSA-44 public key exactly as the wallet binary does.
+fn wallet_principal(key: &SigningKey<MlDsa44>) -> PrincipalId {
+    let public_key = key.verifying_key().encode();
+    let mut shake = Shake256::default();
+    shake.update(WALLET_PRINCIPAL_DOMAIN.as_bytes());
+    shake.update(public_key.as_slice());
+    let mut digest = [0_u8; 48];
+    shake.finalize_xof().read(&mut digest);
+    PrincipalId::new(Digest384::new(digest))
+}
+
+/// Signs one domain-separated payload with the deterministic ML-DSA-44 variant.
+fn wallet_signature(key: &SigningKey<MlDsa44>, payload: &[u8]) -> ProtocolSignature {
+    ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, key.sign(payload).encode().as_slice().to_vec())
+        .expect("wallet vector signature has the suite length")
+}
+
+/// Emits the shared deterministic inputs that every duty and bond row is derived from.
+fn duty_bond_context_rows(fields: &[(&str, String)]) -> String {
+    fields.iter().map(|(field, value)| format!("context\t-\t-\t{field}\t{value}\n")).collect()
+}
+
+/// Emits one canonical value as echoed scalar rows followed by its complete canonical framing.
+fn duty_bond_rows<T: CanonicalType>(name: &str, value: &T, fields: &[(&str, String)]) -> String {
+    let body = encode_body(value).expect("duty and bond vector body must fit its declared bound");
+    let envelope =
+        encode_envelope(value).expect("duty and bond vector envelope must fit its declared bound");
+    let commitment =
+        commit(DomainTag::CANONICAL_VALUE, value).expect("duty and bond commitment input encodes");
+    let derived = [
+        ("body_length", body.len().to_string()),
+        ("body_hex", hexadecimal(&body)),
+        ("envelope_hex", hexadecimal(&envelope)),
+        ("canonical_value_commitment_hex", hexadecimal(commitment.as_bytes())),
+    ];
+    fields
+        .iter()
+        .chain(derived.iter())
+        .map(|(field, text)| {
+            format!("{name}\t0x{:04x}\t{}\t{field}\t{text}\n", T::TYPE_TAG, T::SCHEMA_VERSION,)
+        })
+        .collect()
+}
+
+fn render_wallet_duty_bond_v1() -> String {
+    let key = SigningKey::<MlDsa44>::from_seed(&Seed::from(WALLET_VECTOR_SEED));
+    let public_key = key.verifying_key().encode();
+    let verifier = wallet_principal(&key);
+    let chain_id = ChainId::new(repeated_digest(1));
+
+    let receipt = DutyReceiptV1::new(chain_id, repeated_digest(2), verifier, repeated_digest(3), 9)
+        .expect("duty receipt vector is valid");
+    let receipt_payload = receipt.signing_payload().expect("duty receipt vector payload encodes");
+    let receipt_signature = wallet_signature(&key, &receipt_payload);
+    let authorized_receipt = AuthorizedDutyReceiptV1::new(receipt, receipt_signature.clone())
+        .expect("duty receipt vector authorizes");
+    authorized_receipt
+        .verify(public_key.as_slice(), chain_id, verifier)
+        .expect("duty receipt vector verifies for the signing verifier");
+    assert_eq!(
+        decode_envelope::<AuthorizedDutyReceiptV1>(
+            &encode_envelope(&authorized_receipt).expect("authorized duty receipt encodes")
+        ),
+        Ok(authorized_receipt.clone()),
+        "the published duty receipt envelope must decode strictly"
+    );
+
+    let registration = VerifierBondRegistrationV1::new(
+        chain_id,
+        verifier,
+        VerifierRole::Audit,
+        CoinCellId::new(repeated_digest(2)),
+        100,
+        9,
+    )
+    .expect("bond registration vector is valid");
+    let registration_payload =
+        registration.signing_payload().expect("bond registration vector payload encodes");
+    let registration_signature = wallet_signature(&key, &registration_payload);
+    let authorized_registration =
+        AuthorizedVerifierBondRegistrationV1::new(registration, registration_signature.clone())
+            .expect("bond registration vector authorizes");
+    authorized_registration
+        .verify(public_key.as_slice(), chain_id, verifier)
+        .expect("bond registration vector verifies for the signing verifier");
+    assert_eq!(
+        decode_envelope::<AuthorizedVerifierBondRegistrationV1>(
+            &encode_envelope(&authorized_registration)
+                .expect("authorized bond registration encodes")
+        ),
+        Ok(authorized_registration.clone()),
+        "the published bond registration envelope must decode strictly"
+    );
+
+    format!(
+        "# ActiveChain canonical duty-receipt and verifier-bond vectors v1.\n\
+# Independent clients must strictly decode each envelope and derive every field from it.\n\
+type\ttype_tag\tschema_version\tfield\tvalue\n\
+{}{}{}{}{}",
+        duty_bond_context_rows(&[
+            ("signature_suite", "ml-dsa-44".to_owned()),
+            ("signing_key_seed_hex", hexadecimal(&WALLET_VECTOR_SEED)),
+            ("verifier_public_key_length", public_key.len().to_string()),
+            ("verifier_public_key_hex", hexadecimal(public_key.as_slice())),
+            ("verifier_principal_domain", WALLET_PRINCIPAL_DOMAIN.to_owned()),
+            ("verifier_principal_derivation", "shake256-384(domain || public_key)".to_owned()),
+            ("verifier_principal_hex", hexadecimal(verifier.digest().as_bytes())),
+        ]),
+        duty_bond_rows(
+            "DutyReceiptV1",
+            authorized_receipt.receipt(),
+            &[
+                ("chain_id_hex", hexadecimal(chain_id.digest().as_bytes())),
+                (
+                    "assignment_hex",
+                    hexadecimal(authorized_receipt.receipt().assignment().as_bytes()),
+                ),
+                ("verifier_hex", hexadecimal(verifier.digest().as_bytes())),
+                ("evidence_hex", hexadecimal(authorized_receipt.receipt().evidence().as_bytes())),
+                ("height", authorized_receipt.receipt().height().to_string()),
+                ("signing_domain", DUTY_RECEIPT_SIGNING_DOMAIN.to_owned()),
+                ("signing_payload_hex", hexadecimal(&receipt_payload)),
+            ],
+        ),
+        duty_bond_rows(
+            "AuthorizedDutyReceiptV1",
+            &authorized_receipt,
+            &[
+                ("signature_suite", "ml-dsa-44".to_owned()),
+                ("signature_length", receipt_signature.as_bytes().len().to_string()),
+                ("signature_hex", hexadecimal(receipt_signature.as_bytes())),
+            ],
+        ),
+        duty_bond_rows(
+            "VerifierBondRegistrationV1",
+            authorized_registration.registration(),
+            &[
+                ("chain_id_hex", hexadecimal(chain_id.digest().as_bytes())),
+                ("verifier_hex", hexadecimal(verifier.digest().as_bytes())),
+                ("role", "audit".to_owned()),
+                ("role_code", "2".to_owned()),
+                (
+                    "bond_hex",
+                    hexadecimal(authorized_registration.registration().bond().digest().as_bytes()),
+                ),
+                ("bond_amount", authorized_registration.registration().bond_amount().to_string(),),
+                ("valid_until", authorized_registration.registration().valid_until().to_string(),),
+                ("signing_domain", VERIFIER_BOND_SIGNING_DOMAIN.to_owned()),
+                ("signing_payload_hex", hexadecimal(&registration_payload)),
+            ],
+        ),
+        duty_bond_rows(
+            "AuthorizedVerifierBondRegistrationV1",
+            &authorized_registration,
+            &[
+                ("signature_suite", "ml-dsa-44".to_owned()),
+                ("signature_length", registration_signature.as_bytes().len().to_string()),
+                ("signature_hex", hexadecimal(registration_signature.as_bytes())),
+            ],
+        ),
+    )
+}
+
 fn main() {
     let vector = std::env::args().nth(1);
     match vector.as_deref().unwrap_or("principal-v1") {
@@ -1603,6 +1781,7 @@ fn main() {
         "credential-v1" => print!("{}", render_credential_v1()),
         "credential-status-table" => print!("{}", render_credential_status_table()),
         "privacy-v1" => print!("{}", render_privacy_v1()),
+        "wallet-duty-bond-v1" => print!("{}", render_wallet_duty_bond_v1()),
         "envelope-manifest-v1" => print!("{}", render_envelope_manifest_v1()),
         unknown => {
             eprintln!(
@@ -1610,7 +1789,8 @@ fn main() {
                  apl-truth-table, object-transition-v1, object-model-table, state-tree-v1, or \
                  state-tree-model-table, object-vm-v1, object-vm-model-table, devnet-block-v1, or \
                  nonce-model-table, epoch-upgrade-model-table, codec-length-table, credential-v1, \
-                 credential-status-table, privacy-v1, or envelope-manifest-v1"
+                 credential-status-table, privacy-v1, wallet-duty-bond-v1, or \
+                 envelope-manifest-v1"
             );
             std::process::exit(2);
         }
@@ -1631,7 +1811,7 @@ mod tests {
         render_envelope_manifest_v1, render_epoch_upgrade_model_table, render_nonce_model_table,
         render_object_model_table, render_object_transition_v1, render_object_vm_model_table,
         render_object_vm_v1, render_principal_v1, render_privacy_v1, render_state_tree_model_table,
-        render_state_tree_v1,
+        render_state_tree_v1, render_wallet_duty_bond_v1,
     };
 
     #[test]
@@ -1736,6 +1916,12 @@ mod tests {
     fn generated_privacy_vector_is_frozen() {
         let published = include_str!("../../../testing/vectors/privacy/privacy-v1.txt");
         assert_eq!(render_privacy_v1(), published);
+    }
+
+    #[test]
+    fn generated_wallet_duty_bond_vector_is_frozen() {
+        let published = include_str!("../../../testing/vectors/wallet-duty-bond-v1.tsv");
+        assert_eq!(render_wallet_duty_bond_v1(), published);
     }
 
     #[test]

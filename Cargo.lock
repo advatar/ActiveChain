@@ -666,6 +666,7 @@ dependencies = [
  "activechain-bytecode-verifier",
  "activechain-canonical-codec",
  "activechain-capability",
+ "activechain-cash-kernel",
  "activechain-credential",
  "activechain-devnet-kernel",
  "activechain-object",
@@ -677,6 +678,8 @@ dependencies = [
  "activechain-protocol-types",
  "activechain-state-tree",
  "activechain-transition",
+ "activechain-wallet-core",
+ "ml-dsa",
  "sha2 0.10.9",
  "sha3 0.10.9",
 ]
