@@ -690,6 +690,7 @@ Tracked by [GitHub issue #180](https://github.com/advatar/ActiveChain/issues/180
     certificate and its successor certified block fit without relaxing oversized-frame rejection.
   - [x] Make RPC ingestion consume the canonical crash-journal cash snapshot and independently
     verify it against the separately published quorum finality bundle.
+  - [ ] Update the public TLS probe to the current canonical RPC request and response type tags.
 - [x] Verify the currently deployed Kanalen testnet independently over localhost on the host:
   chain/genesis identity matches, finalized height advances to 4168, and health reports `Healthy`.
 - [x] Deploy the schema-2 RPC binary and matching probe without changing validator binaries or

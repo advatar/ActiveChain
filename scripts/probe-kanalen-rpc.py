@@ -24,7 +24,7 @@ EXPECTED_PROTOCOL_REVISION = 1
 EXPECTED_RPC_SCHEMA_REVISION = 2
 MAXIMUM_FRAME_LENGTH = 4 * 1024 * 1024
 MAXIMUM_STATUS_BODY_LENGTH = 151
-STATUS_REQUEST = bytes.fromhex("0000000600a000010100")
+STATUS_REQUEST = bytes.fromhex("00000006010700010100")
 PROOF_NAMES = (
     "state-sparse-merkle",
     "finality-certificate",
@@ -95,7 +95,7 @@ class Decoder:
 
 def decode_status_envelope(envelope: bytes) -> RpcStatus:
     decoder = Decoder(envelope)
-    if decoder.uint(2) != 0x00A1:
+    if decoder.uint(2) != 0x010A:
         raise ProbeError("unexpected RPC response type")
     if decoder.uint(2) != 1:
         raise ProbeError("unexpected RPC response envelope schema")

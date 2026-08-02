@@ -56,10 +56,13 @@ def status_envelope(
             proofs,
         )
     )
-    return bytes.fromhex("00a10001") + uleb128(len(body)) + body
+    return bytes.fromhex("010a0001") + uleb128(len(body)) + body
 
 
 class DecodeStatusTests(unittest.TestCase):
+    def test_status_request_uses_current_canonical_rpc_request_tag(self) -> None:
+        self.assertEqual(probe.STATUS_REQUEST, bytes.fromhex("00000006010700010100"))
+
     def test_exact_kanalen_status_decodes(self) -> None:
         status = probe.decode_status_envelope(status_envelope())
         self.assertEqual(status.finalized_height, 5_794)
