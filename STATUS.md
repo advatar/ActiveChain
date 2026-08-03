@@ -2905,3 +2905,13 @@ wallet and all testnets remain explicitly developmental until this milestone com
     segment size while retaining losslessness, ordering, and bound checks.
   - [ ] Pass affected debug and release tests, strict Clippy, and the exact full deterministic-kernel
     gate before integrating the stacked recovery branches into `origin/main`.
+
+## Active release fix — Semantic-devnet empty-block vector drift
+
+- [ ] Reconcile the canonical empty-block fixture with the deterministic semantic-devnet generator
+  ([GitHub issue #749](https://github.com/advatar/ActiveChain/issues/749)).
+  - [x] Confirm the changed block ID and receipt root are stable consequences of current canonical
+    inputs, then update only the directly coupled vector material.
+  - [ ] Pass semantic-devnet tests, exact vector reproduction, strict affected Clippy, and the exact
+    full deterministic-kernel gate before integrating the stacked recovery branches into
+    `origin/main`.
