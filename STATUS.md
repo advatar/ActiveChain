@@ -2895,3 +2895,13 @@ wallet and all testnets remain explicitly developmental until this milestone com
   - [x] Announce the planned MCP and constrained A2UI interfaces on the public landing page
     without presenting them as shipped or audited
     ([GitHub issue #364](https://github.com/advatar/ActiveChain/issues/364)).
+
+## Active release fix — CashAIR proof segmentation across build profiles
+
+- [ ] Make authenticated receipt segmentation tests enforce the size-derived wire contract rather
+  than a debug-build-specific segment count
+  ([GitHub issue #747](https://github.com/advatar/ActiveChain/issues/747)).
+  - [x] Derive the expected segment count from each encoded proof length and the canonical maximum
+    segment size while retaining losslessness, ordering, and bound checks.
+  - [ ] Pass affected debug and release tests, strict Clippy, and the exact full deterministic-kernel
+    gate before integrating the stacked recovery branches into `origin/main`.
