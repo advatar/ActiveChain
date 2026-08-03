@@ -682,7 +682,8 @@ Tracked by [GitHub issue #345](https://github.com/advatar/ActiveChain/issues/345
           binding and adversarial attenuation vectors
           ([GitHub issue #757](https://github.com/advatar/ActiveChain/issues/757)).
     - [ ] Independently decode and verify the credential/status v1 semantic family in Go against
-          language-neutral positive and adversarial vectors.
+          language-neutral positive and adversarial vectors
+          ([GitHub issue #759](https://github.com/advatar/ActiveChain/issues/759)).
 
 ## Active milestone — P-060 execution proof system
 
