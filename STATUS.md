@@ -393,7 +393,7 @@ Adversarial context-binding follow-up tracked by
   object/state proof plus per-capability non-membership paths through signed-chain verification.
 - [x] Reject missing, revoked, stale, substituted-registry, and malformed revocation evidence with
   targeted adversarial verifier tests.
-- [ ] Run targeted accumulator/protocol/verifier tests plus affected strict Clippy, merge the #706
+- [x] Run targeted accumulator/protocol/verifier tests plus affected strict Clippy, merge the #706
   revocation slice to `main`, prove reachability, and delete its feature branch.
 - [x] Advance capability grants to a v2 issuer-signing transcript that commits the trusted chain
   genesis, so byte-identical authority cannot move between devnet, testnet, and mainnet.
