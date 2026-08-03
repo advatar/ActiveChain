@@ -9,11 +9,13 @@ use activechain_consensus_runtime::{
     load_snapshot_chain_genesis_commitment, save_snapshot,
 };
 use activechain_devnet_kernel::{ChainState, DevnetBlock};
-use activechain_finality_types::{
-    FinalityCertificateBundle, FinalizedBlockHeader, ProofPublicInputs,
-};
+#[cfg(test)]
+use activechain_finality_types::ProofPublicInputs;
+use activechain_finality_types::{FinalityCertificateBundle, FinalizedBlockHeader};
 use activechain_protocol_types::{ChainId, ConsensusState, Digest384, ValidatorGenesis};
-use activechain_state_tree::{StateCommitment, commit_objects};
+#[cfg(test)]
+use activechain_state_tree::StateCommitment;
+use activechain_state_tree::commit_objects;
 use activechain_transition::ObjectState;
 use sha3::{
     Shake256,
@@ -486,6 +488,7 @@ fn recover_staged_cash_round(
     Ok(true)
 }
 
+#[cfg(test)]
 fn kanalen_finalized_header(
     genesis: &ValidatorGenesis,
     chain_id: ChainId,
@@ -530,6 +533,7 @@ fn kanalen_finalized_header(
     }
 }
 
+#[cfg(test)]
 fn cash_action_root(actions: &[activechain_protocol_types::TransactionId]) -> Digest384 {
     let mut bytes = Vec::with_capacity(actions.len() * 48);
     for action in actions {
@@ -747,40 +751,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 finality_out,
                 authoritative_cash.as_ref(),
                 execution_state.as_ref(),
-            ) {
-                if recover_staged_cash_round(
-                    &service,
-                    &signer,
-                    genesis,
-                    chain,
-                    gateway,
-                    execution,
+            ) && recover_staged_cash_round(
+                &service,
+                &signer,
+                genesis,
+                chain,
+                gateway,
+                execution,
+                Path::new(execution_path),
+                Path::new(cash_ledger_path),
+                Path::new(cash_snapshot_path),
+                Path::new(finality_path),
+                cash_actions.map(Path::new),
+            )? {
+                authoritative_cash =
+                    Some(load_authoritative_cash_gateway(Path::new(cash_ledger_path), chain)?);
+                let recovered_consensus = service
+                    .state()
+                    .map_err(|error| format!("recovered consensus read failed: {error:?}"))?;
+                let required_height = service
+                    .next_proposal_position()
+                    .map_err(|error| {
+                        format!("cannot derive recovered execution position: {error:?}")
+                    })?
+                    .0
+                    .checked_sub(1)
+                    .ok_or("recovered proposal height cannot be zero")?;
+                execution_state = Some(load_or_create_execution_state(
                     Path::new(execution_path),
-                    Path::new(cash_ledger_path),
-                    Path::new(cash_snapshot_path),
-                    Path::new(finality_path),
-                    cash_actions.map(Path::new),
-                )? {
-                    authoritative_cash =
-                        Some(load_authoritative_cash_gateway(Path::new(cash_ledger_path), chain)?);
-                    let recovered_consensus = service
-                        .state()
-                        .map_err(|error| format!("recovered consensus read failed: {error:?}"))?;
-                    let required_height = service
-                        .next_proposal_position()
-                        .map_err(|error| {
-                            format!("cannot derive recovered execution position: {error:?}")
-                        })?
-                        .0
-                        .checked_sub(1)
-                        .ok_or("recovered proposal height cannot be zero")?;
-                    execution_state = Some(load_or_create_execution_state(
-                        Path::new(execution_path),
-                        chain,
-                        required_height,
-                        recovered_consensus.finalized_block_digest(),
-                    )?);
-                }
+                    chain,
+                    required_height,
+                    recovered_consensus.finalized_block_digest(),
+                )?);
             }
             let listener_thread_service = std::sync::Arc::clone(&service);
             let listener_thread_signer = std::sync::Arc::clone(&signer);

@@ -2,6 +2,15 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Consensus runtime strict-Clippy recovery
+
+Tracked by [GitHub issue #725](https://github.com/advatar/ActiveChain/issues/725).
+
+- [x] Remove superseded validator helpers, preserve staged-cash recovery semantics, and eliminate
+  redundant test clones flagged by strict Clippy.
+- [ ] Pass consensus-runtime tests, strict workspace Clippy, and the deterministic-kernel gate;
+  merge the dependency chain to `main` and verify reachability.
+
 ## MCP canonical RPC query-kind coverage
 
 Tracked by [GitHub issue #719](https://github.com/advatar/ActiveChain/issues/719).
