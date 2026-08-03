@@ -537,11 +537,22 @@ impl FinalizedBlockCandidate {
                 continue;
             };
             let candidate = candidates.next().ok_or(FinalizedBlockAdmissionError::Authorization)?;
+            let input = transaction
+                .commands()
+                .first()
+                .ok_or(FinalizedBlockAdmissionError::Authorization)?
+                .input();
+            let expected_control_policy_hash = state
+                .objects()
+                .find(input.object_id())
+                .ok_or(FinalizedBlockAdmissionError::Authorization)?
+                .control_policy_hash();
             let verified = verify_authorization_candidate(
                 candidate,
                 chain_genesis_commitment,
                 epoch,
                 block.pre_state().root(),
+                expected_control_policy_hash,
                 verifier,
             )
             .map_err(|_| FinalizedBlockAdmissionError::Authorization)?;

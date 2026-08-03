@@ -395,6 +395,9 @@ Adversarial context-binding follow-up tracked by
   targeted adversarial verifier tests.
 - [x] Run targeted accumulator/protocol/verifier tests plus affected strict Clippy, merge the #706
   revocation slice to `main`, prove reachability, and delete its feature branch.
+- [ ] Bind authorization-layer APL evaluation to the finalized input object's control-policy
+  commitment and reject policy substitution before producing `VerifiedAuthorization`
+  ([GitHub issue #753](https://github.com/advatar/ActiveChain/issues/753)).
 - [x] Advance capability grants to a v2 issuer-signing transcript that commits the trusted chain
   genesis, so byte-identical authority cannot move between devnet, testnet, and mainnet.
 - [x] Refresh canonical authority vectors and add real ML-DSA verification proving same-chain
