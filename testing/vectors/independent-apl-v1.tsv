@@ -1,0 +1,12 @@
+case	source	policy_field	request_field	decision_field	mutation	expected
+canonical	policy/apl-v1.txt	policy_envelope_hex	request_envelope_hex	decision_envelope_hex	none	permit:2:0:16:6
+actor_substitution	policy/apl-v1.txt	policy_envelope_hex	request_envelope_hex	decision_envelope_hex	request_actor	permit:1:0:16:2
+lower_value	policy/apl-v1.txt	policy_envelope_hex	request_envelope_hex	decision_envelope_hex	request_value_50	permit:1:0:16:4
+higher_value	policy/apl-v1.txt	policy_envelope_hex	request_envelope_hex	decision_envelope_hex	request_value_2000	permit:1:0:16:2
+earlier_height	policy/apl-v1.txt	policy_envelope_hex	request_envelope_hex	decision_envelope_hex	request_height_30	permit:1:0:16:2
+later_height	policy/apl-v1.txt	policy_envelope_hex	request_envelope_hex	decision_envelope_hex	request_height_70	permit:1:0:16:4
+frozen_forbid	policy/apl-v1.txt	policy_envelope_hex	request_envelope_hex	decision_envelope_hex	request_frozen	deny:1:1:16:0
+invalid_effect	policy/apl-v1.txt	policy_envelope_hex	request_envelope_hex	decision_envelope_hex	invalid_effect	apl_effect
+invalid_predicate	policy/apl-v1.txt	policy_envelope_hex	request_envelope_hex	decision_envelope_hex	invalid_predicate	apl_predicate
+truncated_policy	policy/apl-v1.txt	policy_envelope_hex	request_envelope_hex	decision_envelope_hex	policy_truncated	body_length_mismatch
+trailing_request	policy/apl-v1.txt	policy_envelope_hex	request_envelope_hex	decision_envelope_hex	request_trailing	trailing_data
