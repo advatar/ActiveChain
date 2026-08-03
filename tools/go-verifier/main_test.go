@@ -84,8 +84,8 @@ func TestIndependentCapabilitySemanticVectors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 25 {
-		t.Fatalf("expected 25 semantic capability cases, got %d", n)
+	if n != 26 {
+		t.Fatalf("expected 26 semantic capability cases, got %d", n)
 	}
 }
 

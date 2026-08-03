@@ -66,7 +66,9 @@ truncation/trailing-data rejection against language-neutral vectors. It also ind
 Principal v1 and enforces its enum and temporal invariants. It also independently validates
 AuthenticatorDescriptor v1 suite/key/purpose/time semantics and CapabilityGrant v1 structure plus
 complete parent/child attenuation across holders, actions, scopes, ceilings, validity, delegation,
-revocation, and constraints. M1 remains incomplete because other schema bodies, cryptographic
+revocation, and constraints. The capability family now requires the current CapabilityGrant schema
+v2 body and treats substituted trusted chain-genesis context as fail-closed; independent ML-DSA
+verification of the v2 chain-bound signing transcript remains open. M1 remains incomplete because other schema bodies, cryptographic
 ML-DSA signature verification, broader authorization, cash/state transitions, finality, and
 light-client proofs are not yet independently verified. Its success is not M2 evidence.
 
