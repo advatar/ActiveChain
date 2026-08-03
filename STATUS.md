@@ -613,7 +613,7 @@ Tracked by [GitHub issue #345](https://github.com/advatar/ActiveChain/issues/345
           purpose compatibility, and validity/revocation ordering (#622).
     - [x] Independently decode CapabilityGrant v1 and verify complete parent/child attenuation,
           including scopes, ceilings, validity, delegation, revocation, and signature framing (#624).
-    - [ ] Reconcile the independent CapabilityGrant decoder with current schema v2 chain-genesis
+    - [x] Reconcile the independent CapabilityGrant decoder with current schema v2 chain-genesis
           binding and adversarial attenuation vectors
           ([GitHub issue #757](https://github.com/advatar/ActiveChain/issues/757)).
 
