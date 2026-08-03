@@ -797,11 +797,25 @@ impl AuthorizationGateway {
         let finalized_state_root = commit_objects(runtime.state.objects())
             .map_err(|_| AuthorizationError::Encoding)?
             .root();
+        let expected_control_policy_hash = runtime
+            .state
+            .find(
+                candidate
+                    .transaction
+                    .commands()
+                    .first()
+                    .ok_or(AuthorizationError::RequestSubstitution)?
+                    .input()
+                    .object_id(),
+            )
+            .ok_or(AuthorizationError::Policy)?
+            .control_policy_hash();
         let authorization = verify_authorization_candidate(
             &candidate,
             self.chain_genesis_commitment,
             self.epoch,
             finalized_state_root,
+            expected_control_policy_hash,
             verifier,
         )?;
         let mut ledger = runtime.ledger.clone();
@@ -834,6 +848,7 @@ pub fn verify_authorization_candidate<V: AuthorizationVerifier>(
     expected_chain_genesis_commitment: Digest384,
     expected_epoch: u64,
     expected_finalized_state_root: Digest384,
+    expected_control_policy_hash: Digest384,
     verifier: &V,
 ) -> Result<VerifiedAuthorization, AuthorizationError> {
     let envelope = &candidate.envelope;
@@ -852,6 +867,12 @@ pub fn verify_authorization_candidate<V: AuthorizationVerifier>(
     }
     if candidate.transaction.commands().len() != 1 {
         return Err(AuthorizationError::RequestSubstitution);
+    }
+    let control_policy_commitment =
+        commit(DomainTag::CANONICAL_VALUE, candidate.transaction.commands()[0].control_policy())
+            .map_err(|_| AuthorizationError::Encoding)?;
+    if control_policy_commitment != expected_control_policy_hash {
+        return Err(AuthorizationError::Policy);
     }
     if candidate.credentials.len() > MAX_AUTHORIZATION_CREDENTIALS {
         return Err(AuthorizationError::Credential);
@@ -1239,6 +1260,10 @@ mod tests {
         .unwrap()
     }
 
+    fn policy_hash() -> Digest384 {
+        commit(DomainTag::CANONICAL_VALUE, &policy()).unwrap()
+    }
+
     fn state() -> ObjectState {
         let policy = policy();
         let hash = commit(DomainTag::CANONICAL_VALUE, &policy).unwrap();
@@ -1339,6 +1364,31 @@ mod tests {
         }
     }
 
+    fn with_substituted_permissive_policy(
+        mut candidate: AuthorizationCandidate,
+    ) -> AuthorizationCandidate {
+        let original = &candidate.transaction.commands()[0];
+        let permissive = PolicySet::new(
+            APL_LANGUAGE_VERSION,
+            vec![PolicyRule::new(PolicyEffect::Permit, vec![], vec![]).unwrap()],
+        )
+        .unwrap();
+        candidate.transaction = TransferTransaction::new(
+            candidate.transaction.height(),
+            candidate.transaction.access_manifest().clone(),
+            vec![TransferCommand::new(
+                original.input(),
+                original.new_owner(),
+                permissive,
+                original.request().clone(),
+            )],
+        )
+        .unwrap();
+        candidate.envelope.transition_commitment =
+            commit(DomainTag::CANONICAL_VALUE, &candidate.transaction).unwrap();
+        candidate
+    }
+
     fn witness_after(prior_invocations: &[u8], invocation: u8) -> NonMembershipWitness {
         let mut reference = ReferenceSet::new(AccumulatorDomain::AuthorizationInvocation);
         for prior in prior_invocations {
@@ -1422,6 +1472,7 @@ mod tests {
                     expected_genesis,
                     expected_epoch,
                     expected_root,
+                    policy_hash(),
                     &Verifier::default(),
                 ),
                 Err(AuthorizationError::Authentication)
@@ -1456,6 +1507,30 @@ mod tests {
         bytes[10] ^= 1;
         std::fs::write(&path, bytes).unwrap();
         assert!(AuthorizationGateway::load(path.clone()).is_err());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn finalized_control_policy_is_bound_before_authorization() {
+        let substituted = with_substituted_permissive_policy(candidate(39, 5));
+        assert_eq!(
+            verify_authorization_candidate(
+                &substituted,
+                genesis(),
+                EPOCH,
+                state_root(),
+                policy_hash(),
+                &Verifier::default(),
+            ),
+            Err(AuthorizationError::Policy)
+        );
+
+        let path = std::env::temp_dir()
+            .join(format!("activechain-auth-policy-binding-{}.snapshot", std::process::id()));
+        assert_eq!(
+            gateway(path.clone()).admit(substituted, &Verifier::default()),
+            Err(AuthorizationError::Policy)
+        );
         let _ = std::fs::remove_file(path);
     }
 
@@ -1654,6 +1729,7 @@ mod tests {
                 genesis(),
                 EPOCH,
                 state_root(),
+                policy_hash(),
                 &Verifier::default(),
             ),
             Err(AuthorizationError::CapabilityScope),
@@ -1668,6 +1744,7 @@ mod tests {
                 genesis(),
                 EPOCH,
                 state_root(),
+                policy_hash(),
                 &Verifier::default(),
             ),
             Err(AuthorizationError::CapabilityScope),
@@ -1684,6 +1761,7 @@ mod tests {
                 genesis(),
                 EPOCH,
                 state_root(),
+                policy_hash(),
                 &Verifier::default(),
             ),
             Err(AuthorizationError::CapabilityScope),
@@ -1711,6 +1789,7 @@ mod tests {
                     genesis(),
                     EPOCH,
                     state_root(),
+                    policy_hash(),
                     &Verifier::default(),
                 )
                 .map(|_| ()),
@@ -1731,6 +1810,7 @@ mod tests {
             genesis(),
             EPOCH,
             state_root(),
+            policy_hash(),
             &Verifier::default(),
         )
         .expect("the attacker-declared height is internally valid");
@@ -1838,6 +1918,7 @@ mod tests {
                 genesis(),
                 EPOCH,
                 state_root(),
+                policy_hash(),
                 &Verifier::default()
             ),
             Err(AuthorizationError::Capability)
@@ -1857,6 +1938,7 @@ mod tests {
                 genesis(),
                 EPOCH,
                 state_root(),
+                policy_hash(),
                 &Verifier::default(),
             )
             .unwrap()
@@ -1878,6 +1960,7 @@ mod tests {
             genesis(),
             EPOCH,
             state_root(),
+            policy_hash(),
             &Verifier::default(),
         )
         .unwrap();
@@ -1984,6 +2067,7 @@ mod tests {
             genesis(),
             EPOCH,
             state_root(),
+            policy_hash(),
             &Verifier::default(),
         )
         .unwrap();
