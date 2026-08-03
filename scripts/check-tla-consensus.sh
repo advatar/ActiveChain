@@ -4,7 +4,7 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 tool_cache=${ACTIVECHAIN_TLA_CACHE:-${TMPDIR:-/tmp}/activechain-tla-tools}
 tla_version=1.8.0
-tla_sha256=cc4803dce2a8ffaf0f5920a9dc39df4b5ee34ab4cb53fb58ac557277a7e516b3
+tla_sha256=e22f8ffb4bacdea0a871f444dd94fe5fb0d8013b3388ae39e82e26f852c735d5
 tla_url="https://github.com/tlaplus/tlaplus/releases/download/v${tla_version}/tla2tools.jar"
 tla_jar="$tool_cache/tla2tools-${tla_version}.jar"
 java_image='eclipse-temurin@sha256:db1689535962d757a5adabf57387584ed543d38c0b9d1fe870123ea362ad73b0'
