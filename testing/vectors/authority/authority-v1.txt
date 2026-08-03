@@ -4,6 +4,7 @@
 
 vector=authority-v1
 commitment_domain=canonical-value (0x0001)
+chain_genesis_commitment_hex=424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242
 
 authenticator_type_tag=0x0021
 authenticator_schema_version=1

@@ -17,6 +17,7 @@ const (
 	errDelegationState envelopeError = "delegation_state"
 	errSignatureLength envelopeError = "signature_length"
 	errAttenuation     envelopeError = "attenuation"
+	errChainGenesis    envelopeError = "chain_genesis"
 )
 
 type capCursor struct {
@@ -237,7 +238,7 @@ type capabilityOffsets struct {
 }
 
 func decodeCapabilityEnvelope(input []byte) (capability, capabilityOffsets, envelopeError) {
-	if _, err := inspectEnvelope(input, 0x0030, 1, 22024); err != "" {
+	if _, err := inspectEnvelope(input, 0x0030, 2, 22024); err != "" {
 		return capability{}, capabilityOffsets{}, err
 	}
 	_, width, _ := decodeLength(input[4:])
@@ -477,6 +478,9 @@ func applyCapabilityMutation(envelope []byte, mutation string) ([]byte, error) {
 	if mutation == "none" || mutation == "truncate:1" || mutation == "append:00" {
 		return mutateEnvelopeBody(envelope, mutation)
 	}
+	if mutation == "chain_genesis_substitution" {
+		return append([]byte(nil), envelope...), nil
+	}
 	capability, offsets, err := decodeCapabilityEnvelope(envelope)
 	if err != "" {
 		return nil, fmt.Errorf("base capability: %s", err)
@@ -550,7 +554,15 @@ func verifyCapabilityVector(path string, v vector) error {
 	if err != nil {
 		return err
 	}
+	trustedGenesis, err := readNamedHex(source, "chain_genesis_commitment_hex")
+	if err != nil || len(trustedGenesis) != 48 {
+		return fmt.Errorf("invalid trusted chain genesis")
+	}
+	suppliedGenesis := append([]byte(nil), trustedGenesis...)
 	mutation := v.fields[4]
+	if mutation == "chain_genesis_substitution" {
+		suppliedGenesis[0] ^= 0xff
+	}
 	if len(mutation) > 7 && mutation[:7] == "parent:" {
 		parentBytes, err = applyCapabilityMutation(parentBytes, mutation[7:])
 	} else {
@@ -571,6 +583,12 @@ func verifyCapabilityVector(path string, v vector) error {
 	}
 	if actual == "" && !verifyCapabilityAttenuation(parent, child) {
 		actual = errAttenuation
+	}
+	if actual == "" && !bytes.Equal(suppliedGenesis, trustedGenesis) {
+		// Schema v2 signatures authenticate a host-supplied trusted chain
+		// genesis. Until the Go client adds ML-DSA, substituted trusted
+		// context remains an explicit fail-closed semantic outcome.
+		actual = errChainGenesis
 	}
 	if actual != expected {
 		return fmt.Errorf("case %q: expected %q, got %q", v.name, expected, actual)

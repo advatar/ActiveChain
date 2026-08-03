@@ -717,6 +717,7 @@ fn render_authority_v1() -> String {
 \n\
 vector=authority-v1\n\
 commitment_domain=canonical-value (0x0001)\n\
+chain_genesis_commitment_hex=424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242\n\
 \n",
     );
     output.push_str(&encoded_value("authenticator", &authenticator));
