@@ -2,6 +2,14 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Verifier C header and Apple distribution reconciliation
+
+Tracked by [GitHub issue #745](https://github.com/advatar/ActiveChain/issues/745).
+
+- [x] Regenerate and audit the verifier C header against the exported production ABI.
+- [ ] Pass header validation, Apple distribution reproducibility, and the exact aggregate
+  deterministic-kernel gate; merge the dependency chain to `main` and verify reachability.
+
 ## Light-client devnet vector hash reconciliation
 
 Tracked by [GitHub issue #743](https://github.com/advatar/ActiveChain/issues/743).

@@ -37,10 +37,6 @@
 
 #define ACTIVECHAIN_WALLET_OPENWALLET_CONSENT 3
 
-#define ACTIVECHAIN_WALLET_DID_ML_DSA_65 0
-#define ACTIVECHAIN_WALLET_DID_ML_DSA_87 1
-#define ACTIVECHAIN_WALLET_DID_SLH_DSA_SHAKE_192S 2
-
 typedef uint32_t (*activechain_wallet_sign_callback)(
     void *context,
     const uint8_t *payload,
@@ -123,13 +119,19 @@ extern "C" {
  */
 uint32_t activechain_wallet_ffi_revision(void);
 
-/** Returns the ABI revision of the proof verifier behind the wallet ABI. */
+/**
+ * Returns the proof verifier ABI revision consumed by native wallet shells.
+ */
 uint32_t activechain_wallet_verifier_abi_revision(void);
 
-/** Returns the canonical envelope schema revision accepted by the proof verifier. */
+/**
+ * Returns the canonical proof-envelope schema revision consumed by native wallet shells.
+ */
 uint32_t activechain_wallet_verifier_schema_revision(void);
 
-/** Returns the ActiveChain protocol revision accepted by the proof verifier. */
+/**
+ * Returns the protocol revision accepted by the proof verifier.
+ */
 uint64_t activechain_wallet_verifier_protocol_revision(void);
 
 /**
@@ -362,7 +364,13 @@ uint32_t activechain_wallet_verify_owner_coin_cell_record(const uint8_t *key,
                                                           const uint8_t *owner,
                                                           const uint8_t *trusted_genesis);
 
-/** Verifies a proof-bearing NFT series (kind 12) or token registry (kind 13). */
+/**
+ * Verifies a proof-bearing NFT series or minted-token registry against trusted finality.
+ *
+ * # Safety
+ * Fixed identifiers must point to readable 48-byte values. Canonical value, proof, and finality
+ * buffers must be readable for their declared lengths. No pointer is retained.
+ */
 uint32_t activechain_wallet_verify_nft_state_record(uint32_t query_kind,
                                                     const uint8_t *key,
                                                     uint64_t finalized_height,
@@ -509,29 +517,26 @@ uint32_t activechain_wallet_proposal_approval(const uint8_t *intent,
                                               struct ActivechainWalletProposalApproval *approval_out);
 
 /**
- * Signs one reviewed canonical DID lifecycle operation through caller-owned native custody.
- *
- * The callback receives only the exact chain-genesis-bound signing payload. The returned
- * suite-exact signature is independently verified before the authorization envelope is released.
- * No secret key bytes cross this boundary.
+ * Signs one reviewed DID lifecycle operation using a native custody callback.
  *
  * # Safety
- * Inputs must be readable for their declared/fixed lengths and outputs must be writable.
+ * Every non-empty input must be readable for its declared/fixed length. Output pointers must be
+ * writable. The callback receives only the exact network-bound signing payload and writes the
+ * suite-exact signature; no secret key crosses this boundary.
  */
-uint32_t activechain_wallet_authorize_did_operation(
-    const uint8_t *operation,
-    uint32_t operation_len,
-    const uint8_t *chain_genesis,
-    const uint8_t *approved_commitment,
-    const uint8_t *authorizer,
-    uint32_t suite,
-    const uint8_t *public_key,
-    uint32_t public_key_len,
-    activechain_wallet_sign_callback callback,
-    void *callback_context,
-    uint8_t *output,
-    uint32_t output_capacity,
-    uint32_t *required_len);
+uint32_t activechain_wallet_authorize_did_operation(const uint8_t *operation,
+                                                    uint32_t operation_len,
+                                                    const uint8_t *chain_genesis,
+                                                    const uint8_t *approved_commitment,
+                                                    const uint8_t *authorizer,
+                                                    uint32_t suite,
+                                                    const uint8_t *public_key,
+                                                    uint32_t public_key_len,
+                                                    activechain_wallet_sign_callback callback,
+                                                    void *callback_context,
+                                                    uint8_t *output,
+                                                    uint32_t output_capacity,
+                                                    uint32_t *required_len);
 
 /**
  * Signs exactly one reviewed canonical MCP action intent through caller-owned native custody.
