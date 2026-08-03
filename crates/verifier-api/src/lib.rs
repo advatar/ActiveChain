@@ -6,8 +6,9 @@ extern crate alloc;
 mod signed_authorization;
 
 pub use signed_authorization::{
-    AuthorizationControllerWitnessV1, SignedAuthorizationChainV1,
-    verify_signed_authorization_chain, verify_signed_authorization_chain_code,
+    AuthorizationControllerWitnessV1, CapabilityNonRevocationProofV1,
+    CapabilityRevocationWitnessV1, SignedAuthorizationChainV1, verify_signed_authorization_chain,
+    verify_signed_authorization_chain_code,
 };
 
 use activechain_application_primitives::{AnchorFinalizedEvidenceV1, DigestAnchorStatementV1};
@@ -912,6 +913,7 @@ mod tests {
     extern crate alloc;
 
     use super::*;
+    use activechain_accumulator::{AccumulatorDomain, ReferenceSet};
     use activechain_action_kernel::ResourceVector;
     use activechain_application_primitives::{AnchorFinalizedEvidenceV1, DigestAnchorStatementV1};
     use activechain_authorization_kernel::AuthorizationEnvelope;
@@ -927,10 +929,11 @@ mod tests {
     use activechain_policy_kernel::DecisionResult;
     use activechain_protocol_types::{
         ActionId, AssetId, AuthenticatorDescriptor, AuthenticatorPurpose, AuthenticatorSetV1,
-        BoundedActionSet, CapabilityGrantFields, CapabilityId, ConsensusVoteContext, CryptoSuiteId,
-        DataSelector, FreezeState, HolderBinding, ObjectFields, ObjectFlags, ObjectOwner,
-        PrincipalId, PrincipalKind, ProtocolSignature, QuorumCertificate, ResourceSelector,
-        TransactionId, ValidatorGenesis, ValidatorGenesisEntry, ValidatorVote,
+        BoundedActionSet, CapabilityGrantFields, CapabilityId, CapabilityRevocationRegistryV1,
+        ConsensusVoteContext, CryptoSuiteId, DataSelector, FreezeState, HolderBinding,
+        ObjectFields, ObjectFlags, ObjectId, ObjectOwner, PrincipalId, PrincipalKind,
+        ProtocolSignature, QuorumCertificate, ResourceSelector, TransactionId, ValidatorGenesis,
+        ValidatorGenesisEntry, ValidatorVote,
     };
     use activechain_state_tree::{commit_objects, prove_object};
     use alloc::{vec, vec::Vec};
@@ -1548,7 +1551,44 @@ mod tests {
                 AuthenticatorPurpose::Control,
             ),
         ];
-        let objects = identities.iter().map(|entry| entry.0.clone()).collect::<Vec<_>>();
+        let registry_id = ObjectId::new(digest(108));
+        let make_registry_object = |registry: CapabilityRevocationRegistryV1| {
+            let value = encode_envelope(&registry).unwrap();
+            Object::new(ObjectFields {
+                object_id: registry_id,
+                object_version: 1,
+                type_id: commit_parts(
+                    b"ACTIVECHAIN-CAPABILITY-REVOCATION-OBJECT-TYPE-V1",
+                    &[
+                        &CapabilityRevocationRegistryV1::TYPE_TAG.to_be_bytes(),
+                        &CapabilityRevocationRegistryV1::SCHEMA_VERSION.to_be_bytes(),
+                    ],
+                ),
+                owner: ObjectOwner::Shared,
+                control_policy_hash: digest(109),
+                use_policy_hash: digest(110),
+                disclosure_policy_hash: digest(111),
+                upgrade_policy_hash: digest(112),
+                package_id: None,
+                value_root: commit_parts(
+                    b"ACTIVECHAIN-CAPABILITY-REVOCATION-OBJECT-VALUE-V1",
+                    &[&value],
+                ),
+                public_value: Some(value),
+                lease_expiry_epoch: 10,
+                storage_deposit: 1,
+                flags: ObjectFlags::SYSTEM,
+            })
+            .unwrap()
+        };
+        let revocations = ReferenceSet::new(AccumulatorDomain::Revocation);
+        let commitment = revocations.commitment();
+        let registry =
+            CapabilityRevocationRegistryV1::new(Digest384::new(commitment.root), commitment.count)
+                .unwrap();
+        let registry_object = make_registry_object(registry);
+        let mut objects = identities.iter().map(|entry| entry.0.clone()).collect::<Vec<_>>();
+        objects.push(registry_object.clone());
         let state = commit_objects(&objects).unwrap();
         let provisional = finality_bundle_with_inputs(
             digest(47),
@@ -1581,7 +1621,7 @@ mod tests {
                     valid_until: Some(12),
                     delegation_depth_remaining: depth,
                     delegation_allowed: allowed,
-                    revocation_registry: None,
+                    revocation_registry: Some(registry_id),
                     constraint_hash: digest(103),
                 },
                 ProtocolSignature::new(CryptoSuiteId::ML_DSA_65, vec![0; 3_309]).unwrap(),
@@ -1691,22 +1731,239 @@ mod tests {
                 .unwrap()
             })
             .collect::<Vec<_>>();
+        let revocation_witness =
+            |registry_object: &Object, objects: &[Object], revocations: &ReferenceSet| {
+                let proofs = [104_u8, 105]
+                    .into_iter()
+                    .map(|id| {
+                        let capability_id = CapabilityId::new(digest(id));
+                        let proof = revocations
+                            .non_membership_witness(capability_id.into_digest().into_bytes())
+                            .unwrap();
+                        CapabilityNonRevocationProofV1::new(
+                            capability_id,
+                            proof.siblings.into_iter().map(Digest384::new).collect(),
+                        )
+                        .unwrap()
+                    })
+                    .collect::<Vec<_>>();
+                CapabilityRevocationWitnessV1::new(
+                    encode_envelope(registry_object).unwrap(),
+                    encode_envelope(&prove_object(objects, registry_id).unwrap()).unwrap(),
+                    proofs,
+                )
+                .unwrap()
+            };
+        let witness = revocation_witness(&registry_object, &objects, &revocations);
         let signed = SignedAuthorizationChainV1::new(
             encode_envelope(&envelope).unwrap(),
-            chain,
-            controllers,
+            chain.clone(),
+            controllers.clone(),
+            Some(witness),
         )
         .unwrap();
         let signed_bytes = encode_envelope(&signed).unwrap();
         let finality = encode_envelope(&provisional).unwrap();
         assert_eq!(verify_signed_authorization_chain(&signed_bytes, &finality, genesis), Ok(()));
 
-        let mut tampered = signed_bytes;
-        let last = tampered.len() - 1;
-        tampered[last] ^= 1;
+        let missing = SignedAuthorizationChainV1::new(
+            encode_envelope(&envelope).unwrap(),
+            chain.clone(),
+            controllers.clone(),
+            None,
+        )
+        .unwrap();
         assert_eq!(
-            verify_signed_authorization_chain_code(&tampered, &finality, genesis),
-            VerifyError::RelationMismatch.code()
+            verify_signed_authorization_chain(
+                &encode_envelope(&missing).unwrap(),
+                &finality,
+                genesis,
+            ),
+            Err(VerifyError::RelationMismatch)
+        );
+
+        let substituted_witness = CapabilityRevocationWitnessV1::new(
+            encode_envelope(&identities[0].0).unwrap(),
+            encode_envelope(&prove_object(&objects, identities[0].0.object_id()).unwrap()).unwrap(),
+            [104_u8, 105]
+                .into_iter()
+                .map(|id| {
+                    let capability_id = CapabilityId::new(digest(id));
+                    let proof = revocations
+                        .non_membership_witness(capability_id.into_digest().into_bytes())
+                        .unwrap();
+                    CapabilityNonRevocationProofV1::new(
+                        capability_id,
+                        proof.siblings.into_iter().map(Digest384::new).collect(),
+                    )
+                    .unwrap()
+                })
+                .collect(),
+        )
+        .unwrap();
+        let substituted = SignedAuthorizationChainV1::new(
+            encode_envelope(&envelope).unwrap(),
+            chain.clone(),
+            controllers.clone(),
+            Some(substituted_witness),
+        )
+        .unwrap();
+        assert!(
+            verify_signed_authorization_chain(
+                &encode_envelope(&substituted).unwrap(),
+                &finality,
+                genesis,
+            )
+            .is_err()
+        );
+
+        let mut malformed = signed_bytes.clone();
+        malformed.pop();
+        assert!(verify_signed_authorization_chain(&malformed, &finality, genesis).is_err());
+
+        let mut stale_revocations = ReferenceSet::new(AccumulatorDomain::Revocation);
+        stale_revocations.insert(digest(0xaa).into_bytes()).unwrap();
+        let stale_commitment = stale_revocations.commitment();
+        let stale_registry = make_registry_object(
+            CapabilityRevocationRegistryV1::new(
+                Digest384::new(stale_commitment.root),
+                stale_commitment.count,
+            )
+            .unwrap(),
+        );
+        let stale = SignedAuthorizationChainV1::new(
+            encode_envelope(&envelope).unwrap(),
+            chain.clone(),
+            controllers.clone(),
+            Some(revocation_witness(&stale_registry, &objects, &revocations)),
+        )
+        .unwrap();
+        assert!(
+            verify_signed_authorization_chain(
+                &encode_envelope(&stale).unwrap(),
+                &finality,
+                genesis,
+            )
+            .is_err()
+        );
+
+        let mut revoked = ReferenceSet::new(AccumulatorDomain::Revocation);
+        let stale_child_witness = revoked
+            .non_membership_witness(CapabilityId::new(digest(104)).into_digest().into_bytes())
+            .unwrap();
+        revoked.insert(CapabilityId::new(digest(104)).into_digest().into_bytes()).unwrap();
+        let revoked_commitment = revoked.commitment();
+        let revoked_object = make_registry_object(
+            CapabilityRevocationRegistryV1::new(
+                Digest384::new(revoked_commitment.root),
+                revoked_commitment.count,
+            )
+            .unwrap(),
+        );
+        let mut revoked_objects =
+            identities.iter().map(|entry| entry.0.clone()).collect::<Vec<_>>();
+        revoked_objects.push(revoked_object.clone());
+        let revoked_state = commit_objects(&revoked_objects).unwrap();
+        let revoked_finality = finality_bundle_with_inputs(
+            digest(47),
+            StateCommitment::new(digest(42), 0),
+            revoked_state,
+            digest(50),
+        );
+        let revoked_unsigned_envelope = AuthorizationEnvelope::new(
+            digest(106),
+            genesis,
+            3,
+            actor_id,
+            9,
+            1,
+            revoked_state.root(),
+            digest(107),
+            1,
+            1,
+            FreezeState::Active,
+            None,
+            vec![],
+            vec![],
+            vec![CapabilityId::new(digest(104)), CapabilityId::new(digest(105))],
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2_420]).unwrap(),
+        )
+        .unwrap();
+        let revoked_actor_signature =
+            actor_key.sign(&revoked_unsigned_envelope.signing_payload().unwrap());
+        let revoked_envelope = AuthorizationEnvelope::new(
+            digest(106),
+            genesis,
+            3,
+            actor_id,
+            9,
+            1,
+            revoked_state.root(),
+            digest(107),
+            1,
+            1,
+            FreezeState::Active,
+            None,
+            vec![],
+            vec![],
+            vec![CapabilityId::new(digest(104)), CapabilityId::new(digest(105))],
+            ProtocolSignature::new(
+                CryptoSuiteId::ML_DSA_44,
+                revoked_actor_signature.encode().to_vec(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let child_proof = CapabilityNonRevocationProofV1::new(
+            CapabilityId::new(digest(104)),
+            stale_child_witness.siblings.into_iter().map(Digest384::new).collect(),
+        )
+        .unwrap();
+        let root_id = CapabilityId::new(digest(105));
+        let root_proof =
+            revoked.non_membership_witness(root_id.into_digest().into_bytes()).unwrap();
+        let revoked_witness = CapabilityRevocationWitnessV1::new(
+            encode_envelope(&revoked_object).unwrap(),
+            encode_envelope(&prove_object(&revoked_objects, registry_id).unwrap()).unwrap(),
+            vec![
+                child_proof,
+                CapabilityNonRevocationProofV1::new(
+                    root_id,
+                    root_proof.siblings.into_iter().map(Digest384::new).collect(),
+                )
+                .unwrap(),
+            ],
+        )
+        .unwrap();
+        let revoked_controllers = [0_usize, 1, 2]
+            .into_iter()
+            .map(|index| {
+                AuthorizationControllerWitnessV1::new(
+                    encode_envelope(&identities[index].0).unwrap(),
+                    encode_envelope(
+                        &prove_object(&revoked_objects, identities[index].0.object_id()).unwrap(),
+                    )
+                    .unwrap(),
+                    encode_envelope(&identities[index].1).unwrap(),
+                    identities[index].2,
+                )
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+        let revoked_signed = SignedAuthorizationChainV1::new(
+            encode_envelope(&revoked_envelope).unwrap(),
+            chain,
+            revoked_controllers,
+            Some(revoked_witness),
+        )
+        .unwrap();
+        assert!(
+            verify_signed_authorization_chain(
+                &encode_envelope(&revoked_signed).unwrap(),
+                &encode_envelope(&revoked_finality).unwrap(),
+                revoked_finality.validator_genesis().genesis_commitment(),
+            )
+            .is_err()
         );
     }
 

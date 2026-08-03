@@ -4,6 +4,7 @@ extern crate alloc;
 
 use alloc::{vec, vec::Vec};
 
+use activechain_accumulator::{AccumulatorDomain, NonMembershipWitness, SetCommitment};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
@@ -15,6 +16,80 @@ use crate::{
 
 /// Maximum distinct actions in one development capability grant.
 pub const MAX_CAPABILITY_ACTIONS: usize = 32;
+
+/// Constant-size commitment to every capability revoked through one registry object.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CapabilityRevocationRegistryV1 {
+    root: Digest384,
+    count: u64,
+}
+
+impl CapabilityRevocationRegistryV1 {
+    pub const TYPE_TAG: u16 = 0x01B1;
+    pub const SCHEMA_VERSION: u16 = 1;
+    pub const MAX_ENCODED_LEN: usize = 48 + 8;
+
+    #[must_use]
+    pub fn empty() -> Self {
+        Self::from_commitment(SetCommitment::empty(AccumulatorDomain::Revocation))
+    }
+
+    pub fn new(root: Digest384, count: u64) -> Result<Self, DecodeError> {
+        if root == Digest384::ZERO {
+            return Err(DecodeError::InvalidValue("zero capability revocation root"));
+        }
+        Ok(Self { root, count })
+    }
+
+    #[must_use]
+    pub const fn root(self) -> Digest384 {
+        self.root
+    }
+
+    #[must_use]
+    pub const fn count(self) -> u64 {
+        self.count
+    }
+
+    pub fn verify_not_revoked(
+        self,
+        capability: CapabilityId,
+        witness: &NonMembershipWitness,
+    ) -> Result<(), activechain_accumulator::AccumulatorError> {
+        self.commitment().insert(capability.into_digest().into_bytes(), witness).map(|_| ())
+    }
+
+    fn from_commitment(commitment: SetCommitment) -> Self {
+        Self { root: Digest384::new(commitment.root), count: commitment.count }
+    }
+
+    fn commitment(self) -> SetCommitment {
+        SetCommitment {
+            domain: AccumulatorDomain::Revocation,
+            root: self.root.into_bytes(),
+            count: self.count,
+        }
+    }
+}
+
+impl CanonicalEncode for CapabilityRevocationRegistryV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.root.encode(encoder)?;
+        self.count.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for CapabilityRevocationRegistryV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(Digest384::decode(decoder)?, u64::decode(decoder)?)
+    }
+}
+
+impl CanonicalType for CapabilityRevocationRegistryV1 {
+    const TYPE_TAG: u16 = Self::TYPE_TAG;
+    const SCHEMA_VERSION: u16 = Self::SCHEMA_VERSION;
+    const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
+}
 
 /// A recovery proposal committed when a principal enters `RecoveryPending`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

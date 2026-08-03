@@ -12,6 +12,7 @@ publish = false
 path = "../../../verifier-api/src/lib.rs"
 
 [dependencies]
+activechain-accumulator.workspace = true
 activechain-action-kernel.workspace = true
 activechain-application-primitives.workspace = true
 activechain-canonical-codec.workspace = true

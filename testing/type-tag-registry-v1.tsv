@@ -300,7 +300,7 @@
 0x01A6	1	OpenId4VpTransportSnapshotV1	crates/wallet-core/src/openid4vp.rs
 0x01A7	1	PaymentSdkRequestV1	crates/payment-sdk/src/lib.rs
 0x01A8	1	PaymentSdkResponseV1	crates/payment-sdk/src/lib.rs
-0x01A9	2	SignedAuthorizationChainV1	crates/verifier-api/src/signed_authorization.rs
+0x01A9	3	SignedAuthorizationChainV1	crates/verifier-api/src/signed_authorization.rs
 
 0x01AA	1	DutyReceiptV1	crates/wallet-core/src/cash_authorization.rs
 0x01AB	1	AuthorizedDutyReceiptV1	crates/wallet-core/src/cash_authorization.rs
@@ -309,3 +309,4 @@
 0x01AE	1	AuthorizedVerifierBondRegistrationV1	crates/wallet-core/src/cash_authorization.rs
 0x01AF	1	CashAggregationNodeV1	crates/cash-air/src/aggregation.rs
 0x01B0	1	CashAggregationLeafInputV1	crates/cash-air/src/aggregation.rs
+0x01B1	1	CapabilityRevocationRegistryV1	crates/protocol-types/src/authority.rs
