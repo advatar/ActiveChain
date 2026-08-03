@@ -7,7 +7,7 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 Tracked by [GitHub issue #745](https://github.com/advatar/ActiveChain/issues/745).
 
 - [x] Regenerate and audit the verifier C header against the exported production ABI.
-- [ ] Pass header validation, Apple distribution reproducibility, and the exact aggregate
+- [x] Pass header validation, Apple distribution reproducibility, and the exact aggregate
   deterministic-kernel gate; merge the dependency chain to `main` and verify reachability.
 
 ## Light-client devnet vector hash reconciliation
@@ -16,7 +16,7 @@ Tracked by [GitHub issue #743](https://github.com/advatar/ActiveChain/issues/743
 
 - [x] Align the stale light-client devnet-block requirement hash with the generated canonical vector
   and primary verifier manifest.
-- [ ] Pass complete verifier-manifest/proof-conformance checks and the exact aggregate
+- [x] Pass complete verifier-manifest/proof-conformance checks and the exact aggregate
   deterministic-kernel gate; merge the dependency chain to `main` and verify reachability.
 
 ## Proof-of-funds guest image identity reconciliation
@@ -25,7 +25,7 @@ Tracked by [GitHub issue #741](https://github.com/advatar/ActiveChain/issues/741
 
 - [x] Trace the proof-of-funds guest ELF/image change and reconcile every canonical image-ID and
   vector consumer with the intended reproducible guest.
-- [ ] Pass PQ-ZK tests, canonical vector reproduction, and the exact aggregate deterministic-kernel
+- [x] Pass PQ-ZK tests, canonical vector reproduction, and the exact aggregate deterministic-kernel
   gate; merge the dependency chain to `main` and verify reachability.
 
 ## Verus parity lockfile reconciliation
@@ -34,7 +34,7 @@ Tracked by [GitHub issue #739](https://github.com/advatar/ActiveChain/issues/739
 
 - [x] Regenerate and audit the isolated Verus parity lockfile against its pinned manifest and
   production dependency graph.
-- [ ] Pass all Verus contracts and the exact aggregate deterministic-kernel gate; merge the
+- [x] Pass all Verus contracts and the exact aggregate deterministic-kernel gate; merge the
   dependency chain to `main` and verify reachability.
 
 ## Protocol-types asset Kani proof recovery
@@ -43,7 +43,7 @@ Tracked by [GitHub issue #737](https://github.com/advatar/ActiveChain/issues/737
 
 - [x] Repair the reachable NFT registry proof panic and bound the two timed-out asset rejection
   harnesses without weakening their production invariants.
-- [ ] Pass all protocol-types Kani harnesses and the exact aggregate deterministic-kernel gate;
+- [x] Pass all protocol-types Kani harnesses and the exact aggregate deterministic-kernel gate;
   merge the dependency chain to `main` and verify reachability.
 
 ## Verifier-FFI Kani workspace graph reconciliation
@@ -52,7 +52,7 @@ Tracked by [GitHub issue #735](https://github.com/advatar/ActiveChain/issues/735
 
 - [x] Mirror the production `activechain-payment-types` dependency in the verifier-FFI Kani
   workspace without weakening graph-drift validation.
-- [ ] Pass the targeted verifier-FFI Kani gate and the exact aggregate deterministic-kernel gate;
+- [x] Pass the targeted verifier-FFI Kani gate and the exact aggregate deterministic-kernel gate;
   merge the dependency chain to `main` and verify reachability.
 
 ## Published TLA+ 1.8.0 tool pin recovery
@@ -61,7 +61,7 @@ Tracked by [GitHub issue #733](https://github.com/advatar/ActiveChain/issues/733
 
 - [x] Repin both TLA runners and proof-scope records to the official published v1.8.0 release
   asset digest, with an alignment regression.
-- [ ] Pass both TLA model suites and the exact aggregate deterministic-kernel gate; merge the
+- [x] Pass both TLA model suites and the exact aggregate deterministic-kernel gate; merge the
   dependency chain to `main` and verify reachability.
 
 ## Independent-client baseline identity reconciliation
@@ -70,7 +70,7 @@ Tracked by [GitHub issue #731](https://github.com/advatar/ActiveChain/issues/731
 
 - [x] Reconcile the two merged canonical identities with the P-134 machine-readable and published
   cumulative counts without changing staffing estimates or gates.
-- [ ] Pass registry/budget validation, strict workspace Clippy, and the deterministic-kernel gate;
+- [x] Pass registry/budget validation, strict workspace Clippy, and the deterministic-kernel gate;
   merge the dependency chain to `main` and verify reachability.
 
 ## Consensus canonical fixture drift recovery
@@ -81,7 +81,7 @@ Tracked by [GitHub issue #729](https://github.com/advatar/ActiveChain/issues/729
   inputs and document the source of the change.
 - [x] Generate a structurally valid empty-history schema-four snapshot fixture and retain
   fail-closed malformed/non-empty legacy rejection.
-- [ ] Pass the consensus-runtime suite, strict workspace Clippy, and the deterministic-kernel gate;
+- [x] Pass the consensus-runtime suite, strict workspace Clippy, and the deterministic-kernel gate;
   merge the dependency chain to `main` and verify reachability.
 
 ## Fungible transfer test strict-Clippy recovery
@@ -90,7 +90,7 @@ Tracked by [GitHub issue #727](https://github.com/advatar/ActiveChain/issues/727
 
 - [x] Replace redundant cloning of copyable fungible-asset policies without changing test
   semantics.
-- [ ] Pass application-primitives tests, strict workspace Clippy, and the deterministic-kernel
+- [x] Pass application-primitives tests, strict workspace Clippy, and the deterministic-kernel
   gate; merge the dependency chain to `main` and verify reachability.
 
 ## Consensus runtime strict-Clippy recovery
@@ -99,7 +99,7 @@ Tracked by [GitHub issue #725](https://github.com/advatar/ActiveChain/issues/725
 
 - [x] Remove superseded validator helpers, preserve staged-cash recovery semantics, and eliminate
   redundant test clones flagged by strict Clippy.
-- [ ] Pass consensus-runtime tests, strict workspace Clippy, and the deterministic-kernel gate;
+- [x] Pass consensus-runtime tests, strict workspace Clippy, and the deterministic-kernel gate;
   merge the dependency chain to `main` and verify reachability.
 
 ## MCP canonical RPC query-kind coverage
@@ -108,7 +108,7 @@ Tracked by [GitHub issue #719](https://github.com/advatar/ActiveChain/issues/719
 
 - [x] Map every canonical RPC `QueryKind` to a stable MCP snake-case name.
 - [x] Add exhaustive regression coverage for all current query variants.
-- [ ] Pass MCP tests, strict workspace Clippy, and the deterministic-kernel gate; merge to `main`
+- [x] Pass MCP tests, strict workspace Clippy, and the deterministic-kernel gate; merge to `main`
   and verify reachability.
 
 ## External credential adapter strict-Clippy recovery
@@ -117,7 +117,7 @@ Tracked by [GitHub issue #721](https://github.com/advatar/ActiveChain/issues/721
 
 - [x] Resolve the five behavior-preserving strict-Clippy findings in SD-JWT parsing and time
   validation.
-- [ ] Pass adapter tests, strict workspace Clippy, and the deterministic-kernel gate; merge to
+- [x] Pass adapter tests, strict workspace Clippy, and the deterministic-kernel gate; merge to
   `main` and verify reachability.
 
 ## External credential admission error representation
@@ -126,7 +126,7 @@ Tracked by [GitHub issue #723](https://github.com/advatar/ActiveChain/issues/723
 
 - [x] Preserve typed rejected admission receipts while resolving the oversized `Result` error
   representation under strict Clippy.
-- [ ] Pass admission tests, strict workspace Clippy, and the deterministic-kernel gate; merge to
+- [x] Pass admission tests, strict workspace Clippy, and the deterministic-kernel gate; merge to
   `main` and verify reachability.
 
 ## Open-source documentation and community health
@@ -2898,20 +2898,20 @@ wallet and all testnets remain explicitly developmental until this milestone com
 
 ## Active release fix — CashAIR proof segmentation across build profiles
 
-- [ ] Make authenticated receipt segmentation tests enforce the size-derived wire contract rather
+- [x] Make authenticated receipt segmentation tests enforce the size-derived wire contract rather
   than a debug-build-specific segment count
   ([GitHub issue #747](https://github.com/advatar/ActiveChain/issues/747)).
   - [x] Derive the expected segment count from each encoded proof length and the canonical maximum
     segment size while retaining losslessness, ordering, and bound checks.
-  - [ ] Pass affected debug and release tests, strict Clippy, and the exact full deterministic-kernel
+  - [x] Pass affected debug and release tests, strict Clippy, and the exact full deterministic-kernel
     gate before integrating the stacked recovery branches into `origin/main`.
 
 ## Active release fix — Semantic-devnet empty-block vector drift
 
-- [ ] Reconcile the canonical empty-block fixture with the deterministic semantic-devnet generator
+- [x] Reconcile the canonical empty-block fixture with the deterministic semantic-devnet generator
   ([GitHub issue #749](https://github.com/advatar/ActiveChain/issues/749)).
   - [x] Confirm the changed block ID and receipt root are stable consequences of current canonical
     inputs, then update only the directly coupled vector material.
-  - [ ] Pass semantic-devnet tests, exact vector reproduction, strict affected Clippy, and the exact
+  - [x] Pass semantic-devnet tests, exact vector reproduction, strict affected Clippy, and the exact
     full deterministic-kernel gate before integrating the stacked recovery branches into
     `origin/main`.
