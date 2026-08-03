@@ -13,6 +13,7 @@ members = [
     "ffi",
     "finality-types",
     "object",
+    "payment-types",
     "policy-kernel",
     "privacy-kernel",
     "protocol-commitment",
@@ -41,6 +42,7 @@ activechain-crypto-provider = { path = "crypto-provider", version = "0.1.0" }
 activechain-devnet-kernel = { path = "devnet-kernel", version = "0.1.0" }
 activechain-finality-types = { path = "finality-types", version = "0.1.0" }
 activechain-object = { path = "object", version = "0.1.0" }
+activechain-payment-types = { path = "payment-types", version = "0.1.0" }
 activechain-policy-kernel = { path = "policy-kernel", version = "0.1.0" }
 activechain-privacy-kernel = { path = "privacy-kernel", version = "0.1.0" }
 activechain-protocol-commitment = { path = "protocol-commitment", version = "0.1.0" }
@@ -53,3 +55,4 @@ ml-dsa = "=0.1.1"
 ml-kem = { version = "=0.3.2", features = ["getrandom"] }
 sha2 = { version = "=0.10.9", default-features = false }
 sha3 = { version = "=0.10.9", default-features = false }
+slh-dsa = "=0.2.0-rc.5"

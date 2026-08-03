@@ -15,8 +15,11 @@ std = []
 path = "../../../application-primitives/src/lib.rs"
 
 [dependencies]
+activechain-accumulator.workspace = true
 activechain-canonical-codec.workspace = true
+activechain-cash-kernel.workspace = true
 activechain-crypto-provider.workspace = true
+activechain-privacy-kernel.workspace = true
 activechain-protocol-commitment.workspace = true
 activechain-protocol-types.workspace = true
 activechain-rpc-types.workspace = true

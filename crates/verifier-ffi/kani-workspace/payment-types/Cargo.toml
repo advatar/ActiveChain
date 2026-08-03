@@ -1,6 +1,6 @@
-# Verification-only metadata shim. The library target is the production privacy-kernel source.
+# Verification-only metadata shim. The library target is the production payment-types source.
 [package]
-name = "activechain-privacy-kernel"
+name = "activechain-payment-types"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,11 +8,9 @@ repository.workspace = true
 publish = false
 
 [lib]
-path = "../../../privacy-kernel/src/lib.rs"
+path = "../../../payment-types/src/lib.rs"
 
 [dependencies]
-activechain-accumulator.workspace = true
 activechain-canonical-codec.workspace = true
-activechain-protocol-commitment.workspace = true
 activechain-protocol-types.workspace = true
 sha3.workspace = true
