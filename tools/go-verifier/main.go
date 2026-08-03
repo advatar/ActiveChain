@@ -506,6 +506,11 @@ func verify(path string) (int, error) {
 				return 0, fmt.Errorf("%s: %w", path, err)
 			}
 		}
+		if filepath.Base(path) == "independent-apl-v1.tsv" {
+			if err := verifyAPLVector(path, v); err != nil {
+				return 0, fmt.Errorf("%s: %w", path, err)
+			}
+		}
 		if len(v.fields) > 1 && strings.Contains(strings.Join(v.fields, " "), "import") &&
 			strings.HasSuffix(path, "independent-client-conformance-v1.tsv") &&
 			strings.Contains(v.fields[len(v.fields)-2], "accept") {

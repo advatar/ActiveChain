@@ -89,6 +89,16 @@ func TestIndependentCapabilitySemanticVectors(t *testing.T) {
 	}
 }
 
+func TestIndependentAPLSemanticVectors(t *testing.T) {
+	n, err := verify("../../testing/vectors/independent-apl-v1.tsv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 11 {
+		t.Fatalf("expected 11 semantic APL cases, got %d", n)
+	}
+}
+
 func TestCapabilityScopeSubset(t *testing.T) {
 	global := scope{kind: 0}
 	exactValue := bytes.Repeat([]byte{0xa5}, 48)
