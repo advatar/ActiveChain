@@ -604,7 +604,7 @@ Tracked by [GitHub issue #345](https://github.com/advatar/ActiveChain/issues/345
   claims until semantic M2 differential replay passes.
 - [ ] Freeze the language-neutral semantic vectors and implement the independent verifier through
   M2 without importing Rust implementation code.
-  - [x] Implement M1 semantic verification families independently in Go.
+  - [ ] Implement M1 semantic verification families independently in Go.
     - [x] Decode and validate canonical envelope framing, minimal length encoding, exact
           tag/schema, bounds, truncation, and trailing-data rejection (#618).
     - [x] Independently decode Principal v1 bodies and reject invalid kind/freeze tags,
