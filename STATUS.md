@@ -2,6 +2,15 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Protocol-types asset Kani proof recovery
+
+Tracked by [GitHub issue #737](https://github.com/advatar/ActiveChain/issues/737).
+
+- [x] Repair the reachable NFT registry proof panic and bound the two timed-out asset rejection
+  harnesses without weakening their production invariants.
+- [ ] Pass all protocol-types Kani harnesses and the exact aggregate deterministic-kernel gate;
+  merge the dependency chain to `main` and verify reachability.
+
 ## Verifier-FFI Kani workspace graph reconciliation
 
 Tracked by [GitHub issue #735](https://github.com/advatar/ActiveChain/issues/735).
