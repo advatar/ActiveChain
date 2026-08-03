@@ -6153,9 +6153,37 @@ mod tests {
         let service = ValidatorService::from_genesis(state, &genesis, path.clone()).unwrap();
         service.reserve_sequence_range(1, 1, 1).unwrap();
         drop(service);
-        let mut empty_history_v4 = std::fs::read(&path).unwrap();
-        empty_history_v4.truncate(empty_history_v4.len() - 2);
-        empty_history_v4[2..4].copy_from_slice(&4_u16.to_be_bytes());
+        let schema_six = std::fs::read(&path).unwrap();
+        let mut prefix_end = 4;
+        let mut body_length = 0_usize;
+        let mut shift = 0;
+        loop {
+            let byte = schema_six[prefix_end];
+            prefix_end += 1;
+            body_length |= usize::from(byte & 0x7f) << shift;
+            if byte & 0x80 == 0 {
+                break;
+            }
+            shift += 7;
+        }
+        assert_eq!(prefix_end + body_length, schema_six.len());
+        let legacy_body = &schema_six[prefix_end..schema_six.len() - 2];
+        let mut empty_history_v4 = Vec::with_capacity(schema_six.len() - 2);
+        empty_history_v4.extend_from_slice(&PersistedValidatorState::TYPE_TAG.to_be_bytes());
+        empty_history_v4.extend_from_slice(&4_u16.to_be_bytes());
+        let mut remaining = legacy_body.len();
+        loop {
+            let mut byte = (remaining & 0x7f) as u8;
+            remaining >>= 7;
+            if remaining != 0 {
+                byte |= 0x80;
+            }
+            empty_history_v4.push(byte);
+            if remaining == 0 {
+                break;
+            }
+        }
+        empty_history_v4.extend_from_slice(legacy_body);
         write_atomic(&path, &empty_history_v4).unwrap();
         let migrated = ValidatorService::from_genesis(state, &genesis, path.clone()).unwrap();
         drop(migrated);
