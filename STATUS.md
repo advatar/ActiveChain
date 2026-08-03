@@ -20,6 +20,15 @@ Tracked by [GitHub issue #721](https://github.com/advatar/ActiveChain/issues/721
 - [ ] Pass adapter tests, strict workspace Clippy, and the deterministic-kernel gate; merge to
   `main` and verify reachability.
 
+## External credential admission error representation
+
+Tracked by [GitHub issue #723](https://github.com/advatar/ActiveChain/issues/723).
+
+- [x] Preserve typed rejected admission receipts while resolving the oversized `Result` error
+  representation under strict Clippy.
+- [ ] Pass admission tests, strict workspace Clippy, and the deterministic-kernel gate; merge to
+  `main` and verify reachability.
+
 ## Open-source documentation and community health
 
 Tracked by [GitHub issue #659](https://github.com/advatar/ActiveChain/issues/659).
