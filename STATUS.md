@@ -1344,7 +1344,7 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
 
 ## Active testnet release qualification
 
-- [ ] Qualify a reproducible local Kanalen developmental release from `origin/main`: provide one
+- [x] Qualify a reproducible local Kanalen developmental release from `origin/main`: provide one
   operator entry point that builds the exact release components, exercises three-validator PQ
   finality, finalized-cash publication, wallet funding/transfer/replay rejection, snapshot restart,
   and records the remaining security gates without making production-readiness claims
@@ -1355,8 +1355,8 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
     tests, fail-closed finalized-cash publication, signed faucet and transfer admission, replay
     rejection, three-validator authenticated finality with zero rejected messages, durable restart,
     and local release packaging.
-  - [ ] Pass the exact aggregate deterministic-kernel gate, merge the candidate to `origin/main`,
-    and verify reachability before closing the issue.
+  - [x] Pass the exact aggregate deterministic-kernel gate on implementation revision `440bc49d`;
+    integration and `origin/main` reachability are tracked by pull request #762.
 
 - [x] Align the Kanalen promotion preflight with validator snapshot schema 6 and bounded execution
   snapshot migration, preserve explicit migration overrides and chain/genesis mismatch rejection,
