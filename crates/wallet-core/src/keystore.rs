@@ -1,91 +1,56 @@
 //! Passphrase-protected local keystore for testnet wallet seeds.
 //!
-//! The format is a local operator artifact, not a canonical protocol value: a salted,
-//! iterated SHAKE256 key derivation feeds the same domain-separated stream-and-tag
-//! discipline used by the crypto-provider `ProtectedEnvelope`. The derivation is
-//! deliberately simple and deterministic; it is not a memory-hard KDF, and the iteration
-//! floor exists to keep offline guessing costly rather than to claim hardware resistance.
+//! Version 2 deliberately replaces the former bespoke SHAKE stream/tag construction with
+//! standardized primitives: PBKDF2-HMAC-SHA256 for password derivation and
+//! ChaCha20-Poly1305 for authenticated encryption. The format is local wallet state, not a
+//! canonical protocol value. Production mobile custody should still prefer a hardware-bound
+//! wrapping key supplied by the platform keystore rather than a human passphrase alone.
 
+use activechain_crypto_provider::{AEAD_TAG_LENGTH, aead_open, aead_seal};
 use alloc::vec::Vec;
-use sha3::{
-    Shake256,
-    digest::{ExtendableOutput, Update, XofReader},
-};
+use core::num::NonZeroU32;
+use ring::pbkdf2::{self, PBKDF2_HMAC_SHA256};
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::WalletError;
 
-const KEYSTORE_MAGIC: &[u8; 8] = b"ACWKS01\0";
-const KDF_DOMAIN: &[u8] = b"ACTIVECHAIN-WALLET-KEYSTORE-KDF-V1";
-const STREAM_DOMAIN: &[u8] = b"ACTIVECHAIN-WALLET-KEYSTORE-STREAM-V1";
-const TAG_DOMAIN: &[u8] = b"ACTIVECHAIN-WALLET-KEYSTORE-TAG-V1";
+const KEYSTORE_MAGIC: &[u8; 8] = b"ACWKS02\0";
+const KEYSTORE_NONCE_LENGTH: usize = 12;
 
 pub const KEYSTORE_SALT_LENGTH: usize = 32;
 pub const KEYSTORE_SEED_LENGTH: usize = 32;
-pub const KEYSTORE_TAG_LENGTH: usize = 48;
 pub const KEYSTORE_MIN_ITERATIONS: u32 = 100_000;
 pub const KEYSTORE_MAX_ITERATIONS: u32 = 100_000_000;
 pub const KEYSTORE_ENCODED_LENGTH: usize =
-    8 + KEYSTORE_SALT_LENGTH + 4 + KEYSTORE_SEED_LENGTH + KEYSTORE_TAG_LENGTH;
+    8 + KEYSTORE_SALT_LENGTH + 4 + KEYSTORE_NONCE_LENGTH + KEYSTORE_SEED_LENGTH + AEAD_TAG_LENGTH;
 
-fn derive_key(passphrase: &[u8], salt: &[u8; KEYSTORE_SALT_LENGTH], iterations: u32) -> [u8; 32] {
-    let mut key = [0_u8; 32];
-    let mut hasher = Shake256::default();
-    hasher.update(KDF_DOMAIN);
-    hasher.update(salt);
-    hasher.update(&iterations.to_be_bytes());
-    hasher.update(&(passphrase.len() as u64).to_be_bytes());
-    hasher.update(passphrase);
-    hasher.finalize_xof().read(&mut key);
-    for _ in 1..iterations {
-        let mut round = Shake256::default();
-        round.update(KDF_DOMAIN);
-        round.update(salt);
-        round.update(&key);
-        round.finalize_xof().read(&mut key);
-    }
-    key
-}
-
-fn stream(key: &[u8; 32], salt: &[u8; KEYSTORE_SALT_LENGTH], input: &[u8]) -> Vec<u8> {
-    let mut hasher = Shake256::default();
-    hasher.update(STREAM_DOMAIN);
-    hasher.update(key);
-    hasher.update(salt);
-    let mut pad = alloc::vec![0; input.len()];
-    hasher.finalize_xof().read(&mut pad);
-    input.iter().zip(pad).map(|(left, right)| left ^ right).collect()
-}
-
-fn tag(
-    key: &[u8; 32],
+fn derive_key(
+    passphrase: &[u8],
     salt: &[u8; KEYSTORE_SALT_LENGTH],
     iterations: u32,
-    encrypted: &[u8],
-) -> [u8; KEYSTORE_TAG_LENGTH] {
-    let mut hasher = Shake256::default();
-    hasher.update(TAG_DOMAIN);
-    hasher.update(key);
-    hasher.update(salt);
-    hasher.update(&iterations.to_be_bytes());
-    hasher.update(&(encrypted.len() as u64).to_be_bytes());
-    hasher.update(encrypted);
-    let mut output = [0; KEYSTORE_TAG_LENGTH];
-    hasher.finalize_xof().read(&mut output);
-    output
+) -> Result<Zeroizing<[u8; 32]>, WalletError> {
+    let iterations = NonZeroU32::new(iterations).ok_or(WalletError::MalformedAuthorization)?;
+    let mut key = Zeroizing::new([0_u8; 32]);
+    pbkdf2::derive(PBKDF2_HMAC_SHA256, iterations, salt, passphrase, key.as_mut());
+    Ok(key)
 }
 
-fn constant_time_equal(
-    left: &[u8; KEYSTORE_TAG_LENGTH],
-    right: &[u8; KEYSTORE_TAG_LENGTH],
-) -> bool {
-    let mut difference = 0_u8;
-    for (a, b) in left.iter().zip(right) {
-        difference |= a ^ b;
-    }
-    difference == 0
+fn associated_data(
+    salt: &[u8; KEYSTORE_SALT_LENGTH],
+    iterations: u32,
+    nonce: &[u8; KEYSTORE_NONCE_LENGTH],
+) -> Vec<u8> {
+    let mut aad = Vec::with_capacity(8 + KEYSTORE_SALT_LENGTH + 4 + KEYSTORE_NONCE_LENGTH);
+    aad.extend_from_slice(KEYSTORE_MAGIC);
+    aad.extend_from_slice(salt);
+    aad.extend_from_slice(&iterations.to_be_bytes());
+    aad.extend_from_slice(nonce);
+    aad
 }
 
 /// Seals one 32-byte signing seed under a passphrase and caller-supplied random salt.
+///
+/// A fresh AEAD nonce is generated internally even when callers accidentally reuse a salt.
 pub fn seal_seed(
     seed: &[u8; KEYSTORE_SEED_LENGTH],
     passphrase: &[u8],
@@ -97,55 +62,75 @@ pub fn seal_seed(
     {
         return Err(WalletError::MalformedAuthorization);
     }
-    let mut key = derive_key(passphrase, &salt, iterations);
-    let encrypted = stream(&key, &salt, seed);
-    let tag = tag(&key, &salt, iterations, &encrypted);
-    key.fill(0);
+
+    let key = derive_key(passphrase, &salt, iterations)?;
+    let mut nonce = [0_u8; KEYSTORE_NONCE_LENGTH];
+    getrandom::fill(&mut nonce).map_err(|_| WalletError::Persistence)?;
+    let aad = associated_data(&salt, iterations, &nonce);
+    let encrypted =
+        aead_seal(&key, nonce, &aad, seed).map_err(|_| WalletError::MalformedAuthorization)?;
+
     let mut bytes = Vec::with_capacity(KEYSTORE_ENCODED_LENGTH);
     bytes.extend_from_slice(KEYSTORE_MAGIC);
     bytes.extend_from_slice(&salt);
     bytes.extend_from_slice(&iterations.to_be_bytes());
+    bytes.extend_from_slice(&nonce);
     bytes.extend_from_slice(&encrypted);
-    bytes.extend_from_slice(&tag);
+    nonce.zeroize();
     Ok(bytes)
 }
 
-/// Returns whether the bytes carry the protected keystore magic.
+/// Returns whether the bytes carry the version-2 protected keystore magic.
 #[must_use]
 pub fn is_keystore(bytes: &[u8]) -> bool {
     bytes.len() >= KEYSTORE_MAGIC.len() && &bytes[..KEYSTORE_MAGIC.len()] == KEYSTORE_MAGIC
 }
 
-/// Opens a sealed keystore, failing closed on truncation, tampering, or a wrong passphrase.
+/// Opens a sealed keystore, failing closed on truncation, tampering, legacy v1 data, or a wrong
+/// passphrase.
 pub fn open_seed(
     bytes: &[u8],
     passphrase: &[u8],
 ) -> Result<[u8; KEYSTORE_SEED_LENGTH], WalletError> {
-    if bytes.len() != KEYSTORE_ENCODED_LENGTH || !is_keystore(bytes) {
+    if bytes.len() != KEYSTORE_ENCODED_LENGTH || !is_keystore(bytes) || passphrase.is_empty() {
         return Err(WalletError::MalformedAuthorization);
     }
-    let salt: [u8; KEYSTORE_SALT_LENGTH] =
-        bytes[8..8 + KEYSTORE_SALT_LENGTH].try_into().expect("checked length");
+
+    let salt: [u8; KEYSTORE_SALT_LENGTH] = bytes[8..8 + KEYSTORE_SALT_LENGTH]
+        .try_into()
+        .map_err(|_| WalletError::MalformedAuthorization)?;
     let iteration_start = 8 + KEYSTORE_SALT_LENGTH;
     let iterations = u32::from_be_bytes(
-        bytes[iteration_start..iteration_start + 4].try_into().expect("checked length"),
+        bytes[iteration_start..iteration_start + 4]
+            .try_into()
+            .map_err(|_| WalletError::MalformedAuthorization)?,
     );
     if !(KEYSTORE_MIN_ITERATIONS..=KEYSTORE_MAX_ITERATIONS).contains(&iterations) {
         return Err(WalletError::MalformedAuthorization);
     }
-    let encrypted_start = iteration_start + 4;
-    let encrypted = &bytes[encrypted_start..encrypted_start + KEYSTORE_SEED_LENGTH];
-    let stored_tag: [u8; KEYSTORE_TAG_LENGTH] =
-        bytes[encrypted_start + KEYSTORE_SEED_LENGTH..].try_into().expect("checked length");
-    let mut key = derive_key(passphrase, &salt, iterations);
-    let expected = tag(&key, &salt, iterations, encrypted);
-    if !constant_time_equal(&expected, &stored_tag) {
-        key.fill(0);
-        return Err(WalletError::InvalidSignature);
+
+    let nonce_start = iteration_start + 4;
+    let nonce: [u8; KEYSTORE_NONCE_LENGTH] = bytes
+        [nonce_start..nonce_start + KEYSTORE_NONCE_LENGTH]
+        .try_into()
+        .map_err(|_| WalletError::MalformedAuthorization)?;
+    let encrypted = &bytes[nonce_start + KEYSTORE_NONCE_LENGTH..];
+    if encrypted.len() != KEYSTORE_SEED_LENGTH + AEAD_TAG_LENGTH {
+        return Err(WalletError::MalformedAuthorization);
     }
-    let seed = stream(&key, &salt, encrypted);
-    key.fill(0);
-    Ok(seed.try_into().expect("checked length"))
+
+    let key = derive_key(passphrase, &salt, iterations)?;
+    let aad = associated_data(&salt, iterations, &nonce);
+    let mut seed =
+        aead_open(&key, nonce, &aad, encrypted).map_err(|_| WalletError::InvalidSignature)?;
+    if seed.len() != KEYSTORE_SEED_LENGTH {
+        seed.zeroize();
+        return Err(WalletError::MalformedAuthorization);
+    }
+    let output: [u8; KEYSTORE_SEED_LENGTH] =
+        seed.as_slice().try_into().map_err(|_| WalletError::MalformedAuthorization)?;
+    seed.zeroize();
+    Ok(output)
 }
 
 #[cfg(test)]
@@ -186,12 +171,21 @@ mod tests {
     }
 
     #[test]
-    fn distinct_salts_and_passphrases_change_every_component() {
+    fn repeated_salt_still_gets_fresh_nonce_and_ciphertext() {
         let seed = [7_u8; KEYSTORE_SEED_LENGTH];
-        let first = seal_seed(&seed, b"pass", [1; 32], KEYSTORE_MIN_ITERATIONS).unwrap();
-        let second = seal_seed(&seed, b"pass", [2; 32], KEYSTORE_MIN_ITERATIONS).unwrap();
-        let third = seal_seed(&seed, b"other", [1; 32], KEYSTORE_MIN_ITERATIONS).unwrap();
+        let salt = [1_u8; KEYSTORE_SALT_LENGTH];
+        let first = seal_seed(&seed, b"pass", salt, KEYSTORE_MIN_ITERATIONS).unwrap();
+        let second = seal_seed(&seed, b"pass", salt, KEYSTORE_MIN_ITERATIONS).unwrap();
         assert_ne!(first, second);
-        assert_ne!(first, third);
+        assert_eq!(open_seed(&first, b"pass"), Ok(seed));
+        assert_eq!(open_seed(&second, b"pass"), Ok(seed));
+    }
+
+    #[test]
+    fn legacy_v1_magic_is_rejected() {
+        let mut legacy = vec![0_u8; KEYSTORE_ENCODED_LENGTH];
+        legacy[..8].copy_from_slice(b"ACWKS01\0");
+        assert!(!is_keystore(&legacy));
+        assert_eq!(open_seed(&legacy, b"pass"), Err(WalletError::MalformedAuthorization));
     }
 }
