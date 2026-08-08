@@ -183,6 +183,8 @@ jobs:
         run: bash scripts/rehearse-validator-key-rotation.sh
       - name: Verify fail-closed Kanalen cash publication
         run: bash scripts/test-kanalen-round-cash-gate.sh
+      - name: Verify local Kanalen qualification command
+        run: bash scripts/test-qualify-kanalen-local.sh
       - name: Reproduce canonical vectors
         run: |
           cargo run --locked --quiet -p activechain-vector-generator -- principal-v1 | diff -u testing/vectors/canonical/principal-v1.txt -

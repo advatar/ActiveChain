@@ -3,6 +3,16 @@
 This checklist is the release gate for the first public testnet. A green unit-test suite alone is
 not sufficient.
 
+Run the complete local developmental release qualification from a clean checkout with:
+
+```sh
+bash scripts/qualify-kanalen-local.sh
+```
+
+The command builds the release components, checks verifier vectors, exercises the fail-closed
+finalized-cash publication boundary, runs the wallet/faucet/transfer/replay/restart rehearsal, and
+packages the locally qualified binaries. It does not deploy or imply production readiness.
+
 **Developmental status.** No security audit has been completed; the required pre-launch review is
 defined in `docs/SECURITY_AUDIT.md`. This testnet and the wallet remain explicitly developmental
 until that audit is completed, its findings are published, and fixes are re-reviewed. Every
