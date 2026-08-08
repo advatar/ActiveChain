@@ -12,6 +12,8 @@ ml-dsa = "0.1.1"
 ml-kem = { version = "0.3.2", features = ["getrandom"] }
 slh-dsa = "0.2.0-rc.5"
 sha3.workspace = true
+ring = "0.17.14"
+zeroize = "1.8"
 activechain-protocol-types.workspace = true
 activechain-consensus-verifier.workspace = true
 

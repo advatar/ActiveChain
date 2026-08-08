@@ -1344,6 +1344,20 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
 
 ## Active testnet release qualification
 
+- [ ] Replace bespoke protected-envelope, consensus-frame, and wallet-keystore cryptography with
+  reviewed AEAD boundaries, direction-bound traffic keys, zeroizing secret lifecycles, explicit
+  fail-closed format revisions, and hardened-candidate Kanalen qualification
+  ([GitHub issue #763](https://github.com/advatar/ActiveChain/issues/763)).
+  - [x] Import and review the supplied patch, correct its fixed-size zeroizing-key integration,
+    format the result, and update the frozen protected-session domain vector.
+  - [x] Pass 73 consensus-runtime library tests and its binary/doc tests, 7 crypto-provider tests,
+    72 wallet-core tests and its wallet/issuer/doc tests, plus strict affected-crate Clippy.
+  - [x] Pass the complete hardened local Kanalen qualification: release build, verifier checks,
+    fail-closed finalized cash, signed faucet/transfer and replay rejection, three-validator
+    authenticated finality with zero rejected messages, durable restart, and release packaging.
+  - [ ] Pass the exact aggregate deterministic-kernel gate, merge to `origin/main`, and verify
+    reachability before closing the issue.
+
 - [x] Qualify a reproducible local Kanalen developmental release from `origin/main`: provide one
   operator entry point that builds the exact release components, exercises three-validator PQ
   finality, finalized-cash publication, wallet funding/transfer/replay rejection, snapshot restart,

@@ -17,6 +17,7 @@ use ml_kem::{
     kem::{Encapsulate, KeyExport, TryDecapsulate},
     ml_kem_768::Ciphertext,
 };
+use ring::aead::{Aad, CHACHA20_POLY1305, LessSafeKey, Nonce, UnboundKey};
 use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
@@ -25,13 +26,18 @@ use slh_dsa::{
     Shake192s, Signature as SlhSignature, VerifyingKey as SlhVerifyingKey,
     signature::Verifier as SlhVerifier,
 };
+use zeroize::{Zeroize, Zeroizing};
 
 pub const MAX_PROTECTED_PAYLOAD: usize = 64 * 1024;
+pub const AEAD_TAG_LENGTH: usize = 16;
+const PROTECTED_ENVELOPE_MAGIC: &[u8; 5] = b"ACPE2";
+const PROTECTED_KEY_DOMAIN: &[u8] = b"ACTIVECHAIN-MLKEM-AEAD-KEY-V2";
+const PROTECTED_NONCE_DOMAIN: &[u8] = b"ACTIVECHAIN-MLKEM-AEAD-NONCE-V2";
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProtectedEnvelope {
     ciphertext: Vec<u8>,
     encrypted_payload: Vec<u8>,
-    tag: [u8; 48],
 }
 impl ProtectedEnvelope {
     pub fn seal(
@@ -42,23 +48,23 @@ impl ProtectedEnvelope {
         if payload.len() > MAX_PROTECTED_PAYLOAD {
             return Err(KemError::PayloadTooLarge);
         }
-        let (ciphertext, shared) = ml_kem768_encapsulate(public_key)?;
-        let encrypted_payload = xor_stream(&shared, &ciphertext, associated_data, payload);
-        let tag = envelope_tag(&shared, &ciphertext, associated_data, &encrypted_payload);
-        Ok(Self { ciphertext, encrypted_payload, tag })
+        let (ciphertext, mut shared) = ml_kem768_encapsulate(public_key)?;
+        let key = Zeroizing::new(protected_key(&shared, &ciphertext, associated_data));
+        shared.zeroize();
+        let nonce = protected_nonce(&ciphertext, associated_data);
+        let encrypted_payload = aead_seal(&key, nonce, associated_data, payload)?;
+        Ok(Self { ciphertext, encrypted_payload })
     }
     pub fn open(
         &self,
         recipient: &MlKem768Recipient,
         associated_data: &[u8],
     ) -> Result<Vec<u8>, KemError> {
-        let shared = recipient.decapsulate(&self.ciphertext)?;
-        let expected =
-            envelope_tag(&shared, &self.ciphertext, associated_data, &self.encrypted_payload);
-        if !constant_time_equal(&expected, &self.tag) {
-            return Err(KemError::AuthenticationFailed);
-        }
-        Ok(xor_stream(&shared, &self.ciphertext, associated_data, &self.encrypted_payload))
+        let mut shared = recipient.decapsulate(&self.ciphertext)?;
+        let key = Zeroizing::new(protected_key(&shared, &self.ciphertext, associated_data));
+        shared.zeroize();
+        let nonce = protected_nonce(&self.ciphertext, associated_data);
+        aead_open(&key, nonce, associated_data, &self.encrypted_payload)
     }
     pub fn ciphertext(&self) -> &[u8] {
         &self.ciphertext
@@ -66,76 +72,106 @@ impl ProtectedEnvelope {
     pub fn encrypted_payload(&self) -> &[u8] {
         &self.encrypted_payload
     }
-    pub const fn tag(&self) -> &[u8; 48] {
-        &self.tag
-    }
     pub fn encode(&self) -> Result<Vec<u8>, KemError> {
         if self.ciphertext.len() > u32::MAX as usize
-            || self.encrypted_payload.len() > MAX_PROTECTED_PAYLOAD
+            || self.encrypted_payload.len() > MAX_PROTECTED_PAYLOAD + AEAD_TAG_LENGTH
         {
             return Err(KemError::PayloadTooLarge);
         }
         let mut bytes =
             Vec::with_capacity(13 + self.ciphertext.len() + self.encrypted_payload.len());
-        bytes.extend_from_slice(b"ACPE1");
+        bytes.extend_from_slice(PROTECTED_ENVELOPE_MAGIC);
         bytes.extend_from_slice(&(self.ciphertext.len() as u32).to_be_bytes());
         bytes.extend_from_slice(&(self.encrypted_payload.len() as u32).to_be_bytes());
         bytes.extend_from_slice(&self.ciphertext);
         bytes.extend_from_slice(&self.encrypted_payload);
-        bytes.extend_from_slice(&self.tag);
         Ok(bytes)
     }
     pub fn decode(bytes: &[u8]) -> Result<Self, KemError> {
-        if bytes.len() < 13 + 48 || &bytes[..5] != b"ACPE1" {
+        if bytes.len() < 13 + AEAD_TAG_LENGTH || &bytes[..5] != PROTECTED_ENVELOPE_MAGIC {
             return Err(KemError::InvalidEnvelope);
         }
-        let ciphertext_len = u32::from_be_bytes(bytes[5..9].try_into().unwrap()) as usize;
-        let payload_len = u32::from_be_bytes(bytes[9..13].try_into().unwrap()) as usize;
-        if payload_len > MAX_PROTECTED_PAYLOAD
-            || bytes.len() != 13 + ciphertext_len + payload_len + 48
+        let ciphertext_len =
+            u32::from_be_bytes(bytes[5..9].try_into().map_err(|_| KemError::InvalidEnvelope)?)
+                as usize;
+        let payload_len =
+            u32::from_be_bytes(bytes[9..13].try_into().map_err(|_| KemError::InvalidEnvelope)?)
+                as usize;
+        if !(AEAD_TAG_LENGTH..=MAX_PROTECTED_PAYLOAD + AEAD_TAG_LENGTH).contains(&payload_len)
+            || bytes.len() != 13 + ciphertext_len + payload_len
         {
             return Err(KemError::InvalidEnvelope);
         }
         let payload_start = 13 + ciphertext_len;
         Ok(Self {
             ciphertext: bytes[13..payload_start].to_vec(),
-            encrypted_payload: bytes[payload_start..payload_start + payload_len].to_vec(),
-            tag: bytes[payload_start + payload_len..].try_into().unwrap(),
+            encrypted_payload: bytes[payload_start..].to_vec(),
         })
     }
 }
-fn xor_stream(shared: &[u8; 32], ciphertext: &[u8], aad: &[u8], input: &[u8]) -> Vec<u8> {
-    let mut reader = Shake256::default();
-    reader.update(b"ACTIVECHAIN-MLKEM-STREAM-V1");
-    reader.update(shared);
-    reader.update(&(ciphertext.len() as u32).to_be_bytes());
-    reader.update(ciphertext);
-    reader.update(&(aad.len() as u32).to_be_bytes());
-    reader.update(aad);
-    let mut stream = vec![0; input.len()];
-    reader.finalize_xof().read(&mut stream);
-    input.iter().zip(stream).map(|(left, right)| left ^ right).collect()
-}
-fn envelope_tag(shared: &[u8; 32], ciphertext: &[u8], aad: &[u8], encrypted: &[u8]) -> [u8; 48] {
+
+fn protected_key(shared: &[u8; 32], ciphertext: &[u8], aad: &[u8]) -> [u8; 32] {
     let mut hasher = Shake256::default();
-    hasher.update(b"ACTIVECHAIN-MLKEM-TAG-V1");
+    hasher.update(PROTECTED_KEY_DOMAIN);
     hasher.update(shared);
     hasher.update(&(ciphertext.len() as u32).to_be_bytes());
     hasher.update(ciphertext);
     hasher.update(&(aad.len() as u32).to_be_bytes());
     hasher.update(aad);
-    hasher.update(&(encrypted.len() as u32).to_be_bytes());
-    hasher.update(encrypted);
-    let mut tag = [0; 48];
-    hasher.finalize_xof().read(&mut tag);
-    tag
+    let mut key = [0; 32];
+    hasher.finalize_xof().read(&mut key);
+    key
 }
-fn constant_time_equal(left: &[u8; 48], right: &[u8; 48]) -> bool {
-    let mut difference = 0_u8;
-    for (a, b) in left.iter().zip(right) {
-        difference |= a ^ b;
-    }
-    difference == 0
+
+fn protected_nonce(ciphertext: &[u8], aad: &[u8]) -> [u8; 12] {
+    let mut hasher = Shake256::default();
+    hasher.update(PROTECTED_NONCE_DOMAIN);
+    hasher.update(&(ciphertext.len() as u32).to_be_bytes());
+    hasher.update(ciphertext);
+    hasher.update(&(aad.len() as u32).to_be_bytes());
+    hasher.update(aad);
+    let mut nonce = [0; 12];
+    hasher.finalize_xof().read(&mut nonce);
+    nonce
+}
+
+/// Seals a payload with ChaCha20-Poly1305. The caller is responsible for unique nonces per key.
+pub fn aead_seal(
+    key: &[u8; 32],
+    nonce: [u8; 12],
+    associated_data: &[u8],
+    plaintext: &[u8],
+) -> Result<Vec<u8>, KemError> {
+    let unbound =
+        UnboundKey::new(&CHACHA20_POLY1305, key).map_err(|_| KemError::EncryptionFailed)?;
+    let key = LessSafeKey::new(unbound);
+    let mut in_out = plaintext.to_vec();
+    key.seal_in_place_append_tag(
+        Nonce::assume_unique_for_key(nonce),
+        Aad::from(associated_data),
+        &mut in_out,
+    )
+    .map_err(|_| KemError::EncryptionFailed)?;
+    Ok(in_out)
+}
+
+/// Opens a ChaCha20-Poly1305 payload and fails closed on any authentication error.
+pub fn aead_open(
+    key: &[u8; 32],
+    nonce: [u8; 12],
+    associated_data: &[u8],
+    ciphertext: &[u8],
+) -> Result<Vec<u8>, KemError> {
+    let unbound =
+        UnboundKey::new(&CHACHA20_POLY1305, key).map_err(|_| KemError::AuthenticationFailed)?;
+    let key = LessSafeKey::new(unbound);
+    let mut in_out = ciphertext.to_vec();
+    let plaintext_len = key
+        .open_in_place(Nonce::assume_unique_for_key(nonce), Aad::from(associated_data), &mut in_out)
+        .map_err(|_| KemError::AuthenticationFailed)?
+        .len();
+    in_out.truncate(plaintext_len);
+    Ok(in_out)
 }
 
 /// Reviewed ML-KEM-768 boundary for protected transaction key establishment.
@@ -143,8 +179,10 @@ pub struct MlKem768Recipient {
     key: DecapsulationKey<MlKem768>,
 }
 impl MlKem768Recipient {
-    pub fn from_seed(seed: [u8; 64]) -> Self {
-        Self { key: DecapsulationKey::<MlKem768>::from_seed(KemSeed::from(seed)) }
+    pub fn from_seed(mut seed: [u8; 64]) -> Self {
+        let key = DecapsulationKey::<MlKem768>::from_seed(KemSeed::from(seed));
+        seed.zeroize();
+        Self { key }
     }
     pub fn public_key(&self) -> Vec<u8> {
         self.key.encapsulation_key().to_bytes().to_vec()
@@ -172,6 +210,7 @@ pub enum KemError {
     PayloadTooLarge,
     AuthenticationFailed,
     InvalidEnvelope,
+    EncryptionFailed,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

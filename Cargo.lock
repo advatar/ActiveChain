@@ -247,8 +247,10 @@ dependencies = [
  "activechain-protocol-types",
  "ml-dsa",
  "ml-kem",
+ "ring",
  "sha3 0.10.9",
  "slh-dsa",
+ "zeroize",
 ]
 
 [[package]]
@@ -741,6 +743,7 @@ dependencies = [
  "activechain-protocol-types",
  "getrandom 0.3.4",
  "ml-dsa",
+ "ring",
  "sha3 0.10.9",
  "zeroize",
 ]

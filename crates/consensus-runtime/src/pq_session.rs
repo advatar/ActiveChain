@@ -1,24 +1,27 @@
 use super::{
     AuthenticatedConsensusMessage, MAX_PEER_FRAME_LEN, PeerSocket, ValidatorSigner, invalid_data,
 };
-use activechain_crypto_provider::{MlKem768Recipient, ml_kem768_encapsulate, verify_ml_dsa44};
+use activechain_crypto_provider::{
+    AEAD_TAG_LENGTH, MlKem768Recipient, aead_open, aead_seal, ml_kem768_encapsulate,
+    verify_ml_dsa44,
+};
 use activechain_protocol_types::Digest384;
 use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
 };
 use std::{collections::BTreeMap, path::Path};
+use zeroize::{Zeroize, Zeroizing};
 
 const DOMAIN: &[u8] = b"ACTIVECHAIN-PQ-SESSION-V2";
 const KDF_DOMAIN: &[u8] = b"ACTIVECHAIN-PQ-SESSION-KDF-V2";
 const CONFIRM_DOMAIN: &[u8] = b"ACTIVECHAIN-PQ-SESSION-CONFIRM-V2";
 const SESSION_ID_DOMAIN: &[u8] = b"ACTIVECHAIN-PQ-SESSION-ID-V2";
-const PROTECTED_DOMAIN: &[u8] = b"ACTIVECHAIN-PQ-PROTECTED-V2";
-const PROTECTED_STREAM_DOMAIN: &[u8] = b"ACTIVECHAIN-PQ-PROTECTED-STREAM-V2";
-const PROTECTED_TAG_DOMAIN: &[u8] = b"ACTIVECHAIN-PQ-PROTECTED-TAG-V2";
+const PROTECTED_DOMAIN: &[u8] = b"ACTIVECHAIN-PQ-PROTECTED-V3";
+const TRAFFIC_KEY_DOMAIN: &[u8] = b"ACTIVECHAIN-PQ-TRAFFIC-KEY-V3";
 const STORE_DOMAIN: &[u8] = b"ACTIVECHAIN-PQ-SESSION-STORE-V2";
 const STORE_MAGIC: &[u8; 8] = b"ACPQSS2\0";
-const PROTECTED_MAGIC: &[u8; 8] = b"ACPQPF2\0";
+const PROTECTED_MAGIC: &[u8; 8] = b"ACPQPF3\0";
 const CLIENT_HELLO: u8 = 1;
 const SERVER_CHALLENGE: u8 = 2;
 const CLIENT_FINISH: u8 = 3;
@@ -56,14 +59,14 @@ impl PqSessionContext {
     }
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Eq, PartialEq)]
 pub struct PqPeerSession {
     pub id: [u8; 32],
     pub peer: u16,
     pub expires_at: u64,
     context: PqSessionContext,
     local_is_initiator: bool,
-    key: [u8; 32],
+    key: Zeroizing<[u8; 32]>,
 }
 impl std::fmt::Debug for PqPeerSession {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -153,17 +156,6 @@ fn expand(domain: &[u8], parts: &[&[u8]]) -> [u8; 32] {
         hasher.update(part);
     }
     let mut out = [0; 32];
-    hasher.finalize_xof().read(&mut out);
-    out
-}
-
-fn stream(key: &[u8; 32], associated_data: &[u8], len: usize) -> Vec<u8> {
-    let mut hasher = Shake256::default();
-    hasher.update(PROTECTED_STREAM_DOMAIN);
-    hasher.update(key);
-    hasher.update(&(associated_data.len() as u32).to_be_bytes());
-    hasher.update(associated_data);
-    let mut out = vec![0; len];
     hasher.finalize_xof().read(&mut out);
     out
 }
@@ -288,6 +280,19 @@ fn confirmation(key: &[u8; 32], transcript: &[u8]) -> [u8; 32] {
     expand(CONFIRM_DOMAIN, &[key, transcript])
 }
 
+fn traffic_key(session: &PqPeerSession, sender: u16, receiver: u16) -> [u8; 32] {
+    expand(
+        TRAFFIC_KEY_DOMAIN,
+        &[session.key.as_ref(), &session.id, &sender.to_be_bytes(), &receiver.to_be_bytes()],
+    )
+}
+
+fn sequence_nonce(sequence: u64) -> [u8; 12] {
+    let mut nonce = [0_u8; 12];
+    nonce[4..].copy_from_slice(&sequence.to_be_bytes());
+    nonce
+}
+
 impl PeerSocket {
     pub fn initiate_pq_session(
         &mut self,
@@ -317,7 +322,7 @@ impl PeerSocket {
         if challenge.session_id != expected_session_id {
             return Err(invalid_data("invalid PQ session identifier"));
         }
-        let (ciphertext, shared) = ml_kem768_encapsulate(&challenge.kem_public_key)
+        let (ciphertext, mut shared) = ml_kem768_encapsulate(&challenge.kem_public_key)
             .map_err(|_| invalid_data("invalid PQ responder KEM key"))?;
         let mut transcript = hello;
         transcript.extend_from_slice(&challenge_bytes);
@@ -331,6 +336,7 @@ impl PeerSocket {
         self.write_session_frame(&finish)?;
 
         let key = derive(&shared, &transcript);
+        shared.zeroize();
         let expected_confirmation = confirmation(&key, &transcript);
         let server_finish = self.receive_frame()?;
         if server_finish.len() != 1 + 32 + 32 + SIGNATURE_LEN
@@ -350,7 +356,7 @@ impl PeerSocket {
             expires_at: challenge.expires_at,
             context,
             local_is_initiator: true,
-            key,
+            key: Zeroizing::new(key),
         })
     }
 
@@ -376,8 +382,9 @@ impl PeerSocket {
             .get(&context.initiator)
             .ok_or_else(|| invalid_data("unknown PQ session initiator"))?;
         let server_nonce = fill_random::<32>()?;
-        let kem_seed = fill_random::<64>()?;
+        let mut kem_seed = fill_random::<64>()?;
         let recipient = MlKem768Recipient::from_seed(kem_seed);
+        kem_seed.zeroize();
         let kem_public_key = recipient.public_key();
         let issued_at = now_secs()?;
         let expires_at = issued_at
@@ -423,10 +430,11 @@ impl PeerSocket {
         transcript.extend_from_slice(ciphertext);
         verify_ml_dsa44(peer_key, &transcript, &finish[33 + KEM_CIPHERTEXT_LEN..])
             .map_err(|_| invalid_data("invalid PQ initiator finish signature"))?;
-        let shared = recipient
+        let mut shared = recipient
             .decapsulate(ciphertext)
             .map_err(|_| invalid_data("PQ decapsulation failed"))?;
         let key = derive(&shared, &transcript);
+        shared.zeroize();
         let confirm = confirmation(&key, &transcript);
         let mut signed_finish = transcript;
         signed_finish.extend_from_slice(&confirm);
@@ -443,7 +451,7 @@ impl PeerSocket {
             expires_at,
             context,
             local_is_initiator: false,
-            key,
+            key: Zeroizing::new(key),
         })
     }
 
@@ -468,11 +476,10 @@ impl PeerSocket {
         let sender = session.local_peer();
         let receiver = session.remote_peer();
         let associated_data = session.associated_data(sender, receiver, sequence);
-        let keystream = stream(&session.key, &associated_data, plaintext.len());
-        let ciphertext =
-            plaintext.iter().zip(keystream).map(|(byte, mask)| byte ^ mask).collect::<Vec<_>>();
-        let tag = expand(PROTECTED_TAG_DOMAIN, &[&session.key, &associated_data, &ciphertext]);
-        let frame_len = 8 + 32 + 2 + 2 + 8 + 4 + ciphertext.len() + 32;
+        let key = Zeroizing::new(traffic_key(session, sender, receiver));
+        let ciphertext = aead_seal(&key, sequence_nonce(sequence), &associated_data, &plaintext)
+            .map_err(|_| invalid_data("protected peer encryption failed"))?;
+        let frame_len = 8 + 32 + 2 + 2 + 8 + 4 + ciphertext.len();
         if frame_len > MAX_PEER_FRAME_LEN {
             return Err(invalid_data("protected peer frame exceeds limit"));
         }
@@ -484,7 +491,6 @@ impl PeerSocket {
         frame.extend_from_slice(&sequence.to_be_bytes());
         frame.extend_from_slice(&(ciphertext.len() as u32).to_be_bytes());
         frame.extend_from_slice(&ciphertext);
-        frame.extend_from_slice(&tag);
         self.write_session_frame(&frame)?;
         self.record_session_message();
         Ok(())
@@ -499,7 +505,10 @@ impl PeerSocket {
             return Err(invalid_data("expired PQ session"));
         }
         let frame = self.receive_frame()?;
-        if frame.len() < 88 || &frame[..8] != PROTECTED_MAGIC || frame[8..40] != session.id {
+        if frame.len() < 56 + AEAD_TAG_LENGTH
+            || &frame[..8] != PROTECTED_MAGIC
+            || frame[8..40] != session.id
+        {
             return Err(invalid_data("invalid protected peer frame"));
         }
         let sender = u16::from_be_bytes(frame[40..42].try_into().unwrap());
@@ -509,20 +518,16 @@ impl PeerSocket {
         if sequence == 0
             || sender != session.remote_peer()
             || receiver != session.local_peer()
-            || frame.len() != 56 + ciphertext_len + 32
+            || ciphertext_len < AEAD_TAG_LENGTH
+            || frame.len() != 56 + ciphertext_len
         {
             return Err(invalid_data("protected peer context mismatch"));
         }
         let ciphertext = &frame[56..56 + ciphertext_len];
         let associated_data = session.associated_data(sender, receiver, sequence);
-        let expected_tag =
-            expand(PROTECTED_TAG_DOMAIN, &[&session.key, &associated_data, ciphertext]);
-        if !constant_time_equal(&expected_tag, &frame[56 + ciphertext_len..]) {
-            return Err(invalid_data("protected peer authentication failed"));
-        }
-        let keystream = stream(&session.key, &associated_data, ciphertext.len());
-        let plaintext =
-            ciphertext.iter().zip(keystream).map(|(byte, mask)| byte ^ mask).collect::<Vec<_>>();
+        let key = Zeroizing::new(traffic_key(session, sender, receiver));
+        let plaintext = aead_open(&key, sequence_nonce(sequence), &associated_data, ciphertext)
+            .map_err(|_| invalid_data("protected peer authentication failed"))?;
         let message = AuthenticatedConsensusMessage::from_wire_bytes(&plaintext)?;
         self.record_session_message();
         Ok((sequence, message))
@@ -794,7 +799,7 @@ mod tests {
             expires_at: now + 60,
             context: context(),
             local_is_initiator: true,
-            key: [7; 32],
+            key: Zeroizing::new([7; 32]),
         };
         let mut store =
             PqSessionStore::new(context().chain, context().epoch, context().protocol_revision)
@@ -871,21 +876,25 @@ mod tests {
             expires_at: now + 60,
             context: context(),
             local_is_initiator: true,
-            key: [17; 32],
+            key: Zeroizing::new([17; 32]),
         };
-        let receiver_session =
-            PqPeerSession { peer: 1, local_is_initiator: false, ..sender_session.clone() };
+        let receiver_session = PqPeerSession {
+            id: [16; 32],
+            peer: 1,
+            expires_at: now + 60,
+            context: context(),
+            local_is_initiator: false,
+            key: Zeroizing::new([17; 32]),
+        };
         let writer = std::thread::spawn(move || {
             let socket_stream = TcpStream::connect(address).unwrap();
             let mut peer = PeerSocket::connect(socket_stream);
             let plaintext = [18; 80];
             let associated_data = sender_session.associated_data(1, 2, 1);
-            let keystream = stream(&sender_session.key, &associated_data, plaintext.len());
-            let ciphertext =
-                plaintext.iter().zip(keystream).map(|(byte, mask)| byte ^ mask).collect::<Vec<_>>();
-            let mut tag =
-                expand(PROTECTED_TAG_DOMAIN, &[&sender_session.key, &associated_data, &ciphertext]);
-            tag[0] ^= 1;
+            let key = Zeroizing::new(traffic_key(&sender_session, 1, 2));
+            let mut ciphertext =
+                aead_seal(&key, sequence_nonce(1), &associated_data, &plaintext).unwrap();
+            ciphertext[0] ^= 1;
             let mut frame = Vec::new();
             frame.extend_from_slice(PROTECTED_MAGIC);
             frame.extend_from_slice(&sender_session.id);
@@ -894,7 +903,6 @@ mod tests {
             frame.extend_from_slice(&1_u64.to_be_bytes());
             frame.extend_from_slice(&(ciphertext.len() as u32).to_be_bytes());
             frame.extend_from_slice(&ciphertext);
-            frame.extend_from_slice(&tag);
             peer.write_session_frame(&frame).unwrap();
         });
         let (stream, _) = listener.accept().unwrap();
@@ -914,7 +922,7 @@ mod tests {
             expires_at: now_secs().unwrap() + 60,
             context: context(),
             local_is_initiator: true,
-            key: [0xAB; 32],
+            key: Zeroizing::new([0xAB; 32]),
         };
         let debug = format!("{session:?}");
         assert!(debug.contains("<redacted>"));
