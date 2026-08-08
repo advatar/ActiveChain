@@ -59,8 +59,8 @@ Tracked by [GitHub issue #735](https://github.com/advatar/ActiveChain/issues/735
 
 - [ ] Reconcile hardened crypto-provider dependencies in every production-source Kani mirror
   ([GitHub issue #769](https://github.com/advatar/ActiveChain/issues/769)).
-  - [ ] Mirror the exact resolved `ring` and `zeroize` dependencies used by production crypto.
-  - [ ] Extend the fast verifier-FFI preflight to reject external dependency-name drift.
+  - [x] Mirror the exact resolved `ring` and `zeroize` dependencies used by production crypto.
+  - [x] Extend the fast verifier-FFI preflight to reject external dependency-name drift.
   - [ ] Pass targeted Kani verification and the exact full deterministic-kernel gate before merge.
 
 ## Published TLA+ 1.8.0 tool pin recovery
