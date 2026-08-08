@@ -7,6 +7,7 @@ import struct
 import sys
 import unittest
 
+sys.dont_write_bytecode = True
 
 SCRIPT = Path(__file__).with_name("probe-kanalen-rpc.py")
 SPEC = importlib.util.spec_from_file_location("probe_kanalen_rpc", SCRIPT)
