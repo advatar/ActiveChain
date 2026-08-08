@@ -1344,6 +1344,11 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
 
 ## Active testnet release qualification
 
+- [ ] Replace bespoke protected-envelope, consensus-frame, and wallet-keystore cryptography with
+  reviewed AEAD boundaries, direction-bound traffic keys, zeroizing secret lifecycles, explicit
+  fail-closed format revisions, and hardened-candidate Kanalen qualification
+  ([GitHub issue #763](https://github.com/advatar/ActiveChain/issues/763)).
+
 - [x] Qualify a reproducible local Kanalen developmental release from `origin/main`: provide one
   operator entry point that builds the exact release components, exercises three-validator PQ
   finality, finalized-cash publication, wallet funding/transfer/replay rejection, snapshot restart,
