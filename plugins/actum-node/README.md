@@ -4,6 +4,9 @@ This directory is an [Agent Plugins v1.0.0](https://agent-plugins.org) package. 
 directory with a compatible client. The client supplies `PLUGIN_ROOT` and a persistent,
 client-owned `PLUGIN_DATA` directory.
 
+It also includes `.codex-plugin/plugin.json` and `.mcp.json` for direct Codex discovery. The
+Codex manifest references the same portable `skills/` directory and bounded MCP launcher.
+
 The portable package provides:
 
 - the `actum-node` skill for building, starting, stopping, inspecting, and querying an RPC node;

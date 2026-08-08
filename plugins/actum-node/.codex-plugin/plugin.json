@@ -1,0 +1,30 @@
+{
+  "name": "actum-node",
+  "version": "0.1.0",
+  "description": "Build, operate, inspect, and query a guarded Actum RPC node from Codex.",
+  "author": {
+    "name": "ActiveChain contributors",
+    "url": "https://github.com/advatar/ActiveChain"
+  },
+  "homepage": "https://activechain.dev",
+  "repository": "https://github.com/advatar/ActiveChain",
+  "license": "Apache-2.0",
+  "keywords": ["actum", "activechain", "node", "rpc", "mcp", "testnet"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Actum Node",
+    "shortDescription": "Operate and query an Actum node.",
+    "longDescription": "Build Actum binaries, manage a guarded plugin-owned local RPC node, inspect bounded logs, query canonical network status, and discover the developmental Actum MCP interface.",
+    "developerName": "ActiveChain contributors",
+    "category": "Developer Tools",
+    "capabilities": ["Node lifecycle", "Canonical RPC queries", "MCP"],
+    "websiteURL": "https://activechain.dev",
+    "defaultPrompt": [
+      "Check the status of my Actum node.",
+      "Start a local Actum RPC node from this snapshot.",
+      "Query the Actum testnet identity and finalized height."
+    ],
+    "brandColor": "#C9502D"
+  }
+}

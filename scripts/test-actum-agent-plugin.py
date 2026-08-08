@@ -31,6 +31,17 @@ class PluginStructureTests(unittest.TestCase):
         self.assertTrue(server["command"].startswith("./"))
         self.assertEqual(server["cwd"], "${PLUGIN_ROOT}")
 
+    def test_codex_manifest_reuses_portable_components(self) -> None:
+        manifest = json.loads((PLUGIN / ".codex-plugin" / "plugin.json").read_text())
+        self.assertEqual(manifest["name"], "actum-node")
+        self.assertEqual(manifest["skills"], "./skills/")
+        self.assertEqual(manifest["mcpServers"], "./.mcp.json")
+        mcp = json.loads((PLUGIN / ".mcp.json").read_text())
+        self.assertEqual(
+            mcp["mcpServers"]["actum"]["command"],
+            "./bin/activechain-mcp",
+        )
+
     def test_skill_frontmatter_matches_directory(self) -> None:
         skill = (PLUGIN / "skills" / "actum-node" / "SKILL.md").read_text()
         self.assertTrue(skill.startswith("---\nname: actum-node\n"))
