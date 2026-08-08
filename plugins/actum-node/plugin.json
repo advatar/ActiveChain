@@ -1,0 +1,14 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "actum-node",
+  "version": "0.1.0",
+  "description": "Operate and query an Actum node through guarded local lifecycle commands and canonical interfaces.",
+  "author": {
+    "name": "ActiveChain contributors",
+    "url": "https://github.com/advatar/ActiveChain"
+  },
+  "homepage": "https://activechain.dev",
+  "repository": "https://github.com/advatar/ActiveChain",
+  "license": "Apache-2.0",
+  "keywords": ["actum", "activechain", "node", "rpc", "mcp", "testnet"]
+}

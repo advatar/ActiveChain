@@ -1,0 +1,28 @@
+#!/bin/sh
+set -eu
+
+find_binary() {
+    name=$1
+    if [ -n "${ACTUM_BIN_DIR:-}" ] && [ -x "$ACTUM_BIN_DIR/$name" ]; then
+        printf '%s\n' "$ACTUM_BIN_DIR/$name"
+        return
+    fi
+    if command -v "$name" >/dev/null 2>&1; then
+        command -v "$name"
+        return
+    fi
+    root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." 2>/dev/null && pwd) || root=
+    for profile in release debug; do
+        if [ -n "$root" ] && [ -x "$root/target/$profile/$name" ]; then
+            printf '%s\n' "$root/target/$profile/$name"
+            return
+        fi
+    done
+    return 1
+}
+
+binary=$(find_binary activechain-mcp) || {
+    echo "actum plugin: activechain-mcp is not installed; run the actum-node skill's build command" >&2
+    exit 127
+}
+exec "$binary"

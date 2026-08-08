@@ -39,3 +39,5 @@ for required in (
 
 print("agent-interface qualification: passed")
 PY
+
+python3 scripts/test-actum-agent-plugin.py

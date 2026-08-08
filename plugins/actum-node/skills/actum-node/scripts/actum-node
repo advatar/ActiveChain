@@ -1,0 +1,237 @@
+#!/usr/bin/env python3
+"""Guarded lifecycle and query utility for the portable Actum node plugin."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+import shutil
+import signal
+import subprocess
+import sys
+import time
+
+
+def emit(**values: object) -> None:
+    print(json.dumps(values, sort_keys=True))
+
+
+def data_dir() -> Path:
+    raw = os.environ.get("PLUGIN_DATA") or os.environ.get("ACTUM_PLUGIN_DATA")
+    if not raw:
+        raise SystemExit("PLUGIN_DATA is required")
+    path = Path(raw).expanduser().resolve()
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return path
+
+
+def source_binary(name: str, source: Path | None = None) -> Path:
+    candidates: list[Path] = []
+    bin_dir = os.environ.get("ACTUM_BIN_DIR")
+    if bin_dir:
+        candidates.append(Path(bin_dir) / name)
+    located = shutil.which(name)
+    if located:
+        candidates.append(Path(located))
+    if source:
+        candidates.extend((source / "target" / "release" / name, source / "target" / "debug" / name))
+    for candidate in candidates:
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return candidate.resolve()
+    raise SystemExit(f"{name} is not installed; run build or set ACTUM_BIN_DIR")
+
+
+def process_fingerprint(pid: int) -> tuple[str, str] | None:
+    result = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "lstart=", "-o", "command="],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    line = result.stdout.strip()
+    parts = line.split(None, 5)
+    if len(parts) < 6:
+        return None
+    return (" ".join(parts[:5]), parts[5])
+
+
+def state_path(root: Path) -> Path:
+    return root / "rpc-node.json"
+
+
+def load_state(root: Path) -> dict[str, object] | None:
+    path = state_path(root)
+    if not path.exists():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise SystemExit(f"invalid plugin process state: {error}") from error
+    if not isinstance(value, dict):
+        raise SystemExit("invalid plugin process state")
+    return value
+
+
+def owned_process(state: dict[str, object]) -> tuple[bool, str]:
+    try:
+        pid = int(state["pid"])
+        expected_start = str(state["start_time"])
+        expected_command = str(state["command"])
+    except (KeyError, TypeError, ValueError):
+        return False, "invalid-state"
+    current = process_fingerprint(pid)
+    if current is None:
+        return False, "not-running"
+    if current != (expected_start, expected_command):
+        return False, "identity-mismatch"
+    return True, "running"
+
+
+def command_build(args: argparse.Namespace) -> None:
+    source = args.source.expanduser().resolve()
+    manifest = source / "Cargo.toml"
+    if not manifest.is_file():
+        raise SystemExit(f"ActiveChain Cargo.toml not found at {manifest}")
+    subprocess.run(
+        ["cargo", "build", "--locked", "--release", "-p", "activechain-rpc-server", "-p", "activechain-mcp-server"],
+        cwd=source,
+        check=True,
+    )
+    emit(status="built", bin_dir=str(source / "target" / "release"))
+
+
+def command_start(args: argparse.Namespace) -> None:
+    root = data_dir()
+    existing = load_state(root)
+    if existing:
+        owned, reason = owned_process(existing)
+        if owned:
+            raise SystemExit("plugin-owned RPC node is already running")
+        if reason == "identity-mismatch":
+            raise SystemExit("recorded PID belongs to another process; refusing to replace state")
+        state_path(root).unlink()
+    snapshot = args.snapshot.expanduser().resolve()
+    if not snapshot.is_file():
+        raise SystemExit(f"RPC index snapshot not found: {snapshot}")
+    if not args.bind.startswith(("127.0.0.1:", "[::1]:", "localhost:")):
+        raise SystemExit("start permits loopback bind addresses only")
+    binary = source_binary("activechain-rpc-node")
+    log_path = root / "rpc-node.log"
+    command = [str(binary), str(snapshot), args.bind]
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("ACTIVECHAIN_")}
+    with log_path.open("ab", buffering=0) as log:
+        process = subprocess.Popen(
+            command,
+            cwd=root,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    time.sleep(0.15)
+    if process.poll() is not None:
+        raise SystemExit(f"RPC node exited during startup; inspect {log_path}")
+    fingerprint = process_fingerprint(process.pid)
+    if fingerprint is None:
+        process.terminate()
+        raise SystemExit("could not fingerprint started RPC process")
+    record = {
+        "pid": process.pid,
+        "start_time": fingerprint[0],
+        "command": fingerprint[1],
+        "bind": args.bind,
+        "snapshot": str(snapshot),
+        "executable": str(binary),
+    }
+    temporary = state_path(root).with_suffix(".tmp")
+    temporary.write_text(json.dumps(record, sort_keys=True) + "\n", encoding="utf-8")
+    os.chmod(temporary, 0o600)
+    temporary.replace(state_path(root))
+    emit(status="running", pid=process.pid, bind=args.bind, snapshot=str(snapshot))
+
+
+def command_status(_: argparse.Namespace) -> None:
+    root = data_dir()
+    state = load_state(root)
+    if state is None:
+        emit(status="stopped")
+        return
+    owned, reason = owned_process(state)
+    emit(status="running" if owned else "stale", reason=reason, **state)
+    if not owned:
+        raise SystemExit(3)
+
+
+def command_stop(args: argparse.Namespace) -> None:
+    root = data_dir()
+    state = load_state(root)
+    if state is None:
+        emit(status="stopped", changed=False)
+        return
+    owned, reason = owned_process(state)
+    if not owned:
+        raise SystemExit(f"refusing to signal unverified process: {reason}")
+    pid = int(state["pid"])
+    os.kill(pid, signal.SIGTERM)
+    deadline = time.monotonic() + args.timeout
+    while time.monotonic() < deadline and process_fingerprint(pid) is not None:
+        time.sleep(0.05)
+    if process_fingerprint(pid) is not None:
+        raise SystemExit("RPC node did not stop before timeout; no stronger signal was sent")
+    state_path(root).unlink()
+    emit(status="stopped", changed=True, pid=pid)
+
+
+def command_logs(args: argparse.Namespace) -> None:
+    path = data_dir() / "rpc-node.log"
+    if not path.is_file():
+        raise SystemExit("no plugin-owned RPC log exists")
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    print("\n".join(lines[-args.lines :]))
+
+
+def command_query(args: argparse.Namespace) -> None:
+    binary = source_binary("activechain-rpc-probe")
+    result = subprocess.run([str(binary), args.address], text=True, capture_output=True, check=False, timeout=10)
+    if result.returncode != 0:
+        message = result.stderr.strip() or "RPC query failed"
+        raise SystemExit(message)
+    emit(status="queried", address=args.address, response=result.stdout.strip())
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(prog="actum-node")
+    commands = result.add_subparsers(dest="command", required=True)
+    build = commands.add_parser("build")
+    build.add_argument("--source", required=True, type=Path)
+    build.set_defaults(handler=command_build)
+    start = commands.add_parser("start")
+    start.add_argument("--snapshot", required=True, type=Path)
+    start.add_argument("--bind", default="127.0.0.1:49151")
+    start.set_defaults(handler=command_start)
+    status = commands.add_parser("status")
+    status.set_defaults(handler=command_status)
+    stop = commands.add_parser("stop")
+    stop.add_argument("--timeout", type=float, default=10.0)
+    stop.set_defaults(handler=command_stop)
+    logs = commands.add_parser("logs")
+    logs.add_argument("--lines", type=int, choices=range(1, 1001), default=100)
+    logs.set_defaults(handler=command_logs)
+    query = commands.add_parser("query")
+    query.add_argument("--address", default="127.0.0.1:49151")
+    query.set_defaults(handler=command_query)
+    return result
+
+
+def main() -> None:
+    args = parser().parse_args()
+    args.handler(args)
+
+
+if __name__ == "__main__":
+    main()
