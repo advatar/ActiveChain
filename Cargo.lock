@@ -747,6 +747,7 @@ dependencies = [
  "sha3 0.10.9",
  "zeroize",
 ]
+
 [[package]]
 name = "activechain-wallet-ffi"
 version = "0.1.0"
