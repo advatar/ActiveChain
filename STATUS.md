@@ -1349,6 +1349,14 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
   finality, finalized-cash publication, wallet funding/transfer/replay rejection, snapshot restart,
   and records the remaining security gates without making production-readiness claims
   ([GitHub issue #761](https://github.com/advatar/ActiveChain/issues/761)).
+  - [x] Add and document `scripts/qualify-kanalen-local.sh`, with a command-plan regression test in
+    the deterministic-kernel workflow.
+  - [x] Pass the complete local qualification: release build, verifier manifest, 16 verifier API
+    tests, fail-closed finalized-cash publication, signed faucet and transfer admission, replay
+    rejection, three-validator authenticated finality with zero rejected messages, durable restart,
+    and local release packaging.
+  - [ ] Pass the exact aggregate deterministic-kernel gate, merge the candidate to `origin/main`,
+    and verify reachability before closing the issue.
 
 - [x] Align the Kanalen promotion preflight with validator snapshot schema 6 and bounded execution
   snapshot migration, preserve explicit migration overrides and chain/genesis mismatch rejection,
