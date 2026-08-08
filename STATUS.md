@@ -2896,9 +2896,10 @@ wallet and all testnets remain explicitly developmental until this milestone com
 
 - [ ] Package Actum node fluency and plugin-owned lifecycle operations as an Agent Plugins v1.0.0
   package ([GitHub issue #767](https://github.com/advatar/ActiveChain/issues/767)).
-  - [ ] Publish a schema-valid manifest, Actum skills, and the existing MCP server configuration.
-  - [ ] Bound start, stop, status, logs, and queries to explicit plugin-owned data and processes.
-  - [ ] Add deterministic lifecycle and conformance tests plus installation documentation.
+  - [x] Publish schema-valid portable and Codex manifests, Actum skills, and the existing MCP
+    server configuration.
+  - [x] Bound start, stop, status, logs, and queries to explicit plugin-owned data and processes.
+  - [x] Add deterministic lifecycle and conformance tests plus installation documentation.
   - [ ] Pass affected checks and the exact full deterministic-kernel gate before integration.
 
 - [x] Deliver MCP agent interoperability and constrained A2UI approval surfaces without making
