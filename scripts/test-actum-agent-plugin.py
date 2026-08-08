@@ -9,6 +9,7 @@ from pathlib import Path
 import stat
 import subprocess
 import tempfile
+import time
 import unittest
 
 
@@ -66,7 +67,13 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(started["status"], "running")
         status_value = json.loads(self.run_control("status").stdout)
         self.assertEqual(status_value["status"], "running")
-        self.assertEqual(self.run_control("logs", "--lines", "1").stdout.strip(), "started")
+        log_output = ""
+        for _ in range(20):
+            log_output = self.run_control("logs", "--lines", "1").stdout.strip()
+            if log_output:
+                break
+            time.sleep(0.05)
+        self.assertEqual(log_output, "started")
         query = json.loads(self.run_control("query", "--address", "127.0.0.1:9").stdout)
         self.assertIn("finalized_height=7", query["response"])
         stopped = json.loads(self.run_control("stop", "--timeout", "2").stdout)
@@ -75,7 +82,7 @@ class LifecycleTests(unittest.TestCase):
     def test_public_bind_and_foreign_pid_fail_closed(self) -> None:
         public = self.run_control("start", "--snapshot", str(self.snapshot), "--bind", "0.0.0.0:49151", check=False)
         self.assertNotEqual(public.returncode, 0)
-        self.data.mkdir()
+        self.data.mkdir(exist_ok=True)
         (self.data / "rpc-node.json").write_text(json.dumps({"pid": os.getpid(), "start_time": "wrong", "command": "wrong"}))
         stopped = self.run_control("stop", check=False)
         self.assertNotEqual(stopped.returncode, 0)
