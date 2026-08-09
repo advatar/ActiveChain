@@ -117,6 +117,12 @@ credential read by the gateway from a mode-0600 `ACTUM_ANCHOR_BEARER_TOKEN_FILE`
 plain HTTP by design and must bind privately behind an HTTPS reverse proxy; public cleartext use is
 unsupported.
 
+The gateway also requires `ACTUM_ANCHOR_IDEMPOTENCY_JOURNAL`. It durably reserves the canonical
+request commitment under `X-Actum-Request-Id` before contacting RPC. Exact retries remain safe
+across restart; the same ID with different canonical bytes fails with `idempotency_conflict` and
+cannot submit another statement. The journal is bounded to 65,536 records and fails closed when
+full, corrupt, unavailable, symlinked, or group/world accessible.
+
 Responses are bounded JSON with `status` equal to `submitted`, `pending`, `finalized`, or
 `rejected`, plus the pinned 96-character lowercase `chain_id`, `genesis_commitment`, and anchor
 `reference`. Retries with the same canonical request are idempotent. Reusing a request ID with

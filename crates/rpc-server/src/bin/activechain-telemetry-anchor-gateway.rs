@@ -6,16 +6,19 @@ use activechain_protocol_types::Digest384;
 use activechain_rpc_server::query;
 use activechain_rpc_types::{Health, RpcRequest, RpcResponse};
 use std::{
+    collections::BTreeMap,
     env, fs,
     io::{Read, Write},
     net::{TcpListener, TcpStream},
-    path::Path,
+    path::{Path, PathBuf},
     time::Duration,
 };
 use zeroize::Zeroize;
 
 const MAX_HEADERS: usize = 16 * 1024;
 const MAX_BODY: usize = 256 * 1024;
+const MAX_IDEMPOTENCY_RECORDS: usize = 65_536;
+const JOURNAL_MAGIC: &[u8] = b"ACTUM-ANCHOR-IDEMPOTENCY-V1\n";
 const IO_TIMEOUT: Duration = Duration::from_secs(10);
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -30,6 +33,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let token_path = env::var("ACTUM_ANCHOR_BEARER_TOKEN_FILE")
         .map_err(|_| "ACTUM_ANCHOR_BEARER_TOKEN_FILE is required")?;
     let mut token = load_token(Path::new(&token_path))?;
+    let journal_path = env::var("ACTUM_ANCHOR_IDEMPOTENCY_JOURNAL")
+        .map_err(|_| "ACTUM_ANCHOR_IDEMPOTENCY_JOURNAL is required")?;
+    let mut journal = IdempotencyJournal::load(PathBuf::from(journal_path))
+        .map_err(|_| "could not load anchor idempotency journal")?;
     let listener = TcpListener::bind(&bind)?;
     eprintln!("ActiveChain telemetry anchor gateway listening on {}", listener.local_addr()?);
     for stream in listener.incoming() {
@@ -37,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(mut stream) => {
                 let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
                 let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
-                if let Err(error) = serve(&mut stream, &rpc, &token) {
+                if let Err(error) = serve(&mut stream, &rpc, &token, &mut journal) {
                     let _ = write_error(&mut stream, 500, "internal");
                     eprintln!("anchor gateway request failed: {error}");
                 }
@@ -49,7 +56,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn serve(stream: &mut TcpStream, rpc: &str, token: &[u8]) -> Result<(), &'static str> {
+fn serve(
+    stream: &mut TcpStream,
+    rpc: &str,
+    token: &[u8],
+    journal: &mut IdempotencyJournal,
+) -> Result<(), &'static str> {
     let request = read_request(stream)?;
     let Some(supplied) = request.authorization.strip_prefix(b"Bearer ") else {
         return write_error(stream, 401, "unauthorized");
@@ -94,6 +106,14 @@ fn serve(stream: &mut TcpStream, rpc: &str, token: &[u8]) -> Result<(), &'static
     {
         return write_error(stream, 409, "wrong_network");
     }
+    let request_commitment = anchor.request_commitment().map_err(|_| "encoding")?;
+    match journal.reserve(&anchor.client_request_id, request_commitment) {
+        Ok(()) => {}
+        Err(JournalError::Conflict) => {
+            return write_error(stream, 409, "idempotency_conflict");
+        }
+        Err(_) => return write_error(stream, 503, "journal_unavailable"),
+    }
     let statement = anchor.statement().map_err(|_| "invalid statement")?;
     let encoded = encode_envelope(&statement).map_err(|_| "encoding")?;
     let reference = match query(rpc, &RpcRequest::SubmitAnchor { statement: encoded }) {
@@ -123,6 +143,106 @@ fn serve(stream: &mut TcpStream, rpc: &str, token: &[u8]) -> Result<(), &'static
             hex(reference)
         ),
     )
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum JournalError {
+    Invalid,
+    Capacity,
+    Conflict,
+    Io,
+}
+
+#[derive(Default)]
+struct IdempotencyJournal {
+    path: Option<PathBuf>,
+    entries: BTreeMap<Vec<u8>, Digest384>,
+}
+
+impl IdempotencyJournal {
+    fn load(path: PathBuf) -> Result<Self, JournalError> {
+        if !path.exists() {
+            return Ok(Self { path: Some(path), entries: BTreeMap::new() });
+        }
+        let metadata = fs::symlink_metadata(&path).map_err(|_| JournalError::Io)?;
+        if !metadata.file_type().is_file() {
+            return Err(JournalError::Invalid);
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if metadata.permissions().mode() & 0o077 != 0 {
+                return Err(JournalError::Invalid);
+            }
+        }
+        let bytes = fs::read(&path).map_err(|_| JournalError::Io)?;
+        if !bytes.starts_with(JOURNAL_MAGIC) {
+            return Err(JournalError::Invalid);
+        }
+        let mut cursor = JOURNAL_MAGIC.len();
+        let mut entries = BTreeMap::new();
+        while cursor < bytes.len() {
+            let length = usize::from(*bytes.get(cursor).ok_or(JournalError::Invalid)?);
+            cursor += 1;
+            if length == 0 || length > 128 || cursor + length + 48 > bytes.len() {
+                return Err(JournalError::Invalid);
+            }
+            let request_id = bytes[cursor..cursor + length].to_vec();
+            cursor += length;
+            let mut commitment = [0_u8; 48];
+            commitment.copy_from_slice(&bytes[cursor..cursor + 48]);
+            cursor += 48;
+            if entries.insert(request_id, Digest384::new(commitment)).is_some()
+                || entries.len() > MAX_IDEMPOTENCY_RECORDS
+            {
+                return Err(JournalError::Invalid);
+            }
+        }
+        Ok(Self { path: Some(path), entries })
+    }
+
+    fn reserve(&mut self, request_id: &[u8], commitment: Digest384) -> Result<(), JournalError> {
+        match self.entries.get(request_id) {
+            Some(existing) if *existing == commitment => return Ok(()),
+            Some(_) => return Err(JournalError::Conflict),
+            None if self.entries.len() >= MAX_IDEMPOTENCY_RECORDS => {
+                return Err(JournalError::Capacity);
+            }
+            None => {}
+        }
+        let mut next = self.entries.clone();
+        next.insert(request_id.to_vec(), commitment);
+        if let Some(path) = &self.path {
+            persist_journal(path, &next)?;
+        }
+        self.entries = next;
+        Ok(())
+    }
+}
+
+fn persist_journal(
+    path: &Path,
+    entries: &BTreeMap<Vec<u8>, Digest384>,
+) -> Result<(), JournalError> {
+    let mut bytes = JOURNAL_MAGIC.to_vec();
+    for (request_id, commitment) in entries {
+        bytes.push(u8::try_from(request_id.len()).map_err(|_| JournalError::Invalid)?);
+        bytes.extend_from_slice(request_id);
+        bytes.extend_from_slice(commitment.as_bytes());
+    }
+    let temporary = path.with_extension("tmp");
+    let mut file = fs::File::create(&temporary).map_err(|_| JournalError::Io)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(fs::Permissions::from_mode(0o600)).map_err(|_| JournalError::Io)?;
+    }
+    file.write_all(&bytes).map_err(|_| JournalError::Io)?;
+    file.sync_all().map_err(|_| JournalError::Io)?;
+    fs::rename(&temporary, path).map_err(|_| JournalError::Io)?;
+    let parent =
+        path.parent().filter(|value| !value.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    fs::File::open(parent).and_then(|directory| directory.sync_all()).map_err(|_| JournalError::Io)
 }
 
 struct HttpRequest {
@@ -398,7 +518,8 @@ mod tests {
         let token = token.to_vec();
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            serve(&mut stream, &rpc, &token)
+            let mut journal = IdempotencyJournal::default();
+            serve(&mut stream, &rpc, &token, &mut journal)
         });
         let mut client = TcpStream::connect(address).unwrap();
         client.write_all(&request).unwrap();
@@ -431,5 +552,19 @@ mod tests {
             authorization_revision: 1,
             policy_id: digest(7),
         }
+    }
+
+    #[test]
+    fn idempotency_journal_survives_restart_and_rejects_conflicts() {
+        let path = std::env::temp_dir()
+            .join(format!("activechain-anchor-idempotency-{}", std::process::id()));
+        let _ = fs::remove_file(&path);
+        let mut journal = IdempotencyJournal::load(path.clone()).unwrap();
+        journal.reserve(b"request-1", digest(1)).unwrap();
+        journal.reserve(b"request-1", digest(1)).unwrap();
+        assert_eq!(journal.reserve(b"request-1", digest(2)), Err(JournalError::Conflict));
+        let mut restored = IdempotencyJournal::load(path.clone()).unwrap();
+        assert_eq!(restored.reserve(b"request-1", digest(2)), Err(JournalError::Conflict));
+        fs::remove_file(path).unwrap();
     }
 }
