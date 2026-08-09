@@ -16,6 +16,11 @@ adapters; it does not enable collection by itself.
 6. Call `epoch()` and pass its Merkle root to the anchoring API implemented by issue #775.
 7. Expose pause/resume, JSON export, expiry purge, and local deletion in the application UI.
 
+Every event carries the ML-DSA-44 public key that verifies its signature. Reopening a journal
+verifies the complete signature and hash chain before exposing any event. Once a journal contains
+an event its policy revision is immutable; an authorization revision starts a new session and
+journal so one epoch can never contain claims evaluated under different policies.
+
 ## Privacy boundary
 
 Do not place prompts, responses, source code, patches, command lines, command output, file paths,
@@ -24,8 +29,9 @@ repository remotes, environment variables, account names, or raw model transcrip
 using a project-specific secret so the same project cannot be correlated across installations.
 
 The collector rejects unapproved categories, expired authorization, inverted time ranges, control
-characters, oversized labels, journal overflow, sequence replay, and hash-chain tampering. A
-policy replacement must increase the revision and cannot change the bound project.
+characters, oversized labels, journal overflow, sequence replay, signature substitution, and
+hash-chain tampering. A policy replacement must increase the revision, cannot change the bound
+project, and is accepted only before the first event is recorded.
 
 ## Durability and handoff
 

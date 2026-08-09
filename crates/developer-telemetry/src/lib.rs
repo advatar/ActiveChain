@@ -75,6 +75,7 @@ pub struct SignedEvent {
     pub ended_at_ms: u64,
     pub units: u64,
     pub evidence_commitment: String,
+    pub signer_public_key_hex: String,
     pub previous_event_hash: String,
     pub event_hash: String,
     pub signature_hex: String,
@@ -95,6 +96,7 @@ pub struct ActivityEpoch {
 
 pub trait EventSigner {
     fn sign(&self, payload: &[u8]) -> Vec<u8>;
+    fn public_key(&self) -> Vec<u8>;
 }
 
 #[derive(Debug)]
@@ -161,6 +163,7 @@ impl Collector {
         authorization.validate(now_ms)?;
         if authorization.revision <= self.authorization.revision
             || authorization.project_commitment != self.authorization.project_commitment
+            || !self.events.is_empty()
         {
             return Err(Error::InvalidAuthorization);
         }
@@ -207,6 +210,7 @@ impl Collector {
             ended_at_ms: input.ended_at_ms,
             units: input.units,
             evidence_commitment: input.evidence_commitment,
+            signer_public_key_hex: hex::encode(signer.public_key()),
             previous_event_hash,
             event_hash: String::new(),
             signature_hex: String::new(),
@@ -324,6 +328,8 @@ fn validate_chain(events: &[SignedEvent]) -> Result<(), Error> {
         {
             return Err(Error::InvalidChain);
         }
+        let public_key = hex::decode(&event.signer_public_key_hex).map_err(|_| Error::InvalidKey)?;
+        verify_event(event, &public_key)?;
         previous.clone_from(&event.event_hash);
     }
     Ok(())
@@ -418,6 +424,10 @@ mod tests {
         fn sign(&self, payload: &[u8]) -> Vec<u8> {
             self.0.sign(payload).to_bytes().to_vec()
         }
+
+        fn public_key(&self) -> Vec<u8> {
+            self.0.verifying_key().encode().as_slice().to_vec()
+        }
     }
 
     fn authorization() -> Authorization {
@@ -489,6 +499,19 @@ mod tests {
     }
 
     #[test]
+    fn rejects_a_valid_hash_chain_with_a_substituted_signature() {
+        let (_directory, path, signer) = setup();
+        let mut collector =
+            Collector::create(&path, authorization(), "session-1".into(), 1).unwrap();
+        collector.record(input(1), &signer, 1_000).unwrap();
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        value["events"][0]["signature_hex"] = hex::encode(vec![0_u8; 2_420]).into();
+        fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+        assert!(matches!(Collector::open(path, 1_000), Err(Error::InvalidSignature)));
+    }
+
+    #[test]
     fn expires_and_deletes_local_evidence() {
         let (directory, path, signer) = setup();
         let mut collector =
@@ -513,6 +536,24 @@ mod tests {
         let mut replacement = authorization();
         replacement.revision = 2;
         replacement.project_commitment = "another-project".into();
+        assert!(matches!(
+            collector.replace_authorization(replacement, 2),
+            Err(Error::InvalidAuthorization)
+        ));
+
+        let mut valid_replacement = authorization();
+        valid_replacement.revision = 2;
+        collector.replace_authorization(valid_replacement, 2).unwrap();
+    }
+
+    #[test]
+    fn policy_revision_requires_a_new_journal_after_collection_starts() {
+        let (_directory, path, signer) = setup();
+        let mut collector =
+            Collector::create(path, authorization(), "session-1".into(), 1).unwrap();
+        collector.record(input(1), &signer, 1_000).unwrap();
+        let mut replacement = authorization();
+        replacement.revision = 2;
         assert!(matches!(
             collector.replace_authorization(replacement, 2),
             Err(Error::InvalidAuthorization)
