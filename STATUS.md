@@ -9,6 +9,10 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
   - [ ] Freeze canonical event, epoch, policy, proof, disclosure, and verification contracts plus
     app-developer documentation and vectors
     ([GitHub issue #772](https://github.com/advatar/ActiveChain/issues/772)).
+    - [x] Publish the normative boundary, threat model, app integration guide, JSON schema, fixture,
+      implementation-status matrix, and deterministic CI consistency check.
+    - [ ] Add generated canonical binary/signature vectors with the implementing collector/proof
+      crates, then pass the exact full deterministic-kernel gate before integration.
   - [ ] Implement the permissioned local collector and trust layer (#773).
   - [ ] Package telemetry, attribution, prove-work, and verify-work plugin/MCP capabilities (#774).
   - [ ] Anchor and resolve finalized activity epochs through the existing digest boundary (#775).
