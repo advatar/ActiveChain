@@ -82,7 +82,7 @@ def status(args):
     if pid is not None: pid=project(pid)
     auth=state["authorizations"].get(pid) if pid else None
     result=base("configured" if auth else "not_authorized")
-    result.update({"project_id":pid,"paused":state["paused"].get(pid,True) if pid else True,"authorization":auth,"journal_health":"healthy","delivery_configured":bool(os.environ.get("ACTUM_DELIVERY_WEBHOOK")),"anchor_configured":bool(os.environ.get("ACTUM_ANCHOR_URL")),"signing_authority":"external"})
+    result.update({"project_id":pid,"paused":state["paused"].get(pid,True) if pid else True,"authorization":auth,"journal_health":"healthy","delivery_configured":bool(os.environ.get("ACTUM_DELIVERY_WEBHOOK")),"anchor_configured":bool(os.environ.get("ACTUM_ANCHOR_URL") and os.environ.get("ACTUM_ANCHOR_BEARER_TOKEN_FILE")),"signing_authority":"external"})
     if auth: result["policy_revision"]=auth["revision"]
     return result
 
@@ -138,11 +138,22 @@ def backend_url(name):
     if parsed.scheme!="https" or parsed.username or parsed.password or parsed.fragment: raise RuntimeError("integration configuration rejected")
     return raw
 
+def anchor_bearer():
+    raw=os.environ.get("ACTUM_ANCHOR_BEARER_TOKEN_FILE")
+    if not raw: raise RuntimeError("anchor authentication unavailable")
+    path=Path(raw).expanduser()
+    if path.is_symlink() or not path.is_file() or path.stat().st_mode & 0o077: raise RuntimeError("anchor authentication rejected")
+    token=path.read_bytes().rstrip(b"\r\n")
+    if not 32<=len(token)<=256 or any(byte>0x7f or chr(byte).isspace() for byte in token): raise RuntimeError("anchor authentication rejected")
+    return token.decode("ascii")
+
 def post_artifact(name,args,env_name,lifecycle):
     exact(args,("capability","request_id","project_id","artifact_path")); pid=project(args["project_id"]); path=artifact_path(args["artifact_path"])
     def op(state):
         if pid not in state["authorizations"]: raise ValueError("project not authorized")
-        req=Request(backend_url(env_name),data=path.read_bytes(),method="POST",headers={"Content-Type":"application/octet-stream","X-Actum-Request-Id":args["request_id"]})
+        headers={"Content-Type":"application/octet-stream","X-Actum-Request-Id":args["request_id"]}
+        if env_name=="ACTUM_ANCHOR_URL": headers["Authorization"]="Bearer "+anchor_bearer()
+        req=Request(backend_url(env_name),data=path.read_bytes(),method="POST",headers=headers)
         try:
             with urlopen(req,timeout=10) as response:
                 body=response.read(MAX_RESPONSE+1)

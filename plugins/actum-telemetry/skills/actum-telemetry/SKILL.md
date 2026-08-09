@@ -2,7 +2,7 @@
 name: actum-telemetry
 description: Manage permissioned Actum developer telemetry, project attribution, work-proof generation, delivery, anchoring, and verification. Use when asked about pow.actum.network, telemetry authorization, pause/resume/export/delete, activity epochs, proof delivery, finalized anchors, or work verification.
 license: Apache-2.0
-compatibility: Requires Python 3.11+ on a POSIX host. Mutations require ACTUM_TELEMETRY_CAPABILITY. Optional delivery and anchoring require ACTUM_DELIVERY_WEBHOOK and ACTUM_ANCHOR_URL.
+compatibility: Requires Python 3.11+ on a POSIX host. Mutations require ACTUM_TELEMETRY_CAPABILITY. Optional delivery requires ACTUM_DELIVERY_WEBHOOK; anchoring requires ACTUM_ANCHOR_URL and a protected ACTUM_ANCHOR_BEARER_TOKEN_FILE.
 metadata:
   author: activechain-contributors
   version: "0.1.0"

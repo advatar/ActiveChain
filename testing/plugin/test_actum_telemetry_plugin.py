@@ -57,6 +57,20 @@ class TelemetryPluginTests(unittest.TestCase):
         with patch.object(module,"urlopen",return_value=Reply({"status":"delivered","chain_id":"9"*96,"genesis_commitment":"2"*96})):
             with self.assertRaises(RuntimeError): module.call("work.deliver",args)
         self.assertNotIn("deliver-1",module.load_state()["requests"])
+    def test_anchor_uses_protected_backend_credential_without_exposing_it(self):
+        self.authorize(); artifact=Path(self.temp.name)/"anchor.bin"; artifact.write_bytes(b"anchor")
+        token=Path(self.temp.name)/"anchor-token"; token.write_text("abcdefghijklmnopqrstuvwxyz012345"); token.chmod(0o600)
+        os.environ["ACTUM_ANCHOR_URL"]="https://anchor.example/v1/anchors"; os.environ["ACTUM_ANCHOR_BEARER_TOKEN_FILE"]=str(token)
+        args={"capability":"secret-capability","request_id":"anchor-1","project_id":self.project,"artifact_path":str(artifact)}
+        captured=[]
+        def respond(request,**_):
+            captured.append(request); return Reply({"status":"pending","chain_id":"1"*96,"genesis_commitment":"2"*96,"reference":"5"*96})
+        with patch.object(module,"urlopen",side_effect=respond): result=module.call("work.anchor",args)
+        self.assertEqual(result["status"],"pending"); self.assertEqual(captured[0].headers["Authorization"],"Bearer abcdefghijklmnopqrstuvwxyz012345")
+        self.assertNotIn("abcdefghijklmnopqrstuvwxyz012345",json.dumps(result)); self.assertNotIn("abcdefghijklmnopqrstuvwxyz012345",module.state_path().read_text())
+        token.chmod(0o640)
+        args["request_id"]="anchor-2"
+        with self.assertRaises(RuntimeError): module.call("work.anchor",args)
     def test_export_contains_control_metadata_not_evidence(self):
         self.authorize(); args={"capability":"secret-capability","request_id":"export-1","project_id":self.project}
         result=module.call("telemetry.export",args); self.assertFalse(result["evidence_included"])
