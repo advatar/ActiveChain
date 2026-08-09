@@ -67,6 +67,7 @@ dependencies = [
  "activechain-rpc-types",
  "ml-dsa",
  "sha2 0.10.9",
+ "sha3 0.10.9",
  "tempfile",
 ]
 
