@@ -408,7 +408,7 @@ fn write_json(stream: &mut TcpStream, status: u16, body: &str) -> Result<(), &'s
 #[cfg(test)]
 mod tests {
     use super::*;
-    use activechain_application_primitives::ActivityEpochV1;
+    use activechain_application_primitives::{ActivityEpochV1, AnchorRegistry};
     use activechain_protocol_types::ChainId;
     use activechain_rpc_types::{ProofKind, RpcStatus};
     use std::{net::Shutdown, thread};
@@ -494,6 +494,67 @@ mod tests {
         backend_thread.join().unwrap();
         assert!(response.starts_with("HTTP/1.1 409 Conflict"));
         assert!(response.contains("\"code\":\"wrong_network\""));
+    }
+
+    #[test]
+    fn canonical_anchor_submission_resolves_exact_pending_record() {
+        let request = TelemetryEpochAnchorRequestV1::new(
+            digest(1),
+            digest(2),
+            1,
+            digest(3),
+            b"anchor-happy".to_vec(),
+            epoch(),
+        )
+        .unwrap();
+        let statement = request.statement().unwrap();
+        let mut registry = AnchorRegistry::default();
+        let reference = registry.submit(statement).unwrap();
+        let record = registry.resolve(reference).unwrap().clone();
+        let backend = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let backend_address = backend.local_addr().unwrap();
+        let backend_thread = thread::spawn(move || {
+            let responses = [
+                RpcResponse::Status(
+                    RpcStatus::new(
+                        ChainId::new(digest(1)),
+                        digest(2),
+                        1,
+                        10,
+                        100,
+                        100,
+                        30,
+                        vec![ProofKind::FinalityCertificate],
+                    )
+                    .unwrap(),
+                ),
+                RpcResponse::AnchorSubmission(reference),
+                RpcResponse::AnchorRecord(encode_envelope(&record).unwrap()),
+            ];
+            for response in responses {
+                let (mut stream, _) = backend.accept().unwrap();
+                let mut length = [0_u8; 4];
+                stream.read_exact(&mut length).unwrap();
+                let mut body = vec![0_u8; u32::from_be_bytes(length) as usize];
+                stream.read_exact(&mut body).unwrap();
+                let response = encode_envelope(&response).unwrap();
+                stream.write_all(&(response.len() as u32).to_be_bytes()).unwrap();
+                stream.write_all(&response).unwrap();
+            }
+        });
+        let body = encode_envelope(&request).unwrap();
+        let mut http = format!(
+            "POST /v1/anchors HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer abcdefghijklmnopqrstuvwxyz012345\r\nContent-Type: application/octet-stream\r\nX-Actum-Request-Id: anchor-happy\r\nContent-Length: {}\r\n\r\n",
+            body.len()
+        )
+        .into_bytes();
+        http.extend_from_slice(&body);
+        let response =
+            exercise(&backend_address.to_string(), http, b"abcdefghijklmnopqrstuvwxyz012345");
+        backend_thread.join().unwrap();
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        assert!(response.contains("\"status\":\"pending\""));
+        assert!(response.contains(&format!("\"reference\":\"{}\"", hex(reference))));
     }
 
     #[test]
