@@ -4,10 +4,10 @@ The `Deterministic kernel` workflow has two modes.
 
 ## Development mode
 
-Pull-request updates run development mode automatically. The scope job compares the exact proposed
-revision with its base and selects only affected stage families. Documentation-only changes run the
-workflow-policy check but do not occupy the ARM64 runner. Development mode is feedback, not final
-qualification.
+Pull-request updates run development mode automatically. The initial run compares the exact proposed
+revision with its base; subsequent synchronization runs compare the newly pushed commit delta. The
+scope job selects only affected stage families. Documentation-only changes run the workflow-policy
+check but do not occupy the ARM64 runner. Development mode is feedback, not final qualification.
 
 ## Full qualification mode
 

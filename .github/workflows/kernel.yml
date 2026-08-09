@@ -57,6 +57,7 @@ jobs:
           REQUESTED_QUALIFICATION: ${{ inputs.qualification }}
           BASE_REF: ${{ github.base_ref }}
           BEFORE_SHA: ${{ github.event.before }}
+          PR_ACTION: ${{ github.event.action }}
         run: |
           set -euo pipefail
           full=false
@@ -67,6 +68,9 @@ jobs:
 
           if [[ "$full" == true ]]; then
             changed='__FULL_QUALIFICATION__'
+          elif [[ "$EVENT_NAME" == pull_request && "$PR_ACTION" == synchronize &&
+                  -n "$BEFORE_SHA" && "$BEFORE_SHA" != 0000000000000000000000000000000000000000 ]]; then
+            changed=$(git diff --name-only "$BEFORE_SHA...HEAD")
           elif [[ "$EVENT_NAME" == pull_request ]]; then
             changed=$(git diff --name-only "origin/${BASE_REF}...HEAD")
           elif [[ -n "$BEFORE_SHA" && "$BEFORE_SHA" != 0000000000000000000000000000000000000000 ]]; then
