@@ -2,6 +2,20 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Active initiative — Verifiable developer telemetry
+
+- [ ] Deliver the protocol and integration contract promised by `pow.actum.network`
+  ([GitHub initiative #771](https://github.com/advatar/ActiveChain/issues/771)).
+  - [ ] Freeze canonical event, epoch, policy, proof, disclosure, and verification contracts plus
+    app-developer documentation and vectors
+    ([GitHub issue #772](https://github.com/advatar/ActiveChain/issues/772)).
+  - [ ] Implement the permissioned local collector and trust layer (#773).
+  - [ ] Package telemetry, attribution, prove-work, and verify-work plugin/MCP capabilities (#774).
+  - [ ] Anchor and resolve finalized activity epochs through the existing digest boundary (#775).
+  - [ ] Implement work claims and zero-knowledge non-overlap proofs (#776).
+  - [ ] Expose bounded verification APIs, SDKs, and explorer DTOs (#777).
+  - [ ] Qualify and document the complete `pow.actum.network` integration (#778).
+
 ## Verifier C header and Apple distribution reconciliation
 
 Tracked by [GitHub issue #745](https://github.com/advatar/ActiveChain/issues/745).
