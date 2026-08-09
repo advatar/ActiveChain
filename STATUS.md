@@ -38,8 +38,8 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Add portable Agent Plugins 1.0.0 and Codex manifests plus the telemetry skill.
     - [x] Add bounded, capability-scoped telemetry and work MCP tools with durable idempotency.
     - [x] Add adversarial authorization, race, replay, wrong-chain, timeout, malformed-response, and redaction tests.
-    - [ ] Pass the exact full gate after #773 merges.
-  - [ ] Anchor and resolve finalized activity epochs through the existing digest boundary (#775).
+    - [x] Pass the exact full gate after #773 merges.
+  - [ ] Anchor and resolve finalized activity epochs through the existing digest boundary (#775; claimed on `feat/775-telemetry-epoch-anchor`).
   - [ ] Implement work claims and zero-knowledge non-overlap proofs (#776).
   - [ ] Expose bounded verification APIs, SDKs, and explorer DTOs (#777).
   - [ ] Qualify and document the complete `pow.actum.network` integration (#778).
