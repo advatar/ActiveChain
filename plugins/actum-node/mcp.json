@@ -1,0 +1,14 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "actum": {
+      "type": "stdio",
+      "command": "./bin/activechain-mcp",
+      "args": [],
+      "env": {
+        "ACTUM_PLUGIN_DATA": "${PLUGIN_DATA}"
+      },
+      "cwd": "${PLUGIN_ROOT}"
+    }
+  }
+}
