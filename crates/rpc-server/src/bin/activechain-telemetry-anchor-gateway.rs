@@ -200,7 +200,7 @@ fn read_request(stream: &mut TcpStream) -> Result<HttpRequest, &'static str> {
     Ok(HttpRequest {
         method,
         path,
-        authorization: authorization.ok_or("missing authorization")?,
+        authorization: authorization.unwrap_or_default(),
         request_id,
         content_type,
         body: bytes[header_end..].to_vec(),
@@ -288,6 +288,10 @@ fn write_json(stream: &mut TcpStream, status: u16, body: &str) -> Result<(), &'s
 #[cfg(test)]
 mod tests {
     use super::*;
+    use activechain_application_primitives::ActivityEpochV1;
+    use activechain_protocol_types::ChainId;
+    use activechain_rpc_types::{ProofKind, RpcStatus};
+    use std::{net::Shutdown, thread};
 
     #[test]
     fn bearer_comparison_is_exact() {
@@ -300,5 +304,132 @@ mod tests {
             b"abcdefghijklmnopqrstuvwxyz012346"
         ));
         assert!(!constant_time_eq(b"short", b"longer"));
+    }
+
+    #[test]
+    fn missing_bearer_is_rejected_before_backend_access() {
+        let response = exercise(
+            "127.0.0.1:1",
+            b"GET /v1/health HTTP/1.1\r\nHost: localhost\r\n\r\n".to_vec(),
+            b"abcdefghijklmnopqrstuvwxyz012345",
+        );
+        assert!(response.starts_with("HTTP/1.1 401 Unauthorized"));
+        assert!(response.contains("\"code\":\"unauthorized\""));
+    }
+
+    #[test]
+    fn healthy_authenticated_request_fails_closed_when_backend_is_down() {
+        let response = exercise(
+            "127.0.0.1:1",
+            b"GET /v1/health HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer abcdefghijklmnopqrstuvwxyz012345\r\n\r\n".to_vec(),
+            b"abcdefghijklmnopqrstuvwxyz012345",
+        );
+        assert!(response.starts_with("HTTP/1.1 503 Service Unavailable"));
+        assert!(response.contains("\"code\":\"backend_unavailable\""));
+    }
+
+    #[test]
+    fn wrong_chain_anchor_is_rejected_before_submission() {
+        let backend = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let backend_address = backend.local_addr().unwrap();
+        let backend_thread = thread::spawn(move || {
+            let (mut stream, _) = backend.accept().unwrap();
+            let mut length = [0_u8; 4];
+            stream.read_exact(&mut length).unwrap();
+            let mut request = vec![0_u8; u32::from_be_bytes(length) as usize];
+            stream.read_exact(&mut request).unwrap();
+            let status = RpcStatus::new(
+                ChainId::new(digest(1)),
+                digest(2),
+                1,
+                10,
+                100,
+                100,
+                30,
+                vec![ProofKind::FinalityCertificate],
+            )
+            .unwrap();
+            let response = encode_envelope(&RpcResponse::Status(status)).unwrap();
+            stream.write_all(&(response.len() as u32).to_be_bytes()).unwrap();
+            stream.write_all(&response).unwrap();
+        });
+        let request = TelemetryEpochAnchorRequestV1::new(
+            digest(9),
+            digest(2),
+            1,
+            digest(3),
+            b"wrong-chain".to_vec(),
+            epoch(),
+        )
+        .unwrap();
+        let body = encode_envelope(&request).unwrap();
+        let mut http = format!(
+            "POST /v1/anchors HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer abcdefghijklmnopqrstuvwxyz012345\r\nContent-Type: application/octet-stream\r\nX-Actum-Request-Id: wrong-chain\r\nContent-Length: {}\r\n\r\n",
+            body.len()
+        )
+        .into_bytes();
+        http.extend_from_slice(&body);
+        let response =
+            exercise(&backend_address.to_string(), http, b"abcdefghijklmnopqrstuvwxyz012345");
+        backend_thread.join().unwrap();
+        assert!(response.starts_with("HTTP/1.1 409 Conflict"));
+        assert!(response.contains("\"code\":\"wrong_network\""));
+    }
+
+    #[test]
+    fn oversized_declared_body_is_rejected_without_allocation() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            read_request(&mut stream)
+        });
+        let mut client = TcpStream::connect(address).unwrap();
+        write!(client, "POST /v1/anchors HTTP/1.1\r\nContent-Length: {}\r\n\r\n", MAX_BODY + 1)
+            .unwrap();
+        client.shutdown(Shutdown::Write).unwrap();
+        assert!(server.join().unwrap().is_err());
+    }
+
+    fn exercise(rpc: &str, request: Vec<u8>, token: &[u8]) -> String {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let rpc = rpc.to_owned();
+        let token = token.to_vec();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            serve(&mut stream, &rpc, &token)
+        });
+        let mut client = TcpStream::connect(address).unwrap();
+        client.write_all(&request).unwrap();
+        client.shutdown(Shutdown::Write).unwrap();
+        let mut response = String::new();
+        client.read_to_string(&mut response).unwrap();
+        server.join().unwrap().unwrap();
+        response
+    }
+
+    fn digest(byte: u8) -> Digest384 {
+        Digest384::new([byte; 48])
+    }
+
+    fn epoch() -> ActivityEpochV1 {
+        ActivityEpochV1 {
+            collector_id: digest(4),
+            project_id: digest(5),
+            first_collector_sequence: 1,
+            last_collector_sequence: 1,
+            first_project_sequence: 1,
+            last_project_sequence: 1,
+            event_count: 1,
+            wall_start_ms: 100,
+            wall_end_ms: 200,
+            monotonic_start_ns: 1_000,
+            monotonic_end_ns: 2_000,
+            event_root: digest(6),
+            previous_epoch_id: Digest384::ZERO,
+            authorization_revision: 1,
+            policy_id: digest(7),
+        }
     }
 }
