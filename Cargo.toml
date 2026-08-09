@@ -11,6 +11,7 @@ members = [
     "crates/consensus-runtime",
     "crates/consensus-verifier",
     "crates/data-availability",
+    "crates/developer-telemetry",
     "crates/capability",
     "crates/cash-kernel",
     "crates/cash-air",
@@ -82,6 +83,7 @@ activechain-canonical-codec = { path = "crates/canonical-codec", version = "0.1.
 activechain-crypto-provider = { path = "crates/crypto-provider", version = "0.1.0", default-features = false }
 activechain-consensus-verifier = { path = "crates/consensus-verifier", version = "0.1.0" }
 activechain-data-availability = { path = "crates/data-availability", version = "0.1.0" }
+activechain-developer-telemetry = { path = "crates/developer-telemetry", version = "0.1.0" }
 activechain-capability = { path = "crates/capability", version = "0.1.0" }
 activechain-cash-kernel = { path = "crates/cash-kernel", version = "0.1.0" }
 activechain-cash-air = { path = "crates/cash-air", version = "0.1.0" }
