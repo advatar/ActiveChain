@@ -1,0 +1,32 @@
+[package]
+name = "activechain-payment-verifier-service"
+description = "Bounded application-facing verifier for finalized ActiveChain payments"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+activechain-canonical-codec.workspace = true
+activechain-payment-types.workspace = true
+activechain-protocol-types.workspace = true
+activechain-verifier-api.workspace = true
+axum.workspace = true
+base64.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha3.workspace = true
+subtle = "2.6.1"
+tokio.workspace = true
+
+[dev-dependencies]
+activechain-action-kernel.workspace = true
+activechain-devnet-kernel.workspace = true
+activechain-finality-types.workspace = true
+activechain-protocol-commitment.workspace = true
+activechain-state-tree.workspace = true
+ml-dsa = "0.1.1"
+
+[lints]
+workspace = true
