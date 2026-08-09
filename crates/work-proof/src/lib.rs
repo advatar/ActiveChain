@@ -14,7 +14,7 @@ pub const PROFILE: &str = "actum.non-overlap.risc0.v1";
 pub const MAX_WORK_EVENTS: usize = 256;
 pub const JOURNAL_DOMAIN: &[u8] = b"ACTUM-NON-OVERLAP-RISC0-V1";
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClaimClass {
     Attention,
     Compute,
@@ -54,6 +54,9 @@ pub struct WorkClaimPublicV1 {
     pub interval_start_ms: u64,
     pub interval_end_ms: u64,
     pub nullifier_root: Digest384,
+    pub nullifiers: Vec<Digest384>,
+    pub usage_nullifier_root: Digest384,
+    pub usage_nullifiers: Vec<Digest384>,
 }
 impl CanonicalEncode for WorkClaimPublicV1 {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
@@ -72,7 +75,10 @@ impl CanonicalEncode for WorkClaimPublicV1 {
         self.claimed_units.encode(e)?;
         self.interval_start_ms.encode(e)?;
         self.interval_end_ms.encode(e)?;
-        self.nullifier_root.encode(e)
+        self.nullifier_root.encode(e)?;
+        self.nullifiers.encode(e)?;
+        self.usage_nullifier_root.encode(e)?;
+        self.usage_nullifiers.encode(e)
     }
 }
 impl CanonicalDecode for WorkClaimPublicV1 {
@@ -94,13 +100,16 @@ impl CanonicalDecode for WorkClaimPublicV1 {
             interval_start_ms: u64::decode(d)?,
             interval_end_ms: u64::decode(d)?,
             nullifier_root: Digest384::decode(d)?,
+            nullifiers: Vec::<Digest384>::decode(d)?,
+            usage_nullifier_root: Digest384::decode(d)?,
+            usage_nullifiers: Vec::<Digest384>::decode(d)?,
         })
     }
 }
 impl CanonicalType for WorkClaimPublicV1 {
     const TYPE_TAG: u16 = 0x01BB;
     const SCHEMA_VERSION: u16 = 1;
-    const MAX_ENCODED_LEN: usize = 48 * 8 + 2 + 4 + 8 * 5 + 2 + 1;
+    const MAX_ENCODED_LEN: usize = 48 * 9 + 2 + 4 + 8 * 5 + 2 + 1 + 10 + MAX_WORK_EVENTS * 48 * 2;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -207,6 +216,18 @@ fn nullifier(public: &WorkClaimPublicV1, secret: Digest384, leaf: Digest384) -> 
         ],
     )
 }
+fn usage_nullifier(public: &WorkClaimPublicV1, secret: Digest384, leaf: Digest384) -> Digest384 {
+    hash(
+        b"ACTUM-WORK-USAGE-NULLIFIER-V1",
+        &[
+            public.chain_id.as_bytes(),
+            public.project_id.as_bytes(),
+            public.policy_id.as_bytes(),
+            leaf.as_bytes(),
+            secret.as_bytes(),
+        ],
+    )
+}
 fn root(mut nodes: Vec<Digest384>, domain: &[u8]) -> Digest384 {
     while nodes.len() > 1 {
         if nodes.len() % 2 == 1 {
@@ -220,7 +241,7 @@ fn root(mut nodes: Vec<Digest384>, domain: &[u8]) -> Digest384 {
     nodes[0]
 }
 pub fn verify_relation(input: &WorkClaimRelationInputV1) -> Result<(), WorkProofError> {
-    let p = input.public;
+    let p = &input.public;
     if input.events.is_empty()
         || input.events.len() > MAX_WORK_EVENTS
         || p.chain_id == Digest384::ZERO
@@ -230,6 +251,8 @@ pub fn verify_relation(input: &WorkClaimRelationInputV1) -> Result<(), WorkProof
         || p.telemetry_schema != 1
         || p.policy_revision == 0
         || p.event_count as usize != input.events.len()
+        || p.nullifiers.len() != input.events.len()
+        || p.usage_nullifiers.len() != input.events.len()
         || p.first_sequence == 0
         || p.last_sequence.checked_sub(p.first_sequence).and_then(|v| v.checked_add(1))
             != Some(input.events.len() as u64)
@@ -242,6 +265,7 @@ pub fn verify_relation(input: &WorkClaimRelationInputV1) -> Result<(), WorkProof
     let mut prior_end = None;
     let mut leaves = Vec::with_capacity(input.events.len());
     let mut nullifiers = Vec::with_capacity(input.events.len());
+    let mut usage_nullifiers = Vec::with_capacity(input.events.len());
     for (index, event) in input.events.iter().enumerate() {
         if event.sequence != p.first_sequence + index as u64
             || event.start_ms > event.end_ms
@@ -253,13 +277,17 @@ pub fn verify_relation(input: &WorkClaimRelationInputV1) -> Result<(), WorkProof
         }
         total = total.checked_add(event.units).ok_or(WorkProofError::Relation)?;
         prior_end = Some(event.end_ms);
-        let leaf = event_leaf(&p, event);
+        let leaf = event_leaf(p, event);
         leaves.push(leaf);
-        nullifiers.push(nullifier(&p, input.claimant_secret, leaf));
+        nullifiers.push(nullifier(p, input.claimant_secret, leaf));
+        usage_nullifiers.push(usage_nullifier(p, input.claimant_secret, leaf));
     }
     if total != p.claimed_units
         || root(leaves, b"ACTUM-WORK-EPOCH-NODE-V1") != p.epoch_root
+        || nullifiers != p.nullifiers
         || root(nullifiers, b"ACTUM-WORK-NULLIFIER-NODE-V1") != p.nullifier_root
+        || usage_nullifiers != p.usage_nullifiers
+        || root(usage_nullifiers, b"ACTUM-WORK-USAGE-NULLIFIER-NODE-V1") != p.usage_nullifier_root
     {
         return Err(WorkProofError::Relation);
     }
@@ -313,12 +341,21 @@ mod tests {
             interval_start_ms: 100,
             interval_end_ms: 150,
             nullifier_root: d(6),
+            nullifiers: Vec::new(),
+            usage_nullifier_root: d(7),
+            usage_nullifiers: Vec::new(),
         };
         let leaves = events.iter().map(|event| event_leaf(&public, event)).collect::<Vec<_>>();
         let nullifiers =
             leaves.iter().map(|leaf| nullifier(&public, secret, *leaf)).collect::<Vec<_>>();
-        public.epoch_root = root(leaves, b"ACTUM-WORK-EPOCH-NODE-V1");
-        public.nullifier_root = root(nullifiers, b"ACTUM-WORK-NULLIFIER-NODE-V1");
+        public.epoch_root = root(leaves.clone(), b"ACTUM-WORK-EPOCH-NODE-V1");
+        let usage_nullifiers =
+            leaves.iter().map(|leaf| usage_nullifier(&public, secret, *leaf)).collect::<Vec<_>>();
+        public.nullifier_root = root(nullifiers.clone(), b"ACTUM-WORK-NULLIFIER-NODE-V1");
+        public.nullifiers = nullifiers;
+        public.usage_nullifier_root =
+            root(usage_nullifiers.clone(), b"ACTUM-WORK-USAGE-NULLIFIER-NODE-V1");
+        public.usage_nullifiers = usage_nullifiers;
         WorkClaimRelationInputV1 { public, claimant_secret: secret, events }
     }
     #[test]
