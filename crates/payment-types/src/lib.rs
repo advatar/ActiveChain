@@ -638,10 +638,34 @@ impl PaymentIntentV1 {
         self.intent
     }
 
+    /// Returns the network this intent is valid on.
+    #[must_use]
+    pub const fn chain(&self) -> ChainId {
+        self.chain
+    }
+
     /// Returns the merchant that owns this request and its idempotency namespace.
     #[must_use]
     pub const fn merchant(&self) -> PrincipalId {
         self.merchant
+    }
+
+    /// Returns the exclusive admission expiry.
+    #[must_use]
+    pub const fn expires_at(&self) -> u64 {
+        self.expires_at
+    }
+
+    /// Returns the application-specific authorization binding.
+    #[must_use]
+    pub const fn authorization_context(&self) -> Digest384 {
+        self.authorization_context
+    }
+
+    /// Returns the committed application metadata policy.
+    #[must_use]
+    pub const fn metadata_commitment(&self) -> Digest384 {
+        self.metadata_commitment
     }
 
     /// Returns the caller-chosen idempotency key.

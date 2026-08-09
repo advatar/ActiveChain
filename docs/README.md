@@ -46,6 +46,7 @@ economics are numbered under [`spec/protocol/`](../spec/protocol/).
 
 ## Payments, assets, and external settlement
 
+- [Application payment verifier service](PAYMENT_VERIFIER_SERVICE_V1.md)
 - [ActiveBridge v1](ACTIVE_BRIDGE_V1.md)
 - [ActiveBridge operations drill](ACTIVEBRIDGE_OPERATIONS_DRILL_V1.md)
 - [Native asset RPC](NATIVE_ASSET_RPC_V1.md)

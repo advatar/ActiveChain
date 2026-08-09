@@ -1,0 +1,6 @@
+.git
+target
+tmp
+LandingPage/node_modules
+LandingPage/dist
+**/.DS_Store
