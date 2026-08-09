@@ -226,6 +226,11 @@ jobs:
       - name: Reproduce and consume Apple distributions
         run: |
           cargo run --locked -p activechain-apple-distribution -- check-headers .
+          dirty=$(git status --porcelain --untracked-files=normal)
+          if [[ -n "$dirty" ]]; then
+            printf 'header generation dirtied the Apple packaging source tree:\n%s\n' "$dirty" >&2
+            exit 1
+          fi
           bash scripts/check-apple-reproducibility.sh "$GITHUB_SHA"
       - name: Remove isolated BuildKit worker
         if: always() && env.ACTIVECHAIN_CI_BUILDER != ''
