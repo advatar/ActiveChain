@@ -410,6 +410,10 @@ pub fn verify_trust_bundle_bootstrap(
         return Err(TrustBundleError::InvalidTransition);
     }
     verify_time_and_set(&bundle.body, signer_set, now_ms)?;
+    let set_id = signer_set.signer_set_id()?;
+    if bundle.signatures.iter().any(|signature| signature.signer_set_id != set_id) {
+        return Err(TrustBundleError::InvalidSignature);
+    }
     verify_threshold(bundle, signer_set, verify)
 }
 
@@ -447,6 +451,13 @@ pub fn verify_trust_bundle_transition(
             return Err(TrustBundleError::InvalidTransition);
         }
         verify_time_and_set(&next.body, new_set, now_ms)?;
+        let current_id = current_set.signer_set_id()?;
+        let new_id = new_set.signer_set_id()?;
+        if next.signatures.iter().any(|signature| {
+            signature.signer_set_id != current_id && signature.signer_set_id != new_id
+        }) {
+            return Err(TrustBundleError::InvalidSignature);
+        }
         verify_threshold(next, current_set, verify)?;
         verify_threshold(next, new_set, verify)
     } else {
@@ -454,6 +465,10 @@ pub fn verify_trust_bundle_transition(
             return Err(TrustBundleError::InvalidTransition);
         }
         verify_time_and_set(&next.body, current_set, now_ms)?;
+        let current_id = current_set.signer_set_id()?;
+        if next.signatures.iter().any(|signature| signature.signer_set_id != current_id) {
+            return Err(TrustBundleError::InvalidSignature);
+        }
         verify_threshold(next, current_set, verify)
     }
 }
