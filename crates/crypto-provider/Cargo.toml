@@ -7,13 +7,17 @@ rust-version = "1.94.1"
 repository.workspace = true
 publish = false
 
+[features]
+default = ["protected-envelopes"]
+protected-envelopes = ["dep:ml-kem", "dep:ring", "dep:zeroize"]
+
 [dependencies]
-ml-dsa = "0.1.1"
-ml-kem = { version = "0.3.2", features = ["getrandom"] }
+ml-dsa = { version = "0.1.1", default-features = false, features = ["alloc"] }
+ml-kem = { version = "0.3.2", features = ["getrandom"], optional = true }
 slh-dsa = "0.2.0-rc.5"
 sha3.workspace = true
-ring = "0.17.14"
-zeroize = "1.8"
+ring = { version = "0.17.14", optional = true }
+zeroize = { version = "1.8", optional = true }
 activechain-protocol-types.workspace = true
 activechain-consensus-verifier.workspace = true
 

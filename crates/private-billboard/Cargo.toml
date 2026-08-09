@@ -18,7 +18,12 @@ sha3.workspace = true
 
 [features]
 default = ["runtime"]
-runtime = ["dep:activechain-cash-kernel", "dep:activechain-crypto-provider", "dep:activechain-privacy-kernel"]
+runtime = [
+    "dep:activechain-cash-kernel",
+    "dep:activechain-crypto-provider",
+    "activechain-crypto-provider/protected-envelopes",
+    "dep:activechain-privacy-kernel",
+]
 
 [dev-dependencies]
 activechain-accumulator.workspace = true

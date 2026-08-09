@@ -110,6 +110,22 @@ for name in sorted(expected_names):
             f"{sorted(production_local_dependencies)}, found "
             f"{sorted(proof_local_dependencies)}"
         )
+    production_external_dependencies = {
+        dependency["name"]
+        for dependency in production["dependencies"]
+        if dependency["name"] not in local_names and dependency["kind"] != "dev"
+    }
+    proof_external_dependencies = {
+        dependency["name"]
+        for dependency in package["dependencies"]
+        if dependency["name"] not in expected_names and dependency["kind"] != "dev"
+    }
+    if proof_external_dependencies != production_external_dependencies:
+        raise SystemExit(
+            f"{name} external dependency drift: expected "
+            f"{sorted(production_external_dependencies)}, found "
+            f"{sorted(proof_external_dependencies)}"
+        )
     expected_sources = {
         Path(target["src_path"]).resolve()
         for target in production["targets"]

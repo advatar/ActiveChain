@@ -7,7 +7,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-activechain-crypto-provider.workspace = true
+activechain-crypto-provider = { workspace = true, features = ["protected-envelopes"] }
 activechain-protocol-types.workspace = true
 activechain-protocol-commitment.workspace = true
 activechain-canonical-codec.workspace = true

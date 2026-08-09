@@ -15,5 +15,7 @@ activechain-consensus-verifier.workspace = true
 activechain-protocol-types.workspace = true
 ml-dsa.workspace = true
 ml-kem.workspace = true
+ring.workspace = true
 slh-dsa.workspace = true
 sha3.workspace = true
+zeroize.workspace = true
