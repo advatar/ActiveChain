@@ -46,7 +46,7 @@ fn main() {
         signers: vec![TrustSignerV1 {
             signer_id: digest(9),
             algorithm: TrustSignatureAlgorithmV1::MlDsa44,
-            public_key: vec![0xaa; 32],
+            public_key: vec![0xaa; 1_312],
             valid_from_sequence: 1,
             valid_until_sequence: 100,
         }],

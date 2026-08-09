@@ -96,7 +96,7 @@
       "type_tag": "0x01B4,0x01B6,0x01B7",
       "schema_version": 1,
       "source": "application/telemetry-anchor-v1.txt",
-      "sha256": "0a79b15f962900e427f0019b8f91fd9d83ada8ec11516e6b36d1dfb52b05d948",
+      "sha256": "c8c661aec82cb853204c203a6309c649194a62d64dec4b61a92a6450ece657bd",
       "status": "valid"
     },
     {

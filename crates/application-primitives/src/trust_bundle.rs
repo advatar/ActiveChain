@@ -9,8 +9,8 @@ const BUNDLE_DOMAIN: &[u8] = b"ACTUM-VERIFIER-TRUST-BUNDLE-V1";
 const SIGNER_SET_DOMAIN: &[u8] = b"ACTUM-TRUST-SIGNER-SET-V1";
 pub const MAX_TRUST_SIGNERS: usize = 16;
 pub const MAX_TRUST_SIGNATURES: usize = MAX_TRUST_SIGNERS * 2;
-pub const MAX_TRUST_PUBLIC_KEY_BYTES: usize = 2_592;
-pub const MAX_TRUST_SIGNATURE_BYTES: usize = 5_000;
+pub const MAX_TRUST_PUBLIC_KEY_BYTES: usize = 1_312;
+pub const MAX_TRUST_SIGNATURE_BYTES: usize = 2_420;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TrustSignatureAlgorithmV1 {
@@ -43,8 +43,7 @@ pub struct TrustSignerV1 {
 impl TrustSignerV1 {
     pub fn validate(&self) -> Result<(), TrustBundleError> {
         if self.signer_id == Digest384::ZERO
-            || self.public_key.is_empty()
-            || self.public_key.len() > MAX_TRUST_PUBLIC_KEY_BYTES
+            || self.public_key.len() != MAX_TRUST_PUBLIC_KEY_BYTES
             || self.valid_from_sequence == 0
             || self.valid_until_sequence < self.valid_from_sequence
         {
@@ -304,8 +303,7 @@ impl TrustBundleSignatureV1 {
     fn validate(&self) -> Result<(), TrustBundleError> {
         if self.signer_set_id == Digest384::ZERO
             || self.signer_id == Digest384::ZERO
-            || self.signature.is_empty()
-            || self.signature.len() > MAX_TRUST_SIGNATURE_BYTES
+            || self.signature.len() != MAX_TRUST_SIGNATURE_BYTES
         {
             return Err(TrustBundleError::InvalidSignature);
         }
@@ -561,7 +559,7 @@ mod tests {
         TrustSignerV1 {
             signer_id: digest(byte),
             algorithm: TrustSignatureAlgorithmV1::MlDsa44,
-            public_key: vec![byte],
+            public_key: vec![byte; MAX_TRUST_PUBLIC_KEY_BYTES],
             valid_from_sequence: from,
             valid_until_sequence: 100,
         }
@@ -615,8 +613,8 @@ mod tests {
         signer: &TrustSignerV1,
         id: Digest384,
     ) -> TrustBundleSignatureV1 {
-        let mut bytes = signer.public_key.clone();
-        bytes.extend_from_slice(id.as_bytes());
+        let mut bytes = vec![signer.public_key[0]; MAX_TRUST_SIGNATURE_BYTES];
+        bytes[..48].copy_from_slice(id.as_bytes());
         TrustBundleSignatureV1 {
             signer_set_id: set.signer_set_id().unwrap(),
             signer_id: signer.signer_id,
@@ -635,7 +633,9 @@ mod tests {
         SignedActumVerifierTrustBundleV1 { body, bundle_id: id, signatures }
     }
     fn verify(_: TrustSignatureAlgorithmV1, key: &[u8], id: Digest384, signature: &[u8]) -> bool {
-        signature == [key, id.as_bytes()].concat()
+        signature.len() == MAX_TRUST_SIGNATURE_BYTES
+            && signature[..48] == *id.as_bytes()
+            && signature[48..].iter().all(|byte| *byte == key[0])
     }
 
     #[test]
