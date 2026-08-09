@@ -328,7 +328,8 @@ fn validate_chain(events: &[SignedEvent]) -> Result<(), Error> {
         {
             return Err(Error::InvalidChain);
         }
-        let public_key = hex::decode(&event.signer_public_key_hex).map_err(|_| Error::InvalidKey)?;
+        let public_key =
+            hex::decode(&event.signer_public_key_hex).map_err(|_| Error::InvalidKey)?;
         verify_event(event, &public_key)?;
         previous.clone_from(&event.event_hash);
     }
