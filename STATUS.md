@@ -3020,11 +3020,11 @@ wallet and all testnets remain explicitly developmental until this milestone com
 
 Tracked by [GitHub issue #788](https://github.com/advatar/ActiveChain/issues/788).
 
-- [ ] Split the monolithic ARM64 gate into independently visible and rerunnable stages without
+- [x] Split the monolithic ARM64 gate into independently visible and rerunnable stages without
   dropping any existing final-candidate command or exact-revision binding.
-- [ ] Add a lightweight affected-change lane for ordinary development commits and an explicit
+- [x] Add a lightweight affected-change lane for ordinary development commits and an explicit
   full-qualification trigger for final merge candidates, `main`, and release contexts.
-- [ ] Add a fail-closed aggregate result and workflow-policy regression coverage so a candidate
+- [x] Add a fail-closed aggregate result and workflow-policy regression coverage so a candidate
   cannot appear qualified when a mandatory stage was skipped or failed.
 - [ ] Document the maintainer workflow, qualify the exact candidate, merge to `main`, and verify
   reachability.
