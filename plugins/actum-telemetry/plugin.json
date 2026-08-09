@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "actum-telemetry",
+  "version": "0.1.0",
+  "description": "Manage permissioned Actum developer telemetry and bounded proof workflows.",
+  "author": {"name":"ActiveChain contributors","url":"https://github.com/advatar/ActiveChain"},
+  "homepage": "https://pow.actum.network",
+  "repository": "https://github.com/advatar/ActiveChain",
+  "license": "Apache-2.0",
+  "keywords": ["actum","telemetry","proof-of-work","mcp","privacy"]
+}

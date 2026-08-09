@@ -34,6 +34,10 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Publish deterministic canonical/signature vectors.
     - [x] Pass the exact full gate.
   - [ ] Package telemetry, attribution, prove-work, and verify-work plugin/MCP capabilities (#774; claimed on `feat/774-telemetry-plugin`).
+    - [x] Add portable Agent Plugins 1.0.0 and Codex manifests plus the telemetry skill.
+    - [x] Add bounded, capability-scoped telemetry and work MCP tools with durable idempotency.
+    - [x] Add adversarial authorization, race, replay, wrong-chain, timeout, malformed-response, and redaction tests.
+    - [ ] Pass the exact full gate after #773 merges.
   - [ ] Anchor and resolve finalized activity epochs through the existing digest boundary (#775).
   - [ ] Implement work claims and zero-knowledge non-overlap proofs (#776).
   - [ ] Expose bounded verification APIs, SDKs, and explorer DTOs (#777).

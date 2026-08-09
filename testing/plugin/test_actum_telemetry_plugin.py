@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+import importlib.util, json, os, subprocess, tempfile, threading, unittest
+from importlib.machinery import SourceFileLoader
+from pathlib import Path
+from unittest.mock import patch
+
+ROOT=Path(__file__).resolve().parents[2]
+SCRIPT=ROOT/"plugins/actum-telemetry/bin/actum-telemetry-mcp"
+spec=importlib.util.spec_from_loader("actum_telemetry_mcp",SourceFileLoader("actum_telemetry_mcp",str(SCRIPT)))
+module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+
+class Reply:
+    def __init__(self,value): self.value=value
+    def __enter__(self): return self
+    def __exit__(self,*_): return False
+    def read(self,_): return json.dumps(self.value).encode()
+
+class TelemetryPluginTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.env=patch.dict(os.environ,{"ACTUM_PLUGIN_DATA":self.temp.name,"ACTUM_TELEMETRY_CAPABILITY":"secret-capability","ACTUM_CHAIN_ID":"1"*96,"ACTUM_GENESIS_COMMITMENT":"2"*96},clear=True); self.env.start(); self.addCleanup(self.env.stop)
+        self.project="3"*96; self.policy="4"*96
+    def auth(self,request="auth-1",capability="secret-capability"):
+        return {"capability":capability,"request_id":request,"project_id":self.project,"policy_id":self.policy,"revision":1,"purpose":"proof of developer contribution","categories":["build_test"],"valid_from_ms":1,"retain_until_ms":10_000}
+    def authorize(self): return module.call("telemetry.authorize",self.auth())
+    def test_portable_and_codex_manifests_share_the_bounded_components(self):
+        plugin=ROOT/"plugins/actum-telemetry"
+        manifest=json.loads((plugin/"plugin.json").read_text())
+        self.assertEqual(manifest["$schema"],"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json")
+        self.assertLessEqual(set(manifest),{"$schema","name","version","description","author","homepage","repository","license","keywords","extensions"})
+        portable=json.loads((plugin/"mcp.json").read_text())["mcpServers"]["actum-telemetry"]
+        self.assertEqual(portable["command"],"./bin/actum-telemetry-mcp"); self.assertEqual(portable["cwd"],"${PLUGIN_ROOT}")
+        codex=json.loads((plugin/".codex-plugin/plugin.json").read_text()); self.assertEqual(codex["skills"],"./skills/"); self.assertEqual(codex["mcpServers"],"./.mcp.json")
+    def test_absent_authorization_is_paused_and_credentials_are_not_reported(self):
+        result=module.call("telemetry.status",{"project_id":self.project})
+        self.assertEqual(result["status"],"not_authorized"); self.assertTrue(result["paused"])
+        self.assertNotIn("secret-capability",json.dumps(result))
+    def test_authorize_requires_capability_and_defaults_paused(self):
+        with self.assertRaises(PermissionError): module.call("telemetry.authorize",self.auth(capability="wrong"))
+        result=self.authorize(); self.assertEqual(result["status"],"authorized"); self.assertTrue(result["paused"])
+        self.assertNotIn("secret-capability",Path(module.state_path()).read_text())
+    def test_pause_resume_is_durable_and_idempotent(self):
+        self.authorize(); args={"capability":"secret-capability","request_id":"resume-1","project_id":self.project}
+        first=module.call("telemetry.resume",args); second=module.call("telemetry.resume",args)
+        self.assertFalse(first["duplicate"]); self.assertTrue(second["duplicate"]); self.assertFalse(module.load_state()["paused"][self.project])
+    def test_duplicate_request_with_other_arguments_is_rejected(self):
+        self.authorize(); args={"capability":"secret-capability","request_id":"same","project_id":self.project}
+        module.call("telemetry.pause",args)
+        with self.assertRaises(ValueError): module.call("telemetry.resume",args)
+    def test_unknown_fields_are_rejected(self):
+        args=self.auth(); args["source"]="private"
+        with self.assertRaises(ValueError): module.call("telemetry.authorize",args)
+    def test_wrong_chain_delivery_fails_without_registration(self):
+        self.authorize(); artifact=Path(self.temp.name)/"proof.bin"; artifact.write_bytes(b"proof")
+        os.environ["ACTUM_DELIVERY_WEBHOOK"]="https://delivery.example/submit"
+        args={"capability":"secret-capability","request_id":"deliver-1","project_id":self.project,"artifact_path":str(artifact)}
+        with patch.object(module,"urlopen",return_value=Reply({"status":"delivered","chain_id":"9"*96,"genesis_commitment":"2"*96})):
+            with self.assertRaises(RuntimeError): module.call("work.deliver",args)
+        self.assertNotIn("deliver-1",module.load_state()["requests"])
+    def test_export_contains_control_metadata_not_evidence(self):
+        self.authorize(); args={"capability":"secret-capability","request_id":"export-1","project_id":self.project}
+        result=module.call("telemetry.export",args); self.assertFalse(result["evidence_included"])
+        exported=json.loads(Path(result["path"]).read_text()); self.assertNotIn("events",exported)
+
+    def test_pause_race_serializes_both_durable_requests(self):
+        self.authorize(); barrier=threading.Barrier(3); errors=[]
+        def invoke(name,request):
+            try:
+                barrier.wait(); module.call(name,{"capability":"secret-capability","request_id":request,"project_id":self.project})
+            except Exception as error: errors.append(error)
+        first=threading.Thread(target=invoke,args=("telemetry.pause","race-pause")); second=threading.Thread(target=invoke,args=("telemetry.resume","race-resume"))
+        first.start(); second.start(); barrier.wait(); first.join(); second.join()
+        self.assertEqual(errors,[]); state=module.load_state(); self.assertIn("race-pause",state["requests"]); self.assertIn("race-resume",state["requests"]); self.assertIsInstance(state["paused"][self.project],bool)
+
+    def test_timeout_and_malformed_backend_fail_without_receipt(self):
+        self.authorize(); artifact=Path(self.temp.name)/"proof.bin"; artifact.write_bytes(b"proof"); os.environ["ACTUM_DELIVERY_WEBHOOK"]="https://delivery.example/submit"
+        def arguments(request): return {"capability":"secret-capability","request_id":request,"project_id":self.project,"artifact_path":str(artifact)}
+        with patch.object(module,"urlopen",side_effect=TimeoutError):
+            with self.assertRaises(RuntimeError): module.call("work.deliver",arguments("timeout"))
+        with patch.object(module,"urlopen",return_value=Reply({"chain_id":"1"*96,"genesis_commitment":"2"*96})):
+            with self.assertRaises(RuntimeError): module.call("work.deliver",arguments("malformed"))
+        state=module.load_state(); self.assertNotIn("timeout",state["requests"]); self.assertNotIn("malformed",state["requests"])
+
+    def test_mcp_handshake_lists_all_bounded_tools_without_secret(self):
+        frames=[
+            {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}},
+            {"jsonrpc":"2.0","method":"notifications/initialized"},
+            {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}},
+        ]
+        completed=subprocess.run([str(SCRIPT)],input="".join(json.dumps(frame)+"\n" for frame in frames),text=True,capture_output=True,env=os.environ,check=True)
+        replies=[json.loads(line) for line in completed.stdout.splitlines()]
+        self.assertEqual(len(replies),2); names={tool["name"] for tool in replies[1]["result"]["tools"]}; self.assertEqual(names,set(module.TOOLS)); self.assertNotIn("secret-capability",completed.stdout)
+
+if __name__=="__main__": unittest.main()
