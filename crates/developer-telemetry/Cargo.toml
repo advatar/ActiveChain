@@ -8,6 +8,9 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+activechain-application-primitives.workspace = true
+activechain-canonical-codec.workspace = true
+activechain-protocol-types.workspace = true
 hex = "0.4"
 ml-dsa = "0.1.1"
 serde.workspace = true

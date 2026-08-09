@@ -266,3 +266,82 @@ pub enum TelemetryPrimitiveError {
     InvalidEvent,
     InvalidEpoch,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use activechain_canonical_codec::{decode_envelope, encode_envelope};
+
+    fn digest(byte: u8) -> Digest384 {
+        Digest384::new([byte; 48])
+    }
+
+    fn event(sequence: u64) -> DeveloperEventV1 {
+        DeveloperEventV1 {
+            collector_id: digest(1),
+            project_id: digest(2),
+            collector_sequence: sequence,
+            project_sequence: sequence,
+            wall_start_ms: 100,
+            wall_end_ms: 200,
+            monotonic_start_ns: 1_000,
+            monotonic_end_ns: 1_010,
+            kind: DeveloperEventKindV1::BuildTest,
+            source_commitment: digest(3),
+            subject_commitment: digest(4),
+            payload_commitment: digest(sequence as u8 + 4),
+            units: sequence,
+            authorization_revision: 7,
+        }
+    }
+
+    #[test]
+    fn canonical_event_round_trips_and_substitution_changes_id() {
+        let original = event(1);
+        let encoded = encode_envelope(&original).unwrap();
+        assert_eq!(decode_envelope::<DeveloperEventV1>(&encoded), Ok(original.clone()));
+        let mut substituted = original.clone();
+        substituted.project_id = digest(9);
+        assert_ne!(original.event_id().unwrap(), substituted.event_id().unwrap());
+    }
+
+    #[test]
+    fn merkle_domains_and_odd_leaf_duplication_are_exact() {
+        let ids = [
+            event(1).event_id().unwrap(),
+            event(2).event_id().unwrap(),
+            event(3).event_id().unwrap(),
+        ];
+        let expected = event_node_hash(
+            event_node_hash(event_leaf_hash(ids[0]), event_leaf_hash(ids[1])),
+            event_node_hash(event_leaf_hash(ids[2]), event_leaf_hash(ids[2])),
+        );
+        assert_eq!(telemetry_merkle_root(&ids), Ok(expected));
+        assert_ne!(event_leaf_hash(ids[0]), event_node_hash(ids[0], ids[0]));
+    }
+
+    #[test]
+    fn epoch_requires_exact_contiguous_ranges() {
+        let epoch = ActivityEpochV1 {
+            collector_id: digest(1),
+            project_id: digest(2),
+            first_collector_sequence: 4,
+            last_collector_sequence: 5,
+            first_project_sequence: 9,
+            last_project_sequence: 10,
+            event_count: 2,
+            wall_start_ms: 100,
+            wall_end_ms: 200,
+            monotonic_start_ns: 1_000,
+            monotonic_end_ns: 2_000,
+            event_root: digest(3),
+            previous_epoch_id: Digest384::ZERO,
+            authorization_revision: 7,
+            policy_id: digest(4),
+        };
+        assert_eq!(epoch.validate(), Ok(()));
+        let mut gapped = epoch;
+        gapped.last_project_sequence = 11;
+        assert_eq!(gapped.validate(), Err(TelemetryPrimitiveError::InvalidEpoch));
+    }
+}

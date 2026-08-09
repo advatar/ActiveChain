@@ -266,6 +266,9 @@ dependencies = [
 name = "activechain-developer-telemetry"
 version = "0.1.0"
 dependencies = [
+ "activechain-application-primitives",
+ "activechain-canonical-codec",
+ "activechain-protocol-types",
  "hex",
  "ml-dsa",
  "serde",

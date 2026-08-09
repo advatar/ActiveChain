@@ -28,6 +28,10 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [ ] Add generated canonical binary/signature vectors with the implementing collector/proof
       crates, then pass the exact full deterministic-kernel gate before integration.
   - [ ] Implement the permissioned local collector and trust layer (#773; claimed on `feat/773-developer-telemetry-collector`).
+    - [x] Add shared no-std canonical event/epoch primitives and frozen Merkle domains.
+    - [x] Replace JSON commitments with canonical envelopes, monotonic duration, durable sequence allocation, and prior-epoch linkage.
+    - [x] Publish deterministic canonical/signature vectors.
+    - [ ] Pass the exact full gate.
   - [ ] Package telemetry, attribution, prove-work, and verify-work plugin/MCP capabilities (#774).
   - [ ] Anchor and resolve finalized activity epochs through the existing digest boundary (#775).
   - [ ] Implement work claims and zero-knowledge non-overlap proofs (#776).

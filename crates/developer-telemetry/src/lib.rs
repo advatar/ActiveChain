@@ -1,10 +1,15 @@
 #![forbid(unsafe_code)]
 
-//! Permissioned, local-first collection for Actum developer telemetry.
-//!
-//! The collector admits bounded metadata only. It never accepts prompts, source,
-//! diffs, command output, environment values, or file contents.
+//! Permissioned local collection for canonical Actum developer telemetry.
+//! JSON is used only for durable transport; commitments and signatures bind
+//! canonical binary envelopes.
 
+use activechain_application_primitives::{
+    ActivityEpochV1, DeveloperEventKindV1, DeveloperEventV1, MAX_TELEMETRY_EVENTS,
+    telemetry_merkle_root,
+};
+use activechain_canonical_codec::{decode_envelope, encode_envelope};
+use activechain_protocol_types::Digest384;
 use ml_dsa::{EncodedSignature, EncodedVerifyingKey, MlDsa44, Signature, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_384};
@@ -15,83 +20,100 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub const MAX_EVENTS: usize = 16_384;
 pub const MAX_LABEL_BYTES: usize = 128;
-pub const EVENT_TYPE_TAG: u16 = 0x01b2;
-pub const EPOCH_TYPE_TAG: u16 = 0x01b3;
-const TRANSCRIPT: &[u8] = b"ACTUM-DEVELOPER-TELEMETRY-V1";
+pub const ML_DSA_ALGORITHM_REVISION: u16 = 1;
+const EVENT_SIGNATURE_DOMAIN: &[u8] = b"actum.developer-event.v1";
+const COLLECTOR_KEY_DOMAIN: &[u8] = b"actum.collector-key-record.v1";
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Category {
     HumanInteraction,
     AgentExecution,
-    Git,
+    GitArtifact,
     BuildTest,
     ModelUsage,
 }
 
+impl From<Category> for DeveloperEventKindV1 {
+    fn from(value: Category) -> Self {
+        match value {
+            Category::HumanInteraction => Self::HumanInteraction,
+            Category::AgentExecution => Self::AgentExecution,
+            Category::GitArtifact => Self::GitArtifact,
+            Category::BuildTest => Self::BuildTest,
+            Category::ModelUsage => Self::ModelUsage,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Authorization {
-    pub revision: u64,
-    pub project_commitment: String,
+    pub revision: u32,
+    pub project_id: String,
+    pub policy_id: String,
     pub purpose: String,
     pub categories: BTreeSet<Category>,
+    pub valid_from_ms: u64,
     pub retain_until_ms: u64,
 }
 
 impl Authorization {
     pub fn validate(&self, now_ms: u64) -> Result<(), Error> {
-        bounded(&self.project_commitment)?;
         bounded(&self.purpose)?;
-        if self.revision == 0 || self.categories.is_empty() || self.retain_until_ms <= now_ms {
+        nonzero_digest(&self.project_id)?;
+        nonzero_digest(&self.policy_id)?;
+        if self.revision == 0
+            || self.categories.is_empty()
+            || self.valid_from_ms > now_ms
+            || self.retain_until_ms <= now_ms
+        {
             return Err(Error::InvalidAuthorization);
         }
         Ok(())
     }
 }
 
-/// Privacy-bounded metadata accepted from IDE, agent, Git, build, and model adapters.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct EventInput {
     pub category: Category,
-    pub kind: String,
-    pub started_at_ms: u64,
-    pub ended_at_ms: u64,
+    pub wall_start_ms: u64,
+    pub wall_end_ms: u64,
+    pub monotonic_start_ns: u64,
+    pub monotonic_end_ns: u64,
     pub units: u64,
-    pub evidence_commitment: String,
+    pub source_commitment: String,
+    pub subject_commitment: String,
+    pub payload_commitment: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct SignedEvent {
-    pub schema: String,
-    pub project_commitment: String,
-    pub policy_revision: u64,
-    pub session_id: String,
-    pub sequence: u64,
-    pub category: Category,
-    pub kind: String,
-    pub started_at_ms: u64,
-    pub ended_at_ms: u64,
-    pub units: u64,
-    pub evidence_commitment: String,
-    pub signer_public_key_hex: String,
-    pub previous_event_hash: String,
-    pub event_hash: String,
+pub struct SignedDeveloperEventV1 {
+    pub event_envelope_hex: String,
+    pub event_id: String,
+    pub algorithm_revision: u16,
+    pub collector_public_key_hex: String,
     pub signature_hex: String,
 }
 
+impl SignedDeveloperEventV1 {
+    pub fn event(&self) -> Result<DeveloperEventV1, Error> {
+        let bytes = hex::decode(&self.event_envelope_hex).map_err(|_| Error::InvalidEvent)?;
+        decode_envelope(&bytes).map_err(|_| Error::InvalidEvent)
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct ActivityEpoch {
-    pub schema: String,
-    pub project_commitment: String,
-    pub policy_revision: u64,
-    pub first_sequence: u64,
-    pub last_sequence: u64,
-    pub event_count: u32,
-    pub started_at_ms: u64,
-    pub ended_at_ms: u64,
-    pub merkle_root: String,
+pub struct SealedActivityEpochV1 {
+    pub epoch_envelope_hex: String,
+    pub epoch_id: String,
+}
+
+impl SealedActivityEpochV1 {
+    pub fn epoch(&self) -> Result<ActivityEpochV1, Error> {
+        let bytes = hex::decode(&self.epoch_envelope_hex).map_err(|_| Error::InvalidEpoch)?;
+        decode_envelope(&bytes).map_err(|_| Error::InvalidEpoch)
+    }
 }
 
 pub trait EventSigner {
@@ -103,26 +125,31 @@ pub trait EventSigner {
 pub struct Collector {
     path: PathBuf,
     authorization: Authorization,
-    session_id: String,
+    collector_id: Digest384,
+    next_collector_sequence: u64,
+    next_project_sequence: u64,
+    previous_epoch_id: Digest384,
     paused: bool,
-    events: Vec<SignedEvent>,
+    pending_events: Vec<SignedDeveloperEventV1>,
 }
 
 impl Collector {
     pub fn create(
         path: impl Into<PathBuf>,
         authorization: Authorization,
-        session_id: String,
+        signer: &impl EventSigner,
         now_ms: u64,
     ) -> Result<Self, Error> {
         authorization.validate(now_ms)?;
-        bounded(&session_id)?;
         let collector = Self {
             path: path.into(),
             authorization,
-            session_id,
+            collector_id: collector_id(&signer.public_key()),
+            next_collector_sequence: 1,
+            next_project_sequence: 1,
+            previous_epoch_id: Digest384::ZERO,
             paused: false,
-            events: Vec::new(),
+            pending_events: Vec::new(),
         };
         collector.persist()?;
         Ok(collector)
@@ -132,16 +159,28 @@ impl Collector {
         let path = path.into();
         let state: Persisted = serde_json::from_slice(&fs::read(&path)?)?;
         state.authorization.validate(now_ms)?;
-        if state.events.len() > MAX_EVENTS {
+        if state.pending_events.len() > MAX_TELEMETRY_EVENTS {
             return Err(Error::Capacity);
         }
-        validate_chain(&state.events)?;
+        let collector_id = nonzero_digest(&state.collector_id)?;
+        let previous_epoch_id = decode_digest(&state.previous_epoch_id)?;
+        validate_pending(
+            &state.pending_events,
+            collector_id,
+            nonzero_digest(&state.authorization.project_id)?,
+            state.authorization.revision,
+            state.next_collector_sequence,
+            state.next_project_sequence,
+        )?;
         Ok(Self {
             path,
             authorization: state.authorization,
-            session_id: state.session_id,
+            collector_id,
+            next_collector_sequence: state.next_collector_sequence,
+            next_project_sequence: state.next_project_sequence,
+            previous_epoch_id,
             paused: state.paused,
-            events: state.events,
+            pending_events: state.pending_events,
         })
     }
 
@@ -155,97 +194,120 @@ impl Collector {
         self.persist()
     }
 
-    pub fn replace_authorization(
-        &mut self,
-        authorization: Authorization,
-        now_ms: u64,
-    ) -> Result<(), Error> {
-        authorization.validate(now_ms)?;
-        if authorization.revision <= self.authorization.revision
-            || authorization.project_commitment != self.authorization.project_commitment
-            || !self.events.is_empty()
-        {
-            return Err(Error::InvalidAuthorization);
-        }
-        self.authorization = authorization;
-        self.persist()
-    }
-
     pub fn record(
         &mut self,
         input: EventInput,
         signer: &impl EventSigner,
         now_ms: u64,
-    ) -> Result<&SignedEvent, Error> {
+    ) -> Result<&SignedDeveloperEventV1, Error> {
         if self.paused {
             return Err(Error::Paused);
         }
-        if now_ms >= self.authorization.retain_until_ms
+        if now_ms < self.authorization.valid_from_ms
+            || now_ms >= self.authorization.retain_until_ms
             || !self.authorization.categories.contains(&input.category)
         {
             return Err(Error::NotAuthorized);
         }
-        if self.events.len() >= MAX_EVENTS {
+        if self.pending_events.len() >= MAX_TELEMETRY_EVENTS {
             return Err(Error::Capacity);
         }
-        bounded(&input.kind)?;
-        bounded(&input.evidence_commitment)?;
-        if input.ended_at_ms < input.started_at_ms || input.ended_at_ms > now_ms {
+        if input.wall_start_ms > input.wall_end_ms
+            || input.wall_end_ms > now_ms
+            || input.monotonic_start_ns > input.monotonic_end_ns
+            || input.units == 0
+            || collector_id(&signer.public_key()) != self.collector_id
+        {
             return Err(Error::InvalidEvent);
         }
-        let sequence = self.events.last().map_or(1, |event| event.sequence + 1);
-        let previous_event_hash = self
-            .events
-            .last()
-            .map_or_else(|| hex::encode([0_u8; 48]), |event| event.event_hash.clone());
-        let mut event = SignedEvent {
-            schema: "actum.dev.telemetry.event.v1".into(),
-            project_commitment: self.authorization.project_commitment.clone(),
-            policy_revision: self.authorization.revision,
-            session_id: self.session_id.clone(),
-            sequence,
-            category: input.category,
-            kind: input.kind,
-            started_at_ms: input.started_at_ms,
-            ended_at_ms: input.ended_at_ms,
+        let event = DeveloperEventV1 {
+            collector_id: self.collector_id,
+            project_id: nonzero_digest(&self.authorization.project_id)?,
+            collector_sequence: self.next_collector_sequence,
+            project_sequence: self.next_project_sequence,
+            wall_start_ms: input.wall_start_ms,
+            wall_end_ms: input.wall_end_ms,
+            monotonic_start_ns: input.monotonic_start_ns,
+            monotonic_end_ns: input.monotonic_end_ns,
+            kind: input.category.into(),
+            source_commitment: nonzero_digest(&input.source_commitment)?,
+            subject_commitment: nonzero_digest(&input.subject_commitment)?,
+            payload_commitment: nonzero_digest(&input.payload_commitment)?,
             units: input.units,
-            evidence_commitment: input.evidence_commitment,
-            signer_public_key_hex: hex::encode(signer.public_key()),
-            previous_event_hash,
-            event_hash: String::new(),
-            signature_hex: String::new(),
+            authorization_revision: self.authorization.revision,
         };
-        let payload = signing_payload(&event)?;
-        event.event_hash = digest_hex(&payload);
-        event.signature_hex = hex::encode(signer.sign(&payload));
-        self.events.push(event);
-        self.persist()?;
-        Ok(self.events.last().expect("event was just appended"))
+        event.validate().map_err(|_| Error::InvalidEvent)?;
+        let event_id = event.event_id().map_err(|_| Error::InvalidEvent)?;
+        let signed = SignedDeveloperEventV1 {
+            event_envelope_hex: hex::encode(
+                encode_envelope(&event).map_err(|_| Error::InvalidEvent)?,
+            ),
+            event_id: hex::encode(event_id.as_bytes()),
+            algorithm_revision: ML_DSA_ALGORITHM_REVISION,
+            collector_public_key_hex: hex::encode(signer.public_key()),
+            signature_hex: hex::encode(signer.sign(&signature_payload(event_id))),
+        };
+        verify_event(&signed)?;
+        self.pending_events.push(signed);
+        if let Err(error) = self.persist_with_next_sequences() {
+            self.pending_events.pop();
+            return Err(error);
+        }
+        self.next_collector_sequence += 1;
+        self.next_project_sequence += 1;
+        Ok(self.pending_events.last().expect("event was appended"))
     }
 
-    pub fn epoch(&self) -> Result<ActivityEpoch, Error> {
-        let first = self.events.first().ok_or(Error::EmptyEpoch)?;
-        let last = self.events.last().ok_or(Error::EmptyEpoch)?;
-        let leaves = self
-            .events
+    pub fn seal_epoch(&mut self) -> Result<SealedActivityEpochV1, Error> {
+        let events = self
+            .pending_events
             .iter()
-            .map(|event| decode_digest(&event.event_hash))
+            .map(SignedDeveloperEventV1::event)
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(ActivityEpoch {
-            schema: "actum.dev.telemetry.epoch.v1".into(),
-            project_commitment: self.authorization.project_commitment.clone(),
-            policy_revision: self.authorization.revision,
-            first_sequence: first.sequence,
-            last_sequence: last.sequence,
-            event_count: u32::try_from(self.events.len()).map_err(|_| Error::Capacity)?,
-            started_at_ms: first.started_at_ms,
-            ended_at_ms: last.ended_at_ms,
-            merkle_root: hex::encode(merkle_root(leaves)),
-        })
+        let first = events.first().ok_or(Error::EmptyEpoch)?;
+        let last = events.last().ok_or(Error::EmptyEpoch)?;
+        let event_ids = events
+            .iter()
+            .map(|event| event.event_id().map_err(|_| Error::InvalidEvent))
+            .collect::<Result<Vec<_>, _>>()?;
+        let epoch = ActivityEpochV1 {
+            collector_id: self.collector_id,
+            project_id: nonzero_digest(&self.authorization.project_id)?,
+            first_collector_sequence: first.collector_sequence,
+            last_collector_sequence: last.collector_sequence,
+            first_project_sequence: first.project_sequence,
+            last_project_sequence: last.project_sequence,
+            event_count: u32::try_from(events.len()).map_err(|_| Error::Capacity)?,
+            wall_start_ms: events.iter().map(|event| event.wall_start_ms).min().unwrap(),
+            wall_end_ms: events.iter().map(|event| event.wall_end_ms).max().unwrap(),
+            monotonic_start_ns: events.iter().map(|event| event.monotonic_start_ns).min().unwrap(),
+            monotonic_end_ns: events.iter().map(|event| event.monotonic_end_ns).max().unwrap(),
+            event_root: telemetry_merkle_root(&event_ids).map_err(|_| Error::InvalidEpoch)?,
+            previous_epoch_id: self.previous_epoch_id,
+            authorization_revision: self.authorization.revision,
+            policy_id: nonzero_digest(&self.authorization.policy_id)?,
+        };
+        epoch.validate().map_err(|_| Error::InvalidEpoch)?;
+        let epoch_id = epoch.epoch_id().map_err(|_| Error::InvalidEpoch)?;
+        let sealed = SealedActivityEpochV1 {
+            epoch_envelope_hex: hex::encode(
+                encode_envelope(&epoch).map_err(|_| Error::InvalidEpoch)?,
+            ),
+            epoch_id: hex::encode(epoch_id.as_bytes()),
+        };
+        let prior_events = core::mem::take(&mut self.pending_events);
+        let prior_epoch_id = self.previous_epoch_id;
+        self.previous_epoch_id = epoch_id;
+        if let Err(error) = self.persist() {
+            self.pending_events = prior_events;
+            self.previous_epoch_id = prior_epoch_id;
+            return Err(error);
+        }
+        Ok(sealed)
     }
 
     pub fn export(&self, destination: impl AsRef<Path>) -> Result<(), Error> {
-        atomic_write(destination.as_ref(), &serde_json::to_vec_pretty(&self.events)?)?;
+        atomic_write(destination.as_ref(), &serde_json::to_vec_pretty(&self.pending_events)?)?;
         Ok(())
     }
 
@@ -253,106 +315,120 @@ impl Collector {
         if now_ms < self.authorization.retain_until_ms {
             return Ok(0);
         }
-        let removed = self.events.len();
-        self.events.clear();
+        let removed = self.pending_events.len();
+        self.pending_events.clear();
         self.persist()?;
         Ok(removed)
     }
 
-    pub fn delete(mut self) -> Result<(), Error> {
-        self.events.clear();
-        match fs::remove_file(&self.path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error.into()),
-        }
+    pub fn events(&self) -> &[SignedDeveloperEventV1] {
+        &self.pending_events
     }
 
-    pub fn events(&self) -> &[SignedEvent] {
-        &self.events
+    fn persist_with_next_sequences(&self) -> Result<(), Error> {
+        self.persist_values(self.next_collector_sequence + 1, self.next_project_sequence + 1)
     }
 
     fn persist(&self) -> Result<(), Error> {
+        self.persist_values(self.next_collector_sequence, self.next_project_sequence)
+    }
+
+    fn persist_values(
+        &self,
+        next_collector_sequence: u64,
+        next_project_sequence: u64,
+    ) -> Result<(), Error> {
         let state = Persisted {
             authorization: self.authorization.clone(),
-            session_id: self.session_id.clone(),
+            collector_id: hex::encode(self.collector_id.as_bytes()),
+            next_collector_sequence,
+            next_project_sequence,
+            previous_epoch_id: hex::encode(self.previous_epoch_id.as_bytes()),
             paused: self.paused,
-            events: self.events.clone(),
+            pending_events: self.pending_events.clone(),
         };
         atomic_write(&self.path, &serde_json::to_vec_pretty(&state)?)?;
         Ok(())
     }
 }
 
-pub fn verify_event(event: &SignedEvent, public_key: &[u8]) -> Result<(), Error> {
-    let payload = signing_payload(event)?;
-    if digest_hex(&payload) != event.event_hash {
-        return Err(Error::InvalidChain);
+pub fn verify_event(signed: &SignedDeveloperEventV1) -> Result<(), Error> {
+    if signed.algorithm_revision != ML_DSA_ALGORITHM_REVISION {
+        return Err(Error::InvalidSignature);
+    }
+    let event = signed.event()?;
+    let event_id = event.event_id().map_err(|_| Error::InvalidEvent)?;
+    if signed.event_id != hex::encode(event_id.as_bytes()) {
+        return Err(Error::InvalidEvent);
+    }
+    let public_key =
+        hex::decode(&signed.collector_public_key_hex).map_err(|_| Error::InvalidKey)?;
+    if collector_id(&public_key) != event.collector_id {
+        return Err(Error::InvalidKey);
     }
     let key: EncodedVerifyingKey<MlDsa44> = public_key.try_into().map_err(|_| Error::InvalidKey)?;
-    let signature_bytes = hex::decode(&event.signature_hex).map_err(|_| Error::InvalidSignature)?;
+    let signature_bytes =
+        hex::decode(&signed.signature_hex).map_err(|_| Error::InvalidSignature)?;
     let signature: EncodedSignature<MlDsa44> =
         signature_bytes.as_slice().try_into().map_err(|_| Error::InvalidSignature)?;
     let key = VerifyingKey::<MlDsa44>::decode(&key);
     let signature = Signature::<MlDsa44>::decode(&signature).ok_or(Error::InvalidSignature)?;
-    key.verify(&payload, &signature).map_err(|_| Error::InvalidSignature)
+    key.verify(&signature_payload(event_id), &signature).map_err(|_| Error::InvalidSignature)
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct Persisted {
     authorization: Authorization,
-    session_id: String,
+    collector_id: String,
+    next_collector_sequence: u64,
+    next_project_sequence: u64,
+    previous_epoch_id: String,
     paused: bool,
-    events: Vec<SignedEvent>,
+    pending_events: Vec<SignedDeveloperEventV1>,
 }
 
-fn signing_payload(event: &SignedEvent) -> Result<Vec<u8>, Error> {
-    let mut unsigned = event.clone();
-    unsigned.event_hash.clear();
-    unsigned.signature_hex.clear();
-    let json = serde_json::to_vec(&unsigned)?;
-    let mut payload = Vec::with_capacity(TRANSCRIPT.len() + 4 + json.len());
-    payload.extend_from_slice(TRANSCRIPT);
-    payload.extend_from_slice(&EVENT_TYPE_TAG.to_be_bytes());
-    payload.extend_from_slice(&1_u16.to_be_bytes());
-    payload.extend_from_slice(&json);
-    Ok(payload)
-}
-
-fn validate_chain(events: &[SignedEvent]) -> Result<(), Error> {
-    let mut previous = hex::encode([0_u8; 48]);
-    for (index, event) in events.iter().enumerate() {
-        if event.sequence != u64::try_from(index + 1).map_err(|_| Error::Capacity)?
-            || event.previous_event_hash != previous
-            || digest_hex(&signing_payload(event)?) != event.event_hash
+fn validate_pending(
+    events: &[SignedDeveloperEventV1],
+    collector_id: Digest384,
+    project_id: Digest384,
+    authorization_revision: u32,
+    next_collector_sequence: u64,
+    next_project_sequence: u64,
+) -> Result<(), Error> {
+    let collector_start =
+        next_collector_sequence.checked_sub(events.len() as u64).ok_or(Error::InvalidChain)?;
+    let project_start =
+        next_project_sequence.checked_sub(events.len() as u64).ok_or(Error::InvalidChain)?;
+    for (index, signed) in events.iter().enumerate() {
+        verify_event(signed)?;
+        let event = signed.event()?;
+        let offset = index as u64;
+        if event.collector_id != collector_id
+            || event.project_id != project_id
+            || event.authorization_revision != authorization_revision
+            || event.collector_sequence != collector_start + offset
+            || event.project_sequence != project_start + offset
         {
             return Err(Error::InvalidChain);
         }
-        let public_key =
-            hex::decode(&event.signer_public_key_hex).map_err(|_| Error::InvalidKey)?;
-        verify_event(event, &public_key)?;
-        previous.clone_from(&event.event_hash);
     }
     Ok(())
 }
 
-fn merkle_root(mut level: Vec<[u8; 48]>) -> [u8; 48] {
-    while level.len() > 1 {
-        if level.len() % 2 == 1 {
-            level.push(*level.last().expect("non-empty level"));
-        }
-        level = level
-            .chunks_exact(2)
-            .map(|pair| {
-                let mut transcript = Vec::with_capacity(98);
-                transcript.extend_from_slice(&EPOCH_TYPE_TAG.to_be_bytes());
-                transcript.extend_from_slice(&pair[0]);
-                transcript.extend_from_slice(&pair[1]);
-                digest(&transcript)
-            })
-            .collect();
-    }
-    level[0]
+fn collector_id(public_key: &[u8]) -> Digest384 {
+    let mut hasher = Sha3_384::new();
+    hasher.update(COLLECTOR_KEY_DOMAIN);
+    hasher.update(ML_DSA_ALGORITHM_REVISION.to_be_bytes());
+    hasher.update(public_key);
+    Digest384::new(hasher.finalize().into())
+}
+
+fn signature_payload(event_id: Digest384) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(EVENT_SIGNATURE_DOMAIN.len() + 2 + 48);
+    payload.extend_from_slice(EVENT_SIGNATURE_DOMAIN);
+    payload.extend_from_slice(&ML_DSA_ALGORITHM_REVISION.to_be_bytes());
+    payload.extend_from_slice(event_id.as_bytes());
+    payload
 }
 
 fn bounded(value: &str) -> Result<(), Error> {
@@ -362,16 +438,20 @@ fn bounded(value: &str) -> Result<(), Error> {
     Ok(())
 }
 
-fn digest(bytes: &[u8]) -> [u8; 48] {
-    Sha3_384::digest(bytes).into()
+fn nonzero_digest(value: &str) -> Result<Digest384, Error> {
+    let digest = decode_digest(value)?;
+    if digest == Digest384::ZERO {
+        return Err(Error::InvalidDigest);
+    }
+    Ok(digest)
 }
 
-fn digest_hex(bytes: &[u8]) -> String {
-    hex::encode(digest(bytes))
-}
-
-fn decode_digest(value: &str) -> Result<[u8; 48], Error> {
-    hex::decode(value).map_err(|_| Error::InvalidChain)?.try_into().map_err(|_| Error::InvalidChain)
+fn decode_digest(value: &str) -> Result<Digest384, Error> {
+    let bytes: [u8; 48] = hex::decode(value)
+        .map_err(|_| Error::InvalidDigest)?
+        .try_into()
+        .map_err(|_| Error::InvalidDigest)?;
+    Ok(Digest384::new(bytes))
 }
 
 fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
@@ -391,6 +471,8 @@ pub enum Error {
     Json(serde_json::Error),
     InvalidAuthorization,
     InvalidEvent,
+    InvalidEpoch,
+    InvalidDigest,
     InvalidText,
     NotAuthorized,
     Paused,
@@ -406,7 +488,6 @@ impl From<io::Error> for Error {
         Self::Io(value)
     }
 }
-
 impl From<serde_json::Error> for Error {
     fn from(value: serde_json::Error) -> Self {
         Self::Json(value)
@@ -420,144 +501,131 @@ mod tests {
     use tempfile::tempdir;
 
     struct TestSigner(SigningKey<MlDsa44>);
-
     impl EventSigner for TestSigner {
         fn sign(&self, payload: &[u8]) -> Vec<u8> {
             self.0.sign(payload).to_bytes().to_vec()
         }
-
         fn public_key(&self) -> Vec<u8> {
             self.0.verifying_key().encode().as_slice().to_vec()
         }
     }
 
+    fn d(byte: u8) -> String {
+        hex::encode([byte; 48])
+    }
     fn authorization() -> Authorization {
         Authorization {
-            revision: 1,
-            project_commitment: "project-commitment".into(),
+            revision: 7,
+            project_id: d(2),
+            policy_id: d(3),
             purpose: "developer contribution proof".into(),
             categories: [Category::BuildTest].into_iter().collect(),
+            valid_from_ms: 1,
             retain_until_ms: 10_000,
         }
     }
-
-    fn input(sequence: u64) -> EventInput {
+    fn input(index: u64) -> EventInput {
         EventInput {
             category: Category::BuildTest,
-            kind: "test.completed".into(),
-            started_at_ms: 100 + sequence,
-            ended_at_ms: 110 + sequence,
-            units: 1,
-            evidence_commitment: format!("evidence-{sequence}"),
+            wall_start_ms: 100 + index,
+            wall_end_ms: 200 + index,
+            monotonic_start_ns: 1_000 + index * 20,
+            monotonic_end_ns: 1_010 + index * 20,
+            units: index,
+            source_commitment: d(4),
+            subject_commitment: d(5),
+            payload_commitment: d(index as u8 + 5),
         }
     }
-
     fn setup() -> (tempfile::TempDir, PathBuf, TestSigner) {
         let directory = tempdir().unwrap();
-        let path = directory.path().join("journal.json");
+        let path = directory.path().join("collector.json");
         let signer = TestSigner(SigningKey::from_seed(&Seed::from([7; 32])));
         (directory, path, signer)
     }
 
     #[test]
-    fn records_authorized_signed_events_and_builds_stable_epoch() {
-        let (_directory, path, signer) = setup();
-        let mut collector =
-            Collector::create(&path, authorization(), "session-1".into(), 1).unwrap();
+    fn records_canonical_events_and_persists_both_sequences() {
+        let (_dir, path, signer) = setup();
+        let mut collector = Collector::create(&path, authorization(), &signer, 1).unwrap();
         collector.record(input(1), &signer, 1_000).unwrap();
         collector.record(input(2), &signer, 1_000).unwrap();
-
-        let reopened = Collector::open(&path, 1_000).unwrap();
-        assert_eq!(collector.epoch().unwrap(), reopened.epoch().unwrap());
-        for event in reopened.events() {
-            verify_event(event, signer.0.verifying_key().encode().as_slice()).unwrap();
-        }
+        let reopened = Collector::open(path, 1_000).unwrap();
+        let first = reopened.events()[0].event().unwrap();
+        let second = reopened.events()[1].event().unwrap();
+        assert_eq!((first.collector_sequence, first.project_sequence), (1, 1));
+        assert_eq!((second.collector_sequence, second.project_sequence), (2, 2));
+        assert_eq!(first.duration_ns(), 10);
     }
 
     #[test]
-    fn rejects_unapproved_category_and_paused_collection() {
-        let (_directory, path, signer) = setup();
-        let mut collector =
-            Collector::create(path, authorization(), "session-1".into(), 1).unwrap();
-        let mut denied = input(1);
-        denied.category = Category::ModelUsage;
-        assert!(matches!(collector.record(denied, &signer, 1_000), Err(Error::NotAuthorized)));
+    fn sealing_advances_canonical_epoch_lineage_across_restart() {
+        let (_dir, path, signer) = setup();
+        let mut collector = Collector::create(&path, authorization(), &signer, 1).unwrap();
+        collector.record(input(1), &signer, 1_000).unwrap();
+        collector.record(input(2), &signer, 1_000).unwrap();
+        let first = collector.seal_epoch().unwrap();
+        let first_id = decode_digest(&first.epoch_id).unwrap();
+        let mut reopened = Collector::open(&path, 1_000).unwrap();
+        reopened.record(input(3), &signer, 1_000).unwrap();
+        let second = reopened.seal_epoch().unwrap().epoch().unwrap();
+        assert_eq!(second.previous_epoch_id, first_id);
+        assert_eq!((second.first_collector_sequence, second.first_project_sequence), (3, 3));
+    }
+
+    #[test]
+    fn wall_clock_does_not_determine_duration() {
+        let (_dir, path, signer) = setup();
+        let mut collector = Collector::create(path, authorization(), &signer, 1).unwrap();
+        let mut event = input(1);
+        event.wall_start_ms = 10;
+        event.wall_end_ms = 900;
+        event.monotonic_start_ns = 100;
+        event.monotonic_end_ns = 107;
+        collector.record(event, &signer, 1_000).unwrap();
+        assert_eq!(collector.events()[0].event().unwrap().duration_ns(), 7);
+    }
+
+    #[test]
+    fn rejects_tampering_wrong_signer_and_inverted_monotonic_range() {
+        let (_dir, path, signer) = setup();
+        let other = TestSigner(SigningKey::from_seed(&Seed::from([8; 32])));
+        let mut collector = Collector::create(&path, authorization(), &signer, 1).unwrap();
+        assert!(matches!(collector.record(input(1), &other, 1_000), Err(Error::InvalidEvent)));
+        let mut inverted = input(1);
+        inverted.monotonic_end_ns = inverted.monotonic_start_ns - 1;
+        assert!(matches!(collector.record(inverted, &signer, 1_000), Err(Error::InvalidEvent)));
+        collector.record(input(1), &signer, 1_000).unwrap();
+        let mut state: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        state["pending_events"][0]["event_id"] = d(9).into();
+        fs::write(&path, serde_json::to_vec(&state).unwrap()).unwrap();
+        assert!(Collector::open(path, 1_000).is_err());
+    }
+
+    #[test]
+    fn pause_and_authorization_are_fail_closed() {
+        let (_dir, path, signer) = setup();
+        let mut collector = Collector::create(path, authorization(), &signer, 1).unwrap();
         collector.pause().unwrap();
         assert!(matches!(collector.record(input(1), &signer, 1_000), Err(Error::Paused)));
     }
 
     #[test]
-    fn rejects_tampered_journal_chain() {
-        let (_directory, path, signer) = setup();
-        let mut collector =
-            Collector::create(&path, authorization(), "session-1".into(), 1).unwrap();
-        collector.record(input(1), &signer, 1_000).unwrap();
-        let mut value: serde_json::Value =
-            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-        value["events"][0]["units"] = 999.into();
-        fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
-        assert!(matches!(Collector::open(path, 1_000), Err(Error::InvalidChain)));
-    }
-
-    #[test]
-    fn rejects_a_valid_hash_chain_with_a_substituted_signature() {
-        let (_directory, path, signer) = setup();
-        let mut collector =
-            Collector::create(&path, authorization(), "session-1".into(), 1).unwrap();
-        collector.record(input(1), &signer, 1_000).unwrap();
-        let mut value: serde_json::Value =
-            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-        value["events"][0]["signature_hex"] = hex::encode(vec![0_u8; 2_420]).into();
-        fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
-        assert!(matches!(Collector::open(path, 1_000), Err(Error::InvalidSignature)));
-    }
-
-    #[test]
-    fn expires_and_deletes_local_evidence() {
-        let (directory, path, signer) = setup();
-        let mut collector =
-            Collector::create(&path, authorization(), "session-1".into(), 1).unwrap();
-        collector.record(input(1), &signer, 1_000).unwrap();
-        assert_eq!(collector.purge_expired(10_000).unwrap(), 1);
-        assert!(collector.events().is_empty());
-        collector.delete().unwrap();
-        assert!(!path.exists());
-        drop(directory);
-    }
-
-    #[test]
-    fn policy_revision_must_increase_and_remain_project_bound() {
-        let (_directory, path, _signer) = setup();
-        let mut collector =
-            Collector::create(path, authorization(), "session-1".into(), 1).unwrap();
-        assert!(matches!(
-            collector.replace_authorization(authorization(), 2),
-            Err(Error::InvalidAuthorization)
-        ));
-        let mut replacement = authorization();
-        replacement.revision = 2;
-        replacement.project_commitment = "another-project".into();
-        assert!(matches!(
-            collector.replace_authorization(replacement, 2),
-            Err(Error::InvalidAuthorization)
-        ));
-
-        let mut valid_replacement = authorization();
-        valid_replacement.revision = 2;
-        collector.replace_authorization(valid_replacement, 2).unwrap();
-    }
-
-    #[test]
-    fn policy_revision_requires_a_new_journal_after_collection_starts() {
-        let (_directory, path, signer) = setup();
-        let mut collector =
-            Collector::create(path, authorization(), "session-1".into(), 1).unwrap();
-        collector.record(input(1), &signer, 1_000).unwrap();
-        let mut replacement = authorization();
-        replacement.revision = 2;
-        assert!(matches!(
-            collector.replace_authorization(replacement, 2),
-            Err(Error::InvalidAuthorization)
-        ));
+    fn fixed_seed_reproduces_the_published_canonical_vector() {
+        let published: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../testing/vectors/developer-telemetry-canonical-v1.json"
+        ))
+        .unwrap();
+        let (_dir, path, signer) = setup();
+        let mut collector = Collector::create(path, authorization(), &signer, 1).unwrap();
+        for index in 1..=3 {
+            collector.record(input(index), &signer, 1_000).unwrap();
+        }
+        assert_eq!(published["events"], serde_json::to_value(collector.events()).unwrap());
+        assert_eq!(
+            published["epoch"],
+            serde_json::to_value(collector.seal_epoch().unwrap()).unwrap()
+        );
     }
 }

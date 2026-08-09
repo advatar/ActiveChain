@@ -8,6 +8,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = ROOT / "testing/schemas/developer-telemetry-v1.schema.json"
 VECTOR = ROOT / "testing/vectors/developer-telemetry-v1.json"
+CANONICAL_VECTOR = ROOT / "testing/vectors/developer-telemetry-canonical-v1.json"
 GUIDE = ROOT / "docs/POW_APP_INTEGRATION_V1.md"
 CONTRACT = ROOT / "docs/DEVELOPER_TELEMETRY_V1.md"
 THREAT = ROOT / "docs/DEVELOPER_TELEMETRY_THREAT_MODEL_V1.md"
@@ -19,6 +20,11 @@ def require_digest(value: str) -> None:
 
 schema = json.loads(SCHEMA.read_text())
 vector = json.loads(VECTOR.read_text())
+canonical_vector = json.loads(CANONICAL_VECTOR.read_text())
+assert canonical_vector["profile"] == "actum.developer-telemetry.canonical.v1"
+assert len(canonical_vector["events"]) == 3
+assert canonical_vector["epoch"]["epoch_envelope_hex"]
+assert canonical_vector["epoch"]["epoch_id"]
 assert schema["$id"] == "https://actum.network/schemas/developer-telemetry-v1.schema.json"
 assert vector["profile"] == "actum.developer-telemetry.v1"
 assert set(schema["$defs"]) == {
