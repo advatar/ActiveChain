@@ -45,6 +45,7 @@ jobs:
           cp target/release/activechain-rpc-bootstrap dist/kanalen/bin/
           cp target/release/activechain-rpc-ingest dist/kanalen/bin/
           cp target/release/activechain-rpc-probe dist/kanalen/bin/
+          cp target/release/activechain-telemetry-anchor-gateway dist/kanalen/bin/
           cp target/release/activechain-wallet dist/kanalen/bin/
           cp target/release/activechain-faucet dist/kanalen/bin/
           cp target/release/libactivechain_wallet_ffi.* dist/kanalen/lib/ 2>/dev/null || true

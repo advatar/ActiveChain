@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.activechain.kanalen.anchor</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/current/bin/activechain-telemetry-anchor-gateway</string>
+    <string>127.0.0.1:49156</string>
+    <string>127.0.0.1:49151</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/johansellstrom</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ACTUM_ANCHOR_BEARER_TOKEN_FILE</key>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/anchor/bearer.token</string>
+    <key>ACTUM_ANCHOR_IDEMPOTENCY_JOURNAL</key>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/anchor/idempotency.journal</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/johansellstrom/Library/Logs/ActiveChain/anchor.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/johansellstrom/Library/Logs/ActiveChain/anchor.err.log</string>
+</dict>
+</plist>
