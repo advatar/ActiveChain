@@ -72,7 +72,7 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Implement class-specific Attention, Compute, and Contribution arithmetic.
     - [x] Add class-neutral usage nullifiers and adversarial relation coverage.
     - [x] Regenerate proof/image/receipt vectors and pass the exact full gate.
-  - [ ] Expose bounded verification APIs, SDKs, and explorer DTOs (#777).
+  - [ ] Expose bounded verification APIs, SDKs, and explorer DTOs (#777; claimed on `feat/777-work-proof-verifier-api`).
   - [ ] Qualify and document the complete `pow.actum.network` integration (#778).
 
 ## Verifier C header and Apple distribution reconciliation
