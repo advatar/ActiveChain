@@ -25,6 +25,7 @@ mod receipt_nullifier;
 mod sponsored_cash;
 mod telemetry;
 mod telemetry_anchor;
+mod trust_bundle;
 
 #[cfg(feature = "std")]
 pub use anchor::DurableAnchorRegistry;
@@ -80,6 +81,11 @@ pub use telemetry::{
 };
 pub use telemetry_anchor::{
     TELEMETRY_EPOCH_ANCHOR_DOMAIN, TelemetryEpochAnchorRequestV1, telemetry_epoch_anchor_statement,
+};
+pub use trust_bundle::{
+    ActumVerifierTrustBundleV1, SignedActumVerifierTrustBundleV1, TrustBundleError,
+    TrustBundleSignatureV1, TrustSignatureAlgorithmV1, TrustSignerSetV1, TrustSignerV1,
+    verify_trust_bundle_bootstrap, verify_trust_bundle_transition,
 };
 
 use activechain_canonical_codec::{
