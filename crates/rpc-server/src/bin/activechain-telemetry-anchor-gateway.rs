@@ -62,7 +62,10 @@ fn serve(
     token: &[u8],
     journal: &mut IdempotencyJournal,
 ) -> Result<(), &'static str> {
-    let request = read_request(stream)?;
+    let request = match read_request(stream) {
+        Ok(request) => request,
+        Err(_) => return write_error(stream, 400, "invalid_request"),
+    };
     let Some(supplied) = request.authorization.strip_prefix(b"Bearer ") else {
         return write_error(stream, 401, "unauthorized");
     };
@@ -294,10 +297,19 @@ fn read_request(stream: &mut TcpStream) -> Result<HttpRequest, &'static str> {
                 return Err("duplicate authorization");
             }
         } else if name.eq_ignore_ascii_case(b"x-actum-request-id") {
+            if !request_id.is_empty() {
+                return Err("duplicate request id");
+            }
             request_id = value.to_vec();
         } else if name.eq_ignore_ascii_case(b"content-type") {
+            if !content_type.is_empty() {
+                return Err("duplicate content type");
+            }
             content_type = value.to_vec();
         } else if name.eq_ignore_ascii_case(b"content-length") {
+            if content_length.is_some() {
+                return Err("duplicate content length");
+            }
             let text = std::str::from_utf8(value).map_err(|_| "invalid content length")?;
             content_length = Some(text.parse::<usize>().map_err(|_| "invalid content length")?);
         } else if name.eq_ignore_ascii_case(b"transfer-encoding") {
@@ -570,6 +582,17 @@ mod tests {
             .unwrap();
         client.shutdown(Shutdown::Write).unwrap();
         assert!(server.join().unwrap().is_err());
+    }
+
+    #[test]
+    fn duplicate_content_length_is_a_bounded_bad_request() {
+        let response = exercise(
+            "127.0.0.1:1",
+            b"POST /v1/anchors HTTP/1.1\r\nAuthorization: Bearer abcdefghijklmnopqrstuvwxyz012345\r\nContent-Length: 0\r\nContent-Length: 0\r\n\r\n".to_vec(),
+            b"abcdefghijklmnopqrstuvwxyz012345",
+        );
+        assert!(response.starts_with("HTTP/1.1 400 Bad Request"));
+        assert!(response.contains("\"code\":\"invalid_request\""));
     }
 
     fn exercise(rpc: &str, request: Vec<u8>, token: &[u8]) -> String {
