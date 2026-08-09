@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import subprocess
 import unittest
 
 
@@ -34,6 +35,28 @@ class KernelWorkflowPolicyTests(unittest.TestCase):
         incomplete = WORKFLOW.replace(", vectors]", "]", 1)
         with self.assertRaisesRegex(ValueError, "complete stage set"):
             POLICY.validate(incomplete)
+
+    def classify(self, full: bool, *paths: str) -> dict[str, str]:
+        result = subprocess.run(
+            ["bash", str(ROOT / "scripts" / "classify-kernel-change-scope.sh"), str(full).lower()],
+            input="\n".join(paths) + "\n",
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        return dict(line.split("=", 1) for line in result.stdout.splitlines())
+
+    def test_documentation_change_uses_no_arm64_stage(self) -> None:
+        scope = self.classify(False, "docs/example.md")
+        self.assertEqual({value for key, value in scope.items() if key != "full"}, {"false"})
+
+    def test_ci_core_change_selects_every_stage(self) -> None:
+        scope = self.classify(False, ".github/workflows/kernel.yml")
+        self.assertEqual({value for key, value in scope.items() if key != "full"}, {"true"})
+
+    def test_full_qualification_selects_every_stage(self) -> None:
+        scope = self.classify(True, "docs/example.md")
+        self.assertEqual(set(scope.values()), {"true"})
 
 
 if __name__ == "__main__":

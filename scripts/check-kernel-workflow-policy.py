@@ -26,6 +26,7 @@ MANDATORY_COMMANDS = (
     "cargo fmt --all --check",
     "python3 scripts/check-type-tag-registry.py",
     "python3 scripts/check-independent-client-budget.py",
+    'bash scripts/classify-kernel-change-scope.sh "$full"',
     "go test ./...",
     "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
     "cargo check --locked --target aarch64-apple-ios --lib",
