@@ -24,6 +24,7 @@ mod receipt_nullifier;
 #[cfg(feature = "std")]
 mod sponsored_cash;
 mod telemetry;
+mod telemetry_anchor;
 
 #[cfg(feature = "std")]
 pub use anchor::DurableAnchorRegistry;
@@ -76,6 +77,9 @@ pub use sponsored_cash::{
 pub use telemetry::{
     ActivityEpochV1, DeveloperEventKindV1, DeveloperEventV1, MAX_TELEMETRY_EVENTS,
     TelemetryPrimitiveError, event_leaf_hash, event_node_hash, telemetry_merkle_root,
+};
+pub use telemetry_anchor::{
+    TELEMETRY_EPOCH_ANCHOR_DOMAIN, TelemetryEpochAnchorRequestV1, telemetry_epoch_anchor_statement,
 };
 
 use activechain_canonical_codec::{
