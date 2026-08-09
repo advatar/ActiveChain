@@ -58,6 +58,10 @@ class KernelWorkflowPolicyTests(unittest.TestCase):
         scope = self.classify(True, "docs/example.md")
         self.assertEqual(set(scope.values()), {"true"})
 
+    def test_kanalen_probe_change_selects_runtime(self) -> None:
+        scope = self.classify(False, "scripts/test_probe_kanalen_rpc.py")
+        self.assertEqual(scope["runtime"], "true")
+
 
 if __name__ == "__main__":
     unittest.main()

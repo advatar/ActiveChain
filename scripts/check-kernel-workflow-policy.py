@@ -50,6 +50,7 @@ MANDATORY_COMMANDS = (
     "bash scripts/rehearse-validator-key-rotation.sh",
     "bash scripts/test-kanalen-round-cash-gate.sh",
     "bash scripts/test-qualify-kanalen-local.sh",
+    "python3 scripts/test_probe_kanalen_rpc.py",
 )
 
 

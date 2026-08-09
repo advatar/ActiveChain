@@ -11,7 +11,7 @@ changed=$(cat)
 source='^(Cargo\.(toml|lock)|rust-toolchain.*|crates/|tools/|examples/|scripts/.*\.(rs|sh|py)|\.cargo/)'
 protocol='^(Cargo\.(toml|lock)|crates/|formal/|testing/|scripts/check-(proof|formal|kani|type-tag|independent-client))'
 distribution='^(Cargo\.(toml|lock)|crates/(verifier|wallet|apple|protocol|canonical)|distribution/apple/|scripts/(build|check)-apple|tools/apple-distribution/)'
-runtime='^(Cargo\.(toml|lock)|crates/(consensus|validator|rpc|cash|storage|testnet|application)|deploy/|scripts/(rehearse|test-kanalen|test-qualify-kanalen))'
+runtime='^(Cargo\.(toml|lock)|crates/(consensus|validator|rpc|cash|storage|testnet|application)|deploy/|scripts/(rehearse|test-kanalen|test-qualify-kanalen|test_probe_kanalen))'
 vectors='^(Cargo\.(toml|lock)|crates/(vector|semantic|application|protocol|canonical)|formal/lean/|testing/vectors/)'
 ci_core='^\.github/(workflows/kernel.yml|actions/kernel-setup/)'
 
