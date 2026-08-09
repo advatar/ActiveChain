@@ -2,6 +2,19 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Reusable finalized-payment verifier service
+
+Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786).
+
+- [ ] Define a bounded, versioned application authorization request that composes canonical payment
+  intent, finalized settlement, finality bundle, and block receipt verification.
+- [ ] Implement an authenticated HTTP verifier service with trusted-genesis configuration,
+  application/audience/context binding, health/readiness, and fail-closed errors.
+- [ ] Add malformed, substitution, finality, replay-binding, and transport qualification tests plus
+  a Docker-local service image for dependent applications.
+- [ ] Integrate the service with ZeroK, pass targeted and deterministic-kernel gates, merge to
+  `main`, and verify reachability from `origin/main`.
+
 ## Active initiative — Verifiable developer telemetry
 
 - [ ] Deliver the protocol and integration contract promised by `pow.actum.network`
