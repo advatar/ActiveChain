@@ -235,7 +235,10 @@ pub fn telemetry_epoch_anchor_statement(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{AnchorFinalizedEvidenceV1, AnchorRegistry};
     use activechain_canonical_codec::{decode_envelope, encode_envelope};
+    use activechain_protocol_types::{ChainId, TransactionId};
+    use alloc::vec;
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
@@ -316,6 +319,73 @@ mod tests {
                 digest(7),
                 b"contains space".to_vec(),
                 epoch(),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn checkpointed_evidence_round_trips_and_rejects_height_substitution() {
+        let request = TelemetryEpochAnchorRequestV1::new(
+            digest(5),
+            digest(6),
+            1,
+            digest(7),
+            b"anchor-request-1".to_vec(),
+            epoch(),
+        )
+        .unwrap();
+        let statement = request.statement().unwrap();
+        let mut registry = AnchorRegistry::default();
+        let reference = registry.submit(statement.clone()).unwrap();
+        registry
+            .finalize(
+                reference,
+                AnchorFinalizedEvidenceV1::new(
+                    ChainId::new(request.chain_id),
+                    request.genesis_commitment,
+                    TransactionId::new(digest(8)),
+                    10,
+                    digest(9),
+                    statement,
+                    None,
+                    None,
+                    1,
+                    1,
+                    vec![1],
+                    vec![2],
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let record = registry.resolve(reference).unwrap().clone();
+        let evidence = CheckpointedTelemetryAnchorEvidenceV1::new(
+            request.clone(),
+            reference,
+            record.clone(),
+            digest(10),
+            11,
+            digest(11),
+            digest(12),
+            vec![3],
+        )
+        .unwrap();
+        assert_eq!(
+            decode_envelope::<CheckpointedTelemetryAnchorEvidenceV1>(
+                &encode_envelope(&evidence).unwrap()
+            ),
+            Ok(evidence)
+        );
+        assert!(
+            CheckpointedTelemetryAnchorEvidenceV1::new(
+                request,
+                reference,
+                record,
+                digest(10),
+                9,
+                digest(11),
+                digest(12),
+                vec![3],
             )
             .is_err()
         );
