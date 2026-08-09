@@ -144,7 +144,7 @@ def anchor_bearer():
     path=Path(raw).expanduser()
     if path.is_symlink() or not path.is_file() or path.stat().st_mode & 0o077: raise RuntimeError("anchor authentication rejected")
     token=path.read_bytes().rstrip(b"\r\n")
-    if not 32<=len(token)<=256 or any(byte>0x7f or chr(byte).isspace() for byte in token): raise RuntimeError("anchor authentication rejected")
+    if not 32<=len(token)<=256 or any(not 0x21<=byte<=0x7e for byte in token): raise RuntimeError("anchor authentication rejected")
     return token.decode("ascii")
 
 def post_artifact(name,args,env_name,lifecycle):

@@ -71,6 +71,8 @@ class TelemetryPluginTests(unittest.TestCase):
         token.chmod(0o640)
         args["request_id"]="anchor-2"
         with self.assertRaises(RuntimeError): module.call("work.anchor",args)
+        token.write_bytes(b"a"*31+b"\0"); token.chmod(0o600); args["request_id"]="anchor-3"
+        with self.assertRaises(RuntimeError): module.call("work.anchor",args)
     def test_export_contains_control_metadata_not_evidence(self):
         self.authorize(); args={"capability":"secret-capability","request_id":"export-1","project_id":self.project}
         result=module.call("telemetry.export",args); self.assertFalse(result["evidence_included"])
