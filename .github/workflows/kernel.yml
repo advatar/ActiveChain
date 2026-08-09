@@ -187,6 +187,8 @@ jobs:
         run: bash scripts/test-kanalen-round-cash-gate.sh
       - name: Verify local Kanalen qualification command
         run: bash scripts/test-qualify-kanalen-local.sh
+      - name: Verify public Kanalen RPC status fixture
+        run: python3 scripts/test_probe_kanalen_rpc.py
       - name: Reproduce canonical vectors
         run: |
           cargo run --locked --quiet -p activechain-vector-generator -- principal-v1 | diff -u testing/vectors/canonical/principal-v1.txt -

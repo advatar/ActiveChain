@@ -1385,6 +1385,11 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
 
 ## Active testnet release qualification
 
+- [ ] Promote the qualified hardened Kanalen release, reconcile the public immutable genesis probe,
+  verify public finality and network exposure after restart, and publish the live developmental
+  status to the landing-page `main` branch
+  ([GitHub issue #765](https://github.com/advatar/ActiveChain/issues/765)).
+
 - [ ] Replace bespoke protected-envelope, consensus-frame, and wallet-keystore cryptography with
   reviewed AEAD boundaries, direction-bound traffic keys, zeroizing secret lifecycles, explicit
   fail-closed format revisions, and hardened-candidate Kanalen qualification
