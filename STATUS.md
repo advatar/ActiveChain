@@ -44,7 +44,8 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Add chained signed verifier trust bundles and finalized membership evidence.
     - [ ] Add the authenticated idempotent anchor service, recovery rehearsals, vectors, and exact gate.
       - [x] Add the bounded bearer-authenticated telemetry anchor gateway and freeze its developer contract.
-      - [ ] Add gateway recovery/adversarial rehearsals and pass the exact gate.
+      - [x] Add gateway recovery/adversarial rehearsals and deterministic canonical vectors.
+      - [ ] Rebase onto merged #773 and pass the exact full gate.
   - [ ] Implement work claims and zero-knowledge non-overlap proofs (#776).
   - [ ] Expose bounded verification APIs, SDKs, and explorer DTOs (#777).
   - [ ] Qualify and document the complete `pow.actum.network` integration (#778).
