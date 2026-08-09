@@ -27,7 +27,7 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
       implementation-status matrix, and deterministic CI consistency check.
     - [ ] Add generated canonical binary/signature vectors with the implementing collector/proof
       crates, then pass the exact full deterministic-kernel gate before integration.
-  - [ ] Implement the permissioned local collector and trust layer (#773).
+  - [ ] Implement the permissioned local collector and trust layer (#773; claimed on `feat/773-developer-telemetry-collector`).
   - [ ] Package telemetry, attribution, prove-work, and verify-work plugin/MCP capabilities (#774).
   - [ ] Anchor and resolve finalized activity epochs through the existing digest boundary (#775).
   - [ ] Implement work claims and zero-knowledge non-overlap proofs (#776).
