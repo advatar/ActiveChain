@@ -319,3 +319,5 @@
 0x01B8	1	TrustBundleSignatureV1	crates/application-primitives/src/trust_bundle.rs
 0x01B9	1	SignedActumVerifierTrustBundleV1	crates/application-primitives/src/trust_bundle.rs
 0x01BA	1	CheckpointedTelemetryAnchorEvidenceV1	crates/application-primitives/src/telemetry_anchor.rs
+0x01BB	1	WorkClaimPublicV1	crates/work-proof/src/lib.rs
+0x01BC	1	WorkClaimRelationInputV1	crates/work-proof/src/lib.rs

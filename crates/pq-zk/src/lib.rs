@@ -14,11 +14,12 @@ use activechain_pq_zk_methods::{
     CASH_RECURSIVE_LEAF_ID, CASH_RECURSIVE_MICROBATCH_ELF, CASH_RECURSIVE_MICROBATCH_ID,
     CASH_RECURSIVE_PARTITION_ELF, CASH_RECURSIVE_PARTITION_ID, CASH_RECURSIVE_SLOT_ELF,
     CASH_RECURSIVE_SLOT_ID, PRIVATE_IDENTITY_ELF, PRIVATE_IDENTITY_ID, PROOF_OF_FUNDS_ELF,
-    PROOF_OF_FUNDS_ID,
+    PROOF_OF_FUNDS_ID, WORK_NON_OVERLAP_ELF, WORK_NON_OVERLAP_ID,
 };
 use activechain_privacy_kernel::{PrivateIdentityRelationInputV1, ProofOfFundsRelationInputV1};
 use activechain_private_billboard::{PostRelationInput, WithdrawalRelationInput};
 use activechain_protocol_types::Digest384;
+use activechain_work_proof::{WorkClaimPublicV1, WorkClaimRelationInputV1, public_journal};
 use risc0_zkvm::{ExecutorEnv, ProverOpts, Receipt, default_executor, default_prover};
 use sha3::{Digest, Sha3_256};
 
@@ -41,6 +42,9 @@ pub struct ProofOfFundsPqZkProof {
     receipt: Receipt,
 }
 pub struct PrivateIdentityPqZkProof {
+    receipt: Receipt,
+}
+pub struct WorkNonOverlapProof {
     receipt: Receipt,
 }
 
@@ -276,6 +280,40 @@ pub fn execute_private_identity_relation(
         .execute(relation_env(input)?, PRIVATE_IDENTITY_ELF)
         .map(|session| session.journal.bytes)
         .map_err(|_| PqZkError::Verification)
+}
+
+pub fn execute_work_non_overlap_relation(
+    input: &WorkClaimRelationInputV1,
+) -> Result<Vec<u8>, PqZkError> {
+    default_executor()
+        .execute(relation_env(input)?, WORK_NON_OVERLAP_ELF)
+        .map(|session| session.journal.bytes)
+        .map_err(|_| PqZkError::Verification)
+}
+
+pub fn prove_work_non_overlap(
+    input: &WorkClaimRelationInputV1,
+) -> Result<WorkNonOverlapProof, PqZkError> {
+    let receipt = default_prover()
+        .prove_with_opts(relation_env(input)?, WORK_NON_OVERLAP_ELF, &ProverOpts::succinct())
+        .map_err(|_| PqZkError::Prover)?
+        .receipt;
+    let proof = WorkNonOverlapProof { receipt };
+    verify_work_non_overlap(&proof, &input.public)?;
+    Ok(proof)
+}
+
+pub fn verify_work_non_overlap(
+    proof: &WorkNonOverlapProof,
+    public: &WorkClaimPublicV1,
+) -> Result<(), PqZkError> {
+    proof.receipt.inner.succinct().map_err(|_| PqZkError::WrongReceiptKind)?;
+    proof.receipt.verify(WORK_NON_OVERLAP_ID).map_err(|_| PqZkError::Verification)?;
+    let expected = public_journal(public).map_err(|_| PqZkError::WrongPublicStatement)?;
+    if proof.receipt.journal.bytes != expected {
+        return Err(PqZkError::WrongPublicStatement);
+    }
+    Ok(())
 }
 pub fn prove_private_identity(
     input: &PrivateIdentityRelationInputV1,

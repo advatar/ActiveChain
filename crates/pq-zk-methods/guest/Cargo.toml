@@ -18,6 +18,7 @@ activechain-canonical-codec = { path = "../../canonical-codec" }
 activechain-cash-air = { path = "../../cash-air" }
 activechain-private-billboard = { path = "../../private-billboard", default-features = false }
 activechain-privacy-kernel = { path = "../../privacy-kernel" }
+activechain-work-proof = { path = "../../work-proof" }
 risc0-zkvm = { version = "=3.0.5", default-features = false, features = ["std"] }
 sha3 = { version = "0.10.8", default-features = false }
 
@@ -40,6 +41,10 @@ path = "src/bin/proof_of_funds.rs"
 [[bin]]
 name = "private-identity"
 path = "src/bin/private_identity.rs"
+
+[[bin]]
+name = "work-non-overlap"
+path = "src/bin/work_non_overlap.rs"
 
 [[bin]]
 name = "cash-recursive-leaf"
