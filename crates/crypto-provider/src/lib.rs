@@ -12,11 +12,13 @@ use ml_dsa::{
     EncodedSignature, EncodedVerifyingKey, MlDsa44, MlDsa65, MlDsa87, Signature, Verifier,
     VerifyingKey,
 };
+#[cfg(feature = "protected-envelopes")]
 use ml_kem::{
     DecapsulationKey, EncapsulationKey, MlKem768, Seed as KemSeed,
     kem::{Encapsulate, KeyExport, TryDecapsulate},
     ml_kem_768::Ciphertext,
 };
+#[cfg(feature = "protected-envelopes")]
 use ring::aead::{Aad, CHACHA20_POLY1305, LessSafeKey, Nonce, UnboundKey};
 use sha3::{
     Shake256,
@@ -26,19 +28,27 @@ use slh_dsa::{
     Shake192s, Signature as SlhSignature, VerifyingKey as SlhVerifyingKey,
     signature::Verifier as SlhVerifier,
 };
+#[cfg(feature = "protected-envelopes")]
 use zeroize::{Zeroize, Zeroizing};
 
+#[cfg(feature = "protected-envelopes")]
 pub const MAX_PROTECTED_PAYLOAD: usize = 64 * 1024;
+#[cfg(feature = "protected-envelopes")]
 pub const AEAD_TAG_LENGTH: usize = 16;
+#[cfg(feature = "protected-envelopes")]
 const PROTECTED_ENVELOPE_MAGIC: &[u8; 5] = b"ACPE2";
+#[cfg(feature = "protected-envelopes")]
 const PROTECTED_KEY_DOMAIN: &[u8] = b"ACTIVECHAIN-MLKEM-AEAD-KEY-V2";
+#[cfg(feature = "protected-envelopes")]
 const PROTECTED_NONCE_DOMAIN: &[u8] = b"ACTIVECHAIN-MLKEM-AEAD-NONCE-V2";
 
+#[cfg(feature = "protected-envelopes")]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProtectedEnvelope {
     ciphertext: Vec<u8>,
     encrypted_payload: Vec<u8>,
 }
+#[cfg(feature = "protected-envelopes")]
 impl ProtectedEnvelope {
     pub fn seal(
         public_key: &[u8],
@@ -110,6 +120,7 @@ impl ProtectedEnvelope {
     }
 }
 
+#[cfg(feature = "protected-envelopes")]
 fn protected_key(shared: &[u8; 32], ciphertext: &[u8], aad: &[u8]) -> [u8; 32] {
     let mut hasher = Shake256::default();
     hasher.update(PROTECTED_KEY_DOMAIN);
@@ -123,6 +134,7 @@ fn protected_key(shared: &[u8; 32], ciphertext: &[u8], aad: &[u8]) -> [u8; 32] {
     key
 }
 
+#[cfg(feature = "protected-envelopes")]
 fn protected_nonce(ciphertext: &[u8], aad: &[u8]) -> [u8; 12] {
     let mut hasher = Shake256::default();
     hasher.update(PROTECTED_NONCE_DOMAIN);
@@ -136,6 +148,7 @@ fn protected_nonce(ciphertext: &[u8], aad: &[u8]) -> [u8; 12] {
 }
 
 /// Seals a payload with ChaCha20-Poly1305. The caller is responsible for unique nonces per key.
+#[cfg(feature = "protected-envelopes")]
 pub fn aead_seal(
     key: &[u8; 32],
     nonce: [u8; 12],
@@ -156,6 +169,7 @@ pub fn aead_seal(
 }
 
 /// Opens a ChaCha20-Poly1305 payload and fails closed on any authentication error.
+#[cfg(feature = "protected-envelopes")]
 pub fn aead_open(
     key: &[u8; 32],
     nonce: [u8; 12],
@@ -175,9 +189,11 @@ pub fn aead_open(
 }
 
 /// Reviewed ML-KEM-768 boundary for protected transaction key establishment.
+#[cfg(feature = "protected-envelopes")]
 pub struct MlKem768Recipient {
     key: DecapsulationKey<MlKem768>,
 }
+#[cfg(feature = "protected-envelopes")]
 impl MlKem768Recipient {
     pub fn from_seed(mut seed: [u8; 64]) -> Self {
         let key = DecapsulationKey::<MlKem768>::from_seed(KemSeed::from(seed));
@@ -195,6 +211,7 @@ impl MlKem768Recipient {
         Ok(shared.into())
     }
 }
+#[cfg(feature = "protected-envelopes")]
 pub fn ml_kem768_encapsulate(public_key: &[u8]) -> Result<(Vec<u8>, [u8; 32]), KemError> {
     let encoded = public_key.try_into().map_err(|_| KemError::InvalidPublicKey)?;
     let key =
@@ -203,6 +220,7 @@ pub fn ml_kem768_encapsulate(public_key: &[u8]) -> Result<(Vec<u8>, [u8; 32]), K
     Ok((ciphertext.as_slice().to_vec(), shared.into()))
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg(feature = "protected-envelopes")]
 pub enum KemError {
     InvalidPublicKey,
     InvalidCiphertext,

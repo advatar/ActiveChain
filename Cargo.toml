@@ -78,14 +78,14 @@ activechain-application-primitives = { path = "crates/application-primitives", v
 activechain-authorization-kernel = { path = "crates/authorization-kernel", version = "0.1.0" }
 activechain-bytecode-verifier = { path = "crates/bytecode-verifier", version = "0.1.0" }
 activechain-canonical-codec = { path = "crates/canonical-codec", version = "0.1.0" }
-activechain-crypto-provider = { path = "crates/crypto-provider", version = "0.1.0" }
+activechain-crypto-provider = { path = "crates/crypto-provider", version = "0.1.0", default-features = false }
 activechain-consensus-verifier = { path = "crates/consensus-verifier", version = "0.1.0" }
 activechain-data-availability = { path = "crates/data-availability", version = "0.1.0" }
 activechain-capability = { path = "crates/capability", version = "0.1.0" }
 activechain-cash-kernel = { path = "crates/cash-kernel", version = "0.1.0" }
 activechain-cash-air = { path = "crates/cash-air", version = "0.1.0" }
 activechain-protocol-commitment = { path = "crates/protocol-commitment", version = "0.1.0" }
-activechain-wallet-core = { path = "crates/wallet-core", version = "0.1.0" }
+activechain-wallet-core = { path = "crates/wallet-core", version = "0.1.0", default-features = false }
 activechain-wallet-ffi = { path = "crates/wallet-ffi", version = "0.1.0" }
 activechain-verifier-api = { path = "crates/verifier-api", version = "0.1.0" }
 activechain-verifier-ffi = { path = "crates/verifier-ffi", version = "0.1.0" }
