@@ -13,7 +13,7 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
 - [x] Add malformed, substitution, finality, replay-binding, and transport qualification tests plus
   a Docker-local service image for dependent applications.
 - [x] Integrate the service with ZeroK and pass targeted service, Docker, and end-to-end gates.
-- [ ] Pass the deterministic-kernel gate and merge to
+- [x] Pass the complete deterministic-kernel gate locally against `150bf56d` and merge to
   `main`, and verify reachability from `origin/main`.
 
 ## Active initiative — Verifiable developer telemetry
