@@ -25,6 +25,7 @@ use sha3::{Digest, Sha3_256};
 
 /// Consensus-visible identifier for this exact proof profile.
 pub const PROFILE_ID: &str = "ACTIVECHAIN-PQ-ZK-RISC0-STARK-V1";
+pub const MAX_WORK_PROOF_BYTES: usize = 4 * 1024 * 1024;
 
 /// A SHA3-256 commitment to a private byte string.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -64,6 +65,8 @@ const PRIVATE_IDENTITY_JOURNAL_DOMAIN: &[u8] = b"ACTIVECHAIN-PRIVATE-IDENTITY-RI
 pub enum PqZkError {
     Prover,
     Verification,
+    MalformedProof,
+    ProofTooLarge,
     WrongReceiptKind,
     WrongPublicStatement,
 }
@@ -314,6 +317,26 @@ pub fn verify_work_non_overlap(
         return Err(PqZkError::WrongPublicStatement);
     }
     Ok(())
+}
+
+impl WorkNonOverlapProof {
+    pub fn to_bytes(&self) -> Result<Vec<u8>, PqZkError> {
+        let bytes = postcard::to_stdvec(&self.receipt).map_err(|_| PqZkError::MalformedProof)?;
+        if bytes.is_empty() || bytes.len() > MAX_WORK_PROOF_BYTES {
+            return Err(PqZkError::ProofTooLarge);
+        }
+        Ok(bytes)
+    }
+
+    pub fn from_bytes(bytes: &[u8], public: &WorkClaimPublicV1) -> Result<Self, PqZkError> {
+        if bytes.is_empty() || bytes.len() > MAX_WORK_PROOF_BYTES {
+            return Err(PqZkError::ProofTooLarge);
+        }
+        let receipt = postcard::from_bytes(bytes).map_err(|_| PqZkError::MalformedProof)?;
+        let proof = Self { receipt };
+        verify_work_non_overlap(&proof, public)?;
+        Ok(proof)
+    }
 }
 pub fn prove_private_identity(
     input: &PrivateIdentityRelationInputV1,
