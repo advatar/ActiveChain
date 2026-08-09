@@ -2,20 +2,6 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
-## Reusable finalized-payment verifier service
-
-Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786).
-
-- [x] Define a bounded, versioned application authorization request that composes canonical payment
-  intent, finalized settlement, finality bundle, and block receipt verification.
-- [x] Implement an authenticated HTTP verifier service with trusted-genesis configuration,
-  application/audience/context binding, health/readiness, and fail-closed errors.
-- [x] Add malformed, substitution, finality, replay-binding, and transport qualification tests plus
-  a Docker-local service image for dependent applications.
-- [x] Integrate the service with ZeroK and pass targeted service, Docker, and end-to-end gates.
-- [x] Pass the complete deterministic-kernel gate locally against `150bf56d` and merge to
-  `main`, and verify reachability from `origin/main`.
-
 ## Active initiative — Verifiable developer telemetry
 
 - [ ] Deliver the protocol and integration contract promised by `pow.actum.network`
@@ -25,29 +11,12 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     ([GitHub issue #772](https://github.com/advatar/ActiveChain/issues/772)).
     - [x] Publish the normative boundary, threat model, app integration guide, JSON schema, fixture,
       implementation-status matrix, and deterministic CI consistency check.
-    - [x] Add generated canonical binary/signature vectors with the implementing collector/proof
+    - [ ] Add generated canonical binary/signature vectors with the implementing collector/proof
       crates, then pass the exact full deterministic-kernel gate before integration.
-  - [x] Implement the permissioned local collector and trust layer (#773; qualified candidate
-    `daf2b499` in split deterministic-kernel run `31346478760`).
-    - [x] Add shared no-std canonical event/epoch primitives and frozen Merkle domains.
-    - [x] Replace JSON commitments with canonical envelopes, monotonic duration, durable sequence allocation, and prior-epoch linkage.
-    - [x] Publish deterministic canonical/signature vectors.
-    - [x] Pass the exact full gate.
-  - [x] Package telemetry, attribution, prove-work, and verify-work plugin/MCP capabilities (#774;
-    qualified candidate `91abacd0` in split deterministic-kernel run `31350660653`).
-    - [x] Add portable Agent Plugins 1.0.0 and Codex manifests plus the telemetry skill.
-    - [x] Add bounded, capability-scoped telemetry and work MCP tools with durable idempotency.
-    - [x] Add adversarial authorization, race, replay, wrong-chain, timeout, malformed-response, and redaction tests.
-    - [x] Pass the exact full gate after #773 merges.
-  - [x] Anchor and resolve finalized activity epochs through the existing digest boundary (#775;
-    qualified candidate `a812b608` in split deterministic-kernel run `31360547400`).
-    - [x] Add the canonical network-bound epoch anchor request and exact frozen epoch statement derivation.
-    - [x] Add chained signed verifier trust bundles and finalized membership evidence.
-    - [x] Add the authenticated idempotent anchor service, recovery rehearsals, vectors, and exact gate.
-      - [x] Add the bounded bearer-authenticated telemetry anchor gateway and freeze its developer contract.
-      - [x] Add gateway recovery/adversarial rehearsals and deterministic canonical vectors.
-      - [x] Rebase onto merged #773 and pass the exact full gate.
-  - [ ] Implement work claims and zero-knowledge non-overlap proofs (#776).
+  - [ ] Implement the permissioned local collector and trust layer (#773).
+  - [ ] Package telemetry, attribution, prove-work, and verify-work plugin/MCP capabilities (#774).
+  - [ ] Anchor and resolve finalized activity epochs through the existing digest boundary (#775).
+  - [ ] Implement work claims and zero-knowledge non-overlap proofs (#776; claimed on `feat/776-work-proof-zk`).
   - [ ] Expose bounded verification APIs, SDKs, and explorer DTOs (#777).
   - [ ] Qualify and document the complete `pow.actum.network` integration (#778).
 
@@ -1401,11 +1370,6 @@ Tracked by [GitHub issue #189](https://github.com/advatar/ActiveChain/issues/189
   forged-proof rejection.
 
 ## Active testnet release qualification
-
-- [ ] Promote the qualified hardened Kanalen release, reconcile the public immutable genesis probe,
-  verify public finality and network exposure after restart, and publish the live developmental
-  status to the landing-page `main` branch
-  ([GitHub issue #765](https://github.com/advatar/ActiveChain/issues/765)).
 
 - [ ] Replace bespoke protected-envelope, consensus-frame, and wallet-keystore cryptography with
   reviewed AEAD boundaries, direction-bound traffic keys, zeroizing secret lifecycles, explicit
@@ -2928,16 +2892,6 @@ wallet and all testnets remain explicitly developmental until this milestone com
 
 ## Planned initiative — MCP interoperability and constrained A2UI approvals
 
-## Active implementation — Portable Actum Agent Plugin
-
-- [ ] Package Actum node fluency and plugin-owned lifecycle operations as an Agent Plugins v1.0.0
-  package ([GitHub issue #767](https://github.com/advatar/ActiveChain/issues/767)).
-  - [x] Publish schema-valid portable and Codex manifests, Actum skills, and the existing MCP
-    server configuration.
-  - [x] Bound start, stop, status, logs, and queries to explicit plugin-owned data and processes.
-  - [x] Add deterministic lifecycle and conformance tests plus installation documentation.
-  - [ ] Pass affected checks and the exact full deterministic-kernel gate before integration.
-
 - [x] Deliver MCP agent interoperability and constrained A2UI approval surfaces without making
   either transport or presentation an authority boundary
   ([GitHub issue #355](https://github.com/advatar/ActiveChain/issues/355)).
@@ -3033,18 +2987,3 @@ wallet and all testnets remain explicitly developmental until this milestone com
   - [x] Pass semantic-devnet tests, exact vector reproduction, strict affected Clippy, and the exact
     full deterministic-kernel gate before integrating the stacked recovery branches into
     `origin/main`.
-# Resumable deterministic-kernel qualification
-
-Tracked by [GitHub issue #788](https://github.com/advatar/ActiveChain/issues/788).
-
-- [x] Split the monolithic ARM64 gate into independently visible and rerunnable stages without
-  dropping any existing final-candidate command or exact-revision binding.
-- [x] Add a lightweight affected-change lane for ordinary development commits and an explicit
-  full-qualification trigger for final merge candidates, `main`, and release contexts.
-- [x] Add a fail-closed aggregate result and workflow-policy regression coverage so a candidate
-  cannot appear qualified when a mandatory stage was skipped or failed.
-- [x] Document the maintainer workflow and qualify synchronization-aware candidate `3000f6a6` in
-  split run `31340339674`; merge to `main` and reachability remain.
-- [x] Make force-push synchronization classification detect an unreachable `before` SHA and
-  conservatively fall back to the complete PR-base diff; candidate `c6e0f01a` passed split run
-  `31354777749`.
