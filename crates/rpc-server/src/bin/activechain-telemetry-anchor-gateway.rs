@@ -355,7 +355,7 @@ fn load_token(path: &Path) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     while token.last().is_some_and(u8::is_ascii_whitespace) {
         token.pop();
     }
-    if !(32..=256).contains(&token.len()) || token.iter().any(u8::is_ascii_whitespace) {
+    if !(32..=256).contains(&token.len()) || token.iter().any(|byte| !byte.is_ascii_graphic()) {
         token.zeroize();
         return Err("anchor bearer token must contain 32-256 non-whitespace bytes".into());
     }
@@ -436,6 +436,23 @@ mod tests {
             b"abcdefghijklmnopqrstuvwxyz012346"
         ));
         assert!(!constant_time_eq(b"short", b"longer"));
+    }
+
+    #[test]
+    fn bearer_file_rejects_control_and_non_ascii_bytes() {
+        let path =
+            std::env::temp_dir().join(format!("activechain-anchor-token-{}", std::process::id()));
+        let _ = fs::remove_file(&path);
+        let mut invalid = vec![b'a'; 32];
+        invalid[10] = 0;
+        fs::write(&path, invalid).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        assert!(load_token(&path).is_err());
+        fs::remove_file(path).unwrap();
     }
 
     #[test]
