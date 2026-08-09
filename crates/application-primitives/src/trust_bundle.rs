@@ -639,6 +639,18 @@ mod tests {
     }
 
     #[test]
+    fn ml_dsa_key_and_signature_shapes_are_exact() {
+        let mut malformed_signer = signer(1, 1);
+        malformed_signer.public_key.pop();
+        assert_eq!(malformed_signer.validate(), Err(TrustBundleError::InvalidSignerSet));
+
+        let set = signer_set(1, &[1]);
+        let mut bundle = signed(body(1, Digest384::ZERO, 20, &set, None), &[&set]);
+        bundle.signatures[0].signature.pop();
+        assert_eq!(bundle.validate(), Err(TrustBundleError::InvalidSignature));
+    }
+
+    #[test]
     fn bootstrap_round_trips_and_requires_current_threshold() {
         let set = signer_set(1, &[1, 2]);
         let bundle = signed(body(1, Digest384::ZERO, 10, &set, None), &[&set]);
