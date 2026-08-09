@@ -122,25 +122,7 @@ impl CheckpointedTelemetryAnchorEvidenceV1 {
         checkpoint_state_root: Digest384,
         registry_membership_proof: Vec<u8>,
     ) -> Result<Self, AnchorError> {
-        let statement = request.statement()?;
-        let evidence = finalized_record.evidence().ok_or(AnchorError::InvalidFinalizedEvidence)?;
-        if anchor_reference != statement.submission_reference()?
-            || finalized_record.status() != AnchorStatus::Finalized
-            || finalized_record.statement() != &statement
-            || evidence.statement() != &statement
-            || evidence.chain() != activechain_protocol_types::ChainId::new(request.chain_id)
-            || evidence.genesis() != request.genesis_commitment
-            || evidence.finalized_height() > checkpoint_height
-            || checkpoint_bundle_id == Digest384::ZERO
-            || checkpoint_height == 0
-            || checkpoint_block_id == Digest384::ZERO
-            || checkpoint_state_root == Digest384::ZERO
-            || registry_membership_proof.is_empty()
-            || registry_membership_proof.len() > MAX_CHECKPOINT_MEMBERSHIP_PROOF_LENGTH
-        {
-            return Err(AnchorError::InvalidFinalizedEvidence);
-        }
-        Ok(Self {
+        let value = Self {
             request,
             anchor_reference,
             finalized_record,
@@ -149,7 +131,32 @@ impl CheckpointedTelemetryAnchorEvidenceV1 {
             checkpoint_block_id,
             checkpoint_state_root,
             registry_membership_proof,
-        })
+        };
+        value.validate()?;
+        Ok(value)
+    }
+
+    pub fn validate(&self) -> Result<(), AnchorError> {
+        let statement = self.request.statement()?;
+        let evidence =
+            self.finalized_record.evidence().ok_or(AnchorError::InvalidFinalizedEvidence)?;
+        if self.anchor_reference != statement.submission_reference()?
+            || self.finalized_record.status() != AnchorStatus::Finalized
+            || self.finalized_record.statement() != &statement
+            || evidence.statement() != &statement
+            || evidence.chain() != activechain_protocol_types::ChainId::new(self.request.chain_id)
+            || evidence.genesis() != self.request.genesis_commitment
+            || evidence.finalized_height() > self.checkpoint_height
+            || self.checkpoint_bundle_id == Digest384::ZERO
+            || self.checkpoint_height == 0
+            || self.checkpoint_block_id == Digest384::ZERO
+            || self.checkpoint_state_root == Digest384::ZERO
+            || self.registry_membership_proof.is_empty()
+            || self.registry_membership_proof.len() > MAX_CHECKPOINT_MEMBERSHIP_PROOF_LENGTH
+        {
+            return Err(AnchorError::InvalidFinalizedEvidence);
+        }
+        Ok(())
     }
 }
 
@@ -202,6 +209,7 @@ pub fn verify_checkpointed_telemetry_anchor(
     accepted_bundle: &SignedActumVerifierTrustBundleV1,
     verify_registry_membership: &impl Fn(&AnchorRecord, &[u8], Digest384) -> bool,
 ) -> Result<(), AnchorError> {
+    evidence.validate()?;
     accepted_bundle.validate().map_err(|_| AnchorError::InvalidFinalizedEvidence)?;
     let body = &accepted_bundle.body;
     if &evidence.request != expected_request
@@ -370,6 +378,9 @@ mod tests {
             vec![3],
         )
         .unwrap();
+        let mut substituted = evidence.clone();
+        substituted.anchor_reference = digest(99);
+        assert_eq!(substituted.validate(), Err(AnchorError::InvalidFinalizedEvidence));
         assert_eq!(
             decode_envelope::<CheckpointedTelemetryAnchorEvidenceV1>(
                 &encode_envelope(&evidence).unwrap()
