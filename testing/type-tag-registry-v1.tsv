@@ -318,3 +318,4 @@
 0x01B7	1	ActumVerifierTrustBundleV1	crates/application-primitives/src/trust_bundle.rs
 0x01B8	1	TrustBundleSignatureV1	crates/application-primitives/src/trust_bundle.rs
 0x01B9	1	SignedActumVerifierTrustBundleV1	crates/application-primitives/src/trust_bundle.rs
+0x01BA	1	CheckpointedTelemetryAnchorEvidenceV1	crates/application-primitives/src/telemetry_anchor.rs

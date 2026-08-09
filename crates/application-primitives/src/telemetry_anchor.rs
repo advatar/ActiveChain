@@ -1,4 +1,7 @@
-use crate::{ActivityEpochV1, AnchorError, DigestAnchorStatementV1};
+use crate::{
+    ActivityEpochV1, AnchorError, AnchorRecord, AnchorStatus, DigestAnchorStatementV1,
+    SignedActumVerifierTrustBundleV1,
+};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     encode_envelope,
@@ -10,6 +13,7 @@ use sha2::{Digest as _, Sha256};
 
 pub const TELEMETRY_EPOCH_ANCHOR_DOMAIN: &[u8] = b"actum.developer-telemetry.epoch.v1";
 pub const MAX_ANCHOR_CLIENT_REQUEST_ID: usize = 128;
+pub const MAX_CHECKPOINT_MEMBERSHIP_PROOF_LENGTH: usize = 120 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TelemetryEpochAnchorRequestV1 {
@@ -92,6 +96,131 @@ impl CanonicalType for TelemetryEpochAnchorRequestV1 {
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize =
         48 * 3 + 2 + 2 + MAX_ANCHOR_CLIENT_REQUEST_ID + ActivityEpochV1::MAX_ENCODED_LEN;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckpointedTelemetryAnchorEvidenceV1 {
+    pub request: TelemetryEpochAnchorRequestV1,
+    pub anchor_reference: Digest384,
+    pub finalized_record: AnchorRecord,
+    pub checkpoint_bundle_id: Digest384,
+    pub checkpoint_height: u64,
+    pub checkpoint_block_id: Digest384,
+    pub checkpoint_state_root: Digest384,
+    pub registry_membership_proof: Vec<u8>,
+}
+
+impl CheckpointedTelemetryAnchorEvidenceV1 {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        request: TelemetryEpochAnchorRequestV1,
+        anchor_reference: Digest384,
+        finalized_record: AnchorRecord,
+        checkpoint_bundle_id: Digest384,
+        checkpoint_height: u64,
+        checkpoint_block_id: Digest384,
+        checkpoint_state_root: Digest384,
+        registry_membership_proof: Vec<u8>,
+    ) -> Result<Self, AnchorError> {
+        let statement = request.statement()?;
+        let evidence = finalized_record.evidence().ok_or(AnchorError::InvalidFinalizedEvidence)?;
+        if anchor_reference != statement.submission_reference()?
+            || finalized_record.status() != AnchorStatus::Finalized
+            || finalized_record.statement() != &statement
+            || evidence.statement() != &statement
+            || evidence.chain() != activechain_protocol_types::ChainId::new(request.chain_id)
+            || evidence.genesis() != request.genesis_commitment
+            || evidence.finalized_height() > checkpoint_height
+            || checkpoint_bundle_id == Digest384::ZERO
+            || checkpoint_height == 0
+            || checkpoint_block_id == Digest384::ZERO
+            || checkpoint_state_root == Digest384::ZERO
+            || registry_membership_proof.is_empty()
+            || registry_membership_proof.len() > MAX_CHECKPOINT_MEMBERSHIP_PROOF_LENGTH
+        {
+            return Err(AnchorError::InvalidFinalizedEvidence);
+        }
+        Ok(Self {
+            request,
+            anchor_reference,
+            finalized_record,
+            checkpoint_bundle_id,
+            checkpoint_height,
+            checkpoint_block_id,
+            checkpoint_state_root,
+            registry_membership_proof,
+        })
+    }
+}
+
+impl CanonicalEncode for CheckpointedTelemetryAnchorEvidenceV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.request.encode(encoder)?;
+        self.anchor_reference.encode(encoder)?;
+        self.finalized_record.encode(encoder)?;
+        self.checkpoint_bundle_id.encode(encoder)?;
+        self.checkpoint_height.encode(encoder)?;
+        self.checkpoint_block_id.encode(encoder)?;
+        self.checkpoint_state_root.encode(encoder)?;
+        encoder.write_bytes(&self.registry_membership_proof, MAX_CHECKPOINT_MEMBERSHIP_PROOF_LENGTH)
+    }
+}
+
+impl CanonicalDecode for CheckpointedTelemetryAnchorEvidenceV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(
+            TelemetryEpochAnchorRequestV1::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            AnchorRecord::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            u64::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            Digest384::decode(decoder)?,
+            decoder.read_bytes(MAX_CHECKPOINT_MEMBERSHIP_PROOF_LENGTH)?.to_vec(),
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid checkpointed telemetry anchor evidence"))
+    }
+}
+
+impl CanonicalType for CheckpointedTelemetryAnchorEvidenceV1 {
+    const TYPE_TAG: u16 = 0x01BA;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = TelemetryEpochAnchorRequestV1::MAX_ENCODED_LEN
+        + 48
+        + AnchorRecord::MAX_ENCODED_LEN
+        + 48
+        + 8
+        + 48
+        + 48
+        + 4
+        + MAX_CHECKPOINT_MEMBERSHIP_PROOF_LENGTH;
+}
+
+pub fn verify_checkpointed_telemetry_anchor(
+    evidence: &CheckpointedTelemetryAnchorEvidenceV1,
+    expected_request: &TelemetryEpochAnchorRequestV1,
+    accepted_bundle: &SignedActumVerifierTrustBundleV1,
+    verify_registry_membership: &impl Fn(&AnchorRecord, &[u8], Digest384) -> bool,
+) -> Result<(), AnchorError> {
+    accepted_bundle.validate().map_err(|_| AnchorError::InvalidFinalizedEvidence)?;
+    let body = &accepted_bundle.body;
+    if &evidence.request != expected_request
+        || evidence.checkpoint_bundle_id != accepted_bundle.bundle_id
+        || evidence.request.chain_id != body.chain_id
+        || evidence.request.genesis_commitment != body.genesis_commitment
+        || evidence.request.epoch.policy_id != body.policy_id
+        || evidence.checkpoint_height != body.checkpoint_height
+        || evidence.checkpoint_block_id != body.checkpoint_block_id
+        || evidence.checkpoint_state_root != body.checkpoint_state_root
+        || !verify_registry_membership(
+            &evidence.finalized_record,
+            &evidence.registry_membership_proof,
+            evidence.checkpoint_state_root,
+        )
+    {
+        return Err(AnchorError::InvalidFinalizedEvidence);
+    }
+    Ok(())
 }
 
 pub fn telemetry_epoch_anchor_statement(

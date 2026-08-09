@@ -80,7 +80,9 @@ pub use telemetry::{
     TelemetryPrimitiveError, event_leaf_hash, event_node_hash, telemetry_merkle_root,
 };
 pub use telemetry_anchor::{
+    CheckpointedTelemetryAnchorEvidenceV1, MAX_CHECKPOINT_MEMBERSHIP_PROOF_LENGTH,
     TELEMETRY_EPOCH_ANCHOR_DOMAIN, TelemetryEpochAnchorRequestV1, telemetry_epoch_anchor_statement,
+    verify_checkpointed_telemetry_anchor,
 };
 pub use trust_bundle::{
     ActumVerifierTrustBundleV1, SignedActumVerifierTrustBundleV1, TrustBundleError,
