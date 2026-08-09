@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://actum.network/schemas/developer-telemetry-v1.schema.json",
+  "title": "Actum Developer Telemetry v1",
+  "type": "object",
+  "required": ["profile", "events", "epochs", "policies", "proofs", "verification_results"],
+  "additionalProperties": false,
+  "properties": {
+    "profile": {"const": "actum.developer-telemetry.v1"},
+    "events": {"type": "array", "items": {"$ref": "#/$defs/signed_event"}, "maxItems": 4096},
+    "epochs": {"type": "array", "items": {"$ref": "#/$defs/epoch"}, "maxItems": 1024},
+    "policies": {"type": "array", "items": {"$ref": "#/$defs/policy"}, "maxItems": 64},
+    "proofs": {"type": "array", "items": {"$ref": "#/$defs/proof_envelope"}, "maxItems": 1024},
+    "verification_results": {"type": "array", "items": {"$ref": "#/$defs/verification"}, "maxItems": 1024}
+  },
+  "$defs": {
+    "digest384": {"type": "string", "pattern": "^[0-9a-f]{96}$"},
+    "digest256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "u64": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["collector_id", "project_id", "collector_sequence", "project_sequence", "wall_start_ms", "wall_end_ms", "monotonic_start_ns", "monotonic_end_ns", "kind", "source_commitment", "subject_commitment", "payload_commitment", "units", "authorization_revision"],
+      "properties": {
+        "collector_id": {"$ref": "#/$defs/digest384"}, "project_id": {"$ref": "#/$defs/digest384"},
+        "collector_sequence": {"$ref": "#/$defs/u64"}, "project_sequence": {"$ref": "#/$defs/u64"},
+        "wall_start_ms": {"$ref": "#/$defs/u64"}, "wall_end_ms": {"$ref": "#/$defs/u64"},
+        "monotonic_start_ns": {"$ref": "#/$defs/u64"}, "monotonic_end_ns": {"$ref": "#/$defs/u64"},
+        "kind": {"enum": ["human_interaction", "agent_execution", "git_artifact", "build_test", "model_usage"]},
+        "source_commitment": {"$ref": "#/$defs/digest384"}, "subject_commitment": {"$ref": "#/$defs/digest384"}, "payload_commitment": {"$ref": "#/$defs/digest384"},
+        "units": {"$ref": "#/$defs/u64"}, "authorization_revision": {"type": "integer", "minimum": 1, "maximum": 4294967295}
+      }
+    },
+    "signed_event": {
+      "type": "object", "additionalProperties": false, "required": ["event", "event_id", "algorithm", "public_key", "signature"],
+      "properties": {"event": {"$ref": "#/$defs/event"}, "event_id": {"$ref": "#/$defs/digest384"}, "algorithm": {"const": "ml-dsa-44-v1"}, "public_key": {"type": "string", "pattern": "^[0-9a-f]+$", "maxLength": 2624}, "signature": {"type": "string", "pattern": "^[0-9a-f]+$", "maxLength": 4840}}
+    },
+    "epoch": {
+      "type": "object", "additionalProperties": false,
+      "required": ["epoch_id", "collector_id", "project_id", "first_sequence", "last_sequence", "event_count", "started_ms", "ended_ms", "event_root", "prior_epoch_id", "policy_id", "authorization_revision"],
+      "properties": {"epoch_id": {"$ref": "#/$defs/digest384"}, "collector_id": {"$ref": "#/$defs/digest384"}, "project_id": {"$ref": "#/$defs/digest384"}, "first_sequence": {"$ref": "#/$defs/u64"}, "last_sequence": {"$ref": "#/$defs/u64"}, "event_count": {"type": "integer", "minimum": 1, "maximum": 4096}, "started_ms": {"$ref": "#/$defs/u64"}, "ended_ms": {"$ref": "#/$defs/u64"}, "event_root": {"$ref": "#/$defs/digest384"}, "prior_epoch_id": {"$ref": "#/$defs/digest384"}, "policy_id": {"$ref": "#/$defs/digest384"}, "authorization_revision": {"type": "integer", "minimum": 1, "maximum": 4294967295}}
+    },
+    "policy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["policy_id", "revision", "idle_timeout_ms", "maximum_human_interval_ms", "accepted_kinds", "agent_overlap", "rounding_ms", "non_overlap_profile"],
+      "properties": {"policy_id": {"$ref": "#/$defs/digest384"}, "revision": {"type": "integer", "minimum": 1, "maximum": 4294967295}, "idle_timeout_ms": {"type": "integer", "minimum": 1000, "maximum": 3600000}, "maximum_human_interval_ms": {"type": "integer", "minimum": 1000, "maximum": 86400000}, "accepted_kinds": {"type": "array", "uniqueItems": true, "minItems": 1, "maxItems": 5, "items": {"enum": ["human_interaction", "agent_execution", "git_artifact", "build_test", "model_usage"]}}, "agent_overlap": {"enum": ["distinct", "wall_clock_union"]}, "rounding_ms": {"type": "integer", "minimum": 1, "maximum": 3600000}, "non_overlap_profile": {"const": "actum.non-overlap.risc0.v1"}}
+    },
+    "claim": {
+      "type": "object", "additionalProperties": false,
+      "required": ["claim_id", "kind", "collector_id", "project_id", "policy_id", "epoch_root", "interval_start_ms", "interval_end_ms", "evidence_count", "human_attention_ms", "agent_runtime_ms", "model_input_tokens", "model_output_tokens", "model_units", "artifact_commitment", "proof_profile"],
+      "properties": {"claim_id": {"$ref": "#/$defs/digest384"}, "kind": {"enum": ["attention", "compute", "contribution", "non_overlap"]}, "collector_id": {"$ref": "#/$defs/digest384"}, "project_id": {"$ref": "#/$defs/digest384"}, "policy_id": {"$ref": "#/$defs/digest384"}, "epoch_root": {"$ref": "#/$defs/digest384"}, "interval_start_ms": {"$ref": "#/$defs/u64"}, "interval_end_ms": {"$ref": "#/$defs/u64"}, "evidence_count": {"type": "integer", "minimum": 1, "maximum": 1048576}, "human_attention_ms": {"$ref": "#/$defs/u64"}, "agent_runtime_ms": {"$ref": "#/$defs/u64"}, "model_input_tokens": {"$ref": "#/$defs/u64"}, "model_output_tokens": {"$ref": "#/$defs/u64"}, "model_units": {"$ref": "#/$defs/u64"}, "artifact_commitment": {"$ref": "#/$defs/digest384"}, "proof_profile": {"enum": ["actum.attention.v1", "actum.compute.v1", "actum.contribution.v1", "actum.non-overlap.risc0.v1"]}}
+    },
+    "anchor": {"type": "object", "additionalProperties": false, "required": ["status", "chain_id", "genesis_commitment", "reference", "finalized_height", "evidence_envelope"], "properties": {"status": {"enum": ["absent", "pending", "finalized", "rejected"]}, "chain_id": {"$ref": "#/$defs/digest384"}, "genesis_commitment": {"$ref": "#/$defs/digest384"}, "reference": {"$ref": "#/$defs/digest384"}, "finalized_height": {"$ref": "#/$defs/u64"}, "evidence_envelope": {"type": "string", "pattern": "^[0-9a-f]*$", "maxLength": 524288}}},
+    "proof_envelope": {"type": "object", "additionalProperties": false, "required": ["claim", "epoch", "proof", "anchor"], "properties": {"claim": {"$ref": "#/$defs/claim"}, "epoch": {"$ref": "#/$defs/epoch"}, "proof": {"type": "string", "pattern": "^[0-9a-f]+$", "maxLength": 2097152}, "anchor": {"$ref": "#/$defs/anchor"}}},
+    "verification": {"type": "object", "additionalProperties": false, "required": ["claim_id", "status", "reason", "verified_at_ms", "policy_revision", "verifier_revision"], "properties": {"claim_id": {"$ref": "#/$defs/digest384"}, "status": {"enum": ["verified", "pending", "rejected", "invalid", "unsupported", "unavailable"]}, "reason": {"type": "string", "minLength": 1, "maxLength": 256}, "verified_at_ms": {"$ref": "#/$defs/u64"}, "policy_revision": {"type": "integer", "minimum": 1, "maximum": 4294967295}, "verifier_revision": {"type": "integer", "minimum": 1, "maximum": 4294967295}}
+    }
+  }
+}
