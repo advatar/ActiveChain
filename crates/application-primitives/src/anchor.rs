@@ -12,6 +12,7 @@ const MAX_ANCHORS: usize = 4_096;
 const MAX_BATCH_DEPTH: usize = 32;
 // Two proofs plus all evidence metadata must fit one MAX_RPC_BLOB_LENGTH response.
 const MAX_ANCHOR_PROOF_LENGTH: usize = 120 * 1024;
+const MAX_ANCHOR_ACTION_ENVELOPE_LENGTH: usize = 8 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DigestAnchorStatementV1 {
@@ -165,6 +166,7 @@ pub struct AnchorFinalizedEvidenceV1 {
     chain: ChainId,
     genesis: Digest384,
     transaction: TransactionId,
+    action_envelope: Vec<u8>,
     finalized_height: u64,
     finalized_block: Digest384,
     statement: DigestAnchorStatementV1,
@@ -182,6 +184,7 @@ impl AnchorFinalizedEvidenceV1 {
         chain: ChainId,
         genesis: Digest384,
         transaction: TransactionId,
+        action_envelope: Vec<u8>,
         finalized_height: u64,
         finalized_block: Digest384,
         statement: DigestAnchorStatementV1,
@@ -196,6 +199,8 @@ impl AnchorFinalizedEvidenceV1 {
             || finalized_block == Digest384::ZERO
             || protocol_revision == 0
             || verifier_revision == 0
+            || action_envelope.is_empty()
+            || action_envelope.len() > MAX_ANCHOR_ACTION_ENVELOPE_LENGTH
             || inclusion_proof.is_empty()
             || inclusion_proof.len() > MAX_ANCHOR_PROOF_LENGTH
             || finality_proof.is_empty()
@@ -212,6 +217,7 @@ impl AnchorFinalizedEvidenceV1 {
             chain,
             genesis,
             transaction,
+            action_envelope,
             finalized_height,
             finalized_block,
             statement,
@@ -242,6 +248,9 @@ impl AnchorFinalizedEvidenceV1 {
     pub const fn transaction(&self) -> TransactionId {
         self.transaction
     }
+    pub fn action_envelope(&self) -> &[u8] {
+        &self.action_envelope
+    }
     pub const fn finalized_height(&self) -> u64 {
         self.finalized_height
     }
@@ -267,6 +276,7 @@ impl CanonicalEncode for AnchorFinalizedEvidenceV1 {
         self.chain.encode(encoder)?;
         self.genesis.encode(encoder)?;
         self.transaction.encode(encoder)?;
+        encoder.write_bytes(&self.action_envelope, MAX_ANCHOR_ACTION_ENVELOPE_LENGTH)?;
         self.finalized_height.encode(encoder)?;
         self.finalized_block.encode(encoder)?;
         self.statement.encode(encoder)?;
@@ -285,6 +295,7 @@ impl CanonicalDecode for AnchorFinalizedEvidenceV1 {
             ChainId::decode(decoder)?,
             Digest384::decode(decoder)?,
             TransactionId::decode(decoder)?,
+            decoder.read_bytes(MAX_ANCHOR_ACTION_ENVELOPE_LENGTH)?.to_vec(),
             u64::decode(decoder)?,
             Digest384::decode(decoder)?,
             DigestAnchorStatementV1::decode(decoder)?,
@@ -301,8 +312,10 @@ impl CanonicalDecode for AnchorFinalizedEvidenceV1 {
 
 impl CanonicalType for AnchorFinalizedEvidenceV1 {
     const TYPE_TAG: u16 = 0x00ca;
-    const SCHEMA_VERSION: u16 = 1;
+    const SCHEMA_VERSION: u16 = 2;
     const MAX_ENCODED_LEN: usize = 48 * 4
+        + 4
+        + MAX_ANCHOR_ACTION_ENVELOPE_LENGTH
         + 8
         + DigestAnchorStatementV1::MAX_ENCODED_LEN
         + 1
@@ -371,6 +384,7 @@ impl CanonicalDecode for AnchorStatus {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AnchorRecord {
     statement: DigestAnchorStatementV1,
+    submitted_transaction: Option<TransactionId>,
     status: AnchorStatus,
     evidence: Option<AnchorFinalizedEvidenceV1>,
 }
@@ -383,6 +397,9 @@ impl AnchorRecord {
     pub const fn status(&self) -> AnchorStatus {
         self.status
     }
+    pub const fn submitted_transaction(&self) -> Option<TransactionId> {
+        self.submitted_transaction
+    }
     pub fn evidence(&self) -> Option<&AnchorFinalizedEvidenceV1> {
         self.evidence.as_ref()
     }
@@ -391,6 +408,7 @@ impl AnchorRecord {
 impl CanonicalEncode for AnchorRecord {
     fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
         self.statement.encode(encoder)?;
+        self.submitted_transaction.encode(encoder)?;
         self.status.encode(encoder)?;
         self.evidence.encode(encoder)
     }
@@ -400,11 +418,17 @@ impl CanonicalDecode for AnchorRecord {
     fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
         let value = Self {
             statement: DigestAnchorStatementV1::decode(decoder)?,
+            submitted_transaction: Option::<TransactionId>::decode(decoder)?,
             status: AnchorStatus::decode(decoder)?,
             evidence: Option::<AnchorFinalizedEvidenceV1>::decode(decoder)?,
         };
         if (value.status == AnchorStatus::Finalized) != value.evidence.is_some()
             || value.evidence.as_ref().is_some_and(|evidence| evidence.statement != value.statement)
+            || value.evidence.as_ref().is_some_and(|evidence| {
+                value
+                    .submitted_transaction
+                    .is_some_and(|transaction| transaction != evidence.transaction())
+            })
         {
             return Err(DecodeError::InvalidValue("invalid anchor record evidence"));
         }
@@ -414,8 +438,10 @@ impl CanonicalDecode for AnchorRecord {
 
 impl CanonicalType for AnchorRecord {
     const TYPE_TAG: u16 = 0x00c7;
-    const SCHEMA_VERSION: u16 = 1;
+    const SCHEMA_VERSION: u16 = 2;
     const MAX_ENCODED_LEN: usize = DigestAnchorStatementV1::MAX_ENCODED_LEN
+        + 1
+        + 48
         + 1
         + 1
         + AnchorFinalizedEvidenceV1::MAX_ENCODED_LEN;
@@ -437,7 +463,47 @@ impl AnchorRegistry {
         }
         self.records.insert(
             reference,
-            AnchorRecord { statement, status: AnchorStatus::Pending, evidence: None },
+            AnchorRecord {
+                statement,
+                submitted_transaction: None,
+                status: AnchorStatus::Pending,
+                evidence: None,
+            },
+        );
+        Ok(reference)
+    }
+
+    pub fn submit_action(
+        &mut self,
+        statement: DigestAnchorStatementV1,
+        transaction: TransactionId,
+    ) -> Result<Digest384, AnchorError> {
+        let reference = statement.submission_reference()?;
+        if !self.records.contains_key(&reference) && self.records.len() >= MAX_ANCHORS {
+            return Err(AnchorError::Capacity);
+        }
+        match self.records.get_mut(&reference) {
+            Some(existing) if existing.statement != statement => {
+                return Err(AnchorError::ReferenceCollision);
+            }
+            Some(existing) if existing.submitted_transaction == Some(transaction) => {
+                return Ok(reference);
+            }
+            Some(existing) if existing.submitted_transaction.is_none() => {
+                existing.submitted_transaction = Some(transaction);
+                return Ok(reference);
+            }
+            Some(_) => return Err(AnchorError::InvalidTransition),
+            None => {}
+        }
+        self.records.insert(
+            reference,
+            AnchorRecord {
+                statement,
+                submitted_transaction: Some(transaction),
+                status: AnchorStatus::Pending,
+                evidence: None,
+            },
         );
         Ok(reference)
     }
@@ -465,7 +531,12 @@ impl AnchorRegistry {
         evidence: AnchorFinalizedEvidenceV1,
     ) -> Result<(), AnchorError> {
         let record = self.records.get_mut(&reference).ok_or(AnchorError::UnknownReference)?;
-        if record.status != AnchorStatus::Pending || record.statement != evidence.statement {
+        if record.status != AnchorStatus::Pending
+            || record.statement != evidence.statement
+            || record
+                .submitted_transaction
+                .is_some_and(|transaction| transaction != evidence.transaction())
+        {
             return Err(AnchorError::InvalidTransition);
         }
         record.status = AnchorStatus::Finalized;
@@ -527,7 +598,7 @@ impl CanonicalDecode for AnchorSnapshot {
 
 impl CanonicalType for AnchorSnapshot {
     const TYPE_TAG: u16 = 0x00c8;
-    const SCHEMA_VERSION: u16 = 1;
+    const SCHEMA_VERSION: u16 = 2;
     const MAX_ENCODED_LEN: usize = 3 + MAX_ANCHORS * (48 + AnchorRecord::MAX_ENCODED_LEN);
 }
 
@@ -675,6 +746,7 @@ mod tests {
             ChainId::new(Digest384::new([1; 48])),
             Digest384::new([2; 48]),
             TransactionId::new(Digest384::new([3; 48])),
+            vec![10],
             44,
             Digest384::new([4; 48]),
             statement(5),

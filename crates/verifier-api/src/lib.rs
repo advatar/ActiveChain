@@ -11,13 +11,14 @@ pub use signed_authorization::{
     verify_signed_authorization_chain_code,
 };
 
+use activechain_action_kernel::{ActionEnvelope, ActionPayloadV2, action_id};
 use activechain_application_primitives::{AnchorFinalizedEvidenceV1, DigestAnchorStatementV1};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     decode_envelope, encode_envelope, inspect_canonical_envelope,
 };
 use activechain_cash_kernel::{CoinCellMembershipProof, CoinCellRecord};
-use activechain_devnet_kernel::BlockReceipt;
+use activechain_devnet_kernel::{ActionOutcome, BlockReceipt};
 use activechain_finality_types::{FinalityCertificateBundle, commit_parts};
 use activechain_payment_types::{
     PaymentFinalizedRefundV1, PaymentFinalizedSettlementV1, payment_finality_proof_commitment,
@@ -729,7 +730,23 @@ pub fn verify_anchor_finalized_evidence(
         decode_envelope::<AnchorFinalizedEvidenceV1>(evidence).map_err(VerifyError::Decode)?;
     let expected_statement = decode_envelope::<DigestAnchorStatementV1>(expected_statement)
         .map_err(VerifyError::Decode)?;
+    let action = decode_envelope::<ActionEnvelope>(evidence.action_envelope())
+        .map_err(VerifyError::Decode)?;
+    let action_statement = match action.payload() {
+        ActionPayloadV2::SubmitAnchor { height, statement }
+            if *height == evidence.finalized_height() =>
+        {
+            statement
+        }
+        _ => return Err(VerifyError::RelationMismatch),
+    };
+    let transaction = action_id(&action).map_err(|_| VerifyError::CommitmentMismatch)?;
+    let reference =
+        expected_statement.submission_reference().map_err(|_| VerifyError::CommitmentMismatch)?;
     if evidence.statement() != &expected_statement
+        || action_statement != &expected_statement
+        || action.chain_id() != trusted_chain
+        || transaction != evidence.transaction()
         || evidence.chain() != trusted_chain
         || evidence.genesis() != trusted_genesis
         || evidence.protocol_revision() != protocol_revision
@@ -744,10 +761,10 @@ pub fn verify_anchor_finalized_evidence(
     )?;
     if receipt.block_id() != evidence.finalized_block()
         || receipt.height() != evidence.finalized_height()
-        || !receipt
-            .action_receipts()
-            .iter()
-            .any(|receipt| receipt.transaction_id() == evidence.transaction())
+        || !receipt.action_receipts().iter().any(|receipt| {
+            receipt.transaction_id() == transaction
+                && receipt.outcome() == ActionOutcome::AnchorSubmitted { reference }
+        })
     {
         return Err(VerifyError::RelationMismatch);
     }
@@ -914,7 +931,10 @@ mod tests {
 
     use super::*;
     use activechain_accumulator::{AccumulatorDomain, ReferenceSet};
-    use activechain_action_kernel::ResourceVector;
+    use activechain_action_kernel::{
+        ACTION_PROTOCOL_VERSION, ActionEnvelope, ActionPayloadV2, FeeTicket, ResourceVector,
+        ValidityInterval, action_id,
+    };
     use activechain_application_primitives::{AnchorFinalizedEvidenceV1, DigestAnchorStatementV1};
     use activechain_authorization_kernel::AuthorizationEnvelope;
     use activechain_canonical_codec::encode_envelope;
@@ -2256,7 +2276,7 @@ mod tests {
         trailing.push(0);
         assert_ne!(verify_block_receipt_code(&finality, &trailing), VERIFY_OK);
         let mut wrong_version = encoded;
-        wrong_version[3] = 3;
+        wrong_version[3] = 2;
         assert_eq!(
             verify_block_receipt_code(&finality, &wrong_version),
             VerifyError::VersionMismatch.code()
@@ -2428,7 +2448,31 @@ mod tests {
     fn finalized_anchor_verifier_uses_real_finality_and_receipt_verifiers() {
         let pre_state = StateCommitment::new(digest(60), 2);
         let post_state = StateCommitment::new(digest(61), 3);
-        let transaction = TransactionId::new(digest(70));
+        let statement = DigestAnchorStatementV1::new(
+            b"mademark.external-anchor.statement.v1".to_vec(),
+            [0x11; 32],
+        )
+        .unwrap();
+        let sender = PrincipalId::new(digest(42));
+        let payload = ActionPayloadV2::submit_anchor(9, statement.clone());
+        let resources = ResourceVector::new(10, 0, 0, 0, 1, 4096);
+        let ticket =
+            FeeTicket::new(ObjectId::new(digest(43)), sender, 10_000, 9, 0, resources).unwrap();
+        let action = ActionEnvelope::new_payload(
+            ACTION_PROTOCOL_VERSION,
+            activechain_protocol_types::ChainId::new(digest(40)),
+            sender,
+            ticket,
+            0,
+            0,
+            ValidityInterval::new(9, 9).unwrap(),
+            resources,
+            payload.commitment().unwrap(),
+            payload,
+            digest(44),
+        )
+        .unwrap();
+        let transaction = action_id(&action).unwrap();
         let receipt = BlockReceipt::new(
             digest(62),
             9,
@@ -2438,7 +2482,9 @@ mod tests {
             digest(65),
             vec![ActionReceipt::new(
                 transaction,
-                ActionOutcome::ResourceLimitExceeded,
+                ActionOutcome::AnchorSubmitted {
+                    reference: statement.submission_reference().unwrap(),
+                },
                 ResourceVector::new(1, 0, 0, 0, 0, 1),
                 0,
                 1,
@@ -2450,15 +2496,11 @@ mod tests {
         let finality_bundle =
             finality_bundle_with_inputs(receipt_root, pre_state, post_state, digest(50));
         let trusted_genesis = finality_bundle.validator_genesis().genesis_commitment();
-        let statement = DigestAnchorStatementV1::new(
-            b"mademark.external-anchor.statement.v1".to_vec(),
-            [0x11; 32],
-        )
-        .unwrap();
         let evidence = AnchorFinalizedEvidenceV1::new(
             activechain_protocol_types::ChainId::new(digest(40)),
             trusted_genesis,
             transaction,
+            encode_envelope(&action).unwrap(),
             9,
             receipt.block_id(),
             statement.clone(),

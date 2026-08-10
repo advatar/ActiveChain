@@ -149,6 +149,16 @@ pub fn apply_block(
                     u64::from(transition.receipt().policy_steps()),
                 )
             }
+            ActionPayloadV2::SubmitAnchor { statement, .. } => (
+                None,
+                None,
+                ActionOutcome::AnchorSubmitted {
+                    reference: statement
+                        .submission_reference()
+                        .map_err(|_| BlockApplyError::InvalidAnchorStatement { index })?,
+                },
+                1,
+            ),
             payload => {
                 let pre = commit(DomainTag::CANONICAL_VALUE, &asset_ledger)
                     .map_err(BlockApplyError::CommitmentEncoding)?;
@@ -348,6 +358,8 @@ pub enum BlockApplyError {
     StateTree(StateTreeError),
     /// The underlying total transfer kernel hit an implementation invariant.
     Transition(TransitionError),
+    /// A native anchor payload did not produce its canonical statement reference.
+    InvalidAnchorStatement { index: usize },
     /// An issuer operation did not match the exact consensus asset pre-state.
     AssetTransition(activechain_cash_kernel::NativeMoneyError),
     /// Generated receipt bounds were inconsistent.
