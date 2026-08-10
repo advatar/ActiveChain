@@ -43,13 +43,21 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     reopened and claimed on `feat/775-finalized-anchor-binding`).
     - [x] Add the canonical network-bound epoch anchor request and exact frozen epoch statement derivation.
     - [x] Add chained signed verifier trust bundles.
-    - [ ] Bind the exact anchor statement to canonical transaction/state inclusion evidence before
+    - [x] Bind the exact anchor statement to canonical transaction/state inclusion evidence before
       reporting finality.
+      - [x] Derive the native action from operator-owned finalized fee/nonce state and persist one
+        crash-atomic, idempotent proposal per round.
+      - [x] Include only exact-reference-bound `SubmitAnchor` actions in the validator proposal,
+        commit their receipts under finality, and archive action/receipt/finality together.
+      - [x] Reconcile archives through the independent finalized-anchor verifier before the
+        durable `submitted -> finalized` registry transition.
+      - [x] Wire the Kanalen testnet operator bootstrap and document the production lifecycle.
     - [x] Add the authenticated idempotent anchor service, recovery rehearsals, vectors, and exact gate.
       - [x] Add the bounded bearer-authenticated telemetry anchor gateway and freeze its developer contract.
       - [x] Add gateway recovery/adversarial rehearsals and deterministic canonical vectors.
       - [x] Rebase onto merged #773 and pass the exact full gate.
-    - [ ] Regenerate adversarial anchor vectors and pass the exact full gate for the corrected binding.
+    - [x] Regenerate the affected RPC/client anchor vectors and manifest hashes.
+    - [ ] Pass the exact full gate for the corrected binding and merge it to `main`.
   - [x] Implement work claims and zero-knowledge non-overlap proofs (#776; claimed on `feat/776-work-proof-zk`).
     - [x] Freeze tagged raw telemetry measurements and policy-pinned class aggregates.
     - [x] Implement class-specific Attention, Compute, and Contribution arithmetic.
