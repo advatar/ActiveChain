@@ -1115,14 +1115,14 @@ mod tests {
         assert_eq!(
             digest,
             Digest384::new([
-                104, 165, 85, 33, 83, 167, 29, 102, 130, 164, 157, 110, 146, 148, 40, 129, 123,
-                172, 237, 219, 40, 209, 60, 246, 24, 105, 49, 107, 172, 96, 139, 41, 58, 151, 43,
-                35, 249, 253, 163, 61, 225, 83, 107, 190, 228, 212, 107, 28,
+                246, 172, 218, 115, 158, 235, 173, 142, 225, 190, 199, 123, 70, 217, 193, 20,
+                214, 249, 208, 183, 180, 84, 105, 132, 251, 39, 230, 11, 198, 252, 216, 3, 56,
+                144, 72, 41, 105, 63, 173, 220, 81, 121, 209, 179, 193, 72, 232, 162,
             ])
         );
         assert_eq!(
             include_str!("../../../testing/vectors/consensus/finalized-block-v1.txt"),
-            "header_type_tag=0x0079\nheader_schema_version=3\nproof_inputs_type_tag=0x0078\nproof_inputs_schema_version=3\nheader_digest=68a5552153a71d6682a49d6e929428817baceddb28d13cf61869316bac608b293a972b23f9fda33de1536bbee4d46b1c\n"
+            "header_type_tag=0x0079\nheader_schema_version=3\nproof_inputs_type_tag=0x0078\nproof_inputs_schema_version=3\nheader_digest=f6acda739eebad8ee1bec77b46d9c114d6f9d0b7b4546984fb27e60bc6fcd80338904829693faddc5179d1b3c148e8a2\n"
         );
         let context = ConsensusVoteContext::new_with_revision(genesis, 7, root, 4).unwrap();
         let certificate = QuorumCertificate::new(
