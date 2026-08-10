@@ -823,11 +823,18 @@ dependencies = [
 name = "activechain-work-proof-verifier"
 version = "0.1.0"
 dependencies = [
+ "activechain-action-kernel",
  "activechain-application-primitives",
  "activechain-canonical-codec",
+ "activechain-devnet-kernel",
+ "activechain-finality-types",
  "activechain-pq-zk",
+ "activechain-protocol-commitment",
  "activechain-protocol-types",
+ "activechain-state-tree",
+ "activechain-verifier-api",
  "activechain-work-proof",
+ "ml-dsa",
  "serde",
  "serde_json",
  "sha3 0.10.9",

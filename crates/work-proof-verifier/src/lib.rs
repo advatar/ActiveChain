@@ -7,15 +7,16 @@ pub mod status;
 mod storage_tests;
 
 use activechain_application_primitives::{
-    CheckpointedTelemetryAnchorEvidenceV1, SignedActumVerifierTrustBundleV1,
-    TrustSignatureAlgorithmV1, TrustSignerSetV1, verify_checkpointed_telemetry_anchor,
-    verify_trust_bundle_bootstrap, verify_trust_bundle_transition,
+    AnchorFinalizedEvidenceV1, SignedActumVerifierTrustBundleV1, TelemetryEpochAnchorRequestV1,
+    TrustSignatureAlgorithmV1, TrustSignerSetV1, verify_trust_bundle_bootstrap,
+    verify_trust_bundle_transition,
 };
 use activechain_canonical_codec::{CanonicalType, decode_envelope, encode_envelope};
+use activechain_finality_types::FinalityCertificateBundle;
 use activechain_pq_zk::{
     MAX_WORK_PROOF_BYTES, WORK_PROOF_SYSTEM_REVISION, WorkNonOverlapProof, work_image_id,
 };
-use activechain_protocol_types::Digest384;
+use activechain_protocol_types::{ChainId, Digest384};
 use activechain_work_proof::{MAX_WORK_EVENTS, WorkClaimAggregateV1, WorkClaimPublicV1};
 use serde::{Deserialize, Serialize};
 use sha3::{Digest as _, Sha3_384};
@@ -556,33 +557,13 @@ pub fn verify_ipc_request(frame: &[u8]) -> u8 {
     }
 }
 
-pub trait AnchorMembershipVerifier: Send + Sync {
-    fn verify(
-        &self,
-        evidence: &CheckpointedTelemetryAnchorEvidenceV1,
-        checkpoint_state_root: Digest384,
-    ) -> bool;
-}
-
-impl<F> AnchorMembershipVerifier for F
-where
-    F: Fn(&CheckpointedTelemetryAnchorEvidenceV1, Digest384) -> bool + Send + Sync,
-{
-    fn verify(
-        &self,
-        evidence: &CheckpointedTelemetryAnchorEvidenceV1,
-        checkpoint_state_root: Digest384,
-    ) -> bool {
-        self(evidence, checkpoint_state_root)
-    }
-}
-
 pub struct VerifyWorkClaimRequestV1 {
     pub client_id: Digest384,
     pub claim_id: Digest384,
     pub public: WorkClaimPublicV1,
     pub proof_envelope: Vec<u8>,
-    pub anchor_evidence: CheckpointedTelemetryAnchorEvidenceV1,
+    pub anchor_request: TelemetryEpochAnchorRequestV1,
+    pub anchor_evidence: AnchorFinalizedEvidenceV1,
 }
 
 pub struct FixedWindowRateLimiter {
@@ -617,23 +598,21 @@ impl FixedWindowRateLimiter {
     }
 }
 
-pub struct WorkProofVerificationService<R, A> {
+pub struct WorkProofVerificationService<R> {
     relation: R,
-    anchor_membership: A,
     trust: DurableTrustStore,
     usage: DurableUsageRegistry,
     rate_limiter: FixedWindowRateLimiter,
 }
 
-impl<R: RelationVerifier, A: AnchorMembershipVerifier> WorkProofVerificationService<R, A> {
+impl<R: RelationVerifier> WorkProofVerificationService<R> {
     pub fn new(
         relation: R,
-        anchor_membership: A,
         trust: DurableTrustStore,
         usage: DurableUsageRegistry,
         rate_limiter: FixedWindowRateLimiter,
     ) -> Self {
-        Self { relation, anchor_membership, trust, usage, rate_limiter }
+        Self { relation, trust, usage, rate_limiter }
     }
 
     pub fn verify(
@@ -648,18 +627,12 @@ impl<R: RelationVerifier, A: AnchorMembershipVerifier> WorkProofVerificationServ
         let bundle = self.trust.accepted_bundle()?;
         verify_trust_bindings(&bundle, &request.public, now_ms)?;
         self.relation.verify(&request.public, &request.proof_envelope)?;
-        verify_anchor_public_bindings(&request.public, &request.anchor_evidence)?;
-        verify_checkpointed_telemetry_anchor(
-            &request.anchor_evidence,
-            &request.anchor_evidence.request,
+        let (finalized, anchor_reference) = verify_finalized_anchor_checkpoint(
             &bundle,
-            &|record, proof, root| {
-                record == &request.anchor_evidence.finalized_record
-                    && proof == request.anchor_evidence.registry_membership_proof
-                    && self.anchor_membership.verify(&request.anchor_evidence, root)
-            },
-        )
-        .map_err(|_| VerificationErrorV1::terminal(VerificationErrorCodeV1::InvalidAnchor))?;
+            &request.public,
+            &request.anchor_request,
+            &request.anchor_evidence,
+        )?;
         let registration = self.usage.register_all(
             request.public.usage_domain,
             &request.public.usage_nullifiers,
@@ -668,10 +641,6 @@ impl<R: RelationVerifier, A: AnchorMembershipVerifier> WorkProofVerificationServ
             bundle.body.bundle_sequence,
             now_ms,
         )?;
-        let finalized =
-            request.anchor_evidence.finalized_record.evidence().ok_or_else(|| {
-                VerificationErrorV1::terminal(VerificationErrorCodeV1::InvalidAnchor)
-            })?;
         Ok(VerifiedClaimDtoV1 {
             claim_id: digest_hex(request.claim_id),
             lifecycle: ProofLifecycleV1::AnchorFinalized,
@@ -686,7 +655,7 @@ impl<R: RelationVerifier, A: AnchorMembershipVerifier> WorkProofVerificationServ
             policy_revision: request.public.policy_revision,
             aggregate: request.public.aggregate.into(),
             anchor: AnchorFinalizedDtoV1 {
-                statement_id: digest_hex(request.anchor_evidence.anchor_reference),
+                statement_id: digest_hex(anchor_reference),
                 finalized_height: finalized.finalized_height(),
                 finalized_block_id: digest_hex(finalized.finalized_block()),
                 checkpoint_bundle_id: digest_hex(bundle.bundle_id),
@@ -775,9 +744,8 @@ fn verify_trust_bindings(
 
 fn verify_anchor_public_bindings(
     public: &WorkClaimPublicV1,
-    evidence: &CheckpointedTelemetryAnchorEvidenceV1,
+    request: &TelemetryEpochAnchorRequestV1,
 ) -> Result<(), VerificationErrorV1> {
-    let request = &evidence.request;
     let epoch = &request.epoch;
     if request.chain_id != public.chain_id
         || request.genesis_commitment != public.genesis
@@ -796,6 +764,46 @@ fn verify_anchor_public_bindings(
         return Err(VerificationErrorV1::terminal(VerificationErrorCodeV1::InvalidAnchor));
     }
     Ok(())
+}
+
+fn verify_finalized_anchor_checkpoint(
+    bundle: &SignedActumVerifierTrustBundleV1,
+    public: &WorkClaimPublicV1,
+    request: &TelemetryEpochAnchorRequestV1,
+    evidence: &AnchorFinalizedEvidenceV1,
+) -> Result<(AnchorFinalizedEvidenceV1, Digest384), VerificationErrorV1> {
+    verify_anchor_public_bindings(public, request)?;
+    let statement = request
+        .statement()
+        .map_err(|_| VerificationErrorV1::terminal(VerificationErrorCodeV1::InvalidAnchor))?;
+    let statement_bytes = encode_envelope(&statement)
+        .map_err(|_| VerificationErrorV1::terminal(VerificationErrorCodeV1::InvalidAnchor))?;
+    let evidence_bytes = encode_envelope(evidence)
+        .map_err(|_| VerificationErrorV1::terminal(VerificationErrorCodeV1::InvalidAnchor))?;
+    let finalized = activechain_verifier_api::verify_anchor_finalized_evidence(
+        &evidence_bytes,
+        &statement_bytes,
+        ChainId::new(bundle.body.chain_id),
+        bundle.body.genesis_commitment,
+        u64::from(bundle.body.protocol_revision),
+        bundle.body.verifier_revision,
+    )
+    .map_err(|_| VerificationErrorV1::terminal(VerificationErrorCodeV1::InvalidAnchor))?;
+    let finality = decode_envelope::<FinalityCertificateBundle>(finalized.finality_proof())
+        .map_err(|_| VerificationErrorV1::terminal(VerificationErrorCodeV1::InvalidAnchor))?;
+    let header = finality.header();
+    if bundle.body.checkpoint_height != finalized.finalized_height()
+        || bundle.body.checkpoint_block_id != finalized.finalized_block()
+        || bundle.body.checkpoint_state_root != header.inputs.post_state.root()
+        || bundle.body.checkpoint_finality_commitment != header.proof_statement_commitment
+        || bundle.body.validator_set_root != header.inputs.validator_set_root
+    {
+        return Err(VerificationErrorV1::terminal(VerificationErrorCodeV1::InvalidAnchor));
+    }
+    let reference = statement
+        .submission_reference()
+        .map_err(|_| VerificationErrorV1::terminal(VerificationErrorCodeV1::InvalidAnchor))?;
+    Ok((finalized, reference))
 }
 
 fn domain_hash(domain: &[u8], values: &[&[u8]]) -> Digest384 {
@@ -902,12 +910,29 @@ pub fn verify_relation_envelopes(public: &[u8], proof: &[u8]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use activechain_application_primitives::{
-        ActivityEpochV1, ActumVerifierTrustBundleV1, AnchorFinalizedEvidenceV1, AnchorRegistry,
-        CheckpointedTelemetryAnchorEvidenceV1, TelemetryEpochAnchorRequestV1,
-        TrustBundleSignatureV1, TrustSignerV1,
+    use activechain_action_kernel::{
+        ACTION_PROTOCOL_VERSION, ActionEnvelope, ActionPayloadV2, FeeTicket, ResourceVector,
+        ValidityInterval, action_id,
     };
-    use activechain_protocol_types::{ChainId, TransactionId};
+    use activechain_application_primitives::{
+        ActivityEpochV1, ActumVerifierTrustBundleV1, AnchorFinalizedEvidenceV1,
+        TelemetryEpochAnchorRequestV1, TrustBundleSignatureV1, TrustSignerV1,
+    };
+    use activechain_devnet_kernel::{ActionOutcome, ActionReceipt, BlockReceipt};
+    use activechain_finality_types::{
+        FinalityCertificateBundle, FinalizedBlockHeader, ProofPublicInputs,
+    };
+    use activechain_protocol_commitment::{DomainTag, commit};
+    use activechain_protocol_types::{
+        ChainId, ConsensusVoteContext, CryptoSuiteId, ObjectId, PrincipalId, ProtocolSignature,
+        QuorumCertificate, ValidatorGenesis, ValidatorGenesisEntry, ValidatorVote,
+    };
+    use activechain_state_tree::StateCommitment;
+    use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
+    use sha3::{
+        Shake256,
+        digest::{ExtendableOutput, Update, XofReader},
+    };
     use std::sync::{Arc, Barrier};
     use tempfile::tempdir;
 
@@ -1051,11 +1076,27 @@ mod tests {
         }
     }
 
-    fn production_bundle(set: &TrustSignerSetV1) -> SignedActumVerifierTrustBundleV1 {
+    fn production_bundle(
+        set: &TrustSignerSetV1,
+        evidence: &AnchorFinalizedEvidenceV1,
+    ) -> SignedActumVerifierTrustBundleV1 {
+        let finality =
+            decode_envelope::<FinalityCertificateBundle>(evidence.finality_proof()).unwrap();
+        let header = finality.header();
         let mut value = bundle(set);
+        value.body.chain_id = *evidence.chain().digest();
+        value.body.genesis_commitment = evidence.genesis();
+        value.body.protocol_revision = u32::try_from(evidence.protocol_revision()).unwrap();
+        value.body.checkpoint_height = evidence.finalized_height();
+        value.body.checkpoint_block_id = evidence.finalized_block();
+        value.body.checkpoint_state_root = header.inputs.post_state.root();
+        value.body.checkpoint_finality_commitment = header.proof_statement_commitment;
+        value.body.validator_set_root = header.inputs.validator_set_root;
         value.body.proof_profile_id = work_proof_profile_id();
         value.body.proof_system_revision = WORK_PROOF_SYSTEM_REVISION;
-        value.body.risc0_image_id = work_image_id();
+        if work_image_id() != [0; 32] {
+            value.body.risc0_image_id = work_image_id();
+        }
         value.bundle_id = value.body.bundle_id().unwrap();
         value.signatures[0].signature[..48].copy_from_slice(value.bundle_id.as_bytes());
         value
@@ -1127,9 +1168,7 @@ mod tests {
         }
     }
 
-    fn checkpointed_evidence(
-        accepted: &SignedActumVerifierTrustBundleV1,
-    ) -> CheckpointedTelemetryAnchorEvidenceV1 {
+    fn finalized_anchor_evidence() -> (TelemetryEpochAnchorRequestV1, AnchorFinalizedEvidenceV1) {
         let epoch = ActivityEpochV1 {
             collector_id: d(9),
             project_id: d(10),
@@ -1157,39 +1196,185 @@ mod tests {
         )
         .unwrap();
         let statement = request.statement().unwrap();
-        let mut registry = AnchorRegistry::default();
-        let reference = registry.submit(statement.clone()).unwrap();
-        registry
-            .finalize(
-                reference,
-                AnchorFinalizedEvidenceV1::new(
-                    ChainId::new(d(1)),
-                    d(2),
-                    TransactionId::new(d(31)),
-                    9,
-                    d(32),
-                    statement,
-                    None,
-                    None,
+        let pre_state = StateCommitment::new(d(60), 2);
+        let post_state = StateCommitment::new(d(61), 3);
+        let sender = PrincipalId::new(d(42));
+        let payload = ActionPayloadV2::submit_anchor(9, statement.clone());
+        let resources = ResourceVector::new(10, 0, 0, 0, 1, 4096);
+        let ticket = FeeTicket::new(ObjectId::new(d(43)), sender, 10_000, 9, 0, resources).unwrap();
+        let action = ActionEnvelope::new_payload(
+            ACTION_PROTOCOL_VERSION,
+            ChainId::new(d(1)),
+            sender,
+            ticket,
+            0,
+            0,
+            ValidityInterval::new(9, 9).unwrap(),
+            resources,
+            payload.commitment().unwrap(),
+            payload,
+            statement.submission_reference().unwrap(),
+        )
+        .unwrap();
+        let transaction = action_id(&action).unwrap();
+        let receipt = BlockReceipt::new(
+            d(32),
+            9,
+            pre_state,
+            post_state,
+            d(64),
+            d(65),
+            vec![ActionReceipt::new(
+                transaction,
+                ActionOutcome::AnchorSubmitted {
+                    reference: statement.submission_reference().unwrap(),
+                },
+                ResourceVector::new(1, 0, 0, 0, 0, 1),
+                0,
+                1,
+                post_state,
+            )],
+        )
+        .unwrap();
+        let receipt_root = commit(DomainTag::CANONICAL_VALUE, &receipt).unwrap();
+        let finality = finality_bundle_with_inputs(receipt_root, pre_state, post_state);
+        let evidence = AnchorFinalizedEvidenceV1::new(
+            ChainId::new(d(1)),
+            finality.validator_genesis().genesis_commitment(),
+            transaction,
+            encode_envelope(&action).unwrap(),
+            9,
+            receipt.block_id(),
+            statement,
+            None,
+            None,
+            4,
+            WORK_VERIFIER_REVISION,
+            encode_envelope(&receipt).unwrap(),
+            encode_envelope(&finality).unwrap(),
+        )
+        .unwrap();
+        (request, evidence)
+    }
+
+    fn finality_bundle_with_inputs(
+        receipt_root: Digest384,
+        pre_state: StateCommitment,
+        post_state: StateCommitment,
+    ) -> FinalityCertificateBundle {
+        let keys = [
+            SigningKey::<MlDsa44>::from_seed(&Seed::from([1; 32])),
+            SigningKey::<MlDsa44>::from_seed(&Seed::from([2; 32])),
+        ];
+        let entries = keys
+            .iter()
+            .enumerate()
+            .map(|(index, key)| {
+                ValidatorGenesisEntry::new(
+                    PrincipalId::new(d((index + 1) as u8)),
                     1,
-                    1,
-                    vec![1],
-                    vec![2],
+                    key.verifying_key().encode().into(),
                 )
-                .unwrap(),
+                .unwrap()
+            })
+            .collect();
+        let genesis = ValidatorGenesis::new_with_revision(3, 1, 4, entries).unwrap();
+        let inputs = ProofPublicInputs {
+            chain_id: ChainId::new(d(1)),
+            epoch: 3,
+            height: 9,
+            protocol_revision: 4,
+            validator_set_root: genesis.validator_set_root(),
+            parent_block_id: d(41),
+            pre_state,
+            authorization_root: d(43),
+            action_root: d(44),
+            execution_order_root: d(45),
+            total_fees: 0,
+            pre_supply: 0,
+            issuance: 0,
+            burn: 0,
+            post_supply: 0,
+            pre_cash_cell_root: d(50),
+            cash_action_root: d(51),
+            cash_cell_root: d(50),
+            post_state,
+            receipt_root,
+            data_availability_commitment: d(48),
+        };
+        let header = FinalizedBlockHeader { inputs, proof_statement_commitment: d(49) };
+        let block_digest = header.digest().unwrap();
+        let context = ConsensusVoteContext::new_with_revision(
+            genesis.genesis_commitment(),
+            genesis.epoch(),
+            genesis.validator_set_root(),
+            genesis.protocol_revision(),
+        )
+        .unwrap();
+        let mut votes = Vec::new();
+        let mut vote_set_hasher = Shake256::default();
+        vote_set_hasher.update(b"ACTIVECHAIN-VOTE-SET-V1");
+        for (index, key) in keys.iter().enumerate() {
+            let validator = PrincipalId::new(d((index + 1) as u8));
+            let unsigned = ValidatorVote::new(
+                validator,
+                context,
+                9,
+                2,
+                block_digest,
+                d(49),
+                ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, vec![0; 2_420]).unwrap(),
             )
             .unwrap();
-        CheckpointedTelemetryAnchorEvidenceV1::new(
-            request,
-            reference,
-            registry.resolve(reference).unwrap().clone(),
-            accepted.bundle_id,
-            accepted.body.checkpoint_height,
-            accepted.body.checkpoint_block_id,
-            accepted.body.checkpoint_state_root,
-            vec![3],
+            let signature = key.sign(&unsigned.signing_payload());
+            let vote = ValidatorVote::new(
+                validator,
+                context,
+                9,
+                2,
+                block_digest,
+                d(49),
+                ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec())
+                    .unwrap(),
+            )
+            .unwrap();
+            vote_set_hasher.update(key.verifying_key().encode().as_slice());
+            vote_set_hasher.update(&vote.signing_payload());
+            vote_set_hasher.update(vote.signature().as_bytes());
+            votes.push(vote);
+        }
+        let mut vote_set_root = [0; 48];
+        XofReader::read(&mut vote_set_hasher.finalize_xof(), &mut vote_set_root);
+        let certificate = QuorumCertificate::new(
+            context,
+            9,
+            2,
+            block_digest,
+            d(49),
+            Digest384::new(vote_set_root),
+            2,
+            2,
         )
-        .unwrap()
+        .unwrap();
+        FinalityCertificateBundle::new(header, genesis, certificate, votes).unwrap()
+    }
+
+    #[test]
+    fn finalized_anchor_checkpoint_is_direct_and_exact() {
+        let set = signer_set();
+        let (request, evidence) = finalized_anchor_evidence();
+        let accepted = production_bundle(&set, &evidence);
+        let (verified, reference) =
+            verify_finalized_anchor_checkpoint(&accepted, &public(), &request, &evidence).unwrap();
+        assert_eq!(verified, evidence);
+        assert_eq!(reference, request.statement().unwrap().submission_reference().unwrap());
+
+        let mut substituted = accepted;
+        substituted.body.checkpoint_block_id = d(99);
+        assert_eq!(
+            verify_finalized_anchor_checkpoint(&substituted, &public(), &request, &evidence),
+            Err(VerificationErrorV1::terminal(VerificationErrorCodeV1::InvalidAnchor))
+        );
     }
 
     #[test]
@@ -1199,7 +1384,8 @@ mod tests {
         }
         let directory = tempdir().unwrap();
         let set = signer_set();
-        let accepted = production_bundle(&set);
+        let (anchor_request, anchor_evidence) = finalized_anchor_evidence();
+        let accepted = production_bundle(&set, &anchor_evidence);
         let trust = DurableTrustStore::bootstrap(
             directory.path().join("trust.bin"),
             accepted.clone(),
@@ -1211,7 +1397,6 @@ mod tests {
         let usage = DurableUsageRegistry::open(directory.path().join("usage.bin")).unwrap();
         let service = WorkProofVerificationService::new(
             AcceptRelation,
-            |_: &CheckpointedTelemetryAnchorEvidenceV1, _: Digest384| true,
             trust,
             usage,
             FixedWindowRateLimiter::new(10, 1_000).unwrap(),
@@ -1223,7 +1408,8 @@ mod tests {
             claim_id: derive_claim_id(&public, &proof_envelope).unwrap(),
             public,
             proof_envelope,
-            anchor_evidence: checkpointed_evidence(&accepted),
+            anchor_request,
+            anchor_evidence,
         };
         let first = service.verify(&request, 200).unwrap();
         assert!(first.relation_verified && first.anchor_verified && first.usage_verified);

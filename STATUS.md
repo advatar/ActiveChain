@@ -78,7 +78,9 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Implement durable all-or-nothing class-neutral usage admission and exact-claim retries.
     - [x] Add bounded explorer DTOs, pagination, error taxonomy, offline Rust API, and C FFI.
     - [x] Document the `pow.actum.network` verifier, trust, subprocess, and storage boundaries.
-    - [ ] Pass affected-crate qualification and the exact full deterministic-kernel gate.
+    - [x] Pass compile-first and affected-crate qualification for the direct finalized-anchor
+      verifier boundary without rebuilding the frozen guest image.
+    - [ ] Pass the exact full deterministic-kernel gate with the pinned guest image.
   - [ ] Qualify and document the complete `pow.actum.network` integration (#778).
 
 ## Verifier C header and Apple distribution reconciliation

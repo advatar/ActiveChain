@@ -136,15 +136,17 @@ Responses are bounded JSON with `status` equal to `submitted`, `pending`, `final
 different canonical bytes is rejected by the request/statement binding. Wrong-network requests,
 malformed backend records, stale health, timeouts, and unavailable RPC fail closed and never become
 `finalized`. Authenticated `GET /v1/health` reports `healthy` only when the canonical RPC backend
-reports healthy finalized state.
+reports healthy finalized state and the native anchor registry, funded operator fee account, nonce
+channel, and single-action proposal spool are ready to accept a new submission.
 
 Finalization remains an operator action through `activechain-anchor-admin`; the gateway cannot
 manufacture finality. A `finalized` response means the exact statement has a finalized registry
-record. Verification still requires the revision-2 `CheckpointedTelemetryAnchorEvidenceV1` fixed-
-depth `StateProof` for the exact consensus-created immutable anchor object under the operator-
-selected signed trust-bundle checkpoint. Native finality for anchor block A and state membership at
-checkpoint C are checked independently, with A.height <= C.height. An anchor newer than the current
-checkpoint is pending/retryable. A gateway response or host registry record alone is never
+record. Verification requires both independently verified `AnchorFinalizedEvidenceV1` and the
+revision-2 `CheckpointedTelemetryAnchorEvidenceV1` fixed-depth `StateProof`. The native action,
+anchor receipt, and finality certificate bind the request-derived statement to exact anchor block A;
+the state proof authenticates the consensus-created immutable anchor object under operator-selected
+checkpoint C. These facts are checked independently with A.height <= C.height. An anchor newer than
+the current checkpoint is pending/retryable. A gateway response or host registry record alone is never
 `anchor_verified`.
 
 ## Privacy and retention

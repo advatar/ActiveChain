@@ -77,17 +77,18 @@ GET  /v1/epochs/{epoch_id}
 POST /v1/disclosures/verify
 ```
 
-`POST /v1/proofs/verify` accepts canonical `WorkProofReceiptEnvelopeV1` bytes, exact finalized
-anchor evidence, the operator-selected trust bundle, and a caller identity used only for bounded
-rate limiting. Binary fields use lowercase hex in JSON adapters. The proof may name an expected
-bundle but cannot select or install trust. The service derives `claim_id` from the canonical public
-claim and proof commitment; callers cannot supply it.
+`POST /v1/proofs/verify` accepts canonical `WorkProofReceiptEnvelopeV1` bytes, the canonical epoch
+anchor request, exact `AnchorFinalizedEvidenceV1`, and a caller identity used only for bounded rate
+limiting. Binary fields use lowercase hex in JSON adapters. The service loads its accepted trust
+bundle from durable operator state; neither the proof nor the request can select or install trust.
+The service derives and checks `claim_id` from the canonical public claim and proof commitment.
 
 A successful `VerifiedClaimDtoV1` has all three independent facts set:
 
 - `relation_verified`: the operator-pinned RISC Zero image accepted the canonical relation journal;
-- `anchor_verified`: the exact epoch anchor is included in finalized Actum state connected to the
-  accepted checkpoint bundle;
+- `anchor_verified`: the request-derived epoch statement is bound to a native anchor action and
+  receipt under valid Actum finality, and its height, block, post-state root, finality statement
+  commitment, and validator-set root exactly match the accepted checkpoint bundle;
 - `usage_verified`: every class-neutral usage nullifier was atomically admitted in its usage domain.
 
 The service registers nullifiers only after relation and anchor verification. Registration is one
