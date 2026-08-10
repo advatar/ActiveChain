@@ -17,7 +17,7 @@ on:
           - full
 
 concurrency:
-  group: deterministic-kernel-${{ github.ref }}
+  group: deterministic-kernel-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
