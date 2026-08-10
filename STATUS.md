@@ -3038,3 +3038,5 @@ Tracked by [GitHub issue #788](https://github.com/advatar/ActiveChain/issues/788
   cannot appear qualified when a mandatory stage was skipped or failed.
 - [x] Document the maintainer workflow and qualify synchronization-aware candidate `3000f6a6` in
   split run `31340339674`; merge to `main` and reachability remain.
+- [ ] Make force-push synchronization classification detect an unreachable `before` SHA and
+  conservatively fall back to the complete PR-base diff; qualify and merge the follow-up.
