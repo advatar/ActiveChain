@@ -19,25 +19,45 @@ ActiveChain issue #122 provides the optional external anchor used by MadeMark's
    commitment, exact protocol/verifier revisions, and a light-client verifier for both the action
    inclusion/state proof and finality proof.
 
-The RPC registry persists an accepted statement before returning its reference. Snapshot decoding
-recomputes every reference and fails closed on corruption or substitution. `pending` may transition
-once to `rejected`, or to `finalized` only with evidence for the exact statement.
-Operators enable the registry by setting `ACTIVECHAIN_ANCHOR_SNAPSHOT` for
-`activechain-rpc-node`, or by passing its optional final positional argument. Omitting it disables
-all mutation endpoints while leaving the proof-query RPC unchanged.
+The RPC registry persists the exact statement-to-action transaction binding before returning its
+reference. Snapshot decoding recomputes every reference and fails closed on corruption or
+substitution. `pending` may transition once to `rejected`, or to `finalized` only with evidence
+for the exact statement and native action.
 
-Finalization is deliberately not a public RPC mutation. After the anchor action is included in a
-finalized block, an operator installs its canonical `AnchorFinalizedEvidenceV1` with:
+Production submission requires all of:
+
+- `ACTIVECHAIN_ANCHOR_SNAPSHOT`: durable lifecycle registry;
+- `ACTIVECHAIN_ANCHOR_ACTION_SPOOL`: crash-atomic single-round native-action spool;
+- `ACTIVECHAIN_ANCHOR_EXECUTION_STATE`: finalized execution snapshot used to derive the exact fee
+  nonce, action nonce, and next height;
+- `ACTIVECHAIN_ANCHOR_OPERATOR`: the 96-character lowercase hexadecimal operator principal; and
+- `ACTIVECHAIN_ANCHOR_NONCE_CHANNEL`: the operator's configured nonce channel.
+
+The validator round receives the same operator identity through `--anchor-operator`, together with
+`--anchor-fee-balance` for bootstrap and `--anchor-nonce-channel`. A new testnet execution
+snapshot creates that funded account and channel exactly once. An existing snapshot must already
+contain them and is rejected rather than silently rewritten.
+
+Submission is bounded to one pending action per round. Exact retries return the same transaction;
+a competing statement fails closed until the pending action is finalized. The validator journals
+the action with its receipt, finalizes the exact block, atomically archives
+`action + receipt + finality`, and only then removes the spool. `activechain-rpc-node` watches
+those archives, runs `verify_anchor_finalized_evidence`, and durably advances the record to
+`finalized`. Neither an RPC acknowledgement nor spool presence means finality.
+
+Finalization is not a public RPC mutation. The admin command remains a recovery mechanism for an
+already-finalized canonical evidence envelope:
 
 ```text
 activechain-anchor-admin finalize <anchor-snapshot> <reference-hex> <evidence-envelope> \
   <trusted-chain-hex> <trusted-genesis-hex> <protocol-revision> <verifier-revision>
 ```
 
-The command runs the production finality-bundle and block-receipt verifier, requires the declared
-anchor transaction to occur in the verified receipt, and only then performs the durable one-shot
-`pending -> finalized` transition. Operators may terminally reject a pending request with
-`activechain-anchor-admin reject <anchor-snapshot> <reference-hex>`.
+The command and automatic reconciler both run the production finality-bundle and block-receipt
+verifier, require the declared native anchor transaction and exact statement outcome in the
+verified receipt, and only then perform the durable one-shot `pending -> finalized` transition.
+Operators may terminally reject a pending request with `activechain-anchor-admin reject
+<anchor-snapshot> <reference-hex>`.
 
 Language-neutral clients call
 `activechain_verify_anchor_finalized_evidence_code` with the evidence, exact statement, and

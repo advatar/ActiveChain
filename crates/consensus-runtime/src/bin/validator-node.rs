@@ -1,4 +1,4 @@
-use activechain_action_kernel::{ActionEnvelope, ActionPayloadV2, ResourcePrices};
+use activechain_action_kernel::{ActionEnvelope, ActionPayloadV2, NonceChannel, ResourcePrices};
 use activechain_authorization_kernel::AuthorizationReplayStore;
 use activechain_canonical_codec::{decode_envelope, encode_envelope};
 use activechain_cash_kernel::CashLedger;
@@ -8,7 +8,7 @@ use activechain_consensus_runtime::{
     ValidatorService, WalletTransactionGateway, load_genesis, load_snapshot,
     load_snapshot_chain_genesis_commitment, save_snapshot,
 };
-use activechain_devnet_kernel::{ChainState, DevnetBlock};
+use activechain_devnet_kernel::{ChainState, DevnetBlock, FeeAccount};
 #[cfg(test)]
 use activechain_finality_types::ProofPublicInputs;
 use activechain_finality_types::{FinalityCertificateBundle, FinalizedBlockHeader};
@@ -48,6 +48,10 @@ fn parse_chain_id(value: &str) -> Result<ChainId, &'static str> {
     Ok(ChainId::new(Digest384::new(bytes)))
 }
 
+fn parse_principal(value: &str) -> Result<activechain_protocol_types::PrincipalId, &'static str> {
+    parse_chain_id(value).map(|chain| activechain_protocol_types::PrincipalId::new(*chain.digest()))
+}
+
 fn load_authoritative_cash_gateway(
     path: &Path,
     chain_id: ChainId,
@@ -73,6 +77,7 @@ fn load_or_create_execution_state(
     chain_id: ChainId,
     finalized_height: u64,
     finalized_block_digest: Digest384,
+    anchor_operator: Option<(activechain_protocol_types::PrincipalId, u16, u128)>,
 ) -> Result<ChainState, Box<dyn std::error::Error>> {
     if path.exists() {
         let bytes = std::fs::read(path)?;
@@ -83,6 +88,18 @@ fn load_or_create_execution_state(
                 std::io::Error::other("execution state is noncanonical or cross-chain").into()
             );
         }
+        if let Some((operator, channel, _)) = anchor_operator
+            && (!state.fee_accounts().iter().any(|account| account.payer() == operator)
+                || !state
+                    .nonce_channels()
+                    .iter()
+                    .any(|nonce| nonce.sender() == operator && nonce.channel() == channel))
+        {
+            return Err(std::io::Error::other(
+                "execution state lacks the configured anchor operator account",
+            )
+            .into());
+        }
         if migrated {
             save_execution_state(path, &state)?;
         } else if encode_envelope(&state).map_err(|_| "execution state encoding failed")? != bytes {
@@ -92,13 +109,22 @@ fn load_or_create_execution_state(
     }
     let objects = ObjectState::new(Vec::new())
         .map_err(|_| std::io::Error::other("empty execution object state is invalid"))?;
+    let (nonce_channels, fee_accounts) = anchor_operator.map_or_else(
+        || (Vec::new(), Vec::new()),
+        |(operator, channel, balance)| {
+            (
+                vec![NonceChannel::new(operator, channel, 0)],
+                vec![FeeAccount::new(operator, balance, 0)],
+            )
+        },
+    );
     let state = ChainState::new(
         chain_id,
         finalized_height,
         finalized_block_digest,
         objects,
-        Vec::new(),
-        Vec::new(),
+        nonce_channels,
+        fee_accounts,
         Vec::new(),
         ResourcePrices::new(1, 1, 1, 1, 1, 1),
     )
@@ -672,6 +698,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cash_ledger = extras.iter().find_map(|value| value.strip_prefix("--cash-ledger="));
     let cash_actions = extras.iter().find_map(|value| value.strip_prefix("--cash-actions="));
     let anchor_actions = extras.iter().find_map(|value| value.strip_prefix("--anchor-actions="));
+    let anchor_operator = extras.iter().find_map(|value| value.strip_prefix("--anchor-operator="));
+    let anchor_fee_balance = extras
+        .iter()
+        .find_map(|value| value.strip_prefix("--anchor-fee-balance="))
+        .map(str::parse::<u128>)
+        .transpose()?;
+    let anchor_nonce_channel = extras
+        .iter()
+        .find_map(|value| value.strip_prefix("--anchor-nonce-channel="))
+        .map(str::parse::<u16>)
+        .transpose()?
+        .unwrap_or(0);
+    let anchor_operator = match (anchor_operator, anchor_fee_balance) {
+        (Some(operator), Some(balance)) if balance > 0 => {
+            Some((parse_principal(operator)?, anchor_nonce_channel, balance))
+        }
+        (None, None) => None,
+        _ => {
+            return Err(
+                "--anchor-operator and a positive --anchor-fee-balance must be supplied together"
+                    .into(),
+            );
+        }
+    };
     let execution_state_path =
         extras.iter().find_map(|value| value.strip_prefix("--execution-state="));
     if finalized_cash_out.is_some() != finality_out.is_some()
@@ -688,6 +738,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if anchor_actions.is_some() && execution_state_path.is_none() {
         return Err("--anchor-actions requires --execution-state".into());
+    }
+    if anchor_actions.is_some() && anchor_operator.is_none() {
+        return Err("--anchor-actions requires --anchor-operator and --anchor-fee-balance".into());
     }
     if let (Some(execution), Some(cash_ledger), Some(cash_snapshot), Some(finality)) =
         (execution_state_path, cash_ledger, finalized_cash_out, finality_out)
@@ -814,6 +867,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     chain,
                     required_height,
                     state.finalized_block_digest(),
+                    anchor_operator,
                 )?);
             }
             if let (
@@ -864,6 +918,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     chain,
                     required_height,
                     recovered_consensus.finalized_block_digest(),
+                    anchor_operator,
                 )?);
             }
             let listener_thread_service = std::sync::Arc::clone(&service);
@@ -1499,12 +1554,12 @@ mod tests {
         let path = std::env::temp_dir()
             .join(format!("activechain-validator-execution-{}.snapshot", std::process::id()));
         let _ = std::fs::remove_file(&path);
-        let state = load_or_create_execution_state(&path, chain, 0, Digest384::ZERO).unwrap();
+        let state = load_or_create_execution_state(&path, chain, 0, Digest384::ZERO, None).unwrap();
         assert_eq!(state.height(), 0);
         assert_eq!(state.chain_id(), chain);
         save_execution_state(&path, &state).unwrap();
         assert_eq!(
-            load_or_create_execution_state(&path, chain, 0, Digest384::ZERO).unwrap(),
+            load_or_create_execution_state(&path, chain, 0, Digest384::ZERO, None).unwrap(),
             state
         );
         assert!(
@@ -1513,13 +1568,14 @@ mod tests {
                 ChainId::new(Digest384::new([83; 48])),
                 0,
                 Digest384::ZERO,
+                None,
             )
             .is_err()
         );
         let mut malformed = std::fs::read(&path).unwrap();
         malformed.push(0);
         std::fs::write(&path, malformed).unwrap();
-        assert!(load_or_create_execution_state(&path, chain, 0, Digest384::ZERO).is_err());
+        assert!(load_or_create_execution_state(&path, chain, 0, Digest384::ZERO, None).is_err());
         std::fs::remove_file(path).unwrap();
 
         let migrated_path = std::env::temp_dir().join(format!(
@@ -1528,12 +1584,39 @@ mod tests {
         ));
         let _ = std::fs::remove_file(&migrated_path);
         let anchor = Digest384::new([84; 48]);
-        let migrated = load_or_create_execution_state(&migrated_path, chain, 42, anchor).unwrap();
+        let migrated =
+            load_or_create_execution_state(&migrated_path, chain, 42, anchor, None).unwrap();
         assert_eq!(migrated.height(), 42);
         assert_eq!(migrated.head_block_id(), anchor);
         save_execution_state(&migrated_path, &migrated).unwrap();
-        assert!(load_or_create_execution_state(&migrated_path, chain, 43, anchor).is_err());
+        assert!(load_or_create_execution_state(&migrated_path, chain, 43, anchor, None).is_err());
         std::fs::remove_file(migrated_path).unwrap();
+
+        let funded_path = std::env::temp_dir()
+            .join(format!("activechain-validator-anchor-funded-{}.snapshot", std::process::id()));
+        let _ = std::fs::remove_file(&funded_path);
+        let operator = PrincipalId::new(Digest384::new([85; 48]));
+        let funded = load_or_create_execution_state(
+            &funded_path,
+            chain,
+            0,
+            Digest384::ZERO,
+            Some((operator, 7, 100_000)),
+        )
+        .unwrap();
+        assert_eq!(funded.fee_accounts(), &[FeeAccount::new(operator, 100_000, 0)]);
+        assert_eq!(funded.nonce_channels(), &[NonceChannel::new(operator, 7, 0)]);
+        assert!(
+            load_or_create_execution_state(
+                &funded_path,
+                chain,
+                0,
+                Digest384::ZERO,
+                Some((PrincipalId::new(Digest384::new([86; 48])), 7, 100_000)),
+            )
+            .is_err()
+        );
+        std::fs::remove_file(funded_path).unwrap();
     }
 
     #[test]
@@ -1658,7 +1741,8 @@ mod tests {
         let gateway =
             WalletTransactionGateway::from_ledger(cash_ledger(chain), cash_path.clone()).unwrap();
         let execution =
-            load_or_create_execution_state(&execution_path, chain, 0, Digest384::ZERO).unwrap();
+            load_or_create_execution_state(&execution_path, chain, 0, Digest384::ZERO, None)
+                .unwrap();
         let block = DevnetBlock::new(
             chain,
             1,

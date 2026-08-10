@@ -17,6 +17,14 @@
   <dict>
     <key>ACTIVECHAIN_ANCHOR_SNAPSHOT</key>
     <string>/Users/johansellstrom/activechain-deploy/kanalen/rpc/anchors.snapshot</string>
+    <key>ACTIVECHAIN_ANCHOR_ACTION_SPOOL</key>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/chain/anchor-actions.batch</string>
+    <key>ACTIVECHAIN_ANCHOR_EXECUTION_STATE</key>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/chain/execution.snapshot</string>
+    <key>ACTIVECHAIN_ANCHOR_OPERATOR</key>
+    <string>a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1</string>
+    <key>ACTIVECHAIN_ANCHOR_NONCE_CHANNEL</key>
+    <string>0</string>
     <key>ACTIVECHAIN_WALLET_INGRESS_SNAPSHOT</key>
     <string>/Users/johansellstrom/activechain-deploy/kanalen/chain/cash-ledger.snapshot</string>
     <key>ACTIVECHAIN_FAUCET_SNAPSHOT</key>
