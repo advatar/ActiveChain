@@ -11,6 +11,12 @@ only when relation, anchor, and usage verification all succeed.
 does not manage trust bundles, verify finality, or mutate the usage registry. The parent service
 enforces request and response limits, a hard timeout, and fail-closed child handling.
 
+`actum-work-proof-json-verifier` is the external compatibility adapter for applications such as
+ProofOfWork. It accepts one bounded `actum.work-proof.verify.request.v1` JSON object on stdin and
+returns one `actum.work-proof.verify.result.v1` object. The request carries lowercase-hex canonical
+public-claim and proof envelopes. Its closed result codes are `VERIFIED`, `INVALID`, `UNSUPPORTED`,
+and `MALFORMED`; caller-provided trust or success fields are rejected.
+
 The durable registry is a single-writer service resource. Deploy exactly one stateful admission
 service for each registry file. Multiple stateless relation-verifier subprocesses may run in
 parallel. Exact retries of the same derived claim are idempotent; reuse by another claim rejects the

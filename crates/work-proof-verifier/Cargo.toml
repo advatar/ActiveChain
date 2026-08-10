@@ -14,6 +14,7 @@ activechain-pq-zk.workspace = true
 activechain-protocol-types.workspace = true
 activechain-work-proof.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 sha3.workspace = true
 
 [dev-dependencies]

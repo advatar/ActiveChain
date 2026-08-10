@@ -1,5 +1,6 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
+pub mod json_adapter;
 pub mod status;
 
 use activechain_application_primitives::{

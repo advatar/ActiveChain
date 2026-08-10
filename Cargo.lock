@@ -829,6 +829,7 @@ dependencies = [
  "activechain-protocol-types",
  "activechain-work-proof",
  "serde",
+ "serde_json",
  "sha3 0.10.9",
  "tempfile",
 ]

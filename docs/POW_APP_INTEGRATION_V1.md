@@ -122,6 +122,13 @@ Rust callers use `activechain-work-proof-verifier`. C, Swift, and other FFI clie
 verification. A zero return value means relation success; nonzero values are fail-closed verifier
 codes. Offline relation success never implies anchor or usage verification.
 
+ProofOfWork and other JSON subprocess consumers use `actum-work-proof-json-verifier`. Send exactly
+one `actum.work-proof.verify.request.v1` object on stdin with operation `verify_non_overlap`, profile
+`actum.non-overlap.risc0.v1`, `proof.proof_envelope_hex`, and
+`expected.public_claim_envelope_hex`. The adapter rejects unknown fields and non-lowercase hex and
+returns exactly one `actum.work-proof.verify.result.v1` object with `VERIFIED`, `INVALID`,
+`UNSUPPORTED`, or `MALFORMED`. Only `VERIFIED` has `verified: true`.
+
 Cache only by the complete receipt-envelope commitment plus accepted trust-bundle ID. Never infer
 chain, genesis, image, policy, or checkpoint from an untrusted submission.
 
