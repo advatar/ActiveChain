@@ -14,7 +14,8 @@ DEFAULT_WORKFLOW = ROOT / ".github" / "workflows" / "kernel.yml"
 MANDATORY_JOBS = (
     "policy",
     "static",
-    "formal",
+    "formal-models",
+    "formal-conformance",
     "kani",
     "tests",
     "apple",
@@ -65,7 +66,7 @@ def validate(text: str) -> None:
     for job in MANDATORY_JOBS:
         if not re.search(rf"^  {re.escape(job)}:\s*$", text, re.MULTILINE):
             errors.append(f"missing mandatory job: {job}")
-    required_needs = "needs: [scope, policy, static, formal, kani, tests, apple, runtime, vectors]"
+    required_needs = "needs: [scope, policy, static, formal-models, formal-conformance, kani, tests, apple, runtime, vectors]"
     if text.count(required_needs) != 2:
         errors.append("both aggregate jobs must name the complete stage set")
     if "if: always() && needs.scope.outputs.full == 'true'" not in text:

@@ -153,8 +153,8 @@ jobs:
           -p activechain-policy-kernel -p activechain-object
           -p activechain-object-vm -p activechain-state-tree -p activechain-transition
 
-  formal:
-    name: Lean, Tamarin, Verus, and conformance
+  formal-models:
+    name: Lean and Tamarin models
     needs: scope
     if: needs.scope.outputs.formal == 'true'
     runs-on: [self-hosted, macOS, ARM64, activechain-ci]
@@ -171,6 +171,19 @@ jobs:
         run: lake build
       - name: Prove all Lean and Tamarin models
         run: bash scripts/check-formal-models.sh
+
+  formal-conformance:
+    name: Verus and proof conformance
+    needs: scope
+    if: needs.scope.outputs.formal == 'true'
+    runs-on: [self-hosted, macOS, ARM64, activechain-ci]
+    timeout-minutes: 45
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with: {clean: true, fetch-depth: 1, persist-credentials: false}
+      - name: Install conformance prerequisites
+        uses: ./.github/actions/kernel-setup
       - name: Prove consensus and economics arithmetic contracts
         run: formal/verus/verify.sh
       - name: Audit implementation traces and differential conformance
@@ -348,7 +361,7 @@ jobs:
 
   qualification:
     name: Deterministic kernel qualification
-    needs: [scope, policy, static, formal, kani, tests, apple, runtime, vectors]
+    needs: [scope, policy, static, formal-models, formal-conformance, kani, tests, apple, runtime, vectors]
     if: always() && needs.scope.outputs.full == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -362,7 +375,7 @@ jobs:
           import os
 
           results = json.loads(os.environ["STAGE_RESULTS"])
-          required = ("policy", "static", "formal", "kani", "tests", "apple", "runtime", "vectors")
+          required = ("policy", "static", "formal-models", "formal-conformance", "kani", "tests", "apple", "runtime", "vectors")
           rejected = {name: results.get(name, {}).get("result") for name in required
                       if results.get(name, {}).get("result") != "success"}
           if rejected:
@@ -372,7 +385,7 @@ jobs:
 
   development:
     name: Deterministic kernel development checks
-    needs: [scope, policy, static, formal, kani, tests, apple, runtime, vectors]
+    needs: [scope, policy, static, formal-models, formal-conformance, kani, tests, apple, runtime, vectors]
     if: always() && needs.scope.outputs.full != 'true'
     runs-on: ubuntu-latest
     steps:

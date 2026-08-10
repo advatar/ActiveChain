@@ -110,6 +110,8 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
       bearer token, launchd unit, and Kanalen TLS route.
     - [x] Automate checksum-verified, revision-addressed Mac mini activation and TLS gateway refresh
       for explicit deploys.
+    - [x] Split formal proofs from Verus/vector conformance into independently rerunnable,
+      fail-closed qualification jobs.
     - [ ] Exercise real deployed delivery, anchoring, finality, and stateful usage admission.
     - [ ] Pass the exact full gate and publish production qualification evidence.
     - [ ] Promote the deployed testnet and update landing-page capabilities proven by that evidence.

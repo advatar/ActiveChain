@@ -36,6 +36,13 @@ class KernelWorkflowPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "missing mandatory job: kani"):
             POLICY.validate(WORKFLOW.replace("  kani:\n", "  removed-kani:\n", 1))
 
+    def test_formal_proofs_and_conformance_remain_independently_mandatory(self) -> None:
+        for job in ("formal-models", "formal-conformance"):
+            with self.subTest(job=job), self.assertRaisesRegex(
+                ValueError, f"missing mandatory job: {job}"
+            ):
+                POLICY.validate(WORKFLOW.replace(f"  {job}:\n", f"  removed-{job}:\n", 1))
+
     def test_incomplete_aggregate_dependency_set_fails_closed(self) -> None:
         incomplete = WORKFLOW.replace(", vectors]", "]", 1)
         with self.assertRaisesRegex(ValueError, "complete stage set"):
