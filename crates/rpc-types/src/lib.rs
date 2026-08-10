@@ -20,6 +20,7 @@ use sha3::{
 
 pub const RPC_SCHEMA_REVISION: u32 = 2;
 pub const MAX_RPC_BLOB_LENGTH: usize = 256 * 1024;
+pub const MAX_ANCHOR_ACTION_LENGTH: usize = 8 * 1024;
 pub const MAX_RPC_PAGE_SIZE: u16 = 4;
 pub const MAX_SUPPORTED_PROOFS: usize = 8;
 pub const MAX_ACTIONS_PER_PROOF: usize = 32;
@@ -690,6 +691,48 @@ impl CanonicalType for FaucetReceiptV1 {
     const MAX_ENCODED_LEN: usize = 48 * 4 + 16 + 1 + 3 + 8 + 2 + MAX_RPC_BLOB_LENGTH;
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AnchorActionSubmissionV1 {
+    reference: Digest384,
+    transaction: TransactionId,
+}
+
+impl AnchorActionSubmissionV1 {
+    pub fn new(reference: Digest384, transaction: TransactionId) -> Result<Self, DecodeError> {
+        if reference == Digest384::ZERO || transaction.digest() == &Digest384::ZERO {
+            return Err(DecodeError::InvalidValue("invalid native anchor submission"));
+        }
+        Ok(Self { reference, transaction })
+    }
+
+    pub const fn reference(self) -> Digest384 {
+        self.reference
+    }
+
+    pub const fn transaction(self) -> TransactionId {
+        self.transaction
+    }
+}
+
+impl CanonicalEncode for AnchorActionSubmissionV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.reference.encode(encoder)?;
+        self.transaction.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for AnchorActionSubmissionV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(Digest384::decode(decoder)?, TransactionId::decode(decoder)?)
+    }
+}
+
+impl CanonicalType for AnchorActionSubmissionV1 {
+    const TYPE_TAG: u16 = 0x01BF;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 96;
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RpcRequest {
     Status,
@@ -704,6 +747,9 @@ pub enum RpcRequest {
     },
     SubmitAnchor {
         statement: Vec<u8>,
+    },
+    SubmitAnchorAction {
+        action: Vec<u8>,
     },
     ResolveAnchor {
         reference: Digest384,
@@ -749,6 +795,10 @@ impl CanonicalEncode for RpcRequest {
             Self::SubmitAnchor { statement } => {
                 3_u8.encode(encoder)?;
                 encoder.write_bytes(statement, 512)
+            }
+            Self::SubmitAnchorAction { action } => {
+                11_u8.encode(encoder)?;
+                encoder.write_bytes(action, MAX_ANCHOR_ACTION_LENGTH)
             }
             Self::ResolveAnchor { reference } => {
                 4_u8.encode(encoder)?;
@@ -801,6 +851,9 @@ impl CanonicalDecode for RpcRequest {
                 Ok(Self::List { kind, after, limit })
             }
             3 => Ok(Self::SubmitAnchor { statement: decoder.read_bytes(512)?.to_vec() }),
+            11 => Ok(Self::SubmitAnchorAction {
+                action: decoder.read_bytes(MAX_ANCHOR_ACTION_LENGTH)?.to_vec(),
+            }),
             4 => Ok(Self::ResolveAnchor { reference: Digest384::decode(decoder)? }),
             5 => Ok(Self::RequestFaucet { request: Box::new(FaucetRequestV1::decode(decoder)?) }),
             10 => Ok(Self::RequestAuthorizedFaucet {
@@ -833,7 +886,7 @@ impl CanonicalDecode for RpcRequest {
 }
 impl CanonicalType for RpcRequest {
     const TYPE_TAG: u16 = 0x0107;
-    const SCHEMA_VERSION: u16 = 1;
+    const SCHEMA_VERSION: u16 = 2;
     const MAX_ENCODED_LEN: usize = 1 + AuthorizedFaucetRequestV1::MAX_ENCODED_LEN;
 }
 
@@ -988,6 +1041,7 @@ impl RpcAccessTerms {
             RpcRequest::FaucetTerms => Some(0),
             RpcRequest::Get { .. }
             | RpcRequest::SubmitAnchor { .. }
+            | RpcRequest::SubmitAnchorAction { .. }
             | RpcRequest::ResolveAnchor { .. }
             | RpcRequest::RequestFaucet { .. }
             | RpcRequest::RequestAuthorizedFaucet { .. }
@@ -1660,6 +1714,7 @@ pub enum RpcResponse {
     Page(QueryPage),
     Error(RpcError),
     AnchorSubmission(Digest384),
+    AnchorActionSubmission(AnchorActionSubmissionV1),
     AnchorRecord(Vec<u8>),
     FaucetReceipt(FaucetReceiptV1),
     FaucetTerms(FaucetTermsV1),
@@ -1687,6 +1742,10 @@ impl CanonicalEncode for RpcResponse {
                 4_u8.encode(encoder)?;
                 reference.encode(encoder)
             }
+            Self::AnchorActionSubmission(submission) => {
+                8_u8.encode(encoder)?;
+                submission.encode(encoder)
+            }
             Self::AnchorRecord(record) => {
                 5_u8.encode(encoder)?;
                 encoder.write_bytes(record, MAX_RPC_BLOB_LENGTH)
@@ -1710,6 +1769,7 @@ impl CanonicalDecode for RpcResponse {
             2 => Ok(Self::Page(QueryPage::decode(decoder)?)),
             3 => Ok(Self::Error(RpcError::decode(decoder)?)),
             4 => Ok(Self::AnchorSubmission(Digest384::decode(decoder)?)),
+            8 => Ok(Self::AnchorActionSubmission(AnchorActionSubmissionV1::decode(decoder)?)),
             5 => Ok(Self::AnchorRecord(decoder.read_bytes(MAX_RPC_BLOB_LENGTH)?.to_vec())),
             6 => Ok(Self::FaucetReceipt(FaucetReceiptV1::decode(decoder)?)),
             7 => Ok(Self::FaucetTerms(FaucetTermsV1::decode(decoder)?)),
@@ -1719,7 +1779,7 @@ impl CanonicalDecode for RpcResponse {
 }
 impl CanonicalType for RpcResponse {
     const TYPE_TAG: u16 = 0x010a;
-    const SCHEMA_VERSION: u16 = 1;
+    const SCHEMA_VERSION: u16 = 2;
     const MAX_ENCODED_LEN: usize = 1
         + 2
         + MAX_RPC_PAGE_SIZE as usize * (1 + 48 + 8 + 3 * (4 + MAX_RPC_BLOB_LENGTH))

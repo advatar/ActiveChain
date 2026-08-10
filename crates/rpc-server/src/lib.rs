@@ -16,8 +16,10 @@ pub use operator_faucet::{
     OperatorFaucetIngressAdapter, SpoolOperatorFaucetIngressAdapter,
 };
 
-use activechain_action_kernel::{ActionEnvelope, action_id};
-use activechain_application_primitives::{DigestAnchorStatementV1, DurableAnchorRegistry};
+use activechain_action_kernel::{ActionEnvelope, ActionPayloadV2, action_id};
+use activechain_application_primitives::{
+    AnchorError, DigestAnchorStatementV1, DurableAnchorRegistry,
+};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     decode_envelope, encode_envelope,
@@ -33,8 +35,9 @@ use activechain_protocol_types::{
     NonFungibleSeriesV1, NonFungibleTokenRegistryV1, Object, PrincipalId, TransactionId,
 };
 use activechain_rpc_types::{
-    ActionSetProof, Health, MAX_SUPPORTED_PROOFS, ProofKind, QueryKind, QueryPage, QueryRecord,
-    RpcAccessRequest, RpcAccessResponse, RpcError, RpcRequest, RpcResponse, RpcStatus,
+    ActionSetProof, AnchorActionSubmissionV1, Health, MAX_SUPPORTED_PROOFS, ProofKind, QueryKind,
+    QueryPage, QueryRecord, RpcAccessRequest, RpcAccessResponse, RpcError, RpcRequest, RpcResponse,
+    RpcStatus,
 };
 use activechain_wallet_core::AuthorizedCashTransferV1;
 use sha3::{
@@ -749,6 +752,7 @@ impl DurableRpcStore {
                 .list_owner_fungible_coin_cells(owner, asset, after, limit)
                 .map_or(RpcResponse::Error(RpcError::Internal), RpcResponse::Page),
             RpcRequest::SubmitAnchor { .. }
+            | RpcRequest::SubmitAnchorAction { .. }
             | RpcRequest::ResolveAnchor { .. }
             | RpcRequest::RequestFaucet { .. }
             | RpcRequest::RequestAuthorizedFaucet { .. }
@@ -774,11 +778,14 @@ type FaucetSettlement =
     dyn Fn(PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError> + Send + Sync;
 type AuthorizedFaucetSettlement =
     dyn Fn(&[u8], PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError> + Send + Sync;
+type AnchorSettlement =
+    dyn Fn(&[u8], Digest384) -> Result<TransactionId, AnchorError> + Send + Sync;
 
 pub struct RpcServer {
     store: Arc<DurableRpcStore>,
     access: Option<Arc<RpcAccessController>>,
     anchors: Option<Arc<RwLock<DurableAnchorRegistry>>>,
+    anchor_settlement: Option<Arc<AnchorSettlement>>,
     faucet: Option<Arc<RwLock<DurableFaucet>>>,
     faucet_settlement: Option<Arc<FaucetSettlement>>,
     authorized_faucet_settlement: Option<Arc<AuthorizedFaucetSettlement>>,
@@ -806,6 +813,16 @@ pub trait AuthorizedFaucetSettlementAdapter: Send + Sync {
         amount: u128,
         reference: Digest384,
     ) -> Result<TransactionId, FaucetError>;
+}
+
+/// Typed production boundary for native anchor admission. Implementations must
+/// submit the exact canonical action envelope and be idempotent by action ID.
+pub trait AnchorSettlementAdapter: Send + Sync {
+    fn submit_anchor(
+        &self,
+        action_envelope: &[u8],
+        reference: Digest384,
+    ) -> Result<TransactionId, AnchorError>;
 }
 
 /// Direct validator-side adapter for deployments that host the authenticated
@@ -1024,6 +1041,7 @@ impl RpcServer {
             store,
             access: None,
             anchors: None,
+            anchor_settlement: None,
             faucet: None,
             faucet_settlement: None,
             authorized_faucet_settlement: None,
@@ -1033,6 +1051,23 @@ impl RpcServer {
     pub fn with_anchor_registry(mut self, anchors: DurableAnchorRegistry) -> Self {
         self.anchors = Some(Arc::new(RwLock::new(anchors)));
         self
+    }
+
+    pub fn with_anchor_settlement<F>(mut self, settlement: F) -> Self
+    where
+        F: Fn(&[u8], Digest384) -> Result<TransactionId, AnchorError> + Send + Sync + 'static,
+    {
+        self.anchor_settlement = Some(Arc::new(settlement));
+        self
+    }
+
+    pub fn with_anchor_settlement_adapter<A>(self, adapter: A) -> Self
+    where
+        A: AnchorSettlementAdapter + 'static,
+    {
+        self.with_anchor_settlement(move |action, reference| {
+            adapter.submit_anchor(action, reference)
+        })
     }
 
     /// Attach the operator's durable faucet policy and receipt journal.
@@ -1099,6 +1134,7 @@ impl RpcServer {
             store,
             access: Some(access),
             anchors: None,
+            anchor_settlement: None,
             faucet: None,
             faucet_settlement: None,
             authorized_faucet_settlement: None,
@@ -1117,6 +1153,44 @@ impl RpcServer {
         abuse_identity: Option<Digest384>,
     ) -> RpcResponse {
         match request {
+            RpcRequest::SubmitAnchorAction { action } => {
+                let (Some(anchors), Some(settlement)) = (&self.anchors, &self.anchor_settlement)
+                else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let Ok(envelope) = decode_envelope::<ActionEnvelope>(&action) else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let ActionPayloadV2::SubmitAnchor { statement, .. } = envelope.payload() else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let Ok(chain_id) = self.store.chain_id() else {
+                    return RpcResponse::Error(RpcError::Internal);
+                };
+                let Ok(reference) = statement.submission_reference() else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let Ok(transaction) = action_id(&envelope) else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                if envelope.chain_id() != chain_id
+                    || settlement(&action, reference) != Ok(transaction)
+                {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                }
+                let Ok(mut anchors) = anchors.write() else {
+                    return RpcResponse::Error(RpcError::Internal);
+                };
+                if anchors.update(|registry| registry.submit_action(statement.clone(), transaction))
+                    != Ok(reference)
+                {
+                    return RpcResponse::Error(RpcError::Internal);
+                }
+                match AnchorActionSubmissionV1::new(reference, transaction) {
+                    Ok(submission) => RpcResponse::AnchorActionSubmission(submission),
+                    Err(_) => RpcResponse::Error(RpcError::Internal),
+                }
+            }
             RpcRequest::SubmitAnchor { statement } => {
                 let Some(anchors) = &self.anchors else {
                     return RpcResponse::Error(RpcError::InvalidRequest);
@@ -2273,6 +2347,34 @@ mod tests {
         )
         .unwrap()
     }
+
+    fn anchor_action_envelope(statement: DigestAnchorStatementV1) -> ActionEnvelope {
+        let actor = PrincipalId::new(digest(50));
+        let payload = ActionPayloadV2::submit_anchor(7, statement);
+        let resources = ResourceVector::new(100, 0, 0, 0, 1, 2_000);
+        ActionEnvelope::new_payload(
+            ACTION_PROTOCOL_VERSION,
+            ChainId::new(digest(1)),
+            actor,
+            FeeTicket::new(
+                ObjectId::new(digest(55)),
+                actor,
+                100_000,
+                10,
+                9,
+                ResourceVector::new(100, 100, 100, 100, 100, 10_000),
+            )
+            .unwrap(),
+            2,
+            5,
+            ValidityInterval::new(1, 10).unwrap(),
+            resources,
+            payload.commitment().unwrap(),
+            payload,
+            digest(56),
+        )
+        .unwrap()
+    }
     fn index() -> RpcIndex {
         let mut records = vec![
             receipt_record(10),
@@ -2486,6 +2588,85 @@ mod tests {
             restarted.handle(RpcRequest::ResolveAnchor { reference }, 105),
             RpcResponse::AnchorRecord(_)
         ));
+        let _ = std::fs::remove_file(index_path);
+        let _ = std::fs::remove_file(anchor_path);
+    }
+
+    #[test]
+    fn native_anchor_rpc_binds_adapter_transaction_and_persists_exact_retry() {
+        let index_path = temporary("native-anchor-index");
+        let anchor_path = temporary("native-anchors");
+        let _ = std::fs::remove_file(&index_path);
+        let _ = std::fs::remove_file(&anchor_path);
+        let statement =
+            DigestAnchorStatementV1::new(b"actum.developer-telemetry.epoch.v1".to_vec(), [43; 32])
+                .unwrap();
+        let reference = statement.submission_reference().unwrap();
+        let action = anchor_action_envelope(statement);
+        let transaction = action_id(&action).unwrap();
+        let encoded_action = encode_envelope(&action).unwrap();
+        let store = Arc::new(DurableRpcStore::create(index_path.clone(), index()).unwrap());
+        let server = RpcServer::new(store)
+            .with_anchor_registry(DurableAnchorRegistry::open(&anchor_path).unwrap())
+            .with_anchor_settlement(|bytes, _| {
+                let action = decode_envelope::<ActionEnvelope>(bytes).unwrap();
+                Ok(action_id(&action).unwrap())
+            });
+        let request = RpcRequest::SubmitAnchorAction { action: encoded_action };
+        let expected = RpcResponse::AnchorActionSubmission(
+            AnchorActionSubmissionV1::new(reference, transaction).unwrap(),
+        );
+        assert_eq!(server.handle(request.clone(), 105), expected);
+        assert_eq!(server.handle(request, 105), expected);
+        let RpcResponse::AnchorRecord(record) =
+            server.handle(RpcRequest::ResolveAnchor { reference }, 105)
+        else {
+            panic!("anchor record expected")
+        };
+        let record = decode_envelope::<AnchorRecord>(&record).unwrap();
+        assert_eq!(record.submitted_transaction(), Some(transaction));
+        drop(server);
+
+        let store = Arc::new(DurableRpcStore::load(index_path.clone()).unwrap());
+        let restarted = RpcServer::new(store)
+            .with_anchor_registry(DurableAnchorRegistry::open(&anchor_path).unwrap())
+            .with_anchor_settlement(move |_, _| Ok(transaction));
+        let RpcResponse::AnchorRecord(record) =
+            restarted.handle(RpcRequest::ResolveAnchor { reference }, 105)
+        else {
+            panic!("restarted anchor record expected")
+        };
+        assert_eq!(
+            decode_envelope::<AnchorRecord>(&record).unwrap().submitted_transaction(),
+            Some(transaction)
+        );
+        let _ = std::fs::remove_file(index_path);
+        let _ = std::fs::remove_file(anchor_path);
+    }
+
+    #[test]
+    fn native_anchor_rpc_rejects_adapter_transaction_substitution() {
+        let index_path = temporary("native-anchor-substitution-index");
+        let anchor_path = temporary("native-anchor-substitution");
+        let _ = std::fs::remove_file(&index_path);
+        let _ = std::fs::remove_file(&anchor_path);
+        let statement =
+            DigestAnchorStatementV1::new(b"actum.developer-telemetry.epoch.v1".to_vec(), [44; 32])
+                .unwrap();
+        let reference = statement.submission_reference().unwrap();
+        let action = encode_envelope(&anchor_action_envelope(statement)).unwrap();
+        let store = Arc::new(DurableRpcStore::create(index_path.clone(), index()).unwrap());
+        let server = RpcServer::new(store)
+            .with_anchor_registry(DurableAnchorRegistry::open(&anchor_path).unwrap())
+            .with_anchor_settlement(|_, _| Ok(TransactionId::new(digest(99))));
+        assert_eq!(
+            server.handle(RpcRequest::SubmitAnchorAction { action }, 105),
+            RpcResponse::Error(RpcError::InvalidRequest)
+        );
+        assert_eq!(
+            server.handle(RpcRequest::ResolveAnchor { reference }, 105),
+            RpcResponse::Error(RpcError::NotFound)
+        );
         let _ = std::fs::remove_file(index_path);
         let _ = std::fs::remove_file(anchor_path);
     }
