@@ -67,6 +67,7 @@ dependencies = [
  "activechain-rpc-types",
  "ml-dsa",
  "sha2 0.10.9",
+ "sha3 0.10.9",
  "tempfile",
 ]
 
@@ -259,6 +260,21 @@ version = "0.1.0"
 dependencies = [
  "reed-solomon-erasure",
  "sha3 0.10.9",
+]
+
+[[package]]
+name = "activechain-developer-telemetry"
+version = "0.1.0"
+dependencies = [
+ "activechain-application-primitives",
+ "activechain-canonical-codec",
+ "activechain-protocol-types",
+ "hex",
+ "ml-dsa",
+ "serde",
+ "serde_json",
+ "sha3 0.10.9",
+ "tempfile",
 ]
 
 [[package]]
