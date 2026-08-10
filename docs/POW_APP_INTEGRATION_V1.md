@@ -138,6 +138,18 @@ The stateful request schema is `actum.work-proof.admit.request.v1` with operatio
 `anchor_request_envelope_hex`, and `anchor_evidence_envelope_hex`. Unknown fields, oversized bodies,
 noncanonical hex/envelopes, unsupported profiles, and caller-supplied trust fail closed.
 
+### ProofOfWork migration
+
+The earlier ProofOfWork `ACTUM_FINALITY_VERIFIER` adapter sends a request-supplied `trust_bundle` to
+an anchor-only subprocess. Keep that compatibility path **Preview** and do not map its success to
+production `anchor_verified`: submitted evidence is not allowed to choose verifier trust. For the
+qualified path, configure the Agent Plugin with `ACTUM_WORK_VERIFIER_URL` and a private
+`ACTUM_WORK_VERIFIER_BEARER_TOKEN_FILE`, then submit the complete canonical stateful request to this
+service. The service operator installs trust with `actum-work-proof-trust-bootstrap`; the
+ProofOfWork `EvidenceBundleV1`, browser, plugin arguments, and HTTP body must not carry or replace
+that durable trust state. Use `/v1/status` readiness and the three returned verification dimensions
+instead of inferring readiness or finality from HTTP success.
+
 ## Offline and subprocess interfaces
 
 The `actum-work-proof-verifier` executable accepts one length-prefixed binary request on stdin and
