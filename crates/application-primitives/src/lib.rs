@@ -24,6 +24,7 @@ mod receipt_nullifier;
 #[cfg(feature = "std")]
 mod sponsored_cash;
 mod telemetry;
+#[cfg(feature = "checkpoint-state-proof")]
 mod telemetry_anchor;
 mod trust_bundle;
 
@@ -81,6 +82,7 @@ pub use telemetry::{
     MAX_TELEMETRY_EVENTS, TelemetryPrimitiveError, event_leaf_hash, event_node_hash,
     telemetry_merkle_root,
 };
+#[cfg(feature = "checkpoint-state-proof")]
 pub use telemetry_anchor::{
     CheckpointedTelemetryAnchorEvidenceV1, MAX_CHECKPOINT_MEMBERSHIP_PROOF_LENGTH,
     TELEMETRY_EPOCH_ANCHOR_DOMAIN, TelemetryEpochAnchorRequestV1, telemetry_epoch_anchor_statement,
