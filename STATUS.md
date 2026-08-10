@@ -73,6 +73,13 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Add class-neutral usage nullifiers and adversarial relation coverage.
     - [x] Regenerate proof/image/receipt vectors and pass the exact full gate.
   - [ ] Expose bounded verification APIs, SDKs, and explorer DTOs (#777; claimed on `feat/777-work-proof-verifier-api`).
+    - [ ] Replace anchor/checkpoint equality with one canonical finalized-chain ancestry relation,
+      retryable checkpoint-lag/unavailable outcomes, and substitution/adversarial tests.
+    - [ ] Enforce cross-process all-or-nothing usage-nullifier admission with reload-under-lock,
+      crash-safe persistence, and real multiprocess race/restart tests.
+    - [ ] Document the complete-file registry as bounded Preview storage and qualify explicit
+      entry/file-size limits plus 10k/100k/500k/1m admission latency.
+    - [ ] Rebase onto merged #775, compile first, pass affected tests, and run one exact full gate.
     - [x] Implement bounded in-process and subprocess RISC Zero relation verification.
     - [x] Bind operator-selected chained trust bundles and exact finalized-anchor inclusion.
     - [x] Implement durable all-or-nothing class-neutral usage admission and exact-claim retries.
