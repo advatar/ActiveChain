@@ -613,7 +613,7 @@ impl ActionPayloadV2 {
             Self::FungibleCorporateAction { .. }
             | Self::FungibleLifecycle { .. }
             | Self::FungibleControllerRotation { .. } => 1,
-            Self::SubmitAnchor { .. } => 0,
+            Self::SubmitAnchor { .. } => 1,
         }
     }
 

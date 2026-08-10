@@ -66,6 +66,7 @@ dependencies = [
  "activechain-protocol-commitment",
  "activechain-protocol-types",
  "activechain-rpc-types",
+ "activechain-state-tree",
  "ml-dsa",
  "sha2 0.10.9",
  "sha3 0.10.9",

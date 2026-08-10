@@ -1357,7 +1357,7 @@ mod tests {
             DigestAnchorStatementV1::new(b"actum.test.anchor".to_vec(), [5; 32]).unwrap();
         let reference = statement.submission_reference().unwrap();
         let payload = ActionPayloadV2::submit_anchor(1, statement);
-        let resources = ResourceVector::new(1, 0, 0, 0, 0, 2_048);
+        let resources = ResourceVector::new(1, 1, 1, 0, 0, 2_048);
         let action = ActionEnvelope::new_payload(
             ACTION_PROTOCOL_VERSION,
             ChainId::new(Digest384::new([6; 48])),

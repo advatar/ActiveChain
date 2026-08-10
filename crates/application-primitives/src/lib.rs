@@ -31,8 +31,9 @@ mod trust_bundle;
 pub use anchor::DurableAnchorRegistry;
 pub use anchor::{
     AnchorBatchProofV1, AnchorError, AnchorFinalizedEvidenceV1, AnchorRecord, AnchorRegistry,
-    AnchorStatus, DigestAnchorStatementV1, MAX_ANCHOR_APPLICATION_DOMAIN_LENGTH, anchor_leaf_hash,
-    anchor_node_hash, verify_anchor_evidence,
+    AnchorRegistryKeyV1, AnchorStateRecordV1, AnchorStatus, DigestAnchorStatementV1,
+    MAX_ANCHOR_APPLICATION_DOMAIN_LENGTH, anchor_leaf_hash, anchor_node_hash, anchor_state_object,
+    anchor_state_record_type_id, verify_anchor_evidence,
 };
 #[cfg(feature = "std")]
 pub use compliance::{

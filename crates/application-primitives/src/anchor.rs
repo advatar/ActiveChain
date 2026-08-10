@@ -3,7 +3,9 @@ use activechain_canonical_codec::{
     decode_envelope, encode_envelope,
 };
 use activechain_protocol_commitment::{DomainTag, commit};
-use activechain_protocol_types::{ChainId, Digest384, TransactionId};
+use activechain_protocol_types::{
+    ChainId, Digest384, Object, ObjectFields, ObjectFlags, ObjectId, ObjectOwner, TransactionId,
+};
 use alloc::{collections::BTreeMap, vec::Vec};
 use sha2::{Digest as _, Sha256};
 
@@ -67,6 +69,201 @@ impl CanonicalType for DigestAnchorStatementV1 {
     const TYPE_TAG: u16 = 0x00c6;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = 2 + MAX_ANCHOR_APPLICATION_DOMAIN_LENGTH + 32;
+}
+
+/// Canonical key material for one immutable entry in the consensus anchor registry.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AnchorRegistryKeyV1 {
+    anchor_reference: Digest384,
+}
+
+impl AnchorRegistryKeyV1 {
+    /// Binds the registry key to one canonical statement reference.
+    pub fn new(anchor_reference: Digest384) -> Result<Self, AnchorError> {
+        if anchor_reference == Digest384::ZERO {
+            return Err(AnchorError::InvalidStatement);
+        }
+        Ok(Self { anchor_reference })
+    }
+
+    /// Returns the exact statement reference indexed by this key.
+    #[must_use]
+    pub const fn anchor_reference(self) -> Digest384 {
+        self.anchor_reference
+    }
+
+    /// Derives the sparse-state object identifier under the registered object-ID domain.
+    pub fn object_id(self) -> Result<ObjectId, AnchorError> {
+        commit(DomainTag::OBJECT_ID_DERIVATION, &self)
+            .map(ObjectId::new)
+            .map_err(|_| AnchorError::Encoding)
+    }
+}
+
+impl CanonicalEncode for AnchorRegistryKeyV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.anchor_reference.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for AnchorRegistryKeyV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Self::new(Digest384::decode(decoder)?)
+            .map_err(|_| DecodeError::InvalidValue("invalid anchor registry key"))
+    }
+}
+
+impl CanonicalType for AnchorRegistryKeyV1 {
+    const TYPE_TAG: u16 = 0x01c1;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48;
+}
+
+/// Exact native action admitted into the append-only consensus anchor registry.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AnchorStateRecordV1 {
+    anchor_reference: Digest384,
+    statement: DigestAnchorStatementV1,
+    transaction: TransactionId,
+    admitted_height: u64,
+    admitted_block: Digest384,
+}
+
+impl AnchorStateRecordV1 {
+    /// Constructs the deterministic value written only by the native `SubmitAnchor` transition.
+    pub fn new(
+        statement: DigestAnchorStatementV1,
+        transaction: TransactionId,
+        admitted_height: u64,
+        admitted_block: Digest384,
+    ) -> Result<Self, AnchorError> {
+        let anchor_reference = statement.submission_reference()?;
+        if transaction == TransactionId::new(Digest384::ZERO)
+            || admitted_height == 0
+            || admitted_block == Digest384::ZERO
+        {
+            return Err(AnchorError::InvalidFinalizedEvidence);
+        }
+        Ok(Self { anchor_reference, statement, transaction, admitted_height, admitted_block })
+    }
+
+    /// Derives the exact state record from a host lifecycle record after native finality.
+    pub fn from_finalized_record(record: &AnchorRecord) -> Result<Self, AnchorError> {
+        let evidence = record.evidence().ok_or(AnchorError::InvalidFinalizedEvidence)?;
+        if record.status() != AnchorStatus::Finalized
+            || record.submitted_transaction() != Some(evidence.transaction())
+        {
+            return Err(AnchorError::InvalidFinalizedEvidence);
+        }
+        Self::new(
+            record.statement().clone(),
+            evidence.transaction(),
+            evidence.finalized_height(),
+            evidence.finalized_block(),
+        )
+    }
+
+    /// Returns the unique registry reference.
+    #[must_use]
+    pub const fn anchor_reference(&self) -> Digest384 {
+        self.anchor_reference
+    }
+
+    /// Borrows the exact admitted statement.
+    #[must_use]
+    pub const fn statement(&self) -> &DigestAnchorStatementV1 {
+        &self.statement
+    }
+
+    /// Returns the exact native transaction identifier.
+    #[must_use]
+    pub const fn transaction(&self) -> TransactionId {
+        self.transaction
+    }
+
+    /// Returns the native admission height.
+    #[must_use]
+    pub const fn admitted_height(&self) -> u64 {
+        self.admitted_height
+    }
+
+    /// Returns the native block containing the admitted action.
+    #[must_use]
+    pub const fn admitted_block(&self) -> Digest384 {
+        self.admitted_block
+    }
+
+    /// Returns the canonical sparse-state key.
+    pub fn registry_key(&self) -> Result<AnchorRegistryKeyV1, AnchorError> {
+        AnchorRegistryKeyV1::new(self.anchor_reference)
+    }
+}
+
+impl CanonicalEncode for AnchorStateRecordV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.anchor_reference.encode(encoder)?;
+        self.statement.encode(encoder)?;
+        self.transaction.encode(encoder)?;
+        self.admitted_height.encode(encoder)?;
+        self.admitted_block.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for AnchorStateRecordV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let anchor_reference = Digest384::decode(decoder)?;
+        let value = Self::new(
+            DigestAnchorStatementV1::decode(decoder)?,
+            TransactionId::decode(decoder)?,
+            u64::decode(decoder)?,
+            Digest384::decode(decoder)?,
+        )
+        .map_err(|_| DecodeError::InvalidValue("invalid anchor state record"))?;
+        if value.anchor_reference != anchor_reference {
+            return Err(DecodeError::InvalidValue("anchor state record reference mismatch"));
+        }
+        Ok(value)
+    }
+}
+
+impl CanonicalType for AnchorStateRecordV1 {
+    const TYPE_TAG: u16 = 0x01c2;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 + DigestAnchorStatementV1::MAX_ENCODED_LEN + 48 + 8 + 48;
+}
+
+/// Returns the fixed protocol object type for authenticated anchor records.
+#[must_use]
+pub const fn anchor_state_record_type_id() -> Digest384 {
+    let mut bytes = [0_u8; 48];
+    let tag = AnchorStateRecordV1::TYPE_TAG.to_be_bytes();
+    bytes[46] = tag[0];
+    bytes[47] = tag[1];
+    Digest384::new(bytes)
+}
+
+/// Constructs the exact immutable system object authenticated by checkpoint state roots.
+pub fn anchor_state_object(record: &AnchorStateRecordV1) -> Result<Object, AnchorError> {
+    let public_value = encode_envelope(record).map_err(|_| AnchorError::Encoding)?;
+    let value_root =
+        commit(DomainTag::CANONICAL_VALUE, record).map_err(|_| AnchorError::Encoding)?;
+    Object::new(ObjectFields {
+        object_id: record.registry_key()?.object_id()?,
+        object_version: 1,
+        type_id: anchor_state_record_type_id(),
+        owner: ObjectOwner::Immutable,
+        control_policy_hash: Digest384::ZERO,
+        use_policy_hash: Digest384::ZERO,
+        disclosure_policy_hash: Digest384::ZERO,
+        upgrade_policy_hash: Digest384::ZERO,
+        package_id: None,
+        value_root,
+        public_value: Some(public_value),
+        lease_expiry_epoch: u64::MAX,
+        storage_deposit: 0,
+        flags: ObjectFlags::SYSTEM,
+    })
+    .map_err(|_| AnchorError::InvalidFinalizedEvidence)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -662,6 +859,7 @@ pub enum AnchorError {
     InvalidTransition,
     InvalidBatchProof,
     InvalidFinalizedEvidence,
+    CheckpointLag,
     Encoding,
     Persistence,
 }
