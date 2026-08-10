@@ -1,5 +1,6 @@
 //! Complete typed finalized-block composition boundary.
 
+use activechain_action_kernel::ActionPayloadV2;
 use activechain_authorization_kernel::{
     AuthorizationCandidate, AuthorizationReplayStore, AuthorizationVerifier, CredentialMaterial,
     verify_authorization_candidate,
@@ -264,8 +265,9 @@ impl FinalizedBlockVerifier for CashOnlyFinalizedBlockVerifier {
     }
 }
 
-/// Canonical pre-vote material for a cash-only round. The resulting header is the exact statement
-/// validators must sign and `into_candidate` preserves those bytes for post-vote admission.
+/// Canonical pre-vote material for a cash round and consensus-native digest anchors. The resulting
+/// header is the exact statement validators must sign and `into_candidate` preserves those bytes
+/// for post-vote admission.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PreparedDirectFinalizedBlock {
     encoded_block: Vec<u8>,
@@ -295,7 +297,14 @@ impl PreparedDirectFinalizedBlock {
         parity_shards: usize,
         prover: PrincipalId,
     ) -> Result<Self, FinalizedBlockAdmissionError> {
-        if !block.actions().is_empty() {
+        if block.actions().iter().any(|action| {
+            let ActionPayloadV2::SubmitAnchor { statement, .. } = action.payload() else {
+                return true;
+            };
+            statement
+                .submission_reference()
+                .map_or(true, |reference| action.authorization_commitment() != reference)
+        }) {
             return Err(FinalizedBlockAdmissionError::Authorization);
         }
         let (inputs, next_state, receipt, encoded_block) = derive_proof_public_inputs(
@@ -524,6 +533,15 @@ impl FinalizedBlockCandidate {
         let mut verified_authorizations = Vec::with_capacity(transfer_count);
         let mut candidates = self.authorization_candidates.iter();
         for action in block.actions() {
+            if let ActionPayloadV2::SubmitAnchor { statement, .. } = action.payload() {
+                if statement
+                    .submission_reference()
+                    .map_or(true, |reference| action.authorization_commitment() != reference)
+                {
+                    return Err(FinalizedBlockAdmissionError::Authorization);
+                }
+                continue;
+            }
             let Some(transaction) = action.payload().transfer() else {
                 let approval = action
                     .payload()
@@ -640,8 +658,13 @@ pub enum FinalizedBlockAdmissionError {
 mod tests {
     use super::*;
     use crate::{DurableFinalizedState, DurableProofPipeline, ProofPipelineError};
-    use activechain_action_kernel::ResourcePrices;
-    use activechain_protocol_types::{ChainId, ConsensusVoteContext};
+    use activechain_action_kernel::{
+        ACTION_PROTOCOL_VERSION, ActionEnvelope, FeeTicket, NonceChannel, ResourcePrices,
+        ResourceVector, ValidityInterval,
+    };
+    use activechain_application_primitives::DigestAnchorStatementV1;
+    use activechain_devnet_kernel::{ActionOutcome, FeeAccount};
+    use activechain_protocol_types::{ChainId, ConsensusVoteContext, ObjectId};
     use activechain_state_tree::{StateCommitment, commit_objects};
     use activechain_transition::ObjectState;
     use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
@@ -968,6 +991,115 @@ mod tests {
         assert_eq!(candidate.claimed_header.inputs, inputs);
         assert_eq!(candidate.certificate.block_digest(), digest);
         assert_eq!(candidate.proof.proof_system, DirectExecutionProofV1::PROOF_SYSTEM);
+    }
+
+    #[test]
+    fn prepared_direct_block_executes_only_exactly_bound_native_anchor_actions() {
+        let chain = ChainId::new(Digest384::new([61; 48]));
+        let sender = PrincipalId::new(Digest384::new([62; 48]));
+        let resources = ResourceVector::new(1, 0, 0, 0, 0, 2_048);
+        let state = ChainState::genesis_with_fee_accounts(
+            chain,
+            ObjectState::new(vec![]).unwrap(),
+            vec![NonceChannel::new(sender, 0, 0)],
+            vec![FeeAccount::new(sender, 10_000, 0)],
+            ResourcePrices::new(1, 1, 1, 1, 1, 1),
+        )
+        .unwrap();
+        let statement =
+            DigestAnchorStatementV1::new(b"actum.test.anchor".to_vec(), [63; 32]).unwrap();
+        let reference = statement.submission_reference().unwrap();
+        let payload = ActionPayloadV2::submit_anchor(1, statement);
+        let payload_commitment = payload.commitment().unwrap();
+        let action = ActionEnvelope::new_payload(
+            ACTION_PROTOCOL_VERSION,
+            chain,
+            sender,
+            FeeTicket::new(ObjectId::new(Digest384::new([64; 48])), sender, 2_050, 1, 0, resources)
+                .unwrap(),
+            0,
+            0,
+            ValidityInterval::new(1, 1).unwrap(),
+            resources,
+            payload_commitment,
+            payload.clone(),
+            reference,
+        )
+        .unwrap();
+        let block = DevnetBlock::new(
+            chain,
+            1,
+            state.head_block_id(),
+            commit_objects(state.objects().objects()).unwrap(),
+            state.commitment().unwrap(),
+            vec![action],
+        )
+        .unwrap();
+        let prepared = PreparedDirectFinalizedBlock::new(
+            &state,
+            &block,
+            7,
+            4,
+            Digest384::new([65; 48]),
+            100,
+            0,
+            0,
+            Digest384::new([66; 48]),
+            &[],
+            Digest384::new([66; 48]),
+            1,
+            1,
+            sender,
+        )
+        .unwrap();
+        assert!(matches!(
+            prepared.receipt().action_receipts()[0].outcome(),
+            ActionOutcome::AnchorSubmitted { reference: actual } if actual == reference
+        ));
+
+        let unbound = ActionEnvelope::new_payload(
+            ACTION_PROTOCOL_VERSION,
+            chain,
+            sender,
+            FeeTicket::new(ObjectId::new(Digest384::new([67; 48])), sender, 2_050, 1, 0, resources)
+                .unwrap(),
+            0,
+            0,
+            ValidityInterval::new(1, 1).unwrap(),
+            resources,
+            payload_commitment,
+            payload,
+            Digest384::new([68; 48]),
+        )
+        .unwrap();
+        let unbound_block = DevnetBlock::new(
+            chain,
+            1,
+            state.head_block_id(),
+            commit_objects(state.objects().objects()).unwrap(),
+            state.commitment().unwrap(),
+            vec![unbound],
+        )
+        .unwrap();
+        assert_eq!(
+            PreparedDirectFinalizedBlock::new(
+                &state,
+                &unbound_block,
+                7,
+                4,
+                Digest384::new([65; 48]),
+                100,
+                0,
+                0,
+                Digest384::new([66; 48]),
+                &[],
+                Digest384::new([66; 48]),
+                1,
+                1,
+                sender,
+            ),
+            Err(FinalizedBlockAdmissionError::Authorization)
+        );
     }
 
     #[test]
