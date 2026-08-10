@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.activechain.kanalen.work-proof</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/current/bin/actum-work-proof-api</string>
+    <string>127.0.0.1:49157</string>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/work-proof/trust.bin</string>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/work-proof/usage.bin</string>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/current/bin/actum-work-proof-verifier</string>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/work-proof/bearer.token</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/johansellstrom/activechain-deploy/kanalen/work-proof</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/johansellstrom/Library/Logs/ActiveChain/work-proof.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/johansellstrom/Library/Logs/ActiveChain/work-proof.error.log</string>
+</dict>
+</plist>

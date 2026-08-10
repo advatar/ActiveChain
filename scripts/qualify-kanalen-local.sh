@@ -33,6 +33,7 @@ if ((skip_build == 0)); then
   run cargo build --locked --release \
     -p activechain-consensus-runtime \
     -p activechain-rpc-server \
+    -p activechain-work-proof-verifier \
     -p activechain-wallet-core \
     -p activechain-wallet-ffi \
     -p activechain-verifier-ffi
@@ -42,6 +43,7 @@ run bash scripts/check-verifier-manifest.sh
 run cargo test --locked -p activechain-verifier-api
 run bash scripts/test-kanalen-round-cash-gate.sh
 run bash scripts/rehearse-testnet-wallet-acceptance.sh
+run bash scripts/test-provision-work-proof-verifier.sh
 
 if ((dry_run == 0)); then
   release_root="$(mktemp -d "${TMPDIR:-/tmp}/activechain-kanalen-release.XXXXXX")"

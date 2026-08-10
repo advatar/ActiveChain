@@ -18,6 +18,15 @@ tcp:
       tls:
         certResolver: letsencrypt
 
+    activechain-work-proof:
+      entryPoints:
+        - websecure
+      rule: HostSNI(`verify.kanalen.activechain.dev`)
+      priority: 100
+      service: activechain-work-proof
+      tls:
+        certResolver: letsencrypt
+
     existing-https:
       entryPoints:
         - websecure
@@ -37,6 +46,11 @@ tcp:
       loadBalancer:
         servers:
           - address: host.lima.internal:49156
+
+    activechain-work-proof:
+      loadBalancer:
+        servers:
+          - address: host.lima.internal:49157
 
     existing-caddy:
       loadBalancer:
