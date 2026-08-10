@@ -3,7 +3,7 @@ set -euo pipefail
 
 deployment_root="${ACTIVECHAIN_KANALEN_ROOT:-$HOME/activechain-deploy/kanalen}"
 state_dir="$deployment_root/work-proof"
-binary_dir="$deployment_root/current/bin"
+binary_dir="${ACTIVECHAIN_WORK_PROOF_BINARY_DIR:-$deployment_root/current/bin}"
 token_file="$state_dir/bearer.token"
 trust_store="$state_dir/trust.bin"
 signed_bundle="${ACTUM_WORK_PROOF_SIGNED_BUNDLE:-$state_dir/signed-trust-bundle.bin}"

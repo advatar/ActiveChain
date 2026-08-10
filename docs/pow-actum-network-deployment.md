@@ -41,6 +41,11 @@ Load `dev.activechain.kanalen.work-proof.plist` only after provisioning succeeds
 on `127.0.0.1:49157`; the Kanalen gateway terminates TLS for
 `https://verify.kanalen.activechain.dev`.
 
+An explicitly enabled `testnet-deploy.yml` run uploads the archive and checksum, verifies and
+extracts the exact Git revision under `releases/`, provisions trust before changing the `current`
+symlink, and reloads the complete launchd set. Archive path traversal, checksum mismatch, chain-ID
+substitution, missing binaries, missing trust, and malformed launch agents fail the activation.
+
 ## ProofOfWork server configuration
 
 Configure only the server-side application process:

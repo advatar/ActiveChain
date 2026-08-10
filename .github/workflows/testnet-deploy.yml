@@ -83,4 +83,8 @@ jobs:
           printf '%s' "$KANALEN_DEPLOY_KEY" > "$key_path"
           scp -i "$key_path" -o StrictHostKeyChecking=accept-new \
             "kanalen-${GITHUB_SHA}.tar.gz" "kanalen-${GITHUB_SHA}.sha256" \
+            deploy/kanalen/scripts/activate-kanalen-release.sh \
             "$KANALEN_DEPLOY_USER@$DEPLOY_HOST:/Volumes/ActiveChain/testnet/"
+          ssh -i "$key_path" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+            "$KANALEN_DEPLOY_USER@$DEPLOY_HOST" \
+            "bash /Volumes/ActiveChain/testnet/activate-kanalen-release.sh /Volumes/ActiveChain/testnet/kanalen-${GITHUB_SHA}.tar.gz /Volumes/ActiveChain/testnet/kanalen-${GITHUB_SHA}.sha256 ${GITHUB_SHA}"
