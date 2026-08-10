@@ -101,17 +101,17 @@
       "source": "devnet/devnet-block-v1.txt",
       "field": "action_envelope_envelope_hex",
       "type_tag": "0x0071",
-      "schema_version": 2,
-      "envelope_sha256": "8aba2d62aa1e77a905f1f92c9e78cd700a7f98b21284725ad01e553868262019",
-      "canonical_value_commitment": "3dcbe8b5a257c563864cebc604928a46367c3bbaa8b9045799b57b104546480f0f52235ec13d0448b3f7a486da1518f2"
+      "schema_version": 3,
+      "envelope_sha256": "ec8905e82a88f76b72f25fd374bee7e42934646730e98994b6904729f7ee86e3",
+      "canonical_value_commitment": "45ebae72c78f55d25f9a9afe1555aecb81022d983218da7c4caaf908f494acff296dda3c0abb94b6b70c1d3640be7f46"
     },
     {
       "source": "devnet/devnet-block-v1.txt",
       "field": "block_receipt_envelope_hex",
       "type_tag": "0x0074",
-      "schema_version": 2,
-      "envelope_sha256": "8862d1e7428878d51e22ef58fb8f7b8e8ddc9f62ab4fb6d06df093930d0c7066",
-      "canonical_value_commitment": "679c36c69c1ec79465e5afa99d13adf347a18c8bd4d31fc9b59b4b8b1d676f21a57a03c5174435af3a0f2d567bd7403e"
+      "schema_version": 3,
+      "envelope_sha256": "343bcf17b2387d3fd000dc5f8848dad462b73054c5fcd9370e4b698b43c1968e",
+      "canonical_value_commitment": "8d6f5e8add02b1eb6c279d4d35c42d9b6cc205632626164b03e828633a958ba45c433accd1fa41478908109f75ee2609"
     },
     {
       "source": "devnet/devnet-block-v1.txt",

@@ -4,7 +4,7 @@
   "requirements": [
     { "id": "finality-qc", "proof": "quorum-certificate", "source": "consensus/qc-v1.txt", "sha256": "1a084869348509cb51950dbbfde774d0b4627e9045c4186a246bb516c422512f", "status": "vectorized" },
     { "id": "validator-set", "proof": "finalized-validator-set-root", "source": "consensus/migration-v1.txt", "sha256": "443230561a54648de097d3f2f7d3a356574e1d2206e8075cf75e44a0364b94f5", "status": "vectorized" },
-    { "id": "checkpoint", "proof": "state-root-protocol-revision-binding", "source": "devnet/devnet-block-v1.txt", "sha256": "eb9f8adf0b58c2dc3fd538718e06e73235d5f6f9dd53dbb2d9393e008cc22bcf", "status": "vectorized" },
+    { "id": "checkpoint", "proof": "state-root-protocol-revision-binding", "source": "devnet/devnet-block-v1.txt", "sha256": "9e6b2d2019a673bbf10f75f3f4dce181b143e1f24c880aec45ac1a310d642ba2", "status": "vectorized" },
     { "id": "state-sync", "proof": "membership-or-non-membership-witness", "source": "state/state-tree-v1.txt", "sha256": "fd3d155743f3a6b75cbfe45fea108b00160b17c662ce48072664f7367787ca5c", "status": "vectorized" },
     { "id": "data-availability", "proof": "sample-and-reconstruct-evidence", "source": "availability/availability-v1.txt", "sha256": "50bf232bc7ef6f7790c29390a54635909f56abdc89d3e808a09fb30e69fdd3b2", "status": "vectorized" },
     { "id": "upgrade", "proof": "version-gated-finalized-activation", "source": "consensus/migration-v1.txt", "sha256": "443230561a54648de097d3f2f7d3a356574e1d2206e8075cf75e44a0364b94f5", "status": "vectorized" }
