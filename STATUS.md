@@ -61,10 +61,10 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Regenerate the affected RPC/client anchor vectors and manifest hashes.
     - [x] Pass the exact full gate for the corrected binding and merge it to `main`.
     - [ ] Authenticate accepted finalized anchor records under the canonical checkpoint state root.
-      - [ ] Freeze domain-separated registry-object key/type/value encoding and replacement rules.
-      - [ ] Make only the canonical `SubmitAnchor` transition create the authenticated state object.
-      - [ ] Verify the exact record with the existing bounded canonical `StateProof`, without callbacks.
-      - [ ] Add wrong-root/key/value/anchor/checkpoint, stale-proof, duplicate, replacement, and
+      - [x] Freeze domain-separated registry-object key/type/value encoding and replacement rules.
+      - [x] Make only the canonical `SubmitAnchor` transition create the authenticated state object.
+      - [x] Verify the exact record with the existing bounded canonical `StateProof`, without callbacks.
+      - [x] Add wrong-root/key/value/anchor/checkpoint, stale-proof, duplicate, replacement, and
         unadmitted-anchor adversarial tests and vectors.
       - [ ] Pass affected checks and one exact full gate, then merge the follow-up into `main`.
   - [x] Implement work claims and zero-knowledge non-overlap proofs (#776; claimed on `feat/776-work-proof-zk`).

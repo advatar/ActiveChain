@@ -805,7 +805,7 @@ fn native_anchor_state_record_is_append_only() {
     )
     .unwrap();
     assert_eq!(
-        apply_block(first_output.state(), &block(first_output.state(), vec![second])),
+        apply_block(first_output.state(), &block_at(first_output.state(), 2, vec![second])),
         Err(BlockApplyError::AnchorAlreadySubmitted { index: 0 })
     );
 }

@@ -555,6 +555,34 @@ mod tests {
             Err(AnchorError::InvalidFinalizedEvidence)
         );
 
+        let wrong_root_commitment = StateCommitment::new(digest(95), commitment.object_count());
+        let wrong_root_bundle = signed_bundle(&request, 12, digest(12), wrong_root_commitment);
+        let wrong_root = checkpointed_evidence(
+            request.clone(),
+            reference,
+            record.clone(),
+            &wrong_root_bundle,
+            commitment,
+            evidence.anchor_state_proof.clone(),
+        );
+        assert_eq!(
+            verify_checkpointed_telemetry_anchor(&wrong_root, &request, &wrong_root_bundle),
+            Err(AnchorError::InvalidFinalizedEvidence)
+        );
+
+        let empty: Vec<Object> = vec![];
+        let empty_commitment = commit_objects(&empty).unwrap();
+        let unadmitted_bundle = signed_bundle(&request, 12, digest(12), empty_commitment);
+        let mut unadmitted = evidence.clone();
+        unadmitted.checkpoint_bundle_id = unadmitted_bundle.bundle_id;
+        unadmitted.checkpoint_state_root = empty_commitment.root();
+        unadmitted.checkpoint_object_count = empty_commitment.object_count();
+        unadmitted.anchor_state_proof = prove_object(&empty, object.object_id()).unwrap();
+        assert_eq!(
+            verify_checkpointed_telemetry_anchor(&unadmitted, &request, &unadmitted_bundle),
+            Err(AnchorError::InvalidFinalizedEvidence)
+        );
+
         let mut unrelated_fields = object.to_fields();
         unrelated_fields.object_id = ObjectId::new(digest(92));
         let unrelated = Object::new(unrelated_fields).unwrap();

@@ -1362,7 +1362,7 @@ mod tests {
             ACTION_PROTOCOL_VERSION,
             ChainId::new(Digest384::new([6; 48])),
             sender,
-            FeeTicket::new(ObjectId::new(Digest384::new([7; 48])), sender, 2_050, 1, 0, resources)
+            FeeTicket::new(ObjectId::new(Digest384::new([7; 48])), sender, 2_052, 1, 0, resources)
                 .unwrap(),
             0,
             0,
