@@ -17,9 +17,9 @@ returns one `actum.work-proof.verify.result.v1` object. The request carries lowe
 public-claim and proof envelopes. Its closed result codes are `VERIFIED`, `INVALID`, `UNSUPPORTED`,
 and `MALFORMED`; caller-provided trust or success fields are rejected.
 
-The durable registry is a single-writer service resource. Deploy exactly one stateful admission
-service for each registry file. Multiple stateless relation-verifier subprocesses may run in
-parallel. Exact retries of the same derived claim are idempotent; reuse by another claim rejects the
-entire nullifier set.
+The durable registry uses a dedicated OS-level lock file and reloads durable state under that lock,
+so multiple admission-service processes may safely share one registry file. Multiple stateless
+relation-verifier subprocesses may also run in parallel. Exact retries of the same derived claim are
+idempotent; reuse by another claim rejects the entire nullifier set.
 
 See `docs/POW_APP_INTEGRATION_V1.md` for the application-facing contract and Preview rules.

@@ -10,12 +10,12 @@ mod multiprocess_tests;
 mod storage_tests;
 
 use activechain_application_primitives::{
-    AnchorFinalizedEvidenceV1, SignedActumVerifierTrustBundleV1, TelemetryEpochAnchorRequestV1,
-    TrustSignatureAlgorithmV1, TrustSignerSetV1, verify_trust_bundle_bootstrap,
+    AnchorError, AnchorFinalizedEvidenceV1, CheckpointedTelemetryAnchorEvidenceV1,
+    SignedActumVerifierTrustBundleV1, TelemetryEpochAnchorRequestV1, TrustSignatureAlgorithmV1,
+    TrustSignerSetV1, verify_checkpointed_telemetry_anchor, verify_trust_bundle_bootstrap,
     verify_trust_bundle_transition,
 };
 use activechain_canonical_codec::{CanonicalType, decode_envelope, encode_envelope};
-use activechain_finality_types::FinalityCertificateBundle;
 use activechain_pq_zk::{
     MAX_WORK_PROOF_BYTES, WORK_PROOF_SYSTEM_REVISION, WorkNonOverlapProof, work_image_id,
 };
@@ -75,6 +75,7 @@ pub enum VerificationErrorCodeV1 {
     WrongImage,
     WrongPolicy,
     StaleTrust,
+    CheckpointLag,
     InvalidAnchor,
     AnchorPending,
     AnchorRejected,
@@ -658,7 +659,7 @@ pub struct VerifyWorkClaimRequestV1 {
     pub public: WorkClaimPublicV1,
     pub proof_envelope: Vec<u8>,
     pub anchor_request: TelemetryEpochAnchorRequestV1,
-    pub anchor_evidence: AnchorFinalizedEvidenceV1,
+    pub checkpointed_anchor_evidence: CheckpointedTelemetryAnchorEvidenceV1,
 }
 
 pub struct FixedWindowRateLimiter {
@@ -726,7 +727,7 @@ impl<R: RelationVerifier> WorkProofVerificationService<R> {
             &bundle,
             &request.public,
             &request.anchor_request,
-            &request.anchor_evidence,
+            &request.checkpointed_anchor_evidence,
         )?;
         let registration = self.usage.register_all(
             request.public.usage_domain,
@@ -910,7 +911,7 @@ fn verify_finalized_anchor_checkpoint(
     bundle: &SignedActumVerifierTrustBundleV1,
     public: &WorkClaimPublicV1,
     request: &TelemetryEpochAnchorRequestV1,
-    evidence: &AnchorFinalizedEvidenceV1,
+    evidence: &CheckpointedTelemetryAnchorEvidenceV1,
 ) -> Result<(AnchorFinalizedEvidenceV1, Digest384), VerificationErrorV1> {
     verify_anchor_public_bindings(public, request)?;
     let statement = request
@@ -918,7 +919,11 @@ fn verify_finalized_anchor_checkpoint(
         .map_err(|_| VerificationErrorV1::terminal(VerificationErrorCodeV1::InvalidAnchor))?;
     let statement_bytes = encode_envelope(&statement)
         .map_err(|_| VerificationErrorV1::terminal(VerificationErrorCodeV1::InvalidAnchor))?;
-    let evidence_bytes = encode_envelope(evidence)
+    let native_evidence = evidence
+        .finalized_record
+        .evidence()
+        .ok_or_else(|| VerificationErrorV1::terminal(VerificationErrorCodeV1::InvalidAnchor))?;
+    let evidence_bytes = encode_envelope(native_evidence)
         .map_err(|_| VerificationErrorV1::terminal(VerificationErrorCodeV1::InvalidAnchor))?;
     let finalized = activechain_verifier_api::verify_anchor_finalized_evidence(
         &evidence_bytes,
@@ -929,16 +934,17 @@ fn verify_finalized_anchor_checkpoint(
         bundle.body.verifier_revision,
     )
     .map_err(|_| VerificationErrorV1::terminal(VerificationErrorCodeV1::InvalidAnchor))?;
-    let finality = decode_envelope::<FinalityCertificateBundle>(finalized.finality_proof())
-        .map_err(|_| VerificationErrorV1::terminal(VerificationErrorCodeV1::InvalidAnchor))?;
-    let header = finality.header();
-    if bundle.body.checkpoint_height != finalized.finalized_height()
-        || bundle.body.checkpoint_block_id != finalized.finalized_block()
-        || bundle.body.checkpoint_state_root != header.inputs.post_state.root()
-        || bundle.body.checkpoint_finality_commitment != header.proof_statement_commitment
-        || bundle.body.validator_set_root != header.inputs.validator_set_root
-    {
+    if finalized != *native_evidence {
         return Err(VerificationErrorV1::terminal(VerificationErrorCodeV1::InvalidAnchor));
+    }
+    match verify_checkpointed_telemetry_anchor(evidence, request, bundle) {
+        Ok(()) => {}
+        Err(AnchorError::CheckpointLag) => {
+            return Err(VerificationErrorV1::retryable(VerificationErrorCodeV1::CheckpointLag));
+        }
+        Err(_) => {
+            return Err(VerificationErrorV1::terminal(VerificationErrorCodeV1::InvalidAnchor));
+        }
     }
     let reference = statement
         .submission_reference()
@@ -1088,8 +1094,9 @@ mod tests {
         ValidityInterval, action_id,
     };
     use activechain_application_primitives::{
-        ActivityEpochV1, ActumVerifierTrustBundleV1, AnchorFinalizedEvidenceV1,
-        TelemetryEpochAnchorRequestV1, TrustBundleSignatureV1, TrustSignerV1,
+        ActivityEpochV1, ActumVerifierTrustBundleV1, AnchorFinalizedEvidenceV1, AnchorRegistry,
+        AnchorStateRecordV1, CheckpointedTelemetryAnchorEvidenceV1, TelemetryEpochAnchorRequestV1,
+        TrustBundleSignatureV1, TrustSignerV1, anchor_state_object,
     };
     use activechain_devnet_kernel::{ActionOutcome, ActionReceipt, BlockReceipt};
     use activechain_finality_types::{
@@ -1251,19 +1258,20 @@ mod tests {
 
     fn production_bundle(
         set: &TrustSignerSetV1,
-        evidence: &AnchorFinalizedEvidenceV1,
+        evidence: &mut CheckpointedTelemetryAnchorEvidenceV1,
     ) -> SignedActumVerifierTrustBundleV1 {
+        let native = evidence.finalized_record.evidence().unwrap();
         let finality =
-            decode_envelope::<FinalityCertificateBundle>(evidence.finality_proof()).unwrap();
+            decode_envelope::<FinalityCertificateBundle>(native.finality_proof()).unwrap();
         let header = finality.header();
         let mut value = bundle(set);
-        value.body.chain_id = *evidence.chain().digest();
-        value.body.genesis_commitment = evidence.genesis();
-        value.body.protocol_revision = u32::try_from(evidence.protocol_revision()).unwrap();
-        value.body.checkpoint_height = evidence.finalized_height();
-        value.body.checkpoint_block_id = evidence.finalized_block();
-        value.body.checkpoint_state_root = header.inputs.post_state.root();
-        value.body.checkpoint_finality_commitment = header.proof_statement_commitment;
+        value.body.chain_id = *native.chain().digest();
+        value.body.genesis_commitment = native.genesis();
+        value.body.protocol_revision = u32::try_from(native.protocol_revision()).unwrap();
+        value.body.checkpoint_height = evidence.checkpoint_height;
+        value.body.checkpoint_block_id = evidence.checkpoint_block_id;
+        value.body.checkpoint_state_root = evidence.checkpoint_state_root;
+        value.body.checkpoint_finality_commitment = d(72);
         value.body.validator_set_root = header.inputs.validator_set_root;
         value.body.proof_profile_id = work_proof_profile_id();
         value.body.proof_system_revision = WORK_PROOF_SYSTEM_REVISION;
@@ -1272,6 +1280,7 @@ mod tests {
         }
         value.bundle_id = value.body.bundle_id().unwrap();
         value.signatures[0].signature[..48].copy_from_slice(value.bundle_id.as_bytes());
+        evidence.checkpoint_bundle_id = value.bundle_id;
         value
     }
 
@@ -1345,7 +1354,8 @@ mod tests {
         }
     }
 
-    fn finalized_anchor_evidence() -> (TelemetryEpochAnchorRequestV1, AnchorFinalizedEvidenceV1) {
+    fn finalized_anchor_evidence()
+    -> (TelemetryEpochAnchorRequestV1, CheckpointedTelemetryAnchorEvidenceV1) {
         let epoch = ActivityEpochV1 {
             collector_id: d(9),
             project_id: d(10),
@@ -1369,7 +1379,7 @@ mod tests {
             1,
             d(30),
             b"claim-anchor-1".to_vec(),
-            epoch,
+            epoch.clone(),
         )
         .unwrap();
         let statement = request.statement().unwrap();
@@ -1377,7 +1387,7 @@ mod tests {
         let post_state = StateCommitment::new(d(61), 3);
         let sender = PrincipalId::new(d(42));
         let payload = ActionPayloadV2::submit_anchor(9, statement.clone());
-        let resources = ResourceVector::new(10, 0, 0, 0, 1, 4096);
+        let resources = ResourceVector::new(10, 1, 1, 0, 1, 4096);
         let ticket = FeeTicket::new(ObjectId::new(d(43)), sender, 10_000, 9, 0, resources).unwrap();
         let action = ActionEnvelope::new_payload(
             ACTION_PROTOCOL_VERSION,
@@ -1406,7 +1416,7 @@ mod tests {
                 ActionOutcome::AnchorSubmitted {
                     reference: statement.submission_reference().unwrap(),
                 },
-                ResourceVector::new(1, 0, 0, 0, 0, 1),
+                ResourceVector::new(1, 1, 1, 0, 0, 1),
                 0,
                 1,
                 post_state,
@@ -1431,7 +1441,38 @@ mod tests {
             encode_envelope(&finality).unwrap(),
         )
         .unwrap();
-        (request, evidence)
+        let request = TelemetryEpochAnchorRequestV1::new(
+            d(1),
+            evidence.genesis(),
+            1,
+            d(30),
+            b"claim-anchor-1".to_vec(),
+            epoch,
+        )
+        .unwrap();
+        let reference = request.statement().unwrap().submission_reference().unwrap();
+        let mut registry = AnchorRegistry::default();
+        registry.submit_action(request.statement().unwrap(), evidence.transaction()).unwrap();
+        registry.finalize(reference, evidence).unwrap();
+        let record = registry.resolve(reference).unwrap().clone();
+        let state_record = AnchorStateRecordV1::from_finalized_record(&record).unwrap();
+        let object = anchor_state_object(&state_record).unwrap();
+        let objects = vec![object.clone()];
+        let checkpoint = activechain_state_tree::commit_objects(&objects).unwrap();
+        let proof = activechain_state_tree::prove_object(&objects, object.object_id()).unwrap();
+        let checkpointed = CheckpointedTelemetryAnchorEvidenceV1::new(
+            request.clone(),
+            reference,
+            record,
+            d(70),
+            12,
+            d(71),
+            checkpoint.root(),
+            checkpoint.object_count(),
+            proof,
+        )
+        .unwrap();
+        (request, checkpointed)
     }
 
     fn finality_bundle_with_inputs(
@@ -1537,19 +1578,38 @@ mod tests {
     }
 
     #[test]
-    fn finalized_anchor_checkpoint_is_direct_and_exact() {
+    fn finalized_anchor_checkpoint_accepts_earlier_anchor_and_rejects_substitution() {
         let set = signer_set();
-        let (request, evidence) = finalized_anchor_evidence();
-        let accepted = production_bundle(&set, &evidence);
+        let (request, mut evidence) = finalized_anchor_evidence();
+        let accepted = production_bundle(&set, &mut evidence);
+        let mut claim = public();
+        claim.genesis = request.genesis_commitment;
         let (verified, reference) =
-            verify_finalized_anchor_checkpoint(&accepted, &public(), &request, &evidence).unwrap();
-        assert_eq!(verified, evidence);
+            verify_finalized_anchor_checkpoint(&accepted, &claim, &request, &evidence).unwrap();
+        assert_eq!(verified, *evidence.finalized_record.evidence().unwrap());
         assert_eq!(reference, request.statement().unwrap().submission_reference().unwrap());
 
         let mut substituted = accepted;
         substituted.body.checkpoint_block_id = d(99);
         assert_eq!(
-            verify_finalized_anchor_checkpoint(&substituted, &public(), &request, &evidence),
+            verify_finalized_anchor_checkpoint(&substituted, &claim, &request, &evidence),
+            Err(VerificationErrorV1::terminal(VerificationErrorCodeV1::InvalidAnchor))
+        );
+
+        let mut lagging_evidence = evidence.clone();
+        lagging_evidence.checkpoint_height = 8;
+        lagging_evidence.checkpoint_block_id = d(98);
+        let lagging = production_bundle(&set, &mut lagging_evidence);
+        assert_eq!(
+            verify_finalized_anchor_checkpoint(&lagging, &claim, &request, &lagging_evidence,),
+            Err(VerificationErrorV1::retryable(VerificationErrorCodeV1::CheckpointLag))
+        );
+
+        let mut unrelated_evidence = evidence.clone();
+        unrelated_evidence.checkpoint_state_root = d(97);
+        let unrelated = production_bundle(&set, &mut unrelated_evidence);
+        assert_eq!(
+            verify_finalized_anchor_checkpoint(&unrelated, &claim, &request, &unrelated_evidence,),
             Err(VerificationErrorV1::terminal(VerificationErrorCodeV1::InvalidAnchor))
         );
     }
@@ -1561,8 +1621,8 @@ mod tests {
         }
         let directory = tempdir().unwrap();
         let set = signer_set();
-        let (anchor_request, anchor_evidence) = finalized_anchor_evidence();
-        let accepted = production_bundle(&set, &anchor_evidence);
+        let (anchor_request, mut checkpointed_anchor_evidence) = finalized_anchor_evidence();
+        let accepted = production_bundle(&set, &mut checkpointed_anchor_evidence);
         let trust = DurableTrustStore::bootstrap(
             directory.path().join("trust.bin"),
             accepted.clone(),
@@ -1578,7 +1638,8 @@ mod tests {
             usage,
             FixedWindowRateLimiter::new(10, 1_000).unwrap(),
         );
-        let public = public();
+        let mut public = public();
+        public.genesis = anchor_request.genesis_commitment;
         let proof_envelope = vec![1];
         let request = VerifyWorkClaimRequestV1 {
             client_id: d(40),
@@ -1586,7 +1647,7 @@ mod tests {
             public,
             proof_envelope,
             anchor_request,
-            anchor_evidence,
+            checkpointed_anchor_evidence,
         };
         let first = service.verify(&request, 200).unwrap();
         assert!(first.relation_verified && first.anchor_verified && first.usage_verified);

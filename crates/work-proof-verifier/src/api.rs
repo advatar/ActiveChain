@@ -1,7 +1,7 @@
 //! Strict JSON boundary for the stateful work-proof admission service.
 
 use activechain_application_primitives::{
-    AnchorFinalizedEvidenceV1, TelemetryEpochAnchorRequestV1,
+    CheckpointedTelemetryAnchorEvidenceV1, TelemetryEpochAnchorRequestV1,
 };
 use activechain_canonical_codec::{CanonicalType, decode_envelope};
 use activechain_protocol_types::Digest384;
@@ -21,7 +21,7 @@ pub const MAX_STATEFUL_VERIFY_REQUEST_BYTES: usize = 2
     * (MAX_OFFLINE_WORK_PROOF_BYTES
         + MAX_WORK_PUBLIC_ENVELOPE_BYTES
         + TelemetryEpochAnchorRequestV1::MAX_ENCODED_LEN
-        + AnchorFinalizedEvidenceV1::MAX_ENCODED_LEN)
+        + CheckpointedTelemetryAnchorEvidenceV1::MAX_ENCODED_LEN)
     + 64 * 1024;
 
 #[derive(Debug, Deserialize)]
@@ -34,7 +34,7 @@ struct StatefulVerifyJsonRequestV1 {
     public_claim_envelope_hex: String,
     proof_envelope_hex: String,
     anchor_request_envelope_hex: String,
-    anchor_evidence_envelope_hex: String,
+    checkpointed_anchor_evidence_envelope_hex: String,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -94,9 +94,9 @@ pub fn decode_stateful_verification_request(
         &request.anchor_request_envelope_hex,
         TelemetryEpochAnchorRequestV1::MAX_ENCODED_LEN + 9,
     )?;
-    let anchor_evidence = decode_canonical_hex::<AnchorFinalizedEvidenceV1>(
-        &request.anchor_evidence_envelope_hex,
-        AnchorFinalizedEvidenceV1::MAX_ENCODED_LEN + 9,
+    let checkpointed_anchor_evidence = decode_canonical_hex::<CheckpointedTelemetryAnchorEvidenceV1>(
+        &request.checkpointed_anchor_evidence_envelope_hex,
+        CheckpointedTelemetryAnchorEvidenceV1::MAX_ENCODED_LEN + 9,
     )?;
     Ok(VerifyWorkClaimRequestV1 {
         client_id,
@@ -104,7 +104,7 @@ pub fn decode_stateful_verification_request(
         public,
         proof_envelope,
         anchor_request,
-        anchor_evidence,
+        checkpointed_anchor_evidence,
     })
 }
 
@@ -159,12 +159,12 @@ mod tests {
 
     #[test]
     fn stateful_request_rejects_unknown_fields_profiles_and_noncanonical_hex() {
-        let unknown = br#"{"schema":"actum.work-proof.admit.request.v1","operation":"verify_and_register","profile":"actum.non-overlap.risc0.v1","claim_id":"010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101","public_claim_envelope_hex":"00","proof_envelope_hex":"00","anchor_request_envelope_hex":"00","anchor_evidence_envelope_hex":"00","trust_bundle":"caller"}"#;
+        let unknown = br#"{"schema":"actum.work-proof.admit.request.v1","operation":"verify_and_register","profile":"actum.non-overlap.risc0.v1","claim_id":"010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101","public_claim_envelope_hex":"00","proof_envelope_hex":"00","anchor_request_envelope_hex":"00","checkpointed_anchor_evidence_envelope_hex":"00","trust_bundle":"caller"}"#;
         assert!(matches!(
             decode_stateful_verification_request(unknown, rate_limit_client_id(b"client")),
             Err(ApiRequestErrorV1::Malformed)
         ));
-        let future = br#"{"schema":"actum.work-proof.admit.request.v1","operation":"verify_and_register","profile":"future","claim_id":"010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101","public_claim_envelope_hex":"00","proof_envelope_hex":"00","anchor_request_envelope_hex":"00","anchor_evidence_envelope_hex":"00"}"#;
+        let future = br#"{"schema":"actum.work-proof.admit.request.v1","operation":"verify_and_register","profile":"future","claim_id":"010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101","public_claim_envelope_hex":"00","proof_envelope_hex":"00","anchor_request_envelope_hex":"00","checkpointed_anchor_evidence_envelope_hex":"00"}"#;
         assert!(matches!(
             decode_stateful_verification_request(future, rate_limit_client_id(b"client")),
             Err(ApiRequestErrorV1::Unsupported)

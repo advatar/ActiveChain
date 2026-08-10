@@ -77,8 +77,9 @@ GET  /v1/claims/{claim_id}
 ```
 
 `POST /v1/proofs/verify` accepts canonical `WorkProofReceiptEnvelopeV1` bytes, the canonical epoch
-anchor request, exact `AnchorFinalizedEvidenceV1`, and a caller identity used only for bounded rate
-limiting. Binary fields use lowercase hex in JSON adapters. The service loads its accepted trust
+anchor request, revision-2 `CheckpointedTelemetryAnchorEvidenceV1`, and a caller identity used only
+for bounded rate limiting. The checkpoint evidence contains the exact finalized native anchor record
+and bounded canonical state proof. Binary fields use lowercase hex in JSON adapters. The service loads its accepted trust
 bundle from durable operator state; neither the proof nor the request can select or install trust.
 The service derives and checks `claim_id` from the canonical public claim and proof commitment.
 
@@ -86,8 +87,8 @@ A successful `VerifiedClaimDtoV1` has all three independent facts set:
 
 - `relation_verified`: the operator-pinned RISC Zero image accepted the canonical relation journal;
 - `anchor_verified`: the request-derived epoch statement is bound to a native anchor action and
-  receipt under valid Actum finality, and its height, block, post-state root, finality statement
-  commitment, and validator-set root exactly match the accepted checkpoint bundle;
+  receipt under valid Actum finality at block A, and the exact consensus-created anchor record has a
+  valid state-membership proof under accepted checkpoint C with A.height <= C.height;
 - `usage_verified`: every class-neutral usage nullifier was atomically admitted in its usage domain.
 
 The service registers nullifiers only after relation and anchor verification. Registration is one
@@ -169,8 +170,12 @@ must remain outside browser code, telemetry, logs, evidence, and command-line ar
 The stateful request schema is `actum.work-proof.admit.request.v1` with operation
 `verify_and_register`, profile `actum.non-overlap.risc0.v1`, and lowercase-hex fields
 `claim_id`, `public_claim_envelope_hex`, `proof_envelope_hex`,
-`anchor_request_envelope_hex`, and `anchor_evidence_envelope_hex`. Unknown fields, oversized bodies,
+`anchor_request_envelope_hex`, and `checkpointed_anchor_evidence_envelope_hex`. Unknown fields, oversized bodies,
 noncanonical hex/envelopes, unsupported profiles, and caller-supplied trust fail closed.
+
+`CheckpointLag` is retryable: the anchor is natively valid but newer than the operator-selected
+checkpoint. `InvalidAnchor` is terminal for malformed native finality, wrong network or statement,
+checkpoint substitution, or a state proof that does not authenticate the exact derived record.
 
 ### ProofOfWork migration
 
