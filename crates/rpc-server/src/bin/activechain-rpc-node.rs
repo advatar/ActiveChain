@@ -12,7 +12,7 @@ use std::{
     collections::BTreeSet,
     env,
     net::TcpListener,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -247,7 +247,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn reconcile_anchor_archives(
     server: &RpcServer,
-    spool: &PathBuf,
+    spool: &Path,
     reconciled: &mut BTreeSet<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let parent = spool
