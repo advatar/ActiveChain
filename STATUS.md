@@ -33,7 +33,8 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Replace JSON commitments with canonical envelopes, monotonic duration, durable sequence allocation, and prior-epoch linkage.
     - [x] Publish deterministic canonical/signature vectors.
     - [x] Pass the exact full gate.
-  - [ ] Package telemetry, attribution, prove-work, and verify-work plugin/MCP capabilities (#774; claimed on `feat/774-telemetry-plugin`).
+  - [x] Package telemetry, attribution, prove-work, and verify-work plugin/MCP capabilities (#774;
+    qualified candidate `91abacd0` in split deterministic-kernel run `31350660653`).
     - [x] Add portable Agent Plugins 1.0.0 and Codex manifests plus the telemetry skill.
     - [x] Add bounded, capability-scoped telemetry and work MCP tools with durable idempotency.
     - [x] Add adversarial authorization, race, replay, wrong-chain, timeout, malformed-response, and redaction tests.
