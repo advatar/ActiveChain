@@ -127,6 +127,7 @@ fn serve(
     let lifecycle = match query(rpc, &RpcRequest::ResolveAnchor { reference }) {
         Ok(RpcResponse::AnchorRecord(bytes)) => match decode_envelope::<AnchorRecord>(&bytes) {
             Ok(record) if record.statement() == &statement => match record.status() {
+                AnchorStatus::Pending if record.submitted_transaction().is_some() => "submitted",
                 AnchorStatus::Pending => "pending",
                 AnchorStatus::Finalized => "finalized",
                 AnchorStatus::Rejected => "rejected",
@@ -526,7 +527,7 @@ mod tests {
     }
 
     #[test]
-    fn canonical_anchor_submission_resolves_exact_pending_record() {
+    fn canonical_anchor_submission_reports_native_action_as_submitted() {
         let request = TelemetryEpochAnchorRequestV1::new(
             digest(1),
             digest(2),
@@ -538,7 +539,9 @@ mod tests {
         .unwrap();
         let statement = request.statement().unwrap();
         let mut registry = AnchorRegistry::default();
-        let reference = registry.submit(statement).unwrap();
+        let reference = registry
+            .submit_action(statement, activechain_protocol_types::TransactionId::new(digest(8)))
+            .unwrap();
         let record = registry.resolve(reference).unwrap().clone();
         let backend = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let backend_address = backend.local_addr().unwrap();
@@ -582,7 +585,7 @@ mod tests {
             exercise(&backend_address.to_string(), http, b"abcdefghijklmnopqrstuvwxyz012345");
         backend_thread.join().unwrap();
         assert!(response.starts_with("HTTP/1.1 200 OK"));
-        assert!(response.contains("\"status\":\"pending\""));
+        assert!(response.contains("\"status\":\"submitted\""));
         assert!(response.contains(&format!("\"reference\":\"{}\"", hex(reference))));
     }
 
