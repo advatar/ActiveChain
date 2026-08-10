@@ -8,6 +8,8 @@ Pull-request updates run development mode automatically. The initial run compare
 revision with its base; subsequent synchronization runs compare the newly pushed commit delta. The
 scope job selects only affected stage families. Documentation-only changes run the workflow-policy
 check but do not occupy the ARM64 runner. Development mode is feedback, not final qualification.
+When a force-push makes the synchronize event's prior SHA unreachable, the scope job fails closed by
+classifying the complete diff against the PR base rather than guessing an incremental scope.
 
 ## Full qualification mode
 
