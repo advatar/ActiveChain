@@ -7,6 +7,7 @@ release_id="${3:?usage: activate-kanalen-release.sh <archive> <checksum> <releas
 deployment_root="${ACTIVECHAIN_KANALEN_ROOT:-$HOME/activechain-deploy/kanalen}"
 launchctl_bin="${ACTIVECHAIN_LAUNCHCTL:-launchctl}"
 plutil_bin="${ACTIVECHAIN_PLUTIL:-plutil}"
+docker_bin="${ACTIVECHAIN_DOCKER:-docker}"
 release_root="$deployment_root/releases"
 release_dir="$release_root/$release_id"
 staging_dir=""
@@ -80,6 +81,12 @@ if [[ ! -x "$release_dir/scripts/provision-work-proof-verifier.sh" ]]; then
   echo "release is missing the work-proof provisioning script" >&2
   exit 1
 fi
+for gateway_file in compose.yml dynamic.yml traefik.yml switch-edge.sh; do
+  if [[ ! -f "$release_dir/gateway/$gateway_file" ]]; then
+    echo "release is missing gateway/$gateway_file" >&2
+    exit 1
+  fi
+done
 
 candidate_network="$release_dir/network.env"
 runtime_network="$deployment_root/network.env"
@@ -127,5 +134,21 @@ for label in \
   "$launchctl_bin" bootout "$launch_domain/$label" 2>/dev/null || true
   "$launchctl_bin" bootstrap "$launch_domain" "$plist"
 done
+
+gateway_dir="$deployment_root/gateway"
+install -d -m 0755 "$gateway_dir"
+install -d -m 0700 "$gateway_dir/letsencrypt"
+for gateway_file in compose.yml dynamic.yml traefik.yml; do
+  install -m 0644 "$release_dir/gateway/$gateway_file" "$gateway_dir/$gateway_file"
+done
+install -m 0755 "$release_dir/gateway/switch-edge.sh" "$gateway_dir/switch-edge.sh"
+if [[ -f "$release_dir/gateway/README.md" ]]; then
+  install -m 0644 "$release_dir/gateway/README.md" "$gateway_dir/README.md"
+fi
+if [[ -f "$release_dir/gateway/kanalen.Caddyfile" ]]; then
+  install -m 0644 "$release_dir/gateway/kanalen.Caddyfile" "$gateway_dir/kanalen.Caddyfile"
+fi
+"$docker_bin" compose -f "$gateway_dir/compose.yml" config >/dev/null
+"$docker_bin" compose -f "$gateway_dir/compose.yml" up -d
 
 echo "activated Kanalen release $release_id"

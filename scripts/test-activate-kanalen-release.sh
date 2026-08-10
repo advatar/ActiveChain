@@ -10,13 +10,19 @@ deployment="$test_root/deployment"
 archive="$test_root/kanalen-$release_id.tar.gz"
 checksum="$test_root/kanalen-$release_id.sha256"
 
-mkdir -p "$payload/bin" "$payload/scripts" "$payload/launchagents" "$deployment/work-proof" "$test_root/tools"
+mkdir -p "$payload/bin" "$payload/scripts" "$payload/launchagents" "$payload/gateway" "$deployment/work-proof" "$test_root/tools"
 for binary in validator-node activechain-rpc-node activechain-telemetry-anchor-gateway actum-work-proof-api actum-work-proof-verifier; do
   printf '#!/bin/sh\nexit 0\n' >"$payload/bin/$binary"
   chmod 0755 "$payload/bin/$binary"
 done
+
+for gateway_file in compose.yml dynamic.yml traefik.yml; do
+  printf 'fixture: true\n' >"$payload/gateway/$gateway_file"
+done
+printf '#!/bin/sh\nexit 0\n' >"$payload/gateway/switch-edge.sh"
+chmod 0755 "$payload/gateway/switch-edge.sh"
 cat >"$payload/bin/actum-work-proof-trust-bootstrap" <<'BOOTSTRAP'
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
 printf 'activated trust\n' >"$1"
 BOOTSTRAP
@@ -41,14 +47,18 @@ printf 'signer set fixture\n' >"$deployment/work-proof/trust-signer-set.bin"
 chmod 0600 "$deployment/work-proof/signed-trust-bundle.bin" "$deployment/work-proof/trust-signer-set.bin"
 
 cat >"$test_root/tools/launchctl" <<'LAUNCHCTL'
-#!/usr/bin/env bash
+#!/bin/bash
 printf '%s\n' "$*" >>"$ACTIVECHAIN_LAUNCHCTL_LOG"
 LAUNCHCTL
 cat >"$test_root/tools/plutil" <<'PLUTIL'
-#!/usr/bin/env bash
+#!/bin/bash
 exit 0
 PLUTIL
-chmod 0755 "$test_root/tools/launchctl" "$test_root/tools/plutil"
+cat >"$test_root/tools/docker" <<'DOCKER'
+#!/bin/bash
+printf '%s\n' "$*" >>"$ACTIVECHAIN_DOCKER_LOG"
+DOCKER
+chmod 0755 "$test_root/tools/launchctl" "$test_root/tools/plutil" "$test_root/tools/docker"
 
 tar -czf "$archive" -C "$test_root/payload" kanalen
 shasum -a 256 "$archive" >"$checksum"
@@ -57,6 +67,8 @@ ACTIVECHAIN_KANALEN_ROOT="$deployment" \
 ACTIVECHAIN_LAUNCHCTL="$test_root/tools/launchctl" \
 ACTIVECHAIN_LAUNCHCTL_LOG="$test_root/launchctl.log" \
 ACTIVECHAIN_PLUTIL="$test_root/tools/plutil" \
+ACTIVECHAIN_DOCKER="$test_root/tools/docker" \
+ACTIVECHAIN_DOCKER_LOG="$test_root/docker.log" \
   bash "$repo_root/deploy/kanalen/scripts/activate-kanalen-release.sh" \
     "$archive" "$checksum" "$release_id"
 
@@ -65,13 +77,17 @@ test "$(readlink "$deployment/current")" = "$deployment/releases/$release_id"
 test -s "$deployment/work-proof/trust.bin"
 test -s "$deployment/work-proof/bearer.token"
 test "$(grep -c '^bootstrap ' "$test_root/launchctl.log")" = 7
+test "$(grep -c '^compose ' "$test_root/docker.log")" = 2
 
 ACTIVECHAIN_KANALEN_ROOT="$deployment" \
 ACTIVECHAIN_LAUNCHCTL="$test_root/tools/launchctl" \
 ACTIVECHAIN_LAUNCHCTL_LOG="$test_root/launchctl.log" \
 ACTIVECHAIN_PLUTIL="$test_root/tools/plutil" \
+ACTIVECHAIN_DOCKER="$test_root/tools/docker" \
+ACTIVECHAIN_DOCKER_LOG="$test_root/docker.log" \
   bash "$repo_root/deploy/kanalen/scripts/activate-kanalen-release.sh" \
     "$archive" "$checksum" "$release_id"
 
 test "$(grep -c '^bootstrap ' "$test_root/launchctl.log")" = 14
+test "$(grep -c '^compose ' "$test_root/docker.log")" = 4
 echo "Kanalen release activation rehearsal passed"

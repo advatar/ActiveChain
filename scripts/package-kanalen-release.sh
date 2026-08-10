@@ -15,6 +15,7 @@ done
 
 mkdir -p "$release_dir/docs"
 install -m 0644 docs/pow-actum-network-deployment.md "$release_dir/docs/"
+cp -R deploy/kanalen/gateway "$release_dir/"
 install -m 755 "$repo_root/deploy/kanalen/scripts/run-kanalen-round.sh" "$release_dir/scripts/run-kanalen-round.sh"
 install -m 755 "$repo_root/deploy/kanalen/scripts/reset-kanalen-state.sh" "$release_dir/scripts/reset-kanalen-state.sh"
 install -m 755 "$repo_root/scripts/check-validator-snapshot.sh" "$release_dir/scripts/check-validator-snapshot.sh"

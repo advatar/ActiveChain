@@ -43,8 +43,10 @@ on `127.0.0.1:49157`; the Kanalen gateway terminates TLS for
 
 An explicitly enabled `testnet-deploy.yml` run uploads the archive and checksum, verifies and
 extracts the exact Git revision under `releases/`, provisions trust before changing the `current`
-symlink, and reloads the complete launchd set. Archive path traversal, checksum mismatch, chain-ID
-substitution, missing binaries, missing trust, and malformed launch agents fail the activation.
+symlink, reloads the complete launchd set, and validates/restarts the versioned Traefik gateway
+while preserving its ACME state. Archive path traversal, checksum mismatch, chain-ID substitution,
+missing binaries, missing trust, malformed launch agents, and invalid gateway configuration fail
+the activation.
 
 ## ProofOfWork server configuration
 

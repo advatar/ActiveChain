@@ -108,7 +108,8 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Publish the stateful HTTP JSON Schema and binding-validating server-side TypeScript client.
     - [x] Package and provision the fail-closed stateful verifier service, durable stores, private
       bearer token, launchd unit, and Kanalen TLS route.
-    - [x] Automate checksum-verified, revision-addressed Mac mini activation for explicit deploys.
+    - [x] Automate checksum-verified, revision-addressed Mac mini activation and TLS gateway refresh
+      for explicit deploys.
     - [ ] Exercise real deployed delivery, anchoring, finality, and stateful usage admission.
     - [ ] Pass the exact full gate and publish production qualification evidence.
     - [ ] Promote the deployed testnet and update landing-page capabilities proven by that evidence.
