@@ -23,5 +23,6 @@ activechain-privacy-kernel.workspace = true
 activechain-protocol-commitment.workspace = true
 activechain-protocol-types.workspace = true
 activechain-rpc-types.workspace = true
+activechain-state-tree.workspace = true
 sha2.workspace = true
 sha3.workspace = true
