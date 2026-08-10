@@ -78,6 +78,19 @@ digest of the canonical epoch envelope. Batching may use the existing `AnchorBat
 - accepted measurement kinds;
 - disclosure and non-overlap proof profile revisions.
 
+## Canonical telemetry-construction authority
+
+Applications submit raw observations to an Actum-owned telemetry-construction authority.
+Applications MUST NOT construct `DeveloperEventV1` IDs, canonical sequence numbers, canonical
+monotonic durations, or epoch Merkle roots. The authority validates permission and project scope,
+allocates durable sequences, derives monotonic intervals, constructs canonical events, signs them,
+and seals linked epochs.
+
+The initial reference authority is an Actum Rust sidecar reached over a local Unix-domain socket.
+The socket is not consensus or protocol semantics. In-process FFI, named pipes, and mobile platform
+services may implement the same trusted construction boundary later, provided applications still
+submit raw observations and cannot choose canonical identities or ordering.
+
 Evidence and claims are separate. Re-evaluating an epoch under another policy produces another
 claim ID and never rewrites evidence.
 

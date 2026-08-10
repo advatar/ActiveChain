@@ -93,8 +93,42 @@ A successful `VerifiedClaimDtoV1` has all three independent facts set:
 The service registers nullifiers only after relation and anchor verification. Registration is one
 all-or-nothing durable operation. An exact retry of the same derived claim is idempotent; any
 nullifier already bound to a different claim rejects the entire request without inserting new
-nullifiers. Run one stateful admission service for each registry file; stateless relation workers
-may scale independently.
+nullifiers. Multiple admission processes may share one registry file: each process takes the same
+owner-only OS lock, reloads durable state after acquiring it, and holds the lock through collision
+checks, temporary-file fsync, atomic rename, and parent-directory fsync. Stateless relation workers
+may scale independently. A single admission process remains operationally preferable while the
+complete-file registry is Preview because concurrent writers serialize and every accepted claim
+rewrites the complete file.
+
+### Preview durable-registry bounds
+
+The v1 `BTreeMap` registry is deliberately bounded Preview storage, not the production scaling
+design. `MAX_USAGE_ENTRIES` is 1,000,000 and `MAX_USAGE_FILE_BYTES` is 164,000,012 bytes. Admission
+fails closed before exceeding either bound. The logical all-or-nothing and exact-claim-idempotency
+semantics are storage-independent; a later SQLite, LMDB, or transactional KV implementation must
+preserve them exactly.
+
+The ignored operational profile can be reproduced with:
+
+```sh
+RISC0_SKIP_BUILD=1 cargo test --locked -p activechain-work-proof-verifier \
+  multiprocess_tests::usage_registry_operational_load_profile -- \
+  --ignored --exact --nocapture --test-threads=1
+```
+
+On 2026-08-10, an Apple ARM64 laptop running the unoptimized test profile measured one admission
+after loading a registry at each scale:
+
+| Entries after admission | Registry bytes | Open | Admission |
+| ---: | ---: | ---: | ---: |
+| 10,000 | 1,640,012 | 16 ms | 36 ms |
+| 100,000 | 16,400,012 | 152 ms | 221 ms |
+| 500,000 | 82,000,012 | 704 ms | 1,207 ms |
+| 1,000,000 | 164,000,012 | 1,557 ms | 2,340 ms |
+
+These are qualification observations from one machine, not latency guarantees. In particular,
+the 500k and 1m results are operational evidence that complete-file persistence must remain
+**Preview** and should be replaced before production-scale admission.
 
 Errors use bounded `VerificationErrorCodeV1` values for malformed, oversized, unsupported,
 relation-invalid, anchor-pending, anchor-rejected, anchor-invalid, wrong-network, trust-invalid, double-use,
