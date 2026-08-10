@@ -322,3 +322,4 @@
 0x01BB	1	WorkClaimPublicV1	crates/work-proof/src/lib.rs
 0x01BC	1	WorkClaimRelationInputV1	crates/work-proof/src/lib.rs
 0x01BD	1	WorkProofReceiptEnvelopeV1	crates/pq-zk/src/lib.rs
+0x01BE	1	MeteringPolicyV1	crates/work-proof/src/lib.rs

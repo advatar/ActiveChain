@@ -1,5 +1,5 @@
 use activechain_developer_telemetry::{
-    Authorization, Category, Collector, EventInput, EventSigner,
+    Authorization, Category, Collector, EventInput, EventMeasurementInput, EventSigner,
 };
 use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey, signature::SignatureEncoding};
 use serde_json::json;
@@ -36,12 +36,14 @@ fn main() {
         collector
             .record(
                 EventInput {
-                    category: Category::BuildTest,
+                    measurement: EventMeasurementInput::BuildTest {
+                        run_count: 1,
+                        test_count: u32::try_from(index).unwrap(),
+                    },
                     wall_start_ms: 100 + index,
                     wall_end_ms: 200 + index,
                     monotonic_start_ns: 1_000 + index * 20,
                     monotonic_end_ns: 1_010 + index * 20,
-                    units: index,
                     source_commitment: digest(4),
                     subject_commitment: digest(5),
                     payload_commitment: digest(index as u8 + 5),

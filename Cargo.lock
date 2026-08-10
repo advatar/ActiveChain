@@ -810,6 +810,7 @@ version = "0.1.0"
 dependencies = [
  "activechain-application-primitives",
  "activechain-canonical-codec",
+ "activechain-protocol-commitment",
  "activechain-protocol-types",
  "sha3 0.10.9",
 ]

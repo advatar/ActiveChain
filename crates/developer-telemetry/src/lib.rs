@@ -5,8 +5,8 @@
 //! canonical binary envelopes.
 
 use activechain_application_primitives::{
-    ActivityEpochV1, DeveloperEventKindV1, DeveloperEventV1, MAX_TELEMETRY_EVENTS,
-    telemetry_merkle_root,
+    ActivityEpochV1, DeveloperEventKindV1, DeveloperEventMeasurementV1, DeveloperEventV1,
+    MAX_TELEMETRY_EVENTS, telemetry_merkle_root,
 };
 use activechain_canonical_codec::{decode_envelope, encode_envelope};
 use activechain_protocol_types::Digest384;
@@ -35,14 +35,14 @@ pub enum Category {
     ModelUsage,
 }
 
-impl From<Category> for DeveloperEventKindV1 {
-    fn from(value: Category) -> Self {
+impl From<DeveloperEventKindV1> for Category {
+    fn from(value: DeveloperEventKindV1) -> Self {
         match value {
-            Category::HumanInteraction => Self::HumanInteraction,
-            Category::AgentExecution => Self::AgentExecution,
-            Category::GitArtifact => Self::GitArtifact,
-            Category::BuildTest => Self::BuildTest,
-            Category::ModelUsage => Self::ModelUsage,
+            DeveloperEventKindV1::HumanInteraction => Self::HumanInteraction,
+            DeveloperEventKindV1::AgentExecution => Self::AgentExecution,
+            DeveloperEventKindV1::GitArtifact => Self::GitArtifact,
+            DeveloperEventKindV1::BuildTest => Self::BuildTest,
+            DeveloperEventKindV1::ModelUsage => Self::ModelUsage,
         }
     }
 }
@@ -76,15 +76,46 @@ impl Authorization {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct EventInput {
-    pub category: Category,
+    pub measurement: EventMeasurementInput,
     pub wall_start_ms: u64,
     pub wall_end_ms: u64,
     pub monotonic_start_ns: u64,
     pub monotonic_end_ns: u64,
-    pub units: u64,
     pub source_commitment: String,
     pub subject_commitment: String,
     pub payload_commitment: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EventMeasurementInput {
+    HumanInteraction { interaction_count: u32 },
+    AgentExecution { run_count: u32 },
+    GitArtifact { artifact_count: u32 },
+    BuildTest { run_count: u32, test_count: u32 },
+    ModelUsage { input_tokens: u64, output_tokens: u64, run_count: u32 },
+}
+
+impl From<EventMeasurementInput> for DeveloperEventMeasurementV1 {
+    fn from(value: EventMeasurementInput) -> Self {
+        match value {
+            EventMeasurementInput::HumanInteraction { interaction_count } => {
+                Self::HumanInteraction { interaction_count }
+            }
+            EventMeasurementInput::AgentExecution { run_count } => {
+                Self::AgentExecution { run_count }
+            }
+            EventMeasurementInput::GitArtifact { artifact_count } => {
+                Self::GitArtifact { artifact_count }
+            }
+            EventMeasurementInput::BuildTest { run_count, test_count } => {
+                Self::BuildTest { run_count, test_count }
+            }
+            EventMeasurementInput::ModelUsage { input_tokens, output_tokens, run_count } => {
+                Self::ModelUsage { input_tokens, output_tokens, run_count }
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -205,7 +236,9 @@ impl Collector {
         }
         if now_ms < self.authorization.valid_from_ms
             || now_ms >= self.authorization.retain_until_ms
-            || !self.authorization.categories.contains(&input.category)
+            || !self.authorization.categories.contains(&Category::from(
+                DeveloperEventMeasurementV1::from(input.measurement.clone()).kind(),
+            ))
         {
             return Err(Error::NotAuthorized);
         }
@@ -215,7 +248,6 @@ impl Collector {
         if input.wall_start_ms > input.wall_end_ms
             || input.wall_end_ms > now_ms
             || input.monotonic_start_ns > input.monotonic_end_ns
-            || input.units == 0
             || collector_id(&signer.public_key()) != self.collector_id
         {
             return Err(Error::InvalidEvent);
@@ -229,11 +261,10 @@ impl Collector {
             wall_end_ms: input.wall_end_ms,
             monotonic_start_ns: input.monotonic_start_ns,
             monotonic_end_ns: input.monotonic_end_ns,
-            kind: input.category.into(),
+            measurement: input.measurement.into(),
             source_commitment: nonzero_digest(&input.source_commitment)?,
             subject_commitment: nonzero_digest(&input.subject_commitment)?,
             payload_commitment: nonzero_digest(&input.payload_commitment)?,
-            units: input.units,
             authorization_revision: self.authorization.revision,
         };
         event.validate().map_err(|_| Error::InvalidEvent)?;
@@ -526,12 +557,14 @@ mod tests {
     }
     fn input(index: u64) -> EventInput {
         EventInput {
-            category: Category::BuildTest,
+            measurement: EventMeasurementInput::BuildTest {
+                run_count: 1,
+                test_count: u32::try_from(index).unwrap(),
+            },
             wall_start_ms: 100 + index,
             wall_end_ms: 200 + index,
             monotonic_start_ns: 1_000 + index * 20,
             monotonic_end_ns: 1_010 + index * 20,
-            units: index,
             source_commitment: d(4),
             subject_commitment: d(5),
             payload_commitment: d(index as u8 + 5),

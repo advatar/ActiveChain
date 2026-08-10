@@ -76,8 +76,9 @@ pub use sponsored_cash::{
     SponsoredCashSnapshotV1,
 };
 pub use telemetry::{
-    ActivityEpochV1, DeveloperEventKindV1, DeveloperEventV1, MAX_TELEMETRY_EVENTS,
-    TelemetryPrimitiveError, event_leaf_hash, event_node_hash, telemetry_merkle_root,
+    ActivityEpochV1, DeveloperEventKindV1, DeveloperEventMeasurementV1, DeveloperEventV1,
+    MAX_TELEMETRY_EVENTS, TelemetryPrimitiveError, event_leaf_hash, event_node_hash,
+    telemetry_merkle_root,
 };
 pub use telemetry_anchor::{
     CheckpointedTelemetryAnchorEvidenceV1, MAX_CHECKPOINT_MEMBERSHIP_PROOF_LENGTH,
