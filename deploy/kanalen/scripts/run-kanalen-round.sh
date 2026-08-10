@@ -14,6 +14,10 @@ cash_ledger="$state_root/cash-ledger.snapshot"
 cash_actions="$state_root/pending-cash-actions.batch"
 cash_action_spool="$state_root/cash-action-spool"
 cash_action_inflight="$state_root/cash-action-spool.inflight"
+anchor_actions="$state_root/anchor-actions.batch"
+anchor_operator=${ACTIVECHAIN_ANCHOR_OPERATOR:-"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"}
+anchor_fee_balance=${ACTIVECHAIN_ANCHOR_FEE_BALANCE:-"1000000000"}
+anchor_nonce_channel=${ACTIVECHAIN_ANCHOR_NONCE_CHANNEL:-"0"}
 
 test -f "$network_env" || {
   echo "runtime network manifest is missing: $network_env" >&2
@@ -75,6 +79,9 @@ for validator in 0 1 2; do
     --chain-id-hex="$chain_id" \
     --cash-ledger="$cash_ledger" \
     --execution-state="$state_root/execution.snapshot" \
+    --anchor-operator="$anchor_operator" \
+    --anchor-fee-balance="$anchor_fee_balance" \
+    --anchor-nonce-channel="$anchor_nonce_channel" \
     --finalized-cash-out="$cash_snapshot" \
     --finality-out="$finality_bundle"
   for peer in $peers; do
@@ -82,6 +89,9 @@ for validator in 0 1 2; do
   done
   if test -s "$cash_actions"; then
     set -- "$@" --cash-actions="$cash_actions"
+  fi
+  if test -s "$anchor_actions"; then
+    set -- "$@" --anchor-actions="$anchor_actions"
   fi
   if "$@"; then
     round_complete=1

@@ -1,11 +1,15 @@
 #![forbid(unsafe_code)]
 
 mod access;
+mod anchor_settlement;
 mod faucet;
 mod operator_faucet;
 
 pub use access::{
     AccessCharge, RpcAccessController, load_access_terms, verify_access_terms, write_access_terms,
+};
+pub use anchor_settlement::{
+    AnchorProposalAdapter, ProposedAnchorAction, SpoolAnchorProposalAdapter,
 };
 pub use faucet::{
     DurableFaucet, FaucetError, FaucetPolicy, FaucetReconciliation, SybilPolicy,
@@ -16,8 +20,11 @@ pub use operator_faucet::{
     OperatorFaucetIngressAdapter, SpoolOperatorFaucetIngressAdapter,
 };
 
-use activechain_action_kernel::{ActionEnvelope, action_id};
-use activechain_application_primitives::{DigestAnchorStatementV1, DurableAnchorRegistry};
+use activechain_action_kernel::{ActionEnvelope, ActionPayloadV2, action_id};
+use activechain_application_primitives::{
+    AnchorError, AnchorFinalizedEvidenceV1, AnchorStatus, DigestAnchorStatementV1,
+    DurableAnchorRegistry,
+};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     decode_envelope, encode_envelope,
@@ -33,7 +40,8 @@ use activechain_protocol_types::{
     NonFungibleSeriesV1, NonFungibleTokenRegistryV1, Object, PrincipalId, TransactionId,
 };
 use activechain_rpc_types::{
-    ActionSetProof, Health, MAX_SUPPORTED_PROOFS, ProofKind, QueryKind, QueryPage, QueryRecord,
+    ActionSetProof, AnchorActionSubmissionV1, AnchorServiceStatusV1, Health,
+    MAX_ANCHOR_ACTION_LENGTH, MAX_SUPPORTED_PROOFS, ProofKind, QueryKind, QueryPage, QueryRecord,
     RpcAccessRequest, RpcAccessResponse, RpcError, RpcRequest, RpcResponse, RpcStatus,
 };
 use activechain_wallet_core::AuthorizedCashTransferV1;
@@ -736,6 +744,7 @@ impl DurableRpcStore {
         }
         match request {
             RpcRequest::Status => unreachable!(),
+            RpcRequest::AnchorServiceStatus => RpcResponse::Error(RpcError::InvalidRequest),
             RpcRequest::Get { kind, key } => index
                 .get(kind, key)
                 .map_or(RpcResponse::Error(RpcError::NotFound), RpcResponse::Record),
@@ -749,6 +758,7 @@ impl DurableRpcStore {
                 .list_owner_fungible_coin_cells(owner, asset, after, limit)
                 .map_or(RpcResponse::Error(RpcError::Internal), RpcResponse::Page),
             RpcRequest::SubmitAnchor { .. }
+            | RpcRequest::SubmitAnchorAction { .. }
             | RpcRequest::ResolveAnchor { .. }
             | RpcRequest::RequestFaucet { .. }
             | RpcRequest::RequestAuthorizedFaucet { .. }
@@ -768,17 +778,24 @@ impl DurableRpcStore {
     pub fn finalized_height(&self) -> Result<u64, RpcStoreError> {
         self.index.read().map(|index| index.finalized_height).map_err(|_| RpcStoreError::Io)
     }
+
+    pub fn protocol_revision(&self) -> Result<u64, RpcStoreError> {
+        self.index.read().map(|index| index.protocol_revision).map_err(|_| RpcStoreError::Io)
+    }
 }
 
 type FaucetSettlement =
     dyn Fn(PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError> + Send + Sync;
 type AuthorizedFaucetSettlement =
     dyn Fn(&[u8], PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError> + Send + Sync;
-
+type AnchorSettlement =
+    dyn Fn(&[u8], Digest384) -> Result<TransactionId, AnchorError> + Send + Sync;
 pub struct RpcServer {
     store: Arc<DurableRpcStore>,
     access: Option<Arc<RpcAccessController>>,
     anchors: Option<Arc<RwLock<DurableAnchorRegistry>>>,
+    anchor_settlement: Option<Arc<AnchorSettlement>>,
+    anchor_proposal: Option<Arc<dyn AnchorProposalAdapter>>,
     faucet: Option<Arc<RwLock<DurableFaucet>>>,
     faucet_settlement: Option<Arc<FaucetSettlement>>,
     authorized_faucet_settlement: Option<Arc<AuthorizedFaucetSettlement>>,
@@ -806,6 +823,16 @@ pub trait AuthorizedFaucetSettlementAdapter: Send + Sync {
         amount: u128,
         reference: Digest384,
     ) -> Result<TransactionId, FaucetError>;
+}
+
+/// Typed production boundary for native anchor admission. Implementations must
+/// submit the exact canonical action envelope and be idempotent by action ID.
+pub trait AnchorSettlementAdapter: Send + Sync {
+    fn submit_anchor(
+        &self,
+        action_envelope: &[u8],
+        reference: Digest384,
+    ) -> Result<TransactionId, AnchorError>;
 }
 
 /// Direct validator-side adapter for deployments that host the authenticated
@@ -955,6 +982,89 @@ where
 }
 
 impl RpcServer {
+    /// Resolves one archived native anchor action only after its exact receipt and finality bundle
+    /// pass the independent verifier. Exact retries are idempotent; any archive substitution fails
+    /// before the durable registry changes.
+    pub fn reconcile_anchor_finality(
+        &self,
+        action_batch: &[u8],
+        receipt: &[u8],
+        finality: &[u8],
+    ) -> Result<Digest384, AnchorError> {
+        let anchors = self.anchors.as_ref().ok_or(AnchorError::InvalidTransition)?;
+        if action_batch.len() < 4 {
+            return Err(AnchorError::InvalidFinalizedEvidence);
+        }
+        let length = u32::from_be_bytes(
+            action_batch[..4].try_into().map_err(|_| AnchorError::InvalidFinalizedEvidence)?,
+        ) as usize;
+        if length == 0
+            || length > MAX_ANCHOR_ACTION_LENGTH
+            || action_batch.len()
+                != length.checked_add(4).ok_or(AnchorError::InvalidFinalizedEvidence)?
+        {
+            return Err(AnchorError::InvalidFinalizedEvidence);
+        }
+        let action_bytes = action_batch[4..].to_vec();
+        let action = decode_envelope::<ActionEnvelope>(&action_bytes)
+            .map_err(|_| AnchorError::InvalidFinalizedEvidence)?;
+        let ActionPayloadV2::SubmitAnchor { statement, .. } = action.payload() else {
+            return Err(AnchorError::InvalidFinalizedEvidence);
+        };
+        let reference = statement.submission_reference()?;
+        if action.authorization_commitment() != reference {
+            return Err(AnchorError::InvalidFinalizedEvidence);
+        }
+        let transaction = action_id(&action).map_err(|_| AnchorError::Encoding)?;
+        let genesis = self.store.genesis_commitment().map_err(|_| AnchorError::Persistence)?;
+        let chain = self.store.chain_id().map_err(|_| AnchorError::Persistence)?;
+        let protocol_revision =
+            self.store.protocol_revision().map_err(|_| AnchorError::Persistence)?;
+        let verified_receipt = activechain_verifier_api::verify_block_receipt_with_chain_genesis(
+            finality, receipt, genesis,
+        )
+        .map_err(|_| AnchorError::InvalidFinalizedEvidence)?;
+        let evidence = AnchorFinalizedEvidenceV1::new(
+            chain,
+            genesis,
+            transaction,
+            action_bytes,
+            verified_receipt.height(),
+            verified_receipt.block_id(),
+            statement.clone(),
+            None,
+            None,
+            protocol_revision,
+            1,
+            receipt.to_vec(),
+            finality.to_vec(),
+        )?;
+        let evidence_bytes = encode_envelope(&evidence).map_err(|_| AnchorError::Encoding)?;
+        let statement_bytes = encode_envelope(statement).map_err(|_| AnchorError::Encoding)?;
+        let verified = activechain_verifier_api::verify_anchor_finalized_evidence(
+            &evidence_bytes,
+            &statement_bytes,
+            chain,
+            genesis,
+            protocol_revision,
+            1,
+        )
+        .map_err(|_| AnchorError::InvalidFinalizedEvidence)?;
+        let mut anchors = anchors.write().map_err(|_| AnchorError::Persistence)?;
+        anchors.update(|registry| {
+            let record = registry.resolve(reference).ok_or(AnchorError::UnknownReference)?;
+            if record.status() == AnchorStatus::Finalized {
+                return if record.evidence() == Some(&verified) {
+                    Ok(())
+                } else {
+                    Err(AnchorError::InvalidTransition)
+                };
+            }
+            registry.finalize(reference, verified)
+        })?;
+        Ok(reference)
+    }
+
     /// Reconciles faucet receipts only when the exact cash transaction set is committed by the
     /// supplied finalized certificate. Wallets still verify the resulting owner Coin Cell proof
     /// independently before displaying funds.
@@ -1024,6 +1134,8 @@ impl RpcServer {
             store,
             access: None,
             anchors: None,
+            anchor_settlement: None,
+            anchor_proposal: None,
             faucet: None,
             faucet_settlement: None,
             authorized_faucet_settlement: None,
@@ -1032,6 +1144,31 @@ impl RpcServer {
 
     pub fn with_anchor_registry(mut self, anchors: DurableAnchorRegistry) -> Self {
         self.anchors = Some(Arc::new(RwLock::new(anchors)));
+        self
+    }
+
+    pub fn with_anchor_settlement<F>(mut self, settlement: F) -> Self
+    where
+        F: Fn(&[u8], Digest384) -> Result<TransactionId, AnchorError> + Send + Sync + 'static,
+    {
+        self.anchor_settlement = Some(Arc::new(settlement));
+        self
+    }
+
+    pub fn with_anchor_settlement_adapter<A>(self, adapter: A) -> Self
+    where
+        A: AnchorSettlementAdapter + 'static,
+    {
+        self.with_anchor_settlement(move |action, reference| {
+            adapter.submit_anchor(action, reference)
+        })
+    }
+
+    pub fn with_anchor_proposal_adapter<A>(mut self, adapter: A) -> Self
+    where
+        A: AnchorProposalAdapter + 'static,
+    {
+        self.anchor_proposal = Some(Arc::new(adapter));
         self
     }
 
@@ -1099,6 +1236,8 @@ impl RpcServer {
             store,
             access: Some(access),
             anchors: None,
+            anchor_settlement: None,
+            anchor_proposal: None,
             faucet: None,
             faucet_settlement: None,
             authorized_faucet_settlement: None,
@@ -1117,17 +1256,93 @@ impl RpcServer {
         abuse_identity: Option<Digest384>,
     ) -> RpcResponse {
         match request {
+            RpcRequest::AnchorServiceStatus => {
+                let RpcResponse::Status(status) = self.store.handle(RpcRequest::Status, now) else {
+                    return RpcResponse::Error(RpcError::Internal);
+                };
+                let accepting_submissions = status.health() == Health::Healthy
+                    && self.anchors.is_some()
+                    && self.anchor_proposal.as_ref().is_some_and(|proposal| proposal.ready());
+                RpcResponse::AnchorServiceStatus(AnchorServiceStatusV1::new(
+                    status,
+                    accepting_submissions,
+                ))
+            }
+            RpcRequest::SubmitAnchorAction { action } => {
+                let (Some(anchors), Some(settlement)) = (&self.anchors, &self.anchor_settlement)
+                else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let Ok(envelope) = decode_envelope::<ActionEnvelope>(&action) else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let ActionPayloadV2::SubmitAnchor { statement, .. } = envelope.payload() else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let Ok(chain_id) = self.store.chain_id() else {
+                    return RpcResponse::Error(RpcError::Internal);
+                };
+                let Ok(reference) = statement.submission_reference() else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let Ok(transaction) = action_id(&envelope) else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                if envelope.chain_id() != chain_id
+                    || envelope.authorization_commitment() != reference
+                    || settlement(&action, reference) != Ok(transaction)
+                {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                }
+                let Ok(mut anchors) = anchors.write() else {
+                    return RpcResponse::Error(RpcError::Internal);
+                };
+                if anchors.update(|registry| registry.submit_action(statement.clone(), transaction))
+                    != Ok(reference)
+                {
+                    return RpcResponse::Error(RpcError::Internal);
+                }
+                match AnchorActionSubmissionV1::new(reference, transaction) {
+                    Ok(submission) => RpcResponse::AnchorActionSubmission(submission),
+                    Err(_) => RpcResponse::Error(RpcError::Internal),
+                }
+            }
             RpcRequest::SubmitAnchor { statement } => {
-                let Some(anchors) = &self.anchors else {
+                let (Some(anchors), Some(proposal)) = (&self.anchors, &self.anchor_proposal) else {
                     return RpcResponse::Error(RpcError::InvalidRequest);
                 };
                 let Ok(statement) = decode_envelope::<DigestAnchorStatementV1>(&statement) else {
                     return RpcResponse::Error(RpcError::InvalidRequest);
                 };
+                let Ok(reference) = statement.submission_reference() else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let Ok(proposed) = proposal.propose_anchor(&statement, reference) else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let Ok(action) = decode_envelope::<ActionEnvelope>(proposed.action()) else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let ActionPayloadV2::SubmitAnchor { statement: submitted, .. } = action.payload()
+                else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let Ok(chain_id) = self.store.chain_id() else {
+                    return RpcResponse::Error(RpcError::Internal);
+                };
+                if action.chain_id() != chain_id
+                    || submitted != &statement
+                    || action.authorization_commitment() != reference
+                    || action_id(&action) != Ok(proposed.transaction())
+                {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                }
                 let Ok(mut anchors) = anchors.write() else {
                     return RpcResponse::Error(RpcError::Internal);
                 };
-                match anchors.update(|registry| registry.submit(statement)) {
+                match anchors
+                    .update(|registry| registry.submit_action(statement, proposed.transaction()))
+                {
                     Ok(reference) => RpcResponse::AnchorSubmission(reference),
                     Err(_) => RpcResponse::Error(RpcError::Internal),
                 }
@@ -1279,7 +1494,7 @@ impl RpcServer {
             let request =
                 decode_envelope::<RpcRequest>(&request).map_err(|_| RpcStoreError::Invalid)?;
             let response = if self.access.as_ref().is_some_and(|access| !access.is_free())
-                && !matches!(request, RpcRequest::Status)
+                && !matches!(request, RpcRequest::Status | RpcRequest::AnchorServiceStatus)
             {
                 RpcResponse::Error(RpcError::InvalidRequest)
             } else {
@@ -1388,7 +1603,7 @@ mod tests {
         CoinCell, CoinCellOrigin, CoinCellSet, CoinTransfer, GenesisAllocation, GenesisEconomy,
         NativeAssetDefinition, prove_coin_cell_membership,
     };
-    use activechain_devnet_kernel::BlockReceipt;
+    use activechain_devnet_kernel::{ActionOutcome, ActionReceipt, BlockReceipt};
     use activechain_finality_types::{
         FinalityCertificateBundle, FinalizedBlockHeader, ProofPublicInputs,
     };
@@ -2273,6 +2488,35 @@ mod tests {
         )
         .unwrap()
     }
+
+    fn anchor_action_envelope(statement: DigestAnchorStatementV1) -> ActionEnvelope {
+        let actor = PrincipalId::new(digest(50));
+        let reference = statement.submission_reference().unwrap();
+        let payload = ActionPayloadV2::submit_anchor(7, statement);
+        let resources = ResourceVector::new(100, 0, 0, 0, 1, 2_000);
+        ActionEnvelope::new_payload(
+            ACTION_PROTOCOL_VERSION,
+            ChainId::new(digest(1)),
+            actor,
+            FeeTicket::new(
+                ObjectId::new(digest(55)),
+                actor,
+                100_000,
+                10,
+                9,
+                ResourceVector::new(100, 100, 100, 100, 100, 10_000),
+            )
+            .unwrap(),
+            2,
+            5,
+            ValidityInterval::new(1, 10).unwrap(),
+            resources,
+            payload.commitment().unwrap(),
+            payload,
+            reference,
+        )
+        .unwrap()
+    }
     fn index() -> RpcIndex {
         let mut records = vec![
             receipt_record(10),
@@ -2459,7 +2703,12 @@ mod tests {
         let _ = std::fs::remove_file(&anchor_path);
         let store = Arc::new(DurableRpcStore::create(index_path.clone(), index()).unwrap());
         let server = RpcServer::new(store)
-            .with_anchor_registry(DurableAnchorRegistry::open(&anchor_path).unwrap());
+            .with_anchor_registry(DurableAnchorRegistry::open(&anchor_path).unwrap())
+            .with_anchor_proposal_adapter(|statement: &DigestAnchorStatementV1, _| {
+                let action = anchor_action_envelope(statement.clone());
+                let transaction = action_id(&action).unwrap();
+                ProposedAnchorAction::new(encode_envelope(&action).unwrap(), transaction)
+            });
         let statement = DigestAnchorStatementV1::new(
             b"mademark.external-anchor.statement.v1".to_vec(),
             [42; 32],
@@ -2486,6 +2735,214 @@ mod tests {
             restarted.handle(RpcRequest::ResolveAnchor { reference }, 105),
             RpcResponse::AnchorRecord(_)
         ));
+        let _ = std::fs::remove_file(index_path);
+        let _ = std::fs::remove_file(anchor_path);
+    }
+
+    #[test]
+    fn anchor_service_status_requires_registry_and_ready_proposal_adapter() {
+        let index_path = temporary("anchor-service-status-index");
+        let anchor_path = temporary("anchor-service-status-registry");
+        let _ = std::fs::remove_file(&index_path);
+        let _ = std::fs::remove_file(&anchor_path);
+        let store = Arc::new(DurableRpcStore::create(index_path.clone(), index()).unwrap());
+        let server = RpcServer::new(store).with_anchor_proposal_adapter(
+            |statement: &DigestAnchorStatementV1, _| {
+                let action = anchor_action_envelope(statement.clone());
+                let transaction = action_id(&action).unwrap();
+                ProposedAnchorAction::new(encode_envelope(&action).unwrap(), transaction)
+            },
+        );
+        let RpcResponse::AnchorServiceStatus(status) =
+            server.handle(RpcRequest::AnchorServiceStatus, 105)
+        else {
+            panic!("anchor service status expected")
+        };
+        assert_eq!(status.status().health(), Health::Healthy);
+        assert!(!status.accepting_submissions());
+
+        let server =
+            server.with_anchor_registry(DurableAnchorRegistry::open(&anchor_path).unwrap());
+        let RpcResponse::AnchorServiceStatus(status) =
+            server.handle(RpcRequest::AnchorServiceStatus, 105)
+        else {
+            panic!("anchor service status expected")
+        };
+        assert!(status.accepting_submissions());
+        let _ = std::fs::remove_file(index_path);
+        let _ = std::fs::remove_file(anchor_path);
+    }
+
+    #[test]
+    fn native_anchor_rpc_binds_adapter_transaction_and_persists_exact_retry() {
+        let index_path = temporary("native-anchor-index");
+        let anchor_path = temporary("native-anchors");
+        let _ = std::fs::remove_file(&index_path);
+        let _ = std::fs::remove_file(&anchor_path);
+        let statement =
+            DigestAnchorStatementV1::new(b"actum.developer-telemetry.epoch.v1".to_vec(), [43; 32])
+                .unwrap();
+        let reference = statement.submission_reference().unwrap();
+        let action = anchor_action_envelope(statement);
+        let transaction = action_id(&action).unwrap();
+        let encoded_action = encode_envelope(&action).unwrap();
+        let store = Arc::new(DurableRpcStore::create(index_path.clone(), index()).unwrap());
+        let server = RpcServer::new(store)
+            .with_anchor_registry(DurableAnchorRegistry::open(&anchor_path).unwrap())
+            .with_anchor_settlement(|bytes, _| {
+                let action = decode_envelope::<ActionEnvelope>(bytes).unwrap();
+                Ok(action_id(&action).unwrap())
+            });
+        let request = RpcRequest::SubmitAnchorAction { action: encoded_action };
+        let expected = RpcResponse::AnchorActionSubmission(
+            AnchorActionSubmissionV1::new(reference, transaction).unwrap(),
+        );
+        assert_eq!(server.handle(request.clone(), 105), expected);
+        assert_eq!(server.handle(request, 105), expected);
+        let RpcResponse::AnchorRecord(record) =
+            server.handle(RpcRequest::ResolveAnchor { reference }, 105)
+        else {
+            panic!("anchor record expected")
+        };
+        let record = decode_envelope::<AnchorRecord>(&record).unwrap();
+        assert_eq!(record.submitted_transaction(), Some(transaction));
+        drop(server);
+
+        let store = Arc::new(DurableRpcStore::load(index_path.clone()).unwrap());
+        let restarted = RpcServer::new(store)
+            .with_anchor_registry(DurableAnchorRegistry::open(&anchor_path).unwrap())
+            .with_anchor_settlement(move |_, _| Ok(transaction));
+        let RpcResponse::AnchorRecord(record) =
+            restarted.handle(RpcRequest::ResolveAnchor { reference }, 105)
+        else {
+            panic!("restarted anchor record expected")
+        };
+        assert_eq!(
+            decode_envelope::<AnchorRecord>(&record).unwrap().submitted_transaction(),
+            Some(transaction)
+        );
+        let _ = std::fs::remove_file(index_path);
+        let _ = std::fs::remove_file(anchor_path);
+    }
+
+    #[test]
+    fn native_anchor_rpc_rejects_adapter_transaction_substitution() {
+        let index_path = temporary("native-anchor-substitution-index");
+        let anchor_path = temporary("native-anchor-substitution");
+        let _ = std::fs::remove_file(&index_path);
+        let _ = std::fs::remove_file(&anchor_path);
+        let statement =
+            DigestAnchorStatementV1::new(b"actum.developer-telemetry.epoch.v1".to_vec(), [44; 32])
+                .unwrap();
+        let reference = statement.submission_reference().unwrap();
+        let action = encode_envelope(&anchor_action_envelope(statement)).unwrap();
+        let store = Arc::new(DurableRpcStore::create(index_path.clone(), index()).unwrap());
+        let server = RpcServer::new(store)
+            .with_anchor_registry(DurableAnchorRegistry::open(&anchor_path).unwrap())
+            .with_anchor_settlement(|_, _| Ok(TransactionId::new(digest(99))));
+        assert_eq!(
+            server.handle(RpcRequest::SubmitAnchorAction { action }, 105),
+            RpcResponse::Error(RpcError::InvalidRequest)
+        );
+        assert_eq!(
+            server.handle(RpcRequest::ResolveAnchor { reference }, 105),
+            RpcResponse::Error(RpcError::NotFound)
+        );
+        let _ = std::fs::remove_file(index_path);
+        let _ = std::fs::remove_file(anchor_path);
+    }
+
+    #[test]
+    fn native_anchor_archive_requires_exact_receipt_before_finalization() {
+        let index_path = temporary("native-anchor-finality-index");
+        let anchor_path = temporary("native-anchor-finality-registry");
+        let _ = std::fs::remove_file(&index_path);
+        let _ = std::fs::remove_file(&anchor_path);
+        let statement =
+            DigestAnchorStatementV1::new(b"actum.developer-telemetry.epoch.v1".to_vec(), [45; 32])
+                .unwrap();
+        let reference = statement.submission_reference().unwrap();
+        let action = anchor_action_envelope(statement);
+        let transaction = action_id(&action).unwrap();
+        let action_bytes = encode_envelope(&action).unwrap();
+        let mut action_batch = u32::try_from(action_bytes.len()).unwrap().to_be_bytes().to_vec();
+        action_batch.extend_from_slice(&action_bytes);
+        let pre_state = StateCommitment::new(digest(80), 0);
+        let post_state = StateCommitment::new(digest(81), 0);
+        let receipt = BlockReceipt::new(
+            digest(84),
+            7,
+            pre_state,
+            post_state,
+            digest(82),
+            digest(83),
+            vec![ActionReceipt::new(
+                transaction,
+                ActionOutcome::AnchorSubmitted { reference },
+                ResourceVector::new(1, 0, 0, 0, 0, 512),
+                513,
+                5,
+                post_state,
+            )],
+        )
+        .unwrap();
+        let receipt_bytes = encode_envelope(&receipt).unwrap();
+        let receipt_root = commit(DomainTag::CANONICAL_VALUE, &receipt).unwrap();
+        let finality = signed_finality(
+            85,
+            ProofPublicInputs { receipt_root, ..public_inputs(pre_state, post_state) },
+        );
+        let bundle = decode_envelope::<FinalityCertificateBundle>(&finality).unwrap();
+        let mut rpc_index = index();
+        rpc_index.genesis_commitment = bundle.validator_genesis().genesis_commitment();
+        let store = Arc::new(DurableRpcStore::create(index_path.clone(), rpc_index).unwrap());
+        let server = RpcServer::new(store)
+            .with_anchor_registry(DurableAnchorRegistry::open(&anchor_path).unwrap())
+            .with_anchor_settlement(|bytes, _| {
+                let action = decode_envelope::<ActionEnvelope>(bytes).unwrap();
+                action_id(&action).map_err(|_| AnchorError::Encoding)
+            });
+        assert!(matches!(
+            server.handle(RpcRequest::SubmitAnchorAction { action: action_bytes }, 105),
+            RpcResponse::AnchorActionSubmission(_)
+        ));
+        let unrelated_receipt =
+            BlockReceipt::new(digest(84), 7, pre_state, post_state, digest(82), digest(83), vec![])
+                .unwrap();
+        assert_eq!(
+            server.reconcile_anchor_finality(
+                &action_batch,
+                &encode_envelope(&unrelated_receipt).unwrap(),
+                &finality,
+            ),
+            Err(AnchorError::InvalidFinalizedEvidence)
+        );
+        let RpcResponse::AnchorRecord(pending) =
+            server.handle(RpcRequest::ResolveAnchor { reference }, 105)
+        else {
+            panic!("pending anchor record expected")
+        };
+        assert_eq!(
+            decode_envelope::<AnchorRecord>(&pending).unwrap().status(),
+            AnchorStatus::Pending
+        );
+        assert_eq!(
+            server.reconcile_anchor_finality(&action_batch, &receipt_bytes, &finality),
+            Ok(reference)
+        );
+        assert_eq!(
+            server.reconcile_anchor_finality(&action_batch, &receipt_bytes, &finality),
+            Ok(reference)
+        );
+        let RpcResponse::AnchorRecord(finalized) =
+            server.handle(RpcRequest::ResolveAnchor { reference }, 105)
+        else {
+            panic!("finalized anchor record expected")
+        };
+        let finalized = decode_envelope::<AnchorRecord>(&finalized).unwrap();
+        assert_eq!(finalized.status(), AnchorStatus::Finalized);
+        assert_eq!(finalized.submitted_transaction(), Some(transaction));
+        assert_eq!(finalized.evidence().unwrap().transaction(), transaction);
         let _ = std::fs::remove_file(index_path);
         let _ = std::fs::remove_file(anchor_path);
     }

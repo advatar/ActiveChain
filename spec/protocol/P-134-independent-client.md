@@ -32,12 +32,12 @@ At the current frozen registry it yields this cumulative budget:
 
 | Version | Active canonical identities | Newly active | Incremental estimate |
 |---|---:|---:|---:|
-| v1.0 | 279 | 279 | 20–30 engineer-months |
-| v1.1 | 279 | 0 | 6–10 engineer-months for mandatory-proof semantics |
-| v1.2 | 291 | 12 | 12–18 engineer-months |
-| v1.3 | 305 | 14 | 8–12 engineer-months |
-| v1.4 | 308 | 3 | 6–10 engineer-months |
-| v2 | 308 currently assigned | 0 currently assigned | 12–24 engineer-months, provisional |
+| v1.0 | 292 | 292 | 20–30 engineer-months |
+| v1.1 | 292 | 0 | 6–10 engineer-months for mandatory-proof semantics |
+| v1.2 | 304 | 12 | 12–18 engineer-months |
+| v1.3 | 318 | 14 | 8–12 engineer-months |
+| v1.4 | 321 | 3 | 6–10 engineer-months |
+| v2 | 321 currently assigned | 0 currently assigned | 12–24 engineer-months, provisional |
 
 The identity count is not a proxy for implementation difficulty: v1.1 changes proof admission
 semantics without activating another currently registered envelope. Estimates include independent

@@ -297,6 +297,8 @@ pub enum ActionOutcome {
     AssetTransition { pre_ledger: Digest384, post_ledger: Digest384 },
     /// Measured work exceeded at least one independent envelope ceiling.
     ResourceLimitExceeded,
+    /// The exact digest-anchor statement was admitted as a native action.
+    AnchorSubmitted { reference: Digest384 },
 }
 
 impl CanonicalEncode for ActionOutcome {
@@ -312,6 +314,10 @@ impl CanonicalEncode for ActionOutcome {
                 pre_ledger.encode(encoder)?;
                 post_ledger.encode(encoder)
             }
+            Self::AnchorSubmitted { reference } => {
+                3_u8.encode(encoder)?;
+                reference.encode(encoder)
+            }
         }
     }
 }
@@ -325,6 +331,7 @@ impl CanonicalDecode for ActionOutcome {
                 pre_ledger: Digest384::decode(decoder)?,
                 post_ledger: Digest384::decode(decoder)?,
             }),
+            3 => Ok(Self::AnchorSubmitted { reference: Digest384::decode(decoder)? }),
             tag => Err(DecodeError::InvalidEnumTag { type_name: "ActionOutcome", tag }),
         }
     }
@@ -435,7 +442,7 @@ impl BlockReceipt {
     /// Registered block-receipt type tag.
     pub const TYPE_TAG: u16 = 0x0074;
     /// Full-state-bound block-receipt schema version.
-    pub const SCHEMA_VERSION: u16 = 2;
+    pub const SCHEMA_VERSION: u16 = 3;
     /// Worst-case canonical block-receipt body length.
     pub const MAX_ENCODED_LEN: usize = 9_257;
 
@@ -712,7 +719,9 @@ impl ConsensusAssetLedgerV1 {
             ActionPayloadV2::FungibleCorporateAction { action, .. } => action.asset_id(),
             ActionPayloadV2::FungibleLifecycle { action, .. } => action.asset_id(),
             ActionPayloadV2::FungibleControllerRotation { rotation, .. } => rotation.asset_id(),
-            ActionPayloadV2::Transfer(_) => return Err(NativeMoneyError::InvalidInputs),
+            ActionPayloadV2::Transfer(_) | ActionPayloadV2::SubmitAnchor { .. } => {
+                return Err(NativeMoneyError::InvalidInputs);
+            }
         };
         let index = self
             .policies
@@ -786,7 +795,8 @@ impl ConsensusAssetLedgerV1 {
             ActionPayloadV2::Transfer(_)
             | ActionPayloadV2::FungibleCorporateAction { .. }
             | ActionPayloadV2::FungibleLifecycle { .. }
-            | ActionPayloadV2::FungibleControllerRotation { .. } => {
+            | ActionPayloadV2::FungibleControllerRotation { .. }
+            | ActionPayloadV2::SubmitAnchor { .. } => {
                 unreachable!()
             }
         };

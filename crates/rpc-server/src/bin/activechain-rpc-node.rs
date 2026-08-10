@@ -2,8 +2,9 @@ use activechain_application_primitives::DurableAnchorRegistry;
 use activechain_protocol_types::{Digest384, PrincipalId};
 use activechain_rpc_server::{
     DurableFaucet, DurableOperatorFaucetSettlement, DurableRpcStore, FaucetPolicy,
-    MlDsa44FaucetAuthorizer, RpcAccessController, RpcServer, SpoolOperatorFaucetIngressAdapter,
-    SybilPolicy, WalletIngressOperatorSettlementAdapter, load_access_terms, verify_access_terms,
+    MlDsa44FaucetAuthorizer, RpcAccessController, RpcServer, SpoolAnchorProposalAdapter,
+    SpoolOperatorFaucetIngressAdapter, SybilPolicy, WalletIngressOperatorSettlementAdapter,
+    load_access_terms, verify_access_terms,
 };
 use activechain_rpc_types::RpcAccessMode;
 use ml_dsa::{MlDsa44, Seed, SigningKey};
@@ -11,7 +12,7 @@ use std::{
     collections::BTreeSet,
     env,
     net::TcpListener,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -88,6 +89,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
     } else {
         server
+    };
+    let anchor_spool = env::var_os("ACTIVECHAIN_ANCHOR_ACTION_SPOOL").map(PathBuf::from);
+    let anchor_archive_spool = anchor_spool.clone();
+    let anchor_execution = env::var_os("ACTIVECHAIN_ANCHOR_EXECUTION_STATE").map(PathBuf::from);
+    let anchor_operator = env::var("ACTIVECHAIN_ANCHOR_OPERATOR").ok();
+    let server = match (anchor_spool, anchor_execution, anchor_operator) {
+        (Some(spool), Some(execution), Some(operator)) => {
+            let channel = env::var("ACTIVECHAIN_ANCHOR_NONCE_CHANNEL")
+                .unwrap_or_else(|_| "0".to_owned())
+                .parse()?;
+            server.with_anchor_proposal_adapter(
+                SpoolAnchorProposalAdapter::new(
+                    spool,
+                    execution,
+                    parse_principal(&operator)?,
+                    channel,
+                )
+                .map_err(|_| "invalid anchor proposal configuration")?,
+            )
+        }
+        (None, None, None) => server,
+        _ => {
+            return Err(
+                "ACTIVECHAIN_ANCHOR_ACTION_SPOOL, ACTIVECHAIN_ANCHOR_EXECUTION_STATE, and ACTIVECHAIN_ANCHOR_OPERATOR must be supplied together"
+                    .into(),
+            );
+        }
     };
     let wallet_path = env::var_os("ACTIVECHAIN_WALLET_INGRESS_SNAPSHOT").map(PathBuf::from);
     let wallet_ingress_enabled = wallet_path.is_some();
@@ -199,9 +227,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let finality_archive =
         env::var_os("ACTIVECHAIN_FAUCET_FINALITY_ARCHIVE_DIR").map(PathBuf::from);
     let mut reconciled_archives = BTreeSet::new();
+    let mut reconciled_anchor_archives = BTreeSet::new();
     loop {
         if let Some(directory) = finality_archive.as_ref() {
             reconcile_faucet_archives(&server, directory, &mut reconciled_archives)?;
+        }
+        if let Some(spool) = anchor_archive_spool.as_ref() {
+            reconcile_anchor_archives(&server, spool, &mut reconciled_anchor_archives)?;
         }
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -211,6 +243,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("RPC request rejected: {error:?}");
         }
     }
+}
+
+fn reconcile_anchor_archives(
+    server: &RpcServer,
+    spool: &Path,
+    reconciled: &mut BTreeSet<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let parent = spool
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let name = spool
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("anchor action spool name is not UTF-8")?;
+    let prefix = format!("{name}.finalized-");
+    for entry in std::fs::read_dir(parent)? {
+        let entry = entry?;
+        let archive_name = entry.file_name().to_string_lossy().into_owned();
+        let Some(height) = archive_name.strip_prefix(&prefix) else {
+            continue;
+        };
+        if height.parse::<u64>().is_err() || reconciled.contains(&archive_name) {
+            continue;
+        }
+        let receipt = PathBuf::from(format!("{}.receipt.finalized-{height}", spool.display()));
+        let finality = PathBuf::from(format!("{}.finality.finalized-{height}", spool.display()));
+        if !receipt.is_file() || !finality.is_file() {
+            continue;
+        }
+        server
+            .reconcile_anchor_finality(
+                &std::fs::read(entry.path())?,
+                &std::fs::read(&receipt)?,
+                &std::fs::read(&finality)?,
+            )
+            .map_err(|error| {
+                format!("could not reconcile anchor archive {archive_name}: {error:?}")
+            })?;
+        reconciled.insert(archive_name);
+    }
+    Ok(())
 }
 
 fn reconcile_faucet_archives(

@@ -7,6 +7,7 @@ use activechain_action_kernel::{
     ACTION_PROTOCOL_VERSION, ActionEnvelope, ActionPayloadV2, FeeTicket, NonceChannel,
     ResourcePrices, ResourceVector, ValidityInterval, action_id,
 };
+use activechain_application_primitives::DigestAnchorStatementV1;
 use activechain_canonical_codec::{
     CanonicalEncode, CanonicalType, Encoder, decode_envelope, encode_body, encode_envelope,
 };
@@ -695,6 +696,45 @@ fn issuer_burn_and_redemption_consume_exact_cells_and_supply() {
         assert!(next.cells().as_slice().is_empty());
         assert!(next.apply(&payload, 1).is_err(), "replay must fail against successor state");
     }
+}
+
+#[test]
+fn native_anchor_action_commits_exact_statement_reference_in_receipt() {
+    let state = genesis();
+    let statement =
+        DigestAnchorStatementV1::new(b"actum.test.anchor.v1".to_vec(), [0x91; 32]).unwrap();
+    let reference = statement.submission_reference().unwrap();
+    let payload = ActionPayloadV2::submit_anchor(1, statement);
+    let maximum = ResourceVector::new(10, 0, 0, 0, 1, 4096);
+    let ticket = FeeTicket::new(
+        ObjectId::new(digest(0x92)),
+        sender(),
+        3_000_000,
+        8,
+        5,
+        ResourceVector::new(2_000_000, 2_000_000, 2_000_000, 2_000_000, 2_000_000, 2_000_000),
+    )
+    .unwrap();
+    let action = ActionEnvelope::new_payload(
+        ACTION_PROTOCOL_VERSION,
+        chain_id(),
+        sender(),
+        ticket,
+        0,
+        5,
+        ValidityInterval::new(1, 8).unwrap(),
+        maximum,
+        payload.commitment().unwrap(),
+        payload,
+        digest(0x93),
+    )
+    .unwrap();
+    let transaction = action_id(&action).unwrap();
+    let output = apply_block(&state, &block(&state, vec![action])).unwrap();
+    let receipt = output.receipt().action_receipts()[0];
+    assert_eq!(receipt.transaction_id(), transaction);
+    assert_eq!(receipt.outcome(), ActionOutcome::AnchorSubmitted { reference });
+    assert_eq!(output.state().objects(), state.objects());
 }
 
 #[test]

@@ -194,7 +194,8 @@ impl RpcAccessController {
         authorization: Option<&RpcAccessAuthorization>,
         now: u64,
     ) -> Result<AccessCharge, RpcAccessError> {
-        if matches!(request, RpcRequest::Status) || self.is_free() {
+        if matches!(request, RpcRequest::Status | RpcRequest::AnchorServiceStatus) || self.is_free()
+        {
             return Ok(AccessCharge::free());
         }
         let authorization = authorization.ok_or(RpcAccessError::AuthorizationRequired)?;

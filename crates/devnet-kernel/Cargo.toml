@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 activechain-action-kernel.workspace = true
+activechain-application-primitives.workspace = true
 activechain-cash-kernel.workspace = true
 activechain-canonical-codec.workspace = true
 activechain-protocol-commitment = { path = "../protocol-commitment", version = "0.1.0" }

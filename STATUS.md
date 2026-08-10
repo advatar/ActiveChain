@@ -40,13 +40,26 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Add adversarial authorization, race, replay, wrong-chain, timeout, malformed-response, and redaction tests.
     - [x] Pass the exact full gate after #773 merges.
   - [x] Anchor and resolve finalized activity epochs through the existing digest boundary (#775;
-    qualified candidate `a812b608` in split deterministic-kernel run `31360547400`).
+    qualified candidate `995653ef` in split deterministic-kernel run `31420355820`).
+    - [x] Expose fail-closed anchor-service health that checks the finalized RPC view, operator
+      fee/nonce state, registry, and proposal-spool capacity before reporting submission readiness.
     - [x] Add the canonical network-bound epoch anchor request and exact frozen epoch statement derivation.
-    - [x] Add chained signed verifier trust bundles and finalized membership evidence.
+    - [x] Add chained signed verifier trust bundles.
+    - [x] Bind the exact anchor statement to canonical transaction/state inclusion evidence before
+      reporting finality.
+      - [x] Derive the native action from operator-owned finalized fee/nonce state and persist one
+        crash-atomic, idempotent proposal per round.
+      - [x] Include only exact-reference-bound `SubmitAnchor` actions in the validator proposal,
+        commit their receipts under finality, and archive action/receipt/finality together.
+      - [x] Reconcile archives through the independent finalized-anchor verifier before the
+        durable `submitted -> finalized` registry transition.
+      - [x] Wire the Kanalen testnet operator bootstrap and document the production lifecycle.
     - [x] Add the authenticated idempotent anchor service, recovery rehearsals, vectors, and exact gate.
       - [x] Add the bounded bearer-authenticated telemetry anchor gateway and freeze its developer contract.
       - [x] Add gateway recovery/adversarial rehearsals and deterministic canonical vectors.
       - [x] Rebase onto merged #773 and pass the exact full gate.
+    - [x] Regenerate the affected RPC/client anchor vectors and manifest hashes.
+    - [x] Pass the exact full gate for the corrected binding and merge it to `main`.
   - [x] Implement work claims and zero-knowledge non-overlap proofs (#776; claimed on `feat/776-work-proof-zk`).
     - [x] Freeze tagged raw telemetry measurements and policy-pinned class aggregates.
     - [x] Implement class-specific Attention, Compute, and Contribution arithmetic.

@@ -1,5 +1,6 @@
 //! Complete typed finalized-block composition boundary.
 
+use activechain_action_kernel::ActionPayloadV2;
 use activechain_authorization_kernel::{
     AuthorizationCandidate, AuthorizationReplayStore, AuthorizationVerifier, CredentialMaterial,
     verify_authorization_candidate,
@@ -264,8 +265,9 @@ impl FinalizedBlockVerifier for CashOnlyFinalizedBlockVerifier {
     }
 }
 
-/// Canonical pre-vote material for a cash-only round. The resulting header is the exact statement
-/// validators must sign and `into_candidate` preserves those bytes for post-vote admission.
+/// Canonical pre-vote material for a cash round and consensus-native digest anchors. The resulting
+/// header is the exact statement validators must sign and `into_candidate` preserves those bytes
+/// for post-vote admission.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PreparedDirectFinalizedBlock {
     encoded_block: Vec<u8>,
@@ -295,7 +297,14 @@ impl PreparedDirectFinalizedBlock {
         parity_shards: usize,
         prover: PrincipalId,
     ) -> Result<Self, FinalizedBlockAdmissionError> {
-        if !block.actions().is_empty() {
+        if block.actions().iter().any(|action| {
+            let ActionPayloadV2::SubmitAnchor { statement, .. } = action.payload() else {
+                return true;
+            };
+            statement
+                .submission_reference()
+                .map_or(true, |reference| action.authorization_commitment() != reference)
+        }) {
             return Err(FinalizedBlockAdmissionError::Authorization);
         }
         let (inputs, next_state, receipt, encoded_block) = derive_proof_public_inputs(
@@ -524,6 +533,15 @@ impl FinalizedBlockCandidate {
         let mut verified_authorizations = Vec::with_capacity(transfer_count);
         let mut candidates = self.authorization_candidates.iter();
         for action in block.actions() {
+            if let ActionPayloadV2::SubmitAnchor { statement, .. } = action.payload() {
+                if statement
+                    .submission_reference()
+                    .map_or(true, |reference| action.authorization_commitment() != reference)
+                {
+                    return Err(FinalizedBlockAdmissionError::Authorization);
+                }
+                continue;
+            }
             let Some(transaction) = action.payload().transfer() else {
                 let approval = action
                     .payload()
@@ -640,8 +658,13 @@ pub enum FinalizedBlockAdmissionError {
 mod tests {
     use super::*;
     use crate::{DurableFinalizedState, DurableProofPipeline, ProofPipelineError};
-    use activechain_action_kernel::ResourcePrices;
-    use activechain_protocol_types::{ChainId, ConsensusVoteContext};
+    use activechain_action_kernel::{
+        ACTION_PROTOCOL_VERSION, ActionEnvelope, FeeTicket, NonceChannel, ResourcePrices,
+        ResourceVector, ValidityInterval,
+    };
+    use activechain_application_primitives::DigestAnchorStatementV1;
+    use activechain_devnet_kernel::{ActionOutcome, FeeAccount};
+    use activechain_protocol_types::{ChainId, ConsensusVoteContext, ObjectId};
     use activechain_state_tree::{StateCommitment, commit_objects};
     use activechain_transition::ObjectState;
     use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
@@ -971,6 +994,115 @@ mod tests {
     }
 
     #[test]
+    fn prepared_direct_block_executes_only_exactly_bound_native_anchor_actions() {
+        let chain = ChainId::new(Digest384::new([61; 48]));
+        let sender = PrincipalId::new(Digest384::new([62; 48]));
+        let resources = ResourceVector::new(1, 0, 0, 0, 0, 2_048);
+        let state = ChainState::genesis_with_fee_accounts(
+            chain,
+            ObjectState::new(vec![]).unwrap(),
+            vec![NonceChannel::new(sender, 0, 0)],
+            vec![FeeAccount::new(sender, 10_000, 0)],
+            ResourcePrices::new(1, 1, 1, 1, 1, 1),
+        )
+        .unwrap();
+        let statement =
+            DigestAnchorStatementV1::new(b"actum.test.anchor".to_vec(), [63; 32]).unwrap();
+        let reference = statement.submission_reference().unwrap();
+        let payload = ActionPayloadV2::submit_anchor(1, statement);
+        let payload_commitment = payload.commitment().unwrap();
+        let action = ActionEnvelope::new_payload(
+            ACTION_PROTOCOL_VERSION,
+            chain,
+            sender,
+            FeeTicket::new(ObjectId::new(Digest384::new([64; 48])), sender, 2_050, 1, 0, resources)
+                .unwrap(),
+            0,
+            0,
+            ValidityInterval::new(1, 1).unwrap(),
+            resources,
+            payload_commitment,
+            payload.clone(),
+            reference,
+        )
+        .unwrap();
+        let block = DevnetBlock::new(
+            chain,
+            1,
+            state.head_block_id(),
+            commit_objects(state.objects().objects()).unwrap(),
+            state.commitment().unwrap(),
+            vec![action],
+        )
+        .unwrap();
+        let prepared = PreparedDirectFinalizedBlock::new(
+            &state,
+            &block,
+            7,
+            4,
+            Digest384::new([65; 48]),
+            100,
+            0,
+            0,
+            Digest384::new([66; 48]),
+            &[],
+            Digest384::new([66; 48]),
+            1,
+            1,
+            sender,
+        )
+        .unwrap();
+        assert!(matches!(
+            prepared.receipt().action_receipts()[0].outcome(),
+            ActionOutcome::AnchorSubmitted { reference: actual } if actual == reference
+        ));
+
+        let unbound = ActionEnvelope::new_payload(
+            ACTION_PROTOCOL_VERSION,
+            chain,
+            sender,
+            FeeTicket::new(ObjectId::new(Digest384::new([67; 48])), sender, 2_050, 1, 0, resources)
+                .unwrap(),
+            0,
+            0,
+            ValidityInterval::new(1, 1).unwrap(),
+            resources,
+            payload_commitment,
+            payload,
+            Digest384::new([68; 48]),
+        )
+        .unwrap();
+        let unbound_block = DevnetBlock::new(
+            chain,
+            1,
+            state.head_block_id(),
+            commit_objects(state.objects().objects()).unwrap(),
+            state.commitment().unwrap(),
+            vec![unbound],
+        )
+        .unwrap();
+        assert_eq!(
+            PreparedDirectFinalizedBlock::new(
+                &state,
+                &unbound_block,
+                7,
+                4,
+                Digest384::new([65; 48]),
+                100,
+                0,
+                0,
+                Digest384::new([66; 48]),
+                &[],
+                Digest384::new([66; 48]),
+                1,
+                1,
+                sender,
+            ),
+            Err(FinalizedBlockAdmissionError::Authorization)
+        );
+    }
+
+    #[test]
     fn typed_finalization_recomputes_every_binding_and_rejects_substitution() {
         let (state, block, _inputs, proof, header, genesis, root) = fixture();
         let authorization_path = std::env::temp_dir().join(format!(
@@ -983,14 +1115,14 @@ mod tests {
         assert_eq!(
             digest,
             Digest384::new([
-                104, 165, 85, 33, 83, 167, 29, 102, 130, 164, 157, 110, 146, 148, 40, 129, 123,
-                172, 237, 219, 40, 209, 60, 246, 24, 105, 49, 107, 172, 96, 139, 41, 58, 151, 43,
-                35, 249, 253, 163, 61, 225, 83, 107, 190, 228, 212, 107, 28,
+                246, 172, 218, 115, 158, 235, 173, 142, 225, 190, 199, 123, 70, 217, 193, 20, 214,
+                249, 208, 183, 180, 84, 105, 132, 251, 39, 230, 11, 198, 252, 216, 3, 56, 144, 72,
+                41, 105, 63, 173, 220, 81, 121, 209, 179, 193, 72, 232, 162,
             ])
         );
         assert_eq!(
             include_str!("../../../testing/vectors/consensus/finalized-block-v1.txt"),
-            "header_type_tag=0x0079\nheader_schema_version=3\nproof_inputs_type_tag=0x0078\nproof_inputs_schema_version=3\nheader_digest=68a5552153a71d6682a49d6e929428817baceddb28d13cf61869316bac608b293a972b23f9fda33de1536bbee4d46b1c\n"
+            "header_type_tag=0x0079\nheader_schema_version=3\nproof_inputs_type_tag=0x0078\nproof_inputs_schema_version=3\nheader_digest=f6acda739eebad8ee1bec77b46d9c114d6f9d0b7b4546984fb27e60bc6fcd80338904829693faddc5179d1b3c148e8a2\n"
         );
         let context = ConsensusVoteContext::new_with_revision(genesis, 7, root, 4).unwrap();
         let certificate = QuorumCertificate::new(

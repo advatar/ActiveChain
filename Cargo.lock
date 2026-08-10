@@ -26,6 +26,7 @@ dependencies = [
 name = "activechain-action-kernel"
 version = "0.1.0"
 dependencies = [
+ "activechain-application-primitives",
  "activechain-canonical-codec",
  "activechain-cash-kernel",
  "activechain-policy-kernel",
@@ -282,6 +283,7 @@ name = "activechain-devnet-kernel"
 version = "0.1.0"
 dependencies = [
  "activechain-action-kernel",
+ "activechain-application-primitives",
  "activechain-canonical-codec",
  "activechain-cash-kernel",
  "activechain-policy-kernel",

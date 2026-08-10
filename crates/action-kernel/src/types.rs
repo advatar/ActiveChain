@@ -1,5 +1,6 @@
 //! Canonical P-040 development admission values.
 
+use activechain_application_primitives::DigestAnchorStatementV1;
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
@@ -477,11 +478,15 @@ pub enum ActionPayloadV2 {
         height: Height,
         rotation: FungibleControllerRotationV1,
     },
+    SubmitAnchor {
+        height: Height,
+        statement: DigestAnchorStatementV1,
+    },
 }
 
 impl ActionPayloadV2 {
     pub const TYPE_TAG: u16 = 0x0190;
-    pub const SCHEMA_VERSION: u16 = 4;
+    pub const SCHEMA_VERSION: u16 = 5;
     pub const MAX_ENCODED_LEN: usize = 1 + TransferTransaction::MAX_ENCODED_LEN;
 
     pub fn mint(
@@ -561,6 +566,11 @@ impl ActionPayloadV2 {
         Ok(Self::FungibleControllerRotation { height, rotation })
     }
 
+    #[must_use]
+    pub const fn submit_anchor(height: Height, statement: DigestAnchorStatementV1) -> Self {
+        Self::SubmitAnchor { height, statement }
+    }
+
     pub const fn height(&self) -> Height {
         match self {
             Self::Transfer(value) => value.height(),
@@ -569,7 +579,8 @@ impl ActionPayloadV2 {
             | Self::FungibleRedemption { height, .. }
             | Self::FungibleCorporateAction { height, .. }
             | Self::FungibleLifecycle { height, .. }
-            | Self::FungibleControllerRotation { height, .. } => *height,
+            | Self::FungibleControllerRotation { height, .. }
+            | Self::SubmitAnchor { height, .. } => *height,
         }
     }
 
@@ -588,7 +599,8 @@ impl ActionPayloadV2 {
             | Self::FungibleRedemption { approval, .. } => Some(approval),
             Self::FungibleCorporateAction { .. }
             | Self::FungibleLifecycle { .. }
-            | Self::FungibleControllerRotation { .. } => None,
+            | Self::FungibleControllerRotation { .. }
+            | Self::SubmitAnchor { .. } => None,
         }
     }
 
@@ -601,6 +613,7 @@ impl ActionPayloadV2 {
             Self::FungibleCorporateAction { .. }
             | Self::FungibleLifecycle { .. }
             | Self::FungibleControllerRotation { .. } => 1,
+            Self::SubmitAnchor { .. } => 0,
         }
     }
 
@@ -616,6 +629,7 @@ impl ActionPayloadV2 {
             Self::FungibleCorporateAction { action, .. } => action.issuer() == sender,
             Self::FungibleLifecycle { issuer, .. } => *issuer == sender,
             Self::FungibleControllerRotation { rotation, .. } => rotation.issuer() == sender,
+            Self::SubmitAnchor { .. } => true,
         }
     }
 
@@ -668,6 +682,11 @@ impl CanonicalEncode for ActionPayloadV2 {
                 height.encode(encoder)?;
                 rotation.encode(encoder)
             }
+            Self::SubmitAnchor { height, statement } => {
+                7_u8.encode(encoder)?;
+                height.encode(encoder)?;
+                statement.encode(encoder)
+            }
         }
     }
 }
@@ -710,6 +729,10 @@ impl CanonicalDecode for ActionPayloadV2 {
                 FungibleControllerRotationV1::decode(decoder)?,
             )
             .map_err(|_| DecodeError::InvalidValue("invalid controller rotation action payload")),
+            7 => Ok(Self::submit_anchor(
+                u64::decode(decoder)?,
+                DigestAnchorStatementV1::decode(decoder)?,
+            )),
             tag => Err(DecodeError::InvalidEnumTag { type_name: "ActionPayloadV2", tag }),
         }
     }
@@ -746,7 +769,7 @@ impl ActionEnvelope {
     /// Registered action-envelope type tag.
     pub const TYPE_TAG: u16 = 0x0071;
     /// Initial action-envelope schema version.
-    pub const SCHEMA_VERSION: u16 = 2;
+    pub const SCHEMA_VERSION: u16 = 3;
     /// Worst-case canonical action-envelope body length.
     pub const MAX_ENCODED_LEN: usize = 1_265_779;
 

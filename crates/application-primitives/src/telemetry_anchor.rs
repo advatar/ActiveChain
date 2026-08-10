@@ -353,6 +353,7 @@ mod tests {
                     ChainId::new(request.chain_id),
                     request.genesis_commitment,
                     TransactionId::new(digest(8)),
+                    vec![7],
                     10,
                     digest(9),
                     statement,
