@@ -97,7 +97,7 @@ nullifiers. Run one stateful admission service for each registry file; stateless
 may scale independently.
 
 Errors use bounded `VerificationErrorCodeV1` values for malformed, oversized, unsupported,
-relation-invalid, anchor-pending, anchor-rejected, anchor-invalid, trust-invalid, double-use,
+relation-invalid, anchor-pending, anchor-rejected, anchor-invalid, wrong-network, trust-invalid, double-use,
 rate-limited, unavailable, and internal failures. Error detail is bounded and must not contain
 receipt bytes, telemetry, credentials, subprocess stderr, or filesystem paths. HTTP 2xx means only
 that the request was processed. Only a response with all three facts true may render a verified

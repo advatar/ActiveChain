@@ -58,7 +58,7 @@ assert {result["status"] for result in vector["verification_results"]} >= {"pend
 
 combined = "\n".join(path.read_text() for path in (GUIDE, CONTRACT, THREAT))
 for required in (
-    "AttentionProofV1", "ComputeProofV1", "ContributionProofV1", "NonOverlapProofV1",
+    "AttentionProofV1", "ComputeProofV1", "ContributionProofV1", "WorkProofReceiptEnvelopeV1",
     "Installation does not authorize collection", "wall-clock", "wrong-network",
     "pow.actum.network", "#773", "#774", "#775", "#776", "#777", "#778",
 ):
