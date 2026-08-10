@@ -40,9 +40,9 @@ use activechain_protocol_types::{
     NonFungibleSeriesV1, NonFungibleTokenRegistryV1, Object, PrincipalId, TransactionId,
 };
 use activechain_rpc_types::{
-    ActionSetProof, AnchorActionSubmissionV1, Health, MAX_ANCHOR_ACTION_LENGTH,
-    MAX_SUPPORTED_PROOFS, ProofKind, QueryKind, QueryPage, QueryRecord, RpcAccessRequest,
-    RpcAccessResponse, RpcError, RpcRequest, RpcResponse, RpcStatus,
+    ActionSetProof, AnchorActionSubmissionV1, AnchorServiceStatusV1, Health,
+    MAX_ANCHOR_ACTION_LENGTH, MAX_SUPPORTED_PROOFS, ProofKind, QueryKind, QueryPage, QueryRecord,
+    RpcAccessRequest, RpcAccessResponse, RpcError, RpcRequest, RpcResponse, RpcStatus,
 };
 use activechain_wallet_core::AuthorizedCashTransferV1;
 use sha3::{
@@ -744,6 +744,7 @@ impl DurableRpcStore {
         }
         match request {
             RpcRequest::Status => unreachable!(),
+            RpcRequest::AnchorServiceStatus => RpcResponse::Error(RpcError::InvalidRequest),
             RpcRequest::Get { kind, key } => index
                 .get(kind, key)
                 .map_or(RpcResponse::Error(RpcError::NotFound), RpcResponse::Record),
@@ -789,16 +790,12 @@ type AuthorizedFaucetSettlement =
     dyn Fn(&[u8], PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError> + Send + Sync;
 type AnchorSettlement =
     dyn Fn(&[u8], Digest384) -> Result<TransactionId, AnchorError> + Send + Sync;
-type AnchorProposal = dyn Fn(&DigestAnchorStatementV1, Digest384) -> Result<ProposedAnchorAction, AnchorError>
-    + Send
-    + Sync;
-
 pub struct RpcServer {
     store: Arc<DurableRpcStore>,
     access: Option<Arc<RpcAccessController>>,
     anchors: Option<Arc<RwLock<DurableAnchorRegistry>>>,
     anchor_settlement: Option<Arc<AnchorSettlement>>,
-    anchor_proposal: Option<Arc<AnchorProposal>>,
+    anchor_proposal: Option<Arc<dyn AnchorProposalAdapter>>,
     faucet: Option<Arc<RwLock<DurableFaucet>>>,
     faucet_settlement: Option<Arc<FaucetSettlement>>,
     authorized_faucet_settlement: Option<Arc<AuthorizedFaucetSettlement>>,
@@ -1171,9 +1168,7 @@ impl RpcServer {
     where
         A: AnchorProposalAdapter + 'static,
     {
-        self.anchor_proposal = Some(Arc::new(move |statement, reference| {
-            adapter.propose_anchor(statement, reference)
-        }));
+        self.anchor_proposal = Some(Arc::new(adapter));
         self
     }
 
@@ -1261,6 +1256,18 @@ impl RpcServer {
         abuse_identity: Option<Digest384>,
     ) -> RpcResponse {
         match request {
+            RpcRequest::AnchorServiceStatus => {
+                let RpcResponse::Status(status) = self.store.handle(RpcRequest::Status, now) else {
+                    return RpcResponse::Error(RpcError::Internal);
+                };
+                let accepting_submissions = status.health() == Health::Healthy
+                    && self.anchors.is_some()
+                    && self.anchor_proposal.as_ref().is_some_and(|proposal| proposal.ready());
+                RpcResponse::AnchorServiceStatus(AnchorServiceStatusV1::new(
+                    status,
+                    accepting_submissions,
+                ))
+            }
             RpcRequest::SubmitAnchorAction { action } => {
                 let (Some(anchors), Some(settlement)) = (&self.anchors, &self.anchor_settlement)
                 else {
@@ -1310,7 +1317,7 @@ impl RpcServer {
                 let Ok(reference) = statement.submission_reference() else {
                     return RpcResponse::Error(RpcError::InvalidRequest);
                 };
-                let Ok(proposed) = proposal(&statement, reference) else {
+                let Ok(proposed) = proposal.propose_anchor(&statement, reference) else {
                     return RpcResponse::Error(RpcError::InvalidRequest);
                 };
                 let Ok(action) = decode_envelope::<ActionEnvelope>(proposed.action()) else {
@@ -1487,7 +1494,7 @@ impl RpcServer {
             let request =
                 decode_envelope::<RpcRequest>(&request).map_err(|_| RpcStoreError::Invalid)?;
             let response = if self.access.as_ref().is_some_and(|access| !access.is_free())
-                && !matches!(request, RpcRequest::Status)
+                && !matches!(request, RpcRequest::Status | RpcRequest::AnchorServiceStatus)
             {
                 RpcResponse::Error(RpcError::InvalidRequest)
             } else {
@@ -2728,6 +2735,40 @@ mod tests {
             restarted.handle(RpcRequest::ResolveAnchor { reference }, 105),
             RpcResponse::AnchorRecord(_)
         ));
+        let _ = std::fs::remove_file(index_path);
+        let _ = std::fs::remove_file(anchor_path);
+    }
+
+    #[test]
+    fn anchor_service_status_requires_registry_and_ready_proposal_adapter() {
+        let index_path = temporary("anchor-service-status-index");
+        let anchor_path = temporary("anchor-service-status-registry");
+        let _ = std::fs::remove_file(&index_path);
+        let _ = std::fs::remove_file(&anchor_path);
+        let store = Arc::new(DurableRpcStore::create(index_path.clone(), index()).unwrap());
+        let server = RpcServer::new(store).with_anchor_proposal_adapter(
+            |statement: &DigestAnchorStatementV1, _| {
+                let action = anchor_action_envelope(statement.clone());
+                let transaction = action_id(&action).unwrap();
+                ProposedAnchorAction::new(encode_envelope(&action).unwrap(), transaction)
+            },
+        );
+        let RpcResponse::AnchorServiceStatus(status) =
+            server.handle(RpcRequest::AnchorServiceStatus, 105)
+        else {
+            panic!("anchor service status expected")
+        };
+        assert_eq!(status.status().health(), Health::Healthy);
+        assert!(!status.accepting_submissions());
+
+        let server =
+            server.with_anchor_registry(DurableAnchorRegistry::open(&anchor_path).unwrap());
+        let RpcResponse::AnchorServiceStatus(status) =
+            server.handle(RpcRequest::AnchorServiceStatus, 105)
+        else {
+            panic!("anchor service status expected")
+        };
+        assert!(status.accepting_submissions());
         let _ = std::fs::remove_file(index_path);
         let _ = std::fs::remove_file(anchor_path);
     }

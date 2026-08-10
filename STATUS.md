@@ -41,6 +41,8 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Pass the exact full gate after #773 merges.
   - [ ] Anchor and resolve finalized activity epochs through the existing digest boundary (#775;
     reopened and claimed on `feat/775-finalized-anchor-binding`).
+    - [x] Expose fail-closed anchor-service health that checks the finalized RPC view, operator
+      fee/nonce state, registry, and proposal-spool capacity before reporting submission readiness.
     - [x] Add the canonical network-bound epoch anchor request and exact frozen epoch statement derivation.
     - [x] Add chained signed verifier trust bundles.
     - [x] Bind the exact anchor statement to canonical transaction/state inclusion evidence before

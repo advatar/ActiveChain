@@ -41,6 +41,8 @@ impl ProposedAnchorAction {
 
 /// Semantic production boundary for operator-owned anchor proposal construction.
 pub trait AnchorProposalAdapter: Send + Sync {
+    fn ready(&self) -> bool;
+
     fn propose_anchor(
         &self,
         statement: &DigestAnchorStatementV1,
@@ -54,6 +56,10 @@ where
         + Send
         + Sync,
 {
+    fn ready(&self) -> bool {
+        true
+    }
+
     fn propose_anchor(
         &self,
         statement: &DigestAnchorStatementV1,
@@ -128,6 +134,37 @@ impl SpoolAnchorProposalAdapter {
 }
 
 impl AnchorProposalAdapter for SpoolAnchorProposalAdapter {
+    fn ready(&self) -> bool {
+        let Ok(_guard) = self.lock.lock() else {
+            return false;
+        };
+        let Ok(bytes) = fs::read(&self.execution_state_path) else {
+            return false;
+        };
+        let Ok(state) = decode_envelope::<ChainState>(&bytes) else {
+            return false;
+        };
+        let Ok(encoded_ceiling) = u64::try_from(MAX_ANCHOR_ACTION_LENGTH) else {
+            return false;
+        };
+        let resources = ResourceVector::new(1, 0, 0, 0, 0, encoded_ceiling);
+        let Some(reservation) = resources
+            .checked_charge(state.resource_prices())
+            .and_then(|charge| charge.checked_add(FEE_TICKET_ADMISSION_CHARGE))
+        else {
+            return false;
+        };
+        state
+            .fee_accounts()
+            .iter()
+            .any(|account| account.payer() == self.operator && account.balance() >= reservation)
+            && state.nonce_channels().iter().any(|channel| {
+                channel.sender() == self.operator && channel.channel() == self.nonce_channel
+            })
+            && state.height().checked_add(1).is_some()
+            && matches!(self.load_existing(), Ok(None))
+    }
+
     fn propose_anchor(
         &self,
         statement: &DigestAnchorStatementV1,
@@ -256,10 +293,12 @@ mod tests {
         fs::write(&state_path, encode_envelope(&state).unwrap()).unwrap();
         let adapter =
             SpoolAnchorProposalAdapter::new(spool_path.clone(), state_path, operator, 7).unwrap();
+        assert!(adapter.ready());
         let statement =
             DigestAnchorStatementV1::new(b"actum.test.anchor".to_vec(), [3; 32]).unwrap();
         let reference = statement.submission_reference().unwrap();
         let first = adapter.propose_anchor(&statement, reference).unwrap();
+        assert!(!adapter.ready());
         assert_eq!(adapter.propose_anchor(&statement, reference).unwrap(), first);
         let action = decode_envelope::<ActionEnvelope>(first.action()).unwrap();
         assert_eq!(action.chain_id(), state.chain_id());

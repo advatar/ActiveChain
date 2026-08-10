@@ -60,3 +60,7 @@ The idempotency journal is created mode 0600 on first accepted request. Configur
 `ACTUM_ANCHOR_URL=https://anchor.kanalen.activechain.dev/v1/anchors` and provide the same protected
 token to the trusted application/plugin deployment. Never place the bearer in telemetry, logs,
 proof inputs, browser code, repository secrets, or command-line arguments.
+
+The authenticated `GET /v1/health` endpoint returns healthy only when the finalized RPC view is
+fresh and the native anchor registry, operator fee account, nonce channel, and empty proposal spool
+are all ready to accept a new submission. Operators must alert on any non-200 response.

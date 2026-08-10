@@ -734,8 +734,48 @@ impl CanonicalType for AnchorActionSubmissionV1 {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AnchorServiceStatusV1 {
+    status: RpcStatus,
+    accepting_submissions: bool,
+}
+
+impl AnchorServiceStatusV1 {
+    pub const fn new(status: RpcStatus, accepting_submissions: bool) -> Self {
+        Self { status, accepting_submissions }
+    }
+
+    pub const fn status(&self) -> &RpcStatus {
+        &self.status
+    }
+
+    pub const fn accepting_submissions(&self) -> bool {
+        self.accepting_submissions
+    }
+}
+
+impl CanonicalEncode for AnchorServiceStatusV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.status.encode(encoder)?;
+        self.accepting_submissions.encode(encoder)
+    }
+}
+
+impl CanonicalDecode for AnchorServiceStatusV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Ok(Self::new(RpcStatus::decode(decoder)?, bool::decode(decoder)?))
+    }
+}
+
+impl CanonicalType for AnchorServiceStatusV1 {
+    const TYPE_TAG: u16 = 0x01C0;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 * 2 + 8 * 5 + 4 + 1 + 2 + MAX_SUPPORTED_PROOFS + 1;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RpcRequest {
     Status,
+    AnchorServiceStatus,
     Get {
         kind: QueryKind,
         key: Digest384,
@@ -781,6 +821,7 @@ impl CanonicalEncode for RpcRequest {
     fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
         match self {
             Self::Status => 0_u8.encode(encoder),
+            Self::AnchorServiceStatus => 12_u8.encode(encoder),
             Self::Get { kind, key } => {
                 1_u8.encode(encoder)?;
                 kind.encode(encoder)?;
@@ -837,6 +878,7 @@ impl CanonicalDecode for RpcRequest {
     fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
         match u8::decode(decoder)? {
             0 => Ok(Self::Status),
+            12 => Ok(Self::AnchorServiceStatus),
             1 => Ok(Self::Get {
                 kind: QueryKind::decode(decoder)?,
                 key: Digest384::decode(decoder)?,
@@ -1037,7 +1079,7 @@ impl RpcAccessTerms {
     }
     pub fn cost(&self, request: &RpcRequest) -> Option<u64> {
         match request {
-            RpcRequest::Status => Some(0),
+            RpcRequest::Status | RpcRequest::AnchorServiceStatus => Some(0),
             RpcRequest::FaucetTerms => Some(0),
             RpcRequest::Get { .. }
             | RpcRequest::SubmitAnchor { .. }
@@ -1710,6 +1752,7 @@ impl CanonicalDecode for RpcError {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RpcResponse {
     Status(RpcStatus),
+    AnchorServiceStatus(AnchorServiceStatusV1),
     Record(QueryRecord),
     Page(QueryPage),
     Error(RpcError),
@@ -1724,6 +1767,10 @@ impl CanonicalEncode for RpcResponse {
         match self {
             Self::Status(status) => {
                 0_u8.encode(encoder)?;
+                status.encode(encoder)
+            }
+            Self::AnchorServiceStatus(status) => {
+                9_u8.encode(encoder)?;
                 status.encode(encoder)
             }
             Self::Record(record) => {
@@ -1765,6 +1812,7 @@ impl CanonicalDecode for RpcResponse {
     fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
         match u8::decode(decoder)? {
             0 => Ok(Self::Status(RpcStatus::decode(decoder)?)),
+            9 => Ok(Self::AnchorServiceStatus(AnchorServiceStatusV1::decode(decoder)?)),
             1 => Ok(Self::Record(QueryRecord::decode(decoder)?)),
             2 => Ok(Self::Page(QueryPage::decode(decoder)?)),
             3 => Ok(Self::Error(RpcError::decode(decoder)?)),
@@ -1844,6 +1892,31 @@ mod tests {
         stale[health] = Health::Stale as u8;
         let mut decoder = Decoder::new(&stale);
         assert!(RpcStatus::decode(&mut decoder).is_err());
+    }
+
+    #[test]
+    fn anchor_service_status_round_trips_and_is_free() {
+        let status = RpcStatus::new(
+            ChainId::new(digest(1)),
+            digest(2),
+            3,
+            4,
+            100,
+            105,
+            10,
+            alloc::vec![ProofKind::FinalityCertificate],
+        )
+        .unwrap();
+        let request = RpcRequest::AnchorServiceStatus;
+        assert_eq!(
+            decode_envelope::<RpcRequest>(&encode_envelope(&request).unwrap()),
+            Ok(request.clone())
+        );
+        let response = RpcResponse::AnchorServiceStatus(AnchorServiceStatusV1::new(status, true));
+        assert_eq!(
+            decode_envelope::<RpcResponse>(&encode_envelope(&response).unwrap()),
+            Ok(response)
+        );
     }
 
     #[test]

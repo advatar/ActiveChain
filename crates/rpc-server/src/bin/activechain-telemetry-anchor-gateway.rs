@@ -72,14 +72,18 @@ fn serve(
     if !constant_time_eq(supplied, token) {
         return write_error(stream, 401, "unauthorized");
     }
-    let status = match query(rpc, &RpcRequest::Status) {
-        Ok(RpcResponse::Status(status)) => status,
-        _ => return write_error(stream, 503, "backend_unavailable"),
-    };
     if request.method == b"GET" && request.path == b"/v1/health" {
-        if !request.body.is_empty() || status.health() != Health::Healthy {
+        let service = match query(rpc, &RpcRequest::AnchorServiceStatus) {
+            Ok(RpcResponse::AnchorServiceStatus(service)) => service,
+            _ => return write_error(stream, 503, "backend_unavailable"),
+        };
+        if !request.body.is_empty()
+            || service.status().health() != Health::Healthy
+            || !service.accepting_submissions()
+        {
             return write_error(stream, 503, "backend_unavailable");
         }
+        let status = service.status();
         return write_json(
             stream,
             200,
@@ -91,6 +95,10 @@ fn serve(
             ),
         );
     }
+    let status = match query(rpc, &RpcRequest::Status) {
+        Ok(RpcResponse::Status(status)) => status,
+        _ => return write_error(stream, 503, "backend_unavailable"),
+    };
     if request.method != b"POST" || request.path != b"/v1/anchors" {
         return write_error(stream, 404, "not_found");
     }
@@ -423,7 +431,7 @@ mod tests {
     use super::*;
     use activechain_application_primitives::{ActivityEpochV1, AnchorRegistry};
     use activechain_protocol_types::ChainId;
-    use activechain_rpc_types::{ProofKind, RpcStatus};
+    use activechain_rpc_types::{AnchorServiceStatusV1, ProofKind, RpcStatus};
     use std::{net::Shutdown, thread};
 
     #[test]
@@ -476,6 +484,48 @@ mod tests {
         );
         assert!(response.starts_with("HTTP/1.1 503 Service Unavailable"));
         assert!(response.contains("\"code\":\"backend_unavailable\""));
+    }
+
+    #[test]
+    fn health_requires_anchor_submission_readiness() {
+        for (accepting, expected) in [(false, "503 Service Unavailable"), (true, "200 OK")] {
+            let backend = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            let backend_address = backend.local_addr().unwrap();
+            let backend_thread = thread::spawn(move || {
+                let (mut stream, _) = backend.accept().unwrap();
+                let mut length = [0_u8; 4];
+                stream.read_exact(&mut length).unwrap();
+                let mut request = vec![0_u8; u32::from_be_bytes(length) as usize];
+                stream.read_exact(&mut request).unwrap();
+                assert_eq!(
+                    decode_envelope::<RpcRequest>(&request),
+                    Ok(RpcRequest::AnchorServiceStatus)
+                );
+                let status = RpcStatus::new(
+                    ChainId::new(digest(1)),
+                    digest(2),
+                    1,
+                    10,
+                    100,
+                    100,
+                    30,
+                    vec![ProofKind::FinalityCertificate],
+                )
+                .unwrap();
+                let response =
+                    RpcResponse::AnchorServiceStatus(AnchorServiceStatusV1::new(status, accepting));
+                let response = encode_envelope(&response).unwrap();
+                stream.write_all(&(response.len() as u32).to_be_bytes()).unwrap();
+                stream.write_all(&response).unwrap();
+            });
+            let response = exercise(
+                &backend_address.to_string(),
+                b"GET /v1/health HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer abcdefghijklmnopqrstuvwxyz012345\r\n\r\n".to_vec(),
+                b"abcdefghijklmnopqrstuvwxyz012345",
+            );
+            backend_thread.join().unwrap();
+            assert!(response.starts_with(&format!("HTTP/1.1 {expected}")));
+        }
     }
 
     #[test]
