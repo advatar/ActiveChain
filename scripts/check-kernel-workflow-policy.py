@@ -58,6 +58,8 @@ def validate(text: str) -> None:
     errors: list[str] = []
     if "workflow_dispatch:" not in text or "qualification:" not in text:
         errors.append("workflow_dispatch must expose an explicit qualification input")
+    if "branches: [main]" in text:
+        errors.append("main merges must not repeat an already-qualified full candidate gate")
     if "CARGO_TARGET_DIR: /Users/johansellstrom/.cache/activechain-ci/target/${{ github.sha }}" not in text:
         errors.append("Cargo artifacts must be isolated by exact qualified SHA")
     for job in MANDATORY_JOBS:

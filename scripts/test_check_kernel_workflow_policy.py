@@ -22,6 +22,11 @@ class KernelWorkflowPolicyTests(unittest.TestCase):
     def test_current_workflow_is_complete(self) -> None:
         POLICY.validate(WORKFLOW)
 
+    def test_main_push_cannot_repeat_the_candidate_gate(self) -> None:
+        unsafe = WORKFLOW.replace("    tags: ['v*']", "    branches: [main]\n    tags: ['v*']")
+        with self.assertRaisesRegex(ValueError, "must not repeat"):
+            POLICY.validate(unsafe)
+
     def test_each_mandatory_command_fails_closed_when_removed(self) -> None:
         for command in POLICY.MANDATORY_COMMANDS:
             with self.subTest(command=command), self.assertRaises(ValueError):
