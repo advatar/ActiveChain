@@ -1,11 +1,15 @@
 #![forbid(unsafe_code)]
 
 mod access;
+mod anchor_settlement;
 mod faucet;
 mod operator_faucet;
 
 pub use access::{
     AccessCharge, RpcAccessController, load_access_terms, verify_access_terms, write_access_terms,
+};
+pub use anchor_settlement::{
+    AnchorProposalAdapter, ProposedAnchorAction, SpoolAnchorProposalAdapter,
 };
 pub use faucet::{
     DurableFaucet, FaucetError, FaucetPolicy, FaucetReconciliation, SybilPolicy,
@@ -780,12 +784,16 @@ type AuthorizedFaucetSettlement =
     dyn Fn(&[u8], PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError> + Send + Sync;
 type AnchorSettlement =
     dyn Fn(&[u8], Digest384) -> Result<TransactionId, AnchorError> + Send + Sync;
+type AnchorProposal = dyn Fn(&DigestAnchorStatementV1, Digest384) -> Result<ProposedAnchorAction, AnchorError>
+    + Send
+    + Sync;
 
 pub struct RpcServer {
     store: Arc<DurableRpcStore>,
     access: Option<Arc<RpcAccessController>>,
     anchors: Option<Arc<RwLock<DurableAnchorRegistry>>>,
     anchor_settlement: Option<Arc<AnchorSettlement>>,
+    anchor_proposal: Option<Arc<AnchorProposal>>,
     faucet: Option<Arc<RwLock<DurableFaucet>>>,
     faucet_settlement: Option<Arc<FaucetSettlement>>,
     authorized_faucet_settlement: Option<Arc<AuthorizedFaucetSettlement>>,
@@ -1042,6 +1050,7 @@ impl RpcServer {
             access: None,
             anchors: None,
             anchor_settlement: None,
+            anchor_proposal: None,
             faucet: None,
             faucet_settlement: None,
             authorized_faucet_settlement: None,
@@ -1068,6 +1077,16 @@ impl RpcServer {
         self.with_anchor_settlement(move |action, reference| {
             adapter.submit_anchor(action, reference)
         })
+    }
+
+    pub fn with_anchor_proposal_adapter<A>(mut self, adapter: A) -> Self
+    where
+        A: AnchorProposalAdapter + 'static,
+    {
+        self.anchor_proposal = Some(Arc::new(move |statement, reference| {
+            adapter.propose_anchor(statement, reference)
+        }));
+        self
     }
 
     /// Attach the operator's durable faucet policy and receipt journal.
@@ -1135,6 +1154,7 @@ impl RpcServer {
             access: Some(access),
             anchors: None,
             anchor_settlement: None,
+            anchor_proposal: None,
             faucet: None,
             faucet_settlement: None,
             authorized_faucet_settlement: None,
@@ -1174,6 +1194,7 @@ impl RpcServer {
                     return RpcResponse::Error(RpcError::InvalidRequest);
                 };
                 if envelope.chain_id() != chain_id
+                    || envelope.authorization_commitment() != reference
                     || settlement(&action, reference) != Ok(transaction)
                 {
                     return RpcResponse::Error(RpcError::InvalidRequest);
@@ -1192,16 +1213,41 @@ impl RpcServer {
                 }
             }
             RpcRequest::SubmitAnchor { statement } => {
-                let Some(anchors) = &self.anchors else {
+                let (Some(anchors), Some(proposal)) = (&self.anchors, &self.anchor_proposal) else {
                     return RpcResponse::Error(RpcError::InvalidRequest);
                 };
                 let Ok(statement) = decode_envelope::<DigestAnchorStatementV1>(&statement) else {
                     return RpcResponse::Error(RpcError::InvalidRequest);
                 };
+                let Ok(reference) = statement.submission_reference() else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let Ok(proposed) = proposal(&statement, reference) else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let Ok(action) = decode_envelope::<ActionEnvelope>(proposed.action()) else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let ActionPayloadV2::SubmitAnchor { statement: submitted, .. } = action.payload()
+                else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let Ok(chain_id) = self.store.chain_id() else {
+                    return RpcResponse::Error(RpcError::Internal);
+                };
+                if action.chain_id() != chain_id
+                    || submitted != &statement
+                    || action.authorization_commitment() != reference
+                    || action_id(&action) != Ok(proposed.transaction())
+                {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                }
                 let Ok(mut anchors) = anchors.write() else {
                     return RpcResponse::Error(RpcError::Internal);
                 };
-                match anchors.update(|registry| registry.submit(statement)) {
+                match anchors
+                    .update(|registry| registry.submit_action(statement, proposed.transaction()))
+                {
                     Ok(reference) => RpcResponse::AnchorSubmission(reference),
                     Err(_) => RpcResponse::Error(RpcError::Internal),
                 }
@@ -2350,6 +2396,7 @@ mod tests {
 
     fn anchor_action_envelope(statement: DigestAnchorStatementV1) -> ActionEnvelope {
         let actor = PrincipalId::new(digest(50));
+        let reference = statement.submission_reference().unwrap();
         let payload = ActionPayloadV2::submit_anchor(7, statement);
         let resources = ResourceVector::new(100, 0, 0, 0, 1, 2_000);
         ActionEnvelope::new_payload(
@@ -2371,7 +2418,7 @@ mod tests {
             resources,
             payload.commitment().unwrap(),
             payload,
-            digest(56),
+            reference,
         )
         .unwrap()
     }
@@ -2561,7 +2608,12 @@ mod tests {
         let _ = std::fs::remove_file(&anchor_path);
         let store = Arc::new(DurableRpcStore::create(index_path.clone(), index()).unwrap());
         let server = RpcServer::new(store)
-            .with_anchor_registry(DurableAnchorRegistry::open(&anchor_path).unwrap());
+            .with_anchor_registry(DurableAnchorRegistry::open(&anchor_path).unwrap())
+            .with_anchor_proposal_adapter(|statement: &DigestAnchorStatementV1, _| {
+                let action = anchor_action_envelope(statement.clone());
+                let transaction = action_id(&action).unwrap();
+                ProposedAnchorAction::new(encode_envelope(&action).unwrap(), transaction)
+            });
         let statement = DigestAnchorStatementV1::new(
             b"mademark.external-anchor.statement.v1".to_vec(),
             [42; 32],

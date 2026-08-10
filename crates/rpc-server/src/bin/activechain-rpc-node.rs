@@ -2,8 +2,9 @@ use activechain_application_primitives::DurableAnchorRegistry;
 use activechain_protocol_types::{Digest384, PrincipalId};
 use activechain_rpc_server::{
     DurableFaucet, DurableOperatorFaucetSettlement, DurableRpcStore, FaucetPolicy,
-    MlDsa44FaucetAuthorizer, RpcAccessController, RpcServer, SpoolOperatorFaucetIngressAdapter,
-    SybilPolicy, WalletIngressOperatorSettlementAdapter, load_access_terms, verify_access_terms,
+    MlDsa44FaucetAuthorizer, RpcAccessController, RpcServer, SpoolAnchorProposalAdapter,
+    SpoolOperatorFaucetIngressAdapter, SybilPolicy, WalletIngressOperatorSettlementAdapter,
+    load_access_terms, verify_access_terms,
 };
 use activechain_rpc_types::RpcAccessMode;
 use ml_dsa::{MlDsa44, Seed, SigningKey};
@@ -88,6 +89,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
     } else {
         server
+    };
+    let anchor_spool = env::var_os("ACTIVECHAIN_ANCHOR_ACTION_SPOOL").map(PathBuf::from);
+    let anchor_execution = env::var_os("ACTIVECHAIN_ANCHOR_EXECUTION_STATE").map(PathBuf::from);
+    let anchor_operator = env::var("ACTIVECHAIN_ANCHOR_OPERATOR").ok();
+    let server = match (anchor_spool, anchor_execution, anchor_operator) {
+        (Some(spool), Some(execution), Some(operator)) => {
+            let channel = env::var("ACTIVECHAIN_ANCHOR_NONCE_CHANNEL")
+                .unwrap_or_else(|_| "0".to_owned())
+                .parse()?;
+            server.with_anchor_proposal_adapter(
+                SpoolAnchorProposalAdapter::new(
+                    spool,
+                    execution,
+                    parse_principal(&operator)?,
+                    channel,
+                )
+                .map_err(|_| "invalid anchor proposal configuration")?,
+            )
+        }
+        (None, None, None) => server,
+        _ => {
+            return Err(
+                "ACTIVECHAIN_ANCHOR_ACTION_SPOOL, ACTIVECHAIN_ANCHOR_EXECUTION_STATE, and ACTIVECHAIN_ANCHOR_OPERATOR must be supplied together"
+                    .into(),
+            );
+        }
     };
     let wallet_path = env::var_os("ACTIVECHAIN_WALLET_INGRESS_SNAPSHOT").map(PathBuf::from);
     let wallet_ingress_enabled = wallet_path.is_some();
