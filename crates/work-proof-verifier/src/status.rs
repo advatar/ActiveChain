@@ -83,8 +83,16 @@ impl DurableProofStatusStore {
         if !path.exists() {
             return Ok(Self { path, records: BTreeMap::new() });
         }
-        if fs::metadata(&path)?.len() > MAX_STATUS_FILE_BYTES {
+        let metadata = fs::symlink_metadata(&path)?;
+        if !metadata.file_type().is_file() || metadata.len() > MAX_STATUS_FILE_BYTES {
             return Err(StatusStoreError::Capacity);
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if metadata.permissions().mode() & 0o077 != 0 {
+                return Err(StatusStoreError::Corrupt);
+            }
         }
 
         let mut bytes = Vec::new();
@@ -179,6 +187,11 @@ fn persist_records(
     }
     let temporary = path.with_extension("tmp");
     let mut file = OpenOptions::new().create(true).truncate(true).write(true).open(&temporary)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    }
     file.write_all(&bytes)?;
     file.sync_all()?;
     drop(file);

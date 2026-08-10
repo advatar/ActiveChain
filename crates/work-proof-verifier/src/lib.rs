@@ -3,6 +3,9 @@
 pub mod json_adapter;
 pub mod status;
 
+#[cfg(all(test, unix))]
+mod storage_tests;
+
 use activechain_application_primitives::{
     CheckpointedTelemetryAnchorEvidenceV1, SignedActumVerifierTrustBundleV1,
     TrustSignatureAlgorithmV1, TrustSignerSetV1, verify_checkpointed_telemetry_anchor,
@@ -38,6 +41,10 @@ const MAX_RATE_CLIENTS: usize = 100_000;
 const IPC_MAGIC: &[u8; 8] = b"ACWPV1\0\0";
 const USAGE_MAGIC: &[u8; 8] = b"ACUNV1\0\0";
 const TRUST_MAGIC: &[u8; 8] = b"ACTBV1\0\0";
+const USAGE_ENTRY_BYTES: usize = 48 * 3 + 4 + 8 * 2;
+const MAX_USAGE_FILE_BYTES: u64 = (12 + MAX_USAGE_ENTRIES * USAGE_ENTRY_BYTES) as u64;
+const MAX_TRUST_FILE_BYTES: u64 =
+    (12 + SignedActumVerifierTrustBundleV1::MAX_ENCODED_LEN + 9) as u64;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -214,7 +221,7 @@ impl DurableUsageRegistry {
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, VerificationErrorV1> {
         let path = path.into();
         let state = if path.exists() {
-            decode_usage(&fs::read(&path).map_err(persistence)?)?
+            decode_usage(&read_bounded_regular_file(&path, MAX_USAGE_FILE_BYTES)?)?
         } else {
             UsageState::default()
         };
@@ -310,8 +317,7 @@ fn decode_usage(bytes: &[u8]) -> Result<UsageState, VerificationErrorV1> {
         return Err(persistence(()));
     }
     let count = u32::from_be_bytes(bytes[8..12].try_into().map_err(persistence)?) as usize;
-    let entry_len = 48 * 3 + 4 + 8 * 2;
-    if count > MAX_USAGE_ENTRIES || bytes.len() != 12 + count * entry_len {
+    if count > MAX_USAGE_ENTRIES || bytes.len() != 12 + count * USAGE_ENTRY_BYTES {
         return Err(persistence(()));
     }
     let mut entries = BTreeMap::new();
@@ -360,7 +366,7 @@ impl DurableTrustStore {
 
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, VerificationErrorV1> {
         let path = path.into();
-        let bytes = fs::read(&path).map_err(persistence)?;
+        let bytes = read_bounded_regular_file(&path, MAX_TRUST_FILE_BYTES)?;
         if bytes.len() < 12 || &bytes[..8] != TRUST_MAGIC {
             return Err(persistence(()));
         }
@@ -816,6 +822,11 @@ fn persist_atomic(path: &Path, bytes: &[u8]) -> Result<(), VerificationErrorV1> 
             .write(true)
             .open(&temporary)
             .map_err(persistence)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(fs::Permissions::from_mode(0o600)).map_err(persistence)?;
+        }
         file.write_all(bytes).map_err(persistence)?;
         file.sync_all().map_err(persistence)?;
     }
@@ -824,6 +835,21 @@ fn persist_atomic(path: &Path, bytes: &[u8]) -> Result<(), VerificationErrorV1> 
         directory.sync_all().map_err(persistence)?;
     }
     Ok(())
+}
+
+fn read_bounded_regular_file(path: &Path, maximum: u64) -> Result<Vec<u8>, VerificationErrorV1> {
+    let metadata = fs::symlink_metadata(path).map_err(persistence)?;
+    if !metadata.file_type().is_file() || metadata.len() > maximum {
+        return Err(persistence(()));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return Err(persistence(()));
+        }
+    }
+    fs::read(path).map_err(persistence)
 }
 
 fn persistence<T>(_: T) -> VerificationErrorV1 {
