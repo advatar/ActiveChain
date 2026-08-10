@@ -70,6 +70,10 @@ def validate(text: str) -> None:
         errors.append("full aggregate must be fail-closed and full-scope-only")
     if '"$PR_ACTION" == synchronize' not in text or 'git diff --name-only "$BEFORE_SHA...HEAD"' not in text:
         errors.append("PR synchronization must classify only the newly pushed commit delta")
+    if text.count('git cat-file -e "${BEFORE_SHA}^{commit}"') != 2:
+        errors.append("incremental classification must prove the before SHA is reachable")
+    if "before SHA is unreachable after force-push; classifying complete PR diff" not in text:
+        errors.append("force-push classification must conservatively fall back to the PR-base diff")
     if text.count("git status --porcelain --untracked-files=normal") != 2:
         errors.append("Apple qualification must prove cleanliness before and after header generation")
     for command in MANDATORY_COMMANDS:

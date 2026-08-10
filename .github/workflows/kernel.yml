@@ -70,11 +70,21 @@ jobs:
             changed='__FULL_QUALIFICATION__'
           elif [[ "$EVENT_NAME" == pull_request && "$PR_ACTION" == synchronize &&
                   -n "$BEFORE_SHA" && "$BEFORE_SHA" != 0000000000000000000000000000000000000000 ]]; then
-            changed=$(git diff --name-only "$BEFORE_SHA...HEAD")
+            if git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+              changed=$(git diff --name-only "$BEFORE_SHA...HEAD")
+            else
+              echo "before SHA is unreachable after force-push; classifying complete PR diff" >&2
+              changed=$(git diff --name-only "origin/${BASE_REF}...HEAD")
+            fi
           elif [[ "$EVENT_NAME" == pull_request ]]; then
             changed=$(git diff --name-only "origin/${BASE_REF}...HEAD")
           elif [[ -n "$BEFORE_SHA" && "$BEFORE_SHA" != 0000000000000000000000000000000000000000 ]]; then
-            changed=$(git diff --name-only "$BEFORE_SHA...HEAD")
+            if git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+              changed=$(git diff --name-only "$BEFORE_SHA...HEAD")
+            else
+              echo "before SHA is unreachable; classifying current commit" >&2
+              changed=$(git show --pretty='' --name-only HEAD)
+            fi
           else
             changed=$(git show --pretty='' --name-only HEAD)
           fi

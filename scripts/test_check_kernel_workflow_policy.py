@@ -36,6 +36,20 @@ class KernelWorkflowPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "complete stage set"):
             POLICY.validate(incomplete)
 
+    def test_missing_force_push_reachability_guard_fails_closed(self) -> None:
+        unsafe = WORKFLOW.replace('git cat-file -e "${BEFORE_SHA}^{commit}"', "true", 1)
+        with self.assertRaisesRegex(ValueError, "before SHA is reachable"):
+            POLICY.validate(unsafe)
+
+    def test_missing_force_push_fallback_fails_closed(self) -> None:
+        unsafe = WORKFLOW.replace(
+            "before SHA is unreachable after force-push; classifying complete PR diff",
+            "force push ignored",
+            1,
+        )
+        with self.assertRaisesRegex(ValueError, "conservatively fall back"):
+            POLICY.validate(unsafe)
+
     def classify(self, full: bool, *paths: str) -> dict[str, str]:
         result = subprocess.run(
             ["bash", str(ROOT / "scripts" / "classify-kernel-change-scope.sh"), str(full).lower()],
