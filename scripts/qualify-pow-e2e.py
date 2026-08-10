@@ -37,6 +37,43 @@ def validate_consumer_contract() -> None:
         "MALFORMED",
     ]
     assert all(result["verified"] == (result["code"] == "VERIFIED") for result in results)
+    stateful_request = contract["stateful_request"]
+    assert set(stateful_request) == {
+        "schema",
+        "operation",
+        "profile",
+        "claim_id",
+        "public_claim_envelope_hex",
+        "proof_envelope_hex",
+        "anchor_request_envelope_hex",
+        "anchor_evidence_envelope_hex",
+    }
+    assert stateful_request["schema"] == "actum.work-proof.admit.request.v1"
+    assert stateful_request["operation"] == "verify_and_register"
+    assert stateful_request["profile"] == "actum.non-overlap.risc0.v1"
+    assert "trust_bundle" not in stateful_request
+    stateful_result = contract["stateful_result"]
+    assert set(stateful_result) == {"schema", "result"}
+    assert stateful_result["schema"] == "actum.work-proof.admit.result.v1"
+    claim = stateful_result["result"]
+    assert set(claim) == {
+        "claim_id",
+        "lifecycle",
+        "relation_verified",
+        "anchor_verified",
+        "usage_verified",
+        "idempotent",
+        "chain_id",
+        "project_id",
+        "usage_domain",
+        "policy_id",
+        "policy_revision",
+        "aggregate",
+        "anchor",
+        "accepted_at_ms",
+    }
+    assert claim["lifecycle"] == "anchor_finalized"
+    assert all(claim[field] for field in ("relation_verified", "anchor_verified", "usage_verified"))
 
 
 def main() -> int:

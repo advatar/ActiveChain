@@ -83,7 +83,7 @@ def status(args):
     if pid is not None: pid=project(pid)
     auth=state["authorizations"].get(pid) if pid else None
     result=base("configured" if auth else "not_authorized")
-    result.update({"project_id":pid,"paused":state["paused"].get(pid,True) if pid else True,"authorization":auth,"journal_health":"healthy","delivery_configured":bool(os.environ.get("ACTUM_DELIVERY_WEBHOOK")),"anchor_configured":bool(os.environ.get("ACTUM_ANCHOR_URL") and os.environ.get("ACTUM_ANCHOR_BEARER_TOKEN_FILE")),"signing_authority":"external"})
+    result.update({"project_id":pid,"paused":state["paused"].get(pid,True) if pid else True,"authorization":auth,"journal_health":"healthy","delivery_configured":bool(os.environ.get("ACTUM_DELIVERY_WEBHOOK")),"anchor_configured":bool(os.environ.get("ACTUM_ANCHOR_URL") and os.environ.get("ACTUM_ANCHOR_BEARER_TOKEN_FILE")),"work_verifier_configured":bool(os.environ.get("ACTUM_WORK_VERIFIER_URL") and os.environ.get("ACTUM_WORK_VERIFIER_BEARER_TOKEN_FILE")),"stateless_work_verifier_configured":bool(os.environ.get("ACTUM_WORK_VERIFIER")),"signing_authority":"external"})
     if auth: result["policy_revision"]=auth["revision"]
     return result
 
@@ -139,14 +139,16 @@ def backend_url(name):
     if parsed.scheme!="https" or parsed.username or parsed.password or parsed.fragment: raise RuntimeError("integration configuration rejected")
     return raw
 
-def anchor_bearer():
-    raw=os.environ.get("ACTUM_ANCHOR_BEARER_TOKEN_FILE")
-    if not raw: raise RuntimeError("anchor authentication unavailable")
+def protected_bearer(env_name,label):
+    raw=os.environ.get(env_name)
+    if not raw: raise RuntimeError(label+" authentication unavailable")
     path=Path(raw).expanduser()
-    if path.is_symlink() or not path.is_file() or path.stat().st_mode & 0o077: raise RuntimeError("anchor authentication rejected")
+    if path.is_symlink() or not path.is_file() or path.stat().st_mode & 0o077: raise RuntimeError(label+" authentication rejected")
     token=path.read_bytes().rstrip(b"\r\n")
-    if not 32<=len(token)<=256 or any(not 0x21<=byte<=0x7e for byte in token): raise RuntimeError("anchor authentication rejected")
+    if not 32<=len(token)<=256 or any(not 0x21<=byte<=0x7e for byte in token): raise RuntimeError(label+" authentication rejected")
     return token.decode("ascii")
+
+def anchor_bearer(): return protected_bearer("ACTUM_ANCHOR_BEARER_TOKEN_FILE","anchor")
 
 def post_artifact(name,args,env_name,lifecycle):
     exact(args,("capability","request_id","project_id","artifact_path")); pid=project(args["project_id"]); path=artifact_path(args["artifact_path"])
@@ -169,6 +171,30 @@ def post_artifact(name,args,env_name,lifecycle):
     retry_statuses={"submitted"}
     if env_name=="ACTUM_ANCHOR_URL": retry_statuses.add("pending")
     return mutate(name,args,op,retry_statuses)
+
+def stateful_verify(args):
+    exact(args,("capability","request_id","project_id","artifact_path")); pid=project(args["project_id"]); path=artifact_path(args["artifact_path"])
+    def op(state):
+        auth=state["authorizations"].get(pid)
+        if not auth: raise ValueError("project not authorized")
+        headers={"Content-Type":"application/vnd.actum.work-proof.v1+json","Authorization":"Bearer "+protected_bearer("ACTUM_WORK_VERIFIER_BEARER_TOKEN_FILE","work verifier"),"X-Actum-Request-Id":args["request_id"]}
+        req=Request(backend_url("ACTUM_WORK_VERIFIER_URL"),data=path.read_bytes(),method="POST",headers=headers)
+        try:
+            with urlopen(req,timeout=30) as response: body=response.read(MAX_RESPONSE+1)
+        except Exception as error:
+            raise RuntimeError("work verifier unavailable") from error
+        if len(body)>MAX_RESPONSE: raise RuntimeError("work verifier response too large")
+        reply=json.loads(body)
+        fields={"claim_id","lifecycle","relation_verified","anchor_verified","usage_verified","idempotent","chain_id","project_id","usage_domain","policy_id","policy_revision","aggregate","anchor","accepted_at_ms"}
+        if not isinstance(reply,dict) or set(reply)!={"schema","result"} or reply.get("schema")!="actum.work-proof.admit.result.v1": raise RuntimeError("malformed stateful verifier response")
+        claim=reply.get("result")
+        if not isinstance(claim,dict) or set(claim)!=fields: raise RuntimeError("malformed stateful verifier response")
+        if any(not isinstance(claim.get(field),bool) for field in ("relation_verified","anchor_verified","usage_verified","idempotent")) or not all(claim[field] for field in ("relation_verified","anchor_verified","usage_verified")): raise RuntimeError("stateful verification rejected")
+        if any(not isinstance(claim.get(field),str) or not DIGEST.fullmatch(claim[field]) for field in ("claim_id","chain_id","project_id","usage_domain","policy_id")): raise RuntimeError("malformed stateful verifier response")
+        if claim["chain_id"]!=safe_digest_env("ACTUM_CHAIN_ID") or claim["project_id"]!=pid or claim["policy_id"]!=auth["policy_id"] or claim["policy_revision"]!=auth["revision"]: raise RuntimeError("stateful verifier binding mismatch")
+        if not isinstance(claim.get("lifecycle"),str) or not isinstance(claim.get("aggregate"),dict) or not isinstance(claim.get("anchor"),dict) or isinstance(claim.get("accepted_at_ms"),bool) or not isinstance(claim.get("accepted_at_ms"),int) or claim["accepted_at_ms"]<0: raise RuntimeError("malformed stateful verifier response")
+        result=base("verified",args["request_id"]); result.update({"claim_id":claim["claim_id"],"relation_verified":True,"anchor_verified":True,"usage_verified":True,"idempotent":claim["idempotent"],"project_id":pid,"policy_revision":auth["revision"]}); return result
+    return mutate("work.verify",args,op)
 
 def subprocess_tool(name,args,env_name):
     exact(args,("capability","request_id","project_id","artifact_path")); pid=project(args["project_id"]); path=artifact_path(args["artifact_path"])
@@ -205,6 +231,7 @@ def call(name,args):
     if name=="work.deliver": return post_artifact(name,args,"ACTUM_DELIVERY_WEBHOOK",{"submitted","delivered","rejected"})
     if name=="work.anchor": return post_artifact(name,args,"ACTUM_ANCHOR_URL",{"submitted","pending","finalized","rejected"})
     if name=="work.prove": return subprocess_tool(name,args,"ACTUM_WORK_PROVER")
+    if name=="work.verify" and os.environ.get("ACTUM_WORK_VERIFIER_URL"): return stateful_verify(args)
     if name=="work.verify": return subprocess_tool(name,args,"ACTUM_WORK_VERIFIER")
     raise ValueError("unknown tool")
 

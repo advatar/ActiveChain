@@ -12,5 +12,39 @@
     {"schema":"actum.work-proof.verify.result.v1","code":"INVALID","verified":false,"profile":"actum.non-overlap.risc0.v1"},
     {"schema":"actum.work-proof.verify.result.v1","code":"UNSUPPORTED","verified":false,"profile":"actum.non-overlap.risc0.v1"},
     {"schema":"actum.work-proof.verify.result.v1","code":"MALFORMED","verified":false,"profile":"actum.non-overlap.risc0.v1"}
-  ]
+  ],
+  "stateful_request": {
+    "schema": "actum.work-proof.admit.request.v1",
+    "operation": "verify_and_register",
+    "profile": "actum.non-overlap.risc0.v1",
+    "claim_id": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+    "public_claim_envelope_hex": "00",
+    "proof_envelope_hex": "00",
+    "anchor_request_envelope_hex": "00",
+    "anchor_evidence_envelope_hex": "00"
+  },
+  "stateful_result": {
+    "schema": "actum.work-proof.admit.result.v1",
+    "result": {
+      "claim_id": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+      "lifecycle": "anchor_finalized",
+      "relation_verified": true,
+      "anchor_verified": true,
+      "usage_verified": true,
+      "idempotent": false,
+      "chain_id": "222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222",
+      "project_id": "333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333",
+      "usage_domain": "444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444",
+      "policy_id": "555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555",
+      "policy_revision": 1,
+      "aggregate": {"class":"attention","attributable_ms":1000,"interaction_count":1},
+      "anchor": {
+        "statement_id": "666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666",
+        "finalized_height": 100,
+        "finalized_block_id": "777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777",
+        "checkpoint_bundle_id": "888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888"
+      },
+      "accepted_at_ms": 1000
+    }
+  }
 }

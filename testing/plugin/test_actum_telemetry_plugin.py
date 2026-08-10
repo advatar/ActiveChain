@@ -133,6 +133,24 @@ class TelemetryPluginTests(unittest.TestCase):
         self.assertEqual(result["status"],"relation_verified"); self.assertTrue(result["relation_verified"])
         self.assertFalse(result["anchor_verified"]); self.assertFalse(result["usage_verified"])
 
+    def test_stateful_work_verifier_requires_exact_bindings_and_protected_token(self):
+        self.authorize(); request=Path(self.temp.name)/"admit.json"; request.write_text('{"schema":"actum.work-proof.admit.request.v1"}')
+        token=Path(self.temp.name)/"verifier-token"; token.write_text("abcdefghijklmnopqrstuvwxyz012345"); token.chmod(0o600)
+        os.environ.update({"ACTUM_WORK_VERIFIER_URL":"https://verify.example/v1/proofs/verify","ACTUM_WORK_VERIFIER_BEARER_TOKEN_FILE":str(token)})
+        claim={"claim_id":"5"*96,"lifecycle":"anchor_finalized","relation_verified":True,"anchor_verified":True,"usage_verified":True,"idempotent":False,"chain_id":"1"*96,"project_id":self.project,"usage_domain":"6"*96,"policy_id":self.policy,"policy_revision":1,"aggregate":{},"anchor":{},"accepted_at_ms":10}
+        arguments={"capability":"secret-capability","request_id":"verify-stateful","project_id":self.project,"artifact_path":str(request)}; captured=[]
+        def respond(value):
+            def inner(http_request,**_): captured.append(http_request); return Reply({"schema":"actum.work-proof.admit.result.v1","result":value})
+            return inner
+        with patch.object(module,"urlopen",side_effect=respond({**claim,"project_id":"7"*96})):
+            with self.assertRaises(RuntimeError): module.call("work.verify",arguments)
+        self.assertNotIn("verify-stateful",module.load_state()["requests"])
+        with patch.object(module,"urlopen",side_effect=respond(claim)): result=module.call("work.verify",arguments)
+        self.assertEqual(result["status"],"verified"); self.assertTrue(result["relation_verified"] and result["anchor_verified"] and result["usage_verified"])
+        self.assertEqual(result["claim_id"],"5"*96); self.assertEqual(captured[-1].headers["Authorization"],"Bearer abcdefghijklmnopqrstuvwxyz012345")
+        self.assertEqual(captured[-1].get_header("Content-type"),"application/vnd.actum.work-proof.v1+json"); self.assertEqual(captured[-1].data,request.read_bytes())
+        self.assertNotIn("abcdefghijklmnopqrstuvwxyz012345",json.dumps(result)); self.assertNotIn("abcdefghijklmnopqrstuvwxyz012345",module.state_path().read_text())
+
     def test_work_verifier_rejects_inconsistent_success_and_backend_failures_are_retryable(self):
         self.authorize(); request=Path(self.temp.name)/"verify.json"; request.write_text("{}")
         verifier=Path(self.temp.name)/"verifier"; verifier.write_text("#!/bin/sh\nprintf '%s\\n' '{\"schema\":\"actum.work-proof.verify.result.v1\",\"code\":\"INVALID\",\"verified\":true,\"profile\":\"actum.non-overlap.risc0.v1\"}'\n"); verifier.chmod(0o700)

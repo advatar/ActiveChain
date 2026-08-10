@@ -29,7 +29,8 @@ Promotion requires a second sanitized artifact from the exact deployed revisions
 - the public origins exercised and their pinned chain/genesis identifiers, without credentials;
 - an idempotent real `ACTUM_DELIVERY_WEBHOOK` delivery and delayed-recovery result;
 - an authenticated real `ACTUM_ANCHOR_URL` submission resolved to exact finalized state;
-- canonical anchor-registry membership and trusted-checkpoint verification;
+- the native telemetry-anchor action, matching block receipt, finality evidence, and exact
+  operator-selected trusted checkpoint;
 - one accepted stateful claim with `relation_verified`, `anchor_verified`, and `usage_verified`;
 - an exact retry marked idempotent and a different-claim nullifier replay rejected atomically;
 - restart rehearsals for plugin lifecycle, trust state, usage state, and the deployed application;
@@ -45,5 +46,5 @@ never evidence fields.
 
 Keep every affected control labelled **Preview** until both artifacts pass for the exact deployed
 revisions. Delivery never implies anchoring. Finalized transport status never substitutes for
-canonical state membership. Relation verification never implies nullifier admission. Only all
+native action/receipt/finality verification. Relation verification never implies nullifier admission. Only all
 three verified dimensions may render a verified work claim.

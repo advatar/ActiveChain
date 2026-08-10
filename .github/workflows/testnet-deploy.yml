@@ -49,6 +49,8 @@ jobs:
           cp target/release/activechain-telemetry-anchor-gateway dist/kanalen/bin/
           cp target/release/actum-work-proof-verifier dist/kanalen/bin/
           cp target/release/actum-work-proof-json-verifier dist/kanalen/bin/
+          cp target/release/actum-work-proof-api dist/kanalen/bin/
+          cp target/release/actum-work-proof-trust-bootstrap dist/kanalen/bin/
           cp target/release/activechain-wallet dist/kanalen/bin/
           cp target/release/activechain-faucet dist/kanalen/bin/
           cp target/release/libactivechain_wallet_ffi.* dist/kanalen/lib/ 2>/dev/null || true

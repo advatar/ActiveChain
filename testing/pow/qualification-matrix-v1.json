@@ -11,7 +11,7 @@
     {"id":"restart_replay_concurrency","tier":"deterministic","source":"durable usage/status tests and plugin race/idempotency tests"},
     {"id":"privacy_and_bounded_errors","tier":"deterministic","source":"plugin credential/log tests and bounded verifier tests"},
     {"id":"real_delivery_webhook","tier":"production","source":"sanitized exact-deployment connectivity receipt"},
-    {"id":"real_finalized_anchor","tier":"production","source":"canonical state-membership and finality receipt"},
+    {"id":"real_finalized_anchor","tier":"production","source":"native telemetry-anchor action + matching receipt + finality evidence + exact trusted checkpoint"},
     {"id":"real_stateful_verification","tier":"production","source":"relation_verified + anchor_verified + usage_verified receipt"},
     {"id":"landing_page_truthfulness","tier":"production","source":"deployed compatibility matrix and UI rehearsal"}
   ]
