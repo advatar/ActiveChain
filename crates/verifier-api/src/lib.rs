@@ -746,6 +746,7 @@ pub fn verify_anchor_finalized_evidence(
     if evidence.statement() != &expected_statement
         || action_statement != &expected_statement
         || action.chain_id() != trusted_chain
+        || action.authorization_commitment() != reference
         || transaction != evidence.transaction()
         || evidence.chain() != trusted_chain
         || evidence.genesis() != trusted_genesis
@@ -2469,7 +2470,7 @@ mod tests {
             resources,
             payload.commitment().unwrap(),
             payload,
-            digest(44),
+            statement.submission_reference().unwrap(),
         )
         .unwrap();
         let transaction = action_id(&action).unwrap();
@@ -2524,6 +2525,71 @@ mod tests {
                 VERIFIER_SCHEMA_REVISION,
             ),
             VERIFY_OK
+        );
+        let unbound_payload = ActionPayloadV2::submit_anchor(9, statement.clone());
+        let unbound_action = ActionEnvelope::new_payload(
+            ACTION_PROTOCOL_VERSION,
+            activechain_protocol_types::ChainId::new(digest(40)),
+            sender,
+            ticket,
+            0,
+            0,
+            ValidityInterval::new(9, 9).unwrap(),
+            resources,
+            unbound_payload.commitment().unwrap(),
+            unbound_payload,
+            digest(44),
+        )
+        .unwrap();
+        let unbound_transaction = action_id(&unbound_action).unwrap();
+        let unbound_receipt = BlockReceipt::new(
+            digest(71),
+            9,
+            pre_state,
+            post_state,
+            digest(64),
+            digest(65),
+            vec![ActionReceipt::new(
+                unbound_transaction,
+                ActionOutcome::AnchorSubmitted {
+                    reference: statement.submission_reference().unwrap(),
+                },
+                ResourceVector::new(1, 0, 0, 0, 0, 1),
+                0,
+                1,
+                post_state,
+            )],
+        )
+        .unwrap();
+        let unbound_root = commit(DomainTag::CANONICAL_VALUE, &unbound_receipt).unwrap();
+        let unbound_finality =
+            finality_bundle_with_inputs(unbound_root, pre_state, post_state, digest(50));
+        let unbound_evidence = AnchorFinalizedEvidenceV1::new(
+            evidence.chain(),
+            trusted_genesis,
+            unbound_transaction,
+            encode_envelope(&unbound_action).unwrap(),
+            9,
+            unbound_receipt.block_id(),
+            statement.clone(),
+            None,
+            None,
+            4,
+            VERIFIER_SCHEMA_REVISION,
+            encode_envelope(&unbound_receipt).unwrap(),
+            encode_envelope(&unbound_finality).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            verify_anchor_finalized_evidence_code(
+                &encode_envelope(&unbound_evidence).unwrap(),
+                &encoded_statement,
+                evidence.chain(),
+                trusted_genesis,
+                4,
+                VERIFIER_SCHEMA_REVISION,
+            ),
+            VerifyError::RelationMismatch.code()
         );
         let unrelated_transaction = TransactionId::new(digest(70));
         let unrelated_receipt = BlockReceipt::new(
