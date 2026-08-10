@@ -5,6 +5,6 @@ kanalen.activechain.dev {
 		Content-Type "text/plain; charset=utf-8"
 		X-Content-Type-Options "nosniff"
 	}
-	respond "ActiveChain Kanalen — developmental network infrastructure. No security audit has been completed. Do not use it for value you are unwilling to lose. RPC: rpc.kanalen.activechain.dev:443" 200
+	respond "ActiveChain Kanalen — developmental network infrastructure. No security audit has been completed. Do not use it for value you are unwilling to lose. RPC: rpc.kanalen.activechain.dev:443. Telemetry anchor: anchor.kanalen.activechain.dev." 200
 }
 # END activechain-kanalen

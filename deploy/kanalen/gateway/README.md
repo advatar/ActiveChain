@@ -38,3 +38,25 @@ snapshot, finalized treasury authorization lane, permission-restricted operator 
 journal, limits, and expiry described in `docs/FAUCET_FUNDING_ADMISSION_V2.md` are provisioned.
 The public wallet submits `RequestFaucet`; it must never receive the treasury seed or be required
 to construct a treasury-signed cash transfer.
+
+## Telemetry anchor gateway
+
+`anchor.kanalen.activechain.dev` terminates TLS at Traefik and forwards HTTP only to the private
+`activechain-telemetry-anchor-gateway` listener on `127.0.0.1:49156`. Provision DNS before enabling
+the route. The RPC LaunchAgent enables its durable anchor registry at
+`rpc/anchors.snapshot`; finalization remains an operator-only `activechain-anchor-admin` action.
+
+Before loading `dev.activechain.kanalen.anchor`, create the private state and a high-entropy bearer
+token without printing it:
+
+```sh
+install -d -m 700 "$HOME/activechain-deploy/kanalen/anchor"
+umask 077
+openssl rand -base64 48 > "$HOME/activechain-deploy/kanalen/anchor/bearer.token"
+chmod 600 "$HOME/activechain-deploy/kanalen/anchor/bearer.token"
+```
+
+The idempotency journal is created mode 0600 on first accepted request. Configure
+`ACTUM_ANCHOR_URL=https://anchor.kanalen.activechain.dev/v1/anchors` and provide the same protected
+token to the trusted application/plugin deployment. Never place the bearer in telemetry, logs,
+proof inputs, browser code, repository secrets, or command-line arguments.

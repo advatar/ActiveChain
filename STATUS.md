@@ -38,8 +38,15 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Add portable Agent Plugins 1.0.0 and Codex manifests plus the telemetry skill.
     - [x] Add bounded, capability-scoped telemetry and work MCP tools with durable idempotency.
     - [x] Add adversarial authorization, race, replay, wrong-chain, timeout, malformed-response, and redaction tests.
-    - [ ] Pass the exact full gate after #773 merges.
-  - [ ] Anchor and resolve finalized activity epochs through the existing digest boundary (#775).
+    - [x] Pass the exact full gate after #773 merges.
+  - [x] Anchor and resolve finalized activity epochs through the existing digest boundary (#775;
+    qualified candidate `a812b608` in split deterministic-kernel run `31360547400`).
+    - [x] Add the canonical network-bound epoch anchor request and exact frozen epoch statement derivation.
+    - [x] Add chained signed verifier trust bundles and finalized membership evidence.
+    - [x] Add the authenticated idempotent anchor service, recovery rehearsals, vectors, and exact gate.
+      - [x] Add the bounded bearer-authenticated telemetry anchor gateway and freeze its developer contract.
+      - [x] Add gateway recovery/adversarial rehearsals and deterministic canonical vectors.
+      - [x] Rebase onto merged #773 and pass the exact full gate.
   - [ ] Implement work claims and zero-knowledge non-overlap proofs (#776).
   - [ ] Expose bounded verification APIs, SDKs, and explorer DTOs (#777).
   - [ ] Qualify and document the complete `pow.actum.network` integration (#778).

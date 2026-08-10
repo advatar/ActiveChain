@@ -24,6 +24,8 @@ mod receipt_nullifier;
 #[cfg(feature = "std")]
 mod sponsored_cash;
 mod telemetry;
+mod telemetry_anchor;
+mod trust_bundle;
 
 #[cfg(feature = "std")]
 pub use anchor::DurableAnchorRegistry;
@@ -76,6 +78,16 @@ pub use sponsored_cash::{
 pub use telemetry::{
     ActivityEpochV1, DeveloperEventKindV1, DeveloperEventV1, MAX_TELEMETRY_EVENTS,
     TelemetryPrimitiveError, event_leaf_hash, event_node_hash, telemetry_merkle_root,
+};
+pub use telemetry_anchor::{
+    CheckpointedTelemetryAnchorEvidenceV1, MAX_CHECKPOINT_MEMBERSHIP_PROOF_LENGTH,
+    TELEMETRY_EPOCH_ANCHOR_DOMAIN, TelemetryEpochAnchorRequestV1, telemetry_epoch_anchor_statement,
+    verify_checkpointed_telemetry_anchor,
+};
+pub use trust_bundle::{
+    ActumVerifierTrustBundleV1, SignedActumVerifierTrustBundleV1, TrustBundleError,
+    TrustBundleSignatureV1, TrustSignatureAlgorithmV1, TrustSignerSetV1, TrustSignerV1,
+    verify_trust_bundle_bootstrap, verify_trust_bundle_transition,
 };
 
 use activechain_canonical_codec::{
