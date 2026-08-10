@@ -1,4 +1,4 @@
-use activechain_action_kernel::ResourcePrices;
+use activechain_action_kernel::{ActionEnvelope, ActionPayloadV2, ResourcePrices};
 use activechain_authorization_kernel::AuthorizationReplayStore;
 use activechain_canonical_codec::{decode_envelope, encode_envelope};
 use activechain_cash_kernel::CashLedger;
@@ -122,6 +122,8 @@ const ROUND_FINALITY_FILE: &str = "finality.bundle";
 const ROUND_HEADER_FILE: &str = "finalized-header.bin";
 const ROUND_HEIGHT_FILE: &str = "height";
 const ROUND_ACTIONS_FILE: &str = "cash-actions.batch";
+const ROUND_ANCHOR_ACTIONS_FILE: &str = "anchor-actions.batch";
+const ROUND_RECEIPT_FILE: &str = "block-receipt.bin";
 
 fn write_synced(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write as _;
@@ -152,6 +154,8 @@ fn remove_round_directory(path: &Path) -> std::io::Result<()> {
         ROUND_HEADER_FILE,
         ROUND_HEIGHT_FILE,
         ROUND_ACTIONS_FILE,
+        ROUND_ANCHOR_ACTIONS_FILE,
+        ROUND_RECEIPT_FILE,
     ] {
         let member = path.join(name);
         if member.exists() {
@@ -168,6 +172,7 @@ fn materialize_committed_cash_round(
     cash_snapshot_path: &Path,
     finality_path: &Path,
     cash_actions_path: Option<&Path>,
+    anchor_actions_path: Option<&Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let ingress = std::fs::read(committed.join(ROUND_INGRESS_FILE))?;
     let execution = std::fs::read(committed.join(ROUND_EXECUTION_FILE))?;
@@ -223,6 +228,26 @@ fn materialize_committed_cash_round(
             std::fs::remove_file(source)?;
         }
     }
+    let anchor_member = committed.join(ROUND_ANCHOR_ACTIONS_FILE);
+    if anchor_member.exists() {
+        let source = anchor_actions_path
+            .ok_or_else(|| std::io::Error::other("journal requires the anchor action path"))?;
+        let receipt = std::fs::read(committed.join(ROUND_RECEIPT_FILE))?;
+        activechain_verifier_api::verify_block_receipt(&finality, &receipt)
+            .map_err(|_| std::io::Error::other("journal anchor receipt is not finalized"))?;
+        let action_archive =
+            std::path::PathBuf::from(format!("{}.finalized-{height}", source.display()));
+        let receipt_archive =
+            std::path::PathBuf::from(format!("{}.receipt.finalized-{height}", source.display()));
+        let finality_archive =
+            std::path::PathBuf::from(format!("{}.finality.finalized-{height}", source.display()));
+        atomic_materialize(&action_archive, &std::fs::read(anchor_member)?)?;
+        atomic_materialize(&receipt_archive, &receipt)?;
+        atomic_materialize(&finality_archive, &finality)?;
+        if source.exists() {
+            std::fs::remove_file(source)?;
+        }
+    }
     remove_round_directory(committed)?;
     Ok(())
 }
@@ -231,12 +256,19 @@ fn materialize_committed_cash_round(
 fn stage_cash_round_transaction(
     execution_path: &Path,
     cash_actions_path: Option<&Path>,
+    anchor_actions_path: Option<&Path>,
     height: u64,
     ingress: &[u8],
     execution: &[u8],
     cash: &[u8],
     header: &[u8],
+    receipt: Option<&[u8]>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    if anchor_actions_path.is_some() != receipt.is_some() {
+        return Err(
+            std::io::Error::other("anchor action journal requires its block receipt").into()
+        );
+    }
     let (staging, committed) = round_journal_paths(execution_path);
     if committed.exists() {
         return Err(std::io::Error::other("a committed cash round requires recovery").into());
@@ -253,6 +285,10 @@ fn stage_cash_round_transaction(
     if let Some(path) = cash_actions_path {
         write_synced(&staging.join(ROUND_ACTIONS_FILE), &std::fs::read(path)?)?;
     }
+    if let (Some(path), Some(receipt)) = (anchor_actions_path, receipt) {
+        write_synced(&staging.join(ROUND_ANCHOR_ACTIONS_FILE), &std::fs::read(path)?)?;
+        write_synced(&staging.join(ROUND_RECEIPT_FILE), receipt)?;
+    }
     std::fs::File::open(&staging)?.sync_all()?;
     Ok(())
 }
@@ -264,6 +300,7 @@ fn commit_staged_cash_round_transaction(
     cash_snapshot_path: &Path,
     finality_path: &Path,
     cash_actions_path: Option<&Path>,
+    anchor_actions_path: Option<&Path>,
     finality: &[u8],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (staging, committed) = round_journal_paths(execution_path);
@@ -283,6 +320,7 @@ fn commit_staged_cash_round_transaction(
         cash_snapshot_path,
         finality_path,
         cash_actions_path,
+        anchor_actions_path,
     )
 }
 
@@ -314,6 +352,30 @@ fn parse_cash_action_batch(bytes: &[u8]) -> Result<Vec<Vec<u8>>, Box<dyn std::er
     Ok(actions)
 }
 
+fn load_anchor_action_batch(
+    path: &Path,
+) -> Result<Vec<ActionEnvelope>, Box<dyn std::error::Error>> {
+    let bytes = std::fs::read(path)?;
+    if bytes.len() < 4 {
+        return Err(std::io::Error::other("anchor action batch is malformed").into());
+    }
+    let length = u32::from_be_bytes(bytes[..4].try_into().unwrap()) as usize;
+    if length == 0
+        || length > activechain_rpc_types::MAX_ANCHOR_ACTION_LENGTH
+        || bytes.len() != length.checked_add(4).ok_or("anchor action length overflow")?
+    {
+        return Err(std::io::Error::other("anchor action batch is malformed or oversized").into());
+    }
+    let action: ActionEnvelope = decode_envelope(&bytes[4..])
+        .map_err(|_| std::io::Error::other("anchor action is not canonical"))?;
+    if !matches!(action.payload(), ActionPayloadV2::SubmitAnchor { .. })
+        || encode_envelope(&action).map_err(|_| "anchor action encoding failed")? != bytes[4..]
+    {
+        return Err(std::io::Error::other("anchor action is not a native anchor proposal").into());
+    }
+    Ok(vec![action])
+}
+
 #[allow(clippy::too_many_arguments)]
 fn recover_staged_cash_round(
     service: &ValidatorService,
@@ -327,6 +389,7 @@ fn recover_staged_cash_round(
     cash_snapshot_path: &Path,
     finality_path: &Path,
     cash_actions_path: Option<&Path>,
+    anchor_actions_path: Option<&Path>,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     let (staging, _) = round_journal_paths(execution_path);
     if !staging.exists() {
@@ -389,6 +452,15 @@ fn recover_staged_cash_round(
     {
         return Err(std::io::Error::other("staged cash snapshot does not rederive").into());
     }
+    let anchor_member = staging.join(ROUND_ANCHOR_ACTIONS_FILE);
+    let anchor_actions = if anchor_member.exists() {
+        if anchor_actions_path.is_none() {
+            return Err(std::io::Error::other("staged anchor action path disappeared").into());
+        }
+        load_anchor_action_batch(&anchor_member)?
+    } else {
+        Vec::new()
+    };
     let block = DevnetBlock::new(
         chain_id,
         height,
@@ -398,7 +470,7 @@ fn recover_staged_cash_round(
         execution_state
             .commitment()
             .map_err(|_| std::io::Error::other("execution state commitment failed"))?,
-        Vec::new(),
+        anchor_actions,
     )
     .map_err(|_| std::io::Error::other("staged execution block construction failed"))?;
     let pre_root =
@@ -426,6 +498,9 @@ fn recover_staged_cash_round(
     if draft.header() != &header
         || encode_envelope(draft.next_state()).map_err(|_| "staged execution encoding failed")?
             != std::fs::read(staging.join(ROUND_EXECUTION_FILE))?
+        || (anchor_member.exists()
+            && encode_envelope(draft.receipt()).map_err(|_| "staged receipt encoding failed")?
+                != std::fs::read(staging.join(ROUND_RECEIPT_FILE))?)
     {
         return Err(std::io::Error::other("staged finalized draft components do not match").into());
     }
@@ -483,6 +558,7 @@ fn recover_staged_cash_round(
         cash_snapshot_path,
         finality_path,
         cash_actions_path,
+        anchor_actions_path,
         &encode_envelope(&bundle).map_err(|_| "staged finality encoding failed")?,
     )?;
     Ok(true)
@@ -595,6 +671,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let finality_out = extras.iter().find_map(|value| value.strip_prefix("--finality-out="));
     let cash_ledger = extras.iter().find_map(|value| value.strip_prefix("--cash-ledger="));
     let cash_actions = extras.iter().find_map(|value| value.strip_prefix("--cash-actions="));
+    let anchor_actions = extras.iter().find_map(|value| value.strip_prefix("--anchor-actions="));
     let execution_state_path =
         extras.iter().find_map(|value| value.strip_prefix("--execution-state="));
     if finalized_cash_out.is_some() != finality_out.is_some()
@@ -609,6 +686,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if cash_actions.is_some() && cash_ledger.is_none() {
         return Err("--cash-actions requires --cash-ledger".into());
     }
+    if anchor_actions.is_some() && execution_state_path.is_none() {
+        return Err("--anchor-actions requires --execution-state".into());
+    }
     if let (Some(execution), Some(cash_ledger), Some(cash_snapshot), Some(finality)) =
         (execution_state_path, cash_ledger, finalized_cash_out, finality_out)
     {
@@ -621,6 +701,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Path::new(cash_snapshot),
                 Path::new(finality),
                 cash_actions.map(Path::new),
+                anchor_actions.map(Path::new),
             )?;
         }
     }
@@ -763,6 +844,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Path::new(cash_snapshot_path),
                 Path::new(finality_path),
                 cash_actions.map(Path::new),
+                anchor_actions.map(Path::new),
             )? {
                 authoritative_cash =
                     Some(load_authoritative_cash_gateway(Path::new(cash_ledger_path), chain)?);
@@ -887,6 +969,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 None
             };
+            let prepared_anchor_path = anchor_actions.map(Path::new).filter(|path| path.exists());
+            let prepared_anchor_actions = match prepared_anchor_path {
+                Some(path) => load_anchor_action_batch(path)?,
+                _ => Vec::new(),
+            };
             let publication_draft = chain_id
                 .zip(cash_snapshot.as_ref())
                 .map(|(chain_id, cash)| -> Result<PreparedDirectFinalizedBlock, Box<dyn std::error::Error>> {
@@ -908,7 +995,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         state
                             .commitment()
                             .map_err(|_| std::io::Error::other("execution state commitment failed"))?,
-                        Vec::new(),
+                        prepared_anchor_actions.clone(),
                     )
                     .map_err(|_| std::io::Error::other("canonical cash execution block construction failed"))?;
                     let supply = authoritative_cash
@@ -954,6 +1041,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 stage_cash_round_transaction(
                     Path::new(execution_state_path.unwrap()),
                     cash_actions.map(Path::new),
+                    prepared_anchor_path,
                     next_height,
                     &ingress_bytes,
                     &encode_envelope(draft.next_state())
@@ -962,6 +1050,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .map_err(|_| "finalized cash snapshot encoding failed")?,
                     &encode_envelope(draft.header())
                         .map_err(|_| "finalized header encoding failed")?,
+                    (!prepared_anchor_actions.is_empty())
+                        .then(|| encode_envelope(draft.receipt()))
+                        .transpose()
+                        .map_err(|_| "block receipt encoding failed")?
+                        .as_deref(),
                 )?;
             }
             let block_digest = match publication_draft.as_ref() {
@@ -1069,6 +1162,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Path::new(cash_path),
                     Path::new(finality_path),
                     cash_actions.map(Path::new),
+                    prepared_anchor_path,
                     &finality_bytes,
                 )?;
             }
@@ -1171,10 +1265,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use activechain_action_kernel::{
+        ACTION_PROTOCOL_VERSION, FeeTicket, ResourceVector, ValidityInterval,
+    };
+    use activechain_application_primitives::DigestAnchorStatementV1;
     use activechain_cash_kernel::{GenesisAllocation, GenesisEconomy, NativeAssetDefinition};
     use activechain_protocol_types::{
-        ConsensusVoteContext, CryptoSuiteId, PrincipalId, ProtocolSignature, QuorumCertificate,
-        ValidatorGenesisEntry, ValidatorVote,
+        ConsensusVoteContext, CryptoSuiteId, ObjectId, PrincipalId, ProtocolSignature,
+        QuorumCertificate, ValidatorGenesisEntry, ValidatorVote,
     };
     use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
 
@@ -1192,6 +1290,43 @@ mod tests {
             ],
         )
         .unwrap()
+    }
+
+    #[test]
+    fn anchor_action_batch_accepts_one_exact_canonical_native_action() {
+        let path = std::env::temp_dir()
+            .join(format!("activechain-validator-anchor-actions-{}.batch", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let sender = PrincipalId::new(Digest384::new([4; 48]));
+        let statement =
+            DigestAnchorStatementV1::new(b"actum.test.anchor".to_vec(), [5; 32]).unwrap();
+        let reference = statement.submission_reference().unwrap();
+        let payload = ActionPayloadV2::submit_anchor(1, statement);
+        let resources = ResourceVector::new(1, 0, 0, 0, 0, 2_048);
+        let action = ActionEnvelope::new_payload(
+            ACTION_PROTOCOL_VERSION,
+            ChainId::new(Digest384::new([6; 48])),
+            sender,
+            FeeTicket::new(ObjectId::new(Digest384::new([7; 48])), sender, 2_050, 1, 0, resources)
+                .unwrap(),
+            0,
+            0,
+            ValidityInterval::new(1, 1).unwrap(),
+            resources,
+            payload.commitment().unwrap(),
+            payload,
+            reference,
+        )
+        .unwrap();
+        let encoded = encode_envelope(&action).unwrap();
+        let mut frame = u32::try_from(encoded.len()).unwrap().to_be_bytes().to_vec();
+        frame.extend_from_slice(&encoded);
+        std::fs::write(&path, &frame).unwrap();
+        assert_eq!(load_anchor_action_batch(&path).unwrap(), vec![action]);
+        frame.push(0);
+        std::fs::write(&path, frame).unwrap();
+        assert!(load_anchor_action_batch(&path).is_err());
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
@@ -1449,11 +1584,13 @@ mod tests {
         stage_cash_round_transaction(
             &execution_path,
             Some(&actions_path),
+            None,
             9,
             &ingress,
             &execution_bytes,
             &cash_bytes,
             &encode_envelope(&bundle.header()).unwrap(),
+            None,
         )
         .unwrap();
         assert!(
@@ -1463,6 +1600,7 @@ mod tests {
                 &snapshot_path,
                 &finality_path,
                 Some(&actions_path),
+                None,
                 &finality_bytes,
             )
             .is_err()
@@ -1477,6 +1615,7 @@ mod tests {
             &snapshot_path,
             &finality_path,
             Some(&actions_path),
+            None,
         )
         .unwrap();
         assert!(!committed.exists());
@@ -1559,11 +1698,13 @@ mod tests {
         stage_cash_round_transaction(
             &execution_path,
             None,
+            None,
             1,
             &gateway.encoded_ingress_snapshot().unwrap(),
             &encode_envelope(draft.next_state()).unwrap(),
             &encode_envelope(&snapshot).unwrap(),
             &encode_envelope(draft.header()).unwrap(),
+            None,
         )
         .unwrap();
         let service = ValidatorService::from_active_manifest(
@@ -1592,6 +1733,7 @@ mod tests {
                 &cash_path,
                 &snapshot_path,
                 &finality_path,
+                None,
                 None,
             )
             .unwrap()
