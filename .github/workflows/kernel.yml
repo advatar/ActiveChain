@@ -133,6 +133,8 @@ jobs:
       - name: Test independent Go M0 vector reader
         working-directory: tools/go-verifier
         run: go test ./...
+      - name: Reproduce independent credential vectors
+        run: bash scripts/generate-independent-credential-vectors.sh | diff -u testing/vectors/independent-credential-v1.tsv -
       - name: Check all targets
         env: {RISC0_SKIP_BUILD: '1'}
         run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
