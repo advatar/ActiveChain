@@ -12,6 +12,7 @@ path = "../../../devnet-kernel/src/lib.rs"
 
 [dependencies]
 activechain-action-kernel.workspace = true
+activechain-application-primitives.workspace = true
 activechain-canonical-codec.workspace = true
 activechain-cash-kernel.workspace = true
 activechain-protocol-commitment.workspace = true

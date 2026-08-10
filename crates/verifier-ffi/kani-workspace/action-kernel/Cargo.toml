@@ -11,6 +11,7 @@ publish = false
 path = "../../../action-kernel/src/lib.rs"
 
 [dependencies]
+activechain-application-primitives.workspace = true
 activechain-canonical-codec.workspace = true
 activechain-cash-kernel.workspace = true
 activechain-policy-kernel.workspace = true
