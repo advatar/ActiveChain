@@ -39,8 +39,8 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Add bounded, capability-scoped telemetry and work MCP tools with durable idempotency.
     - [x] Add adversarial authorization, race, replay, wrong-chain, timeout, malformed-response, and redaction tests.
     - [x] Pass the exact full gate after #773 merges.
-  - [ ] Anchor and resolve finalized activity epochs through the existing digest boundary (#775;
-    reopened and claimed on `feat/775-finalized-anchor-binding`).
+  - [x] Anchor and resolve finalized activity epochs through the existing digest boundary (#775;
+    qualified candidate `995653ef` in split deterministic-kernel run `31420355820`).
     - [x] Expose fail-closed anchor-service health that checks the finalized RPC view, operator
       fee/nonce state, registry, and proposal-spool capacity before reporting submission readiness.
     - [x] Add the canonical network-bound epoch anchor request and exact frozen epoch statement derivation.
@@ -59,7 +59,7 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
       - [x] Add gateway recovery/adversarial rehearsals and deterministic canonical vectors.
       - [x] Rebase onto merged #773 and pass the exact full gate.
     - [x] Regenerate the affected RPC/client anchor vectors and manifest hashes.
-    - [ ] Pass the exact full gate for the corrected binding and merge it to `main`.
+    - [x] Pass the exact full gate for the corrected binding and merge it to `main`.
   - [x] Implement work claims and zero-knowledge non-overlap proofs (#776; claimed on `feat/776-work-proof-zk`).
     - [x] Freeze tagged raw telemetry measurements and policy-pinned class aggregates.
     - [x] Implement class-specific Attention, Compute, and Contribution arithmetic.
