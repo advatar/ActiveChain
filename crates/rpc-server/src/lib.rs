@@ -22,7 +22,8 @@ pub use operator_faucet::{
 
 use activechain_action_kernel::{ActionEnvelope, ActionPayloadV2, action_id};
 use activechain_application_primitives::{
-    AnchorError, DigestAnchorStatementV1, DurableAnchorRegistry,
+    AnchorError, AnchorFinalizedEvidenceV1, AnchorStatus, DigestAnchorStatementV1,
+    DurableAnchorRegistry,
 };
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
@@ -39,9 +40,9 @@ use activechain_protocol_types::{
     NonFungibleSeriesV1, NonFungibleTokenRegistryV1, Object, PrincipalId, TransactionId,
 };
 use activechain_rpc_types::{
-    ActionSetProof, AnchorActionSubmissionV1, Health, MAX_SUPPORTED_PROOFS, ProofKind, QueryKind,
-    QueryPage, QueryRecord, RpcAccessRequest, RpcAccessResponse, RpcError, RpcRequest, RpcResponse,
-    RpcStatus,
+    ActionSetProof, AnchorActionSubmissionV1, Health, MAX_ANCHOR_ACTION_LENGTH,
+    MAX_SUPPORTED_PROOFS, ProofKind, QueryKind, QueryPage, QueryRecord, RpcAccessRequest,
+    RpcAccessResponse, RpcError, RpcRequest, RpcResponse, RpcStatus,
 };
 use activechain_wallet_core::AuthorizedCashTransferV1;
 use sha3::{
@@ -776,6 +777,10 @@ impl DurableRpcStore {
     pub fn finalized_height(&self) -> Result<u64, RpcStoreError> {
         self.index.read().map(|index| index.finalized_height).map_err(|_| RpcStoreError::Io)
     }
+
+    pub fn protocol_revision(&self) -> Result<u64, RpcStoreError> {
+        self.index.read().map(|index| index.protocol_revision).map_err(|_| RpcStoreError::Io)
+    }
 }
 
 type FaucetSettlement =
@@ -980,6 +985,89 @@ where
 }
 
 impl RpcServer {
+    /// Resolves one archived native anchor action only after its exact receipt and finality bundle
+    /// pass the independent verifier. Exact retries are idempotent; any archive substitution fails
+    /// before the durable registry changes.
+    pub fn reconcile_anchor_finality(
+        &self,
+        action_batch: &[u8],
+        receipt: &[u8],
+        finality: &[u8],
+    ) -> Result<Digest384, AnchorError> {
+        let anchors = self.anchors.as_ref().ok_or(AnchorError::InvalidTransition)?;
+        if action_batch.len() < 4 {
+            return Err(AnchorError::InvalidFinalizedEvidence);
+        }
+        let length = u32::from_be_bytes(
+            action_batch[..4].try_into().map_err(|_| AnchorError::InvalidFinalizedEvidence)?,
+        ) as usize;
+        if length == 0
+            || length > MAX_ANCHOR_ACTION_LENGTH
+            || action_batch.len()
+                != length.checked_add(4).ok_or(AnchorError::InvalidFinalizedEvidence)?
+        {
+            return Err(AnchorError::InvalidFinalizedEvidence);
+        }
+        let action_bytes = action_batch[4..].to_vec();
+        let action = decode_envelope::<ActionEnvelope>(&action_bytes)
+            .map_err(|_| AnchorError::InvalidFinalizedEvidence)?;
+        let ActionPayloadV2::SubmitAnchor { statement, .. } = action.payload() else {
+            return Err(AnchorError::InvalidFinalizedEvidence);
+        };
+        let reference = statement.submission_reference()?;
+        if action.authorization_commitment() != reference {
+            return Err(AnchorError::InvalidFinalizedEvidence);
+        }
+        let transaction = action_id(&action).map_err(|_| AnchorError::Encoding)?;
+        let genesis = self.store.genesis_commitment().map_err(|_| AnchorError::Persistence)?;
+        let chain = self.store.chain_id().map_err(|_| AnchorError::Persistence)?;
+        let protocol_revision =
+            self.store.protocol_revision().map_err(|_| AnchorError::Persistence)?;
+        let verified_receipt = activechain_verifier_api::verify_block_receipt_with_chain_genesis(
+            finality, receipt, genesis,
+        )
+        .map_err(|_| AnchorError::InvalidFinalizedEvidence)?;
+        let evidence = AnchorFinalizedEvidenceV1::new(
+            chain,
+            genesis,
+            transaction,
+            action_bytes,
+            verified_receipt.height(),
+            verified_receipt.block_id(),
+            statement.clone(),
+            None,
+            None,
+            protocol_revision,
+            1,
+            receipt.to_vec(),
+            finality.to_vec(),
+        )?;
+        let evidence_bytes = encode_envelope(&evidence).map_err(|_| AnchorError::Encoding)?;
+        let statement_bytes = encode_envelope(statement).map_err(|_| AnchorError::Encoding)?;
+        let verified = activechain_verifier_api::verify_anchor_finalized_evidence(
+            &evidence_bytes,
+            &statement_bytes,
+            chain,
+            genesis,
+            protocol_revision,
+            1,
+        )
+        .map_err(|_| AnchorError::InvalidFinalizedEvidence)?;
+        let mut anchors = anchors.write().map_err(|_| AnchorError::Persistence)?;
+        anchors.update(|registry| {
+            let record = registry.resolve(reference).ok_or(AnchorError::UnknownReference)?;
+            if record.status() == AnchorStatus::Finalized {
+                return if record.evidence() == Some(&verified) {
+                    Ok(())
+                } else {
+                    Err(AnchorError::InvalidTransition)
+                };
+            }
+            registry.finalize(reference, verified)
+        })?;
+        Ok(reference)
+    }
+
     /// Reconciles faucet receipts only when the exact cash transaction set is committed by the
     /// supplied finalized certificate. Wallets still verify the resulting owner Coin Cell proof
     /// independently before displaying funds.
@@ -1508,7 +1596,7 @@ mod tests {
         CoinCell, CoinCellOrigin, CoinCellSet, CoinTransfer, GenesisAllocation, GenesisEconomy,
         NativeAssetDefinition, prove_coin_cell_membership,
     };
-    use activechain_devnet_kernel::BlockReceipt;
+    use activechain_devnet_kernel::{ActionOutcome, ActionReceipt, BlockReceipt};
     use activechain_finality_types::{
         FinalityCertificateBundle, FinalizedBlockHeader, ProofPublicInputs,
     };
@@ -2719,6 +2807,101 @@ mod tests {
             server.handle(RpcRequest::ResolveAnchor { reference }, 105),
             RpcResponse::Error(RpcError::NotFound)
         );
+        let _ = std::fs::remove_file(index_path);
+        let _ = std::fs::remove_file(anchor_path);
+    }
+
+    #[test]
+    fn native_anchor_archive_requires_exact_receipt_before_finalization() {
+        let index_path = temporary("native-anchor-finality-index");
+        let anchor_path = temporary("native-anchor-finality-registry");
+        let _ = std::fs::remove_file(&index_path);
+        let _ = std::fs::remove_file(&anchor_path);
+        let statement =
+            DigestAnchorStatementV1::new(b"actum.developer-telemetry.epoch.v1".to_vec(), [45; 32])
+                .unwrap();
+        let reference = statement.submission_reference().unwrap();
+        let action = anchor_action_envelope(statement);
+        let transaction = action_id(&action).unwrap();
+        let action_bytes = encode_envelope(&action).unwrap();
+        let mut action_batch = u32::try_from(action_bytes.len()).unwrap().to_be_bytes().to_vec();
+        action_batch.extend_from_slice(&action_bytes);
+        let pre_state = StateCommitment::new(digest(80), 0);
+        let post_state = StateCommitment::new(digest(81), 0);
+        let receipt = BlockReceipt::new(
+            digest(84),
+            7,
+            pre_state,
+            post_state,
+            digest(82),
+            digest(83),
+            vec![ActionReceipt::new(
+                transaction,
+                ActionOutcome::AnchorSubmitted { reference },
+                ResourceVector::new(1, 0, 0, 0, 0, 512),
+                513,
+                5,
+                post_state,
+            )],
+        )
+        .unwrap();
+        let receipt_bytes = encode_envelope(&receipt).unwrap();
+        let receipt_root = commit(DomainTag::CANONICAL_VALUE, &receipt).unwrap();
+        let finality = signed_finality(
+            85,
+            ProofPublicInputs { receipt_root, ..public_inputs(pre_state, post_state) },
+        );
+        let bundle = decode_envelope::<FinalityCertificateBundle>(&finality).unwrap();
+        let mut rpc_index = index();
+        rpc_index.genesis_commitment = bundle.validator_genesis().genesis_commitment();
+        let store = Arc::new(DurableRpcStore::create(index_path.clone(), rpc_index).unwrap());
+        let server = RpcServer::new(store)
+            .with_anchor_registry(DurableAnchorRegistry::open(&anchor_path).unwrap())
+            .with_anchor_settlement(|bytes, _| {
+                let action = decode_envelope::<ActionEnvelope>(bytes).unwrap();
+                action_id(&action).map_err(|_| AnchorError::Encoding)
+            });
+        assert!(matches!(
+            server.handle(RpcRequest::SubmitAnchorAction { action: action_bytes }, 105),
+            RpcResponse::AnchorActionSubmission(_)
+        ));
+        let unrelated_receipt =
+            BlockReceipt::new(digest(84), 7, pre_state, post_state, digest(82), digest(83), vec![])
+                .unwrap();
+        assert_eq!(
+            server.reconcile_anchor_finality(
+                &action_batch,
+                &encode_envelope(&unrelated_receipt).unwrap(),
+                &finality,
+            ),
+            Err(AnchorError::InvalidFinalizedEvidence)
+        );
+        let RpcResponse::AnchorRecord(pending) =
+            server.handle(RpcRequest::ResolveAnchor { reference }, 105)
+        else {
+            panic!("pending anchor record expected")
+        };
+        assert_eq!(
+            decode_envelope::<AnchorRecord>(&pending).unwrap().status(),
+            AnchorStatus::Pending
+        );
+        assert_eq!(
+            server.reconcile_anchor_finality(&action_batch, &receipt_bytes, &finality),
+            Ok(reference)
+        );
+        assert_eq!(
+            server.reconcile_anchor_finality(&action_batch, &receipt_bytes, &finality),
+            Ok(reference)
+        );
+        let RpcResponse::AnchorRecord(finalized) =
+            server.handle(RpcRequest::ResolveAnchor { reference }, 105)
+        else {
+            panic!("finalized anchor record expected")
+        };
+        let finalized = decode_envelope::<AnchorRecord>(&finalized).unwrap();
+        assert_eq!(finalized.status(), AnchorStatus::Finalized);
+        assert_eq!(finalized.submitted_transaction(), Some(transaction));
+        assert_eq!(finalized.evidence().unwrap().transaction(), transaction);
         let _ = std::fs::remove_file(index_path);
         let _ = std::fs::remove_file(anchor_path);
     }

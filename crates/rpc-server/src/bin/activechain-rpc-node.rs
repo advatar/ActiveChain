@@ -91,6 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         server
     };
     let anchor_spool = env::var_os("ACTIVECHAIN_ANCHOR_ACTION_SPOOL").map(PathBuf::from);
+    let anchor_archive_spool = anchor_spool.clone();
     let anchor_execution = env::var_os("ACTIVECHAIN_ANCHOR_EXECUTION_STATE").map(PathBuf::from);
     let anchor_operator = env::var("ACTIVECHAIN_ANCHOR_OPERATOR").ok();
     let server = match (anchor_spool, anchor_execution, anchor_operator) {
@@ -226,9 +227,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let finality_archive =
         env::var_os("ACTIVECHAIN_FAUCET_FINALITY_ARCHIVE_DIR").map(PathBuf::from);
     let mut reconciled_archives = BTreeSet::new();
+    let mut reconciled_anchor_archives = BTreeSet::new();
     loop {
         if let Some(directory) = finality_archive.as_ref() {
             reconcile_faucet_archives(&server, directory, &mut reconciled_archives)?;
+        }
+        if let Some(spool) = anchor_archive_spool.as_ref() {
+            reconcile_anchor_archives(&server, spool, &mut reconciled_anchor_archives)?;
         }
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -238,6 +243,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("RPC request rejected: {error:?}");
         }
     }
+}
+
+fn reconcile_anchor_archives(
+    server: &RpcServer,
+    spool: &PathBuf,
+    reconciled: &mut BTreeSet<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let parent = spool
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let name = spool
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("anchor action spool name is not UTF-8")?;
+    let prefix = format!("{name}.finalized-");
+    for entry in std::fs::read_dir(parent)? {
+        let entry = entry?;
+        let archive_name = entry.file_name().to_string_lossy().into_owned();
+        let Some(height) = archive_name.strip_prefix(&prefix) else {
+            continue;
+        };
+        if height.parse::<u64>().is_err() || reconciled.contains(&archive_name) {
+            continue;
+        }
+        let receipt = PathBuf::from(format!("{}.receipt.finalized-{height}", spool.display()));
+        let finality = PathBuf::from(format!("{}.finality.finalized-{height}", spool.display()));
+        if !receipt.is_file() || !finality.is_file() {
+            continue;
+        }
+        server
+            .reconcile_anchor_finality(
+                &std::fs::read(entry.path())?,
+                &std::fs::read(&receipt)?,
+                &std::fs::read(&finality)?,
+            )
+            .map_err(|error| {
+                format!("could not reconcile anchor archive {archive_name}: {error:?}")
+            })?;
+        reconciled.insert(archive_name);
+    }
+    Ok(())
 }
 
 fn reconcile_faucet_archives(
