@@ -826,6 +826,7 @@ dependencies = [
  "activechain-action-kernel",
  "activechain-application-primitives",
  "activechain-canonical-codec",
+ "activechain-consensus-verifier",
  "activechain-devnet-kernel",
  "activechain-finality-types",
  "activechain-pq-zk",
@@ -839,6 +840,7 @@ dependencies = [
  "serde_json",
  "sha3 0.10.9",
  "tempfile",
+ "zeroize",
 ]
 
 [[package]]

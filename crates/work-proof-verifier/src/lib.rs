@@ -1,5 +1,6 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
+pub mod api;
 pub mod json_adapter;
 pub mod status;
 
@@ -93,6 +94,14 @@ impl VerificationErrorV1 {
         Self { code, retryable: true }
     }
 }
+
+impl std::fmt::Display for VerificationErrorV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "work-proof verification failed ({:?})", self.code)
+    }
+}
+
+impl std::error::Error for VerificationErrorV1 {}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "class", rename_all = "snake_case")]
@@ -695,6 +704,25 @@ impl<R: RelationVerifier> WorkProofVerificationService<R> {
             .collect::<Vec<_>>();
         let next_cursor = has_more.then(|| digest_hex(selected[limit - 1].claim_id));
         Ok(ClaimPageV1 { claims, next_cursor })
+    }
+
+    pub fn claim(
+        &self,
+        claim_id: Digest384,
+    ) -> Result<Option<ClaimSummaryDtoV1>, VerificationErrorV1> {
+        Ok(self.usage.claim_entries()?.into_iter().find(|entry| entry.claim_id == claim_id).map(
+            |entry| ClaimSummaryDtoV1 {
+                claim_id: digest_hex(entry.claim_id),
+                lifecycle: ProofLifecycleV1::AnchorFinalized,
+                relation_verified: true,
+                anchor_verified: true,
+                usage_verified: true,
+                usage_domain: digest_hex(entry.usage_domain),
+                verifier_revision: entry.verifier_revision,
+                trust_bundle_sequence: entry.trust_sequence,
+                accepted_at_ms: entry.accepted_at_ms,
+            },
+        ))
     }
 }
 

@@ -77,6 +77,8 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Bind operator-selected chained trust bundles and exact finalized-anchor inclusion.
     - [x] Implement durable all-or-nothing class-neutral usage admission and exact-claim retries.
     - [x] Add bounded explorer DTOs, pagination, error taxonomy, offline Rust API, and C FFI.
+    - [x] Ship the authenticated bounded stateful HTTP verification/explorer adapter and real
+      ML-DSA trust-bootstrap tooling; requests cannot select trust.
     - [x] Document the `pow.actum.network` verifier, trust, subprocess, and storage boundaries.
     - [x] Pass compile-first and affected-crate qualification for the direct finalized-anchor
       verifier boundary without rebuilding the frozen guest image.

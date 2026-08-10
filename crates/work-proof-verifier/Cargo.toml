@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 activechain-application-primitives.workspace = true
 activechain-canonical-codec.workspace = true
+activechain-consensus-verifier.workspace = true
 activechain-finality-types.workspace = true
 activechain-pq-zk.workspace = true
 activechain-protocol-types.workspace = true
@@ -18,6 +19,7 @@ activechain-work-proof.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha3.workspace = true
+zeroize = "1.8"
 
 [dev-dependencies]
 activechain-action-kernel.workspace = true

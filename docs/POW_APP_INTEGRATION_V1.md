@@ -64,17 +64,16 @@ verification, and verification does not imply usage-nullifier admission.
 
 ## Verification service contract
 
-#777 ships the safe Rust verification service and bounded verifier subprocess. A production HTTP
-adapter may expose the following routes with media type
-`application/vnd.actum.work-proof.v1+json`; that adapter is not a trust boundary and must delegate
-all verification and usage admission to `activechain-work-proof-verifier`.
+#777 ships the safe Rust verification service, authenticated bounded HTTP adapter, and bounded
+relation-verifier subprocess. Run `actum-work-proof-api` behind TLS with a private bearer-token file;
+the adapter is not a trust boundary and delegates all verification and usage admission to
+`activechain-work-proof-verifier`.
 
 ```text
 GET  /v1/status
 POST /v1/proofs/verify
+GET  /v1/claims?cursor=<claim_id>&limit=<1..100>
 GET  /v1/claims/{claim_id}
-GET  /v1/epochs/{epoch_id}
-POST /v1/disclosures/verify
 ```
 
 `POST /v1/proofs/verify` accepts canonical `WorkProofReceiptEnvelopeV1` bytes, the canonical epoch
@@ -109,6 +108,33 @@ and rotation validate signatures, sequence, previous bundle ID, signer-set trans
 window, network/genesis, checkpoint, image, verifier, proof profile, and policy. A proof submission
 cannot replace this state. Explorer pagination returns only bounded claim summaries; detailed DTOs
 contain public aggregates and finalized-anchor identifiers, never raw telemetry or private evidence.
+
+Provision bootstrap trust with canonical signed-bundle and signer-set envelopes:
+
+```sh
+actum-work-proof-trust-bootstrap \
+  /private/verifier/trust.bin \
+  /private/operator/signed-trust-bundle.bin \
+  /private/operator/trust-signer-set.bin \
+  "$NOW_MS"
+
+actum-work-proof-api \
+  127.0.0.1:49157 \
+  /private/verifier/trust.bin \
+  /private/verifier/usage.bin \
+  /opt/actum/bin/actum-work-proof-verifier \
+  /private/verifier/bearer.token
+```
+
+The bootstrap tool verifies threshold ML-DSA signatures before writing private durable trust state.
+The API never accepts a trust bundle from a request. The bearer is transport authorization only and
+must remain outside browser code, telemetry, logs, evidence, and command-line arguments.
+
+The stateful request schema is `actum.work-proof.admit.request.v1` with operation
+`verify_and_register`, profile `actum.non-overlap.risc0.v1`, and lowercase-hex fields
+`claim_id`, `public_claim_envelope_hex`, `proof_envelope_hex`,
+`anchor_request_envelope_hex`, and `anchor_evidence_envelope_hex`. Unknown fields, oversized bodies,
+noncanonical hex/envelopes, unsupported profiles, and caller-supplied trust fail closed.
 
 ## Offline and subprocess interfaces
 
