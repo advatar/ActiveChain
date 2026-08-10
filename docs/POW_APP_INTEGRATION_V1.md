@@ -127,6 +127,8 @@ actum-work-proof-api \
 ```
 
 The bootstrap tool verifies threshold ML-DSA signatures before writing private durable trust state.
+Bootstrap refuses to replace an existing trust store; signer rotation must use the verified chained
+transition API so sequence rollback and forked predecessors remain impossible.
 The API never accepts a trust bundle from a request. The bearer is transport authorization only and
 must remain outside browser code, telemetry, logs, evidence, and command-line arguments.
 

@@ -87,7 +87,10 @@ fn serve<R: activechain_work_proof_verifier::RelationVerifier>(
         if !request.body.is_empty() {
             return write_error(stream, 400, "malformed_request");
         }
-        return write_json(stream, 200, &serde_json::json!({"status":"healthy"}));
+        return match service.status(now_ms()?) {
+            Ok(status) => write_json(stream, 200, &status),
+            Err(_) => write_error(stream, 503, "verifier_unavailable"),
+        };
     }
     if request.method == b"GET" && request.path.starts_with(b"/v1/claims/") {
         if !request.body.is_empty() {
@@ -128,13 +131,7 @@ fn serve<R: activechain_work_proof_verifier::RelationVerifier>(
         Err(ApiRequestErrorV1::Malformed) => return write_error(stream, 400, "malformed_request"),
         Err(ApiRequestErrorV1::Unsupported) => return write_error(stream, 400, "unsupported"),
     };
-    let now_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| "clock")?
-        .as_millis()
-        .try_into()
-        .map_err(|_| "clock")?;
-    match service.verify(&verification, now_ms) {
+    match service.verify(&verification, now_ms()?) {
         Ok(result) => write_json(stream, 200, &StatefulVerificationResponseV1::new(result)),
         Err(error) => {
             let status = match error.code {
@@ -245,7 +242,17 @@ fn parse_claim_query(path: &[u8]) -> Option<(Option<Digest384>, usize)> {
             _ => return None,
         }
     }
-    Some((cursor, limit.unwrap_or(20)))
+    let limit = limit.unwrap_or(20);
+    (1..=activechain_work_proof_verifier::MAX_PAGE_SIZE).contains(&limit).then_some((cursor, limit))
+}
+
+fn now_ms() -> Result<u64, &'static str> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "clock")?
+        .as_millis()
+        .try_into()
+        .map_err(|_| "clock")
 }
 
 fn load_token(path: &Path) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
@@ -330,6 +337,8 @@ mod tests {
         assert!(!constant_time_eq(b"same", b"diff"));
         assert!(!constant_time_eq(b"short", b"longer"));
         assert_eq!(parse_claim_query(b"/v1/claims?limit=10"), Some((None, 10)));
+        assert!(parse_claim_query(b"/v1/claims?limit=0").is_none());
+        assert!(parse_claim_query(b"/v1/claims?limit=101").is_none());
         assert!(parse_claim_query(b"/v1/claims?limit=0&limit=1").is_none());
         assert!(parse_claim_query(b"/v1/claims?unknown=1").is_none());
     }

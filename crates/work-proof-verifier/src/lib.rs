@@ -201,6 +201,19 @@ pub struct ClaimSummaryDtoV1 {
     pub accepted_at_ms: u64,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct VerifierStatusDtoV1 {
+    pub status: &'static str,
+    pub chain_id: String,
+    pub genesis_commitment: String,
+    pub checkpoint_height: u64,
+    pub checkpoint_block_id: String,
+    pub trust_bundle_id: String,
+    pub trust_bundle_sequence: u64,
+    pub verifier_revision: u32,
+    pub proof_system_revision: u32,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UsageRegistrationV1 {
     Inserted,
@@ -370,6 +383,11 @@ impl DurableTrustStore {
         verify_trust_bundle_bootstrap(&bundle, signer_set, now_ms, verify)
             .map_err(|_| VerificationErrorV1::terminal(VerificationErrorCodeV1::StaleTrust))?;
         let path = path.into();
+        if path.exists() {
+            return Err(VerificationErrorV1::terminal(
+                VerificationErrorCodeV1::PersistenceUnavailable,
+            ));
+        }
         persist_trust(&path, &bundle)?;
         Ok(Self { path, bundle: Mutex::new(bundle) })
     }
@@ -670,6 +688,32 @@ impl<R: RelationVerifier> WorkProofVerificationService<R> {
                 checkpoint_bundle_id: digest_hex(bundle.bundle_id),
             },
             accepted_at_ms: now_ms,
+        })
+    }
+
+    pub fn status(&self, now_ms: u64) -> Result<VerifierStatusDtoV1, VerificationErrorV1> {
+        let bundle = self.trust.accepted_bundle()?;
+        let body = &bundle.body;
+        if now_ms < body.not_before_ms || now_ms > body.not_after_ms {
+            return Err(VerificationErrorV1::terminal(VerificationErrorCodeV1::StaleTrust));
+        }
+        if body.risc0_image_id != work_image_id()
+            || body.proof_system_revision != WORK_PROOF_SYSTEM_REVISION
+            || body.proof_profile_id != work_proof_profile_id()
+            || body.verifier_revision != WORK_VERIFIER_REVISION
+        {
+            return Err(VerificationErrorV1::terminal(VerificationErrorCodeV1::WrongImage));
+        }
+        Ok(VerifierStatusDtoV1 {
+            status: "healthy",
+            chain_id: digest_hex(body.chain_id),
+            genesis_commitment: digest_hex(body.genesis_commitment),
+            checkpoint_height: body.checkpoint_height,
+            checkpoint_block_id: digest_hex(body.checkpoint_block_id),
+            trust_bundle_id: digest_hex(bundle.bundle_id),
+            trust_bundle_sequence: body.bundle_sequence,
+            verifier_revision: body.verifier_revision,
+            proof_system_revision: body.proof_system_revision,
         })
     }
 
@@ -1150,6 +1194,10 @@ mod tests {
         let store =
             DurableTrustStore::bootstrap(&path, expected.clone(), &set, 200, &verify_signature)
                 .unwrap();
+        assert!(
+            DurableTrustStore::bootstrap(&path, expected.clone(), &set, 200, &verify_signature,)
+                .is_err()
+        );
         assert_eq!(store.accepted_bundle().unwrap(), expected);
         drop(store);
         assert_eq!(DurableTrustStore::open(path).unwrap().accepted_bundle().unwrap(), expected);
