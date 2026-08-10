@@ -57,6 +57,7 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
           BEFORE_SHA: ${{ github.event.before }}
           PR_ACTION: ${{ github.event.action }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
         run: |
           set -euo pipefail
           full=false
@@ -65,7 +66,11 @@ jobs:
             full=true
           fi
 
-          if [[ "$full" == true ]]; then
+          if [[ "$EVENT_NAME" == pull_request &&
+                ("$PR_DRAFT" == true || "$PR_ACTION" == ready_for_review) ]]; then
+            echo "draft/review-bookkeeping event: selecting lightweight policy-only checks"
+            changed='docs/draft-pr-lightweight.md'
+          elif [[ "$full" == true ]]; then
             changed='__FULL_QUALIFICATION__'
           elif [[ "$EVENT_NAME" == pull_request && "$PR_ACTION" == synchronize &&
                   -n "$BEFORE_SHA" && "$BEFORE_SHA" != 0000000000000000000000000000000000000000 ]]; then

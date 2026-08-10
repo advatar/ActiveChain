@@ -76,6 +76,12 @@ def validate(text: str) -> None:
         errors.append("incremental classification must prove the before SHA is reachable")
     if "before SHA is unreachable after force-push; classifying complete PR diff" not in text:
         errors.append("force-push classification must conservatively fall back to the PR-base diff")
+    if (
+        "PR_DRAFT: ${{ github.event.pull_request.draft }}" not in text
+        or '"$PR_DRAFT" == true || "$PR_ACTION" == ready_for_review' not in text
+        or "draft/review-bookkeeping event: selecting lightweight policy-only checks" not in text
+    ):
+        errors.append("draft and ready-for-review bookkeeping must remain policy-only")
     if text.count("git status --porcelain --untracked-files=normal") != 2:
         errors.append("Apple qualification must prove cleanliness before and after header generation")
     for command in MANDATORY_COMMANDS:

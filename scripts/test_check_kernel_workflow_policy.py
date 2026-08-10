@@ -55,6 +55,15 @@ class KernelWorkflowPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "conservatively fall back"):
             POLICY.validate(unsafe)
 
+    def test_draft_lightweight_guard_fails_closed_when_removed(self) -> None:
+        unsafe = WORKFLOW.replace(
+            '"$PR_DRAFT" == true || "$PR_ACTION" == ready_for_review',
+            '"$PR_DRAFT" == false',
+            1,
+        )
+        with self.assertRaisesRegex(ValueError, "bookkeeping must remain policy-only"):
+            POLICY.validate(unsafe)
+
     def classify(self, full: bool, *paths: str) -> dict[str, str]:
         result = subprocess.run(
             ["bash", str(ROOT / "scripts" / "classify-kernel-change-scope.sh"), str(full).lower()],
