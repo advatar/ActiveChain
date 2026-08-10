@@ -22,10 +22,19 @@ fn durable_files_are_private_regular_files_and_oversize_fails_before_decode() {
         )
         .expect("persist usage registry");
     assert_eq!(fs::metadata(&usage_path).expect("usage metadata").permissions().mode() & 0o077, 0);
+    let lock_path = directory.path().join("usage.bin.lock");
+    assert_eq!(
+        fs::metadata(&lock_path).expect("usage lock metadata").permissions().mode() & 0o077,
+        0
+    );
 
     let alias = directory.path().join("usage-link.bin");
     symlink(&usage_path, &alias).expect("create usage symlink");
     assert!(DurableUsageRegistry::open(&alias).is_err());
+
+    let lock_alias = directory.path().join("usage-alias.bin.lock");
+    symlink(&lock_path, &lock_alias).expect("create usage lock symlink");
+    assert!(DurableUsageRegistry::open(directory.path().join("usage-alias.bin")).is_err());
 
     fs::set_permissions(&usage_path, fs::Permissions::from_mode(0o644))
         .expect("make usage file insecure");

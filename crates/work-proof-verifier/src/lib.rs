@@ -5,6 +5,8 @@ pub mod json_adapter;
 pub mod status;
 
 #[cfg(all(test, unix))]
+mod multiprocess_tests;
+#[cfg(all(test, unix))]
 mod storage_tests;
 
 use activechain_application_primitives::{
@@ -23,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use sha3::{Digest as _, Sha3_384};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs::{self, OpenOptions},
+    fs::{self, File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -38,13 +40,13 @@ pub const MAX_OFFLINE_WORK_PROOF_BYTES: usize = MAX_WORK_PROOF_BYTES;
 pub const MAX_SUBPROCESS_FRAME_BYTES: usize = MAX_WORK_PROOF_BYTES + 128 * 1024;
 pub const MAX_CLAIMS: usize = 1_000_000;
 pub const MAX_PAGE_SIZE: usize = 100;
-const MAX_USAGE_ENTRIES: usize = 1_000_000;
+pub const MAX_USAGE_ENTRIES: usize = 1_000_000;
 const MAX_RATE_CLIENTS: usize = 100_000;
 const IPC_MAGIC: &[u8; 8] = b"ACWPV1\0\0";
 const USAGE_MAGIC: &[u8; 8] = b"ACUNV1\0\0";
 const TRUST_MAGIC: &[u8; 8] = b"ACTBV1\0\0";
 const USAGE_ENTRY_BYTES: usize = 48 * 3 + 4 + 8 * 2;
-const MAX_USAGE_FILE_BYTES: u64 = (12 + MAX_USAGE_ENTRIES * USAGE_ENTRY_BYTES) as u64;
+pub const MAX_USAGE_FILE_BYTES: u64 = (12 + MAX_USAGE_ENTRIES * USAGE_ENTRY_BYTES) as u64;
 const MAX_TRUST_FILE_BYTES: u64 =
     (12 + SignedActumVerifierTrustBundleV1::MAX_ENCODED_LEN + 9) as u64;
 
@@ -237,18 +239,19 @@ struct UsageState {
 
 pub struct DurableUsageRegistry {
     path: PathBuf,
+    lock_file: File,
     state: Mutex<UsageState>,
 }
 
 impl DurableUsageRegistry {
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, VerificationErrorV1> {
         let path = path.into();
-        let state = if path.exists() {
-            decode_usage(&read_bounded_regular_file(&path, MAX_USAGE_FILE_BYTES)?)?
-        } else {
-            UsageState::default()
+        let lock_file = open_usage_lock_file(&path)?;
+        let state = {
+            let _exclusive = ExclusiveUsageFileLock::acquire(&lock_file)?;
+            load_usage_state(&path)?
         };
-        Ok(Self { path, state: Mutex::new(state) })
+        Ok(Self { path, lock_file, state: Mutex::new(state) })
     }
 
     pub fn register_all(
@@ -275,6 +278,8 @@ impl DurableUsageRegistry {
             return Err(VerificationErrorV1::terminal(VerificationErrorCodeV1::MalformedRequest));
         }
         let mut state = self.state.lock().map_err(|_| persistence(()))?;
+        let _exclusive = ExclusiveUsageFileLock::acquire(&self.lock_file)?;
+        *state = load_usage_state(&self.path)?;
         let existing_claim = state
             .entries
             .values()
@@ -308,15 +313,78 @@ impl DurableUsageRegistry {
             };
             candidate.entries.insert((usage_domain, nullifier), entry);
         }
-        persist_atomic(&self.path, &encode_usage(&candidate))?;
+        persist_usage_atomic(&self.path, &encode_usage(&candidate))?;
         *state = candidate;
         Ok(UsageRegistrationV1::Inserted)
     }
 
     fn claim_entries(&self) -> Result<Vec<UsageEntry>, VerificationErrorV1> {
-        let state = self.state.lock().map_err(|_| persistence(()))?;
+        let mut state = self.state.lock().map_err(|_| persistence(()))?;
+        let _exclusive = ExclusiveUsageFileLock::acquire(&self.lock_file)?;
+        *state = load_usage_state(&self.path)?;
         let mut seen = BTreeSet::new();
         Ok(state.entries.values().copied().filter(|entry| seen.insert(entry.claim_id)).collect())
+    }
+}
+
+struct ExclusiveUsageFileLock<'a> {
+    file: &'a File,
+}
+
+impl<'a> ExclusiveUsageFileLock<'a> {
+    fn acquire(file: &'a File) -> Result<Self, VerificationErrorV1> {
+        file.lock().map_err(persistence)?;
+        Ok(Self { file })
+    }
+}
+
+impl Drop for ExclusiveUsageFileLock<'_> {
+    fn drop(&mut self) {
+        let _ = File::unlock(self.file);
+    }
+}
+
+fn usage_lock_path(path: &Path) -> PathBuf {
+    let mut lock = path.as_os_str().to_os_string();
+    lock.push(".lock");
+    PathBuf::from(lock)
+}
+
+fn open_usage_lock_file(path: &Path) -> Result<File, VerificationErrorV1> {
+    let parent = path.parent().ok_or_else(|| persistence(()))?;
+    fs::create_dir_all(parent).map_err(persistence)?;
+    let lock_path = usage_lock_path(path);
+    let mut options = OpenOptions::new();
+    options.create(true).read(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options.open(&lock_path).map_err(persistence)?;
+    let path_metadata = fs::symlink_metadata(&lock_path).map_err(persistence)?;
+    let file_metadata = file.metadata().map_err(persistence)?;
+    if !path_metadata.file_type().is_file() || !file_metadata.file_type().is_file() {
+        return Err(persistence(()));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        if path_metadata.dev() != file_metadata.dev()
+            || path_metadata.ino() != file_metadata.ino()
+            || file_metadata.permissions().mode() & 0o077 != 0
+        {
+            return Err(persistence(()));
+        }
+    }
+    Ok(file)
+}
+
+fn load_usage_state(path: &Path) -> Result<UsageState, VerificationErrorV1> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => decode_usage(&read_bounded_regular_file(path, MAX_USAGE_FILE_BYTES)?),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(UsageState::default()),
+        Err(error) => Err(persistence(error)),
     }
 }
 
@@ -891,7 +959,19 @@ fn digest_hex(value: Digest384) -> String {
     value.as_bytes().iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+fn persist_usage_atomic(path: &Path, bytes: &[u8]) -> Result<(), VerificationErrorV1> {
+    persist_atomic_inner(path, bytes, true)
+}
+
 fn persist_atomic(path: &Path, bytes: &[u8]) -> Result<(), VerificationErrorV1> {
+    persist_atomic_inner(path, bytes, false)
+}
+
+fn persist_atomic_inner(
+    path: &Path,
+    bytes: &[u8],
+    _usage_failpoints: bool,
+) -> Result<(), VerificationErrorV1> {
     let parent = path.parent().ok_or_else(|| persistence(()))?;
     fs::create_dir_all(parent).map_err(persistence)?;
     let temporary = path.with_extension("tmp");
@@ -910,11 +990,32 @@ fn persist_atomic(path: &Path, bytes: &[u8]) -> Result<(), VerificationErrorV1> 
         file.write_all(bytes).map_err(persistence)?;
         file.sync_all().map_err(persistence)?;
     }
+    #[cfg(test)]
+    usage_persistence_failpoint(_usage_failpoints, "after_temp_sync");
     fs::rename(&temporary, path).map_err(persistence)?;
+    #[cfg(test)]
+    usage_persistence_failpoint(_usage_failpoints, "after_rename");
+    #[cfg(unix)]
+    {
+        OpenOptions::new()
+            .read(true)
+            .open(parent)
+            .map_err(persistence)?
+            .sync_all()
+            .map_err(persistence)?;
+    }
+    #[cfg(not(unix))]
     if let Ok(directory) = OpenOptions::new().read(true).open(parent) {
         directory.sync_all().map_err(persistence)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+fn usage_persistence_failpoint(enabled: bool, point: &str) {
+    if enabled && std::env::var("ACTUM_USAGE_TEST_CRASH_POINT").as_deref() == Ok(point) {
+        std::process::exit(86);
+    }
 }
 
 fn read_bounded_regular_file(path: &Path, maximum: u64) -> Result<Vec<u8>, VerificationErrorV1> {
