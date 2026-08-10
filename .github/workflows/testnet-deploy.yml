@@ -36,7 +36,8 @@ jobs:
             -p activechain-rpc-server \
             -p activechain-wallet-core \
             -p activechain-wallet-ffi \
-            -p activechain-verifier-ffi
+            -p activechain-verifier-ffi \
+            -p activechain-work-proof-verifier
           mkdir -p dist/kanalen/{bin,lib,headers,manifests}
           cp target/release/validator-node dist/kanalen/bin/
           cp target/release/genesis-tool dist/kanalen/bin/
@@ -46,6 +47,8 @@ jobs:
           cp target/release/activechain-rpc-ingest dist/kanalen/bin/
           cp target/release/activechain-rpc-probe dist/kanalen/bin/
           cp target/release/activechain-telemetry-anchor-gateway dist/kanalen/bin/
+          cp target/release/actum-work-proof-verifier dist/kanalen/bin/
+          cp target/release/actum-work-proof-json-verifier dist/kanalen/bin/
           cp target/release/activechain-wallet dist/kanalen/bin/
           cp target/release/activechain-faucet dist/kanalen/bin/
           cp target/release/libactivechain_wallet_ffi.* dist/kanalen/lib/ 2>/dev/null || true

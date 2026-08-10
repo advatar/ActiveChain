@@ -10,3 +10,8 @@ hold collector signing keys, accept raw source/prompts/output, or silently enabl
 `ACTUM_ANCHOR_URL` and `ACTUM_ANCHOR_BEARER_TOKEN_FILE`; the token file must be a regular,
 non-symlink mode-0600 file. Configuration presence is reported without exposing values or bearer
 material. Delivery and anchoring remain orthogonal lifecycle states.
+
+`submitted` delivery and `submitted`/`pending` anchor results are refreshable with the same
+canonical request ID. Terminal results are served from the durable idempotency journal. A
+`VERIFIED` result from the stateless RISC Zero JSON adapter is reported only as
+`relation_verified`; it never sets `anchor_verified` or `usage_verified`.

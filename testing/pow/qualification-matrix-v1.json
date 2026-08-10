@@ -1,0 +1,18 @@
+{
+  "$schema": "https://actum.network/testing/pow-qualification-matrix/v1",
+  "revision": 1,
+  "cases": [
+    {"id":"healthy_components","tier":"deterministic","source":"plugin and work-proof-verifier release tests"},
+    {"id":"delivery_failure_recovery","tier":"deterministic","source":"test_timeout_and_malformed_backend_fail_without_receipt; test_work_verifier_rejects_inconsistent_success_and_backend_failures_are_retryable"},
+    {"id":"anchor_failure_recovery","tier":"deterministic","source":"test_pending_anchor_refreshes_with_same_idempotency_key_after_restart"},
+    {"id":"delivery_anchor_separation","tier":"deterministic","source":"test_delivery_success_does_not_promote_failed_anchor"},
+    {"id":"pending_not_finalized","tier":"deterministic","source":"test_pending_anchor_refreshes_with_same_idempotency_key_after_restart"},
+    {"id":"network_epoch_policy_substitution","tier":"deterministic","source":"work-proof relation, trust, and anchor adversarial release tests"},
+    {"id":"restart_replay_concurrency","tier":"deterministic","source":"durable usage/status tests and plugin race/idempotency tests"},
+    {"id":"privacy_and_bounded_errors","tier":"deterministic","source":"plugin credential/log tests and bounded verifier tests"},
+    {"id":"real_delivery_webhook","tier":"production","source":"sanitized exact-deployment connectivity receipt"},
+    {"id":"real_finalized_anchor","tier":"production","source":"canonical state-membership and finality receipt"},
+    {"id":"real_stateful_verification","tier":"production","source":"relation_verified + anchor_verified + usage_verified receipt"},
+    {"id":"landing_page_truthfulness","tier":"production","source":"deployed compatibility matrix and UI rehearsal"}
+  ]
+}

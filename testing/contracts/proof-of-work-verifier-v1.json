@@ -1,0 +1,16 @@
+{
+  "profile": "actum.proof-of-work-consumer-contract.v1",
+  "request": {
+    "schema": "actum.work-proof.verify.request.v1",
+    "operation": "verify_non_overlap",
+    "profile": "actum.non-overlap.risc0.v1",
+    "proof": {"proof_envelope_hex": "00"},
+    "expected": {"public_claim_envelope_hex": "00"}
+  },
+  "results": [
+    {"schema":"actum.work-proof.verify.result.v1","code":"VERIFIED","verified":true,"profile":"actum.non-overlap.risc0.v1"},
+    {"schema":"actum.work-proof.verify.result.v1","code":"INVALID","verified":false,"profile":"actum.non-overlap.risc0.v1"},
+    {"schema":"actum.work-proof.verify.result.v1","code":"UNSUPPORTED","verified":false,"profile":"actum.non-overlap.risc0.v1"},
+    {"schema":"actum.work-proof.verify.result.v1","code":"MALFORMED","verified":false,"profile":"actum.non-overlap.risc0.v1"}
+  ]
+}

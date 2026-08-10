@@ -99,6 +99,13 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
       specifications.
     - [x] Pass the exact full deterministic-kernel gate.
   - [ ] Qualify and document the complete `pow.actum.network` integration (#778; claimed on `feat/778-pow-e2e-qualification`).
+    - [x] Add deterministic delivery, anchor, verifier, replay, restart, concurrency, and privacy rehearsals.
+    - [x] Emit exact-revision deterministic evidence from the split runtime gate.
+    - [x] Bundle the bounded work-proof verifier adapters for Kanalen deployment.
+    - [ ] Freeze and pin the canonical anchor-registry state-membership verifier.
+    - [ ] Exercise real deployed delivery, anchoring, finality, and stateful usage admission.
+    - [ ] Pass the exact full gate and publish production qualification evidence.
+    - [ ] Promote the deployed testnet and update landing-page capabilities proven by that evidence.
 
 ## Verifier C header and Apple distribution reconciliation
 

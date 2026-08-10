@@ -267,6 +267,16 @@ jobs:
         with: {docker: 'true'}
       - name: Run release tests
         run: cargo test --locked --workspace --release
+      - name: Qualify pow.actum.network deterministic integration
+        run: >-
+          python3 scripts/qualify-pow-e2e.py
+          --revision "$GITHUB_SHA"
+          --output "pow-e2e-deterministic-${GITHUB_SHA}.json"
+      - name: Publish pow.actum.network deterministic evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pow-e2e-deterministic-${{ github.sha }}
+          path: pow-e2e-deterministic-${{ github.sha }}.json
       - name: Rehearse validator processes
         run: bash scripts/rehearse-validator-processes.sh
       - name: Rehearse live process quorum

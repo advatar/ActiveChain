@@ -66,15 +66,16 @@ def base(status, request=None):
 def safe_digest_env(name):
     value=os.environ.get(name); return value if value and DIGEST.fullmatch(value) else None
 
-def mutate(name,args,operation):
+def mutate(name,args,operation,retry_statuses=frozenset()):
     capability(args); rid=request_id(args.get("request_id")); mark=fingerprint(name,args)
     with state_transaction():
         state=load_state(); prior=state["requests"].get(rid)
         if prior:
             if prior.get("fingerprint")!=mark: raise ValueError("request_id collision")
-            result=prior["result"].copy(); result["duplicate"]=True; return result
+            if prior["result"].get("status") not in retry_statuses:
+                result=prior["result"].copy(); result["duplicate"]=True; return result
         if len(state["requests"])>=MAX_REQUESTS: raise ValueError("request journal capacity reached")
-        result=operation(state); result["duplicate"]=False
+        result=operation(state); result["duplicate"]=prior is not None
         state["requests"][rid]={"fingerprint":mark,"result":result}; save_state(state); return result
 
 def status(args):
@@ -165,7 +166,9 @@ def post_artifact(name,args,env_name,lifecycle):
         status_value=reply.get("status")
         if status_value not in lifecycle: raise RuntimeError("malformed backend lifecycle")
         result=base(status_value,args["request_id"]); result.update({"project_id":pid,"reference":reply.get("reference"),"policy_revision":state["authorizations"][pid]["revision"]}); return result
-    return mutate(name,args,op)
+    retry_statuses={"submitted"}
+    if env_name=="ACTUM_ANCHOR_URL": retry_statuses.add("pending")
+    return mutate(name,args,op,retry_statuses)
 
 def subprocess_tool(name,args,env_name):
     exact(args,("capability","request_id","project_id","artifact_path")); pid=project(args["project_id"]); path=artifact_path(args["artifact_path"])
@@ -173,11 +176,23 @@ def subprocess_tool(name,args,env_name):
         if pid not in state["authorizations"]: raise ValueError("project not authorized")
         binary=os.environ.get(env_name)
         if not binary or not Path(binary).is_absolute() or not os.access(binary,os.X_OK): raise RuntimeError("integration unavailable")
-        completed=subprocess.run([binary,"--input",str(path),"--request-id",args["request_id"]],capture_output=True,timeout=30,check=False)
+        command=[binary]
+        options={"capture_output":True,"timeout":30,"check":False}
+        if name=="work.verify": options["input"]=path.read_bytes()
+        else: command.extend(["--input",str(path),"--request-id",args["request_id"]])
+        completed=subprocess.run(command,**options)
         if completed.returncode or len(completed.stdout)>MAX_RESPONSE: raise RuntimeError("bounded subprocess rejected request")
         reply=json.loads(completed.stdout)
         if not isinstance(reply,dict): raise RuntimeError("malformed subprocess response")
-        result=base(reply.get("status","unavailable"),args["request_id"]); result.update({k:reply.get(k) for k in ("claim_id","relation_verified","anchor_verified","usage_verified","artifact_path")}); result.update({"project_id":pid,"policy_revision":state["authorizations"][pid]["revision"]}); return result
+        if name=="work.verify":
+            expected={"schema","code","verified","profile"}
+            if set(reply)!=expected or reply.get("schema")!="actum.work-proof.verify.result.v1" or reply.get("profile")!="actum.non-overlap.risc0.v1" or reply.get("code") not in {"VERIFIED","INVALID","UNSUPPORTED","MALFORMED"} or not isinstance(reply.get("verified"),bool) or reply["verified"]!=(reply["code"]=="VERIFIED"): raise RuntimeError("malformed subprocess response")
+            result=base("relation_verified" if reply["verified"] else reply["code"].lower(),args["request_id"])
+            result.update({"claim_id":None,"relation_verified":reply["verified"],"anchor_verified":False,"usage_verified":False,"artifact_path":None})
+        else:
+            if set(reply)-{"status","artifact_path"} or reply.get("status") not in {"proof_generated","unsupported","unavailable","invalid"}: raise RuntimeError("malformed subprocess response")
+            result=base(reply["status"],args["request_id"]); result.update({"claim_id":None,"relation_verified":False,"anchor_verified":False,"usage_verified":False,"artifact_path":reply.get("artifact_path")})
+        result.update({"project_id":pid,"policy_revision":state["authorizations"][pid]["revision"]}); return result
     return mutate(name,args,op)
 
 def call(name,args):

@@ -97,6 +97,59 @@ class TelemetryPluginTests(unittest.TestCase):
             with self.assertRaises(RuntimeError): module.call("work.deliver",arguments("malformed"))
         state=module.load_state(); self.assertNotIn("timeout",state["requests"]); self.assertNotIn("malformed",state["requests"])
 
+    def test_pending_anchor_refreshes_with_same_idempotency_key_after_restart(self):
+        self.authorize(); artifact=Path(self.temp.name)/"anchor.bin"; artifact.write_bytes(b"anchor")
+        token=Path(self.temp.name)/"anchor-token"; token.write_text("abcdefghijklmnopqrstuvwxyz012345"); token.chmod(0o600)
+        os.environ["ACTUM_ANCHOR_URL"]="https://anchor.example/v1/anchors"; os.environ["ACTUM_ANCHOR_BEARER_TOKEN_FILE"]=str(token)
+        args={"capability":"secret-capability","request_id":"anchor-recovery","project_id":self.project,"artifact_path":str(artifact)}
+        replies=[Reply({"status":"pending","chain_id":"1"*96,"genesis_commitment":"2"*96,"reference":"5"*96}),Reply({"status":"finalized","chain_id":"1"*96,"genesis_commitment":"2"*96,"reference":"5"*96})]
+        with patch.object(module,"urlopen",side_effect=replies) as backend:
+            pending=module.call("work.anchor",args)
+            self.assertEqual(module.load_state()["requests"]["anchor-recovery"]["result"]["status"],"pending")
+            finalized=module.call("work.anchor",args)
+        self.assertEqual(pending["status"],"pending"); self.assertFalse(pending["duplicate"])
+        self.assertEqual(finalized["status"],"finalized"); self.assertTrue(finalized["duplicate"]); self.assertEqual(backend.call_count,2)
+        with patch.object(module,"urlopen") as backend: cached=module.call("work.anchor",args)
+        self.assertEqual(cached["status"],"finalized"); self.assertTrue(cached["duplicate"]); backend.assert_not_called()
+
+    def test_delivery_success_does_not_promote_failed_anchor(self):
+        self.authorize(); artifact=Path(self.temp.name)/"proof.bin"; artifact.write_bytes(b"proof")
+        token=Path(self.temp.name)/"anchor-token"; token.write_text("abcdefghijklmnopqrstuvwxyz012345"); token.chmod(0o600)
+        os.environ.update({"ACTUM_DELIVERY_WEBHOOK":"https://delivery.example/submit","ACTUM_ANCHOR_URL":"https://anchor.example/v1/anchors","ACTUM_ANCHOR_BEARER_TOKEN_FILE":str(token)})
+        base={"capability":"secret-capability","project_id":self.project,"artifact_path":str(artifact)}
+        with patch.object(module,"urlopen",return_value=Reply({"status":"delivered","chain_id":"1"*96,"genesis_commitment":"2"*96,"reference":"delivery"})):
+            delivered=module.call("work.deliver",{**base,"request_id":"delivered-only"})
+        with patch.object(module,"urlopen",side_effect=TimeoutError):
+            with self.assertRaises(RuntimeError): module.call("work.anchor",{**base,"request_id":"anchor-failed"})
+        self.assertEqual(delivered["status"],"delivered")
+        self.assertNotIn("anchor-failed",module.load_state()["requests"])
+
+    def test_work_verifier_relation_success_never_implies_anchor_or_usage(self):
+        self.authorize(); request=Path(self.temp.name)/"verify.json"; request.write_text("{}")
+        verifier=Path(self.temp.name)/"verifier"; verifier.write_text("#!/bin/sh\nprintf '%s\\n' '{\"schema\":\"actum.work-proof.verify.result.v1\",\"code\":\"VERIFIED\",\"verified\":true,\"profile\":\"actum.non-overlap.risc0.v1\"}'\n"); verifier.chmod(0o700)
+        os.environ["ACTUM_WORK_VERIFIER"]=str(verifier)
+        args={"capability":"secret-capability","request_id":"verify-1","project_id":self.project,"artifact_path":str(request)}
+        result=module.call("work.verify",args)
+        self.assertEqual(result["status"],"relation_verified"); self.assertTrue(result["relation_verified"])
+        self.assertFalse(result["anchor_verified"]); self.assertFalse(result["usage_verified"])
+
+    def test_work_verifier_rejects_inconsistent_success_and_backend_failures_are_retryable(self):
+        self.authorize(); request=Path(self.temp.name)/"verify.json"; request.write_text("{}")
+        verifier=Path(self.temp.name)/"verifier"; verifier.write_text("#!/bin/sh\nprintf '%s\\n' '{\"schema\":\"actum.work-proof.verify.result.v1\",\"code\":\"INVALID\",\"verified\":true,\"profile\":\"actum.non-overlap.risc0.v1\"}'\n"); verifier.chmod(0o700)
+        os.environ["ACTUM_WORK_VERIFIER"]=str(verifier)
+        args={"capability":"secret-capability","request_id":"verify-invalid","project_id":self.project,"artifact_path":str(request)}
+        with self.assertRaises(RuntimeError): module.call("work.verify",args)
+        self.assertNotIn("verify-invalid",module.load_state()["requests"])
+
+        os.environ["ACTUM_DELIVERY_WEBHOOK"]="https://delivery.example/submit"
+        delivery={"capability":"secret-capability","request_id":"delivery-retry","project_id":self.project,"artifact_path":str(request)}
+        for failure in (TimeoutError(),RuntimeError("429"),RuntimeError("500")):
+            with patch.object(module,"urlopen",side_effect=failure):
+                with self.assertRaises(RuntimeError): module.call("work.deliver",delivery)
+        with patch.object(module,"urlopen",return_value=Reply({"status":"delivered","chain_id":"1"*96,"genesis_commitment":"2"*96})):
+            recovered=module.call("work.deliver",delivery)
+        self.assertEqual(recovered["status"],"delivered"); self.assertFalse(recovered["duplicate"])
+
     def test_mcp_handshake_lists_all_bounded_tools_without_secret(self):
         frames=[
             {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}},
