@@ -34,7 +34,7 @@ struct StatefulVerifyJsonRequestV1 {
     public_claim_envelope_hex: String,
     proof_envelope_hex: String,
     anchor_request_envelope_hex: String,
-    checkpointed_anchor_evidence_envelope_hex: String,
+    checkpointed_anchor_evidence_envelope_hex: Option<String>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -94,10 +94,16 @@ pub fn decode_stateful_verification_request(
         &request.anchor_request_envelope_hex,
         TelemetryEpochAnchorRequestV1::MAX_ENCODED_LEN + 9,
     )?;
-    let checkpointed_anchor_evidence = decode_canonical_hex::<CheckpointedTelemetryAnchorEvidenceV1>(
-        &request.checkpointed_anchor_evidence_envelope_hex,
-        CheckpointedTelemetryAnchorEvidenceV1::MAX_ENCODED_LEN + 9,
-    )?;
+    let checkpointed_anchor_evidence = request
+        .checkpointed_anchor_evidence_envelope_hex
+        .as_deref()
+        .map(|value| {
+            decode_canonical_hex::<CheckpointedTelemetryAnchorEvidenceV1>(
+                value,
+                CheckpointedTelemetryAnchorEvidenceV1::MAX_ENCODED_LEN + 9,
+            )
+        })
+        .transpose()?;
     Ok(VerifyWorkClaimRequestV1 {
         client_id,
         claim_id,

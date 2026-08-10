@@ -73,7 +73,7 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Add class-neutral usage nullifiers and adversarial relation coverage.
     - [x] Regenerate proof/image/receipt vectors and pass the exact full gate.
   - [ ] Expose bounded verification APIs, SDKs, and explorer DTOs (#777; claimed on `feat/777-work-proof-verifier-api`).
-    - [ ] Replace anchor/checkpoint equality with one canonical finalized-chain ancestry relation,
+    - [x] Replace anchor/checkpoint equality with canonical checkpoint state membership,
       retryable checkpoint-lag/unavailable outcomes, and substitution/adversarial tests.
     - [x] Enforce cross-process all-or-nothing usage-nullifier admission with reload-under-lock,
       crash-safe persistence, and real multiprocess race/restart tests.

@@ -76,6 +76,7 @@ pub enum VerificationErrorCodeV1 {
     WrongPolicy,
     StaleTrust,
     CheckpointLag,
+    CheckpointUnavailable,
     InvalidAnchor,
     AnchorPending,
     AnchorRejected,
@@ -659,7 +660,7 @@ pub struct VerifyWorkClaimRequestV1 {
     pub public: WorkClaimPublicV1,
     pub proof_envelope: Vec<u8>,
     pub anchor_request: TelemetryEpochAnchorRequestV1,
-    pub checkpointed_anchor_evidence: CheckpointedTelemetryAnchorEvidenceV1,
+    pub checkpointed_anchor_evidence: Option<CheckpointedTelemetryAnchorEvidenceV1>,
 }
 
 pub struct FixedWindowRateLimiter {
@@ -723,11 +724,15 @@ impl<R: RelationVerifier> WorkProofVerificationService<R> {
         let bundle = self.trust.accepted_bundle()?;
         verify_trust_bindings(&bundle, &request.public, now_ms)?;
         self.relation.verify(&request.public, &request.proof_envelope)?;
+        let checkpointed_anchor_evidence =
+            request.checkpointed_anchor_evidence.as_ref().ok_or_else(|| {
+                VerificationErrorV1::retryable(VerificationErrorCodeV1::CheckpointUnavailable)
+            })?;
         let (finalized, anchor_reference) = verify_finalized_anchor_checkpoint(
             &bundle,
             &request.public,
             &request.anchor_request,
-            &request.checkpointed_anchor_evidence,
+            checkpointed_anchor_evidence,
         )?;
         let registration = self.usage.register_all(
             request.public.usage_domain,
@@ -1641,14 +1646,19 @@ mod tests {
         let mut public = public();
         public.genesis = anchor_request.genesis_commitment;
         let proof_envelope = vec![1];
-        let request = VerifyWorkClaimRequestV1 {
+        let mut request = VerifyWorkClaimRequestV1 {
             client_id: d(40),
             claim_id: derive_claim_id(&public, &proof_envelope).unwrap(),
             public,
             proof_envelope,
             anchor_request,
-            checkpointed_anchor_evidence,
+            checkpointed_anchor_evidence: None,
         };
+        assert_eq!(
+            service.verify(&request, 200),
+            Err(VerificationErrorV1::retryable(VerificationErrorCodeV1::CheckpointUnavailable,))
+        );
+        request.checkpointed_anchor_evidence = Some(checkpointed_anchor_evidence);
         let first = service.verify(&request, 200).unwrap();
         assert!(first.relation_verified && first.anchor_verified && first.usage_verified);
         assert!(!first.idempotent);

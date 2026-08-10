@@ -174,8 +174,10 @@ The stateful request schema is `actum.work-proof.admit.request.v1` with operatio
 noncanonical hex/envelopes, unsupported profiles, and caller-supplied trust fail closed.
 
 `CheckpointLag` is retryable: the anchor is natively valid but newer than the operator-selected
-checkpoint. `InvalidAnchor` is terminal for malformed native finality, wrong network or statement,
-checkpoint substitution, or a state proof that does not authenticate the exact derived record.
+checkpoint. `CheckpointUnavailable` is retryable when the client cannot yet supply checkpoint
+evidence; the JSON field may be omitted or `null` in that state. `InvalidAnchor` is terminal for
+malformed native finality, wrong network or statement, checkpoint substitution, or a supplied state
+proof that does not authenticate the exact derived record.
 
 ### ProofOfWork migration
 
