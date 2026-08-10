@@ -1,6 +1,6 @@
 [package]
-name = "activechain-rpc-types"
-description = "Canonical bounded development-network RPC wire contract"
+name = "activechain-work-proof"
+description = "Canonical Actum work-claim and non-overlap relation"
 version.workspace = true
 edition.workspace = true
 rust-version = "1.94.1"
@@ -8,7 +8,9 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+activechain-application-primitives.workspace = true
 activechain-canonical-codec.workspace = true
+activechain-protocol-commitment.workspace = true
 activechain-protocol-types.workspace = true
 sha3.workspace = true
 

@@ -18,6 +18,8 @@ activechain-private-billboard.workspace = true
 activechain-privacy-kernel.workspace = true
 activechain-pq-zk-methods = { path = "../pq-zk-methods" }
 activechain-protocol-types.workspace = true
+activechain-work-proof.workspace = true
+rmp-serde.workspace = true
 risc0-zkvm = { workspace = true, features = ["client", "disable-dev-mode", "prove"] }
 sha3.workspace = true
 

@@ -28,8 +28,8 @@ assert canonical_vector["epoch"]["epoch_id"]
 assert schema["$id"] == "https://actum.network/schemas/developer-telemetry-v1.schema.json"
 assert vector["profile"] == "actum.developer-telemetry.v1"
 assert set(schema["$defs"]) == {
-    "digest384", "digest256", "u64", "event", "signed_event", "epoch", "policy",
-    "claim", "anchor", "proof_envelope", "verification"
+    "digest384", "digest256", "u64", "measurement", "event", "signed_event", "epoch",
+    "policy", "aggregate", "claim", "anchor", "proof_envelope", "verification"
 }
 
 for signed in vector["events"]:
@@ -39,6 +39,10 @@ for signed in vector["events"]:
     require_digest(signed["event_id"])
     assert event["wall_start_ms"] <= event["wall_end_ms"]
     assert event["monotonic_start_ns"] <= event["monotonic_end_ns"]
+    assert "kind" not in event and "units" not in event
+    assert event["measurement"]["kind"] in {
+        "human_interaction", "agent_execution", "git_artifact", "build_test", "model_usage"
+    }
 for epoch in vector["epochs"]:
     for field in ("epoch_id", "collector_id", "project_id", "event_root", "prior_epoch_id", "policy_id"):
         require_digest(epoch[field])
@@ -47,6 +51,8 @@ for envelope in vector["proofs"]:
     claim = envelope["claim"]
     require_digest(claim["claim_id"])
     assert claim["interval_start_ms"] <= claim["interval_end_ms"]
+    assert claim["aggregate"]["kind"] in {"attention", "compute", "contribution"}
+    assert "kind" not in claim
     assert envelope["anchor"]["status"] != "finalized" or envelope["anchor"]["evidence_envelope"]
 assert {result["status"] for result in vector["verification_results"]} >= {"pending", "invalid"}
 

@@ -17,6 +17,94 @@ pub enum DeveloperEventKindV1 {
     ModelUsage,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DeveloperEventMeasurementV1 {
+    HumanInteraction { interaction_count: u32 },
+    AgentExecution { run_count: u32 },
+    GitArtifact { artifact_count: u32 },
+    BuildTest { run_count: u32, test_count: u32 },
+    ModelUsage { input_tokens: u64, output_tokens: u64, run_count: u32 },
+}
+
+impl DeveloperEventMeasurementV1 {
+    pub const fn kind(self) -> DeveloperEventKindV1 {
+        match self {
+            Self::HumanInteraction { .. } => DeveloperEventKindV1::HumanInteraction,
+            Self::AgentExecution { .. } => DeveloperEventKindV1::AgentExecution,
+            Self::GitArtifact { .. } => DeveloperEventKindV1::GitArtifact,
+            Self::BuildTest { .. } => DeveloperEventKindV1::BuildTest,
+            Self::ModelUsage { .. } => DeveloperEventKindV1::ModelUsage,
+        }
+    }
+
+    fn validate(self) -> Result<(), TelemetryPrimitiveError> {
+        match self {
+            Self::HumanInteraction { interaction_count: 1 }
+            | Self::AgentExecution { run_count: 1 }
+            | Self::GitArtifact { artifact_count: 1 } => Ok(()),
+            Self::BuildTest { run_count: 1, test_count } if test_count != 0 => Ok(()),
+            Self::ModelUsage { input_tokens, output_tokens, run_count: 1 }
+                if input_tokens != 0 || output_tokens != 0 =>
+            {
+                Ok(())
+            }
+            _ => Err(TelemetryPrimitiveError::InvalidEvent),
+        }
+    }
+}
+
+impl CanonicalEncode for DeveloperEventMeasurementV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        match self {
+            Self::HumanInteraction { interaction_count } => {
+                0_u8.encode(encoder)?;
+                interaction_count.encode(encoder)
+            }
+            Self::AgentExecution { run_count } => {
+                1_u8.encode(encoder)?;
+                run_count.encode(encoder)
+            }
+            Self::GitArtifact { artifact_count } => {
+                2_u8.encode(encoder)?;
+                artifact_count.encode(encoder)
+            }
+            Self::BuildTest { run_count, test_count } => {
+                3_u8.encode(encoder)?;
+                run_count.encode(encoder)?;
+                test_count.encode(encoder)
+            }
+            Self::ModelUsage { input_tokens, output_tokens, run_count } => {
+                4_u8.encode(encoder)?;
+                input_tokens.encode(encoder)?;
+                output_tokens.encode(encoder)?;
+                run_count.encode(encoder)
+            }
+        }
+    }
+}
+
+impl CanonicalDecode for DeveloperEventMeasurementV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let value = match u8::decode(decoder)? {
+            0 => Self::HumanInteraction { interaction_count: u32::decode(decoder)? },
+            1 => Self::AgentExecution { run_count: u32::decode(decoder)? },
+            2 => Self::GitArtifact { artifact_count: u32::decode(decoder)? },
+            3 => Self::BuildTest {
+                run_count: u32::decode(decoder)?,
+                test_count: u32::decode(decoder)?,
+            },
+            4 => Self::ModelUsage {
+                input_tokens: u64::decode(decoder)?,
+                output_tokens: u64::decode(decoder)?,
+                run_count: u32::decode(decoder)?,
+            },
+            _ => return Err(DecodeError::InvalidValue("unknown developer measurement kind")),
+        };
+        value.validate().map_err(|_| DecodeError::InvalidValue("invalid developer measurement"))?;
+        Ok(value)
+    }
+}
+
 impl CanonicalEncode for DeveloperEventKindV1 {
     fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
         (*self as u8).encode(encoder)
@@ -46,11 +134,10 @@ pub struct DeveloperEventV1 {
     pub wall_end_ms: u64,
     pub monotonic_start_ns: u64,
     pub monotonic_end_ns: u64,
-    pub kind: DeveloperEventKindV1,
+    pub measurement: DeveloperEventMeasurementV1,
     pub source_commitment: Digest384,
     pub subject_commitment: Digest384,
     pub payload_commitment: Digest384,
-    pub units: u64,
     pub authorization_revision: u32,
 }
 
@@ -65,12 +152,11 @@ impl DeveloperEventV1 {
             || self.source_commitment == Digest384::ZERO
             || self.subject_commitment == Digest384::ZERO
             || self.payload_commitment == Digest384::ZERO
-            || self.units == 0
             || self.authorization_revision == 0
         {
             return Err(TelemetryPrimitiveError::InvalidEvent);
         }
-        Ok(())
+        self.measurement.validate()
     }
 
     pub fn event_id(&self) -> Result<Digest384, EncodeError> {
@@ -92,11 +178,10 @@ impl CanonicalEncode for DeveloperEventV1 {
         self.wall_end_ms.encode(encoder)?;
         self.monotonic_start_ns.encode(encoder)?;
         self.monotonic_end_ns.encode(encoder)?;
-        self.kind.encode(encoder)?;
+        self.measurement.encode(encoder)?;
         self.source_commitment.encode(encoder)?;
         self.subject_commitment.encode(encoder)?;
         self.payload_commitment.encode(encoder)?;
-        self.units.encode(encoder)?;
         self.authorization_revision.encode(encoder)
     }
 }
@@ -112,11 +197,10 @@ impl CanonicalDecode for DeveloperEventV1 {
             wall_end_ms: u64::decode(decoder)?,
             monotonic_start_ns: u64::decode(decoder)?,
             monotonic_end_ns: u64::decode(decoder)?,
-            kind: DeveloperEventKindV1::decode(decoder)?,
+            measurement: DeveloperEventMeasurementV1::decode(decoder)?,
             source_commitment: Digest384::decode(decoder)?,
             subject_commitment: Digest384::decode(decoder)?,
             payload_commitment: Digest384::decode(decoder)?,
-            units: u64::decode(decoder)?,
             authorization_revision: u32::decode(decoder)?,
         };
         value.validate().map_err(|_| DecodeError::InvalidValue("invalid developer event"))?;
@@ -127,7 +211,7 @@ impl CanonicalDecode for DeveloperEventV1 {
 impl CanonicalType for DeveloperEventV1 {
     const TYPE_TAG: u16 = 0x01B2;
     const SCHEMA_VERSION: u16 = 1;
-    const MAX_ENCODED_LEN: usize = 48 * 5 + 8 * 7 + 4 + 1;
+    const MAX_ENCODED_LEN: usize = 48 * 5 + 8 * 6 + 4 + 1 + 8 * 2 + 4;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -286,11 +370,13 @@ mod tests {
             wall_end_ms: 200,
             monotonic_start_ns: 1_000,
             monotonic_end_ns: 1_010,
-            kind: DeveloperEventKindV1::BuildTest,
+            measurement: DeveloperEventMeasurementV1::BuildTest {
+                run_count: 1,
+                test_count: u32::try_from(sequence).unwrap(),
+            },
             source_commitment: digest(3),
             subject_commitment: digest(4),
             payload_commitment: digest(sequence as u8 + 4),
-            units: sequence,
             authorization_revision: 7,
         }
     }
@@ -343,5 +429,18 @@ mod tests {
         let mut gapped = epoch;
         gapped.last_project_sequence = 11;
         assert_eq!(gapped.validate(), Err(TelemetryPrimitiveError::InvalidEpoch));
+    }
+
+    #[test]
+    fn zero_token_model_usage_and_non_atomic_counts_fail_closed() {
+        let mut value = event(1);
+        value.measurement = DeveloperEventMeasurementV1::ModelUsage {
+            input_tokens: 0,
+            output_tokens: 0,
+            run_count: 1,
+        };
+        assert_eq!(value.validate(), Err(TelemetryPrimitiveError::InvalidEvent));
+        value.measurement = DeveloperEventMeasurementV1::HumanInteraction { interaction_count: 2 };
+        assert_eq!(value.validate(), Err(TelemetryPrimitiveError::InvalidEvent));
     }
 }

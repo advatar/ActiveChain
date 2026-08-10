@@ -37,15 +37,19 @@ A `DeveloperEventV1` contains:
 - exact collector and project IDs;
 - a gap-free collector sequence and a project-local sequence;
 - wall-clock UTC bounds for display and monotonic bounds for duration;
-- one evidence kind: `human_interaction`, `agent_execution`, `git_artifact`, `build_test`, or
-  `model_usage`;
+- one tagged raw measurement: `human_interaction { interaction_count }`,
+  `agent_execution { run_count }`, `git_artifact { artifact_count }`,
+  `build_test { run_count, test_count }`, or
+  `model_usage { input_tokens, output_tokens, run_count }`;
 - source, subject, and private-payload commitments;
-- bounded counters appropriate to the evidence kind;
+- bounded counters structurally limited to the selected measurement kind;
 - the collector authorization revision in force when accepted.
 
 The collector rejects inverted ranges, zero commitments, duplicate sequences, unknown kinds,
-events outside the authorization window, and counters inconsistent with their kind. Wall-clock
-time never determines duration. Human attention requires trusted local interaction evidence and an
+events outside the authorization window, and invalid atomic counters. Human, agent, artifact, and
+model run counts are exactly one in v1; build/test `test_count` may exceed one, and model usage
+requires at least one nonzero token count. Wall-clock time never determines duration. Human
+attention requires trusted local interaction evidence and an
 idle policy; an agent message claiming that a human was present is insufficient.
 
 `SignedDeveloperEventV1` binds the canonical event, ML-DSA algorithm revision, collector public-key
@@ -67,12 +71,11 @@ digest of the canonical epoch envelope. Batching may use the existing `AnchorBat
 `MeteringPolicyV1` is immutable and versioned. It declares:
 
 - accepted evidence kinds and required source assurance;
-- idle timeout and maximum continuous human interval;
-- agent-run overlap and concurrency treatment;
-- token/model-unit normalization rules;
+- `idle_timeout_ms`, `max_human_event_ms`, and `max_attention_claim_ms`;
+- model input/output integer weights with fixed denominator `1_000_000`;
 - build/test result treatment;
 - project-attribution rules;
-- rounding, minimum granularity, and excluded intervals;
+- accepted measurement kinds;
 - disclosure and non-overlap proof profile revisions.
 
 Evidence and claims are separate. Re-evaluating an epoch under another policy produces another
@@ -81,18 +84,22 @@ claim ID and never rewrites evidence.
 ## Proof claims
 
 Every claim binds collector, project, policy, epoch range/root, claim interval, evidence count,
-claim kind, proof profile, and optional finalized anchor evidence.
+a tagged class-specific aggregate, proof profile, and optional finalized anchor evidence.
 
-- `AttentionProofV1` reports attributable human-attention milliseconds after idle and overlap
-  policy. It never reports wall-clock session span as attention.
-- `ComputeProofV1` reports agent runtime, model input/output tokens, normalized model units, and
-  agent-run count. Concurrent runs remain distinct and are not converted to human time.
-- `ContributionProofV1` binds human and agent evidence roots to an exact artifact commitment such
-  as a Git commit, tree, release, test report, or build artifact.
+- `AttentionProofV1` reports attributable milliseconds and interaction count. Each duration is
+  `floor((monotonic_end_ns - monotonic_start_ns) / 1_000_000)`, clipped by the policy idle/event
+  limits, then canonical intervals are unioned and capped by `max_attention_claim_ms`.
+- `ComputeProofV1` reports summed agent/build runtime, raw model input/output tokens, normalized
+  model units, and run count. Concurrent runs sum independently. Tokens aggregate before one
+  checked `floor((input * input_weight + output * output_weight) / 1_000_000)` operation.
+- `ContributionProofV1` publishes distinct artifact count, a domain-separated commitment to
+  lexicographically sorted artifact identities, and a deterministic evidence root. It is not a
+  synthetic time or token score.
 - `NonOverlapProofV1` proves that disclosed billable human-attention intervals for the claim do not
   overlap intervals committed under the compared scope. Its public journal reveals claim IDs,
   policy ID, interval bounds, total billed duration, and a Boolean relation result, but not the
-  other project/client identity or private intervals.
+  other project/client identity or private intervals. Class-neutral usage nullifiers are public;
+  class-specific nullifiers remain committed. #777 atomically enforces usage uniqueness.
 
 No claim is valid merely because its JSON parses. Verification requires canonical decoding,
 collector signature verification, event/epoch Merkle inclusion, policy re-derivation, proof-profile

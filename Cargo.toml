@@ -16,6 +16,7 @@ members = [
     "crates/cash-kernel",
     "crates/cash-air",
     "crates/wallet-core",
+    "crates/work-proof",
     "crates/verifier-api",
     "crates/verifier-ffi",
     "crates/wallet-ffi",
@@ -89,6 +90,7 @@ activechain-cash-kernel = { path = "crates/cash-kernel", version = "0.1.0" }
 activechain-cash-air = { path = "crates/cash-air", version = "0.1.0" }
 activechain-protocol-commitment = { path = "crates/protocol-commitment", version = "0.1.0" }
 activechain-wallet-core = { path = "crates/wallet-core", version = "0.1.0", default-features = false }
+activechain-work-proof = { path = "crates/work-proof", version = "0.1.0" }
 activechain-wallet-ffi = { path = "crates/wallet-ffi", version = "0.1.0" }
 activechain-verifier-api = { path = "crates/verifier-api", version = "0.1.0" }
 activechain-verifier-ffi = { path = "crates/verifier-ffi", version = "0.1.0" }
@@ -101,6 +103,7 @@ activechain-mcp-server = { path = "crates/mcp-server", version = "0.1.0" }
 activechain-object = { path = "crates/object", version = "0.1.0" }
 activechain-object-vm = { path = "crates/object-vm", version = "0.1.0" }
 postcard = { version = "1.1.3", features = ["use-std"] }
+rmp-serde = "1.3.1"
 activechain-payment-types = { path = "crates/payment-types", version = "0.1.0" }
 activechain-payment-sdk = { path = "crates/payment-sdk", version = "0.1.0" }
 activechain-payment-verifier-service = { path = "crates/payment-verifier-service", version = "0.1.0" }

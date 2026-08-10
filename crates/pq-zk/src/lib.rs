@@ -2,7 +2,10 @@
 
 //! ActiveChain PQ-ZK v1 transparent STARK profile.
 
-use activechain_canonical_codec::{CanonicalType, encode_envelope};
+use activechain_canonical_codec::{
+    CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
+    decode_envelope, encode_envelope,
+};
 use activechain_cash_air::{
     CashAggregationLeafInputV1, CashAggregationLevel, CashAggregationNodeV1,
     CashAggregationStatementV1, cash_aggregation_journal, recursive_cash_child_journals,
@@ -14,16 +17,20 @@ use activechain_pq_zk_methods::{
     CASH_RECURSIVE_LEAF_ID, CASH_RECURSIVE_MICROBATCH_ELF, CASH_RECURSIVE_MICROBATCH_ID,
     CASH_RECURSIVE_PARTITION_ELF, CASH_RECURSIVE_PARTITION_ID, CASH_RECURSIVE_SLOT_ELF,
     CASH_RECURSIVE_SLOT_ID, PRIVATE_IDENTITY_ELF, PRIVATE_IDENTITY_ID, PROOF_OF_FUNDS_ELF,
-    PROOF_OF_FUNDS_ID,
+    PROOF_OF_FUNDS_ID, WORK_NON_OVERLAP_ELF, WORK_NON_OVERLAP_ID,
 };
 use activechain_privacy_kernel::{PrivateIdentityRelationInputV1, ProofOfFundsRelationInputV1};
 use activechain_private_billboard::{PostRelationInput, WithdrawalRelationInput};
 use activechain_protocol_types::Digest384;
+use activechain_work_proof::{WorkClaimPublicV1, WorkClaimRelationInputV1, public_journal};
 use risc0_zkvm::{ExecutorEnv, ProverOpts, Receipt, default_executor, default_prover};
-use sha3::{Digest, Sha3_256};
+use sha3::{Digest, Sha3_256, Sha3_384};
 
 /// Consensus-visible identifier for this exact proof profile.
 pub const PROFILE_ID: &str = "ACTIVECHAIN-PQ-ZK-RISC0-STARK-V1";
+pub const MAX_WORK_PROOF_BYTES: usize = 4 * 1024 * 1024;
+pub const MAX_WORK_JOURNAL_BYTES: usize = 64 * 1024;
+pub const WORK_PROOF_SYSTEM_REVISION: u32 = 3_000_005;
 
 /// A SHA3-256 commitment to a private byte string.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -43,6 +50,70 @@ pub struct ProofOfFundsPqZkProof {
 pub struct PrivateIdentityPqZkProof {
     receipt: Receipt,
 }
+pub struct WorkNonOverlapProof {
+    receipt: Receipt,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkProofReceiptEnvelopeV1 {
+    profile_revision: u16,
+    proof_system_revision: u32,
+    image_id: [u8; 32],
+    journal_revision: u16,
+    journal: Vec<u8>,
+    journal_commitment: Digest384,
+    receipt_encoding: u8,
+    receipt_bytes: Vec<u8>,
+    receipt_commitment: Digest384,
+}
+
+pub fn work_image_id() -> [u8; 32] {
+    let mut bytes = [0_u8; 32];
+    for (output, word) in bytes.chunks_exact_mut(4).zip(WORK_NON_OVERLAP_ID) {
+        output.copy_from_slice(&word.to_le_bytes());
+    }
+    bytes
+}
+fn transport_commitment(domain: &[u8], bytes: &[u8]) -> Digest384 {
+    let mut hash = Sha3_384::new();
+    hash.update(domain);
+    hash.update(bytes);
+    Digest384::new(hash.finalize().into())
+}
+impl CanonicalEncode for WorkProofReceiptEnvelopeV1 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.profile_revision.encode(e)?;
+        self.proof_system_revision.encode(e)?;
+        self.image_id.encode(e)?;
+        self.journal_revision.encode(e)?;
+        e.write_bytes(&self.journal, MAX_WORK_JOURNAL_BYTES)?;
+        self.journal_commitment.encode(e)?;
+        self.receipt_encoding.encode(e)?;
+        e.write_bytes(&self.receipt_bytes, MAX_WORK_PROOF_BYTES)?;
+        self.receipt_commitment.encode(e)
+    }
+}
+impl CanonicalDecode for WorkProofReceiptEnvelopeV1 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        Ok(Self {
+            profile_revision: u16::decode(d)?,
+            proof_system_revision: u32::decode(d)?,
+            image_id: <[u8; 32]>::decode(d)?,
+            journal_revision: u16::decode(d)?,
+            journal: d.read_bytes(MAX_WORK_JOURNAL_BYTES)?.to_vec(),
+            journal_commitment: Digest384::decode(d)?,
+            receipt_encoding: u8::decode(d)?,
+            receipt_bytes: d.read_bytes(MAX_WORK_PROOF_BYTES)?.to_vec(),
+            receipt_commitment: Digest384::decode(d)?,
+        })
+    }
+}
+impl CanonicalType for WorkProofReceiptEnvelopeV1 {
+    const TYPE_TAG: u16 = 0x01BD;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize =
+        2 + 4 + 32 + 2 + 4 + MAX_WORK_JOURNAL_BYTES + 48 + 1 + 4 + MAX_WORK_PROOF_BYTES + 48;
+}
 
 /// An unconditional RISC Zero receipt for one level of the recursive cash tree.
 pub struct RecursiveCashProof {
@@ -60,6 +131,8 @@ const PRIVATE_IDENTITY_JOURNAL_DOMAIN: &[u8] = b"ACTIVECHAIN-PRIVATE-IDENTITY-RI
 pub enum PqZkError {
     Prover,
     Verification,
+    MalformedProof,
+    ProofTooLarge,
     WrongReceiptKind,
     WrongPublicStatement,
 }
@@ -277,6 +350,99 @@ pub fn execute_private_identity_relation(
         .map(|session| session.journal.bytes)
         .map_err(|_| PqZkError::Verification)
 }
+
+pub fn execute_work_non_overlap_relation(
+    input: &WorkClaimRelationInputV1,
+) -> Result<Vec<u8>, PqZkError> {
+    default_executor()
+        .execute(relation_env(input)?, WORK_NON_OVERLAP_ELF)
+        .map(|session| session.journal.bytes)
+        .map_err(|_| PqZkError::Verification)
+}
+
+pub fn prove_work_non_overlap(
+    input: &WorkClaimRelationInputV1,
+) -> Result<WorkNonOverlapProof, PqZkError> {
+    let receipt = default_prover()
+        .prove_with_opts(relation_env(input)?, WORK_NON_OVERLAP_ELF, &ProverOpts::succinct())
+        .map_err(|_| PqZkError::Prover)?
+        .receipt;
+    let proof = WorkNonOverlapProof { receipt };
+    verify_work_non_overlap(&proof, &input.public)?;
+    Ok(proof)
+}
+
+pub fn verify_work_non_overlap(
+    proof: &WorkNonOverlapProof,
+    public: &WorkClaimPublicV1,
+) -> Result<(), PqZkError> {
+    proof.receipt.inner.succinct().map_err(|_| PqZkError::WrongReceiptKind)?;
+    proof.receipt.verify(WORK_NON_OVERLAP_ID).map_err(|_| PqZkError::Verification)?;
+    let expected = public_journal(public).map_err(|_| PqZkError::WrongPublicStatement)?;
+    if proof.receipt.journal.bytes != expected {
+        return Err(PqZkError::WrongPublicStatement);
+    }
+    Ok(())
+}
+
+impl WorkNonOverlapProof {
+    pub fn to_envelope_bytes(&self) -> Result<Vec<u8>, PqZkError> {
+        let receipt_bytes =
+            rmp_serde::to_vec(&self.receipt).map_err(|_| PqZkError::MalformedProof)?;
+        if receipt_bytes.is_empty()
+            || receipt_bytes.len() > MAX_WORK_PROOF_BYTES
+            || self.receipt.journal.bytes.len() > MAX_WORK_JOURNAL_BYTES
+        {
+            return Err(PqZkError::ProofTooLarge);
+        }
+        let envelope = WorkProofReceiptEnvelopeV1 {
+            profile_revision: 1,
+            proof_system_revision: WORK_PROOF_SYSTEM_REVISION,
+            image_id: work_image_id(),
+            journal_revision: 1,
+            journal: self.receipt.journal.bytes.clone(),
+            journal_commitment: transport_commitment(
+                b"ACTUM-WORK-JOURNAL-V1",
+                &self.receipt.journal.bytes,
+            ),
+            receipt_commitment: transport_commitment(b"ACTUM-WORK-RECEIPT-V1", &receipt_bytes),
+            receipt_encoding: 1,
+            receipt_bytes,
+        };
+        encode_envelope(&envelope).map_err(|_| PqZkError::MalformedProof)
+    }
+
+    pub fn from_envelope_bytes(
+        bytes: &[u8],
+        public: &WorkClaimPublicV1,
+    ) -> Result<Self, PqZkError> {
+        if bytes.is_empty() || bytes.len() > WorkProofReceiptEnvelopeV1::MAX_ENCODED_LEN + 9 {
+            return Err(PqZkError::ProofTooLarge);
+        }
+        let envelope = decode_envelope::<WorkProofReceiptEnvelopeV1>(bytes)
+            .map_err(|_| PqZkError::MalformedProof)?;
+        let expected_journal =
+            public_journal(public).map_err(|_| PqZkError::WrongPublicStatement)?;
+        if envelope.profile_revision != 1
+            || envelope.proof_system_revision != WORK_PROOF_SYSTEM_REVISION
+            || envelope.image_id != work_image_id()
+            || envelope.journal_revision != 1
+            || envelope.receipt_encoding != 1
+            || envelope.journal != expected_journal
+            || envelope.journal_commitment
+                != transport_commitment(b"ACTUM-WORK-JOURNAL-V1", &envelope.journal)
+            || envelope.receipt_commitment
+                != transport_commitment(b"ACTUM-WORK-RECEIPT-V1", &envelope.receipt_bytes)
+        {
+            return Err(PqZkError::WrongPublicStatement);
+        }
+        let receipt = rmp_serde::from_slice(&envelope.receipt_bytes)
+            .map_err(|_| PqZkError::MalformedProof)?;
+        let proof = Self { receipt };
+        verify_work_non_overlap(&proof, public)?;
+        Ok(proof)
+    }
+}
 pub fn prove_private_identity(
     input: &PrivateIdentityRelationInputV1,
 ) -> Result<PrivateIdentityPqZkProof, PqZkError> {
@@ -385,6 +551,99 @@ mod tests {
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
+    }
+
+    fn decode_hex(value: &str) -> Vec<u8> {
+        value
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|pair| {
+                let digit = |byte| match byte {
+                    b'0'..=b'9' => byte - b'0',
+                    b'a'..=b'f' => byte - b'a' + 10,
+                    _ => panic!("invalid hex"),
+                };
+                digit(pair[0]) << 4 | digit(pair[1])
+            })
+            .collect()
+    }
+
+    fn work_input() -> activechain_work_proof::WorkClaimRelationInputV1 {
+        let vector = include_str!("../../../testing/vectors/application/work-claim-v1.txt");
+        let envelope =
+            vector.lines().find_map(|line| line.strip_prefix("relation_envelope=")).unwrap();
+        decode_envelope(&decode_hex(envelope)).unwrap()
+    }
+
+    #[test]
+    fn work_guest_image_and_journal_match_published_vector() {
+        let vector = include_str!("../../../testing/vectors/pq-zk/work-non-overlap-v1.txt");
+        let image: [u32; 8] = vector
+            .lines()
+            .find_map(|line| line.strip_prefix("image_id_u32_le="))
+            .unwrap()
+            .split(',')
+            .map(|word| word.parse().unwrap())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        assert_eq!(activechain_pq_zk_methods::WORK_NON_OVERLAP_ID, image);
+        let expected_journal =
+            vector.lines().find_map(|line| line.strip_prefix("journal=")).map(decode_hex).unwrap();
+        assert_eq!(super::execute_work_non_overlap_relation(&work_input()), Ok(expected_journal));
+    }
+
+    #[test]
+    fn work_receipt_envelope_metadata_substitution_fails_before_deserialization() {
+        let input = work_input();
+        let journal = activechain_work_proof::public_journal(&input.public).unwrap();
+        let receipt = vec![1_u8];
+        let mut envelope = super::WorkProofReceiptEnvelopeV1 {
+            profile_revision: 1,
+            proof_system_revision: super::WORK_PROOF_SYSTEM_REVISION,
+            image_id: super::work_image_id(),
+            journal_revision: 1,
+            journal: journal.clone(),
+            journal_commitment: super::transport_commitment(b"ACTUM-WORK-JOURNAL-V1", &journal),
+            receipt_encoding: 1,
+            receipt_commitment: super::transport_commitment(b"ACTUM-WORK-RECEIPT-V1", &receipt),
+            receipt_bytes: receipt,
+        };
+        let mut encoded = encode_envelope(&envelope).unwrap();
+        assert!(matches!(
+            super::WorkNonOverlapProof::from_envelope_bytes(&encoded, &input.public),
+            Err(super::PqZkError::MalformedProof)
+        ));
+        envelope.image_id[0] ^= 1;
+        encoded = encode_envelope(&envelope).unwrap();
+        assert!(matches!(
+            super::WorkNonOverlapProof::from_envelope_bytes(&encoded, &input.public),
+            Err(super::PqZkError::WrongPublicStatement)
+        ));
+        envelope.image_id = super::work_image_id();
+        envelope.journal[0] ^= 1;
+        envelope.journal_commitment =
+            super::transport_commitment(b"ACTUM-WORK-JOURNAL-V1", &envelope.journal);
+        encoded = encode_envelope(&envelope).unwrap();
+        assert!(matches!(
+            super::WorkNonOverlapProof::from_envelope_bytes(&encoded, &input.public),
+            Err(super::PqZkError::WrongPublicStatement)
+        ));
+    }
+
+    #[test]
+    #[ignore = "real succinct work proving is an explicit release/security gate"]
+    fn real_work_receipt_round_trips_and_rejects_public_substitution() {
+        let input = work_input();
+        let proof = super::prove_work_non_overlap(&input).unwrap();
+        let envelope = proof.to_envelope_bytes().unwrap();
+        super::WorkNonOverlapProof::from_envelope_bytes(&envelope, &input.public).unwrap();
+        let mut substituted = input.public.clone();
+        substituted.policy_revision += 1;
+        assert!(matches!(
+            super::WorkNonOverlapProof::from_envelope_bytes(&envelope, &substituted),
+            Err(super::PqZkError::WrongPublicStatement)
+        ));
     }
 
     fn billboard_relations() -> (PostRelationInput, WithdrawalRelationInput) {

@@ -10,6 +10,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-application-primitives"
+version = "0.1.0"
+dependencies = [
+ "activechain-accumulator",
+ "activechain-canonical-codec",
+ "activechain-cash-kernel",
+ "activechain-crypto-provider",
+ "activechain-privacy-kernel",
+ "activechain-protocol-commitment",
+ "activechain-protocol-types",
+ "activechain-rpc-types",
+ "sha2 0.10.9",
+ "sha3 0.10.9",
+]
+
+[[package]]
 name = "activechain-canonical-codec"
 version = "0.1.0"
 
@@ -82,6 +98,7 @@ dependencies = [
  "activechain-cash-air",
  "activechain-privacy-kernel",
  "activechain-private-billboard",
+ "activechain-work-proof",
  "risc0-zkvm",
  "sha3 0.10.9",
 ]
@@ -133,6 +150,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-rpc-types"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-protocol-types",
+ "sha3 0.10.9",
+]
+
+[[package]]
 name = "activechain-wallet-core"
 version = "0.1.0"
 dependencies = [
@@ -145,6 +171,17 @@ dependencies = [
  "ml-dsa",
  "sha3 0.10.9",
  "zeroize",
+]
+
+[[package]]
+name = "activechain-work-proof"
+version = "0.1.0"
+dependencies = [
+ "activechain-application-primitives",
+ "activechain-canonical-codec",
+ "activechain-protocol-commitment",
+ "activechain-protocol-types",
+ "sha3 0.10.9",
 ]
 
 [[package]]
