@@ -95,11 +95,11 @@ a tagged class-specific aggregate, proof profile, and optional finalized anchor 
 - `ContributionProofV1` publishes distinct artifact count, a domain-separated commitment to
   lexicographically sorted artifact identities, and a deterministic evidence root. It is not a
   synthetic time or token score.
-- `NonOverlapProofV1` proves that disclosed billable human-attention intervals for the claim do not
-  overlap intervals committed under the compared scope. Its public journal reveals claim IDs,
-  policy ID, interval bounds, total billed duration, and a Boolean relation result, but not the
-  other project/client identity or private intervals. Class-neutral usage nullifiers are public;
-  class-specific nullifiers remain committed. #777 atomically enforces usage uniqueness.
+- `WorkProofReceiptEnvelopeV1` carries the canonical class-specific public claim, the pinned RISC
+  Zero image identity, and the succinct receipt. The relation permits overlapping Compute events,
+  unions overlapping Attention intervals, and treats Contribution as attributed artifact evidence.
+  Class-neutral usage nullifiers are public; class-specific nullifiers remain committed. #777
+  atomically enforces usage uniqueness after independent relation and finalized-anchor verification.
 
 No claim is valid merely because its JSON parses. Verification requires canonical decoding,
 collector signature verification, event/epoch Merkle inclusion, policy re-derivation, proof-profile

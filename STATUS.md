@@ -73,6 +73,12 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Add class-neutral usage nullifiers and adversarial relation coverage.
     - [x] Regenerate proof/image/receipt vectors and pass the exact full gate.
   - [ ] Expose bounded verification APIs, SDKs, and explorer DTOs (#777; claimed on `feat/777-work-proof-verifier-api`).
+    - [x] Implement bounded in-process and subprocess RISC Zero relation verification.
+    - [x] Bind operator-selected chained trust bundles and exact finalized-anchor inclusion.
+    - [x] Implement durable all-or-nothing class-neutral usage admission and exact-claim retries.
+    - [x] Add bounded explorer DTOs, pagination, error taxonomy, offline Rust API, and C FFI.
+    - [x] Document the `pow.actum.network` verifier, trust, subprocess, and storage boundaries.
+    - [ ] Pass affected-crate qualification and the exact full deterministic-kernel gate.
   - [ ] Qualify and document the complete `pow.actum.network` integration (#778).
 
 ## Verifier C header and Apple distribution reconciliation

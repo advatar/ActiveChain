@@ -787,6 +787,49 @@ pub unsafe extern "C" fn activechain_verify_finality_bundle_code(
 }
 
 #[unsafe(no_mangle)]
+/// Verifies a bounded canonical work-claim public envelope and RISC Zero receipt envelope.
+///
+/// This is the offline/stateless relation boundary. Anchor finality and durable usage-nullifier
+/// registration remain service operations and are not implied by a successful return code.
+///
+/// # Safety
+/// The caller must provide readable public/proof buffers for every non-zero declared length. Null
+/// pointers are permitted only for zero-length buffers. No pointer is retained.
+pub unsafe extern "C" fn activechain_verify_work_relation_code(
+    public_bytes: *const u8,
+    public_len: u32,
+    proof: *const u8,
+    proof_len: u32,
+) -> u32 {
+    if (public_bytes.is_null() && public_len != 0) || (proof.is_null() && proof_len != 0) {
+        return NULL_POINTER;
+    }
+    if public_len as usize > activechain_work_proof_verifier::MAX_WORK_PUBLIC_ENVELOPE_BYTES
+        || proof_len as usize > activechain_work_proof_verifier::MAX_OFFLINE_WORK_PROOF_BYTES
+    {
+        return TOO_LARGE;
+    }
+    let public_bytes = if public_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(public_bytes, public_len as usize) }
+    };
+    let proof = if proof_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(proof, proof_len as usize) }
+    };
+    match activechain_work_proof_verifier::verify_relation_envelopes(public_bytes, proof) {
+        activechain_work_proof_verifier::OFFLINE_VERIFY_OK => ACTIVECHAIN_VERIFY_OK,
+        activechain_work_proof_verifier::OFFLINE_VERIFY_TOO_LARGE => TOO_LARGE,
+        activechain_work_proof_verifier::OFFLINE_VERIFY_MALFORMED => {
+            ACTIVECHAIN_VERIFY_DECODE_ERROR
+        }
+        _ => ACTIVECHAIN_VERIFY_RELATION_MISMATCH,
+    }
+}
+
+#[unsafe(no_mangle)]
 /// # Safety
 /// The caller must provide readable canonical finality and receipt buffers for the declared
 /// lengths. Null pointers are permitted only for zero-length buffers. No pointer is retained.
@@ -1617,6 +1660,33 @@ mod tests {
                 )
             },
             TOO_LARGE
+        );
+    }
+
+    #[test]
+    fn work_relation_abi_is_null_safe_and_bounded() {
+        assert_eq!(
+            unsafe {
+                activechain_verify_work_relation_code(core::ptr::null(), 1, core::ptr::null(), 1)
+            },
+            NULL_POINTER
+        );
+        assert_eq!(
+            unsafe {
+                activechain_verify_work_relation_code(
+                    core::ptr::NonNull::<u8>::dangling().as_ptr(),
+                    u32::MAX,
+                    core::ptr::NonNull::<u8>::dangling().as_ptr(),
+                    1,
+                )
+            },
+            TOO_LARGE
+        );
+        assert_eq!(
+            unsafe {
+                activechain_verify_work_relation_code(core::ptr::null(), 0, core::ptr::null(), 0)
+            },
+            ACTIVECHAIN_VERIFY_DECODE_ERROR
         );
     }
 
