@@ -1,0 +1,23 @@
+{
+  "name":"actum-telemetry",
+  "version":"0.1.0",
+  "description":"Manage permissioned developer telemetry and Actum proof workflows from Codex.",
+  "author":{"name":"ActiveChain contributors","url":"https://github.com/advatar/ActiveChain"},
+  "homepage":"https://pow.actum.network",
+  "repository":"https://github.com/advatar/ActiveChain",
+  "license":"Apache-2.0",
+  "keywords":["actum","telemetry","proof-of-work","mcp","privacy"],
+  "skills":"./skills/",
+  "mcpServers":"./.mcp.json",
+  "interface":{
+    "displayName":"Actum Proof of Work",
+    "shortDescription":"Control telemetry and proof workflows.",
+    "longDescription":"Authorize and control privacy-bounded developer telemetry, inspect collector state, and explicitly request proof delivery, anchoring, and verification without granting signing authority to MCP.",
+    "developerName":"ActiveChain contributors",
+    "category":"Developer Tools",
+    "capabilities":["Telemetry controls","Work proofs","Finalized anchoring","Verification"],
+    "websiteURL":"https://pow.actum.network",
+    "defaultPrompt":["Show my Actum telemetry status.","Pause telemetry for this project.","Verify an existing Actum work proof."],
+    "brandColor":"#C9502D"
+  }
+}

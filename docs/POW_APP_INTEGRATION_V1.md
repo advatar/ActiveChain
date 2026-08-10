@@ -10,11 +10,11 @@ verification, and settlement controls disabled or labelled **Preview** until the
 
 | Capability shown by the app | Contract | Implementation issue | Current status |
 | --- | --- | --- | --- |
-| Agent Plugin packaging | Agent Plugins 1.0 + Codex extension | #774 | Planned; node-operations plugin #767 is not telemetry |
-| Human/agent/Git/build/model collection | `DeveloperEventV1` | #773 | Planned |
-| Permission UI, pause, retention, deletion | collector authorization API | #773 | Planned |
+| Agent Plugin packaging | Agent Plugins 1.0 + Codex extension | #774 | Candidate implemented; remains Preview pending exact qualification |
+| Human/agent/Git/build/model collection | `DeveloperEventV1` | #773 | Qualified candidate in progress; remains Preview until merged |
+| Permission UI, pause, retention, deletion | collector authorization API | #773/#774 | Collector and plugin candidates implemented; remains Preview until merged |
 | Project attribution and activity graph | keyed project identity | #773 | Planned |
-| Signed events and activity epochs | `SignedDeveloperEventV1`, `ActivityEpochV1` | #773 | Planned |
+| Signed events and activity epochs | `SignedDeveloperEventV1`, `ActivityEpochV1` | #773 | Canonical/signature vector candidate implemented; remains Preview until merged |
 | Actum commitments/finality | digest-anchor profile | #775 | Reusable anchor exists; telemetry integration planned |
 | Attention/Compute/Contribution proofs | work-proof profiles | #776 | Planned |
 | ZK non-double-billing | non-overlap RISC Zero profile | #776 | Planned |
@@ -24,40 +24,43 @@ verification, and settlement controls disabled or labelled **Preview** until the
 
 ## Plugin layout
 
-The shipped package name is `actum-developer-telemetry`:
+The shipped portable package is `plugins/actum-telemetry`:
 
 ```text
-actum-developer-telemetry/
+actum-telemetry/
 ├── plugin.json
 ├── mcp.json
 ├── .codex-plugin/plugin.json
 ├── .mcp.json
-└── skills/
-    ├── telemetry/SKILL.md
-    ├── project-attribution/SKILL.md
-    ├── prove-work/SKILL.md
-    └── verify-work/SKILL.md
+├── bin/actum-telemetry-mcp
+└── skills/actum-telemetry/SKILL.md
 ```
 
-Installation does not authorize collection. The host displays requested capabilities; the local
-collector records explicit grants.
+Installation does not authorize collection. The host supplies a private `PLUGIN_DATA` directory;
+the operator separately supplies `ACTUM_TELEMETRY_CAPABILITY` for mutating calls. MCP stores only
+bounded authorization/control metadata and idempotency receipts. Collector signing keys remain
+outside the plugin process.
 
 ## Local MCP contract
 
-Names are reserved for #774. Consequential tools require explicit user approval and collector
-authentication; read tools never expose raw evidence by default.
+Every mutating tool requires an explicit capability, request ID, and exact project scope. Unknown
+fields and oversized values fail closed. Results never contain the capability, environment values,
+auth headers, raw evidence, source, prompts, or command output.
 
-| Tool/resource | Class | Result |
+| Tool | Class | Result |
 | --- | --- | --- |
-| `actum_telemetry_get_status` | read | enabled categories, pause state, collector/project IDs, retention, pending epochs |
-| `actum_telemetry_configure` | consequential | proposed category/project/purpose/retention grant |
-| `actum_telemetry_pause` / `resume` | consequential | durable state transition |
-| `actum_telemetry_query_summary` | read | derived local totals and assurance labels |
-| `actum_telemetry_seal_epoch` | consequential | signed epoch; never remote submission |
-| `actum_telemetry_propose_anchor` | consequential proposal | native approval-bound digest-anchor proposal |
-| `actum_telemetry_derive_proof` | consequential local | proof under exact policy/profile |
-| `actum_telemetry_verify_proof` | read | fail-closed verification result |
-| `actum_telemetry_export` / `delete` | consequential local | authenticated bounded export/deletion operation |
+| `telemetry.status` | read | authorization, pause state, journal health, integration presence, pinned network identity |
+| `telemetry.authorize` | consequential | explicit categories, purpose, project/policy IDs, revision, and retention window; remains paused |
+| `telemetry.pause` / `telemetry.resume` | consequential | durable idempotent collection control |
+| `telemetry.export` / `telemetry.delete` | consequential | project-scoped local control export/deletion; anchors are never deleted |
+| `work.prove` | consequential | bounded subprocess result from an operator-pinned prover |
+| `work.deliver` | consequential | delivery-only lifecycle from `ACTUM_DELIVERY_WEBHOOK` |
+| `work.anchor` | consequential | submitted/pending/finalized/rejected anchor lifecycle from `ACTUM_ANCHOR_URL` |
+| `work.verify` | consequential | separate `relation_verified`, `anchor_verified`, and `usage_verified` results from an operator-pinned verifier |
+
+`ACTUM_DELIVERY_WEBHOOK` and `ACTUM_ANCHOR_URL` are optional Preview integrations. Their values are
+never returned. Delivery does not imply anchoring, finalized anchoring does not imply relation
+verification, and verification does not imply usage-nullifier admission.
 
 ## Verification HTTP API
 

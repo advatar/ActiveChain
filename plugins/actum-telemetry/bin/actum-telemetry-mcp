@@ -1,0 +1,243 @@
+#!/usr/bin/env python3
+"""Bounded, fail-closed MCP control plane for Actum developer telemetry."""
+from __future__ import annotations
+import fcntl, hashlib, hmac, json, os, re, subprocess, sys, tempfile
+from contextlib import contextmanager
+from pathlib import Path
+from urllib.parse import urlsplit
+from urllib.request import Request, urlopen
+
+PROTOCOL="2025-11-25"; MAX_LINE=1_048_576; MAX_REQUESTS=4096; MAX_RESPONSE=65_536
+DIGEST=re.compile(r"^[0-9a-f]{96}$"); REQUEST=re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+CATEGORIES={"human_interaction","agent_execution","git_artifact","build_test","model_usage"}
+MUTATING={"telemetry.authorize","telemetry.pause","telemetry.resume","telemetry.export","telemetry.delete","work.prove","work.deliver","work.anchor","work.verify"}
+TOOLS=("telemetry.status","telemetry.authorize","telemetry.pause","telemetry.resume","telemetry.export","telemetry.delete","work.prove","work.deliver","work.anchor","work.verify")
+
+def data_dir():
+    raw=os.environ.get("ACTUM_PLUGIN_DATA") or os.environ.get("PLUGIN_DATA")
+    if not raw: raise ValueError("plugin data unavailable")
+    path=Path(raw).expanduser().resolve(); path.mkdir(parents=True,exist_ok=True,mode=0o700); return path
+
+def state_path(): return data_dir()/"telemetry-control-v1.json"
+def default_state(): return {"schema":1,"paused":{},"authorizations":{},"requests":{}}
+def load_state():
+    path=state_path()
+    if not path.exists(): return default_state()
+    value=json.loads(path.read_text("utf-8"))
+    if not isinstance(value,dict) or value.get("schema")!=1: raise ValueError("invalid durable state")
+    for key in ("paused","authorizations","requests"):
+        if not isinstance(value.get(key),dict): raise ValueError("invalid durable state")
+    return value
+
+def save_state(value):
+    path=state_path(); fd,tmp=tempfile.mkstemp(prefix=".telemetry-",dir=path.parent)
+    try:
+        with os.fdopen(fd,"w",encoding="utf-8") as out:
+            json.dump(value,out,sort_keys=True,separators=(",",":")); out.write("\n"); out.flush(); os.fsync(out.fileno())
+        os.chmod(tmp,0o600); os.replace(tmp,path)
+    finally:
+        try: os.unlink(tmp)
+        except FileNotFoundError: pass
+
+@contextmanager
+def state_transaction():
+    path=data_dir()/"telemetry-control-v1.lock"
+    with path.open("a+b") as lock:
+        os.chmod(path,0o600); fcntl.flock(lock.fileno(),fcntl.LOCK_EX)
+        try: yield
+        finally: fcntl.flock(lock.fileno(),fcntl.LOCK_UN)
+
+def exact(args, required, optional=()):
+    if not isinstance(args,dict) or set(args)-set(required)-set(optional) or set(required)-set(args): raise ValueError("invalid arguments")
+def project(value):
+    if not isinstance(value,str) or not DIGEST.fullmatch(value) or set(value)=={"0"}: raise ValueError("invalid project_id")
+    return value
+def request_id(value):
+    if not isinstance(value,str) or not REQUEST.fullmatch(value): raise ValueError("invalid request_id")
+    return value
+def capability(args):
+    supplied=args.get("capability"); expected=os.environ.get("ACTUM_TELEMETRY_CAPABILITY")
+    if not isinstance(supplied,str) or not expected or not hmac.compare_digest(supplied,expected): raise PermissionError("capability rejected")
+def fingerprint(name,args):
+    clean={k:v for k,v in args.items() if k!="capability"}
+    return hashlib.sha256((name+"\0"+json.dumps(clean,sort_keys=True,separators=(",",":"))).encode()).hexdigest()
+def base(status, request=None):
+    return {"status":status,"request_id":request,"chain_id":safe_digest_env("ACTUM_CHAIN_ID"),"genesis_commitment":safe_digest_env("ACTUM_GENESIS_COMMITMENT"),"schema_revision":1,"policy_revision":None}
+def safe_digest_env(name):
+    value=os.environ.get(name); return value if value and DIGEST.fullmatch(value) else None
+
+def mutate(name,args,operation):
+    capability(args); rid=request_id(args.get("request_id")); mark=fingerprint(name,args)
+    with state_transaction():
+        state=load_state(); prior=state["requests"].get(rid)
+        if prior:
+            if prior.get("fingerprint")!=mark: raise ValueError("request_id collision")
+            result=prior["result"].copy(); result["duplicate"]=True; return result
+        if len(state["requests"])>=MAX_REQUESTS: raise ValueError("request journal capacity reached")
+        result=operation(state); result["duplicate"]=False
+        state["requests"][rid]={"fingerprint":mark,"result":result}; save_state(state); return result
+
+def status(args):
+    exact(args,(),("project_id",)); state=load_state(); pid=args.get("project_id")
+    if pid is not None: pid=project(pid)
+    auth=state["authorizations"].get(pid) if pid else None
+    result=base("configured" if auth else "not_authorized")
+    result.update({"project_id":pid,"paused":state["paused"].get(pid,True) if pid else True,"authorization":auth,"journal_health":"healthy","delivery_configured":bool(os.environ.get("ACTUM_DELIVERY_WEBHOOK")),"anchor_configured":bool(os.environ.get("ACTUM_ANCHOR_URL") and os.environ.get("ACTUM_ANCHOR_BEARER_TOKEN_FILE")),"signing_authority":"external"})
+    if auth: result["policy_revision"]=auth["revision"]
+    return result
+
+def authorize(args):
+    required=("capability","request_id","project_id","policy_id","revision","purpose","categories","valid_from_ms","retain_until_ms"); exact(args,required)
+    pid=project(args["project_id"]); policy=project(args["policy_id"]); revision=args["revision"]; purpose=args["purpose"]; cats=args["categories"]
+    if not isinstance(revision,int) or not 1<=revision<=2**32-1 or not isinstance(purpose,str) or not 1<=len(purpose)<=128 or not isinstance(cats,list) or not 1<=len(cats)<=5 or len(set(cats))!=len(cats) or not set(cats)<=CATEGORIES: raise ValueError("invalid authorization")
+    start=args["valid_from_ms"]; end=args["retain_until_ms"]
+    if not isinstance(start,int) or not isinstance(end,int) or start<0 or end<=start: raise ValueError("invalid authorization window")
+    def op(state):
+        old=state["authorizations"].get(pid)
+        if old and revision<=old["revision"]: raise ValueError("authorization revision must increase")
+        auth={"project_id":pid,"policy_id":policy,"revision":revision,"purpose":purpose,"categories":sorted(cats),"valid_from_ms":start,"retain_until_ms":end}
+        state["authorizations"][pid]=auth; state["paused"][pid]=True
+        result=base("authorized",args["request_id"]); result.update({"project_id":pid,"paused":True,"authorization":auth,"policy_revision":revision}); return result
+    return mutate("telemetry.authorize",args,op)
+
+def pause_resume(name,args,paused):
+    exact(args,("capability","request_id","project_id")); pid=project(args["project_id"])
+    def op(state):
+        if pid not in state["authorizations"]: raise ValueError("project not authorized")
+        changed=state["paused"].get(pid,True)!=paused; state["paused"][pid]=paused
+        result=base("paused" if paused else "collecting",args["request_id"]); result.update({"project_id":pid,"paused":paused,"changed":changed,"policy_revision":state["authorizations"][pid]["revision"]}); return result
+    return mutate(name,args,op)
+
+def export_control(args):
+    exact(args,("capability","request_id","project_id")); pid=project(args["project_id"])
+    def op(state):
+        if pid not in state["authorizations"]: raise ValueError("project not authorized")
+        root=data_dir()/"exports"; root.mkdir(mode=0o700,exist_ok=True); path=root/(args["request_id"]+".json")
+        payload={"profile":"actum.telemetry-control.v1","project_id":pid,"authorization":state["authorizations"][pid],"paused":state["paused"].get(pid,True)}
+        path.write_text(json.dumps(payload,sort_keys=True)+"\n","utf-8"); os.chmod(path,0o600)
+        result=base("exported",args["request_id"]); result.update({"project_id":pid,"path":str(path),"evidence_included":False,"policy_revision":state["authorizations"][pid]["revision"]}); return result
+    return mutate("telemetry.export",args,op)
+
+def delete_control(args):
+    exact(args,("capability","request_id","project_id")); pid=project(args["project_id"])
+    def op(state):
+        existed=pid in state["authorizations"]; state["authorizations"].pop(pid,None); state["paused"].pop(pid,None)
+        result=base("deleted" if existed else "absent",args["request_id"]); result.update({"project_id":pid,"changed":existed,"anchored_data_deleted":False}); return result
+    return mutate("telemetry.delete",args,op)
+
+def artifact_path(raw):
+    if not isinstance(raw,str): raise ValueError("invalid artifact path")
+    root=data_dir(); path=Path(raw).expanduser().resolve()
+    if root not in path.parents or not path.is_file() or path.stat().st_size>2_097_152: raise ValueError("artifact outside bounded plugin data")
+    return path
+
+def backend_url(name):
+    raw=os.environ.get(name)
+    if not raw: raise RuntimeError("integration unavailable")
+    parsed=urlsplit(raw)
+    if parsed.scheme!="https" or parsed.username or parsed.password or parsed.fragment: raise RuntimeError("integration configuration rejected")
+    return raw
+
+def anchor_bearer():
+    raw=os.environ.get("ACTUM_ANCHOR_BEARER_TOKEN_FILE")
+    if not raw: raise RuntimeError("anchor authentication unavailable")
+    path=Path(raw).expanduser()
+    if path.is_symlink() or not path.is_file() or path.stat().st_mode & 0o077: raise RuntimeError("anchor authentication rejected")
+    token=path.read_bytes().rstrip(b"\r\n")
+    if not 32<=len(token)<=256 or any(not 0x21<=byte<=0x7e for byte in token): raise RuntimeError("anchor authentication rejected")
+    return token.decode("ascii")
+
+def post_artifact(name,args,env_name,lifecycle):
+    exact(args,("capability","request_id","project_id","artifact_path")); pid=project(args["project_id"]); path=artifact_path(args["artifact_path"])
+    def op(state):
+        if pid not in state["authorizations"]: raise ValueError("project not authorized")
+        headers={"Content-Type":"application/octet-stream","X-Actum-Request-Id":args["request_id"]}
+        if env_name=="ACTUM_ANCHOR_URL": headers["Authorization"]="Bearer "+anchor_bearer()
+        req=Request(backend_url(env_name),data=path.read_bytes(),method="POST",headers=headers)
+        try:
+            with urlopen(req,timeout=10) as response:
+                body=response.read(MAX_RESPONSE+1)
+        except Exception as error:
+            raise RuntimeError("backend unavailable") from error
+        if len(body)>MAX_RESPONSE: raise RuntimeError("backend response too large")
+        reply=json.loads(body)
+        if not isinstance(reply,dict) or reply.get("chain_id")!=safe_digest_env("ACTUM_CHAIN_ID") or reply.get("genesis_commitment")!=safe_digest_env("ACTUM_GENESIS_COMMITMENT"): raise RuntimeError("wrong-chain or malformed backend response")
+        status_value=reply.get("status")
+        if status_value not in lifecycle: raise RuntimeError("malformed backend lifecycle")
+        result=base(status_value,args["request_id"]); result.update({"project_id":pid,"reference":reply.get("reference"),"policy_revision":state["authorizations"][pid]["revision"]}); return result
+    return mutate(name,args,op)
+
+def subprocess_tool(name,args,env_name):
+    exact(args,("capability","request_id","project_id","artifact_path")); pid=project(args["project_id"]); path=artifact_path(args["artifact_path"])
+    def op(state):
+        if pid not in state["authorizations"]: raise ValueError("project not authorized")
+        binary=os.environ.get(env_name)
+        if not binary or not Path(binary).is_absolute() or not os.access(binary,os.X_OK): raise RuntimeError("integration unavailable")
+        completed=subprocess.run([binary,"--input",str(path),"--request-id",args["request_id"]],capture_output=True,timeout=30,check=False)
+        if completed.returncode or len(completed.stdout)>MAX_RESPONSE: raise RuntimeError("bounded subprocess rejected request")
+        reply=json.loads(completed.stdout)
+        if not isinstance(reply,dict): raise RuntimeError("malformed subprocess response")
+        result=base(reply.get("status","unavailable"),args["request_id"]); result.update({k:reply.get(k) for k in ("claim_id","relation_verified","anchor_verified","usage_verified","artifact_path")}); result.update({"project_id":pid,"policy_revision":state["authorizations"][pid]["revision"]}); return result
+    return mutate(name,args,op)
+
+def call(name,args):
+    if name=="telemetry.status": return status(args)
+    if name=="telemetry.authorize": return authorize(args)
+    if name=="telemetry.pause": return pause_resume(name,args,True)
+    if name=="telemetry.resume": return pause_resume(name,args,False)
+    if name=="telemetry.export": return export_control(args)
+    if name=="telemetry.delete": return delete_control(args)
+    if name=="work.deliver": return post_artifact(name,args,"ACTUM_DELIVERY_WEBHOOK",{"submitted","delivered","rejected"})
+    if name=="work.anchor": return post_artifact(name,args,"ACTUM_ANCHOR_URL",{"submitted","pending","finalized","rejected"})
+    if name=="work.prove": return subprocess_tool(name,args,"ACTUM_WORK_PROVER")
+    if name=="work.verify": return subprocess_tool(name,args,"ACTUM_WORK_VERIFIER")
+    raise ValueError("unknown tool")
+
+def schema(name):
+    if name=="telemetry.status": return {"type":"object","additionalProperties":False,"properties":{"project_id":{"type":"string","pattern":"^[0-9a-f]{96}$"}}}
+    props={"capability":{"type":"string","minLength":1,"maxLength":1024},"request_id":{"type":"string","pattern":"^[A-Za-z0-9._:-]{1,128}$"},"project_id":{"type":"string","pattern":"^[0-9a-f]{96}$"}}
+    required=list(props)
+    if name=="telemetry.authorize":
+        props.update({"policy_id":{"type":"string","pattern":"^[0-9a-f]{96}$"},"revision":{"type":"integer","minimum":1,"maximum":4294967295},"purpose":{"type":"string","minLength":1,"maxLength":128},"categories":{"type":"array","minItems":1,"maxItems":5,"uniqueItems":True,"items":{"enum":sorted(CATEGORIES)}},"valid_from_ms":{"type":"integer","minimum":0},"retain_until_ms":{"type":"integer","minimum":1}}); required=list(props)
+    elif name.startswith("work."): props["artifact_path"]={"type":"string","minLength":1,"maxLength":4096}; required.append("artifact_path")
+    return {"type":"object","additionalProperties":False,"required":required,"properties":props}
+
+def tools(): return [{"name":name,"description":"Bounded Actum telemetry/work operation.","inputSchema":schema(name)} for name in TOOLS]
+def response(identifier,result=None,error=None):
+    value={"jsonrpc":"2.0","id":identifier}; value["result" if error is None else "error"]=result if error is None else error; return value
+
+def main():
+    initialized=False; ready=False; seen=set()
+    for raw in sys.stdin.buffer:
+        identifier=None
+        try:
+            if len(raw)>MAX_LINE or not raw.endswith(b"\n"): raise ValueError("invalid bounded frame")
+            request=json.loads(raw)
+            if not isinstance(request,dict): raise ValueError("invalid request")
+            if "id" not in request:
+                if request.get("method")=="notifications/initialized" and initialized: ready=True
+                continue
+            identifier=request["id"]
+            if request.get("jsonrpc")!="2.0" or isinstance(identifier,(dict,list)) or identifier is None: raise ValueError("invalid request")
+            key=json.dumps(identifier,sort_keys=True)
+            if key in seen or len(seen)>=MAX_REQUESTS: raise ValueError("request id reused")
+            seen.add(key); method=request.get("method"); params=request.get("params",{})
+            if method=="initialize":
+                if initialized or params.get("protocolVersion")!=PROTOCOL: raise ValueError("unsupported initialization")
+                initialized=True; result={"protocolVersion":PROTOCOL,"capabilities":{"tools":{"listChanged":False}},"serverInfo":{"name":"actum-telemetry","version":"0.1.0"},"instructions":"Permissioned telemetry control; MCP has no signing authority."}
+            elif method=="ping": result={}
+            elif not ready: raise RuntimeError("server not initialized")
+            elif method=="tools/list": result={"tools":tools()}
+            elif method=="tools/call":
+                exact(params,("name",),("arguments",)); name=params["name"]
+                if name not in TOOLS: raise ValueError("unknown tool")
+                output=call(name,params.get("arguments",{})); result={"content":[{"type":"text","text":json.dumps(output,sort_keys=True)}],"isError":False}
+            else: raise ValueError("method not found")
+            wire=response(identifier,result=result)
+        except PermissionError as exc: wire=response(identifier,error={"code":-32003,"message":str(exc)})
+        except RuntimeError as exc: wire=response(identifier,error={"code":-32001,"message":str(exc)})
+        except Exception as exc: wire=response(identifier,error={"code":-32602,"message":str(exc)})
+        encoded=json.dumps(wire,separators=(",",":"),sort_keys=True).encode()
+        if len(encoded)>MAX_RESPONSE: encoded=json.dumps(response(identifier,error={"code":-32603,"message":"response too large"})).encode()
+        sys.stdout.buffer.write(encoded+b"\n"); sys.stdout.buffer.flush()
+if __name__=="__main__": main()

@@ -133,25 +133,25 @@ def command_start(args: argparse.Namespace) -> None:
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
-    time.sleep(0.15)
-    if process.poll() is not None:
-        raise SystemExit(f"RPC node exited during startup; inspect {log_path}")
-    fingerprint = process_fingerprint(process.pid)
-    if fingerprint is None:
-        process.terminate()
-        raise SystemExit("could not fingerprint started RPC process")
-    record = {
-        "pid": process.pid,
-        "start_time": fingerprint[0],
-        "command": fingerprint[1],
-        "bind": args.bind,
-        "snapshot": str(snapshot),
-        "executable": str(binary),
-    }
-    temporary = state_path(root).with_suffix(".tmp")
-    temporary.write_text(json.dumps(record, sort_keys=True) + "\n", encoding="utf-8")
-    os.chmod(temporary, 0o600)
-    temporary.replace(state_path(root))
+        time.sleep(0.15)
+        if process.poll() is not None:
+            raise SystemExit(f"RPC node exited during startup; inspect {log_path}")
+        fingerprint = process_fingerprint(process.pid)
+        if fingerprint is None:
+            process.terminate()
+            raise SystemExit("could not fingerprint started RPC process")
+        record = {
+            "pid": process.pid,
+            "start_time": fingerprint[0],
+            "command": fingerprint[1],
+            "bind": args.bind,
+            "snapshot": str(snapshot),
+            "executable": str(binary),
+        }
+        temporary = state_path(root).with_suffix(".tmp")
+        temporary.write_text(json.dumps(record, sort_keys=True) + "\n", encoding="utf-8")
+        os.chmod(temporary, 0o600)
+        temporary.replace(state_path(root))
     emit(status="running", pid=process.pid, bind=args.bind, snapshot=str(snapshot))
 
 

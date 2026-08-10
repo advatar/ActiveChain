@@ -41,3 +41,4 @@ print("agent-interface qualification: passed")
 PY
 
 python3 scripts/test-actum-agent-plugin.py
+python3 -m unittest testing/plugin/test_actum_telemetry_plugin.py
