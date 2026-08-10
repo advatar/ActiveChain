@@ -486,7 +486,7 @@ fn evaluate_attention(
             event.monotonic_start_ns.checked_add(clipped_ns).ok_or(WorkProofError::Relation)?;
         intervals.push((event.monotonic_start_ns, end, *event_id));
     }
-    intervals.sort_unstable_by(|a, b| a.cmp(b));
+    intervals.sort_unstable();
     let mut total_ns = 0_u64;
     let mut current = intervals[0];
     for interval in intervals.into_iter().skip(1) {
@@ -977,10 +977,62 @@ mod tests {
     }
     #[test]
     fn clipping_boundaries_are_exact() {
-        let input = input(
+        let mut idle = input(
+            alloc::vec![human(10, 0, 100), human(11, 200, 280)],
+            WorkClaimAggregateV1::Attention { attributable_ms: 180, interaction_count: 2 },
+        );
+        idle.policy.max_human_event_ms = 200;
+        idle.public.policy_id = idle.policy.policy_id().unwrap();
+        bind(&mut idle);
+        assert_eq!(verify_relation(&idle), Ok(()));
+
+        let mut maximum = input(
             alloc::vec![human(10, 0, 100), human(11, 200, 280)],
             WorkClaimAggregateV1::Attention { attributable_ms: 160, interaction_count: 2 },
         );
+        maximum.policy.idle_timeout_ms = 200;
+        maximum.public.policy_id = maximum.policy.policy_id().unwrap();
+        bind(&mut maximum);
+        assert_eq!(verify_relation(&maximum), Ok(()));
+
+        let mut capped = maximum;
+        capped.policy.max_attention_claim_ms = 100;
+        capped.public.policy_id = capped.policy.policy_id().unwrap();
+        capped.public.aggregate =
+            WorkClaimAggregateV1::Attention { attributable_ms: 100, interaction_count: 2 };
+        bind(&mut capped);
+        assert_eq!(verify_relation(&capped), Ok(()));
+    }
+
+    #[test]
+    fn revised_policy_can_accept_a_different_normalization() {
+        let model = |sequence| {
+            event(
+                sequence,
+                0,
+                0,
+                DeveloperEventMeasurementV1::ModelUsage {
+                    input_tokens: 2,
+                    output_tokens: 1,
+                    run_count: 1,
+                },
+            )
+        };
+        let mut input = input(
+            alloc::vec![model(10), model(11)],
+            WorkClaimAggregateV1::Compute {
+                agent_runtime_ms: 0,
+                model_input_tokens: 4,
+                model_output_tokens: 2,
+                normalized_model_units: 4,
+                run_count: 2,
+            },
+        );
+        input.policy.revision = 8;
+        input.policy.model_output_weight = 1_000_000;
+        input.public.policy_revision = 8;
+        input.public.policy_id = input.policy.policy_id().unwrap();
+        bind(&mut input);
         assert_eq!(verify_relation(&input), Ok(()));
     }
     #[test]

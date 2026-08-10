@@ -39,13 +39,9 @@ impl DeveloperEventMeasurementV1 {
 
     fn validate(self) -> Result<(), TelemetryPrimitiveError> {
         match self {
-            Self::HumanInteraction { interaction_count } if interaction_count == 1 => Ok(()),
-            Self::AgentExecution { run_count }
-            | Self::GitArtifact { artifact_count: run_count }
-                if run_count == 1 =>
-            {
-                Ok(())
-            }
+            Self::HumanInteraction { interaction_count: 1 }
+            | Self::AgentExecution { run_count: 1 }
+            | Self::GitArtifact { artifact_count: 1 } => Ok(()),
             Self::BuildTest { run_count: 1, test_count } if test_count != 0 => Ok(()),
             Self::ModelUsage { input_tokens, output_tokens, run_count: 1 }
                 if input_tokens != 0 || output_tokens != 0 =>
@@ -433,5 +429,18 @@ mod tests {
         let mut gapped = epoch;
         gapped.last_project_sequence = 11;
         assert_eq!(gapped.validate(), Err(TelemetryPrimitiveError::InvalidEpoch));
+    }
+
+    #[test]
+    fn zero_token_model_usage_and_non_atomic_counts_fail_closed() {
+        let mut value = event(1);
+        value.measurement = DeveloperEventMeasurementV1::ModelUsage {
+            input_tokens: 0,
+            output_tokens: 0,
+            run_count: 1,
+        };
+        assert_eq!(value.validate(), Err(TelemetryPrimitiveError::InvalidEvent));
+        value.measurement = DeveloperEventMeasurementV1::HumanInteraction { interaction_count: 2 };
+        assert_eq!(value.validate(), Err(TelemetryPrimitiveError::InvalidEvent));
     }
 }

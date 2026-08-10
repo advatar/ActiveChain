@@ -631,6 +631,21 @@ mod tests {
         ));
     }
 
+    #[test]
+    #[ignore = "real succinct work proving is an explicit release/security gate"]
+    fn real_work_receipt_round_trips_and_rejects_public_substitution() {
+        let input = work_input();
+        let proof = super::prove_work_non_overlap(&input).unwrap();
+        let envelope = proof.to_envelope_bytes().unwrap();
+        super::WorkNonOverlapProof::from_envelope_bytes(&envelope, &input.public).unwrap();
+        let mut substituted = input.public.clone();
+        substituted.policy_revision += 1;
+        assert!(matches!(
+            super::WorkNonOverlapProof::from_envelope_bytes(&envelope, &substituted),
+            Err(super::PqZkError::WrongPublicStatement)
+        ));
+    }
+
     fn billboard_relations() -> (PostRelationInput, WithdrawalRelationInput) {
         let config = BillboardConfig::new(
             ChainId::new(digest(1)),
