@@ -3,11 +3,11 @@
 
 extern crate alloc;
 
+pub use activechain_application_primitives::DeveloperEventV1;
+use activechain_application_primitives::{event_leaf_hash, event_node_hash};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
 };
-pub use activechain_application_primitives::telemetry::DeveloperEventV1;
-use activechain_application_primitives::telemetry::{event_leaf_hash, event_node_hash};
 use activechain_protocol_types::Digest384;
 use alloc::vec::Vec;
 use sha3::{Digest, Sha3_384};
@@ -39,7 +39,7 @@ impl CanonicalDecode for ClaimClass {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WorkClaimPublicV1 {
     pub chain_id: Digest384,
     pub genesis: Digest384,
@@ -87,12 +87,16 @@ impl CanonicalEncode for WorkClaimPublicV1 {
         self.interval_end_ms.encode(e)?;
         self.nullifier_root.encode(e)?;
         self.usage_nullifier_root.encode(e)?;
-        self.usage_nullifiers.encode(e)
+        e.write_length(self.usage_nullifiers.len(), MAX_WORK_EVENTS)?;
+        for nullifier in &self.usage_nullifiers {
+            nullifier.encode(e)?;
+        }
+        Ok(())
     }
 }
 impl CanonicalDecode for WorkClaimPublicV1 {
     fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
-        Ok(Self {
+        let mut value = Self {
             chain_id: Digest384::decode(d)?,
             genesis: Digest384::decode(d)?,
             telemetry_schema: u16::decode(d)?,
@@ -114,8 +118,14 @@ impl CanonicalDecode for WorkClaimPublicV1 {
             interval_end_ms: u64::decode(d)?,
             nullifier_root: Digest384::decode(d)?,
             usage_nullifier_root: Digest384::decode(d)?,
-            usage_nullifiers: Vec::<Digest384>::decode(d)?,
-        })
+            usage_nullifiers: Vec::new(),
+        };
+        let count = d.read_length(MAX_WORK_EVENTS)?;
+        value.usage_nullifiers.reserve(count);
+        for _ in 0..count {
+            value.usage_nullifiers.push(Digest384::decode(d)?);
+        }
+        Ok(value)
     }
 }
 impl CanonicalType for WorkClaimPublicV1 {
@@ -134,18 +144,24 @@ impl CanonicalEncode for WorkEventWitnessV1 {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
         self.event.encode(e)?;
         self.merkle_index.encode(e)?;
-        self.merkle_path.encode(e)
+        e.write_length(self.merkle_path.len(), MAX_EPOCH_DEPTH)?;
+        for sibling in &self.merkle_path {
+            sibling.encode(e)?;
+        }
+        Ok(())
     }
 }
 impl CanonicalDecode for WorkEventWitnessV1 {
     fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
-        let value = Self {
+        let mut value = Self {
             event: DeveloperEventV1::decode(d)?,
             merkle_index: u32::decode(d)?,
-            merkle_path: Vec::<Digest384>::decode(d)?,
+            merkle_path: Vec::new(),
         };
-        if value.merkle_path.len() > MAX_EPOCH_DEPTH {
-            return Err(DecodeError::InvalidValue("work event Merkle path too deep"));
+        let count = d.read_length(MAX_EPOCH_DEPTH)?;
+        value.merkle_path.reserve(count);
+        for _ in 0..count {
+            value.merkle_path.push(Digest384::decode(d)?);
         }
         Ok(value)
     }
@@ -161,18 +177,24 @@ impl CanonicalEncode for WorkClaimRelationInputV1 {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
         self.public.encode(e)?;
         self.claimant_secret.encode(e)?;
-        self.events.encode(e)
+        e.write_length(self.events.len(), MAX_WORK_EVENTS)?;
+        for event in &self.events {
+            event.encode(e)?;
+        }
+        Ok(())
     }
 }
 impl CanonicalDecode for WorkClaimRelationInputV1 {
     fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
-        let value = Self {
+        let mut value = Self {
             public: WorkClaimPublicV1::decode(d)?,
             claimant_secret: Digest384::decode(d)?,
-            events: Vec::<WorkEventWitnessV1>::decode(d)?,
+            events: Vec::new(),
         };
-        if value.events.len() > MAX_WORK_EVENTS {
-            return Err(DecodeError::InvalidValue("too many work events"));
+        let count = d.read_length(MAX_WORK_EVENTS)?;
+        value.events.reserve(count);
+        for _ in 0..count {
+            value.events.push(WorkEventWitnessV1::decode(d)?);
         }
         Ok(value)
     }
@@ -339,7 +361,7 @@ pub fn public_journal(public: &WorkClaimPublicV1) -> Result<Vec<u8>, EncodeError
 #[cfg(test)]
 mod tests {
     use super::*;
-    use activechain_application_primitives::telemetry::DeveloperEventKindV1;
+    use activechain_application_primitives::DeveloperEventKindV1;
 
     fn d(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
@@ -448,7 +470,7 @@ mod tests {
         let encoded = activechain_canonical_codec::encode_envelope(&input.events[0].event).unwrap();
         assert_eq!(
             activechain_canonical_codec::decode_envelope::<DeveloperEventV1>(&encoded),
-            Ok(input.events[0].event)
+            Ok(input.events[0].event.clone())
         );
     }
     #[test]
