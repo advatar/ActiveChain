@@ -47,11 +47,11 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
       - [x] Add the bounded bearer-authenticated telemetry anchor gateway and freeze its developer contract.
       - [x] Add gateway recovery/adversarial rehearsals and deterministic canonical vectors.
       - [x] Rebase onto merged #773 and pass the exact full gate.
-  - [ ] Implement work claims and zero-knowledge non-overlap proofs (#776; claimed on `feat/776-work-proof-zk`).
+  - [x] Implement work claims and zero-knowledge non-overlap proofs (#776; claimed on `feat/776-work-proof-zk`).
     - [x] Freeze tagged raw telemetry measurements and policy-pinned class aggregates.
     - [x] Implement class-specific Attention, Compute, and Contribution arithmetic.
     - [x] Add class-neutral usage nullifiers and adversarial relation coverage.
-    - [ ] Regenerate proof/image/receipt vectors and pass the exact full gate.
+    - [x] Regenerate proof/image/receipt vectors and pass the exact full gate.
   - [ ] Expose bounded verification APIs, SDKs, and explorer DTOs (#777).
   - [ ] Qualify and document the complete `pow.actum.network` integration (#778).
 
