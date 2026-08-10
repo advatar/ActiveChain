@@ -21,6 +21,7 @@ dependencies = [
  "activechain-protocol-commitment",
  "activechain-protocol-types",
  "activechain-rpc-types",
+ "activechain-state-tree",
  "sha2 0.10.9",
  "sha3 0.10.9",
 ]
@@ -151,6 +152,15 @@ dependencies = [
 
 [[package]]
 name = "activechain-rpc-types"
+version = "0.1.0"
+dependencies = [
+ "activechain-canonical-codec",
+ "activechain-protocol-types",
+ "sha3 0.10.9",
+]
+
+[[package]]
+name = "activechain-state-tree"
 version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
