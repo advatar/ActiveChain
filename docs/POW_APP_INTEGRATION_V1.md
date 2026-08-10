@@ -191,6 +191,16 @@ ProofOfWork `EvidenceBundleV1`, browser, plugin arguments, and HTTP body must no
 that durable trust state. Use `/v1/status` readiness and the three returned verification dimensions
 instead of inferring readiness or finality from HTTP success.
 
+Reference integration artifacts:
+
+- `schemas/actum-work-proof-admission-v1.schema.json` freezes the HTTP request, success, and typed
+  error envelopes.
+- `testing/contracts/proof-of-work-verifier-v1.json` supplies stateless and stateful consumer
+  fixtures without caller-selected trust.
+- `docs/examples/pow-work-proof-client.ts` is a server-side TypeScript client that enforces HTTPS,
+  bounded responses, exact fields, canonical lowercase encodings, and chain/project/policy/result
+  bindings. Bearer material must never be shipped to browser code.
+
 ## Offline and subprocess interfaces
 
 The `actum-work-proof-verifier` executable accepts one length-prefixed binary request on stdin and

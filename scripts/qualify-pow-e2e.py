@@ -15,6 +15,8 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 MATRIX = ROOT / "testing/pow/qualification-matrix-v1.json"
 CONSUMER = ROOT / "testing/contracts/proof-of-work-verifier-v1.json"
+ADMISSION_SCHEMA = ROOT / "schemas/actum-work-proof-admission-v1.schema.json"
+TYPESCRIPT_CLIENT = ROOT / "docs/examples/pow-work-proof-client.ts"
 REVISION = re.compile(r"^[0-9a-f]{40,64}$")
 
 
@@ -74,6 +76,21 @@ def validate_consumer_contract() -> None:
     }
     assert claim["lifecycle"] == "anchor_finalized"
     assert all(claim[field] for field in ("relation_verified", "anchor_verified", "usage_verified"))
+    schema = json.loads(ADMISSION_SCHEMA.read_text("utf-8"))
+    request_schema = schema["$defs"]["request"]
+    assert request_schema["additionalProperties"] is False
+    assert set(request_schema["required"]) == set(stateful_request)
+    assert "trust_bundle" not in request_schema["properties"]
+    client = TYPESCRIPT_CLIENT.read_text("utf-8")
+    for required in (
+        "actum.work-proof.admit.request.v1",
+        "actum.work-proof.admit.result.v1",
+        "application/vnd.actum.work-proof.v1+json",
+        "relation_verified",
+        "anchor_verified",
+        "usage_verified",
+    ):
+        assert required in client
 
 
 def main() -> int:

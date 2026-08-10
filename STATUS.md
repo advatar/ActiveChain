@@ -105,6 +105,7 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Freeze the native telemetry-anchor action/receipt/finality/trust consumer fixture.
     - [x] Route plugin `work.verify` through authenticated stateful admission while preserving an
       explicit relation-only fallback.
+    - [x] Publish the stateful HTTP JSON Schema and binding-validating server-side TypeScript client.
     - [ ] Exercise real deployed delivery, anchoring, finality, and stateful usage admission.
     - [ ] Pass the exact full gate and publish production qualification evidence.
     - [ ] Promote the deployed testnet and update landing-page capabilities proven by that evidence.
