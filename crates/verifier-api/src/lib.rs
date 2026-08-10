@@ -2525,6 +2525,56 @@ mod tests {
             ),
             VERIFY_OK
         );
+        let unrelated_transaction = TransactionId::new(digest(70));
+        let unrelated_receipt = BlockReceipt::new(
+            digest(63),
+            9,
+            pre_state,
+            post_state,
+            digest(64),
+            digest(65),
+            vec![ActionReceipt::new(
+                unrelated_transaction,
+                ActionOutcome::AnchorSubmitted {
+                    reference: statement.submission_reference().unwrap(),
+                },
+                ResourceVector::new(1, 0, 0, 0, 0, 1),
+                0,
+                1,
+                post_state,
+            )],
+        )
+        .unwrap();
+        let unrelated_root = commit(DomainTag::CANONICAL_VALUE, &unrelated_receipt).unwrap();
+        let unrelated_finality =
+            finality_bundle_with_inputs(unrelated_root, pre_state, post_state, digest(50));
+        let unrelated_evidence = AnchorFinalizedEvidenceV1::new(
+            evidence.chain(),
+            unrelated_finality.validator_genesis().genesis_commitment(),
+            unrelated_transaction,
+            encode_envelope(&action).unwrap(),
+            9,
+            unrelated_receipt.block_id(),
+            statement.clone(),
+            None,
+            None,
+            4,
+            VERIFIER_SCHEMA_REVISION,
+            encode_envelope(&unrelated_receipt).unwrap(),
+            encode_envelope(&unrelated_finality).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            verify_anchor_finalized_evidence_code(
+                &encode_envelope(&unrelated_evidence).unwrap(),
+                &encoded_statement,
+                evidence.chain(),
+                trusted_genesis,
+                4,
+                VERIFIER_SCHEMA_REVISION,
+            ),
+            VerifyError::RelationMismatch.code()
+        );
         assert_eq!(
             verify_anchor_finalized_evidence_code(
                 &encoded_evidence,
