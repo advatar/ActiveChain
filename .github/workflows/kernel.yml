@@ -4,7 +4,17 @@ on:
   pull_request:
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
+    inputs:
+      qualification:
+        description: Run affected development checks or the complete exact-SHA qualification gate
+        required: true
+        default: full
+        type: choice
+        options:
+          - development
+          - full
 
 concurrency:
   group: deterministic-kernel-${{ github.ref }}
@@ -13,18 +23,70 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+  PATH: /Users/johansellstrom/.elan/bin:/opt/homebrew/opt/rustup/bin:/Users/johansellstrom/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+  # The runner is serial. Keeping exact-SHA artifacts outside the checkout lets clean, independent
+  # jobs reuse compilation without permitting one revision to consume another revision's output.
+  CARGO_TARGET_DIR: /Users/johansellstrom/.cache/activechain-ci/target/${{ github.sha }}
+
 jobs:
-  rust:
-    name: Rust kernel on local ARM64
-    runs-on: [self-hosted, macOS, ARM64, activechain-ci]
-    # The authorization-chain Tamarin suite can consume almost two hours on
-    # the pinned ARM64 runner before the remaining deterministic checks run.
-    timeout-minutes: 180
-    env:
-      CARGO_TERM_COLOR: always
-      # Keep build artifacts scoped to the exact synthetic merge revision under qualification.
-      CARGO_TARGET_DIR: ${{ github.workspace }}/target/ci-${{ github.sha }}
-      PATH: /Users/johansellstrom/.elan/bin:/opt/homebrew/opt/rustup/bin:/Users/johansellstrom/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+  scope:
+    name: Determine qualification scope
+    runs-on: ubuntu-latest
+    outputs:
+      full: ${{ steps.scope.outputs.full }}
+      static: ${{ steps.scope.outputs.static }}
+      formal: ${{ steps.scope.outputs.formal }}
+      kani: ${{ steps.scope.outputs.kani }}
+      tests: ${{ steps.scope.outputs.tests }}
+      apple: ${{ steps.scope.outputs.apple }}
+      runtime: ${{ steps.scope.outputs.runtime }}
+      vectors: ${{ steps.scope.outputs.vectors }}
+    steps:
+      - name: Check out the exact revision and comparison history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          clean: true
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Classify the exact revision
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_QUALIFICATION: ${{ inputs.qualification }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_ACTION: ${{ github.event.action }}
+        run: |
+          set -euo pipefail
+          full=false
+          if [[ "$EVENT_NAME" == push ]] ||
+             [[ "$EVENT_NAME" == workflow_dispatch && "$REQUESTED_QUALIFICATION" == full ]]; then
+            full=true
+          fi
+
+          if [[ "$full" == true ]]; then
+            changed='__FULL_QUALIFICATION__'
+          elif [[ "$EVENT_NAME" == pull_request && "$PR_ACTION" == synchronize &&
+                  -n "$BEFORE_SHA" && "$BEFORE_SHA" != 0000000000000000000000000000000000000000 ]]; then
+            changed=$(git diff --name-only "$BEFORE_SHA...HEAD")
+          elif [[ "$EVENT_NAME" == pull_request ]]; then
+            changed=$(git diff --name-only "origin/${BASE_REF}...HEAD")
+          elif [[ -n "$BEFORE_SHA" && "$BEFORE_SHA" != 0000000000000000000000000000000000000000 ]]; then
+            changed=$(git diff --name-only "$BEFORE_SHA...HEAD")
+          else
+            changed=$(git show --pretty='' --name-only HEAD)
+          fi
+          printf '%s\n' "$changed"
+
+          printf '%s\n' "$changed" |
+            bash scripts/classify-kernel-change-scope.sh "$full" |
+            tee -a "$GITHUB_OUTPUT"
+
+  policy:
+    name: Verify qualification policy
+    runs-on: ubuntu-latest
     steps:
       - name: Check out the exact revision
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -32,84 +94,24 @@ jobs:
           clean: true
           fetch-depth: 1
           persist-credentials: false
-      - name: Install pinned Rust toolchain
+      - name: Validate the fail-closed job graph
         run: |
-          rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
-          rustup target add --toolchain 1.97.1 \
-            aarch64-apple-ios \
-            aarch64-apple-ios-sim
-      - name: Install pinned Lean toolchain
-        run: |
-          if ! elan toolchain list | rg --fixed-strings --line-regexp 'leanprover/lean4:v4.32.0'; then
-            elan toolchain install leanprover/lean4:v4.32.0
-          fi
-      - name: Install pinned Kani verifier
-        run: |
-          kani_version=0.67.0
-          if [[ "$(cargo kani --version 2>/dev/null || true)" != "cargo-kani ${kani_version}" ]]; then
-            cargo install --locked kani-verifier --version "${kani_version}" --force
-          fi
-          cargo kani setup
-          [[ "$(cargo kani --version)" == "cargo-kani ${kani_version}" ]]
-      - name: Isolate public Docker authentication
-        run: |
-          ci_docker_config="${RUNNER_TEMP}/activechain-docker-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          ci_docker_bin="${RUNNER_TEMP}/activechain-docker-bin-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          system_docker="$(command -v docker)"
-          mkdir -p "${ci_docker_config}/cli-plugins"
-          mkdir -p "${ci_docker_bin}"
-          printf '{"credsStore":"activechain-anonymous"}\n' > "${ci_docker_config}/config.json"
-          for plugin in "${HOME}/.docker/cli-plugins/"*; do
-            if [[ -f "${plugin}" && -x "${plugin}" ]]; then
-              ln -s "${plugin}" "${ci_docker_config}/cli-plugins/$(basename "${plugin}")"
-            fi
-          done
-          cat > "${ci_docker_bin}/docker" <<EOF
-          #!/bin/sh
-          exec "${system_docker}" --config "${ci_docker_config}" "\$@"
-          EOF
-          cat > "${ci_docker_bin}/docker-credential-activechain-anonymous" <<'EOF'
-          #!/bin/sh
-          case "$1" in
-            get)
-              IFS= read -r server_url
-              printf '{"ServerURL":"%s","Username":"","Secret":""}\n' "${server_url}"
-              ;;
-            list) printf '{}\n' ;;
-            store|erase) exit 0 ;;
-            *) exit 1 ;;
-          esac
-          EOF
-          chmod +x "${ci_docker_bin}/docker"
-          chmod +x "${ci_docker_bin}/docker-credential-activechain-anonymous"
-          echo "DOCKER_CONFIG=${ci_docker_config}" >> "${GITHUB_ENV}"
-          echo "${ci_docker_bin}" >> "${GITHUB_PATH}"
-      - name: Verify anonymous Docker configuration
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
+          python3 scripts/check-kernel-workflow-policy.py
+          python3 scripts/test_check_kernel_workflow_policy.py
 
-          config = json.loads((Path(os.environ["DOCKER_CONFIG"]) / "config.json").read_text())
-          if config != {"credsStore": "activechain-anonymous"}:
-              raise SystemExit(f"unexpected Docker credential configuration: {config!r}")
-          PY
-          resolved_docker="$(command -v docker)"
-          case "${resolved_docker}" in
-            "${RUNNER_TEMP}/activechain-docker-bin-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/docker") ;;
-            *) echo "Docker isolation wrapper is not first on PATH: ${resolved_docker}" >&2; exit 1 ;;
-          esac
-      - name: Preflight pinned RISC0 guest builder
-        run: |
-          ci_builder="activechain-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          docker buildx create --name "${ci_builder}" --driver docker-container --use
-          echo "ACTIVECHAIN_CI_BUILDER=${ci_builder}" >> "${GITHUB_ENV}"
-          echo "BUILDX_BUILDER=${ci_builder}" >> "${GITHUB_ENV}"
-          docker buildx inspect --bootstrap
-          docker buildx version
-          docker pull \
-            risczero/risc0-guest-builder:r0.1.94.1@sha256:c2f63fdd720337c0727e05c5e1733083baba04c00a864a89b0e3f4f8d92617be
+  static:
+    name: Static kernel checks
+    needs: scope
+    if: needs.scope.outputs.static == 'true'
+    runs-on: [self-hosted, macOS, ARM64, activechain-ci]
+    timeout-minutes: 60
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with: {clean: true, fetch-depth: 1, persist-credentials: false}
+      - name: Install static-check prerequisites
+        uses: ./.github/actions/kernel-setup
+        with: {ios-targets: 'true'}
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Verify canonical type-tag registry
@@ -122,33 +124,55 @@ jobs:
         working-directory: tools/go-verifier
         run: go test ./...
       - name: Check all targets
-        env:
-          # Clippy checks host code; the following test step builds the pinned guest image.
-          RISC0_SKIP_BUILD: "1"
+        env: {RISC0_SKIP_BUILD: '1'}
         run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
       - name: Check no-std kernel target
         run: >-
           cargo check --locked --target aarch64-apple-ios --lib
-          -p activechain-action-kernel
-          -p activechain-bytecode-verifier
-          -p activechain-canonical-codec
-          -p activechain-credential
-          -p activechain-devnet-kernel
-          -p activechain-protocol-types
-          -p activechain-protocol-commitment
-          -p activechain-principal
-          -p activechain-capability
-          -p activechain-cash-kernel
-          -p activechain-policy-kernel
-          -p activechain-object
-          -p activechain-object-vm
-          -p activechain-state-tree
-          -p activechain-transition
+          -p activechain-action-kernel -p activechain-bytecode-verifier
+          -p activechain-canonical-codec -p activechain-credential
+          -p activechain-devnet-kernel -p activechain-protocol-types
+          -p activechain-protocol-commitment -p activechain-principal
+          -p activechain-capability -p activechain-cash-kernel
+          -p activechain-policy-kernel -p activechain-object
+          -p activechain-object-vm -p activechain-state-tree -p activechain-transition
+
+  formal:
+    name: Lean, Tamarin, Verus, and conformance
+    needs: scope
+    if: needs.scope.outputs.formal == 'true'
+    runs-on: [self-hosted, macOS, ARM64, activechain-ci]
+    timeout-minutes: 150
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with: {clean: true, fetch-depth: 1, persist-credentials: false}
+      - name: Install formal prerequisites
+        uses: ./.github/actions/kernel-setup
+        with: {lean: 'true'}
       - name: Build executable Lean reference model
         working-directory: formal/lean
         run: lake build
       - name: Prove all Lean and Tamarin models
         run: bash scripts/check-formal-models.sh
+      - name: Prove consensus and economics arithmetic contracts
+        run: formal/verus/verify.sh
+      - name: Audit implementation traces and differential conformance
+        run: bash scripts/check-proof-conformance.sh
+
+  kani:
+    name: Kani bounded-model checks
+    needs: scope
+    if: needs.scope.outputs.kani == 'true'
+    runs-on: [self-hosted, macOS, ARM64, activechain-ci]
+    timeout-minutes: 90
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with: {clean: true, fetch-depth: 1, persist-credentials: false}
+      - name: Install Kani prerequisites
+        uses: ./.github/actions/kernel-setup
+        with: {kani: 'true'}
       - name: Bounded-model-check the production canonical codec
         run: bash scripts/check-kani-codec.sh
       - name: Bounded-model-check the verifier C ABI
@@ -159,20 +183,76 @@ jobs:
         run: bash scripts/check-kani-protocol-types.sh
       - name: Bounded-model-check commitment transcript binding
         run: bash scripts/check-kani-commitment.sh
-      - name: Prove consensus and economics arithmetic contracts
-        run: formal/verus/verify.sh
-      - name: Audit implementation traces and differential conformance
-        run: bash scripts/check-proof-conformance.sh
+
+  tests:
+    name: Debug and documentation tests
+    needs: scope
+    if: needs.scope.outputs.tests == 'true'
+    runs-on: [self-hosted, macOS, ARM64, activechain-ci]
+    timeout-minutes: 90
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with: {clean: true, fetch-depth: 1, persist-credentials: false}
+      - name: Install test prerequisites
+        uses: ./.github/actions/kernel-setup
+        with: {docker: 'true'}
       - name: Run tests
         run: cargo test --locked --workspace --all-features
       - name: Run documentation tests
         run: cargo test --locked --workspace --doc
+      - name: Remove isolated BuildKit worker
+        if: always() && env.ACTIVECHAIN_CI_BUILDER != ''
+        run: docker buildx rm "${ACTIVECHAIN_CI_BUILDER}"
+
+  apple:
+    name: Release build and Apple distribution
+    needs: scope
+    if: needs.scope.outputs.apple == 'true'
+    runs-on: [self-hosted, macOS, ARM64, activechain-ci]
+    timeout-minutes: 90
+    steps:
+      - name: Check out a clean exact revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with: {clean: true, fetch-depth: 1, persist-credentials: false}
+      - name: Install Apple build prerequisites
+        uses: ./.github/actions/kernel-setup
+        with: {ios-targets: 'true', docker: 'true'}
       - name: Build release binaries and libraries
         run: cargo build --locked --workspace --release
+      - name: Assert clean source tree before packaging
+        run: |
+          dirty=$(git status --porcelain --untracked-files=normal)
+          if [[ -n "$dirty" ]]; then
+            printf 'Apple packaging source tree is dirty:\n%s\n' "$dirty" >&2
+            exit 1
+          fi
       - name: Reproduce and consume Apple distributions
         run: |
           cargo run --locked -p activechain-apple-distribution -- check-headers .
+          dirty=$(git status --porcelain --untracked-files=normal)
+          if [[ -n "$dirty" ]]; then
+            printf 'header generation dirtied the Apple packaging source tree:\n%s\n' "$dirty" >&2
+            exit 1
+          fi
           bash scripts/check-apple-reproducibility.sh "$GITHUB_SHA"
+      - name: Remove isolated BuildKit worker
+        if: always() && env.ACTIVECHAIN_CI_BUILDER != ''
+        run: docker buildx rm "${ACTIVECHAIN_CI_BUILDER}"
+
+  runtime:
+    name: Release tests and process rehearsals
+    needs: scope
+    if: needs.scope.outputs.runtime == 'true'
+    runs-on: [self-hosted, macOS, ARM64, activechain-ci]
+    timeout-minutes: 120
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with: {clean: true, fetch-depth: 1, persist-credentials: false}
+      - name: Install runtime prerequisites
+        uses: ./.github/actions/kernel-setup
+        with: {docker: 'true'}
       - name: Run release tests
         run: cargo test --locked --workspace --release
       - name: Rehearse validator processes
@@ -185,10 +265,27 @@ jobs:
         run: bash scripts/rehearse-validator-key-rotation.sh
       - name: Verify fail-closed Kanalen cash publication
         run: bash scripts/test-kanalen-round-cash-gate.sh
-      - name: Verify local Kanalen qualification command
+      - name: Qualify Kanalen deployment locally
         run: bash scripts/test-qualify-kanalen-local.sh
       - name: Verify public Kanalen RPC status fixture
         run: python3 scripts/test_probe_kanalen_rpc.py
+      - name: Remove isolated BuildKit worker
+        if: always() && env.ACTIVECHAIN_CI_BUILDER != ''
+        run: docker buildx rm "${ACTIVECHAIN_CI_BUILDER}"
+
+  vectors:
+    name: Canonical vectors and semantic tables
+    needs: scope
+    if: needs.scope.outputs.vectors == 'true'
+    runs-on: [self-hosted, macOS, ARM64, activechain-ci]
+    timeout-minutes: 60
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with: {clean: true, fetch-depth: 1, persist-credentials: false}
+      - name: Install vector prerequisites
+        uses: ./.github/actions/kernel-setup
+        with: {lean: 'true'}
       - name: Reproduce canonical vectors
         run: |
           cargo run --locked --quiet -p activechain-vector-generator -- principal-v1 | diff -u testing/vectors/canonical/principal-v1.txt -
@@ -220,6 +317,49 @@ jobs:
           (cd formal/lean && lake exe didLifecycleTable) | diff -u testing/vectors/did-lifecycle-model-table.txt -
           cargo run --locked --quiet -p activechain-vector-generator -- codec-length-table | diff -u testing/vectors/canonical/length-prefix-table.txt -
           (cd formal/lean && lake exe codecLengthTable) | diff -u testing/vectors/canonical/length-prefix-table.txt -
-      - name: Remove isolated BuildKit worker
-        if: always() && env.ACTIVECHAIN_CI_BUILDER != ''
-        run: docker buildx rm "${ACTIVECHAIN_CI_BUILDER}"
+
+  qualification:
+    name: Deterministic kernel qualification
+    needs: [scope, policy, static, formal, kani, tests, apple, runtime, vectors]
+    if: always() && needs.scope.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every exact-SHA qualification stage
+        env:
+          STAGE_RESULTS: ${{ toJSON(needs) }}
+          QUALIFIED_SHA: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          results = json.loads(os.environ["STAGE_RESULTS"])
+          required = ("policy", "static", "formal", "kani", "tests", "apple", "runtime", "vectors")
+          rejected = {name: results.get(name, {}).get("result") for name in required
+                      if results.get(name, {}).get("result") != "success"}
+          if rejected:
+              raise SystemExit(f"exact-SHA qualification incomplete: {rejected}")
+          print(f"complete deterministic-kernel qualification passed for {os.environ['QUALIFIED_SHA']}")
+          PY
+
+  development:
+    name: Deterministic kernel development checks
+    needs: [scope, policy, static, formal, kani, tests, apple, runtime, vectors]
+    if: always() && needs.scope.outputs.full != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every selected development stage
+        env:
+          STAGE_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          results = json.loads(os.environ["STAGE_RESULTS"])
+          rejected = {name: value.get("result") for name, value in results.items()
+                      if name != "scope" and value.get("result") not in ("success", "skipped")}
+          if results.get("policy", {}).get("result") != "success" or rejected:
+              raise SystemExit(f"development checks incomplete: {rejected}")
+          print("all selected deterministic-kernel development checks passed")
+          PY

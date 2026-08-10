@@ -3016,3 +3016,15 @@ wallet and all testnets remain explicitly developmental until this milestone com
   - [x] Pass semantic-devnet tests, exact vector reproduction, strict affected Clippy, and the exact
     full deterministic-kernel gate before integrating the stacked recovery branches into
     `origin/main`.
+# Resumable deterministic-kernel qualification
+
+Tracked by [GitHub issue #788](https://github.com/advatar/ActiveChain/issues/788).
+
+- [x] Split the monolithic ARM64 gate into independently visible and rerunnable stages without
+  dropping any existing final-candidate command or exact-revision binding.
+- [x] Add a lightweight affected-change lane for ordinary development commits and an explicit
+  full-qualification trigger for final merge candidates, `main`, and release contexts.
+- [x] Add a fail-closed aggregate result and workflow-policy regression coverage so a candidate
+  cannot appear qualified when a mandatory stage was skipped or failed.
+- [x] Document the maintainer workflow and qualify synchronization-aware candidate `3000f6a6` in
+  split run `31340339674`; merge to `main` and reachability remain.

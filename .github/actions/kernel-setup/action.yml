@@ -1,0 +1,102 @@
+name: Deterministic-kernel prerequisites
+description: Install pinned prerequisites for one independently resumable kernel stage
+inputs:
+  lean:
+    description: Install the pinned Lean toolchain
+    default: 'false'
+  kani:
+    description: Install and configure the pinned Kani verifier
+    default: 'false'
+  ios-targets:
+    description: Install Apple Rust targets
+    default: 'false'
+  docker:
+    description: Configure anonymous Docker and the pinned RISC0 guest builder
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - name: Install pinned Rust toolchain
+      shell: bash
+      env:
+        IOS_TARGETS: ${{ inputs.ios-targets }}
+      run: |
+        rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
+        if [[ "$IOS_TARGETS" == true ]]; then
+          rustup target add --toolchain 1.97.1 aarch64-apple-ios aarch64-apple-ios-sim
+        fi
+    - name: Install pinned Lean toolchain
+      if: inputs.lean == 'true'
+      shell: bash
+      run: |
+        if ! elan toolchain list | rg --fixed-strings --line-regexp 'leanprover/lean4:v4.32.0'; then
+          elan toolchain install leanprover/lean4:v4.32.0
+        fi
+    - name: Install pinned Kani verifier
+      if: inputs.kani == 'true'
+      shell: bash
+      run: |
+        kani_version=0.67.0
+        if [[ "$(cargo kani --version 2>/dev/null || true)" != "cargo-kani ${kani_version}" ]]; then
+          cargo install --locked kani-verifier --version "${kani_version}" --force
+        fi
+        cargo kani setup
+        [[ "$(cargo kani --version)" == "cargo-kani ${kani_version}" ]]
+    - name: Isolate public Docker authentication
+      if: inputs.docker == 'true'
+      shell: bash
+      run: |
+        ci_docker_config="${RUNNER_TEMP}/activechain-docker-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
+        ci_docker_bin="${RUNNER_TEMP}/activechain-docker-bin-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
+        system_docker="$(command -v docker)"
+        mkdir -p "${ci_docker_config}/cli-plugins" "${ci_docker_bin}"
+        printf '{"credsStore":"activechain-anonymous"}\n' > "${ci_docker_config}/config.json"
+        for plugin in "${HOME}/.docker/cli-plugins/"*; do
+          if [[ -f "${plugin}" && -x "${plugin}" ]]; then
+            ln -s "${plugin}" "${ci_docker_config}/cli-plugins/$(basename "${plugin}")"
+          fi
+        done
+        cat > "${ci_docker_bin}/docker" <<EOF
+        #!/bin/sh
+        exec "${system_docker}" --config "${ci_docker_config}" "\$@"
+        EOF
+        cat > "${ci_docker_bin}/docker-credential-activechain-anonymous" <<'EOF'
+        #!/bin/sh
+        case "$1" in
+          get) IFS= read -r server_url; printf '{"ServerURL":"%s","Username":"","Secret":""}\n' "${server_url}" ;;
+          list) printf '{}\n' ;;
+          store|erase) exit 0 ;;
+          *) exit 1 ;;
+        esac
+        EOF
+        chmod +x "${ci_docker_bin}/docker" "${ci_docker_bin}/docker-credential-activechain-anonymous"
+        echo "DOCKER_CONFIG=${ci_docker_config}" >> "$GITHUB_ENV"
+        echo "${ci_docker_bin}" >> "$GITHUB_PATH"
+    - name: Verify anonymous Docker configuration
+      if: inputs.docker == 'true'
+      shell: bash
+      run: |
+        python3 - <<'PY'
+        import json
+        import os
+        from pathlib import Path
+        config = json.loads((Path(os.environ["DOCKER_CONFIG"]) / "config.json").read_text())
+        if config != {"credsStore": "activechain-anonymous"}:
+            raise SystemExit(f"unexpected Docker credential configuration: {config!r}")
+        PY
+        case "$(command -v docker)" in
+          "${RUNNER_TEMP}/activechain-docker-bin-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}/docker") ;;
+          *) echo "Docker isolation wrapper is not first on PATH" >&2; exit 1 ;;
+        esac
+    - name: Preflight pinned RISC0 guest builder
+      if: inputs.docker == 'true'
+      shell: bash
+      run: |
+        ci_builder="activechain-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
+        docker buildx rm "$ci_builder" >/dev/null 2>&1 || true
+        docker buildx create --name "$ci_builder" --driver docker-container --use
+        echo "ACTIVECHAIN_CI_BUILDER=${ci_builder}" >> "$GITHUB_ENV"
+        echo "BUILDX_BUILDER=${ci_builder}" >> "$GITHUB_ENV"
+        docker buildx inspect --bootstrap
+        docker buildx version
+        docker pull risczero/risc0-guest-builder:r0.1.94.1@sha256:c2f63fdd720337c0727e05c5e1733083baba04c00a864a89b0e3f4f8d92617be
