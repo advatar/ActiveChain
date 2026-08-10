@@ -3,7 +3,7 @@ name = "activechain-rpc-types"
 description = "Canonical bounded development-network RPC wire contract"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+rust-version = "1.94.1"
 repository.workspace = true
 publish = false
 

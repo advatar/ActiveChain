@@ -67,7 +67,7 @@ pub struct WorkProofReceiptEnvelopeV1 {
     receipt_commitment: Digest384,
 }
 
-fn work_image_id_bytes() -> [u8; 32] {
+pub fn work_image_id() -> [u8; 32] {
     let mut bytes = [0_u8; 32];
     for (output, word) in bytes.chunks_exact_mut(4).zip(WORK_NON_OVERLAP_ID) {
         output.copy_from_slice(&word.to_le_bytes());
@@ -398,7 +398,7 @@ impl WorkNonOverlapProof {
         let envelope = WorkProofReceiptEnvelopeV1 {
             profile_revision: 1,
             proof_system_revision: WORK_PROOF_SYSTEM_REVISION,
-            image_id: work_image_id_bytes(),
+            image_id: work_image_id(),
             journal_revision: 1,
             journal: self.receipt.journal.bytes.clone(),
             journal_commitment: transport_commitment(
@@ -425,7 +425,7 @@ impl WorkNonOverlapProof {
             public_journal(public).map_err(|_| PqZkError::WrongPublicStatement)?;
         if envelope.profile_revision != 1
             || envelope.proof_system_revision != WORK_PROOF_SYSTEM_REVISION
-            || envelope.image_id != work_image_id_bytes()
+            || envelope.image_id != work_image_id()
             || envelope.journal_revision != 1
             || envelope.receipt_encoding != 1
             || envelope.journal != expected_journal
@@ -551,6 +551,84 @@ mod tests {
 
     fn digest(byte: u8) -> Digest384 {
         Digest384::new([byte; 48])
+    }
+
+    fn decode_hex(value: &str) -> Vec<u8> {
+        value
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|pair| {
+                let digit = |byte| match byte {
+                    b'0'..=b'9' => byte - b'0',
+                    b'a'..=b'f' => byte - b'a' + 10,
+                    _ => panic!("invalid hex"),
+                };
+                digit(pair[0]) << 4 | digit(pair[1])
+            })
+            .collect()
+    }
+
+    fn work_input() -> activechain_work_proof::WorkClaimRelationInputV1 {
+        let vector = include_str!("../../../testing/vectors/application/work-claim-v1.txt");
+        let envelope =
+            vector.lines().find_map(|line| line.strip_prefix("relation_envelope=")).unwrap();
+        decode_envelope(&decode_hex(envelope)).unwrap()
+    }
+
+    #[test]
+    fn work_guest_image_and_journal_match_published_vector() {
+        let vector = include_str!("../../../testing/vectors/pq-zk/work-non-overlap-v1.txt");
+        let image: [u32; 8] = vector
+            .lines()
+            .find_map(|line| line.strip_prefix("image_id_u32_le="))
+            .unwrap()
+            .split(',')
+            .map(|word| word.parse().unwrap())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        assert_eq!(activechain_pq_zk_methods::WORK_NON_OVERLAP_ID, image);
+        let expected_journal =
+            vector.lines().find_map(|line| line.strip_prefix("journal=")).map(decode_hex).unwrap();
+        assert_eq!(super::execute_work_non_overlap_relation(&work_input()), Ok(expected_journal));
+    }
+
+    #[test]
+    fn work_receipt_envelope_metadata_substitution_fails_before_deserialization() {
+        let input = work_input();
+        let journal = activechain_work_proof::public_journal(&input.public).unwrap();
+        let receipt = vec![1_u8];
+        let mut envelope = super::WorkProofReceiptEnvelopeV1 {
+            profile_revision: 1,
+            proof_system_revision: super::WORK_PROOF_SYSTEM_REVISION,
+            image_id: super::work_image_id(),
+            journal_revision: 1,
+            journal: journal.clone(),
+            journal_commitment: super::transport_commitment(b"ACTUM-WORK-JOURNAL-V1", &journal),
+            receipt_encoding: 1,
+            receipt_commitment: super::transport_commitment(b"ACTUM-WORK-RECEIPT-V1", &receipt),
+            receipt_bytes: receipt,
+        };
+        let mut encoded = encode_envelope(&envelope).unwrap();
+        assert!(matches!(
+            super::WorkNonOverlapProof::from_envelope_bytes(&encoded, &input.public),
+            Err(super::PqZkError::MalformedProof)
+        ));
+        envelope.image_id[0] ^= 1;
+        encoded = encode_envelope(&envelope).unwrap();
+        assert!(matches!(
+            super::WorkNonOverlapProof::from_envelope_bytes(&encoded, &input.public),
+            Err(super::PqZkError::WrongPublicStatement)
+        ));
+        envelope.image_id = super::work_image_id();
+        envelope.journal[0] ^= 1;
+        envelope.journal_commitment =
+            super::transport_commitment(b"ACTUM-WORK-JOURNAL-V1", &envelope.journal);
+        encoded = encode_envelope(&envelope).unwrap();
+        assert!(matches!(
+            super::WorkNonOverlapProof::from_envelope_bytes(&encoded, &input.public),
+            Err(super::PqZkError::WrongPublicStatement)
+        ));
     }
 
     fn billboard_relations() -> (PostRelationInput, WithdrawalRelationInput) {

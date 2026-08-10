@@ -3,7 +3,7 @@ name = "activechain-work-proof"
 description = "Canonical Actum work-claim and non-overlap relation"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+rust-version = "1.94.1"
 repository.workspace = true
 publish = false
 

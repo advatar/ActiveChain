@@ -417,6 +417,27 @@ fn usage_nullifier(
         ],
     )
 }
+pub fn derive_nullifier_bindings(
+    public: &WorkClaimPublicV1,
+    claimant_secret: Digest384,
+    events: &[WorkEventWitnessV1],
+) -> Result<(Digest384, Digest384, Vec<Digest384>), WorkProofError> {
+    if events.is_empty() || events.len() > MAX_WORK_EVENTS {
+        return Err(WorkProofError::Malformed);
+    }
+    let ids = events
+        .iter()
+        .map(|event| event.event.event_id().map_err(|_| WorkProofError::Malformed))
+        .collect::<Result<Vec<_>, _>>()?;
+    let class = ids.iter().map(|id| class_nullifier(public, claimant_secret, *id)).collect();
+    let usage =
+        ids.iter().map(|id| usage_nullifier(public, claimant_secret, *id)).collect::<Vec<_>>();
+    Ok((
+        root(class, b"ACTUM-WORK-CLASS-NULLIFIER-NODE-V1"),
+        root(usage.clone(), b"ACTUM-WORK-USAGE-NULLIFIER-NODE-V1"),
+        usage,
+    ))
+}
 fn root(mut nodes: Vec<Digest384>, domain: &[u8]) -> Digest384 {
     while nodes.len() > 1 {
         if nodes.len() % 2 == 1 {
@@ -739,19 +760,10 @@ mod tests {
         input
     }
     fn bind(input: &mut WorkClaimRelationInputV1) {
-        let ids =
-            input.events.iter().map(|event| event.event.event_id().unwrap()).collect::<Vec<_>>();
-        let class = ids
-            .iter()
-            .map(|id| class_nullifier(&input.public, input.claimant_secret, *id))
-            .collect();
-        let usage = ids
-            .iter()
-            .map(|id| usage_nullifier(&input.public, input.claimant_secret, *id))
-            .collect::<Vec<_>>();
-        input.public.nullifier_root = root(class, b"ACTUM-WORK-CLASS-NULLIFIER-NODE-V1");
-        input.public.usage_nullifier_root =
-            root(usage.clone(), b"ACTUM-WORK-USAGE-NULLIFIER-NODE-V1");
+        let (class_root, usage_root, usage) =
+            derive_nullifier_bindings(&input.public, input.claimant_secret, &input.events).unwrap();
+        input.public.nullifier_root = class_root;
+        input.public.usage_nullifier_root = usage_root;
         input.public.usage_nullifiers = usage;
     }
     fn human(sequence: u64, start_ms: u64, end_ms: u64) -> DeveloperEventV1 {
