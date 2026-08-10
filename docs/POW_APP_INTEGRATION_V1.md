@@ -11,13 +11,13 @@ verification, and settlement controls disabled or labelled **Preview** until the
 | Capability shown by the app | Contract | Implementation issue | Current status |
 | --- | --- | --- | --- |
 | Agent Plugin packaging | Agent Plugins 1.0 + Codex extension | #774 | Candidate implemented; remains Preview pending exact qualification |
-| Human/agent/Git/build/model collection | `DeveloperEventV1` | #773 | Qualified candidate in progress; remains Preview until merged |
+| Human/agent/Git/build/model collection | `DeveloperEventV1` | #773/#776 | Collector merged; tagged raw-measurement correction remains Preview pending #776 qualification |
 | Permission UI, pause, retention, deletion | collector authorization API | #773/#774 | Collector and plugin candidates implemented; remains Preview until merged |
 | Project attribution and activity graph | keyed project identity | #773 | Planned |
-| Signed events and activity epochs | `SignedDeveloperEventV1`, `ActivityEpochV1` | #773 | Canonical/signature vector candidate implemented; remains Preview until merged |
-| Actum commitments/finality | digest-anchor profile | #775 | Reusable anchor exists; telemetry integration planned |
-| Attention/Compute/Contribution proofs | work-proof profiles | #776 | Planned |
-| ZK non-double-billing | non-overlap RISC Zero profile | #776 | Planned |
+| Signed events and activity epochs | `SignedDeveloperEventV1`, `ActivityEpochV1` | #773/#776 | Collector merged; corrected event/epoch vectors pending #776 qualification |
+| Actum commitments/finality | digest-anchor profile | #775 | Qualified and merged; remains Preview until end-to-end promotion |
+| Attention/Compute/Contribution proofs | tagged `WorkClaimAggregateV1` | #776 | Implemented candidate; vectors/image qualification pending |
+| ZK non-double-billing | non-overlap RISC Zero profile | #776/#777 | Stateless relation implemented; durable atomic usage admission remains #777 |
 | Proof explorer and verification API | API below | #777 | Planned |
 | Verified invoice/work statement | verified claim composition | #777/#778 | Planned |
 | Payments or autonomous settlement | separate wallet-approved action | later policy | Not authorized by telemetry |
@@ -89,6 +89,21 @@ returns `VerificationResultV1` with one status:
 Only `verified` may render a check mark. HTTP 2xx means the request was processed, not that the
 claim verified. Cache verification only by the complete envelope commitment plus trust-policy
 revision. Never infer chain/genesis from the submitted proof.
+
+## Canonical proof arithmetic
+
+Telemetry stores raw tagged measurements. The proof recomputes economic/scoring quantities under
+the exact committed `MeteringPolicyV1`; clients must never reinterpret event counters directly.
+
+- Attention accepts only human-interaction events, floors monotonic nanoseconds to milliseconds,
+  clips each interval by idle/event limits, unions overlaps and adjacency, then applies the claim cap.
+- Compute accepts agent execution, build/test, and model usage. Agent/build runtime sums even when
+  intervals overlap. Token totals aggregate before one checked millionth-weight normalization.
+- Contribution accepts distinct contribution-qualified Git artifacts and publishes only artifact
+  count, artifact-set commitment, and evidence root.
+- A public usage nullifier is class-neutral. Different events may overlap; the same event cannot be
+  consumed twice in one usage domain after #777 admission.
+- Every conversion rounds down and uses checked integer arithmetic. Floating point is forbidden.
 
 ## Frontend state rules
 

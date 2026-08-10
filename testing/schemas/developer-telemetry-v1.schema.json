@@ -17,22 +17,32 @@
     "digest384": {"type": "string", "pattern": "^[0-9a-f]{96}$"},
     "digest256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "u64": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+    "measurement": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["kind", "interaction_count"], "properties": {"kind": {"const": "human_interaction"}, "interaction_count": {"const": 1}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind", "run_count"], "properties": {"kind": {"const": "agent_execution"}, "run_count": {"const": 1}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind", "artifact_count"], "properties": {"kind": {"const": "git_artifact"}, "artifact_count": {"const": 1}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind", "run_count", "test_count"], "properties": {"kind": {"const": "build_test"}, "run_count": {"const": 1}, "test_count": {"type": "integer", "minimum": 1, "maximum": 4294967295}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind", "input_tokens", "output_tokens", "run_count"], "properties": {"kind": {"const": "model_usage"}, "input_tokens": {"$ref": "#/$defs/u64"}, "output_tokens": {"$ref": "#/$defs/u64"}, "run_count": {"const": 1}}, "anyOf": [{"properties": {"input_tokens": {"minimum": 1}}}, {"properties": {"output_tokens": {"minimum": 1}}}]}
+      ]
+    },
     "event": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["collector_id", "project_id", "collector_sequence", "project_sequence", "wall_start_ms", "wall_end_ms", "monotonic_start_ns", "monotonic_end_ns", "kind", "source_commitment", "subject_commitment", "payload_commitment", "units", "authorization_revision"],
+      "required": ["collector_id", "project_id", "collector_sequence", "project_sequence", "wall_start_ms", "wall_end_ms", "monotonic_start_ns", "monotonic_end_ns", "measurement", "source_commitment", "subject_commitment", "payload_commitment", "authorization_revision"],
       "properties": {
         "collector_id": {"$ref": "#/$defs/digest384"}, "project_id": {"$ref": "#/$defs/digest384"},
         "collector_sequence": {"$ref": "#/$defs/u64"}, "project_sequence": {"$ref": "#/$defs/u64"},
         "wall_start_ms": {"$ref": "#/$defs/u64"}, "wall_end_ms": {"$ref": "#/$defs/u64"},
         "monotonic_start_ns": {"$ref": "#/$defs/u64"}, "monotonic_end_ns": {"$ref": "#/$defs/u64"},
-        "kind": {"enum": ["human_interaction", "agent_execution", "git_artifact", "build_test", "model_usage"]},
+        "measurement": {"$ref": "#/$defs/measurement"},
         "source_commitment": {"$ref": "#/$defs/digest384"}, "subject_commitment": {"$ref": "#/$defs/digest384"}, "payload_commitment": {"$ref": "#/$defs/digest384"},
-        "units": {"$ref": "#/$defs/u64"}, "authorization_revision": {"type": "integer", "minimum": 1, "maximum": 4294967295}
+        "authorization_revision": {"type": "integer", "minimum": 1, "maximum": 4294967295}
       }
     },
     "signed_event": {
-      "type": "object", "additionalProperties": false, "required": ["event", "event_id", "algorithm", "public_key", "signature"],
+      "type": "object", "additionalProperties": false,
+      "required": ["event", "event_id", "algorithm", "public_key", "signature"],
       "properties": {"event": {"$ref": "#/$defs/event"}, "event_id": {"$ref": "#/$defs/digest384"}, "algorithm": {"const": "ml-dsa-44-v1"}, "public_key": {"type": "string", "pattern": "^[0-9a-f]+$", "maxLength": 2624}, "signature": {"type": "string", "pattern": "^[0-9a-f]+$", "maxLength": 4840}}
     },
     "epoch": {
@@ -42,16 +52,29 @@
     },
     "policy": {
       "type": "object", "additionalProperties": false,
-      "required": ["policy_id", "revision", "idle_timeout_ms", "maximum_human_interval_ms", "accepted_kinds", "agent_overlap", "rounding_ms", "non_overlap_profile"],
-      "properties": {"policy_id": {"$ref": "#/$defs/digest384"}, "revision": {"type": "integer", "minimum": 1, "maximum": 4294967295}, "idle_timeout_ms": {"type": "integer", "minimum": 1000, "maximum": 3600000}, "maximum_human_interval_ms": {"type": "integer", "minimum": 1000, "maximum": 86400000}, "accepted_kinds": {"type": "array", "uniqueItems": true, "minItems": 1, "maxItems": 5, "items": {"enum": ["human_interaction", "agent_execution", "git_artifact", "build_test", "model_usage"]}}, "agent_overlap": {"enum": ["distinct", "wall_clock_union"]}, "rounding_ms": {"type": "integer", "minimum": 1, "maximum": 3600000}, "non_overlap_profile": {"const": "actum.non-overlap.risc0.v1"}}
+      "required": ["policy_id", "revision", "accepted_kinds", "idle_timeout_ms", "max_human_event_ms", "max_attention_claim_ms", "model_input_weight", "model_output_weight", "model_weight_denominator", "proof_profile"],
+      "properties": {
+        "policy_id": {"$ref": "#/$defs/digest384"}, "revision": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "accepted_kinds": {"type": "array", "uniqueItems": true, "minItems": 1, "maxItems": 5, "items": {"enum": ["human_interaction", "agent_execution", "git_artifact", "build_test", "model_usage"]}},
+        "idle_timeout_ms": {"$ref": "#/$defs/u64"}, "max_human_event_ms": {"$ref": "#/$defs/u64"}, "max_attention_claim_ms": {"$ref": "#/$defs/u64"},
+        "model_input_weight": {"type": "integer", "minimum": 0, "maximum": 4294967295}, "model_output_weight": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+        "model_weight_denominator": {"const": 1000000}, "proof_profile": {"const": "actum.non-overlap.risc0.v1"}
+      }
+    },
+    "aggregate": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["kind", "attributable_ms", "interaction_count"], "properties": {"kind": {"const": "attention"}, "attributable_ms": {"$ref": "#/$defs/u64"}, "interaction_count": {"type": "integer", "minimum": 1, "maximum": 4294967295}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind", "agent_runtime_ms", "model_input_tokens", "model_output_tokens", "normalized_model_units", "run_count"], "properties": {"kind": {"const": "compute"}, "agent_runtime_ms": {"$ref": "#/$defs/u64"}, "model_input_tokens": {"$ref": "#/$defs/u64"}, "model_output_tokens": {"$ref": "#/$defs/u64"}, "normalized_model_units": {"$ref": "#/$defs/u64"}, "run_count": {"type": "integer", "minimum": 1, "maximum": 4294967295}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind", "artifact_count", "artifact_set_commitment", "evidence_root"], "properties": {"kind": {"const": "contribution"}, "artifact_count": {"type": "integer", "minimum": 1, "maximum": 4294967295}, "artifact_set_commitment": {"$ref": "#/$defs/digest384"}, "evidence_root": {"$ref": "#/$defs/digest384"}}}
+      ]
     },
     "claim": {
       "type": "object", "additionalProperties": false,
-      "required": ["claim_id", "kind", "collector_id", "project_id", "policy_id", "epoch_root", "interval_start_ms", "interval_end_ms", "evidence_count", "human_attention_ms", "agent_runtime_ms", "model_input_tokens", "model_output_tokens", "model_units", "artifact_commitment", "proof_profile"],
-      "properties": {"claim_id": {"$ref": "#/$defs/digest384"}, "kind": {"enum": ["attention", "compute", "contribution", "non_overlap"]}, "collector_id": {"$ref": "#/$defs/digest384"}, "project_id": {"$ref": "#/$defs/digest384"}, "policy_id": {"$ref": "#/$defs/digest384"}, "epoch_root": {"$ref": "#/$defs/digest384"}, "interval_start_ms": {"$ref": "#/$defs/u64"}, "interval_end_ms": {"$ref": "#/$defs/u64"}, "evidence_count": {"type": "integer", "minimum": 1, "maximum": 1048576}, "human_attention_ms": {"$ref": "#/$defs/u64"}, "agent_runtime_ms": {"$ref": "#/$defs/u64"}, "model_input_tokens": {"$ref": "#/$defs/u64"}, "model_output_tokens": {"$ref": "#/$defs/u64"}, "model_units": {"$ref": "#/$defs/u64"}, "artifact_commitment": {"$ref": "#/$defs/digest384"}, "proof_profile": {"enum": ["actum.attention.v1", "actum.compute.v1", "actum.contribution.v1", "actum.non-overlap.risc0.v1"]}}
+      "required": ["claim_id", "collector_id", "project_id", "policy_id", "policy_revision", "epoch_root", "interval_start_ms", "interval_end_ms", "evidence_count", "aggregate", "proof_profile"],
+      "properties": {"claim_id": {"$ref": "#/$defs/digest384"}, "collector_id": {"$ref": "#/$defs/digest384"}, "project_id": {"$ref": "#/$defs/digest384"}, "policy_id": {"$ref": "#/$defs/digest384"}, "policy_revision": {"type": "integer", "minimum": 1, "maximum": 4294967295}, "epoch_root": {"$ref": "#/$defs/digest384"}, "interval_start_ms": {"$ref": "#/$defs/u64"}, "interval_end_ms": {"$ref": "#/$defs/u64"}, "evidence_count": {"type": "integer", "minimum": 1, "maximum": 256}, "aggregate": {"$ref": "#/$defs/aggregate"}, "proof_profile": {"const": "actum.non-overlap.risc0.v1"}}
     },
     "anchor": {"type": "object", "additionalProperties": false, "required": ["status", "chain_id", "genesis_commitment", "reference", "finalized_height", "evidence_envelope"], "properties": {"status": {"enum": ["absent", "pending", "finalized", "rejected"]}, "chain_id": {"$ref": "#/$defs/digest384"}, "genesis_commitment": {"$ref": "#/$defs/digest384"}, "reference": {"$ref": "#/$defs/digest384"}, "finalized_height": {"$ref": "#/$defs/u64"}, "evidence_envelope": {"type": "string", "pattern": "^[0-9a-f]*$", "maxLength": 524288}}},
-    "proof_envelope": {"type": "object", "additionalProperties": false, "required": ["claim", "epoch", "proof", "anchor"], "properties": {"claim": {"$ref": "#/$defs/claim"}, "epoch": {"$ref": "#/$defs/epoch"}, "proof": {"type": "string", "pattern": "^[0-9a-f]+$", "maxLength": 2097152}, "anchor": {"$ref": "#/$defs/anchor"}}},
+    "proof_envelope": {"type": "object", "additionalProperties": false, "required": ["claim", "epoch", "proof", "anchor"], "properties": {"claim": {"$ref": "#/$defs/claim"}, "epoch": {"$ref": "#/$defs/epoch"}, "proof": {"type": "string", "pattern": "^[0-9a-f]+$", "maxLength": 8388608}, "anchor": {"$ref": "#/$defs/anchor"}}},
     "verification": {"type": "object", "additionalProperties": false, "required": ["claim_id", "status", "reason", "verified_at_ms", "policy_revision", "verifier_revision"], "properties": {"claim_id": {"$ref": "#/$defs/digest384"}, "status": {"enum": ["verified", "pending", "rejected", "invalid", "unsupported", "unavailable"]}, "reason": {"type": "string", "minLength": 1, "maxLength": 256}, "verified_at_ms": {"$ref": "#/$defs/u64"}, "policy_revision": {"type": "integer", "minimum": 1, "maximum": 4294967295}, "verifier_revision": {"type": "integer", "minimum": 1, "maximum": 4294967295}}
     }
   }
