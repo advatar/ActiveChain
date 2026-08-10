@@ -3026,5 +3026,5 @@ Tracked by [GitHub issue #788](https://github.com/advatar/ActiveChain/issues/788
   full-qualification trigger for final merge candidates, `main`, and release contexts.
 - [x] Add a fail-closed aggregate result and workflow-policy regression coverage so a candidate
   cannot appear qualified when a mandatory stage was skipped or failed.
-- [ ] Document the maintainer workflow, qualify the final synchronization-aware candidate, merge
-  to `main`, and verify reachability. Earlier split candidate `4451aaab` passed run `31334784843`.
+- [x] Document the maintainer workflow and qualify synchronization-aware candidate `3000f6a6` in
+  split run `31340339674`; merge to `main` and reachability remain.
