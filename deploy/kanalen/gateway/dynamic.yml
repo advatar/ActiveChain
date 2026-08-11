@@ -17,6 +17,17 @@ tcp:
       service: activechain-anchor
       tls:
         certResolver: letsencrypt
+        options: actum-http1
+
+    activechain-work-proof:
+      entryPoints:
+        - websecure
+      rule: HostSNI(`verify.kanalen.activechain.dev`)
+      priority: 100
+      service: activechain-work-proof
+      tls:
+        certResolver: letsencrypt
+        options: actum-http1
 
     existing-https:
       entryPoints:
@@ -31,14 +42,25 @@ tcp:
     activechain-rpc:
       loadBalancer:
         servers:
-          - address: host.lima.internal:49151
+          - address: host.docker.internal:49151
 
     activechain-anchor:
       loadBalancer:
         servers:
-          - address: host.lima.internal:49156
+          - address: host.docker.internal:49156
+
+    activechain-work-proof:
+      loadBalancer:
+        servers:
+          - address: host.docker.internal:49157
 
     existing-caddy:
       loadBalancer:
         servers:
           - address: providehr-caddy:443
+
+tls:
+  options:
+    actum-http1:
+      alpnProtocols:
+        - http/1.1

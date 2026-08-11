@@ -169,20 +169,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let signing_key = load_operator_key(&seed_path)?;
             let source_setting = required_env("ACTIVECHAIN_FAUCET_SOURCE")?;
             let source = if source_setting == "genesis" {
-                let ingress = ingress.lock().map_err(|_| "wallet ingress lock is poisoned")?;
-                let mut owners = ingress
-                    .ledger()
-                    .cells()
-                    .as_slice()
-                    .iter()
-                    .map(|record| record.cell().owner())
-                    .collect::<Vec<_>>();
-                owners.sort_unstable();
-                owners.dedup();
-                if owners.len() != 1 {
-                    return Err("genesis faucet source requires exactly one cash owner".into());
+                // Inferring the treasury from "the only owner" holds solely on an
+                // untouched ledger: the first faucet grant creates a second owner
+                // and the node then refuses to start for the rest of the chain's
+                // life. Prefer the owner the genesis ceremony recorded, and keep
+                // the inference only as a fallback for deployments predating it.
+                match env::var("ACTIVECHAIN_CASH_GENESIS_OWNER_HEX") {
+                    Ok(owner) => parse_principal(&owner)?,
+                    Err(env::VarError::NotPresent) => {
+                        let ingress =
+                            ingress.lock().map_err(|_| "wallet ingress lock is poisoned")?;
+                        let mut owners = ingress
+                            .ledger()
+                            .cells()
+                            .as_slice()
+                            .iter()
+                            .map(|record| record.cell().owner())
+                            .collect::<Vec<_>>();
+                        owners.sort_unstable();
+                        owners.dedup();
+                        if owners.len() != 1 {
+                            return Err(
+                                "genesis faucet source requires exactly one cash owner, or an \
+                                 explicit ACTIVECHAIN_CASH_GENESIS_OWNER_HEX"
+                                    .into(),
+                            );
+                        }
+                        owners[0]
+                    }
+                    Err(error) => return Err(error.into()),
                 }
-                owners[0]
             } else {
                 parse_principal(&source_setting)?
             };

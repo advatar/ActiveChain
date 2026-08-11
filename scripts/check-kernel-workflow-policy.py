@@ -14,7 +14,8 @@ DEFAULT_WORKFLOW = ROOT / ".github" / "workflows" / "kernel.yml"
 MANDATORY_JOBS = (
     "policy",
     "static",
-    "formal",
+    "formal-models",
+    "formal-conformance",
     "kani",
     "tests",
     "apple",
@@ -58,12 +59,14 @@ def validate(text: str) -> None:
     errors: list[str] = []
     if "workflow_dispatch:" not in text or "qualification:" not in text:
         errors.append("workflow_dispatch must expose an explicit qualification input")
+    if "branches: [main]" in text:
+        errors.append("main merges must not repeat an already-qualified full candidate gate")
     if "CARGO_TARGET_DIR: /Users/johansellstrom/.cache/activechain-ci/target/${{ github.sha }}" not in text:
         errors.append("Cargo artifacts must be isolated by exact qualified SHA")
     for job in MANDATORY_JOBS:
         if not re.search(rf"^  {re.escape(job)}:\s*$", text, re.MULTILINE):
             errors.append(f"missing mandatory job: {job}")
-    required_needs = "needs: [scope, policy, static, formal, kani, tests, apple, runtime, vectors]"
+    required_needs = "needs: [scope, policy, static, formal-models, formal-conformance, kani, tests, apple, runtime, vectors]"
     if text.count(required_needs) != 2:
         errors.append("both aggregate jobs must name the complete stage set")
     if "if: always() && needs.scope.outputs.full == 'true'" not in text:
@@ -74,6 +77,12 @@ def validate(text: str) -> None:
         errors.append("incremental classification must prove the before SHA is reachable")
     if "before SHA is unreachable after force-push; classifying complete PR diff" not in text:
         errors.append("force-push classification must conservatively fall back to the PR-base diff")
+    if (
+        "PR_DRAFT: ${{ github.event.pull_request.draft }}" not in text
+        or '"$PR_DRAFT" == true || "$PR_ACTION" == ready_for_review' not in text
+        or "draft/review-bookkeeping event: selecting lightweight policy-only checks" not in text
+    ):
+        errors.append("draft and ready-for-review bookkeeping must remain policy-only")
     if text.count("git status --porcelain --untracked-files=normal") != 2:
         errors.append("Apple qualification must prove cleanliness before and after header generation")
     for command in MANDATORY_COMMANDS:

@@ -22,6 +22,11 @@ class KernelWorkflowPolicyTests(unittest.TestCase):
     def test_current_workflow_is_complete(self) -> None:
         POLICY.validate(WORKFLOW)
 
+    def test_main_push_cannot_repeat_the_candidate_gate(self) -> None:
+        unsafe = WORKFLOW.replace("    tags: ['v*']", "    branches: [main]\n    tags: ['v*']")
+        with self.assertRaisesRegex(ValueError, "must not repeat"):
+            POLICY.validate(unsafe)
+
     def test_each_mandatory_command_fails_closed_when_removed(self) -> None:
         for command in POLICY.MANDATORY_COMMANDS:
             with self.subTest(command=command), self.assertRaises(ValueError):
@@ -30,6 +35,13 @@ class KernelWorkflowPolicyTests(unittest.TestCase):
     def test_missing_stage_fails_closed(self) -> None:
         with self.assertRaisesRegex(ValueError, "missing mandatory job: kani"):
             POLICY.validate(WORKFLOW.replace("  kani:\n", "  removed-kani:\n", 1))
+
+    def test_formal_proofs_and_conformance_remain_independently_mandatory(self) -> None:
+        for job in ("formal-models", "formal-conformance"):
+            with self.subTest(job=job), self.assertRaisesRegex(
+                ValueError, f"missing mandatory job: {job}"
+            ):
+                POLICY.validate(WORKFLOW.replace(f"  {job}:\n", f"  removed-{job}:\n", 1))
 
     def test_incomplete_aggregate_dependency_set_fails_closed(self) -> None:
         incomplete = WORKFLOW.replace(", vectors]", "]", 1)
@@ -48,6 +60,15 @@ class KernelWorkflowPolicyTests(unittest.TestCase):
             1,
         )
         with self.assertRaisesRegex(ValueError, "conservatively fall back"):
+            POLICY.validate(unsafe)
+
+    def test_draft_lightweight_guard_fails_closed_when_removed(self) -> None:
+        unsafe = WORKFLOW.replace(
+            '"$PR_DRAFT" == true || "$PR_ACTION" == ready_for_review',
+            '"$PR_DRAFT" == false',
+            1,
+        )
+        with self.assertRaisesRegex(ValueError, "bookkeeping must remain policy-only"):
             POLICY.validate(unsafe)
 
     def classify(self, full: bool, *paths: str) -> dict[str, str]:

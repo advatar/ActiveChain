@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://actum.network/schemas/work-proof-admission-v1.json",
+  "title": "Actum stateful work-proof admission v1",
+  "oneOf": [
+    {"$ref": "#/$defs/request"},
+    {"$ref": "#/$defs/success"},
+    {"$ref": "#/$defs/error"}
+  ],
+  "$defs": {
+    "digest384": {"type": "string", "pattern": "^[0-9a-f]{96}$"},
+    "canonicalHex": {"type": "string", "pattern": "^(?:[0-9a-f]{2})+$"},
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "operation",
+        "profile",
+        "claim_id",
+        "public_claim_envelope_hex",
+        "proof_envelope_hex",
+        "anchor_request_envelope_hex"
+      ],
+      "properties": {
+        "schema": {"const": "actum.work-proof.admit.request.v1"},
+        "operation": {"const": "verify_and_register"},
+        "profile": {"const": "actum.non-overlap.risc0.v1"},
+        "claim_id": {"$ref": "#/$defs/digest384"},
+        "public_claim_envelope_hex": {"$ref": "#/$defs/canonicalHex"},
+        "proof_envelope_hex": {"$ref": "#/$defs/canonicalHex"},
+        "anchor_request_envelope_hex": {"$ref": "#/$defs/canonicalHex"},
+        "checkpointed_anchor_evidence_envelope_hex": {
+          "oneOf": [
+            {"$ref": "#/$defs/canonicalHex"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "aggregate": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["class", "attributable_ms", "interaction_count"],
+          "properties": {
+            "class": {"const": "attention"},
+            "attributable_ms": {"type": "integer", "minimum": 0},
+            "interaction_count": {"type": "integer", "minimum": 0, "maximum": 4294967295}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["class", "agent_runtime_ms", "model_input_tokens", "model_output_tokens", "normalized_model_units", "run_count"],
+          "properties": {
+            "class": {"const": "compute"},
+            "agent_runtime_ms": {"type": "integer", "minimum": 0},
+            "model_input_tokens": {"type": "integer", "minimum": 0},
+            "model_output_tokens": {"type": "integer", "minimum": 0},
+            "normalized_model_units": {"type": "integer", "minimum": 0},
+            "run_count": {"type": "integer", "minimum": 0, "maximum": 4294967295}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["class", "artifact_count", "artifact_set_commitment", "evidence_root"],
+          "properties": {
+            "class": {"const": "contribution"},
+            "artifact_count": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+            "artifact_set_commitment": {"$ref": "#/$defs/digest384"},
+            "evidence_root": {"$ref": "#/$defs/digest384"}
+          }
+        }
+      ]
+    },
+    "anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statement_id", "finalized_height", "finalized_block_id", "checkpoint_bundle_id"],
+      "properties": {
+        "statement_id": {"$ref": "#/$defs/digest384"},
+        "finalized_height": {"type": "integer", "minimum": 0},
+        "finalized_block_id": {"$ref": "#/$defs/digest384"},
+        "checkpoint_bundle_id": {"$ref": "#/$defs/digest384"}
+      }
+    },
+    "verifiedClaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claim_id",
+        "lifecycle",
+        "relation_verified",
+        "anchor_verified",
+        "usage_verified",
+        "idempotent",
+        "chain_id",
+        "project_id",
+        "usage_domain",
+        "policy_id",
+        "policy_revision",
+        "aggregate",
+        "anchor",
+        "accepted_at_ms"
+      ],
+      "properties": {
+        "claim_id": {"$ref": "#/$defs/digest384"},
+        "lifecycle": {"const": "anchor_finalized"},
+        "relation_verified": {"const": true},
+        "anchor_verified": {"const": true},
+        "usage_verified": {"const": true},
+        "idempotent": {"type": "boolean"},
+        "chain_id": {"$ref": "#/$defs/digest384"},
+        "project_id": {"$ref": "#/$defs/digest384"},
+        "usage_domain": {"$ref": "#/$defs/digest384"},
+        "policy_id": {"$ref": "#/$defs/digest384"},
+        "policy_revision": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+        "aggregate": {"$ref": "#/$defs/aggregate"},
+        "anchor": {"$ref": "#/$defs/anchor"},
+        "accepted_at_ms": {"type": "integer", "minimum": 0}
+      }
+    },
+    "success": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "result"],
+      "properties": {
+        "schema": {"const": "actum.work-proof.admit.result.v1"},
+        "result": {"$ref": "#/$defs/verifiedClaim"}
+      }
+    },
+    "errorCode": {
+      "enum": [
+        "rate_limited",
+        "malformed_request",
+        "claim_id_mismatch",
+        "proof_too_large",
+        "relation_rejected",
+        "verifier_unavailable",
+        "verifier_timeout",
+        "wrong_chain",
+        "wrong_genesis",
+        "wrong_image",
+        "wrong_policy",
+        "stale_trust",
+        "checkpoint_lag",
+        "checkpoint_unavailable",
+        "invalid_anchor",
+        "anchor_pending",
+        "anchor_rejected",
+        "usage_double_spend",
+        "persistence_unavailable"
+      ]
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "error"],
+      "properties": {
+        "schema": {"const": "actum.work-proof.admit.result.v1"},
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "retryable"],
+          "properties": {
+            "code": {"$ref": "#/$defs/errorCode"},
+            "retryable": {"type": "boolean"}
+          }
+        }
+      }
+    }
+  }
+}

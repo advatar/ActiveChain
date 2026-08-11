@@ -39,8 +39,8 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Add bounded, capability-scoped telemetry and work MCP tools with durable idempotency.
     - [x] Add adversarial authorization, race, replay, wrong-chain, timeout, malformed-response, and redaction tests.
     - [x] Pass the exact full gate after #773 merges.
-  - [ ] Anchor and resolve finalized activity epochs through the existing digest boundary (#775;
-    reopened on `feat/775-finalized-anchor-binding` for state-authenticated checkpoint proofs).
+  - [x] Anchor and resolve finalized activity epochs through the existing digest boundary (#775;
+    qualified in run `31447336017` and merged to `main` as `7095a337`).
     - [x] Expose fail-closed anchor-service health that checks the finalized RPC view, operator
       fee/nonce state, registry, and proposal-spool capacity before reporting submission readiness.
     - [x] Add the canonical network-bound epoch anchor request and exact frozen epoch statement derivation.
@@ -60,26 +60,27 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
       - [x] Rebase onto merged #773 and pass the exact full gate.
     - [x] Regenerate the affected RPC/client anchor vectors and manifest hashes.
     - [x] Pass the exact full gate for the corrected binding and merge it to `main`.
-    - [ ] Authenticate accepted finalized anchor records under the canonical checkpoint state root.
+    - [x] Authenticate accepted finalized anchor records under the canonical checkpoint state root.
       - [x] Freeze domain-separated registry-object key/type/value encoding and replacement rules.
       - [x] Make only the canonical `SubmitAnchor` transition create the authenticated state object.
       - [x] Verify the exact record with the existing bounded canonical `StateProof`, without callbacks.
       - [x] Add wrong-root/key/value/anchor/checkpoint, stale-proof, duplicate, replacement, and
         unadmitted-anchor adversarial tests and vectors.
-      - [ ] Pass affected checks and one exact full gate, then merge the follow-up into `main`.
+      - [x] Pass affected checks and one exact full gate, then merge the follow-up into `main`.
   - [x] Implement work claims and zero-knowledge non-overlap proofs (#776; claimed on `feat/776-work-proof-zk`).
     - [x] Freeze tagged raw telemetry measurements and policy-pinned class aggregates.
     - [x] Implement class-specific Attention, Compute, and Contribution arithmetic.
     - [x] Add class-neutral usage nullifiers and adversarial relation coverage.
     - [x] Regenerate proof/image/receipt vectors and pass the exact full gate.
-  - [ ] Expose bounded verification APIs, SDKs, and explorer DTOs (#777; claimed on `feat/777-work-proof-verifier-api`).
+  - [x] Expose bounded verification APIs, SDKs, and explorer DTOs (#777; qualified in run
+    `31455861662` and merged to `main` as `797687a8`).
     - [x] Replace anchor/checkpoint equality with canonical checkpoint state membership,
       retryable checkpoint-lag/unavailable outcomes, and substitution/adversarial tests.
     - [x] Enforce cross-process all-or-nothing usage-nullifier admission with reload-under-lock,
       crash-safe persistence, and real multiprocess race/restart tests.
     - [x] Document the complete-file registry as bounded Preview storage and qualify explicit
       entry/file-size limits plus 10k/100k/500k/1m admission latency.
-    - [ ] Rebase onto merged #775, compile first, pass affected tests, and run one exact full gate.
+    - [x] Rebase onto merged #775, compile first, pass affected tests, and run one exact full gate.
     - [x] Implement bounded in-process and subprocess RISC Zero relation verification.
     - [x] Bind operator-selected chained trust bundles and exact finalized-anchor inclusion.
     - [x] Implement durable all-or-nothing class-neutral usage admission and exact-claim retries.
@@ -89,16 +90,40 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Document the `pow.actum.network` verifier, trust, subprocess, and storage boundaries.
     - [x] Pass compile-first and affected-crate qualification for the direct finalized-anchor
       verifier boundary without rebuilding the frozen guest image.
-    - [ ] Pass the exact full deterministic-kernel gate with the pinned guest image.
-  - [ ] Build the offline verifier trust-bundle ceremony that #778 provisioning requires
-    ([GitHub issue #793](https://github.com/advatar/ActiveChain/issues/793)).
-    - [ ] Add threshold-capable keygen, signer-set, and prepare/inspect/sign/assemble tooling that
+    - [x] Pass the exact full deterministic-kernel gate with the pinned guest image.
+  - [x] Build the offline verifier trust-bundle ceremony that #778 provisioning requires
+    ([GitHub issue #793](https://github.com/advatar/ActiveChain/issues/793); merged as `0258749e`).
+    - [x] Add threshold-capable keygen, signer-set, and prepare/inspect/sign/assemble tooling that
       keeps the signing key off every verifier host and derives checkpoint identity from a real
       finalized block.
-    - [ ] Emit the deployed build's proof binding instead of transcribing it into bundle
+    - [x] Emit the deployed build's proof binding instead of transcribing it into bundle
       specifications.
-    - [ ] Pass the exact full deterministic-kernel gate.
-  - [ ] Qualify and document the complete `pow.actum.network` integration (#778).
+    - [x] Pass the exact full deterministic-kernel gate.
+  - [ ] Qualify and document the complete `pow.actum.network` integration (#778; claimed on `feat/778-pow-e2e-qualification`).
+    - [x] Assemble checkpointed anchor evidence from a live RPC node. Nothing built
+      `CheckpointedTelemetryAnchorEvidenceV1`, so every claim failed retryable
+      `CheckpointUnavailable` and no production case was reachable.
+    - [x] Deploy the qualified revision to Kanalen and serve the verifier publicly. The
+      bring-up exposed a missing bundle binary, a faucet source that breaks after the first
+      grant, a receipt the ingest pipeline never indexes, a Lima-only container host name,
+      a loopback bind the containerised gateway cannot dial, and an ALPN mismatch.
+    - [ ] Capture the real exact-revision lifecycle evidence on the Kanalen host.
+    - [x] Add deterministic delivery, anchor, verifier, replay, restart, concurrency, and privacy rehearsals.
+    - [x] Emit exact-revision deterministic evidence from the split runtime gate.
+    - [x] Bundle the stateless verifier, stateful admission API, and trust-bootstrap tools for Kanalen deployment.
+    - [x] Freeze the native telemetry-anchor action/receipt/finality/trust consumer fixture.
+    - [x] Route plugin `work.verify` through authenticated stateful admission while preserving an
+      explicit relation-only fallback.
+    - [x] Publish the stateful HTTP JSON Schema and binding-validating server-side TypeScript client.
+    - [x] Package and provision the fail-closed stateful verifier service, durable stores, private
+      bearer token, launchd unit, and Kanalen TLS route.
+    - [x] Automate checksum-verified, revision-addressed Mac mini activation and TLS gateway refresh
+      for explicit deploys.
+    - [x] Split formal proofs from Verus/vector conformance into independently rerunnable,
+      fail-closed qualification jobs.
+    - [ ] Exercise real deployed delivery, anchoring, finality, and stateful usage admission.
+    - [ ] Pass the exact full gate and publish production qualification evidence.
+    - [ ] Promote the deployed testnet and update landing-page capabilities proven by that evidence.
 
 ## Verifier C header and Apple distribution reconciliation
 

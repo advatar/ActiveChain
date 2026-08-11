@@ -16,6 +16,19 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Hold a host wake assertion for this stage
+      shell: bash
+      run: |
+        # The self-hosted macOS host idles into sleep, which drops the runner
+        # connection mid-stage and fails the job with lost communication rather
+        # than a real result. Hold an idle-sleep assertion for slightly longer
+        # than the 90-minute stage timeout so it always expires on its own and
+        # can never outlive the job that took it.
+        if ! command -v caffeinate >/dev/null 2>&1; then
+          exit 0
+        fi
+        nohup caffeinate -dimsu -t 5700 >/dev/null 2>&1 &
+        echo "held idle-sleep assertion for stage ${GITHUB_JOB} as pid $!"
     - name: Install pinned Rust toolchain
       shell: bash
       env:

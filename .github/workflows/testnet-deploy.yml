@@ -23,7 +23,11 @@ jobs:
     timeout-minutes: 30
     env:
       CARGO_TERM_COLOR: always
-      PATH: /Users/johansellstrom/.cargo/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
+      # /usr/local/bin carries the Docker CLI symlink the RISC Zero guest build
+      # shells out to. Omitting it fails the bundle at pq-zk-methods with
+      # "Could not find or execute docker", which kernel.yml avoids by
+      # including the same directory.
+      PATH: /Users/johansellstrom/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
       KANALEN_DEPLOY_USER: ${{ secrets.KANALEN_DEPLOY_USER }}
       KANALEN_DEPLOY_KEY: ${{ secrets.KANALEN_DEPLOY_KEY }}
     steps:
@@ -36,16 +40,23 @@ jobs:
             -p activechain-rpc-server \
             -p activechain-wallet-core \
             -p activechain-wallet-ffi \
-            -p activechain-verifier-ffi
+            -p activechain-verifier-ffi \
+            -p activechain-work-proof-verifier
           mkdir -p dist/kanalen/{bin,lib,headers,manifests}
           cp target/release/validator-node dist/kanalen/bin/
           cp target/release/genesis-tool dist/kanalen/bin/
+          cp target/release/cash-genesis-tool dist/kanalen/bin/
           cp target/release/indexer-tool dist/kanalen/bin/
           cp target/release/activechain-rpc-node dist/kanalen/bin/
           cp target/release/activechain-rpc-bootstrap dist/kanalen/bin/
           cp target/release/activechain-rpc-ingest dist/kanalen/bin/
           cp target/release/activechain-rpc-probe dist/kanalen/bin/
           cp target/release/activechain-telemetry-anchor-gateway dist/kanalen/bin/
+          cp target/release/actum-anchor-evidence dist/kanalen/bin/
+          cp target/release/actum-work-proof-verifier dist/kanalen/bin/
+          cp target/release/actum-work-proof-json-verifier dist/kanalen/bin/
+          cp target/release/actum-work-proof-api dist/kanalen/bin/
+          cp target/release/actum-work-proof-trust-bootstrap dist/kanalen/bin/
           cp target/release/activechain-wallet dist/kanalen/bin/
           cp target/release/activechain-faucet dist/kanalen/bin/
           cp target/release/libactivechain_wallet_ffi.* dist/kanalen/lib/ 2>/dev/null || true
@@ -55,6 +66,7 @@ jobs:
           cp deploy/kanalen/network.env dist/kanalen/
           cp -R deploy/kanalen/launchagents dist/kanalen/
           cp -R deploy/kanalen/scripts dist/kanalen/
+          cp -R deploy/kanalen/gateway dist/kanalen/
           cp scripts/check-validator-snapshot.sh scripts/check-execution-snapshot.sh dist/kanalen/scripts/
           tar -czf "kanalen-${GITHUB_SHA}.tar.gz" -C dist kanalen
           shasum -a 256 "kanalen-${GITHUB_SHA}.tar.gz" > "kanalen-${GITHUB_SHA}.sha256"
@@ -75,7 +87,14 @@ jobs:
           key_path=$(mktemp /tmp/activechain-kanalen-deploy-key.XXXXXX)
           trap 'rm -f "$key_path"' EXIT
           chmod 600 "$key_path"
-          printf '%s' "$KANALEN_DEPLOY_KEY" > "$key_path"
+          # OpenSSH rejects a private key whose final line is unterminated with
+          # "invalid format", and secret storage does not preserve a trailing
+          # newline, so restore it rather than depending on how the key was set.
+          printf '%s\n' "$KANALEN_DEPLOY_KEY" > "$key_path"
           scp -i "$key_path" -o StrictHostKeyChecking=accept-new \
             "kanalen-${GITHUB_SHA}.tar.gz" "kanalen-${GITHUB_SHA}.sha256" \
+            deploy/kanalen/scripts/activate-kanalen-release.sh \
             "$KANALEN_DEPLOY_USER@$DEPLOY_HOST:/Volumes/ActiveChain/testnet/"
+          ssh -i "$key_path" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+            "$KANALEN_DEPLOY_USER@$DEPLOY_HOST" \
+            "bash /Volumes/ActiveChain/testnet/activate-kanalen-release.sh /Volumes/ActiveChain/testnet/kanalen-${GITHUB_SHA}.tar.gz /Volumes/ActiveChain/testnet/kanalen-${GITHUB_SHA}.sha256 ${GITHUB_SHA}"
