@@ -17,9 +17,9 @@ verification, and settlement controls disabled or labelled **Preview** until the
 | Signed events and activity epochs | `SignedDeveloperEventV1`, `ActivityEpochV1` | #773/#776 | Collector merged; corrected event/epoch vectors pending #776 qualification |
 | Actum commitments/finality | digest-anchor profile | #775 | Qualified and merged; remains Preview until end-to-end promotion |
 | Attention/Compute/Contribution proofs | tagged `WorkClaimAggregateV1` | #776 | Implemented candidate; vectors/image qualification pending |
-| ZK non-double-billing | non-overlap RISC Zero profile | #776/#777 | Stateless relation implemented; durable atomic usage admission remains #777 |
-| Proof explorer and verification API | API below | #777 | Planned |
-| Verified invoice/work statement | verified claim composition | #777/#778 | Planned |
+| ZK non-double-billing | class-neutral usage-nullifier profile | #776/#777 | Stateless relation and durable atomic admission implemented; qualification pending |
+| Proof explorer and verification API | API below | #777 | Implemented candidate; qualification pending |
+| Verified invoice/work statement | verified claim composition | #777/#778 | Verification candidate implemented; end-to-end qualification pending |
 | Payments or autonomous settlement | separate wallet-approved action | later policy | Not authorized by telemetry |
 
 ## Plugin layout
@@ -62,33 +62,157 @@ auth headers, raw evidence, source, prompts, or command output.
 never returned. Delivery does not imply anchoring, finalized anchoring does not imply relation
 verification, and verification does not imply usage-nullifier admission.
 
-## Verification HTTP API
+## Verification service contract
 
-The API is not live until #777. Version with media type
-`application/vnd.actum.work-proof.v1+json`. Requests and responses conform to
-`testing/schemas/developer-telemetry-v1.schema.json`.
+#777 ships the safe Rust verification service, authenticated bounded HTTP adapter, and bounded
+relation-verifier subprocess. Run `actum-work-proof-api` behind TLS with a private bearer-token file;
+the adapter is not a trust boundary and delegates all verification and usage admission to
+`activechain-work-proof-verifier`.
 
 ```text
 GET  /v1/status
 POST /v1/proofs/verify
+GET  /v1/claims?cursor=<claim_id>&limit=<1..100>
 GET  /v1/claims/{claim_id}
-GET  /v1/epochs/{epoch_id}
-POST /v1/disclosures/verify
 ```
 
-`POST /v1/proofs/verify` accepts a `WorkProofEnvelopeV1` and caller-pinned trust parameters. It
-returns `VerificationResultV1` with one status:
+`POST /v1/proofs/verify` accepts canonical `WorkProofReceiptEnvelopeV1` bytes, the canonical epoch
+anchor request, revision-2 `CheckpointedTelemetryAnchorEvidenceV1`, and a caller identity used only
+for bounded rate limiting. The checkpoint evidence contains the exact finalized native anchor record
+and bounded canonical state proof. Binary fields use lowercase hex in JSON adapters. The service loads its accepted trust
+bundle from durable operator state; neither the proof nor the request can select or install trust.
+The service derives and checks `claim_id` from the canonical public claim and proof commitment.
 
-- `verified`: every required local proof and, when declared, finalized anchor passed;
-- `pending`: exact anchor is accepted but not finalized;
-- `rejected`: terminal authoritative rejection;
-- `invalid`: malformed, substituted, unverifiable, wrong-network, stale, or failed proof;
-- `unsupported`: unknown profile/revision;
-- `unavailable`: required verifier/network evidence could not be obtained.
+A successful `VerifiedClaimDtoV1` has all three independent facts set:
 
-Only `verified` may render a check mark. HTTP 2xx means the request was processed, not that the
-claim verified. Cache verification only by the complete envelope commitment plus trust-policy
-revision. Never infer chain/genesis from the submitted proof.
+- `relation_verified`: the operator-pinned RISC Zero image accepted the canonical relation journal;
+- `anchor_verified`: the request-derived epoch statement is bound to a native anchor action and
+  receipt under valid Actum finality at block A, and the exact consensus-created anchor record has a
+  valid state-membership proof under accepted checkpoint C with A.height <= C.height;
+- `usage_verified`: every class-neutral usage nullifier was atomically admitted in its usage domain.
+
+The service registers nullifiers only after relation and anchor verification. Registration is one
+all-or-nothing durable operation. An exact retry of the same derived claim is idempotent; any
+nullifier already bound to a different claim rejects the entire request without inserting new
+nullifiers. Multiple admission processes may share one registry file: each process takes the same
+owner-only OS lock, reloads durable state after acquiring it, and holds the lock through collision
+checks, temporary-file fsync, atomic rename, and parent-directory fsync. Stateless relation workers
+may scale independently. A single admission process remains operationally preferable while the
+complete-file registry is Preview because concurrent writers serialize and every accepted claim
+rewrites the complete file.
+
+### Preview durable-registry bounds
+
+The v1 `BTreeMap` registry is deliberately bounded Preview storage, not the production scaling
+design. `MAX_USAGE_ENTRIES` is 1,000,000 and `MAX_USAGE_FILE_BYTES` is 164,000,012 bytes. Admission
+fails closed before exceeding either bound. The logical all-or-nothing and exact-claim-idempotency
+semantics are storage-independent; a later SQLite, LMDB, or transactional KV implementation must
+preserve them exactly.
+
+The ignored operational profile can be reproduced with:
+
+```sh
+RISC0_SKIP_BUILD=1 cargo test --locked -p activechain-work-proof-verifier \
+  multiprocess_tests::usage_registry_operational_load_profile -- \
+  --ignored --exact --nocapture --test-threads=1
+```
+
+On 2026-08-10, an Apple ARM64 laptop running the unoptimized test profile measured one admission
+after loading a registry at each scale:
+
+| Entries after admission | Registry bytes | Open | Admission |
+| ---: | ---: | ---: | ---: |
+| 10,000 | 1,640,012 | 16 ms | 36 ms |
+| 100,000 | 16,400,012 | 152 ms | 221 ms |
+| 500,000 | 82,000,012 | 704 ms | 1,207 ms |
+| 1,000,000 | 164,000,012 | 1,557 ms | 2,340 ms |
+
+These are qualification observations from one machine, not latency guarantees. In particular,
+the 500k and 1m results are operational evidence that complete-file persistence must remain
+**Preview** and should be replaced before production-scale admission.
+
+Errors use bounded `VerificationErrorCodeV1` values for malformed, oversized, unsupported,
+relation-invalid, anchor-pending, anchor-rejected, anchor-invalid, wrong-network, trust-invalid, double-use,
+rate-limited, unavailable, and internal failures. Error detail is bounded and must not contain
+receipt bytes, telemetry, credentials, subprocess stderr, or filesystem paths. HTTP 2xx means only
+that the request was processed. Only a response with all three facts true may render a verified
+check mark.
+
+The operator persists the highest accepted chained `SignedActumVerifierTrustBundleV1`. Bootstrap
+and rotation validate signatures, sequence, previous bundle ID, signer-set transition, validity
+window, network/genesis, checkpoint, image, verifier, proof profile, and policy. A proof submission
+cannot replace this state. Explorer pagination returns only bounded claim summaries; detailed DTOs
+contain public aggregates and finalized-anchor identifiers, never raw telemetry or private evidence.
+
+Provision bootstrap trust with canonical signed-bundle and signer-set envelopes:
+
+```sh
+actum-work-proof-trust-bootstrap \
+  /private/verifier/trust.bin \
+  /private/operator/signed-trust-bundle.bin \
+  /private/operator/trust-signer-set.bin \
+  "$NOW_MS"
+
+actum-work-proof-api \
+  127.0.0.1:49157 \
+  /private/verifier/trust.bin \
+  /private/verifier/usage.bin \
+  /opt/actum/bin/actum-work-proof-verifier \
+  /private/verifier/bearer.token
+```
+
+The bootstrap tool verifies threshold ML-DSA signatures before writing private durable trust state.
+Bootstrap refuses to replace an existing trust store; signer rotation must use the verified chained
+transition API so sequence rollback and forked predecessors remain impossible.
+The API never accepts a trust bundle from a request. The bearer is transport authorization only and
+must remain outside browser code, telemetry, logs, evidence, and command-line arguments.
+
+The stateful request schema is `actum.work-proof.admit.request.v1` with operation
+`verify_and_register`, profile `actum.non-overlap.risc0.v1`, and lowercase-hex fields
+`claim_id`, `public_claim_envelope_hex`, `proof_envelope_hex`,
+`anchor_request_envelope_hex`, and `checkpointed_anchor_evidence_envelope_hex`. Unknown fields, oversized bodies,
+noncanonical hex/envelopes, unsupported profiles, and caller-supplied trust fail closed.
+
+`CheckpointLag` is retryable: the anchor is natively valid but newer than the operator-selected
+checkpoint. `CheckpointUnavailable` is retryable when the client cannot yet supply checkpoint
+evidence; the JSON field may be omitted or `null` in that state. `InvalidAnchor` is terminal for
+malformed native finality, wrong network or statement, checkpoint substitution, or a supplied state
+proof that does not authenticate the exact derived record.
+
+### ProofOfWork migration
+
+The earlier ProofOfWork `ACTUM_FINALITY_VERIFIER` adapter sends a request-supplied `trust_bundle` to
+an anchor-only subprocess. Keep that compatibility path **Preview** and do not map its success to
+production `anchor_verified`: submitted evidence is not allowed to choose verifier trust. For the
+qualified path, configure the Agent Plugin with `ACTUM_WORK_VERIFIER_URL` and a private
+`ACTUM_WORK_VERIFIER_BEARER_TOKEN_FILE`, then submit the complete canonical stateful request to this
+service. The service operator installs trust with `actum-work-proof-trust-bootstrap`; the
+ProofOfWork `EvidenceBundleV1`, browser, plugin arguments, and HTTP body must not carry or replace
+that durable trust state. Use `/v1/status` readiness and the three returned verification dimensions
+instead of inferring readiness or finality from HTTP success.
+
+## Offline and subprocess interfaces
+
+The `actum-work-proof-verifier` executable accepts one length-prefixed binary request on stdin and
+returns one bounded binary response on stdout. The parent enforces input/output limits and a hard
+timeout, kills a stalled child, rejects trailing bytes, and never exposes child stderr. The child is
+stateless and verifies only the relation; finality, trust-state mutation, and usage admission remain
+in the parent service.
+
+Rust callers use `activechain-work-proof-verifier`. C, Swift, and other FFI clients can call
+`activechain_verify_work_relation_code` from `activechain_verifier.h` for bounded offline relation
+verification. A zero return value means relation success; nonzero values are fail-closed verifier
+codes. Offline relation success never implies anchor or usage verification.
+
+ProofOfWork and other JSON subprocess consumers use `actum-work-proof-json-verifier`. Send exactly
+one `actum.work-proof.verify.request.v1` object on stdin with operation `verify_non_overlap`, profile
+`actum.non-overlap.risc0.v1`, `proof.proof_envelope_hex`, and
+`expected.public_claim_envelope_hex`. The adapter rejects unknown fields and non-lowercase hex and
+returns exactly one `actum.work-proof.verify.result.v1` object with `VERIFIED`, `INVALID`,
+`UNSUPPORTED`, or `MALFORMED`. Only `VERIFIED` has `verified: true`.
+
+Cache only by the complete receipt-envelope commitment plus accepted trust-bundle ID. Never infer
+chain, genesis, image, policy, or checkpoint from an untrusted submission.
 
 ## Canonical proof arithmetic
 
@@ -102,7 +226,7 @@ the exact committed `MeteringPolicyV1`; clients must never reinterpret event cou
 - Contribution accepts distinct contribution-qualified Git artifacts and publishes only artifact
   count, artifact-set commitment, and evidence root.
 - A public usage nullifier is class-neutral. Different events may overlap; the same event cannot be
-  consumed twice in one usage domain after #777 admission.
+  consumed twice in one usage domain after durable #777 admission.
 - Every conversion rounds down and uses checked integer arithmetic. Floating point is forbidden.
 
 ## Frontend state rules
@@ -119,10 +243,9 @@ the exact committed `MeteringPolicyV1`; clients must never reinterpret event cou
 
 ## Example
 
-`testing/vectors/developer-telemetry-v1.json` contains one event, epoch, policy, three claim types,
-a non-overlap public journal, proof envelope, and fail-closed verification outcomes. These values
-are schema fixtures, not yet canonical cryptographic vectors. #773 and #776 will replace placeholder
-proof bytes with generated canonical/signature/image vectors while preserving the JSON shape.
+Canonical telemetry, epoch, work-proof journal, image, receipt, and negative vectors live under
+`testing/vectors`. JSON schema fixtures are presentation examples and do not replace canonical
+binary vectors or the verifier's pinned RISC Zero image ID.
 
 ## Integration checklist
 

@@ -78,6 +78,19 @@ digest of the canonical epoch envelope. Batching may use the existing `AnchorBat
 - accepted measurement kinds;
 - disclosure and non-overlap proof profile revisions.
 
+## Canonical telemetry-construction authority
+
+Applications submit raw observations to an Actum-owned telemetry-construction authority.
+Applications MUST NOT construct `DeveloperEventV1` IDs, canonical sequence numbers, canonical
+monotonic durations, or epoch Merkle roots. The authority validates permission and project scope,
+allocates durable sequences, derives monotonic intervals, constructs canonical events, signs them,
+and seals linked epochs.
+
+The initial reference authority is an Actum Rust sidecar reached over a local Unix-domain socket.
+The socket is not consensus or protocol semantics. In-process FFI, named pipes, and mobile platform
+services may implement the same trusted construction boundary later, provided applications still
+submit raw observations and cannot choose canonical identities or ordering.
+
 Evidence and claims are separate. Re-evaluating an epoch under another policy produces another
 claim ID and never rewrites evidence.
 
@@ -95,11 +108,11 @@ a tagged class-specific aggregate, proof profile, and optional finalized anchor 
 - `ContributionProofV1` publishes distinct artifact count, a domain-separated commitment to
   lexicographically sorted artifact identities, and a deterministic evidence root. It is not a
   synthetic time or token score.
-- `NonOverlapProofV1` proves that disclosed billable human-attention intervals for the claim do not
-  overlap intervals committed under the compared scope. Its public journal reveals claim IDs,
-  policy ID, interval bounds, total billed duration, and a Boolean relation result, but not the
-  other project/client identity or private intervals. Class-neutral usage nullifiers are public;
-  class-specific nullifiers remain committed. #777 atomically enforces usage uniqueness.
+- `WorkProofReceiptEnvelopeV1` carries the canonical class-specific public claim, the pinned RISC
+  Zero image identity, and the succinct receipt. The relation permits overlapping Compute events,
+  unions overlapping Attention intervals, and treats Contribution as attributed artifact evidence.
+  Class-neutral usage nullifiers are public; class-specific nullifiers remain committed. #777
+  atomically enforces usage uniqueness after independent relation and finalized-anchor verification.
 
 No claim is valid merely because its JSON parses. Verification requires canonical decoding,
 collector signature verification, event/epoch Merkle inclusion, policy re-derivation, proof-profile
@@ -136,15 +149,17 @@ Responses are bounded JSON with `status` equal to `submitted`, `pending`, `final
 different canonical bytes is rejected by the request/statement binding. Wrong-network requests,
 malformed backend records, stale health, timeouts, and unavailable RPC fail closed and never become
 `finalized`. Authenticated `GET /v1/health` reports `healthy` only when the canonical RPC backend
-reports healthy finalized state.
+reports healthy finalized state and the native anchor registry, funded operator fee account, nonce
+channel, and single-action proposal spool are ready to accept a new submission.
 
 Finalization remains an operator action through `activechain-anchor-admin`; the gateway cannot
 manufacture finality. A `finalized` response means the exact statement has a finalized registry
-record. Verification still requires the revision-2 `CheckpointedTelemetryAnchorEvidenceV1` fixed-
-depth `StateProof` for the exact consensus-created immutable anchor object under the operator-
-selected signed trust-bundle checkpoint. Native finality for anchor block A and state membership at
-checkpoint C are checked independently, with A.height <= C.height. An anchor newer than the current
-checkpoint is pending/retryable. A gateway response or host registry record alone is never
+record. Verification requires both independently verified `AnchorFinalizedEvidenceV1` and the
+revision-2 `CheckpointedTelemetryAnchorEvidenceV1` fixed-depth `StateProof`. The native action,
+anchor receipt, and finality certificate bind the request-derived statement to exact anchor block A;
+the state proof authenticates the consensus-created immutable anchor object under operator-selected
+checkpoint C. These facts are checked independently with A.height <= C.height. An anchor newer than
+the current checkpoint is pending/retryable. A gateway response or host registry record alone is never
 `anchor_verified`.
 
 ## Privacy and retention

@@ -6,6 +6,7 @@ members = [
     "application-primitives",
     "canonical-codec",
     "capability",
+    "cash-air",
     "cash-kernel",
     "consensus-verifier",
     "crypto-provider",
@@ -15,12 +16,19 @@ members = [
     "object",
     "payment-types",
     "policy-kernel",
+    "pq-zk",
+    "pq-zk-methods",
+    "principal",
     "privacy-kernel",
+    "private-billboard",
     "protocol-commitment",
     "protocol-types",
     "rpc-types",
     "state-tree",
     "transition",
+    "wallet-core",
+    "work-proof",
+    "work-proof-verifier",
 ]
 resolver = "3"
 
@@ -36,6 +44,7 @@ activechain-action-kernel = { path = "action-kernel", version = "0.1.0" }
 activechain-application-primitives = { path = "application-primitives", version = "0.1.0" }
 activechain-canonical-codec = { path = "canonical-codec", version = "0.1.0" }
 activechain-capability = { path = "capability", version = "0.1.0" }
+activechain-cash-air = { path = "cash-air", version = "0.1.0" }
 activechain-cash-kernel = { path = "cash-kernel", version = "0.1.0" }
 activechain-consensus-verifier = { path = "consensus-verifier", version = "0.1.0" }
 activechain-crypto-provider = { path = "crypto-provider", version = "0.1.0" }
@@ -44,17 +53,46 @@ activechain-finality-types = { path = "finality-types", version = "0.1.0" }
 activechain-object = { path = "object", version = "0.1.0" }
 activechain-payment-types = { path = "payment-types", version = "0.1.0" }
 activechain-policy-kernel = { path = "policy-kernel", version = "0.1.0" }
+activechain-pq-zk = { path = "pq-zk", version = "0.1.0" }
+activechain-pq-zk-methods = { path = "pq-zk-methods", version = "0.1.0" }
+activechain-principal = { path = "principal", version = "0.1.0" }
 activechain-privacy-kernel = { path = "privacy-kernel", version = "0.1.0" }
+activechain-private-billboard = { path = "private-billboard", version = "0.1.0" }
 activechain-protocol-commitment = { path = "protocol-commitment", version = "0.1.0" }
 activechain-protocol-types = { path = "protocol-types", version = "0.1.0" }
 activechain-rpc-types = { path = "rpc-types", version = "0.1.0" }
 activechain-state-tree = { path = "state-tree", version = "0.1.0" }
 activechain-transition = { path = "transition", version = "0.1.0" }
 activechain-verifier-api = { path = "api", version = "0.1.0" }
+activechain-wallet-core = { path = "wallet-core", version = "0.1.0" }
+activechain-work-proof = { path = "work-proof", version = "0.1.0" }
+activechain-work-proof-verifier = { path = "work-proof-verifier", version = "0.1.0" }
+getrandom = "=0.3.4"
 ml-dsa = "=0.1.1"
 ml-kem = { version = "=0.3.2", features = ["getrandom"] }
+p3-air = "=0.6.2"
+p3-baby-bear = "=0.6.2"
+p3-challenger = "=0.6.2"
+p3-commit = "=0.6.2"
+p3-dft = "=0.6.2"
+p3-field = "=0.6.2"
+p3-fri = "=0.6.2"
+p3-keccak = "=0.6.2"
+p3-keccak-air = "=0.6.2"
+p3-matrix = "=0.6.2"
+p3-merkle-tree = "=0.6.2"
+p3-sha256 = "=0.6.2"
+p3-symmetric = "=0.6.2"
+p3-uni-stark = "=0.6.2"
+postcard = { version = "=1.1.3", features = ["use-std"] }
+risc0-build = "=3.0.5"
+risc0-zkvm = { version = "=3.0.5", default-features = false }
 ring = "=0.17.14"
+rmp-serde = "=1.3.1"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
 sha2 = { version = "=0.10.9", default-features = false }
 sha3 = { version = "=0.10.9", default-features = false }
 slh-dsa = "=0.2.0-rc.5"
+winterfell = "=0.13.1"
 zeroize = "=1.9.0"

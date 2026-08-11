@@ -186,6 +186,16 @@ timeout = int(sys.argv[1])
 command = sys.argv[2:]
 environment = os.environ.copy()
 environment["CARGO_NET_OFFLINE"] = "true"
+# Kani 0.67.0 is pinned to Rust 1.93, where the MaybeUninit slice API used by the production
+# p3-util dependency still requires its feature gate. Production Rust has stabilized that API.
+environment["RUSTC_BOOTSTRAP"] = "1"
+environment["RUSTFLAGS"] = (
+    environment.get("RUSTFLAGS", "")
+    + " -Zcrate-attr=feature(maybe_uninit_slice)"
+).strip()
+# Guest images have their own exact-image qualification gate. The C ABI proof consumes the pinned
+# host constants and must not recursively rebuild Dockerized RISC Zero guests under Kani's compiler.
+environment["RISC0_SKIP_BUILD"] = "1"
 process = subprocess.Popen(command, env=environment, start_new_session=True)
 try:
     return_code = process.wait(timeout=timeout)

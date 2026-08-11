@@ -770,6 +770,7 @@ dependencies = [
  "activechain-rpc-types",
  "activechain-state-tree",
  "activechain-verifier-api",
+ "activechain-work-proof-verifier",
  "ml-dsa",
  "sha3 0.10.9",
 ]
@@ -816,6 +817,30 @@ dependencies = [
  "activechain-protocol-commitment",
  "activechain-protocol-types",
  "sha3 0.10.9",
+]
+
+[[package]]
+name = "activechain-work-proof-verifier"
+version = "0.1.0"
+dependencies = [
+ "activechain-action-kernel",
+ "activechain-application-primitives",
+ "activechain-canonical-codec",
+ "activechain-consensus-verifier",
+ "activechain-devnet-kernel",
+ "activechain-finality-types",
+ "activechain-pq-zk",
+ "activechain-protocol-commitment",
+ "activechain-protocol-types",
+ "activechain-state-tree",
+ "activechain-verifier-api",
+ "activechain-work-proof",
+ "ml-dsa",
+ "serde",
+ "serde_json",
+ "sha3 0.10.9",
+ "tempfile",
+ "zeroize",
 ]
 
 [[package]]

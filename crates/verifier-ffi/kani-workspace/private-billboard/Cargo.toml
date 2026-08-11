@@ -1,0 +1,29 @@
+# Verification-only metadata shim. The library target is the production private-billboard source.
+[package]
+name = "activechain-private-billboard"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[features]
+default = ["runtime"]
+runtime = [
+    "dep:activechain-cash-kernel",
+    "dep:activechain-crypto-provider",
+    "activechain-crypto-provider/protected-envelopes",
+    "dep:activechain-privacy-kernel",
+]
+
+[lib]
+path = "../../../private-billboard/src/lib.rs"
+
+[dependencies]
+activechain-canonical-codec.workspace = true
+activechain-cash-kernel = { workspace = true, optional = true }
+activechain-crypto-provider = { workspace = true, optional = true }
+activechain-privacy-kernel = { workspace = true, optional = true }
+activechain-protocol-commitment.workspace = true
+activechain-protocol-types.workspace = true
+sha3.workspace = true

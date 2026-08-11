@@ -1,0 +1,25 @@
+# Verification-only metadata shim. The library target is the production work-proof verifier source.
+[package]
+name = "activechain-work-proof-verifier"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+path = "../../../work-proof-verifier/src/lib.rs"
+
+[dependencies]
+activechain-application-primitives.workspace = true
+activechain-canonical-codec.workspace = true
+activechain-consensus-verifier.workspace = true
+activechain-finality-types.workspace = true
+activechain-pq-zk = { path = "../pq-zk", version = "0.1.0", default-features = false }
+activechain-protocol-types.workspace = true
+activechain-verifier-api.workspace = true
+activechain-work-proof.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha3.workspace = true
+zeroize.workspace = true

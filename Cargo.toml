@@ -17,6 +17,7 @@ members = [
     "crates/cash-air",
     "crates/wallet-core",
     "crates/work-proof",
+    "crates/work-proof-verifier",
     "crates/verifier-api",
     "crates/verifier-ffi",
     "crates/wallet-ffi",
@@ -91,6 +92,7 @@ activechain-cash-air = { path = "crates/cash-air", version = "0.1.0" }
 activechain-protocol-commitment = { path = "crates/protocol-commitment", version = "0.1.0" }
 activechain-wallet-core = { path = "crates/wallet-core", version = "0.1.0", default-features = false }
 activechain-work-proof = { path = "crates/work-proof", version = "0.1.0" }
+activechain-work-proof-verifier = { path = "crates/work-proof-verifier", version = "0.1.0" }
 activechain-wallet-ffi = { path = "crates/wallet-ffi", version = "0.1.0" }
 activechain-verifier-api = { path = "crates/verifier-api", version = "0.1.0" }
 activechain-verifier-ffi = { path = "crates/verifier-ffi", version = "0.1.0" }

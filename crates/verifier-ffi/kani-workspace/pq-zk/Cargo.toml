@@ -1,6 +1,6 @@
+# Verification-only metadata shim. The library target is the production pq-zk source.
 [package]
 name = "activechain-pq-zk"
-description = "ActiveChain transparent post-quantum zero-knowledge STARK profile"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,20 +13,17 @@ cash = ["dep:activechain-cash-air"]
 prover = ["cash", "risc0-zkvm/prove"]
 reproducible-build = ["activechain-pq-zk-methods/reproducible-build"]
 
+[lib]
+path = "../../../pq-zk/src/lib.rs"
+
 [dependencies]
 activechain-canonical-codec.workspace = true
 activechain-cash-air = { workspace = true, optional = true }
 activechain-private-billboard.workspace = true
 activechain-privacy-kernel.workspace = true
-activechain-pq-zk-methods = { path = "../pq-zk-methods" }
+activechain-pq-zk-methods.workspace = true
 activechain-protocol-types.workspace = true
 activechain-work-proof.workspace = true
-rmp-serde.workspace = true
 risc0-zkvm = { workspace = true, features = ["client", "disable-dev-mode"] }
+rmp-serde.workspace = true
 sha3.workspace = true
-
-[dev-dependencies]
-proptest.workspace = true
-
-[lints]
-workspace = true

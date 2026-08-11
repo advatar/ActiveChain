@@ -72,7 +72,24 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Implement class-specific Attention, Compute, and Contribution arithmetic.
     - [x] Add class-neutral usage nullifiers and adversarial relation coverage.
     - [x] Regenerate proof/image/receipt vectors and pass the exact full gate.
-  - [ ] Expose bounded verification APIs, SDKs, and explorer DTOs (#777).
+  - [ ] Expose bounded verification APIs, SDKs, and explorer DTOs (#777; claimed on `feat/777-work-proof-verifier-api`).
+    - [x] Replace anchor/checkpoint equality with canonical checkpoint state membership,
+      retryable checkpoint-lag/unavailable outcomes, and substitution/adversarial tests.
+    - [x] Enforce cross-process all-or-nothing usage-nullifier admission with reload-under-lock,
+      crash-safe persistence, and real multiprocess race/restart tests.
+    - [x] Document the complete-file registry as bounded Preview storage and qualify explicit
+      entry/file-size limits plus 10k/100k/500k/1m admission latency.
+    - [ ] Rebase onto merged #775, compile first, pass affected tests, and run one exact full gate.
+    - [x] Implement bounded in-process and subprocess RISC Zero relation verification.
+    - [x] Bind operator-selected chained trust bundles and exact finalized-anchor inclusion.
+    - [x] Implement durable all-or-nothing class-neutral usage admission and exact-claim retries.
+    - [x] Add bounded explorer DTOs, pagination, error taxonomy, offline Rust API, and C FFI.
+    - [x] Ship the authenticated bounded stateful HTTP verification/explorer adapter and real
+      ML-DSA trust-bootstrap tooling; requests cannot select trust.
+    - [x] Document the `pow.actum.network` verifier, trust, subprocess, and storage boundaries.
+    - [x] Pass compile-first and affected-crate qualification for the direct finalized-anchor
+      verifier boundary without rebuilding the frozen guest image.
+    - [ ] Pass the exact full deterministic-kernel gate with the pinned guest image.
   - [ ] Qualify and document the complete `pow.actum.network` integration (#778).
 
 ## Verifier C header and Apple distribution reconciliation

@@ -268,6 +268,21 @@ uint32_t activechain_verify_state_non_membership_code(const uint8_t *commitment,
 uint32_t activechain_verify_finality_bundle_code(const uint8_t *bytes, uint32_t bytes_len);
 
 /**
+ * Verifies a bounded canonical work-claim public envelope and RISC Zero receipt envelope.
+ *
+ * This is the offline/stateless relation boundary. Anchor finality and durable usage-nullifier
+ * registration remain service operations and are not implied by a successful return code.
+ *
+ * # Safety
+ * The caller must provide readable public/proof buffers for every non-zero declared length. Null
+ * pointers are permitted only for zero-length buffers. No pointer is retained.
+ */
+uint32_t activechain_verify_work_relation_code(const uint8_t *public_bytes,
+                                               uint32_t public_len,
+                                               const uint8_t *proof,
+                                               uint32_t proof_len);
+
+/**
  * # Safety
  * The caller must provide readable canonical finality and receipt buffers for the declared
  * lengths. Null pointers are permitted only for zero-length buffers. No pointer is retained.

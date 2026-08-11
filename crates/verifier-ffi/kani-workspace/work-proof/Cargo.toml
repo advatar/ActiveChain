@@ -1,0 +1,18 @@
+# Verification-only metadata shim. The library target is the production work-proof source.
+[package]
+name = "activechain-work-proof"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+path = "../../../work-proof/src/lib.rs"
+
+[dependencies]
+activechain-application-primitives = { path = "../application-primitives", version = "0.1.0", default-features = false }
+activechain-canonical-codec.workspace = true
+activechain-protocol-commitment.workspace = true
+activechain-protocol-types.workspace = true
+sha3.workspace = true
