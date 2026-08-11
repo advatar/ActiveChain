@@ -21,6 +21,20 @@ The artifact intentionally sets `production_qualified` to `false`. A green deter
 not prove that a public endpoint is deployed, authenticated, connected to the intended network, or
 running the qualified revision.
 
+### Fixture independence
+
+Trust fixtures are constructed independently of the evidence they authorize. A test must never
+assign an operator-held trust field from the artifact under verification. Deriving
+`checkpoint_height`, `checkpoint_block_id`, `checkpoint_state_root`,
+`checkpoint_finality_commitment`, or `validator_set_root` from the anchor evidence makes the test
+pass under any binding rule, including an incorrect one, and previously masked a checkpoint binding
+that admitted only anchors landing in the exact pinned block.
+
+Where a fixture helper still derives checkpoint identity for convenience, the binding must
+additionally be pinned by dedicated cases that vary one side only: an anchor finalized strictly
+below the checkpoint is accepted, a substituted checkpoint identity is rejected as terminal, and an
+anchor finalized above the checkpoint is rejected as retryable `CheckpointLag`.
+
 ## Mandatory production evidence
 
 Promotion requires a second sanitized artifact from the exact deployed revisions. It must contain:
@@ -32,6 +46,8 @@ Promotion requires a second sanitized artifact from the exact deployed revisions
 - the native telemetry-anchor action, matching block receipt, finality evidence, and exact
   operator-selected trusted checkpoint;
 - one accepted stateful claim with `relation_verified`, `anchor_verified`, and `usage_verified`;
+- an anchor finalized above the operator-selected checkpoint rejected as retryable `CheckpointLag`,
+  then accepted unchanged after the operator advances the checkpoint bundle;
 - an exact retry marked idempotent and a different-claim nullifier replay rejected atomically;
 - restart rehearsals for plugin lifecycle, trust state, usage state, and the deployed application;
 - privacy inspection showing no bearer, capability, raw telemetry, prompt, source, or receipt bytes;

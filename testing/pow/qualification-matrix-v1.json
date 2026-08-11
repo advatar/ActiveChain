@@ -13,6 +13,7 @@
     {"id":"real_delivery_webhook","tier":"production","source":"sanitized exact-deployment connectivity receipt"},
     {"id":"real_finalized_anchor","tier":"production","source":"native telemetry-anchor action + matching receipt + finality evidence + exact trusted checkpoint"},
     {"id":"real_stateful_verification","tier":"production","source":"relation_verified + anchor_verified + usage_verified receipt"},
+    {"id":"real_checkpoint_lag_and_advance","tier":"production","source":"retryable CheckpointLag before checkpoint advance, unchanged claim accepted after"},
     {"id":"landing_page_truthfulness","tier":"production","source":"deployed compatibility matrix and UI rehearsal"}
   ]
 }
