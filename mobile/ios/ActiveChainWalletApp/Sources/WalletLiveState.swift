@@ -146,7 +146,23 @@ final class WalletLiveState: ObservableObject {
               let profile = deviceProfile,
               profile.chainGenesis == status.genesis,
               status.supports(1)
-        else { return }
+        else {
+            // A healthy network with no balance is the most confusing state the
+            // wallet can show, and this guard was the silent cause: a profile
+            // bound to a superseded genesis is skipped without a word.
+            if case .healthy = networkState {
+                if deviceProfile == nil {
+                    WalletLog.rpc.notice("no device profile stored; balances and funding stay unavailable")
+                } else if let profile = deviceProfile, profile.chainGenesis != status.genesis {
+                    WalletLog.rpc.error(
+                        "device profile is bound to genesis \(WalletHex.short(profile.chainGenesis), privacy: .public) but the chain reports \(WalletHex.short(status.genesis), privacy: .public); recreate the profile for this chain")
+                } else if !status.supports(1) {
+                    WalletLog.rpc.error("node does not advertise the owner coin-cell capability")
+                }
+            }
+            updateFundingAvailability()
+            return
+        }
         do {
             verifiedOwnerPage = try await rpc.verifiedOwnerCoinCells(
                 profile: profile,
