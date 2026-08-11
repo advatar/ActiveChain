@@ -38,8 +38,12 @@ Provisioning creates a random bearer token, validates the signed bundle and sign
 is idempotent and does not overwrite an existing token or trust store.
 
 Load `dev.activechain.kanalen.work-proof.plist` only after provisioning succeeds. The API listens
-on `127.0.0.1:49157`; the Kanalen gateway terminates TLS for
-`https://verify.kanalen.activechain.dev`.
+on `0.0.0.0:49157` because the gateway runs as a container and reaches the host through
+`host.docker.internal`, which cannot dial a loopback-only listener. Every request is still
+bearer-authenticated, and only the gateway's `443` is published; `49157` is not forwarded.
+The Kanalen gateway terminates TLS for `https://verify.kanalen.activechain.dev` and pins the
+route to `http/1.1` ALPN, because the API speaks HTTP/1.1 and a client that negotiates h2
+otherwise fails on the first response frame.
 
 An explicitly enabled `testnet-deploy.yml` run uploads the archive and checksum, verifies and
 extracts the exact Git revision under `releases/`, provisions trust before changing the `current`

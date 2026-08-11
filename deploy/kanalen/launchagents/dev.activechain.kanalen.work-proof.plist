@@ -7,7 +7,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/Users/johansellstrom/activechain-deploy/kanalen/current/bin/actum-work-proof-api</string>
-    <string>127.0.0.1:49157</string>
+    <string>0.0.0.0:49157</string>
     <string>/Users/johansellstrom/activechain-deploy/kanalen/work-proof/trust.bin</string>
     <string>/Users/johansellstrom/activechain-deploy/kanalen/work-proof/usage.bin</string>
     <string>/Users/johansellstrom/activechain-deploy/kanalen/current/bin/actum-work-proof-verifier</string>
