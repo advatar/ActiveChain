@@ -18,7 +18,7 @@ tla_pins=$(grep -Eh '^(tla_sha256=|`[0-9a-f]{64}`)' \
   | grep -Eo '[0-9a-f]{64}')
 tla_pin_count=$(printf '%s\n' "$tla_pins" | wc -l | tr -d ' ')
 tla_unique_pins=$(printf '%s\n' "$tla_pins" | sort -u)
-if [[ "$tla_pin_count" != 4 ]] || [[ "$tla_unique_pins" != e22f8ffb4bacdea0a871f444dd94fe5fb0d8013b3388ae39e82e26f852c735d5 ]]; then
+if [[ "$tla_pin_count" != 4 ]] || [[ "$tla_unique_pins" != ab323b79802aedc3203b3f9af37c6aca3ed43f4e0225b36f2aa77b26de46c05f ]]; then
   echo "TLA+ runner and proof-scope SHA-256 pins are not aligned" >&2
   exit 1
 fi
