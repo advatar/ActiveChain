@@ -6,24 +6,31 @@ use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     decode_envelope, encode_envelope,
 };
+#[cfg(feature = "cash")]
 use activechain_cash_air::{
-    CashAggregationLeafInputV1, CashAggregationLevel, CashAggregationNodeV1,
-    CashAggregationStatementV1, cash_aggregation_journal, recursive_cash_child_journals,
+    CashAggregationLeafInputV1, CashAggregationStatementV1, recursive_cash_child_journals,
+};
+#[cfg(feature = "cash")]
+use activechain_cash_air::{CashAggregationLevel, CashAggregationNodeV1, cash_aggregation_journal};
+#[cfg(feature = "prover")]
+use activechain_pq_zk_methods::{
+    ACTIVECHAIN_PQ_ZK_GUEST_ELF as GUEST_ELF, CASH_RECURSIVE_GLOBAL_ELF, CASH_RECURSIVE_GLOBAL_ID,
+    CASH_RECURSIVE_LEAF_ELF, CASH_RECURSIVE_LEAF_ID, CASH_RECURSIVE_MICROBATCH_ELF,
+    CASH_RECURSIVE_MICROBATCH_ID, CASH_RECURSIVE_PARTITION_ELF, CASH_RECURSIVE_PARTITION_ID,
+    CASH_RECURSIVE_SLOT_ELF, CASH_RECURSIVE_SLOT_ID,
 };
 use activechain_pq_zk_methods::{
-    ACTIVECHAIN_PQ_ZK_GUEST_ELF as GUEST_ELF, ACTIVECHAIN_PQ_ZK_GUEST_ID as GUEST_ID,
-    BILLBOARD_POST_ELF, BILLBOARD_POST_ID, BILLBOARD_WITHDRAW_ELF, BILLBOARD_WITHDRAW_ID,
-    CASH_RECURSIVE_GLOBAL_ELF, CASH_RECURSIVE_GLOBAL_ID, CASH_RECURSIVE_LEAF_ELF,
-    CASH_RECURSIVE_LEAF_ID, CASH_RECURSIVE_MICROBATCH_ELF, CASH_RECURSIVE_MICROBATCH_ID,
-    CASH_RECURSIVE_PARTITION_ELF, CASH_RECURSIVE_PARTITION_ID, CASH_RECURSIVE_SLOT_ELF,
-    CASH_RECURSIVE_SLOT_ID, PRIVATE_IDENTITY_ELF, PRIVATE_IDENTITY_ID, PROOF_OF_FUNDS_ELF,
-    PROOF_OF_FUNDS_ID, WORK_NON_OVERLAP_ELF, WORK_NON_OVERLAP_ID,
+    ACTIVECHAIN_PQ_ZK_GUEST_ID as GUEST_ID, BILLBOARD_POST_ELF, BILLBOARD_POST_ID,
+    BILLBOARD_WITHDRAW_ELF, BILLBOARD_WITHDRAW_ID, PRIVATE_IDENTITY_ELF, PRIVATE_IDENTITY_ID,
+    PROOF_OF_FUNDS_ELF, PROOF_OF_FUNDS_ID, WORK_NON_OVERLAP_ELF, WORK_NON_OVERLAP_ID,
 };
 use activechain_privacy_kernel::{PrivateIdentityRelationInputV1, ProofOfFundsRelationInputV1};
 use activechain_private_billboard::{PostRelationInput, WithdrawalRelationInput};
 use activechain_protocol_types::Digest384;
 use activechain_work_proof::{WorkClaimPublicV1, WorkClaimRelationInputV1, public_journal};
-use risc0_zkvm::{ExecutorEnv, ProverOpts, Receipt, default_executor, default_prover};
+use risc0_zkvm::{ExecutorEnv, Receipt, default_executor};
+#[cfg(feature = "prover")]
+use risc0_zkvm::{ProverOpts, default_prover};
 use sha3::{Digest, Sha3_256, Sha3_384};
 
 /// Consensus-visible identifier for this exact proof profile.
@@ -116,6 +123,7 @@ impl CanonicalType for WorkProofReceiptEnvelopeV1 {
 }
 
 /// An unconditional RISC Zero receipt for one level of the recursive cash tree.
+#[cfg(feature = "cash")]
 pub struct RecursiveCashProof {
     receipt: Receipt,
     node: CashAggregationNodeV1,
@@ -137,12 +145,14 @@ pub enum PqZkError {
     WrongPublicStatement,
 }
 
+#[cfg(feature = "prover")]
 struct RecursiveCashMethod {
     elf: &'static [u8],
     image_id: [u32; 8],
     child_image_id: [u32; 8],
 }
 
+#[cfg(feature = "prover")]
 fn recursive_cash_method(level: CashAggregationLevel) -> Result<RecursiveCashMethod, PqZkError> {
     match level {
         CashAggregationLevel::Microbatch => Ok(RecursiveCashMethod {
@@ -169,6 +179,7 @@ fn recursive_cash_method(level: CashAggregationLevel) -> Result<RecursiveCashMet
     }
 }
 
+#[cfg(feature = "cash")]
 fn verify_recursive_cash_receipt(
     receipt: &Receipt,
     image_id: [u32; 8],
@@ -184,6 +195,7 @@ fn verify_recursive_cash_receipt(
 }
 
 /// Proves one fully authenticated CashAIR payment leaf inside the pinned RISC Zero guest.
+#[cfg(feature = "prover")]
 pub fn prove_recursive_cash_leaf(
     input: &CashAggregationLeafInputV1,
 ) -> Result<RecursiveCashProof, PqZkError> {
@@ -205,6 +217,7 @@ pub fn prove_recursive_cash_leaf(
 /// Recursively proves one canonical microbatch, partition, slot, or global transition.
 /// Every child receipt is attached as a proven assumption and the resulting receipt is required
 /// to be unconditional before it is returned.
+#[cfg(feature = "prover")]
 pub fn prove_recursive_cash_aggregation(
     statement: &CashAggregationStatementV1,
     children: &[RecursiveCashProof],
@@ -236,6 +249,7 @@ pub fn prove_recursive_cash_aggregation(
     Ok(RecursiveCashProof { receipt, node, image_id: method.image_id })
 }
 
+#[cfg(feature = "cash")]
 pub fn verify_recursive_cash_proof(
     proof: &RecursiveCashProof,
     expected: &CashAggregationNodeV1,
@@ -252,6 +266,7 @@ pub fn statement_for(secret: &[u8]) -> PublicStatement {
 }
 
 /// Proves knowledge of bytes opening `statement` without publishing the bytes.
+#[cfg(feature = "prover")]
 pub fn prove(secret: &[u8], statement: PublicStatement) -> Result<PqZkProof, PqZkError> {
     if statement_for(secret) != statement {
         return Err(PqZkError::WrongPublicStatement);
@@ -310,6 +325,7 @@ pub fn execute_proof_of_funds_relation(
         .map_err(|_| PqZkError::Verification)
 }
 
+#[cfg(feature = "prover")]
 pub fn prove_proof_of_funds(
     input: &ProofOfFundsRelationInputV1,
 ) -> Result<ProofOfFundsPqZkProof, PqZkError> {
@@ -360,6 +376,7 @@ pub fn execute_work_non_overlap_relation(
         .map_err(|_| PqZkError::Verification)
 }
 
+#[cfg(feature = "prover")]
 pub fn prove_work_non_overlap(
     input: &WorkClaimRelationInputV1,
 ) -> Result<WorkNonOverlapProof, PqZkError> {
@@ -443,6 +460,7 @@ impl WorkNonOverlapProof {
         Ok(proof)
     }
 }
+#[cfg(feature = "prover")]
 pub fn prove_private_identity(
     input: &PrivateIdentityRelationInputV1,
 ) -> Result<PrivateIdentityPqZkProof, PqZkError> {
@@ -488,6 +506,7 @@ pub fn execute_withdrawal_relation(input: &WithdrawalRelationInput) -> Result<Ve
         .map_err(|_| PqZkError::Verification)
 }
 
+#[cfg(feature = "prover")]
 pub fn prove_post_relation(input: &PostRelationInput) -> Result<BillboardPqZkProof, PqZkError> {
     let receipt = default_prover()
         .prove_with_opts(relation_env(input)?, BILLBOARD_POST_ELF, &ProverOpts::succinct())
@@ -496,6 +515,7 @@ pub fn prove_post_relation(input: &PostRelationInput) -> Result<BillboardPqZkPro
     Ok(BillboardPqZkProof { receipt })
 }
 
+#[cfg(feature = "prover")]
 pub fn prove_withdrawal_relation(
     input: &WithdrawalRelationInput,
 ) -> Result<BillboardPqZkProof, PqZkError> {

@@ -8,19 +8,21 @@ repository.workspace = true
 publish = false
 
 [features]
-default = ["reproducible-build"]
+default = ["prover", "reproducible-build"]
+cash = ["dep:activechain-cash-air"]
+prover = ["cash", "risc0-zkvm/prove"]
 reproducible-build = ["activechain-pq-zk-methods/reproducible-build"]
 
 [dependencies]
 activechain-canonical-codec.workspace = true
-activechain-cash-air.workspace = true
+activechain-cash-air = { workspace = true, optional = true }
 activechain-private-billboard.workspace = true
 activechain-privacy-kernel.workspace = true
 activechain-pq-zk-methods = { path = "../pq-zk-methods" }
 activechain-protocol-types.workspace = true
 activechain-work-proof.workspace = true
 rmp-serde.workspace = true
-risc0-zkvm = { workspace = true, features = ["client", "disable-dev-mode", "prove"] }
+risc0-zkvm = { workspace = true, features = ["client", "disable-dev-mode"] }
 sha3.workspace = true
 
 [dev-dependencies]
