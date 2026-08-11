@@ -771,20 +771,27 @@ final class WalletRPCClient: @unchecked Sendable {
     }
 
     private func waitUntilReady(_ connection: NWConnection) async throws {
+        let readiness = WalletReadinessFlag()
         try await withCheckedThrowingContinuation { continuation in
             let gate = WalletContinuationGate()
             connection.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
+                    readiness.markReady()
                     WalletLog.rpc.notice("connection ready to \(WalletKanalen.hostDescription, privacy: .public)")
                     gate.resumeOnce { continuation.resume() }
                 case let .failed(error):
                     WalletLog.rpc.error("connection failed: \(String(describing: error), privacy: .public)")
                     gate.resumeOnce { continuation.resume(throwing: WalletRPCError.transport) }
                 case .cancelled:
-                    // Reached through the 8s watchdog, so a cancel usually means
-                    // the handshake never completed rather than a real refusal.
-                    WalletLog.rpc.error("connection cancelled before ready (timeout or teardown)")
+                    // Every round trip cancels in a defer, so a cancel after the
+                    // connection went ready is ordinary teardown. Only a cancel
+                    // that beats readiness means the watchdog fired.
+                    if readiness.isReady {
+                        WalletLog.rpc.notice("connection closed after exchange")
+                    } else {
+                        WalletLog.rpc.error("connection cancelled before ready (timeout or teardown)")
+                    }
                     gate.resumeOnce { continuation.resume(throwing: WalletRPCError.transport) }
                 case let .waiting(error):
                     // NWConnection stays here on a refused port or an
@@ -867,6 +874,26 @@ final class WalletRPCClient: @unchecked Sendable {
             result.append(chunk)
         }
         return result
+    }
+}
+
+/// Records whether a connection ever reached `.ready`, so ordinary teardown is
+/// not reported as a failure. The state handler runs on the connection queue
+/// while the flag is read from it too, so a lock keeps it well defined.
+private final class WalletReadinessFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var ready = false
+
+    var isReady: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return ready
+    }
+
+    func markReady() {
+        lock.lock()
+        ready = true
+        lock.unlock()
     }
 }
 
