@@ -184,17 +184,20 @@ pub fn validate_fungible_amount_limbs(columns: [[u16; 8]; 7]) -> Result<[u128; 7
 
 #[cfg(kani)]
 mod kani_proofs {
-    use super::{decompose_u128_limbs, fungible_conservation_holds, recompose_u128_limbs};
+    use super::{
+        decompose_u128_limbs, fungible_conservation_holds, recompose_u128_limbs,
+        validate_fungible_amount_limbs,
+    };
 
     #[kani::proof]
     fn overflow_never_counts_as_conservation() {
-        let pre = kani::any();
-        let issuance = kani::any();
-        let burn = kani::any();
-        let post = kani::any();
-        let input = kani::any();
-        let output = kani::any();
-        let fee = kani::any();
+        let pre: u128 = kani::any();
+        let issuance: u128 = kani::any();
+        let burn: u128 = kani::any();
+        let post: u128 = kani::any();
+        let input: u128 = kani::any();
+        let output: u128 = kani::any();
+        let fee: u128 = kani::any();
         if pre.checked_add(issuance).and_then(|value| value.checked_sub(burn)).is_none() {
             assert!(!fungible_conservation_holds(pre, issuance, burn, post, input, output, fee));
         }

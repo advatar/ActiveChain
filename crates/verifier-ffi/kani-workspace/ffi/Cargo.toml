@@ -20,3 +20,4 @@ activechain-canonical-codec.workspace = true
 activechain-protocol-types.workspace = true
 activechain-rpc-types.workspace = true
 activechain-verifier-api.workspace = true
+activechain-work-proof-verifier.workspace = true

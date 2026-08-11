@@ -1,0 +1,36 @@
+# Verification-only metadata shim. The library target is the production cash-air source.
+[package]
+name = "activechain-cash-air"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+path = "../../../cash-air/src/lib.rs"
+
+[dependencies]
+activechain-canonical-codec.workspace = true
+activechain-cash-kernel.workspace = true
+activechain-protocol-commitment.workspace = true
+activechain-protocol-types.workspace = true
+activechain-wallet-core = { path = "../wallet-core", version = "0.1.0", default-features = false }
+p3-air.workspace = true
+p3-baby-bear.workspace = true
+p3-challenger.workspace = true
+p3-commit.workspace = true
+p3-dft.workspace = true
+p3-field.workspace = true
+p3-fri.workspace = true
+p3-keccak.workspace = true
+p3-keccak-air.workspace = true
+p3-matrix.workspace = true
+p3-merkle-tree.workspace = true
+p3-sha256.workspace = true
+p3-symmetric.workspace = true
+p3-uni-stark.workspace = true
+postcard.workspace = true
+serde.workspace = true
+sha3.workspace = true
+winterfell.workspace = true

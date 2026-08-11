@@ -270,12 +270,12 @@ uint32_t activechain_verify_finality_bundle_code(const uint8_t *bytes, uint32_t 
 /**
  * Verifies a bounded canonical work-claim public envelope and RISC Zero receipt envelope.
  *
- * Success proves only the stateless relation. It does not imply finalized anchoring or durable
- * usage-nullifier registration.
+ * This is the offline/stateless relation boundary. Anchor finality and durable usage-nullifier
+ * registration remain service operations and are not implied by a successful return code.
  *
  * # Safety
- * Public/proof buffers must be readable for non-zero lengths. Null pointers are permitted only
- * for zero-length buffers. No pointer is retained.
+ * The caller must provide readable public/proof buffers for every non-zero declared length. Null
+ * pointers are permitted only for zero-length buffers. No pointer is retained.
  */
 uint32_t activechain_verify_work_relation_code(const uint8_t *public_bytes,
                                                uint32_t public_len,

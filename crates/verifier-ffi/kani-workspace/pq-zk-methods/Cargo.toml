@@ -1,0 +1,22 @@
+# Verification-only metadata shim. Targets point at the production pq-zk-methods package.
+[package]
+name = "activechain-pq-zk-methods"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+build = "../../../pq-zk-methods/build.rs"
+
+[lib]
+path = "../../../pq-zk-methods/src/lib.rs"
+
+[build-dependencies]
+risc0-build.workspace = true
+
+[features]
+default = ["reproducible-build"]
+reproducible-build = ["risc0-build/docker"]
+
+[package.metadata.risc0]
+methods = ["../../../pq-zk-methods/guest"]
