@@ -8,8 +8,9 @@ Tracked by [GitHub issue #797](https://github.com/advatar/ActiveChain/issues/797
 
 - [x] Align both TLA runners and both proof-scope records with the current official v1.8.0
   release-asset digest while preserving the four-location drift regression.
-- [ ] Pass both TLA suites and the exact complete deterministic-kernel gate; merge to `main` and
-  verify reachability from `origin/main`.
+- [x] Pass both TLA suites and the exact complete deterministic-kernel gate on `0ae3ae67`
+  ([run 31515122255](https://github.com/advatar/ActiveChain/actions/runs/31515122255)).
+- [ ] Merge to `main` and verify reachability from `origin/main`.
 
 ## Reusable finalized-payment verifier service
 
