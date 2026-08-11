@@ -16,6 +16,9 @@ import os
 /// commitments are public and are what a pin mismatch turns on, so they are
 /// logged in the clear; wallet owners, keys, and payload bytes never are.
 enum WalletLog {
+    /// Notice level, not debug: debug records are memory-only and are dropped
+    /// unless a debug-level stream is already attached, so they are invisible
+    /// in Console and in a plain `log stream`.
     static let rpc = Logger(subsystem: "dev.activechain.wallet", category: "rpc")
 }
 
@@ -298,7 +301,7 @@ struct WalletRPCStatus: Equatable, Sendable {
             }
             return .incompatible
         }
-        WalletLog.rpc.debug(
+        WalletLog.rpc.notice(
             "status accepted: height \(finalizedHeight, privacy: .public) health \(String(describing: health), privacy: .public)")
         switch health {
         case .healthy: return .healthy(finalizedHeight: finalizedHeight)
@@ -763,7 +766,7 @@ final class WalletRPCClient: @unchecked Sendable {
             connection.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
-                    WalletLog.rpc.debug("connection ready to \(WalletKanalen.hostDescription, privacy: .public)")
+                    WalletLog.rpc.notice("connection ready to \(WalletKanalen.hostDescription, privacy: .public)")
                     gate.resumeOnce { continuation.resume() }
                 case let .failed(error):
                     WalletLog.rpc.error("connection failed: \(String(describing: error), privacy: .public)")
@@ -779,12 +782,12 @@ final class WalletRPCClient: @unchecked Sendable {
                     // the watchdog with nothing to show for it.
                     WalletLog.rpc.error("connection waiting: \(String(describing: error), privacy: .public)")
                 case .preparing:
-                    WalletLog.rpc.debug("connection preparing (DNS and TLS)")
+                    WalletLog.rpc.notice("connection preparing (DNS and TLS)")
                 default:
                     break
                 }
             }
-            WalletLog.rpc.debug("dialing \(WalletKanalen.hostDescription, privacy: .public)")
+            WalletLog.rpc.notice("dialing \(WalletKanalen.hostDescription, privacy: .public)")
             connection.start(queue: queue)
         }
     }
@@ -825,7 +828,7 @@ final class WalletRPCClient: @unchecked Sendable {
                     WalletLog.rpc.error("send of \(data.count) bytes failed: \(String(describing: error), privacy: .public)")
                     continuation.resume(throwing: WalletRPCError.transport)
                 } else {
-                    WalletLog.rpc.debug("sent \(data.count) request bytes")
+                    WalletLog.rpc.notice("sent \(data.count) request bytes")
                     continuation.resume()
                 }
             })
