@@ -3,10 +3,33 @@ import Foundation
 import Network
 import Security
 import SwiftUI
+import os
+
+/// Diagnostics for the Kanalen transport.
+///
+/// Every failure below collapses into `WalletRPCError.transport`, which keeps
+/// the UI honest but throws away the reason. A refused port, an unfinished TLS
+/// handshake, and a peer that closes mid-frame are indistinguishable on screen,
+/// so record the underlying cause here.
+///
+/// Only network identifiers and byte counts are logged. Chain and genesis
+/// commitments are public and are what a pin mismatch turns on, so they are
+/// logged in the clear; wallet owners, keys, and payload bytes never are.
+enum WalletLog {
+    static let rpc = Logger(subsystem: "dev.activechain.wallet", category: "rpc")
+}
+
+enum WalletHex {
+    /// First eight bytes are enough to tell two commitments apart in a log line.
+    static func short(_ value: Data) -> String {
+        value.prefix(8).map { String(format: "%02x", $0) }.joined() + "…"
+    }
+}
 
 enum WalletKanalen {
     static let host = NWEndpoint.Host("rpc.kanalen.activechain.dev")
     static let port = NWEndpoint.Port(rawValue: 443)!
+    static var hostDescription: String { "\(host):\(port.rawValue)" }
     static let protocolRevision: UInt64 = 1
     static let schemaRevision: UInt32 = 2
     static let chainID = Data([
@@ -111,6 +134,8 @@ final class WalletLiveState: ObservableObject {
             status = try await rpc.status()
             networkState = status.networkState
         } catch {
+            WalletLog.rpc.error(
+                "status refresh failed against \(WalletKanalen.hostDescription, privacy: .public): \(String(describing: error), privacy: .public)")
             networkState = .unavailable
             return
         }
@@ -252,8 +277,29 @@ struct WalletRPCStatus: Equatable, Sendable {
               protocolRevision == WalletRPCCodec.supportedProtocolRevision,
               schemaRevision == WalletRPCCodec.supportedSchemaRevision
         else {
+            // "Incompatible" on its own cannot distinguish a rebuilt chain from
+            // a stale client, so name the field that actually diverged. A
+            // genesis mismatch is the expected result after a chain rebuild.
+            if chainID != WalletKanalen.chainID {
+                WalletLog.rpc.error(
+                    "chain mismatch: node \(WalletHex.short(chainID), privacy: .public) pinned \(WalletHex.short(WalletKanalen.chainID), privacy: .public)")
+            }
+            if genesis != WalletKanalen.genesis {
+                WalletLog.rpc.error(
+                    "genesis mismatch: node \(WalletHex.short(genesis), privacy: .public) pinned \(WalletHex.short(WalletKanalen.genesis), privacy: .public)")
+            }
+            if protocolRevision != WalletRPCCodec.supportedProtocolRevision {
+                WalletLog.rpc.error(
+                    "protocol revision mismatch: node \(protocolRevision, privacy: .public) supported \(WalletRPCCodec.supportedProtocolRevision, privacy: .public)")
+            }
+            if schemaRevision != WalletRPCCodec.supportedSchemaRevision {
+                WalletLog.rpc.error(
+                    "RPC schema mismatch: node \(schemaRevision, privacy: .public) supported \(WalletRPCCodec.supportedSchemaRevision, privacy: .public)")
+            }
             return .incompatible
         }
+        WalletLog.rpc.debug(
+            "status accepted: height \(finalizedHeight, privacy: .public) health \(String(describing: health), privacy: .public)")
         switch health {
         case .healthy: return .healthy(finalizedHeight: finalizedHeight)
         case .stale, .degraded: return .stale(finalizedHeight: finalizedHeight)
@@ -717,13 +763,28 @@ final class WalletRPCClient: @unchecked Sendable {
             connection.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
+                    WalletLog.rpc.debug("connection ready to \(WalletKanalen.hostDescription, privacy: .public)")
                     gate.resumeOnce { continuation.resume() }
-                case .failed, .cancelled:
+                case let .failed(error):
+                    WalletLog.rpc.error("connection failed: \(String(describing: error), privacy: .public)")
                     gate.resumeOnce { continuation.resume(throwing: WalletRPCError.transport) }
+                case .cancelled:
+                    // Reached through the 8s watchdog, so a cancel usually means
+                    // the handshake never completed rather than a real refusal.
+                    WalletLog.rpc.error("connection cancelled before ready (timeout or teardown)")
+                    gate.resumeOnce { continuation.resume(throwing: WalletRPCError.transport) }
+                case let .waiting(error):
+                    // NWConnection stays here on a refused port or an
+                    // unreachable path; without this the app simply hangs to
+                    // the watchdog with nothing to show for it.
+                    WalletLog.rpc.error("connection waiting: \(String(describing: error), privacy: .public)")
+                case .preparing:
+                    WalletLog.rpc.debug("connection preparing (DNS and TLS)")
                 default:
                     break
                 }
             }
+            WalletLog.rpc.debug("dialing \(WalletKanalen.hostDescription, privacy: .public)")
             connection.start(queue: queue)
         }
     }
@@ -758,12 +819,14 @@ final class WalletRPCClient: @unchecked Sendable {
     }
 
     private func send(_ data: Data, over connection: NWConnection) async throws {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             connection.send(content: data, completion: .contentProcessed { error in
-                if error == nil {
-                    continuation.resume()
-                } else {
+                if let error {
+                    WalletLog.rpc.error("send of \(data.count) bytes failed: \(String(describing: error), privacy: .public)")
                     continuation.resume(throwing: WalletRPCError.transport)
+                } else {
+                    WalletLog.rpc.debug("sent \(data.count) request bytes")
+                    continuation.resume()
                 }
             })
         }
@@ -778,9 +841,12 @@ final class WalletRPCClient: @unchecked Sendable {
                     data, _, complete, error in
                     if let data, !data.isEmpty {
                         continuation.resume(returning: data)
-                    } else if complete || error != nil {
-                        continuation.resume(throwing: WalletRPCError.transport)
                     } else {
+                        // A clean EOF here means the peer accepted the request
+                        // and then closed, which is what a terminating proxy
+                        // does when its backend is gone.
+                        WalletLog.rpc.error(
+                            "receive stalled after \(result.count)/\(count) bytes; complete=\(complete, privacy: .public) error=\(String(describing: error), privacy: .public)")
                         continuation.resume(throwing: WalletRPCError.transport)
                     }
                 }
