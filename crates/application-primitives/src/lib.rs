@@ -89,9 +89,10 @@ pub use telemetry_anchor::{
     verify_checkpointed_telemetry_anchor,
 };
 pub use trust_bundle::{
-    ActumVerifierTrustBundleV1, SignedActumVerifierTrustBundleV1, TrustBundleError,
-    TrustBundleSignatureV1, TrustSignatureAlgorithmV1, TrustSignerSetV1, TrustSignerV1,
-    verify_trust_bundle_bootstrap, verify_trust_bundle_transition,
+    ActumVerifierTrustBundleV1, MAX_TRUST_PUBLIC_KEY_BYTES, MAX_TRUST_SIGNATURE_BYTES,
+    MAX_TRUST_SIGNERS, SignedActumVerifierTrustBundleV1, TrustBundleError, TrustBundleSignatureV1,
+    TrustSignatureAlgorithmV1, TrustSignerSetV1, TrustSignerV1, verify_trust_bundle_bootstrap,
+    verify_trust_bundle_transition,
 };
 
 use activechain_canonical_codec::{

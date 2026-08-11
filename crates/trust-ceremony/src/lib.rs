@@ -52,6 +52,25 @@ pub enum CeremonyError {
     Rejected,
 }
 
+impl core::fmt::Display for CeremonyError {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let message = match self {
+            Self::Entropy => "system randomness was unavailable",
+            Self::MalformedInput => "input was not a well-formed fixed-length value",
+            Self::Decode => "canonical envelope could not be decoded",
+            Self::Encode => "canonical value could not be encoded",
+            Self::InvalidSignerSet => "signer set violates the frozen signer-set rules",
+            Self::InvalidBundle => "bundle body violates the frozen trust-bundle rules",
+            Self::UnknownSigner => "detached signature names a signer outside the set",
+            Self::ThresholdNotMet => "fewer signatures than the signer set requires",
+            Self::Rejected => "assembled bundle failed deployed bootstrap verification",
+        };
+        formatter.write_str(message)
+    }
+}
+
+impl std::error::Error for CeremonyError {}
+
 /// A secret ML-DSA-44 seed that zeroizes when it leaves scope.
 pub struct SignerSeed([u8; SEED_BYTES]);
 

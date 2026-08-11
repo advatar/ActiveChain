@@ -2,7 +2,7 @@ use activechain_application_primitives::{
     SignedActumVerifierTrustBundleV1, TrustSignatureAlgorithmV1, TrustSignerSetV1,
 };
 use activechain_canonical_codec::{CanonicalType, decode_envelope};
-use activechain_work_proof::{WORK_PROOF_SYSTEM_REVISION, work_image_id};
+use activechain_pq_zk::{WORK_PROOF_SYSTEM_REVISION, work_image_id};
 use activechain_work_proof_verifier::{
     DurableTrustStore, WORK_VERIFIER_REVISION, work_proof_profile_id,
 };

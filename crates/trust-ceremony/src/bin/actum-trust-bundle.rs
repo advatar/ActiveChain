@@ -65,7 +65,7 @@ fn prepare(arguments: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let set = read_canonical::<TrustSignerSetV1>(Path::new(set_path))?;
     let body = build_body(&spec, &checkpoint, &proof, &set)?;
     let bundle_id = bundle_id_for_signing(&body)?;
-    fs::write(output, encode_envelope(&body)?)?;
+    fs::write(output, encode_envelope(&body).map_err(|_| "body could not be encoded")?)?;
 
     println!("bundle_id {}", encode_hex(bundle_id.as_bytes()));
     print_body(&body);
@@ -128,8 +128,7 @@ fn assemble(arguments: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let now_ms = now_ms.parse::<u64>()?;
     let mut signatures = Vec::with_capacity(signature_paths.len());
     for path in signature_paths {
-        let file: DetachedSignatureFile =
-            serde_json::from_slice(&read_bounded(Path::new(path))?)?;
+        let file: DetachedSignatureFile = serde_json::from_slice(&read_bounded(Path::new(path))?)?;
         let signer_id: [u8; 48] = decode_hex(&file.signer_id_hex, 48)?
             .try_into()
             .map_err(|_| "malformed signer identity")?;
@@ -139,7 +138,7 @@ fn assemble(arguments: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         });
     }
     let bundle = activechain_trust_ceremony::assemble_bootstrap(body, &set, &signatures, now_ms)?;
-    fs::write(output, encode_envelope(&bundle)?)?;
+    fs::write(output, encode_envelope(&bundle).map_err(|_| "bundle could not be encoded")?)?;
 
     println!("bundle_id {}", encode_hex(bundle.bundle_id.as_bytes()));
     println!("signatures {} of threshold {}", bundle.signatures.len(), set.threshold);

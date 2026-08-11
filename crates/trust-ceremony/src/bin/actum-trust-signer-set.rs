@@ -26,8 +26,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let entries: Vec<SignerEntry> = serde_json::from_slice(&fs::read(&entries_path)?)?;
     let set = build_signer_set(revision, threshold, &entries)?;
-    let set_id = set.signer_set_id()?;
-    fs::write(output, encode_envelope(&set)?)?;
+    let set_id = set.signer_set_id().map_err(|_| "signer set could not be committed")?;
+    fs::write(output, encode_envelope(&set).map_err(|_| "signer set could not be encoded")?)?;
 
     println!("signer_set_id {}", encode_hex(set_id.as_bytes()));
     println!("revision {revision}");
