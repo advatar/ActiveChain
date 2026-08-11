@@ -197,9 +197,8 @@ final class ActiveChainWalletTests: XCTestCase {
         XCTAssertNotEqual(first.payload, second.payload)
     }
 
-    func testSharedKeychainConfigurationIsExplicitAndOptInForSynchronization() throws {
-        let group = "L2AF8KFX35.dev.activechain.wallet.shared"
-        let configuration = try SharedKeychainConfiguration(accessGroup: group)
+    func testSharedKeychainQueryIsAppScopedAndOptInForSynchronization() throws {
+        let configuration = try SharedKeychainConfiguration.application()
         let local = configuration.query(
             service: "wallet",
             account: "primary",
@@ -211,16 +210,18 @@ final class ActiveChainWalletTests: XCTestCase {
             synchronizeAcrossDevices: true
         )
 
-        XCTAssertEqual(local[kSecAttrAccessGroup] as? String, group)
+        // No access group: a group shares only within one device and team, so
+        // it cannot open the same wallet across iOS and macOS, and an unsigned
+        // build has no team prefix to name one with.
+        XCTAssertNil(local[kSecAttrAccessGroup])
+        XCTAssertNil(synchronized[kSecAttrAccessGroup])
+        XCTAssertEqual(local[kSecAttrService] as? String, "wallet")
+        XCTAssertEqual(local[kSecAttrAccount] as? String, "primary")
         XCTAssertEqual(local[kSecAttrSynchronizable] as? Bool, false)
         XCTAssertEqual(synchronized[kSecAttrSynchronizable] as? Bool, true)
 #if os(macOS)
         XCTAssertEqual(local[kSecUseDataProtectionKeychain] as? Bool, true)
 #endif
-    }
-
-    func testSharedKeychainRejectsUnscopedAccessGroups() {
-        XCTAssertThrowsError(try SharedKeychainConfiguration(accessGroup: "dev.activechain.wallet"))
     }
 
     func testCanonicalApprovalComesFromExactRustRequest() throws {

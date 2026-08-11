@@ -73,6 +73,9 @@ private struct HomeView: View {
                 LazyVStack(spacing: 18) {
                     Header()
                     BalanceCard(networkState: liveState.networkState, verifiedPage: liveState.verifiedOwnerPage)
+                    if let secret = liveState.recoverySecret {
+                        RecoveryKeyCard(secret: secret) { liveState.acknowledgeRecoverySecret() }
+                    }
                     if liveState.deviceProfile == nil {
                         OnboardingCard(
                             creating: liveState.creatingWallet,
@@ -743,6 +746,40 @@ struct OnboardingCard: View {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption2)
                     .foregroundStyle(.orange)
+            }
+        }
+        .padding(18)
+        .background(WalletPalette.panel, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+}
+
+/// Shown once, immediately after provisioning.
+///
+/// This key seals the recovery envelope that lets a second device re-wrap the
+/// same seed under its own Secure Enclave. It is never written to disk and
+/// never logged, so if it is lost the wallet cannot move between devices.
+struct RecoveryKeyCard: View {
+    let secret: String
+    let acknowledge: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Save your recovery key", systemImage: "lock.rotation")
+                .font(.headline)
+            Text("Required to open this wallet on another device. It is shown once and is not stored anywhere.")
+                .font(.caption)
+                .foregroundStyle(WalletPalette.muted)
+            Text(secret)
+                .font(.system(.caption, design: .monospaced))
+                .textSelection(.enabled)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(WalletPalette.ink, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            HStack {
+                Button("Copy") { UIPasteboard.general.string = secret }
+                    .buttonStyle(SecondaryWalletButton())
+                Button("I have saved it", action: acknowledge)
+                    .buttonStyle(PrimaryWalletButton())
             }
         }
         .padding(18)

@@ -6,7 +6,6 @@ import CryptoKit
 import LocalAuthentication
 
 enum SharedKeychainError: Error, Equatable {
-    case invalidAccessGroup
     case unexpectedStatus(OSStatus)
 }
 
@@ -18,25 +17,18 @@ enum WalletCustodyLog {
     static let custody = Logger(subsystem: "dev.activechain.wallet", category: "custody")
 }
 
+/// Keychain scoping for the wallet.
+///
+/// There is deliberately no access group. A group shares items only between
+/// apps on one device that carry the same team prefix, so it cannot open the
+/// same wallet on iOS and macOS — that is the recovery envelope's job, which
+/// re-wraps the seed under each device's own Secure Enclave key. Keeping a
+/// group bought nothing and cost provisioning entirely: the prefix is empty in
+/// an unsigned build, and the repository builds unsigned for local work and for
+/// the Apple stage of the deterministic gate.
 struct SharedKeychainConfiguration {
-    static let infoKey = "ActiveChainKeychainAccessGroup"
-    static let expectedSuffix = ".dev.activechain.wallet.shared"
-
-    let accessGroup: String
-
-    init(accessGroup: String) throws {
-        guard accessGroup.hasSuffix(Self.expectedSuffix),
-              accessGroup.count > Self.expectedSuffix.count else {
-            throw SharedKeychainError.invalidAccessGroup
-        }
-        self.accessGroup = accessGroup
-    }
-
     static func application(bundle: Bundle = .main) throws -> Self {
-        guard let group = bundle.object(forInfoDictionaryKey: infoKey) as? String else {
-            throw SharedKeychainError.invalidAccessGroup
-        }
-        return try Self(accessGroup: group)
+        Self()
     }
 
     func query(
@@ -48,7 +40,6 @@ struct SharedKeychainConfiguration {
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
             kSecAttrAccount: account,
-            kSecAttrAccessGroup: accessGroup,
             kSecAttrSynchronizable: synchronizeAcrossDevices ? kCFBooleanTrue! : kCFBooleanFalse!
         ]
 #if os(macOS)

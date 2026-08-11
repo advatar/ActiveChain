@@ -124,6 +124,8 @@ final class WalletLiveState: ObservableObject {
     )
     @Published private(set) var creatingWallet = false
     @Published private(set) var onboardingError: String?
+    /// Shown once after provisioning. Never logged and never persisted.
+    @Published private(set) var recoverySecret: String?
     static let primarySlotID = "primary"
     private let rpc = WalletRPCClient()
     private let verifier: any WalletOwnerCoinProofVerifier = RustWalletOwnerCoinProofVerifier()
@@ -209,7 +211,11 @@ final class WalletLiveState: ObservableObject {
                 store: keychain,
                 hardware: SecureEnclaveWrappingBackend()
             )
-            var recoveryKey = Data()
+            // The recovery key is an input, not a result: it seals the
+            // envelope that lets another device re-wrap this same seed under
+            // its own Secure Enclave. Losing it means the wallet can never move
+            // or be restored, so it is shown once and must be saved.
+            var recoveryKey = try Self.randomRecoveryKey()
             defer { recoveryKey.zeroize() }
             let publicKey = try provider.provision(
                 slotID: Self.primarySlotID,
@@ -223,12 +229,28 @@ final class WalletLiveState: ObservableObject {
             let profile = WalletDeviceProfile(owner: owner, chainGenesis: WalletKanalen.genesis)
             try WalletDeviceProfileStore().save(profile)
             deviceProfile = profile
+            recoverySecret = recoveryKey.map { String(format: "%02x", $0) }.joined()
             WalletLog.rpc.notice("provisioned wallet owner \(WalletHex.short(owner), privacy: .public)")
             await refresh()
         } catch {
             WalletLog.rpc.error("wallet provisioning failed: \(String(describing: error), privacy: .public)")
             onboardingError = "Could not create the wallet on this device."
         }
+    }
+
+    private static func randomRecoveryKey() throws -> Data {
+        var bytes = Data(count: 32)
+        let status = bytes.withUnsafeMutableBytes {
+            SecRandomCopyBytes(kSecRandomDefault, 32, $0.baseAddress!)
+        }
+        guard status == errSecSuccess, bytes.contains(where: { $0 != 0 }) else {
+            throw WalletRPCError.transport
+        }
+        return bytes
+    }
+
+    func acknowledgeRecoverySecret() {
+        recoverySecret = nil
     }
 
     /// Derives the owner through the shared Rust implementation. Restating the
