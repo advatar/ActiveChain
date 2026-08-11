@@ -90,6 +90,14 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Pass compile-first and affected-crate qualification for the direct finalized-anchor
       verifier boundary without rebuilding the frozen guest image.
     - [ ] Pass the exact full deterministic-kernel gate with the pinned guest image.
+  - [ ] Build the offline verifier trust-bundle ceremony that #778 provisioning requires
+    ([GitHub issue #793](https://github.com/advatar/ActiveChain/issues/793)).
+    - [ ] Add threshold-capable keygen, signer-set, and prepare/inspect/sign/assemble tooling that
+      keeps the signing key off every verifier host and derives checkpoint identity from a real
+      finalized block.
+    - [ ] Emit the deployed build's proof binding instead of transcribing it into bundle
+      specifications.
+    - [ ] Pass the exact full deterministic-kernel gate.
   - [ ] Qualify and document the complete `pow.actum.network` integration (#778).
 
 ## Verifier C header and Apple distribution reconciliation
