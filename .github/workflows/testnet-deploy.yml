@@ -47,6 +47,7 @@ jobs:
           cp target/release/activechain-rpc-ingest dist/kanalen/bin/
           cp target/release/activechain-rpc-probe dist/kanalen/bin/
           cp target/release/activechain-telemetry-anchor-gateway dist/kanalen/bin/
+          cp target/release/actum-anchor-evidence dist/kanalen/bin/
           cp target/release/actum-work-proof-verifier dist/kanalen/bin/
           cp target/release/actum-work-proof-json-verifier dist/kanalen/bin/
           cp target/release/actum-work-proof-api dist/kanalen/bin/
@@ -81,7 +82,10 @@ jobs:
           key_path=$(mktemp /tmp/activechain-kanalen-deploy-key.XXXXXX)
           trap 'rm -f "$key_path"' EXIT
           chmod 600 "$key_path"
-          printf '%s' "$KANALEN_DEPLOY_KEY" > "$key_path"
+          # OpenSSH rejects a private key whose final line is unterminated with
+          # "invalid format", and secret storage does not preserve a trailing
+          # newline, so restore it rather than depending on how the key was set.
+          printf '%s\n' "$KANALEN_DEPLOY_KEY" > "$key_path"
           scp -i "$key_path" -o StrictHostKeyChecking=accept-new \
             "kanalen-${GITHUB_SHA}.tar.gz" "kanalen-${GITHUB_SHA}.sha256" \
             deploy/kanalen/scripts/activate-kanalen-release.sh \

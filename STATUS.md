@@ -100,6 +100,10 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
       specifications.
     - [x] Pass the exact full deterministic-kernel gate.
   - [ ] Qualify and document the complete `pow.actum.network` integration (#778; claimed on `feat/778-pow-e2e-qualification`).
+    - [x] Assemble checkpointed anchor evidence from a live RPC node. Nothing built
+      `CheckpointedTelemetryAnchorEvidenceV1`, so every claim failed retryable
+      `CheckpointUnavailable` and no production case was reachable.
+    - [ ] Capture the real exact-revision lifecycle evidence on the Kanalen host.
     - [x] Add deterministic delivery, anchor, verifier, replay, restart, concurrency, and privacy rehearsals.
     - [x] Emit exact-revision deterministic evidence from the split runtime gate.
     - [x] Bundle the stateless verifier, stateful admission API, and trust-bootstrap tools for Kanalen deployment.
