@@ -23,7 +23,11 @@ jobs:
     timeout-minutes: 30
     env:
       CARGO_TERM_COLOR: always
-      PATH: /Users/johansellstrom/.cargo/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
+      # /usr/local/bin carries the Docker CLI symlink the RISC Zero guest build
+      # shells out to. Omitting it fails the bundle at pq-zk-methods with
+      # "Could not find or execute docker", which kernel.yml avoids by
+      # including the same directory.
+      PATH: /Users/johansellstrom/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
       KANALEN_DEPLOY_USER: ${{ secrets.KANALEN_DEPLOY_USER }}
       KANALEN_DEPLOY_KEY: ${{ secrets.KANALEN_DEPLOY_KEY }}
     steps:
