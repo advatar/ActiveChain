@@ -127,7 +127,9 @@ fn run() -> Result<String, String> {
 }
 
 fn decode_digest(value: &str) -> Result<[u8; 32], String> {
-    if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) {
+    if value.len() != 64
+        || !value.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
         return Err("checkpointHash must be 64 lowercase hex characters".to_owned());
     }
     let mut digest = [0u8; 32];

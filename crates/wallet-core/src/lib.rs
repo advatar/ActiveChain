@@ -315,6 +315,26 @@ pub enum WalletError {
 
 /// Verifies one owner-scoped Coin Cell against the finalized authenticated
 /// cash root before a wallet treats it as spendable balance.
+/// Domain separating the wallet's public-key identity derivation.
+pub const WALLET_PUBLIC_KEY_ID_DOMAIN: &[u8] = b"ACTIVECHAIN-WALLET-PUBLIC-KEY-ID-V1";
+
+/// Derives the canonical wallet principal for one ML-DSA-44 public key.
+///
+/// This defines who owns a Coin Cell, so it has exactly one implementation.
+/// It previously lived as a private helper inside the `activechain-wallet`
+/// binary, which meant every other client — the C ABI, iOS, Android — had to
+/// restate it and could silently disagree about a wallet's identity.
+#[must_use]
+pub fn wallet_principal_id(public_key: &[u8]) -> PrincipalId {
+    use sha3::digest::{ExtendableOutput, Update, XofReader};
+    let mut shake = sha3::Shake256::default();
+    shake.update(WALLET_PUBLIC_KEY_ID_DOMAIN);
+    shake.update(public_key);
+    let mut digest = [0_u8; 48];
+    shake.finalize_xof().read(&mut digest);
+    PrincipalId::new(Digest384::new(digest))
+}
+
 pub fn verify_owner_coin_cell_proof(
     record: &CoinCellRecord,
     proof: &CoinCellMembershipProof,

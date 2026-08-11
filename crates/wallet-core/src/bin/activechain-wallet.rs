@@ -150,8 +150,7 @@ fn shake384(domain: &[u8], parts: &[&[u8]]) -> Digest384 {
 }
 
 fn principal_for(key: &SigningKey<MlDsa44>) -> PrincipalId {
-    let public_key = key.verifying_key().encode();
-    PrincipalId::new(shake384(b"ACTIVECHAIN-WALLET-PUBLIC-KEY-ID-V1", &[public_key.as_slice()]))
+    activechain_wallet_core::wallet_principal_id(key.verifying_key().encode().as_slice())
 }
 
 fn sign(key: &SigningKey<MlDsa44>, payload: &[u8]) -> Result<ProtocolSignature, String> {

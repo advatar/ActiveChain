@@ -148,6 +148,23 @@ uint32_t activechain_wallet_mldsa44_public_key(const uint8_t *seed,
                                                uint32_t public_key_len);
 
 /**
+ * Derives the canonical wallet principal for one ML-DSA-44 public key.
+ *
+ * Clients cannot restate this themselves without duplicating a SHAKE256-384
+ * derivation that decides who owns a Coin Cell, so the identity is computed
+ * here and shared with the CLI through `wallet-core`.
+ *
+ * # Safety
+ *
+ * `public_key` must point to 1,312 readable bytes and `principal_out` to 48 writable bytes.
+ * Neither pointer is retained.
+ */
+uint32_t activechain_wallet_principal_id(const uint8_t *public_key,
+                                         uint32_t public_key_len,
+                                         uint8_t *principal_out,
+                                         uint32_t principal_len);
+
+/**
  * Signs one bounded payload with a transient ML-DSA-44 seed and verifies the signature before
  * publishing it to the caller.
  *

@@ -247,6 +247,41 @@ pub unsafe extern "C" fn activechain_wallet_mldsa44_public_key(
     WALLET_OK
 }
 
+/// Derives the canonical wallet principal for one ML-DSA-44 public key.
+///
+/// Clients cannot restate this themselves without duplicating a SHAKE256-384
+/// derivation that decides who owns a Coin Cell, so the identity is computed
+/// here and shared with the CLI through `wallet-core`.
+///
+/// # Safety
+///
+/// `public_key` must point to 1,312 readable bytes and `principal_out` to 48 writable bytes.
+/// Neither pointer is retained.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn activechain_wallet_principal_id(
+    public_key: *const u8,
+    public_key_len: u32,
+    principal_out: *mut u8,
+    principal_len: u32,
+) -> u32 {
+    if public_key.is_null() || principal_out.is_null() {
+        return WALLET_NULL_POINTER;
+    }
+    if public_key_len != ML_DSA44_PUBLIC_KEY_LENGTH as u32 || principal_len != 48 {
+        return WALLET_MALFORMED;
+    }
+    let key = unsafe { core::slice::from_raw_parts(public_key, public_key_len as usize) };
+    let principal = activechain_wallet_core::wallet_principal_id(key);
+    unsafe {
+        core::ptr::copy_nonoverlapping(
+            principal.into_digest().as_bytes().as_ptr(),
+            principal_out,
+            48,
+        );
+    }
+    WALLET_OK
+}
+
 /// Signs one bounded payload with a transient ML-DSA-44 seed and verifies the signature before
 /// publishing it to the caller.
 ///
