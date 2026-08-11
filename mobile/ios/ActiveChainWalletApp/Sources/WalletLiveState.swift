@@ -122,6 +122,9 @@ final class WalletLiveState: ObservableObject {
     @Published private(set) var fundingState: WalletFundingState = .unavailable(
         reason: "Load a finalized wallet profile and secure cash key first."
     )
+    @Published private(set) var creatingWallet = false
+    @Published private(set) var onboardingError: String?
+    static let primarySlotID = "primary"
     private let rpc = WalletRPCClient()
     private let verifier: any WalletOwnerCoinProofVerifier = RustWalletOwnerCoinProofVerifier()
 
@@ -173,6 +176,77 @@ final class WalletLiveState: ObservableObject {
             verifiedOwnerPage = nil
         }
         updateFundingAvailability()
+    }
+
+    /// Provisions this device's single wallet.
+    ///
+    /// The custody backend has supported provisioning all along; nothing ever
+    /// called it, so the app could only load a profile some other tool had
+    /// placed in the keychain and every install reported no signing key.
+    ///
+    /// One wallet per device for now. `AppleNativeCustodyProvider` is already
+    /// slot addressed, so supporting several later is a change to this profile
+    /// store rather than to custody.
+    ///
+    /// Recovery is the exported envelope, not a phrase: `provision` draws a
+    /// random seed rather than deriving one, so there is no mnemonic to show.
+    /// The wrapping key lives in the Secure Enclave and is device bound, so
+    /// iCloud Keychain cannot carry it to another device; only the recovery
+    /// envelope is portable.
+    ///
+    /// Identity here is unverified. A regulated deployment additionally needs a
+    /// verified identity at this point, issued as a credential rather than
+    /// collected in the app.
+    func createWallet() async {
+        guard deviceProfile == nil else { return }
+        onboardingError = nil
+        creatingWallet = true
+        defer { creatingWallet = false }
+        let height: UInt64 = if case let .healthy(value) = networkState { value } else { 0 }
+        do {
+            let keychain = try SharedKeychain()
+            let provider = AppleNativeCustodyProvider(
+                store: keychain,
+                hardware: SecureEnclaveWrappingBackend()
+            )
+            var recoveryKey = Data()
+            defer { recoveryKey.zeroize() }
+            let publicKey = try provider.provision(
+                slotID: Self.primarySlotID,
+                keyVersion: 1,
+                finalizedHeight: height,
+                recoveryKey: &recoveryKey
+            )
+            let owner = try Self.principal(for: publicKey)
+            // Bind the profile to the genesis this build trusts, so a rebuilt
+            // chain surfaces as a pin mismatch rather than a silent skip.
+            let profile = WalletDeviceProfile(owner: owner, chainGenesis: WalletKanalen.genesis)
+            try WalletDeviceProfileStore().save(profile)
+            deviceProfile = profile
+            WalletLog.rpc.notice("provisioned wallet owner \(WalletHex.short(owner), privacy: .public)")
+            await refresh()
+        } catch {
+            WalletLog.rpc.error("wallet provisioning failed: \(String(describing: error), privacy: .public)")
+            onboardingError = "Could not create the wallet on this device."
+        }
+    }
+
+    /// Derives the owner through the shared Rust implementation. Restating the
+    /// SHAKE256-384 derivation in Swift would risk two definitions of identity.
+    private static func principal(for publicKey: Data) throws -> Data {
+        var owner = Data(count: 48)
+        let code = publicKey.withUnsafeBytes { keyBytes in
+            owner.withUnsafeMutableBytes { outputBytes in
+                activechain_wallet_principal_id(
+                    keyBytes.bindMemory(to: UInt8.self).baseAddress,
+                    UInt32(keyBytes.count),
+                    outputBytes.bindMemory(to: UInt8.self).baseAddress,
+                    UInt32(outputBytes.count)
+                )
+            }
+        }
+        guard code == ACTIVECHAIN_WALLET_OK else { throw WalletRPCError.malformedResponse }
+        return owner
     }
 
     func requestTestnetFunding() async {

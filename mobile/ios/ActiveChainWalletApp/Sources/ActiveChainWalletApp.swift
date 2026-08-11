@@ -73,6 +73,14 @@ private struct HomeView: View {
                 LazyVStack(spacing: 18) {
                     Header()
                     BalanceCard(networkState: liveState.networkState, verifiedPage: liveState.verifiedOwnerPage)
+                    if liveState.deviceProfile == nil {
+                        OnboardingCard(
+                            creating: liveState.creatingWallet,
+                            error: liveState.onboardingError
+                        ) {
+                            Task { await liveState.createWallet() }
+                        }
+                    }
                     FundingCard(state: liveState.fundingState) {
                         Task { await liveState.requestTestnetFunding() }
                     }
@@ -706,6 +714,39 @@ extension View {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .stroke(.white.opacity(0.07), lineWidth: 1)
             }
+    }
+}
+
+/// Shown only until this device has a wallet. Provisioning is the one step the
+/// app could never perform, so the absence of a wallet was previously visible
+/// only as an unexplained empty balance.
+struct OnboardingCard: View {
+    let creating: Bool
+    let error: String?
+    let create: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("No wallet on this device", systemImage: "key.fill")
+                    .font(.headline)
+                Spacer()
+                if creating { ProgressView().controlSize(.small) }
+            }
+            Text("Creates an ML-DSA-44 key whose seed is wrapped by the Secure Enclave and never leaves this device.")
+                .font(.caption)
+                .foregroundStyle(WalletPalette.muted)
+            Button(creating ? "Creating…" : "Create wallet", action: create)
+                .buttonStyle(.borderedProminent)
+                .disabled(creating)
+            if let error {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .padding(18)
+        .background(WalletPalette.panel, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 

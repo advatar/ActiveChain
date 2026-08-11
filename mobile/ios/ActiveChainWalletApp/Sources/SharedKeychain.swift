@@ -734,7 +734,9 @@ final class AppleNativeCustodyProvider {
     }
 }
 
-private extension Data {
+/// Module visible: any code holding key material should be able to wipe it,
+/// not only this file.
+extension Data {
     mutating func zeroize() {
         guard !isEmpty else { return }
         resetBytes(in: startIndex..<endIndex)
