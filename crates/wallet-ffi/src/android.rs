@@ -47,8 +47,8 @@ pub extern "system" fn Java_dev_activechain_wallet_NativeOwnerCoinProofVerifier_
         if key.len() != 48 || owner.len() != 48 || trusted_genesis.len() != 48 {
             return Err("owner proof identifiers must be 48 bytes".into());
         }
-        let height = u64::try_from(finalized_height)
-            .map_err(|_| "negative finalized height".to_string())?;
+        let height =
+            u64::try_from(finalized_height).map_err(|_| "negative finalized height".to_string())?;
         let lengths = [value.len(), proof.len(), finality.len()];
         if lengths.iter().any(|length| *length > u32::MAX as usize) {
             return Err("owner proof input exceeds ABI length".into());
