@@ -2,6 +2,15 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Active gate recovery — Republished TLA+ 1.8.0 asset
+
+Tracked by [GitHub issue #797](https://github.com/advatar/ActiveChain/issues/797).
+
+- [ ] Align both TLA runners and both proof-scope records with the current official v1.8.0
+  release-asset digest while preserving the four-location drift regression.
+- [ ] Pass both TLA suites and the exact complete deterministic-kernel gate; merge to `main` and
+  verify reachability from `origin/main`.
+
 ## Reusable finalized-payment verifier service
 
 Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786).
