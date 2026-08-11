@@ -140,8 +140,11 @@ reports healthy finalized state.
 
 Finalization remains an operator action through `activechain-anchor-admin`; the gateway cannot
 manufacture finality. A `finalized` response means the exact statement has a finalized registry
-record. Verification still requires `CheckpointedTelemetryAnchorEvidenceV1` membership under the
-operator-selected signed trust bundle checkpoint; a gateway response alone is not
+record. Verification still requires the revision-2 `CheckpointedTelemetryAnchorEvidenceV1` fixed-
+depth `StateProof` for the exact consensus-created immutable anchor object under the operator-
+selected signed trust-bundle checkpoint. Native finality for anchor block A and state membership at
+checkpoint C are checked independently, with A.height <= C.height. An anchor newer than the current
+checkpoint is pending/retryable. A gateway response or host registry record alone is never
 `anchor_verified`.
 
 ## Privacy and retention

@@ -24,6 +24,7 @@ mod receipt_nullifier;
 #[cfg(feature = "std")]
 mod sponsored_cash;
 mod telemetry;
+#[cfg(feature = "checkpoint-state-proof")]
 mod telemetry_anchor;
 mod trust_bundle;
 
@@ -31,8 +32,9 @@ mod trust_bundle;
 pub use anchor::DurableAnchorRegistry;
 pub use anchor::{
     AnchorBatchProofV1, AnchorError, AnchorFinalizedEvidenceV1, AnchorRecord, AnchorRegistry,
-    AnchorStatus, DigestAnchorStatementV1, MAX_ANCHOR_APPLICATION_DOMAIN_LENGTH, anchor_leaf_hash,
-    anchor_node_hash, verify_anchor_evidence,
+    AnchorRegistryKeyV1, AnchorStateRecordV1, AnchorStatus, DigestAnchorStatementV1,
+    MAX_ANCHOR_APPLICATION_DOMAIN_LENGTH, anchor_leaf_hash, anchor_node_hash, anchor_state_object,
+    anchor_state_record_type_id, verify_anchor_evidence,
 };
 #[cfg(feature = "std")]
 pub use compliance::{
@@ -80,6 +82,7 @@ pub use telemetry::{
     MAX_TELEMETRY_EVENTS, TelemetryPrimitiveError, event_leaf_hash, event_node_hash,
     telemetry_merkle_root,
 };
+#[cfg(feature = "checkpoint-state-proof")]
 pub use telemetry_anchor::{
     CheckpointedTelemetryAnchorEvidenceV1, MAX_CHECKPOINT_MEMBERSHIP_PROOF_LENGTH,
     TELEMETRY_EPOCH_ANCHOR_DOMAIN, TelemetryEpochAnchorRequestV1, telemetry_epoch_anchor_statement,

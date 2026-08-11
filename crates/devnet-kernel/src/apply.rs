@@ -3,6 +3,7 @@
 use alloc::vec::Vec;
 
 use activechain_action_kernel::{ActionPayloadV2, NonceAdvanceError, ResourceVector, action_id};
+use activechain_application_primitives::{AnchorStateRecordV1, anchor_state_object};
 use activechain_canonical_codec::{EncodeError, encode_envelope};
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{Digest384, PrincipalId};
@@ -149,16 +150,22 @@ pub fn apply_block(
                     u64::from(transition.receipt().policy_steps()),
                 )
             }
-            ActionPayloadV2::SubmitAnchor { statement, .. } => (
-                None,
-                None,
-                ActionOutcome::AnchorSubmitted {
-                    reference: statement
-                        .submission_reference()
-                        .map_err(|_| BlockApplyError::InvalidAnchorStatement { index })?,
-                },
-                1,
-            ),
+            ActionPayloadV2::SubmitAnchor { statement, .. } => {
+                let reference = statement
+                    .submission_reference()
+                    .map_err(|_| BlockApplyError::InvalidAnchorStatement { index })?;
+                let record = AnchorStateRecordV1::new(
+                    statement.clone(),
+                    transaction_id,
+                    block.height(),
+                    block_id,
+                )
+                .map_err(|_| BlockApplyError::InvalidAnchorState { index })?;
+                let object = anchor_state_object(&record)
+                    .map_err(|_| BlockApplyError::InvalidAnchorState { index })?;
+                let next = insert_anchor_object(&objects, object, index)?;
+                (Some(next), None, ActionOutcome::AnchorSubmitted { reference }, 1)
+            }
             payload => {
                 let pre = commit(DomainTag::CANONICAL_VALUE, &asset_ledger)
                     .map_err(BlockApplyError::CommitmentEncoding)?;
@@ -269,6 +276,24 @@ fn insert_used_ticket(
     }
 }
 
+fn insert_anchor_object(
+    state: &activechain_transition::ObjectState,
+    object: activechain_protocol_types::Object,
+    index: usize,
+) -> Result<activechain_transition::ObjectState, BlockApplyError> {
+    let mut objects = state.objects().to_vec();
+    match objects
+        .binary_search_by_key(&object.object_id(), activechain_protocol_types::Object::object_id)
+    {
+        Ok(_) => Err(BlockApplyError::AnchorAlreadySubmitted { index }),
+        Err(position) => {
+            objects.insert(position, object);
+            activechain_transition::ObjectState::new(objects)
+                .map_err(|_| BlockApplyError::AnchorStateCapacity { index })
+        }
+    }
+}
+
 /// Complete pure block-application output.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BlockOutput {
@@ -360,6 +385,12 @@ pub enum BlockApplyError {
     Transition(TransitionError),
     /// A native anchor payload did not produce its canonical statement reference.
     InvalidAnchorStatement { index: usize },
+    /// A native anchor payload could not produce its canonical immutable state record.
+    InvalidAnchorState { index: usize },
+    /// The exact anchor reference already has an immutable consensus record.
+    AnchorAlreadySubmitted { index: usize },
+    /// The bounded development object state cannot admit another anchor record.
+    AnchorStateCapacity { index: usize },
     /// An issuer operation did not match the exact consensus asset pre-state.
     AssetTransition(activechain_cash_kernel::NativeMoneyError),
     /// Generated receipt bounds were inconsistent.

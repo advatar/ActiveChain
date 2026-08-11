@@ -147,7 +147,7 @@ impl AnchorProposalAdapter for SpoolAnchorProposalAdapter {
         let Ok(encoded_ceiling) = u64::try_from(MAX_ANCHOR_ACTION_LENGTH) else {
             return false;
         };
-        let resources = ResourceVector::new(1, 0, 0, 0, 0, encoded_ceiling);
+        let resources = ResourceVector::new(1, 1, 1, 0, 0, encoded_ceiling);
         let Some(reservation) = resources
             .checked_charge(state.resource_prices())
             .and_then(|charge| charge.checked_add(FEE_TICKET_ADMISSION_CHARGE))

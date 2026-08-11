@@ -8,7 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-activechain-application-primitives.workspace = true
+activechain-application-primitives = { path = "../application-primitives", version = "0.1.0", default-features = false }
 activechain-canonical-codec.workspace = true
 activechain-protocol-commitment.workspace = true
 activechain-protocol-types.workspace = true

@@ -997,7 +997,7 @@ mod tests {
     fn prepared_direct_block_executes_only_exactly_bound_native_anchor_actions() {
         let chain = ChainId::new(Digest384::new([61; 48]));
         let sender = PrincipalId::new(Digest384::new([62; 48]));
-        let resources = ResourceVector::new(1, 0, 0, 0, 0, 2_048);
+        let resources = ResourceVector::new(1, 1, 1, 0, 0, 2_048);
         let state = ChainState::genesis_with_fee_accounts(
             chain,
             ObjectState::new(vec![]).unwrap(),
@@ -1015,7 +1015,7 @@ mod tests {
             ACTION_PROTOCOL_VERSION,
             chain,
             sender,
-            FeeTicket::new(ObjectId::new(Digest384::new([64; 48])), sender, 2_050, 1, 0, resources)
+            FeeTicket::new(ObjectId::new(Digest384::new([64; 48])), sender, 2_052, 1, 0, resources)
                 .unwrap(),
             0,
             0,

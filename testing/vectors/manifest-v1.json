@@ -93,10 +93,10 @@
     },
     {
       "id": "telemetry-anchor-v1",
-      "type_tag": "0x01B4,0x01B6,0x01B7",
-      "schema_version": 1,
+      "type_tag": "0x01B4,0x01B6,0x01B7,0x01BA,0x01C1,0x01C2",
+      "schema_version": 2,
       "source": "application/telemetry-anchor-v1.txt",
-      "sha256": "c8c661aec82cb853204c203a6309c649194a62d64dec4b61a92a6450ece657bd",
+      "sha256": "11adb9bf2b95dba7cab011a853ba0b84d9c8a4fc7ada737ac61a243a755f24f7",
       "status": "valid"
     },
     {

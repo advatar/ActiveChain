@@ -2493,7 +2493,7 @@ mod tests {
         let actor = PrincipalId::new(digest(50));
         let reference = statement.submission_reference().unwrap();
         let payload = ActionPayloadV2::submit_anchor(7, statement);
-        let resources = ResourceVector::new(100, 0, 0, 0, 1, 2_000);
+        let resources = ResourceVector::new(100, 1, 1, 0, 1, 2_000);
         ActionEnvelope::new_payload(
             ACTION_PROTOCOL_VERSION,
             ChainId::new(digest(1)),

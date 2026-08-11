@@ -1,9 +1,12 @@
 use activechain_application_primitives::{
-    ActivityEpochV1, ActumVerifierTrustBundleV1, TelemetryEpochAnchorRequestV1,
-    TrustSignatureAlgorithmV1, TrustSignerSetV1, TrustSignerV1,
+    ActivityEpochV1, ActumVerifierTrustBundleV1, AnchorFinalizedEvidenceV1, AnchorRegistry,
+    AnchorRegistryKeyV1, AnchorStateRecordV1, CheckpointedTelemetryAnchorEvidenceV1,
+    TelemetryEpochAnchorRequestV1, TrustSignatureAlgorithmV1, TrustSignerSetV1, TrustSignerV1,
+    anchor_state_object,
 };
 use activechain_canonical_codec::{CanonicalType, encode_envelope};
-use activechain_protocol_types::Digest384;
+use activechain_protocol_types::{ChainId, Digest384, TransactionId};
+use activechain_state_tree::{StateProof, commit_objects, prove_object};
 
 fn digest(byte: u8) -> Digest384 {
     Digest384::new([byte; 48])
@@ -41,6 +44,39 @@ fn main() {
     )
     .unwrap();
     let statement = request.statement().unwrap();
+    let reference = statement.submission_reference().unwrap();
+    let transaction = TransactionId::new(digest(16));
+    let anchor_block = digest(17);
+    let state_record =
+        AnchorStateRecordV1::new(statement.clone(), transaction, 41, anchor_block).unwrap();
+    let registry_key = state_record.registry_key().unwrap();
+    let state_object = anchor_state_object(&state_record).unwrap();
+    let state_objects = vec![state_object.clone()];
+    let checkpoint_state = commit_objects(&state_objects).unwrap();
+    let state_proof = prove_object(&state_objects, state_object.object_id()).unwrap();
+    let mut registry = AnchorRegistry::default();
+    registry.submit_action(statement.clone(), transaction).unwrap();
+    registry
+        .finalize(
+            reference,
+            AnchorFinalizedEvidenceV1::new(
+                ChainId::new(request.chain_id),
+                request.genesis_commitment,
+                transaction,
+                vec![0x11],
+                41,
+                anchor_block,
+                statement.clone(),
+                None,
+                None,
+                1,
+                1,
+                vec![0x12],
+                vec![0x13],
+            )
+            .unwrap(),
+        )
+        .unwrap();
     let signer_set = TrustSignerSetV1 {
         revision: 1,
         signers: vec![TrustSignerV1 {
@@ -62,7 +98,7 @@ fn main() {
         protocol_revision: 1,
         checkpoint_height: 42,
         checkpoint_block_id: digest(10),
-        checkpoint_state_root: digest(11),
+        checkpoint_state_root: checkpoint_state.root(),
         checkpoint_finality_commitment: digest(12),
         validator_set_root: digest(13),
         proof_profile_id: digest(14),
@@ -82,19 +118,55 @@ fn main() {
         next_signer_threshold: 0,
         next_signer_activation_sequence: 0,
     };
+    let checkpoint_evidence = CheckpointedTelemetryAnchorEvidenceV1::new(
+        request.clone(),
+        reference,
+        registry.resolve(reference).unwrap().clone(),
+        bundle.bundle_id().unwrap(),
+        bundle.checkpoint_height,
+        bundle.checkpoint_block_id,
+        bundle.checkpoint_state_root,
+        checkpoint_state.object_count(),
+        state_proof.clone(),
+    )
+    .unwrap();
     let request_envelope = encode_envelope(&request).unwrap();
     let statement_envelope = encode_envelope(&statement).unwrap();
+    let registry_key_envelope = encode_envelope(&registry_key).unwrap();
+    let state_record_envelope = encode_envelope(&state_record).unwrap();
+    let state_object_envelope = encode_envelope(&state_object).unwrap();
+    let state_proof_envelope = encode_envelope(&state_proof).unwrap();
+    let checkpoint_evidence_envelope = encode_envelope(&checkpoint_evidence).unwrap();
     let signer_set_envelope = encode_envelope(&signer_set).unwrap();
     let bundle_envelope = encode_envelope(&bundle).unwrap();
     println!("profile=actum.telemetry-anchor.v1");
     println!("request_type_tag=0x{:04x}", TelemetryEpochAnchorRequestV1::TYPE_TAG);
     println!("request_canonical_bytes_hex={}", hex(&request_envelope));
     println!("statement_canonical_bytes_hex={}", hex(&statement_envelope));
-    println!("anchor_reference={}", hex(statement.submission_reference().unwrap().as_bytes()));
+    println!("anchor_reference={}", hex(reference.as_bytes()));
+    println!("registry_key_type_tag=0x{:04x}", AnchorRegistryKeyV1::TYPE_TAG);
+    println!("registry_key_canonical_bytes_hex={}", hex(&registry_key_envelope));
+    println!("anchor_state_record_type_tag=0x{:04x}", AnchorStateRecordV1::TYPE_TAG);
+    println!("anchor_state_record_canonical_bytes_hex={}", hex(&state_record_envelope));
+    println!("anchor_state_object_id={}", hex(state_object.object_id().into_digest().as_bytes()));
+    println!("anchor_state_object_canonical_bytes_hex={}", hex(&state_object_envelope));
+    println!("checkpoint_state_root={}", hex(checkpoint_state.root().as_bytes()));
+    println!("checkpoint_object_count={}", checkpoint_state.object_count());
+    println!("state_proof_type_tag=0x{:04x}", StateProof::TYPE_TAG);
+    println!("state_proof_canonical_bytes_hex={}", hex(&state_proof_envelope));
     println!("signer_set_type_tag=0x{:04x}", TrustSignerSetV1::TYPE_TAG);
     println!("signer_set_canonical_bytes_hex={}", hex(&signer_set_envelope));
     println!("signer_set_id={}", hex(signer_set_id.as_bytes()));
     println!("trust_bundle_type_tag=0x{:04x}", ActumVerifierTrustBundleV1::TYPE_TAG);
     println!("trust_bundle_canonical_bytes_hex={}", hex(&bundle_envelope));
     println!("trust_bundle_id={}", hex(bundle.bundle_id().unwrap().as_bytes()));
+    println!(
+        "checkpoint_evidence_type_tag=0x{:04x}",
+        CheckpointedTelemetryAnchorEvidenceV1::TYPE_TAG
+    );
+    println!(
+        "checkpoint_evidence_schema_revision={}",
+        CheckpointedTelemetryAnchorEvidenceV1::SCHEMA_VERSION
+    );
+    println!("checkpoint_evidence_canonical_bytes_hex={}", hex(&checkpoint_evidence_envelope));
 }

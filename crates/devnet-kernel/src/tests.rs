@@ -7,7 +7,9 @@ use activechain_action_kernel::{
     ACTION_PROTOCOL_VERSION, ActionEnvelope, ActionPayloadV2, FeeTicket, NonceChannel,
     ResourcePrices, ResourceVector, ValidityInterval, action_id,
 };
-use activechain_application_primitives::DigestAnchorStatementV1;
+use activechain_application_primitives::{
+    AnchorStateRecordV1, DigestAnchorStatementV1, anchor_state_object,
+};
 use activechain_canonical_codec::{
     CanonicalEncode, CanonicalType, Encoder, decode_envelope, encode_body, encode_envelope,
 };
@@ -28,7 +30,7 @@ use activechain_protocol_types::{
     FungibleIssuerOperation, Object, ObjectFields, ObjectFlags, ObjectId, ObjectOwner,
     ObjectVersionRef, PrincipalId, ResourceSelector, TransactionId,
 };
-use activechain_state_tree::{StateCommitment, commit_objects};
+use activechain_state_tree::{StateCommitment, commit_objects, prove_object, verify_membership};
 use activechain_transition::{
     ObjectState, ReceiptResult, TRANSFER_OBJECT_ACTION_ID, TransferCommand, TransferTransaction,
     TransitionReceipt,
@@ -704,8 +706,8 @@ fn native_anchor_action_commits_exact_statement_reference_in_receipt() {
     let statement =
         DigestAnchorStatementV1::new(b"actum.test.anchor.v1".to_vec(), [0x91; 32]).unwrap();
     let reference = statement.submission_reference().unwrap();
-    let payload = ActionPayloadV2::submit_anchor(1, statement);
-    let maximum = ResourceVector::new(10, 0, 0, 0, 1, 4096);
+    let payload = ActionPayloadV2::submit_anchor(1, statement.clone());
+    let maximum = ResourceVector::new(10, 1, 1, 0, 1, 4096);
     let ticket = FeeTicket::new(
         ObjectId::new(digest(0x92)),
         sender(),
@@ -734,7 +736,78 @@ fn native_anchor_action_commits_exact_statement_reference_in_receipt() {
     let receipt = output.receipt().action_receipts()[0];
     assert_eq!(receipt.transaction_id(), transaction);
     assert_eq!(receipt.outcome(), ActionOutcome::AnchorSubmitted { reference });
-    assert_eq!(output.state().objects(), state.objects());
+    let record = AnchorStateRecordV1::new(
+        statement,
+        transaction,
+        output.state().height(),
+        output.receipt().block_id(),
+    )
+    .unwrap();
+    let expected = anchor_state_object(&record).unwrap();
+    let admitted = output.state().objects().find(expected.object_id()).unwrap();
+    assert_eq!(admitted, &expected);
+    let commitment = commit_objects(output.state().objects().objects()).unwrap();
+    let proof = prove_object(output.state().objects().objects(), expected.object_id()).unwrap();
+    assert_eq!(verify_membership(commitment, &expected, &proof), Ok(()));
+}
+
+#[test]
+fn native_anchor_state_record_is_append_only() {
+    let state = genesis();
+    let statement =
+        DigestAnchorStatementV1::new(b"actum.test.anchor.v1".to_vec(), [0x81; 32]).unwrap();
+    let maximum = ResourceVector::new(10, 1, 1, 0, 1, 4096);
+    let first_payload = ActionPayloadV2::submit_anchor(1, statement.clone());
+    let first = ActionEnvelope::new_payload(
+        ACTION_PROTOCOL_VERSION,
+        chain_id(),
+        sender(),
+        FeeTicket::new(
+            ObjectId::new(digest(0x82)),
+            sender(),
+            3_000_000,
+            8,
+            5,
+            ResourceVector::new(2_000_000, 2_000_000, 2_000_000, 2_000_000, 2_000_000, 2_000_000),
+        )
+        .unwrap(),
+        0,
+        5,
+        ValidityInterval::new(1, 8).unwrap(),
+        maximum,
+        first_payload.commitment().unwrap(),
+        first_payload,
+        digest(0x83),
+    )
+    .unwrap();
+    let first_output = apply_block(&state, &block(&state, vec![first])).unwrap();
+    let second_payload = ActionPayloadV2::submit_anchor(2, statement);
+    let second = ActionEnvelope::new_payload(
+        ACTION_PROTOCOL_VERSION,
+        chain_id(),
+        sender(),
+        FeeTicket::new(
+            ObjectId::new(digest(0x84)),
+            sender(),
+            3_000_000,
+            9,
+            6,
+            ResourceVector::new(2_000_000, 2_000_000, 2_000_000, 2_000_000, 2_000_000, 2_000_000),
+        )
+        .unwrap(),
+        0,
+        6,
+        ValidityInterval::new(2, 9).unwrap(),
+        maximum,
+        second_payload.commitment().unwrap(),
+        second_payload,
+        digest(0x85),
+    )
+    .unwrap();
+    assert_eq!(
+        apply_block(first_output.state(), &block_at(first_output.state(), 2, vec![second])),
+        Err(BlockApplyError::AnchorAlreadySubmitted { index: 0 })
+    );
 }
 
 #[test]

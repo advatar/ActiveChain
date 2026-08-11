@@ -6,7 +6,8 @@ rust-version = "1.94.1"
 repository.workspace = true
 
 [features]
-default = ["std"]
+default = ["std", "checkpoint-state-proof"]
+checkpoint-state-proof = ["dep:activechain-state-tree"]
 std = []
 
 [dependencies]
@@ -18,6 +19,7 @@ activechain-protocol-commitment.workspace = true
 activechain-protocol-types.workspace = true
 activechain-privacy-kernel.workspace = true
 activechain-rpc-types.workspace = true
+activechain-state-tree = { workspace = true, optional = true }
 sha2.workspace = true
 sha3.workspace = true
 

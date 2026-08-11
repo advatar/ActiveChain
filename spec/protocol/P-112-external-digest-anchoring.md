@@ -20,11 +20,32 @@ Repeated exact submissions MUST return the same reference and MUST NOT create an
 `resolve(reference)` returns `pending`, `finalized`, or `rejected`; an unknown, malformed, or
 network-mismatched reference is `invalid` to the application.
 
-A finalized record MUST contain `AnchorFinalizedEvidenceV1` (`0x00ca`, revision 1), binding the
+A finalized record MUST contain `AnchorFinalizedEvidenceV1` (`0x00ca`, revision 2), binding the
 chain ID, genesis commitment, transaction ID, finalized block height and hash, exact statement,
 protocol revision, verifier revision, action inclusion/state proof, and finality proof. Offline
 verification checks every trusted-network field and then verifies both proofs against the trusted
 ActiveChain light-client parameters. A status cannot become finalized without this evidence.
+
+## Consensus-authenticated registry
+
+The canonical `SubmitAnchor` transition creates exactly one immutable `SYSTEM` object for the
+statement reference. Its key is `commit(OBJECT_ID_DERIVATION, AnchorRegistryKeyV1(reference))`;
+the key type is `0x01c1`, revision 1. Its public value is `AnchorStateRecordV1` (`0x01c2`, revision
+1), which binds the reference, exact statement, transaction ID, admission height, and admission
+block. The object type is the zero-extended record type tag, and `value_root` is the canonical-value
+commitment to the record. All policy commitments are zero, the owner is immutable, the lease is
+unbounded, and only the `SYSTEM` flag is set.
+
+The mapping is append-only. A duplicate key is an invalid block transition; no action may replace,
+transfer, expire, or delete an admitted anchor record. Host lifecycle registries remain operational
+indexes and MUST NOT substitute for this consensus state fact.
+
+`anchor_verified` requires both independent native finality for anchor block A and canonical sparse
+state membership of the exact derived object under the operator-pinned finalized checkpoint C,
+where A.height is less than or equal to C.height. The checkpoint proof carries the object count
+needed to reconstruct the already-pinned state root; that count is not trusted independently.
+Anchors newer than C are retryable checkpoint lag, not invalid anchors. The fixed 96-level proof is
+bounded by `StateProof::MAX_ENCODED_LEN`; no host callback or unverified ancestry tuple is accepted.
 
 ## Batch commitments
 

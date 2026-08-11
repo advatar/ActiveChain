@@ -24,6 +24,15 @@ reference. Snapshot decoding recomputes every reference and fails closed on corr
 substitution. `pending` may transition once to `rejected`, or to `finalized` only with evidence
 for the exact statement and native action.
 
+Native execution also inserts the exact action into the canonical append-only anchor state
+registry. The record is an immutable `SYSTEM` object keyed only by the statement reference and
+binds the transaction, admission height, and admission block. A verifier derives this object rather
+than accepting a caller-selected key or value, verifies its fixed-depth `StateProof` against the
+state root in the accepted signed checkpoint, and separately verifies native finality for the
+anchor block. The supplied object count is a root-opening witness, not an additional trust input.
+The development state fixture currently admits at most 64 total objects, so registry capacity is a
+Preview operational bound even though proof size is independent of checkpoint distance.
+
 Production submission requires all of:
 
 - `ACTIVECHAIN_ANCHOR_SNAPSHOT`: durable lifecycle registry;
