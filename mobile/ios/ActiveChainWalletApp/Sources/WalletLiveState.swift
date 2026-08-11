@@ -414,10 +414,18 @@ enum WalletRPCCodec {
     private static let maximumBlobLength = 256 * 1_024
     private static let maximumStatusBodyLength = 151
 
-    static let framedStatusRequest = Data([
-        0x00, 0x00, 0x00, 0x06,
-        0x01, 0x07, 0x00, 0x01, 0x01, 0x00
-    ])
+    /// Canonical (type tag, schema revision) pairs for the RPC envelopes.
+    ///
+    /// These were previously inlined as literals at five call sites pinned to
+    /// revision 1. When RpcRequest and RpcResponse moved to revision 2 the node
+    /// began rejecting every request as undecodable and closing the connection,
+    /// which reached the UI only as an unexplained transport failure.
+    static let requestSchemaRevision: UInt16 = 2
+    static let responseTypeTag: UInt16 = 0x010a
+    static let responseSchemaRevision: UInt16 = 2
+    private static let requestEnvelopeHeader = Data([0x01, 0x07, 0x00, 0x02])
+
+    static let framedStatusRequest = framedRequest(body: Data([0]))
 
     static let framedFaucetTermsRequest = framedRequest(body: Data([7]))
 
@@ -501,8 +509,9 @@ enum WalletRPCCodec {
         variant: UInt8
     ) throws -> WalletBinaryDecoder {
         var decoder = WalletBinaryDecoder(data: envelope)
-        guard try decoder.readUInt16() == 0x010a,
-              try decoder.readUInt16() == 1 else { throw WalletRPCError.unexpectedResponse }
+        guard try decoder.readUInt16() == responseTypeTag,
+              try decoder.readUInt16() == responseSchemaRevision
+        else { throw WalletRPCError.unexpectedResponse }
         let length = try decoder.readULEB128(maximum: maximumFrameLength)
         guard length == decoder.remaining,
               try decoder.readUInt8() == variant else { throw WalletRPCError.unexpectedResponse }
@@ -510,7 +519,7 @@ enum WalletRPCCodec {
     }
 
     private static func framedRequest(body: Data) -> Data {
-        var envelope = Data([0x01, 0x07, 0x00, 0x01])
+        var envelope = requestEnvelopeHeader
         envelope.append(contentsOf: uleb128(body.count))
         envelope.append(body)
         var frame = Data()
@@ -541,7 +550,7 @@ enum WalletRPCCodec {
         body.append(0) // Option<Digest384>::None
         body.append(UInt8(limit >> 8))
         body.append(UInt8(limit & 0xff))
-        var envelope = Data([0x01, 0x07, 0x00, 0x01])
+        var envelope = requestEnvelopeHeader
         envelope.append(UInt8(body.count))
         envelope.append(body)
         var framed = Data()
@@ -555,8 +564,8 @@ enum WalletRPCCodec {
 
     static func decodeStatus(_ envelope: Data) throws -> WalletRPCStatus {
         var decoder = WalletBinaryDecoder(data: envelope)
-        guard try decoder.readUInt16() == 0x010a,
-              try decoder.readUInt16() == 1
+        guard try decoder.readUInt16() == responseTypeTag,
+              try decoder.readUInt16() == responseSchemaRevision
         else {
             throw WalletRPCError.unexpectedResponse
         }
@@ -610,8 +619,9 @@ enum WalletRPCCodec {
 
     static func decodeOwnerCoinPage(_ envelope: Data) throws -> WalletOwnerCoinPage {
         var decoder = WalletBinaryDecoder(data: envelope)
-        guard try decoder.readUInt16() == 0x010a,
-              try decoder.readUInt16() == 1 else { throw WalletRPCError.unexpectedResponse }
+        guard try decoder.readUInt16() == responseTypeTag,
+              try decoder.readUInt16() == responseSchemaRevision
+        else { throw WalletRPCError.unexpectedResponse }
         let bodyLength = try decoder.readULEB128(maximum: maximumFrameLength)
         guard bodyLength == decoder.remaining else { throw WalletRPCError.unexpectedResponse }
         guard try decoder.readUInt8() == 2 else { throw WalletRPCError.unexpectedResponse }
