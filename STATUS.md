@@ -103,6 +103,10 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Assemble checkpointed anchor evidence from a live RPC node. Nothing built
       `CheckpointedTelemetryAnchorEvidenceV1`, so every claim failed retryable
       `CheckpointUnavailable` and no production case was reachable.
+    - [x] Deploy the qualified revision to Kanalen and serve the verifier publicly. The
+      bring-up exposed a missing bundle binary, a faucet source that breaks after the first
+      grant, a receipt the ingest pipeline never indexes, a Lima-only container host name,
+      a loopback bind the containerised gateway cannot dial, and an ALPN mismatch.
     - [ ] Capture the real exact-revision lifecycle evidence on the Kanalen host.
     - [x] Add deterministic delivery, anchor, verifier, replay, restart, concurrency, and privacy rehearsals.
     - [x] Emit exact-revision deterministic evidence from the split runtime gate.

@@ -8,7 +8,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/Users/johansellstrom/activechain-deploy/kanalen/current/bin/activechain-telemetry-anchor-gateway</string>
-    <string>127.0.0.1:49156</string>
+    <string>0.0.0.0:49156</string>
     <string>127.0.0.1:49151</string>
   </array>
   <key>WorkingDirectory</key>
