@@ -1,0 +1,28 @@
+[package]
+name = "activechain-trust-ceremony"
+description = "Offline construction and signing of Actum verifier trust bundles"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+activechain-application-primitives.workspace = true
+activechain-canonical-codec.workspace = true
+activechain-consensus-verifier.workspace = true
+activechain-devnet-kernel.workspace = true
+activechain-finality-types.workspace = true
+activechain-protocol-types.workspace = true
+getrandom = "0.3"
+ml-dsa = "0.1.1"
+serde.workspace = true
+serde_json.workspace = true
+sha3.workspace = true
+zeroize = "1.8"
+
+[dev-dependencies]
+tempfile = "3.23.0"
+
+[lints]
+workspace = true
