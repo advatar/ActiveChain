@@ -115,7 +115,7 @@ fn run() -> Result<String, String> {
 
     Ok(serde_json::json!({
         "schema": "actum.anchor.submit.result.v1",
-        "status": if resolving { "resolved" } else { "submitted" },
+        "status": "submitted",
         "checkpointId": request.checkpoint.checkpoint_id,
         "checkpointHash": request.checkpoint.checkpoint_hash,
         "applicationDomain": domain,
