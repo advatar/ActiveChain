@@ -6,6 +6,7 @@
 /mobile/android/.idea/
 /mobile/android/local.properties
 /dist/
+/tmp/
 *.profraw
 **/xcuserdata/
 *.xcuserstate
