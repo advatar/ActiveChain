@@ -1,5 +1,6 @@
 import ActiveChainWallet
 import Foundation
+import os
 import Security
 import CryptoKit
 import LocalAuthentication
@@ -7,6 +8,14 @@ import LocalAuthentication
 enum SharedKeychainError: Error, Equatable {
     case invalidAccessGroup
     case unexpectedStatus(OSStatus)
+}
+
+enum WalletCustodyLog {
+    /// Custody failures collapse into a handful of cases that discard the
+    /// underlying OSStatus and CFError, so "no signing key" cannot be told
+    /// apart from a missing entitlement, a locked keychain, or an enclave that
+    /// declined the request. Record the real cause; no key material is logged.
+    static let custody = Logger(subsystem: "dev.activechain.wallet", category: "custody")
 }
 
 struct SharedKeychainConfiguration {
@@ -89,6 +98,9 @@ final class SharedKeychain {
         attributes.forEach { insertion[$0.key] = $0.value }
         let add = SecItemAdd(insertion as CFDictionary, nil)
         guard add == errSecSuccess else {
+            // -34018 is errSecMissingEntitlement: the binary was not signed
+            // with the declared keychain access group.
+            WalletCustodyLog.custody.error("keychain add failed: OSStatus \(add, privacy: .public)")
             throw SharedKeychainError.unexpectedStatus(add)
         }
     }
@@ -111,6 +123,7 @@ final class SharedKeychain {
             return nil
         }
         guard status == errSecSuccess, let data = result as? Data else {
+            WalletCustodyLog.custody.error("keychain read failed: OSStatus \(status, privacy: .public)")
             throw SharedKeychainError.unexpectedStatus(status)
         }
         return data
@@ -280,6 +293,8 @@ final class SecureEnclaveWrappingBackend: AppleHardwareWrapping {
             [.privateKeyUsage, .userPresence],
             &accessError
         ) else {
+            let reason = accessError?.takeRetainedValue().localizedDescription ?? "unspecified"
+            WalletCustodyLog.custody.error("access control rejected: \(reason, privacy: .public)")
             throw AppleCustodyError.hardwareUnavailable
         }
         let attributes: [CFString: Any] = [
@@ -295,8 +310,11 @@ final class SecureEnclaveWrappingBackend: AppleHardwareWrapping {
         var creationError: Unmanaged<CFError>?
         guard let privateKey = SecKeyCreateRandomKey(attributes as CFDictionary, &creationError),
               let publicKey = SecKeyCopyPublicKey(privateKey) else {
+            let reason = creationError?.takeRetainedValue().localizedDescription ?? "unspecified"
+            WalletCustodyLog.custody.error("secure enclave key creation failed: \(reason, privacy: .public)")
             throw AppleCustodyError.hardwareUnavailable
         }
+        WalletCustodyLog.custody.notice("secure enclave wrapping key created")
         var encryptionError: Unmanaged<CFError>?
         guard let ciphertext = SecKeyCreateEncryptedData(
             publicKey,
