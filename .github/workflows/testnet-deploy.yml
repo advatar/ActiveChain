@@ -45,6 +45,7 @@ jobs:
           mkdir -p dist/kanalen/{bin,lib,headers,manifests}
           cp target/release/validator-node dist/kanalen/bin/
           cp target/release/genesis-tool dist/kanalen/bin/
+          cp target/release/cash-genesis-tool dist/kanalen/bin/
           cp target/release/indexer-tool dist/kanalen/bin/
           cp target/release/activechain-rpc-node dist/kanalen/bin/
           cp target/release/activechain-rpc-bootstrap dist/kanalen/bin/

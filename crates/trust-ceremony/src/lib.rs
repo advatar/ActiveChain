@@ -17,7 +17,7 @@ use activechain_application_primitives::{
     TrustSignerSetV1, TrustSignerV1, verify_trust_bundle_bootstrap,
 };
 use activechain_canonical_codec::decode_envelope;
-use activechain_devnet_kernel::BlockReceipt;
+use activechain_devnet_kernel::ChainState;
 use activechain_finality_types::FinalityCertificateBundle;
 use activechain_protocol_types::Digest384;
 use ml_dsa::{Keypair, MlDsa44, Seed, Signer, SigningKey};
@@ -177,19 +177,27 @@ pub struct CheckpointInputs {
 ///
 /// Hand-entered checkpoint identity is the most likely way to produce a bundle
 /// that signs cleanly and then rejects every real anchor, so the ceremony reads
-/// these values from the same finality bundle and block receipt the verifier
-/// consumes.
+/// these values from artifacts the chain itself produced.
+///
+/// The finality bundle carries every field except the block id, which is
+/// `commit(BLOCK_ID, block)` and therefore not derivable from the header. The
+/// block receipt holds it, but the Kanalen ingest pipeline never indexes
+/// receipts, so the execution snapshot the validator writes each round is the
+/// available source: its head block id is exactly the finalized block at that
+/// height.
 pub fn checkpoint_inputs(
     finality_envelope: &[u8],
-    receipt_envelope: &[u8],
+    execution_snapshot: &[u8],
 ) -> Result<CheckpointInputs, CeremonyError> {
     let finality = decode_envelope::<FinalityCertificateBundle>(finality_envelope)
         .map_err(|_| CeremonyError::Decode)?;
-    let receipt =
-        decode_envelope::<BlockReceipt>(receipt_envelope).map_err(|_| CeremonyError::Decode)?;
+    let (state, _migrated) = ChainState::decode_snapshot(execution_snapshot, Vec::new())
+        .map_err(|_| CeremonyError::Decode)?;
     let header = finality.header();
     let inputs = header.inputs;
-    if receipt.height() != inputs.height || receipt.post_state() != inputs.post_state {
+    // A snapshot from a different round would pin a checkpoint whose block id
+    // belongs to another height.
+    if state.height() != inputs.height || state.chain_id() != inputs.chain_id {
         return Err(CeremonyError::MalformedInput);
     }
     let protocol_revision =
@@ -199,7 +207,7 @@ pub fn checkpoint_inputs(
         genesis_commitment: finality.certificate().genesis_commitment(),
         protocol_revision,
         checkpoint_height: inputs.height,
-        checkpoint_block_id: receipt.block_id(),
+        checkpoint_block_id: state.head_block_id(),
         checkpoint_state_root: inputs.post_state.root(),
         checkpoint_finality_commitment: header.proof_statement_commitment,
         validator_set_root: inputs.validator_set_root,

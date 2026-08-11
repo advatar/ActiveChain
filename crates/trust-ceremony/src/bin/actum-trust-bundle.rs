@@ -33,7 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut arguments = env::args().skip(1);
     let command = arguments.next().ok_or(
         "usage: actum-trust-bundle <prepare|inspect|sign|assemble> ...\n\
-         \x20 prepare  <body-out> <spec.json> <proof.json> <finality.bundle> <receipt.bin> <signer-set.bin>\n\
+         \x20 prepare  <body-out> <spec.json> <proof.json> <finality.bundle> <execution.snapshot> <signer-set.bin>\n\
          \x20 inspect  <body.bin>\n\
          \x20 sign     <signature-out> <secret-seed> <body.bin>\n\
          \x20 assemble <bundle-out> <body.bin> <signer-set.bin> <now-ms> <signature.json>...",
@@ -49,7 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn prepare(arguments: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let [output, spec_path, proof_path, finality_path, receipt_path, set_path] = arguments else {
+    let [output, spec_path, proof_path, finality_path, execution_path, set_path] = arguments else {
         return Err("prepare takes exactly six arguments".into());
     };
     let output = Path::new(output);
@@ -60,7 +60,7 @@ fn prepare(arguments: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let proof: ProofBinding = serde_json::from_slice(&read_bounded(Path::new(proof_path))?)?;
     let checkpoint = checkpoint_inputs(
         &read_bounded(Path::new(finality_path))?,
-        &read_bounded(Path::new(receipt_path))?,
+        &read_bounded(Path::new(execution_path))?,
     )?;
     let set = read_canonical::<TrustSignerSetV1>(Path::new(set_path))?;
     let body = build_body(&spec, &checkpoint, &proof, &set)?;
