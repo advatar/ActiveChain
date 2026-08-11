@@ -11,7 +11,7 @@ export interface WorkProofAdmissionRequestV1 {
   public_claim_envelope_hex: string;
   proof_envelope_hex: string;
   anchor_request_envelope_hex: string;
-  anchor_evidence_envelope_hex: string;
+  checkpointed_anchor_evidence_envelope_hex?: string | null;
 }
 
 export interface ExpectedWorkProofBindingsV1 {
@@ -54,7 +54,6 @@ export interface WorkProofVerifierStatusV1 {
 const DIGEST_384 = /^[0-9a-f]{96}$/;
 const CANONICAL_HEX = /^(?:[0-9a-f]{2})+$/;
 const REQUEST_KEYS = [
-  "anchor_evidence_envelope_hex",
   "anchor_request_envelope_hex",
   "claim_id",
   "operation",
@@ -80,6 +79,8 @@ const CLAIM_KEYS = [
   "usage_verified",
 ] as const;
 
+const OPTIONAL_REQUEST_KEYS = ["checkpointed_anchor_evidence_envelope_hex"] as const;
+
 function object(value: unknown, context: string): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${context} is not an object`);
@@ -92,6 +93,19 @@ function exactKeys(value: Record<string, unknown>, expected: readonly string[], 
   const wanted = [...expected].sort();
   if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
     throw new Error(`${context} has unsupported fields`);
+  }
+}
+
+function exactKeysWithOptional(
+  value: Record<string, unknown>,
+  required: readonly string[],
+  optional: readonly string[],
+  context: string,
+): void {
+  const actual = new Set(Object.keys(value));
+  const allowed = new Set([...required, ...optional]);
+  if (required.some((key) => !actual.has(key)) || [...actual].some((key) => !allowed.has(key))) {
+    throw new Error(`${context} has unsupported or missing fields`);
   }
 }
 
@@ -111,7 +125,7 @@ function nonNegativeInteger(value: unknown, context: string): number {
 
 function validateRequest(request: WorkProofAdmissionRequestV1): void {
   const value = object(request, "admission request");
-  exactKeys(value, REQUEST_KEYS, "admission request");
+  exactKeysWithOptional(value, REQUEST_KEYS, OPTIONAL_REQUEST_KEYS, "admission request");
   if (
     request.schema !== "actum.work-proof.admit.request.v1" ||
     request.operation !== "verify_and_register" ||
@@ -124,9 +138,12 @@ function validateRequest(request: WorkProofAdmissionRequestV1): void {
     "public_claim_envelope_hex",
     "proof_envelope_hex",
     "anchor_request_envelope_hex",
-    "anchor_evidence_envelope_hex",
   ] as const) {
     if (!CANONICAL_HEX.test(request[field])) throw new Error(`${field} is not canonical lowercase hex`);
+  }
+  const checkpointedEvidence = request.checkpointed_anchor_evidence_envelope_hex;
+  if (checkpointedEvidence !== undefined && checkpointedEvidence !== null && !CANONICAL_HEX.test(checkpointedEvidence)) {
+    throw new Error("checkpointed_anchor_evidence_envelope_hex is not canonical lowercase hex");
   }
 }
 

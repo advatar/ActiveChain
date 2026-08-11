@@ -39,8 +39,8 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Add bounded, capability-scoped telemetry and work MCP tools with durable idempotency.
     - [x] Add adversarial authorization, race, replay, wrong-chain, timeout, malformed-response, and redaction tests.
     - [x] Pass the exact full gate after #773 merges.
-  - [ ] Anchor and resolve finalized activity epochs through the existing digest boundary (#775;
-    reopened on `feat/775-finalized-anchor-binding` for state-authenticated checkpoint proofs).
+  - [x] Anchor and resolve finalized activity epochs through the existing digest boundary (#775;
+    qualified in run `31447336017` and merged to `main` as `7095a337`).
     - [x] Expose fail-closed anchor-service health that checks the finalized RPC view, operator
       fee/nonce state, registry, and proposal-spool capacity before reporting submission readiness.
     - [x] Add the canonical network-bound epoch anchor request and exact frozen epoch statement derivation.
@@ -60,26 +60,27 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
       - [x] Rebase onto merged #773 and pass the exact full gate.
     - [x] Regenerate the affected RPC/client anchor vectors and manifest hashes.
     - [x] Pass the exact full gate for the corrected binding and merge it to `main`.
-    - [ ] Authenticate accepted finalized anchor records under the canonical checkpoint state root.
+    - [x] Authenticate accepted finalized anchor records under the canonical checkpoint state root.
       - [x] Freeze domain-separated registry-object key/type/value encoding and replacement rules.
       - [x] Make only the canonical `SubmitAnchor` transition create the authenticated state object.
       - [x] Verify the exact record with the existing bounded canonical `StateProof`, without callbacks.
       - [x] Add wrong-root/key/value/anchor/checkpoint, stale-proof, duplicate, replacement, and
         unadmitted-anchor adversarial tests and vectors.
-      - [ ] Pass affected checks and one exact full gate, then merge the follow-up into `main`.
+      - [x] Pass affected checks and one exact full gate, then merge the follow-up into `main`.
   - [x] Implement work claims and zero-knowledge non-overlap proofs (#776; claimed on `feat/776-work-proof-zk`).
     - [x] Freeze tagged raw telemetry measurements and policy-pinned class aggregates.
     - [x] Implement class-specific Attention, Compute, and Contribution arithmetic.
     - [x] Add class-neutral usage nullifiers and adversarial relation coverage.
     - [x] Regenerate proof/image/receipt vectors and pass the exact full gate.
-  - [ ] Expose bounded verification APIs, SDKs, and explorer DTOs (#777; claimed on `feat/777-work-proof-verifier-api`).
+  - [x] Expose bounded verification APIs, SDKs, and explorer DTOs (#777; qualified in run
+    `31455861662` and merged to `main` as `797687a8`).
     - [x] Replace anchor/checkpoint equality with canonical checkpoint state membership,
       retryable checkpoint-lag/unavailable outcomes, and substitution/adversarial tests.
     - [x] Enforce cross-process all-or-nothing usage-nullifier admission with reload-under-lock,
       crash-safe persistence, and real multiprocess race/restart tests.
     - [x] Document the complete-file registry as bounded Preview storage and qualify explicit
       entry/file-size limits plus 10k/100k/500k/1m admission latency.
-    - [ ] Rebase onto merged #775, compile first, pass affected tests, and run one exact full gate.
+    - [x] Rebase onto merged #775, compile first, pass affected tests, and run one exact full gate.
     - [x] Implement bounded in-process and subprocess RISC Zero relation verification.
     - [x] Bind operator-selected chained trust bundles and exact finalized-anchor inclusion.
     - [x] Implement durable all-or-nothing class-neutral usage admission and exact-claim retries.
@@ -89,7 +90,7 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Document the `pow.actum.network` verifier, trust, subprocess, and storage boundaries.
     - [x] Pass compile-first and affected-crate qualification for the direct finalized-anchor
       verifier boundary without rebuilding the frozen guest image.
-    - [ ] Pass the exact full deterministic-kernel gate with the pinned guest image.
+    - [x] Pass the exact full deterministic-kernel gate with the pinned guest image.
   - [x] Build the offline verifier trust-bundle ceremony that #778 provisioning requires
     ([GitHub issue #793](https://github.com/advatar/ActiveChain/issues/793); merged as `0258749e`).
     - [x] Add threshold-capable keygen, signer-set, and prepare/inspect/sign/assemble tooling that

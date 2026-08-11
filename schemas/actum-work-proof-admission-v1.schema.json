@@ -20,8 +20,7 @@
         "claim_id",
         "public_claim_envelope_hex",
         "proof_envelope_hex",
-        "anchor_request_envelope_hex",
-        "anchor_evidence_envelope_hex"
+        "anchor_request_envelope_hex"
       ],
       "properties": {
         "schema": {"const": "actum.work-proof.admit.request.v1"},
@@ -31,7 +30,12 @@
         "public_claim_envelope_hex": {"$ref": "#/$defs/canonicalHex"},
         "proof_envelope_hex": {"$ref": "#/$defs/canonicalHex"},
         "anchor_request_envelope_hex": {"$ref": "#/$defs/canonicalHex"},
-        "anchor_evidence_envelope_hex": {"$ref": "#/$defs/canonicalHex"}
+        "checkpointed_anchor_evidence_envelope_hex": {
+          "oneOf": [
+            {"$ref": "#/$defs/canonicalHex"},
+            {"type": "null"}
+          ]
+        }
       }
     },
     "aggregate": {
@@ -142,6 +146,8 @@
         "wrong_image",
         "wrong_policy",
         "stale_trust",
+        "checkpoint_lag",
+        "checkpoint_unavailable",
         "invalid_anchor",
         "anchor_pending",
         "anchor_rejected",

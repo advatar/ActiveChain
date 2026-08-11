@@ -48,7 +48,7 @@ def validate_consumer_contract() -> None:
         "public_claim_envelope_hex",
         "proof_envelope_hex",
         "anchor_request_envelope_hex",
-        "anchor_evidence_envelope_hex",
+        "checkpointed_anchor_evidence_envelope_hex",
     }
     assert stateful_request["schema"] == "actum.work-proof.admit.request.v1"
     assert stateful_request["operation"] == "verify_and_register"
@@ -79,8 +79,16 @@ def validate_consumer_contract() -> None:
     schema = json.loads(ADMISSION_SCHEMA.read_text("utf-8"))
     request_schema = schema["$defs"]["request"]
     assert request_schema["additionalProperties"] is False
-    assert set(request_schema["required"]) == set(stateful_request)
+    assert set(request_schema["required"]) == set(stateful_request) - {
+        "checkpointed_anchor_evidence_envelope_hex"
+    }
+    checkpointed_evidence = request_schema["properties"][
+        "checkpointed_anchor_evidence_envelope_hex"
+    ]
+    assert {entry.get("type") for entry in checkpointed_evidence["oneOf"]} == {"null", None}
     assert "trust_bundle" not in request_schema["properties"]
+    error_codes = set(schema["$defs"]["errorCode"]["enum"])
+    assert {"checkpoint_lag", "checkpoint_unavailable"} <= error_codes
     client = TYPESCRIPT_CLIENT.read_text("utf-8")
     for required in (
         "actum.work-proof.admit.request.v1",

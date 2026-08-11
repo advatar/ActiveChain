@@ -21,7 +21,7 @@
     "public_claim_envelope_hex": "00",
     "proof_envelope_hex": "00",
     "anchor_request_envelope_hex": "00",
-    "anchor_evidence_envelope_hex": "00"
+    "checkpointed_anchor_evidence_envelope_hex": "00"
   },
   "stateful_result": {
     "schema": "actum.work-proof.admit.result.v1",
