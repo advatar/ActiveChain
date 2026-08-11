@@ -7,6 +7,7 @@ use super::{
     activechain_wallet_proposal_approval, activechain_wallet_sign_cash_intent,
     activechain_wallet_sign_proposal_intent, activechain_wallet_submit_authorized,
     activechain_wallet_submit_authorized_proposal,
+    activechain_wallet_verify_owner_coin_cell_record,
 };
 use activechain_canonical_codec::decode_envelope;
 use activechain_proposal_gateway::ActionIntentV1;
@@ -22,6 +23,53 @@ const SIGNATURE_LENGTH: usize = 2_420;
 
 fn snapshot(env: &JNIEnv<'_>, value: &JByteArray<'_>) -> Result<Vec<u8>, String> {
     env.convert_byte_array(value).map_err(|error| error.to_string())
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_activechain_wallet_NativeOwnerCoinProofVerifier_nativeVerify(
+    env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    key: JByteArray<'_>,
+    finalized_height: jlong,
+    value: JByteArray<'_>,
+    proof: JByteArray<'_>,
+    finality: JByteArray<'_>,
+    owner: JByteArray<'_>,
+    trusted_genesis: JByteArray<'_>,
+) -> jboolean {
+    let result: Result<jboolean, String> = (|| {
+        let key = snapshot(&env, &key)?;
+        let value = snapshot(&env, &value)?;
+        let proof = snapshot(&env, &proof)?;
+        let finality = snapshot(&env, &finality)?;
+        let owner = snapshot(&env, &owner)?;
+        let trusted_genesis = snapshot(&env, &trusted_genesis)?;
+        if key.len() != 48 || owner.len() != 48 || trusted_genesis.len() != 48 {
+            return Err("owner proof identifiers must be 48 bytes".into());
+        }
+        let height = u64::try_from(finalized_height)
+            .map_err(|_| "negative finalized height".to_string())?;
+        let lengths = [value.len(), proof.len(), finality.len()];
+        if lengths.iter().any(|length| *length > u32::MAX as usize) {
+            return Err("owner proof input exceeds ABI length".into());
+        }
+        let code = unsafe {
+            activechain_wallet_verify_owner_coin_cell_record(
+                key.as_ptr(),
+                height,
+                value.as_ptr(),
+                value.len() as u32,
+                proof.as_ptr(),
+                proof.len() as u32,
+                finality.as_ptr(),
+                finality.len() as u32,
+                owner.as_ptr(),
+                trusted_genesis.as_ptr(),
+            )
+        };
+        Ok(if code == WALLET_OK { 1 } else { 0 })
+    })();
+    result.unwrap_or_default()
 }
 
 #[unsafe(no_mangle)]

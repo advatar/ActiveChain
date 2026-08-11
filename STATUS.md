@@ -16,10 +16,10 @@ Tracked by [GitHub issue #797](https://github.com/advatar/ActiveChain/issues/797
 
 Tracked by [GitHub issue #795](https://github.com/advatar/ActiveChain/issues/795).
 
-- [ ] Pin Android to the live Kanalen identity and expose only finalized, Rust-verified owner state.
-- [ ] Add device-bound profile, owner Coin Cell discovery, faucet, receive, OpenWallet, agent
+- [x] Pin Android to the live Kanalen identity and expose only finalized, Rust-verified owner state.
+- [x] Add device-bound profile, owner Coin Cell discovery, faucet, receive, OpenWallet, agent
   enrollment/lifecycle, and Android-native approval entry-point parity with iOS.
-- [ ] Add fail-closed codec, persistence, proof-boundary, routing, and lifecycle tests.
+- [x] Add fail-closed codec, persistence, proof-boundary, routing, and lifecycle tests.
 - [ ] Pass Android unit/build and available instrumentation checks plus the exact final
   deterministic-kernel gate; merge to `main` and verify reachability from `origin/main`.
 

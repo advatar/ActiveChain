@@ -5,10 +5,19 @@ network status only when the returned chain ID, genesis commitment, protocol rev
 revision exactly match Kanalen. Status decoding is bounded and canonical; malformed, stale,
 unavailable, or incompatible responses are shown explicitly.
 
-Balances, assets, activity, approvals, identity, credentials, transfers, and funding remain
-unavailable until Android has proof-bearing owner queries, secure profile provisioning, and a
-signing/submission path. The UI never substitutes sample or optimistic wallet data. Persisted agent
-authority is decoded through the versioned Rust FFI, and an empty registry stays empty.
+The app loads a device-local, backup-excluded owner profile and performs the same bounded,
+owner-scoped Coin Cell query as the Apple wallet. Records reach the UI only after the linked Rust
+verifier binds the canonical key, owner, finalized height, proof, finality bundle, and live Kanalen
+genesis. Empty or rejected proof sets never become an optimistic zero balance. Testnet funding uses
+the canonical faucet terms/request/receipt protocol and exposes honest unavailable, requesting,
+pending, finalized, and rejected states; only a subsequent verified owner query can affect wallet
+state.
+
+Android also mirrors the Apple receive-request binding, OpenWallet credential/session replay seam,
+canonical agent-enrollment validation, and one-shot platform routes for agent management and
+approval review. Persisted agent authority is decoded through the versioned Rust FFI, and an empty
+registry stays empty. Transfers, assets, activity, and credentials remain visibly unavailable when
+their finalized evidence is absent; the UI never substitutes sample or optimistic wallet data.
 
 The checked-in Gradle 8.7 wrapper invokes `scripts/build-android-wallet-library.sh`, builds the
 exact checkout for `arm64-v8a` with NDK 28.2, and packages the resulting shared library without
@@ -22,7 +31,8 @@ ANDROID_HOME="$ANDROID_SDK_ROOT" ./gradlew testDebugUnitTest assembleDebug
 ANDROID_HOME="$ANDROID_SDK_ROOT" ./gradlew connectedDebugAndroidTest
 ```
 
-The first command validates the canonical RPC and approval codecs and builds the APK. The second
+The first command validates canonical status, owner-page, faucet, receive, OpenWallet, enrollment,
+routing, custody, and approval behavior and builds the APK. The second
 also exercises the shared approval vector through JNI, native ML-DSA-44 custody, one-shot signing,
 and Rust submission verification on an arm64 emulator or device.
 
