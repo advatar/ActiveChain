@@ -331,7 +331,9 @@ pub fn wallet_principal_id(public_key: &[u8]) -> PrincipalId {
     shake.update(WALLET_PUBLIC_KEY_ID_DOMAIN);
     shake.update(public_key);
     let mut digest = [0_u8; 48];
-    shake.finalize_xof().read(&mut digest);
+    // Method syntax is ambiguous here under the Apple feature set, where
+    // io::Read is also in scope.
+    XofReader::read(&mut shake.finalize_xof(), &mut digest);
     PrincipalId::new(Digest384::new(digest))
 }
 
