@@ -1425,6 +1425,71 @@ mod tests {
         }
     }
 
+    /// Nothing about the operator's internals may reach a client, and every
+    /// refusal must still say something. The interesting half is the mapping
+    /// *to* `SettlementUnavailable`: a treasury too fragmented to build a
+    /// transfer surfaces as `InvalidTransition` deep inside authorization, and
+    /// letting that reach the wire is what made a wedged faucet look like a
+    /// malformed client request.
+    #[test]
+    fn only_client_actionable_causes_are_named_on_the_wire() {
+        use activechain_rpc_types::FaucetRejectionCode as Code;
+        let policy = policy();
+        let named = [
+            (FaucetError::Disabled, Code::Disabled),
+            (FaucetError::WrongNetwork, Code::WrongNetwork),
+            (FaucetError::InvalidChallenge, Code::InvalidChallenge),
+            (FaucetError::RecipientCooldown, Code::RecipientCooldown),
+            (FaucetError::RecipientExhausted, Code::RecipientExhausted),
+            (FaucetError::SourceLimited, Code::SourceLimited),
+            (FaucetError::GlobalLimited, Code::GlobalLimited),
+            (FaucetError::ExistingPendingGrant, Code::ExistingPendingGrant),
+        ];
+        for (error, expected) in named {
+            assert_eq!(faucet_rejection(error, &policy, None).code(), expected, "{error:?}");
+        }
+
+        // Every operator-side fault, without exception.
+        for error in [
+            FaucetError::InvalidPolicy,
+            FaucetError::NotFound,
+            FaucetError::InvalidTransition,
+            FaucetError::Persistence,
+            FaucetError::Capacity,
+            FaucetError::InvalidFinalityEvidence,
+            FaucetError::ReconciliationRequired,
+        ] {
+            let rejection = faucet_rejection(error, &policy, None);
+            assert_eq!(rejection.code(), Code::SettlementUnavailable, "{error:?} leaked detail");
+            assert_eq!(rejection.retry_after_seconds(), None, "{error:?} invited a pointless wait");
+        }
+
+        // A wait is offered only where waiting can change the answer.
+        assert_eq!(
+            faucet_rejection(FaucetError::RecipientCooldown, &policy, None).retry_after_seconds(),
+            Some(policy.recipient_cooldown_seconds)
+        );
+        assert_eq!(
+            faucet_rejection(FaucetError::RecipientExhausted, &policy, None).retry_after_seconds(),
+            None,
+            "a spent lifetime allowance does not come back"
+        );
+
+        // A reference is disclosed only alongside the code that refers to one.
+        let reference = digest(70);
+        assert_eq!(
+            faucet_rejection(FaucetError::ExistingPendingGrant, &policy, Some(reference))
+                .existing_reference(),
+            Some(reference)
+        );
+        assert_eq!(
+            faucet_rejection(FaucetError::RecipientCooldown, &policy, Some(reference))
+                .existing_reference(),
+            None,
+            "a reference must not ride along on an unrelated refusal"
+        );
+    }
+
     /// The accounting rule itself: only issuance that actually reached the
     /// ledger may spend a recipient's allowance.
     #[test]

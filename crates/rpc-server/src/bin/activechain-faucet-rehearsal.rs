@@ -58,6 +58,15 @@ fn run() -> Result<String, String> {
         );
     };
     let grants: usize = count.parse().map_err(|_| "grant count must be a number".to_owned())?;
+    // Recipients and idempotency keys must be unique per *run*, not merely per
+    // index. Deriving them from the index alone made a second run replay the
+    // first run's requests, which the faucet correctly answered from its
+    // durable records without settling anything -- indistinguishable, from the
+    // outside, from a treasury that had stopped working.
+    let run = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| "system clock predates the epoch".to_owned())?
+        .as_nanos();
     let treasury = PrincipalId::new(decode_digest(&owner)?);
     let status = status(&address)?;
 
@@ -74,13 +83,13 @@ fn run() -> Result<String, String> {
                 outcome.granted
             ));
         }
-        let recipient = derive_principal(b"rehearsal-recipient", index);
+        let recipient = derive_principal(b"rehearsal-recipient", run, index);
         let request = FaucetRequestV1::new(
             status.0,
             status.1,
             recipient,
-            derive_digest(b"rehearsal-idempotency", index),
-            derive_digest(b"rehearsal-source", index),
+            derive_digest(b"rehearsal-idempotency", run, index),
+            derive_digest(b"rehearsal-source", run, index),
             0,
             Vec::new(),
         )
@@ -158,8 +167,9 @@ fn run() -> Result<String, String> {
 /// Returns `Ok(Ok(()))` for an accepted grant and `Ok(Err(reason))` for a
 /// refusal the node named, so a refusal is data rather than a failed run.
 fn grant(address: &str, request: &FaucetRequestV1) -> Result<Result<(), String>, String> {
-    let response = query(address, &RpcRequest::RequestFaucet { request: Box::new(request.clone()) })
-        .map_err(|error| format!("faucet request failed: {error:?}"))?;
+    let response =
+        query(address, &RpcRequest::RequestFaucet { request: Box::new(request.clone()) })
+            .map_err(|error| format!("faucet request failed: {error:?}"))?;
     match response {
         RpcResponse::FaucetReceipt(_) => Ok(Ok(())),
         RpcResponse::FaucetRejected(rejection) => Ok(Err(format!("{:?}", rejection.code()))),
@@ -169,7 +179,9 @@ fn grant(address: &str, request: &FaucetRequestV1) -> Result<Result<(), String>,
 }
 
 fn status(address: &str) -> Result<(ChainId, Digest384), String> {
-    match query(address, &RpcRequest::Status).map_err(|error| format!("status failed: {error:?}"))? {
+    match query(address, &RpcRequest::Status)
+        .map_err(|error| format!("status failed: {error:?}"))?
+    {
         RpcResponse::Status(status) => Ok((status.chain_id(), status.genesis_commitment())),
         _ => Err("node returned an unexpected status response".to_owned()),
     }
@@ -201,21 +213,22 @@ fn owner_cells(address: &str, owner: PrincipalId) -> Result<Vec<Digest384>, Stri
     }
 }
 
-fn derive_digest(domain: &[u8], index: usize) -> Digest384 {
+fn derive_digest(domain: &[u8], run: u128, index: usize) -> Digest384 {
     use sha3::{
         Shake256,
         digest::{ExtendableOutput, Update, XofReader},
     };
     let mut shake = Shake256::default();
     shake.update(domain);
+    shake.update(&run.to_be_bytes());
     shake.update(&(index as u64).to_be_bytes());
     let mut digest = [0_u8; 48];
     shake.finalize_xof().read(&mut digest);
     Digest384::new(digest)
 }
 
-fn derive_principal(domain: &[u8], index: usize) -> PrincipalId {
-    PrincipalId::new(derive_digest(domain, index))
+fn derive_principal(domain: &[u8], run: u128, index: usize) -> PrincipalId {
+    PrincipalId::new(derive_digest(domain, run, index))
 }
 
 fn decode_digest(value: &str) -> Result<Digest384, String> {
