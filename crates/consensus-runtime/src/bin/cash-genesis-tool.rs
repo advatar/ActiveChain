@@ -45,12 +45,29 @@ fn policy_commitment(chain: ChainId, label: &[u8]) -> Digest384 {
 
 /// How many Coin Cells the genesis treasury is split into.
 ///
-/// Each faucet grant costs the treasury one cell, so this is also the number of
-/// grants the chain can ever issue before the treasury must be refilled.
-const DEFAULT_TREASURY_CELLS: usize = 1024;
+/// Each faucet grant costs the treasury one cell, so this is also roughly the
+/// number of grants the chain can issue before the treasury must be refilled.
+///
+/// The ceiling is the RPC index, not the ledger. Every indexed Coin Cell is
+/// published as a record carrying its own finality evidence, measured at about
+/// 32 KiB each against a 4 MiB frame, so the index holds roughly 128 cells
+/// before a round fails to publish. A grant is cell-count neutral overall --
+/// it consumes an input and the fee reserve and creates a recipient cell and
+/// one change cell -- so the treasury shrinks by one per grant while the index
+/// stays about this size. 64 cells measures at 2.0 MiB, half the frame.
+const DEFAULT_TREASURY_CELLS: usize = 64;
+/// Refuses a split whose index would not fit the RPC frame. Exceeding it does
+/// not fail at genesis -- it fails later, when the round tries to publish and
+/// reports only `Invalid`. Held below the measured ~128-cell ceiling so the
+/// margin survives a record growing.
+const MAX_TREASURY_CELLS: usize = 96;
 const _: () = assert!(
     DEFAULT_TREASURY_CELLS >= 2,
     "a treasury of fewer than two cells cannot satisfy fee reserve and input at once"
+);
+const _: () = assert!(
+    DEFAULT_TREASURY_CELLS <= MAX_TREASURY_CELLS,
+    "the default split must itself be publishable to the RPC index"
 );
 
 fn ledger(
@@ -125,6 +142,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             treasury_cells = count.parse()?;
             if treasury_cells < 2 {
                 return Err("a treasury needs at least two cells to spend at all".into());
+            }
+            if treasury_cells > MAX_TREASURY_CELLS {
+                return Err("that many cells would not fit the RPC index frame".into());
             }
         } else {
             return Err("unexpected trailing argument".into());

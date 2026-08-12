@@ -114,7 +114,20 @@ final class WalletLifecycleUITests: XCTestCase {
     /// unavailable funding control is named and skipped rather than reported
     /// as a defect. An outright rejection is a failure — that is the state
     /// that hid a stuck reservation for a day.
+    /// A genesis rebuild leaves this machine holding a wallet for a chain that
+    /// no longer exists. Replacing it is part of the lifecycle, not a detour.
+    private func replaceWalletIfSuperseded() {
+        let replace = app.buttons["Replace wallet"]
+        guard replace.waitForExistence(timeout: 20) else { return }
+        replace.click()
+        let recovery = app.staticTexts["recovery.title"]
+        if recovery.waitForExistence(timeout: 45) {
+            app.buttons["I have saved it"].click()
+        }
+    }
+
     func testRequestsFundingAndReachesFinalityOnKanalen() throws {
+        replaceWalletIfSuperseded()
         let funding = app.staticTexts["funding.title"]
         XCTAssertTrue(
             funding.waitForExistence(timeout: 45),

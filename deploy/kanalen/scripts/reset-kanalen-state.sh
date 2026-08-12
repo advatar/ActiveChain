@@ -22,6 +22,11 @@ test -x "$deployment_root/current/bin/cash-genesis-tool" || {
 
 cash_supply=${ACTIVECHAIN_CASH_GENESIS_SUPPLY:-$(sed -n 's/^ACTIVECHAIN_CASH_GENESIS_SUPPLY=//p' "$deployment_root/current/network.env")}
 cash_reserve=${ACTIVECHAIN_CASH_SECURITY_RESERVE:-$(sed -n 's/^ACTIVECHAIN_CASH_SECURITY_RESERVE=//p' "$deployment_root/current/network.env")}
+cash_cells=${ACTIVECHAIN_CASH_TREASURY_CELLS:-}
+case "$cash_cells" in
+  ''|*[0-9]) ;;
+  *) echo "treasury cell count must be an unsigned integer" >&2; exit 1 ;;
+esac
 case "$cash_supply:$cash_reserve" in
   *[!0-9:]*|:|*:)
     echo "cash genesis supply and reserve must be explicit unsigned integers" >&2
@@ -89,9 +94,13 @@ chain_id=$(sed -n 's/^ACTIVECHAIN_CHAIN_ID_HEX=//p' "$deployment_root/current/ne
 operator_seed="$deployment_root/chain/keys/faucet-operator.seed"
 openssl rand 32 > "$operator_seed"
 chmod 600 "$operator_seed"
+# The treasury must be split across many cells: each grant costs one, and a
+# one-cell treasury cannot spend at all. The upper bound is the RPC index,
+# which republishes a finality bundle per indexed cell against a 4 MiB frame.
 cash_output=$("$deployment_root/current/bin/cash-genesis-tool" \
   "$deployment_root/chain/cash-ledger.snapshot" "$chain_id" operator \
-  "$cash_supply" "$cash_reserve" "--operator-seed=$operator_seed")
+  "$cash_supply" "$cash_reserve" "--operator-seed=$operator_seed" \
+  ${cash_cells:+"--treasury-cells=$cash_cells"})
 cash_owner=$(printf '%s\n' "$cash_output" | sed -n 's/^cash_genesis_owner=//p')
 test "${#cash_owner}" -eq 96 || { echo "cash genesis owner derivation failed" >&2; exit 1; }
 
