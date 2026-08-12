@@ -66,8 +66,14 @@ for path in \
   fi
 done
 
+# Anchor archives were missing from this sweep, so a reset left evidence bound
+# to the superseded genesis sitting in the live state directory. The node then
+# tried to reconcile it against a chain it no longer knew, failed with
+# InvalidFinalizedEvidence, and exited -- a rebuild is supposed to leave nothing
+# behind that refers to the chain it replaced.
 for path in "$deployment_root"/chain/pending-cash-actions.batch.finalized-* \
   "$deployment_root"/chain/finality.bundle.finalized-* \
+  "$deployment_root"/chain/anchor-actions.batch.* \
   "$deployment_root"/chain/validator-*.sessions \
   "$deployment_root"/chain/validator-*.pq-sessions \
   "$deployment_root"/chain/execution.snapshot.pre-*; do
