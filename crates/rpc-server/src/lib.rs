@@ -1408,7 +1408,13 @@ impl RpcServer {
                     |recipient, amount, reference| settlement(recipient, amount, reference),
                 ) {
                     Ok(receipt) => RpcResponse::FaucetReceipt(receipt),
-                    Err(_) => RpcResponse::Error(RpcError::InvalidRequest),
+                    Err(error) => {
+                        // Fourteen distinct refusals collapse into one wire
+                        // error, so an operator cannot tell a cooldown from a
+                        // wrong network without this line.
+                        eprintln!("faucet request rejected: {error:?}");
+                        RpcResponse::Error(RpcError::InvalidRequest)
+                    }
                 }
             }
             RpcRequest::RequestAuthorizedFaucet { request } => {
