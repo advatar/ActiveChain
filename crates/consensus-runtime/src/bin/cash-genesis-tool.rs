@@ -58,9 +58,14 @@ fn policy_commitment(chain: ChainId, label: &[u8]) -> Digest384 {
 const DEFAULT_TREASURY_CELLS: usize = 64;
 /// Refuses a split whose index would not fit the RPC frame. Exceeding it does
 /// not fail at genesis -- it fails later, when the round tries to publish and
-/// reports only `Invalid`. Held below the measured ~128-cell ceiling so the
-/// margin survives a record growing.
-const MAX_TREASURY_CELLS: usize = 96;
+/// reports only `Invalid`, leaving the index empty and the treasury
+/// unqueryable.
+///
+/// 4 MiB / ~32 KiB measured per record puts the hard ceiling near 130 cells.
+/// This keeps roughly 15% in reserve, because a record is not a fixed size:
+/// the membership proof it carries grows with the number of cells in the tree,
+/// so the measurement taken at 64 cells is a floor rather than a constant.
+const MAX_TREASURY_CELLS: usize = 112;
 const _: () = assert!(
     DEFAULT_TREASURY_CELLS >= 2,
     "a treasury of fewer than two cells cannot satisfy fee reserve and input at once"
