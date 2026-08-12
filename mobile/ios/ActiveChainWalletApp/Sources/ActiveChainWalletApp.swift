@@ -83,6 +83,13 @@ private struct HomeView: View {
                         ) {
                             Task { await liveState.createWallet() }
                         }
+                    } else if liveState.supersededProfile {
+                        SupersededWalletCard(
+                            working: liveState.creatingWallet,
+                            error: liveState.onboardingError
+                        ) {
+                            Task { await liveState.recreateWalletForCurrentChain() }
+                        }
                     }
                     FundingCard(state: liveState.fundingState) {
                         Task { await liveState.requestTestnetFunding() }
@@ -760,6 +767,38 @@ struct OnboardingCard: View {
             Button(creating ? "Creating…" : "Create wallet", action: create)
                 .buttonStyle(.borderedProminent)
                 .disabled(creating)
+            if let error {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .padding(18)
+        .background(WalletPalette.panel, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+}
+
+/// Offered when this device holds a wallet for a chain that no longer exists.
+///
+/// Without this the app is a dead end after a genesis rebuild: onboarding only
+/// appears when no wallet is stored, so a wallet bound to a superseded chain
+/// can neither be used nor replaced.
+struct SupersededWalletCard: View {
+    let working: Bool
+    let error: String?
+    let recreate: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Wallet belongs to a previous chain", systemImage: "arrow.triangle.2.circlepath")
+                .font(.headline)
+                .accessibilityIdentifier("superseded.title")
+            Text("Kanalen was rebuilt from a new genesis. This wallet's key can no longer authorize anything, so it must be replaced. Any balance it held existed only on the previous chain.")
+                .font(.caption)
+                .foregroundStyle(WalletPalette.muted)
+            Button(working ? "Replacing…" : "Replace wallet", action: recreate)
+                .buttonStyle(.borderedProminent)
+                .disabled(working)
             if let error {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption2)

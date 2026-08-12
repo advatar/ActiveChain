@@ -481,6 +481,25 @@ final class AppleNativeCustodyProvider {
         )
     }
 
+    /// Destroys this slot's key material so the slot can be provisioned again.
+    ///
+    /// The only legitimate caller is a wallet bound to a chain that no longer
+    /// exists: its seed can never authorize anything again, and `provision`
+    /// refuses an occupied slot, so without this the app holds a dead wallet
+    /// and no way to replace it.
+    ///
+    /// The wrapping key is destroyed first. Once it is gone the wrapped seed is
+    /// unrecoverable, so a failure part way through cannot leave usable key
+    /// material behind — and the custody record is removed even if the enclave
+    /// key was already absent, because the goal is a slot that can be reused.
+    func discard(slotID: String) throws {
+        try validate(slotID: slotID)
+        if let record = try? load(slotID: slotID) {
+            try? hardware.deleteWrappingKey(tag: record.wrappingTag)
+        }
+        try store.deleteCustodyRecord(slotID: slotID)
+    }
+
     func sign(
         slotID: String,
         payload: Data,

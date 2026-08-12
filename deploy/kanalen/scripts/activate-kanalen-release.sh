@@ -7,7 +7,28 @@ release_id="${3:?usage: activate-kanalen-release.sh <archive> <checksum> <releas
 deployment_root="${ACTIVECHAIN_KANALEN_ROOT:-$HOME/activechain-deploy/kanalen}"
 launchctl_bin="${ACTIVECHAIN_LAUNCHCTL:-launchctl}"
 plutil_bin="${ACTIVECHAIN_PLUTIL:-plutil}"
-docker_bin="${ACTIVECHAIN_DOCKER:-docker}"
+# Resolved rather than inherited: this script is normally run over ssh as
+# `bash activate-kanalen-release.sh`, which gets a non-login shell whose PATH
+# does not include Homebrew or Docker Desktop. Depending on the caller's PATH
+# meant a deployment that had already restarted every service then aborted at
+# the gateway step with "docker: command not found".
+docker_bin="${ACTIVECHAIN_DOCKER:-}"
+if [[ -z "$docker_bin" ]]; then
+  for candidate in \
+    docker \
+    /opt/homebrew/bin/docker \
+    /usr/local/bin/docker \
+    /Applications/Docker.app/Contents/Resources/bin/docker; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      docker_bin="$candidate"
+      break
+    fi
+  done
+fi
+if [[ -z "$docker_bin" ]]; then
+  echo "could not find docker; set ACTIVECHAIN_DOCKER to its path" >&2
+  exit 1
+fi
 release_root="$deployment_root/releases"
 release_dir="$release_root/$release_id"
 staging_dir=""

@@ -143,6 +143,8 @@ final class WalletLiveState: ObservableObject {
         reason: "Load a finalized wallet profile and secure cash key first."
     )
     @Published private(set) var creatingWallet = false
+    /// This device holds a wallet bound to a chain that no longer exists.
+    @Published private(set) var supersededProfile = false
     @Published private(set) var onboardingError: String?
     /// Shown once after provisioning. Never logged and never persisted.
     @Published private(set) var recoverySecret: String?
@@ -157,6 +159,7 @@ final class WalletLiveState: ObservableObject {
     func refresh() async {
         networkState = .checking
         verifiedOwnerPage = nil
+        supersededProfile = false
         let status: WalletRPCStatus
         do {
             status = try await rpc.status()
@@ -186,6 +189,7 @@ final class WalletLiveState: ObservableObject {
                     WalletLog.rpc.error(
                         "device profile is bound to genesis \(WalletHex.short(profile.chainGenesis), privacy: .public) but the chain reports \(WalletHex.short(status.genesis), privacy: .public); recreate the profile for this chain")
                     reason = "This wallet belongs to a superseded chain; recreate it for the current genesis."
+                    supersededProfile = true
                 } else if !status.supports(1) {
                     WalletLog.rpc.error("node does not advertise the owner coin-cell capability")
                     reason = "The node does not serve owner-scoped Coin Cell proofs."
@@ -277,6 +281,39 @@ final class WalletLiveState: ObservableObject {
             WalletLog.rpc.error("wallet provisioning failed: \(String(describing: error), privacy: .public)")
             onboardingError = "Could not create the wallet on this device."
         }
+    }
+
+    /// Discards a wallet bound to a superseded chain and provisions a new one.
+    ///
+    /// Deliberately narrow: it refuses unless the refresh actually observed a
+    /// genesis mismatch, so it cannot become a general "delete my wallet"
+    /// path. The old seed is destroyed, which is safe only because the chain
+    /// that gave it meaning no longer exists — on any live chain this would
+    /// destroy spendable funds.
+    func recreateWalletForCurrentChain() async {
+        guard supersededProfile else { return }
+        onboardingError = nil
+        creatingWallet = true
+        do {
+            let keychain = try SharedKeychain()
+            let provider = AppleNativeCustodyProvider(
+                store: keychain,
+                hardware: SecureEnclaveWrappingBackend()
+            )
+            try provider.discard(slotID: Self.primarySlotID)
+            try WalletDeviceProfileStore().delete()
+            deviceProfile = nil
+            supersededProfile = false
+            WalletLog.rpc.notice("discarded wallet bound to a superseded chain")
+        } catch {
+            WalletLog.rpc.error(
+                "could not discard the superseded wallet: \(String(describing: error), privacy: .public)")
+            onboardingError = "Could not remove the wallet bound to the previous chain."
+            creatingWallet = false
+            return
+        }
+        creatingWallet = false
+        await createWallet()
     }
 
     private static func randomRecoveryKey() throws -> Data {
@@ -415,6 +452,10 @@ struct WalletDeviceProfileStore {
         else { throw WalletRPCError.malformedResponse }
         let keychain = try SharedKeychain()
         try keychain.save(profile.owner + profile.chainGenesis, service: service, account: account)
+    }
+
+    func delete() throws {
+        try SharedKeychain().delete(service: service, account: account)
     }
 }
 
