@@ -79,11 +79,12 @@ fn run() -> Result<String, String> {
     if request.schema != "actum.anchor.submit.request.v1" {
         return Err("unsupported request schema".to_owned());
     }
-    let resolving = match request.operation.as_str() {
-        "submit_external_digest_anchor" => false,
-        "resolve_external_digest_anchor" => true,
-        _ => return Err("unsupported operation".to_owned()),
-    };
+    // Resolution is not implemented here yet: the caller polls ResolveAnchor
+    // through its own client. Accept only what this binary actually performs
+    // rather than advertising an operation it would silently ignore.
+    if request.operation != "submit_external_digest_anchor" {
+        return Err("unsupported operation".to_owned());
+    }
 
     let digest = decode_digest(&request.checkpoint.checkpoint_hash)?;
     let domain = env::var("ACTUM_ANCHOR_APPLICATION_DOMAIN")
