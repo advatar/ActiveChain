@@ -461,7 +461,7 @@ final class ActiveChainWalletTests: XCTestCase {
     func testRPCStatusDecoderUsesFinalizedHealthInsteadOfDisplayFixtures() throws {
         let response = makeStatusResponse(
             protocolRevision: 1,
-            schemaRevision: 2,
+            schemaRevision: 3,
             finalizedHeight: 23,
             finalizedAt: 10,
             servedAt: 100,
@@ -545,7 +545,7 @@ final class ActiveChainWalletTests: XCTestCase {
         var body = Data([2, 1, 1])
         body.append(Data(repeating: 1, count: 48))
         body.append(contentsOf: [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0])
-        var envelope = Data([0x01, 0x0a, 0, 2, UInt8(body.count)])
+        var envelope = Data([0x01, 0x0a, 0, 3, UInt8(body.count)])
         envelope.append(body)
         XCTAssertThrowsError(try WalletRPCCodec.decodeOwnerCoinPage(envelope))
     }
@@ -559,8 +559,8 @@ final class ActiveChainWalletTests: XCTestCase {
             body.append(Data(repeating: marker, count: 60))
         }
         body.append(0)
-        // RpcResponse is canonical schema revision 2.
-        var envelope = Data([0x01, 0x0a, 0, 2])
+        // RpcResponse is canonical schema revision 3.
+        var envelope = Data([0x01, 0x0a, 0, 3])
         envelope.append(contentsOf: uleb128(body.count))
         envelope.append(body)
 
@@ -875,7 +875,7 @@ final class ActiveChainWalletTests: XCTestCase {
         chainID: Data = WalletKanalen.chainID,
         genesis: Data = WalletKanalen.genesis,
         protocolRevision: UInt64 = 1,
-        schemaRevision: UInt32 = 2,
+        schemaRevision: UInt32 = 3,
         finalizedHeight: UInt64 = 23,
         finalizedAt: UInt64 = 10,
         servedAt: UInt64 = 100,
@@ -893,13 +893,53 @@ final class ActiveChainWalletTests: XCTestCase {
         body.append(contentsOf: maximumStaleness.bigEndianBytes)
         body.append(health)
         body.append(contentsOf: [2, 0, 1])
-        var envelope = Data([0x01, 0x0a, 0, 2, 0x91, 0x01])
+        var envelope = Data([0x01, 0x0a, 0, 3, 0x91, 0x01])
         envelope.append(body)
         return envelope
     }
 
+    /// The node names why it refused. Before this, every refusal reached the
+    /// wallet as a generic invalid-request and read on screen as a transport
+    /// fault — which is how a wedged treasury looked like a client-side error.
+    func testFaucetRefusalIsNamedRatherThanReadAsAMalformedReply() throws {
+        var cooldown = Data([10, 3, 1])
+        cooldown.append(contentsOf: UInt64(3_600).bigEndianBytes)
+        cooldown.append(0)
+        let envelope = rpcResponse(body: cooldown)
+
+        let rejection = try XCTUnwrap(WalletRPCCodec.faucetRejection(envelope))
+        XCTAssertEqual(rejection.code, 3)
+        XCTAssertEqual(rejection.retryAfterSeconds, 3_600)
+        XCTAssertNil(rejection.existingReference)
+        XCTAssertTrue(
+            rejection.summary.contains("Already funded"),
+            "a cooldown must read as a wait, got '\(rejection.summary)'"
+        )
+
+        // An operator-side failure must never be phrased as the caller's fault
+        // and must not invite a pointless retry.
+        let unavailable = try XCTUnwrap(
+            WalletRPCCodec.faucetRejection(rpcResponse(body: Data([10, 8, 0, 0])))
+        )
+        XCTAssertEqual(unavailable.code, 8)
+        XCTAssertNil(unavailable.retryAfterSeconds)
+        XCTAssertTrue(
+            unavailable.summary.contains("cannot settle"),
+            "an operator outage must say so, got '\(unavailable.summary)'"
+        )
+
+        // Decoding a receipt from a refusal surfaces the named reason rather
+        // than the malformed-response it used to be mistaken for.
+        XCTAssertThrowsError(try WalletRPCCodec.decodeFaucetReceipt(envelope)) { error in
+            guard case let WalletRPCError.faucetRejected(named) = error else {
+                return XCTFail("expected a named faucet refusal, got \(error)")
+            }
+            XCTAssertEqual(named.code, 3)
+        }
+    }
+
     private func rpcResponse(body: Data) -> Data {
-        var envelope = Data([0x01, 0x0a, 0, 2])
+        var envelope = Data([0x01, 0x0a, 0, 3])
         envelope.append(contentsOf: uleb128(body.count))
         envelope.append(body)
         return envelope

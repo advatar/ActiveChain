@@ -804,6 +804,76 @@ mod tests {
     }
 
     #[test]
+    /// The finite-cell property of an ordinary transfer, stated once so it
+    /// cannot be rediscovered the hard way.
+    ///
+    /// A transfer consumes its inputs *and* a distinct fee reserve, and returns
+    /// a single sender change cell. A sender spending one input per transfer
+    /// therefore loses exactly one cell each time, and a sender holding one
+    /// cell cannot transfer at all: `CoinTransfer` refuses a fee reserve that
+    /// is also an input, and no amount of value in that one cell changes it.
+    ///
+    /// So a treasury of N cells funds exactly N-1 transfers. This is deliberate
+    /// kernel behaviour, not a defect — a service that spends continuously must
+    /// maintain its own cell pool rather than expect transfers to preserve one.
+    /// The faucet did not, and wedged itself after a single grant.
+    #[test]
+    fn a_sender_of_n_cells_can_make_exactly_n_minus_one_ordinary_transfers() {
+        const CELLS: usize = 6;
+        let definition = NativeAssetDefinition::new(
+            ChainId::new(digest(1)),
+            b"ACT".to_vec(),
+            18,
+            1_000_000,
+            150,
+            digest(2),
+            digest(3),
+            digest(4),
+        )
+        .unwrap();
+        let allocations = (0..CELLS)
+            .map(|_| GenesisAllocation::new(principal(10), 900_000 / CELLS as u128, 0).unwrap())
+            .collect();
+        let economy = GenesisEconomy::new(definition, allocations, 100_000).unwrap();
+        let mut ledger = CashLedger::from_genesis(&economy).unwrap();
+
+        let owned = |ledger: &CashLedger| {
+            ledger
+                .cells()
+                .as_slice()
+                .iter()
+                .filter(|record| record.cell().owner() == principal(10))
+                .map(|record| record.id())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(owned(&ledger).len(), CELLS);
+
+        for spent in 1..CELLS {
+            let cells = owned(&ledger);
+            // Exactly the shape the faucet authorizer builds: the largest cell
+            // held back for the fee, one further cell spent as the input.
+            let transfer =
+                CoinTransfer::new(principal(10), principal(20), vec![cells[1]], cells[0], 1, 1, 10)
+                    .unwrap();
+            ledger.apply_transfer(&transfer, spent as u64).unwrap();
+            assert_eq!(
+                owned(&ledger).len(),
+                CELLS - spent,
+                "each transfer must cost the sender exactly one cell"
+            );
+        }
+
+        // One cell left, and it cannot be both the input and the fee reserve.
+        let last = owned(&ledger);
+        assert_eq!(last.len(), 1);
+        assert_eq!(
+            CoinTransfer::new(principal(10), principal(20), vec![last[0]], last[0], 1, 1, 10),
+            Err(NativeMoneyError::FeeReserveAlsoInput),
+            "a one-cell sender is unable to transfer at all, whatever it holds"
+        );
+    }
+
+    #[test]
     fn transfer_charges_owned_fee_reserve_and_rejects_replay() {
         let economy = economy();
         let mut ledger = CashLedger::from_genesis(&economy).unwrap();

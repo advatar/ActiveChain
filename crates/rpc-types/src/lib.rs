@@ -18,7 +18,10 @@ use sha3::{
     digest::{ExtendableOutput, Update, XofReader},
 };
 
-pub const RPC_SCHEMA_REVISION: u32 = 2;
+// Revision 3: faucet refusals are a typed FaucetRejected response rather than
+// a generic InvalidRequest, so a client that does not understand it would
+// misread every refusal.
+pub const RPC_SCHEMA_REVISION: u32 = 3;
 pub const MAX_RPC_BLOB_LENGTH: usize = 256 * 1024;
 pub const MAX_ANCHOR_ACTION_LENGTH: usize = 8 * 1024;
 pub const MAX_RPC_PAGE_SIZE: u16 = 4;
@@ -1749,6 +1752,108 @@ impl CanonicalDecode for RpcError {
     }
 }
 
+/// Why the faucet refused, in terms a client can act on.
+///
+/// Deliberately bounded and deliberately public. Every operator-side failure —
+/// a treasury with too few Coin Cells to construct a transfer, a stale treasury
+/// snapshot, a signer problem — collapses into `SettlementUnavailable`, because
+/// a client can do nothing with the distinction and the internals are not its
+/// business. Kernel errors such as `InvalidTransition` never reach the wire.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum FaucetRejectionCode {
+    Disabled = 0,
+    WrongNetwork = 1,
+    InvalidChallenge = 2,
+    RecipientCooldown = 3,
+    RecipientExhausted = 4,
+    SourceLimited = 5,
+    GlobalLimited = 6,
+    ExistingPendingGrant = 7,
+    SettlementUnavailable = 8,
+}
+impl CanonicalEncode for FaucetRejectionCode {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(encoder)
+    }
+}
+impl CanonicalDecode for FaucetRejectionCode {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(decoder)? {
+            0 => Ok(Self::Disabled),
+            1 => Ok(Self::WrongNetwork),
+            2 => Ok(Self::InvalidChallenge),
+            3 => Ok(Self::RecipientCooldown),
+            4 => Ok(Self::RecipientExhausted),
+            5 => Ok(Self::SourceLimited),
+            6 => Ok(Self::GlobalLimited),
+            7 => Ok(Self::ExistingPendingGrant),
+            8 => Ok(Self::SettlementUnavailable),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "FaucetRejectionCode", tag }),
+        }
+    }
+}
+
+/// A faucet refusal, with only what the client needs to decide what to do next.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FaucetRejectionV1 {
+    code: FaucetRejectionCode,
+    /// When a wait would help. Absent when waiting cannot change the outcome.
+    retry_after_seconds: Option<u64>,
+    /// The reservation already held for this recipient, for correlation only.
+    existing_reference: Option<Digest384>,
+}
+impl FaucetRejectionV1 {
+    pub fn new(
+        code: FaucetRejectionCode,
+        retry_after_seconds: Option<u64>,
+        existing_reference: Option<Digest384>,
+    ) -> Result<Self, DecodeError> {
+        // A reference is meaningful only for the one code that refers to an
+        // existing reservation; carrying it elsewhere would leak references for
+        // requests that never produced one.
+        if existing_reference.is_some() && code != FaucetRejectionCode::ExistingPendingGrant {
+            return Err(DecodeError::InvalidValue("faucet rejection reference is out of place"));
+        }
+        if existing_reference == Some(Digest384::ZERO) {
+            return Err(DecodeError::InvalidValue("faucet rejection reference must not be zero"));
+        }
+        Ok(Self { code, retry_after_seconds, existing_reference })
+    }
+    /// A refusal that names nothing beyond "not right now".
+    pub const fn unavailable() -> Self {
+        Self {
+            code: FaucetRejectionCode::SettlementUnavailable,
+            retry_after_seconds: None,
+            existing_reference: None,
+        }
+    }
+    pub const fn code(&self) -> FaucetRejectionCode {
+        self.code
+    }
+    pub const fn retry_after_seconds(&self) -> Option<u64> {
+        self.retry_after_seconds
+    }
+    pub const fn existing_reference(&self) -> Option<Digest384> {
+        self.existing_reference
+    }
+}
+impl CanonicalEncode for FaucetRejectionV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.code.encode(encoder)?;
+        self.retry_after_seconds.encode(encoder)?;
+        self.existing_reference.encode(encoder)
+    }
+}
+impl CanonicalDecode for FaucetRejectionV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let code = FaucetRejectionCode::decode(decoder)?;
+        let retry_after_seconds = Option::<u64>::decode(decoder)?;
+        let existing_reference = Option::<Digest384>::decode(decoder)?;
+        Self::new(code, retry_after_seconds, existing_reference)
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RpcResponse {
     Status(RpcStatus),
@@ -1761,6 +1866,7 @@ pub enum RpcResponse {
     AnchorRecord(Vec<u8>),
     FaucetReceipt(FaucetReceiptV1),
     FaucetTerms(FaucetTermsV1),
+    FaucetRejected(FaucetRejectionV1),
 }
 impl CanonicalEncode for RpcResponse {
     fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
@@ -1805,6 +1911,10 @@ impl CanonicalEncode for RpcResponse {
                 7_u8.encode(encoder)?;
                 terms.encode(encoder)
             }
+            Self::FaucetRejected(rejection) => {
+                10_u8.encode(encoder)?;
+                rejection.encode(encoder)
+            }
         }
     }
 }
@@ -1821,13 +1931,17 @@ impl CanonicalDecode for RpcResponse {
             5 => Ok(Self::AnchorRecord(decoder.read_bytes(MAX_RPC_BLOB_LENGTH)?.to_vec())),
             6 => Ok(Self::FaucetReceipt(FaucetReceiptV1::decode(decoder)?)),
             7 => Ok(Self::FaucetTerms(FaucetTermsV1::decode(decoder)?)),
+            10 => Ok(Self::FaucetRejected(FaucetRejectionV1::decode(decoder)?)),
             tag => Err(DecodeError::InvalidEnumTag { type_name: "RpcResponse", tag }),
         }
     }
 }
 impl CanonicalType for RpcResponse {
     const TYPE_TAG: u16 = 0x010a;
-    const SCHEMA_VERSION: u16 = 2;
+    // Revision 3 adds FaucetRejected. A client that cannot decode the new
+    // variant must not silently treat a refusal as some other outcome, so this
+    // is a revision bump rather than a quietly additive tag.
+    const SCHEMA_VERSION: u16 = 3;
     const MAX_ENCODED_LEN: usize = 1
         + 2
         + MAX_RPC_PAGE_SIZE as usize * (1 + 48 + 8 + 3 * (4 + MAX_RPC_BLOB_LENGTH))

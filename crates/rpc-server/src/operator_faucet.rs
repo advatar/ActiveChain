@@ -700,6 +700,30 @@ mod tests {
         std::fs::remove_file(path).unwrap();
     }
 
+    /// Startup recovery rejects a reservation on the strength of its reference
+    /// being absent from the journal, so "absent" must never be reachable from
+    /// a journal that could not be read. A missing, truncated, or tampered
+    /// journal has to fail rather than report an empty set — otherwise a
+    /// corrupt file would look exactly like an operator who authorized nothing,
+    /// and recovery would close reservations that may in fact have settled.
+    #[test]
+    fn an_unreadable_journal_yields_an_error_rather_than_no_references() {
+        let nonce =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("activechain-journal-{nonce}.bin"));
+
+        assert!(journal_references(&path).is_err(), "a missing journal is not an empty journal");
+
+        std::fs::write(&path, b"short").unwrap();
+        assert!(journal_references(&path).is_err(), "a truncated journal is not an empty journal");
+
+        // Long enough to carry an integrity tag, but not one that matches.
+        std::fs::write(&path, vec![0_u8; JOURNAL_TAG_LENGTH + 8]).unwrap();
+        assert!(journal_references(&path).is_err(), "a tampered journal is not an empty journal");
+
+        std::fs::remove_file(&path).unwrap();
+    }
+
     #[test]
     fn spool_adapter_publishes_one_idempotent_validator_frame() {
         let directory =

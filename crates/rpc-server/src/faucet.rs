@@ -4,7 +4,8 @@ use activechain_canonical_codec::{
 };
 use activechain_protocol_types::{ChainId, Digest384, PrincipalId, TransactionId};
 use activechain_rpc_types::{
-    FaucetChallengeKind, FaucetReceiptV1, FaucetRequestV1, FaucetState, FaucetTermsV1,
+    FaucetChallengeKind, FaucetReceiptV1, FaucetRejectionV1, FaucetRequestV1, FaucetState,
+    FaucetTermsV1,
 };
 use sha3::{
     Shake256,
@@ -160,6 +161,52 @@ impl FaucetRecord {
         }
     }
 }
+
+/// Maps an internal faucet failure onto the bounded public taxonomy.
+///
+/// Everything that is the operator's problem rather than the caller's collapses
+/// into `SettlementUnavailable`. A treasury too fragmented to construct a
+/// transfer, a stale snapshot, a signer fault and a persistence fault are all
+/// indistinguishable to a client and none of them are its business — and the
+/// alternative, leaking `InvalidTransition`, is what made a wedged treasury
+/// look like a client-side error for a day.
+///
+/// `retry_after_seconds` is supplied only where waiting actually changes the
+/// answer. A cooldown expires; an exhausted lifetime allowance does not.
+pub fn faucet_rejection(
+    error: FaucetError,
+    policy: &FaucetPolicy,
+    existing_reference: Option<Digest384>,
+) -> FaucetRejectionV1 {
+    use activechain_rpc_types::FaucetRejectionCode as Code;
+    let (code, retry_after) = match error {
+        FaucetError::Disabled => (Code::Disabled, None),
+        FaucetError::WrongNetwork => (Code::WrongNetwork, None),
+        FaucetError::InvalidChallenge => (Code::InvalidChallenge, None),
+        FaucetError::RecipientCooldown => {
+            (Code::RecipientCooldown, Some(policy.recipient_cooldown_seconds))
+        }
+        FaucetError::RecipientExhausted => (Code::RecipientExhausted, None),
+        FaucetError::SourceLimited => (Code::SourceLimited, Some(policy.source_window_seconds)),
+        FaucetError::GlobalLimited => (Code::GlobalLimited, Some(policy.global_window_seconds)),
+        FaucetError::ExistingPendingGrant => (Code::ExistingPendingGrant, None),
+        // Operator-side. Never describe these to a client.
+        FaucetError::InvalidPolicy
+        | FaucetError::NotFound
+        | FaucetError::InvalidTransition
+        | FaucetError::Persistence
+        | FaucetError::Capacity
+        | FaucetError::InvalidFinalityEvidence
+        | FaucetError::ReconciliationRequired => (Code::SettlementUnavailable, None),
+    };
+    let reference = if code == Code::ExistingPendingGrant { existing_reference } else { None };
+    FaucetRejectionV1::new(code, retry_after, reference)
+        .unwrap_or_else(|_| FaucetRejectionV1::new(code, retry_after, None).unwrap_or(FALLBACK))
+}
+
+/// Used only if a rejection somehow fails its own construction invariants; a
+/// refusal must still be expressible.
+const FALLBACK: FaucetRejectionV1 = FaucetRejectionV1::unavailable();
 
 /// One durable faucet record, for operator inspection.
 #[derive(Clone, Debug, Eq, PartialEq)]

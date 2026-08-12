@@ -13,7 +13,7 @@ pub use anchor_settlement::{
 };
 pub use faucet::{
     DurableFaucet, FaucetError, FaucetPolicy, FaucetReconciliation, FaucetRecovery, SybilPolicy,
-    faucet_abuse_identity, faucet_settlement_commitment, inspect_records,
+    faucet_abuse_identity, faucet_rejection, faucet_settlement_commitment, inspect_records,
 };
 pub use operator_faucet::{
     DurableOperatorFaucetSettlement, FaucetEnvelopeAuthorizer, MlDsa44FaucetAuthorizer,
@@ -1431,11 +1431,25 @@ impl RpcServer {
                 ) {
                     Ok(receipt) => RpcResponse::FaucetReceipt(receipt),
                     Err(error) => {
-                        // Fourteen distinct refusals collapse into one wire
-                        // error, so an operator cannot tell a cooldown from a
-                        // wrong network without this line.
+                        // The operator log keeps the precise cause; the wire
+                        // gets the bounded public code. These are deliberately
+                        // different: one is for diagnosis, the other is what a
+                        // client is entitled to act on.
                         eprintln!("faucet request rejected: {error:?}");
-                        RpcResponse::Error(RpcError::InvalidRequest)
+                        let existing = if error == FaucetError::ExistingPendingGrant {
+                            faucet
+                                .pending_reconciliation()
+                                .into_iter()
+                                .find(|open| open.receipt().recipient() == request.recipient())
+                                .map(|open| open.receipt().reference())
+                        } else {
+                            None
+                        };
+                        RpcResponse::FaucetRejected(faucet_rejection(
+                            error,
+                            &faucet.policy(),
+                            existing,
+                        ))
                     }
                 }
             }
@@ -3125,7 +3139,10 @@ mod tests {
 
     #[test]
     fn published_revisions_are_stable() {
-        assert_eq!(RPC_SCHEMA_REVISION, 2);
+        // Revision 3 introduced the typed FaucetRejected response. Changing
+        // this number is a deliberate act: every client checks it to decide
+        // whether it can understand the node at all.
+        assert_eq!(RPC_SCHEMA_REVISION, 3);
         assert_eq!(RpcAccessTerms::TYPE_TAG, 0x00ba);
         assert_eq!(RpcAccessRequest::TYPE_TAG, 0x00bc);
         assert_eq!(RpcAccessResponse::TYPE_TAG, 0x00bd);

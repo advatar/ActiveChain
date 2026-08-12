@@ -34,7 +34,7 @@ enum WalletKanalen {
     static let port = NWEndpoint.Port(rawValue: 443)!
     static var hostDescription: String { "\(host):\(port.rawValue)" }
     static let protocolRevision: UInt64 = 1
-    static let schemaRevision: UInt32 = 2
+    static let schemaRevision: UInt32 = 3
     static let chainID = Data([
         0xb1, 0x2c, 0x1c, 0x31, 0x67, 0x17, 0xe9, 0x66,
         0x9c, 0xec, 0x36, 0xf7, 0x63, 0x2a, 0x90, 0x80,
@@ -388,6 +388,13 @@ final class WalletLiveState: ObservableObject {
                 fundingState = .rejected(reference: reference, reason: "The faucet rejected this request.")
             default: throw WalletRPCError.malformedResponse
             }
+        } catch let WalletRPCError.faucetRejected(rejection) {
+            // The node named its reason, so show that rather than a generic
+            // failure. Nothing about the balance changed either way.
+            fundingState = .rejected(
+                reference: rejection.existingReference.map { WalletHex.short($0) },
+                reason: rejection.summary
+            )
         } catch {
             // Every funding failure previously read the same on screen, which
             // cannot distinguish a faucet refusal from a transport fault.
@@ -611,11 +618,45 @@ struct RustWalletOwnerCoinProofVerifier: WalletOwnerCoinProofVerifier {
     }
 }
 
+/// A refusal the node named, rather than one the wallet had to guess at.
+struct WalletFaucetRejection: Equatable, Sendable {
+    let code: UInt8
+    let retryAfterSeconds: UInt64?
+    let existingReference: Data?
+
+    /// Wording is chosen so the reader knows what to do, not what the node
+    /// calls its internal states. Anything on the operator's side of the line
+    /// says so plainly instead of implying the request was at fault.
+    var summary: String {
+        switch code {
+        case 0: "The faucet is disabled."
+        case 1: "This wallet is not on the faucet's network."
+        case 2: "The faucet rejected the request challenge."
+        case 3: "Already funded recently.\(waitClause)"
+        case 4: "This wallet has used its full faucet allowance."
+        case 5: "The faucet is rate limited for this source.\(waitClause)"
+        case 6: "The faucet is at its global rate limit.\(waitClause)"
+        case 7: "A previous grant for this wallet is still being reconciled."
+        case 8: "The faucet cannot settle grants right now."
+        default: "The faucet refused the request."
+        }
+    }
+
+    private var waitClause: String {
+        guard let retryAfterSeconds else { return "" }
+        let minutes = (retryAfterSeconds + 59) / 60
+        return minutes >= 60
+            ? " Try again in about \(minutes / 60)h."
+            : " Try again in about \(minutes)m."
+    }
+}
+
 enum WalletRPCError: Error, Equatable {
     case transport
     case malformedResponse
     case responseTooLarge
     case unexpectedResponse
+    case faucetRejected(WalletFaucetRejection)
 }
 
 enum WalletRPCCodec {
@@ -633,7 +674,7 @@ enum WalletRPCCodec {
     /// which reached the UI only as an unexplained transport failure.
     static let requestSchemaRevision: UInt16 = 2
     static let responseTypeTag: UInt16 = 0x010a
-    static let responseSchemaRevision: UInt16 = 2
+    static let responseSchemaRevision: UInt16 = 3
     private static let requestEnvelopeHeader = Data([0x01, 0x07, 0x00, 0x02])
 
     static let framedStatusRequest = framedRequest(body: Data([0]))
@@ -708,7 +749,32 @@ enum WalletRPCCodec {
         }
     }
 
+    /// Decodes a typed faucet refusal.
+    ///
+    /// The node now names why it refused instead of collapsing every reason
+    /// into a generic invalid-request. That distinction is the whole point: a
+    /// cooldown, an unresolved reservation and an operator-side outage call for
+    /// three different things from the person holding the phone.
+    static func faucetRejection(_ envelope: Data) -> WalletFaucetRejection? {
+        guard var decoder = try? responseBody(envelope, variant: 10),
+              let code = try? decoder.readUInt8(),
+              let hasRetry = try? decoder.readUInt8(), hasRetry <= 1 else { return nil }
+        let retryAfter = hasRetry == 1 ? try? decoder.readUInt64() : nil
+        guard let hasReference = try? decoder.readUInt8(), hasReference <= 1 else { return nil }
+        let reference = hasReference == 1 ? try? decoder.read(count: 48) : nil
+        return WalletFaucetRejection(
+            code: code,
+            retryAfterSeconds: retryAfter,
+            existingReference: reference
+        )
+    }
+
     static func decodeFaucetReceipt(_ envelope: Data) throws -> WalletFaucetReceipt {
+        if let rejection = faucetRejection(envelope) {
+            WalletLog.rpc.error(
+                "faucet refused: \(rejection.summary, privacy: .public)")
+            throw WalletRPCError.faucetRejected(rejection)
+        }
         if let reason = serverError(envelope) {
             WalletLog.rpc.error("faucet request refused by the node: \(reason, privacy: .public)")
             throw WalletRPCError.unexpectedResponse
