@@ -56,6 +56,7 @@ targets:
     scheme:
       testTargets:
         - ActiveChainWalletMacTests
+        - ActiveChainWalletMacUITests
   ActiveChainWalletTests:
     type: bundle.unit-test
     platform: iOS
@@ -75,5 +76,18 @@ targets:
       GENERATE_INFOPLIST_FILE: YES
       PRODUCT_MODULE_NAME: ActiveChainWalletMacTests
       SWIFT_VERSION: "5.9"
+    dependencies:
+      - target: ActiveChainWalletMac
+  ActiveChainWalletMacUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: UITests
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+      PRODUCT_MODULE_NAME: ActiveChainWalletMacUITests
+      SWIFT_VERSION: "5.9"
+      TEST_TARGET_NAME: ActiveChainWalletMac
     dependencies:
       - target: ActiveChainWalletMac

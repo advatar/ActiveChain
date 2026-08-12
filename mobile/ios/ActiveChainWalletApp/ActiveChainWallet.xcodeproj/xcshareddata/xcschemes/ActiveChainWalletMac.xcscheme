@@ -50,6 +50,17 @@
                ReferencedContainer = "container:ActiveChainWallet.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "F5E684DA3C0C6BD458234993"
+               BuildableName = "ActiveChainWalletMacUITests.xctest"
+               BlueprintName = "ActiveChainWalletMacUITests"
+               ReferencedContainer = "container:ActiveChainWallet.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
       <CommandLineArguments>
       </CommandLineArguments>

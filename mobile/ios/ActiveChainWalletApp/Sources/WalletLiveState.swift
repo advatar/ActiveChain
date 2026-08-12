@@ -598,7 +598,30 @@ enum WalletRPCCodec {
         return WalletFaucetTerms(chainID: chain, genesis: genesis, challengeKind: challenge)
     }
 
+    /// Names the node's refusal instead of reporting an unexpected response.
+    ///
+    /// A rejected request comes back as RpcResponse::Error, whose variant does
+    /// not match the one being decoded, so every server-side refusal read as a
+    /// malformed reply and its reason was discarded.
+    static func serverError(_ envelope: Data) -> String? {
+        guard var decoder = try? responseBody(envelope, variant: 3),
+              let code = try? decoder.readUInt8() else { return nil }
+        switch code {
+        case 0: return "not found"
+        case 1: return "stale"
+        case 2: return "unsupported proof"
+        case 3: return "invalid request"
+        case 4: return "deadline exceeded"
+        case 5: return "internal error"
+        default: return "unknown error \(code)"
+        }
+    }
+
     static func decodeFaucetReceipt(_ envelope: Data) throws -> WalletFaucetReceipt {
+        if let reason = serverError(envelope) {
+            WalletLog.rpc.error("faucet request refused by the node: \(reason, privacy: .public)")
+            throw WalletRPCError.unexpectedResponse
+        }
         var decoder = try responseBody(envelope, variant: 6)
         let reference = try decoder.read(count: 48)
         _ = try decoder.read(count: 48) // recipient
