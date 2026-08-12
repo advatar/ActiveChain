@@ -19,7 +19,7 @@
 //! finalizes would keep reselecting the same cells.
 
 use activechain_protocol_types::{ChainId, Digest384, PrincipalId};
-use activechain_rpc_server::query;
+use activechain_rpc_server::{query, verify_query_record_with_chain_genesis};
 use activechain_rpc_types::{FaucetRequestV1, RpcRequest, RpcResponse};
 use std::{env, process::ExitCode, thread::sleep, time::Duration};
 
@@ -74,15 +74,13 @@ fn run() -> Result<String, String> {
     let mut recipients = Vec::with_capacity(grants);
 
     for index in 0..grants {
-        let held = owner_cells(&address, treasury)?.len();
+        let held = owner_cells(&address, treasury, status.1)?.len();
         outcome.treasury_floor = outcome.treasury_floor.min(held);
-        if held < 2 {
-            return Err(format!(
-                "treasury fell to {held} Coin Cell(s) after {} grant(s); it can no longer \
-                 construct a transfer and the run cannot continue",
-                outcome.granted
-            ));
-        }
+        // Below two cells the treasury cannot construct a transfer at all, and
+        // what matters then is *how* the faucet says so. This is the condition
+        // that wedged Kanalen while reporting a bare InvalidTransition, so the
+        // run keeps asking and insists the refusal be named.
+        let exhausted = held < 2;
         let recipient = derive_principal(b"rehearsal-recipient", run, index);
         let request = FaucetRequestV1::new(
             status.0,
@@ -96,6 +94,12 @@ fn run() -> Result<String, String> {
         .map_err(|error| format!("could not build request {index}: {error:?}"))?;
 
         match grant(&address, &request)? {
+            Ok(()) if exhausted => {
+                return Err(format!(
+                    "grant {index} was accepted with only {held} treasury Coin Cell(s); \
+                     no transfer can be constructed from that"
+                ));
+            }
             Ok(()) => {
                 outcome.granted += 1;
                 recipients.push(recipient);
@@ -107,7 +111,7 @@ fn run() -> Result<String, String> {
                 // settlement really happened rather than merely being accepted.
                 let deadline = std::time::Instant::now() + GRANT_TIMEOUT;
                 loop {
-                    if owner_cells(&address, treasury)?.len() < held {
+                    if owner_cells(&address, treasury, status.1)?.len() < held {
                         break;
                     }
                     if std::time::Instant::now() >= deadline {
@@ -120,7 +124,16 @@ fn run() -> Result<String, String> {
                     sleep(POLL);
                 }
             }
-            Err(reason) => outcome.refused.push((index, reason)),
+            Err(reason) => {
+                if exhausted && reason != "SettlementUnavailable" {
+                    return Err(format!(
+                        "treasury is exhausted at {held} cell(s) and the faucet answered \
+                         '{reason}'; an operator-side shortfall must never be reported as \
+                         the caller's fault"
+                    ));
+                }
+                outcome.refused.push((index, reason));
+            }
         }
         println!(
             "grant {index}: treasury {held} cell(s) before, {} granted, {} refused",
@@ -137,7 +150,7 @@ fn run() -> Result<String, String> {
         funded = recipients
             .iter()
             .filter(|recipient| {
-                owner_cells(&address, **recipient).is_ok_and(|cells| !cells.is_empty())
+                owner_cells(&address, **recipient, status.1).is_ok_and(|cells| !cells.is_empty())
             })
             .count();
         if funded == recipients.len() {
@@ -146,7 +159,7 @@ fn run() -> Result<String, String> {
         sleep(POLL);
     }
 
-    let treasury_now = owner_cells(&address, treasury)?.len();
+    let treasury_now = owner_cells(&address, treasury, status.1)?.len();
     let mut report = format!(
         "{} grant(s) issued, {} refused, {funded}/{} recipient(s) holding verified Coin Cells\n\
          treasury now {treasury_now} cell(s), lowest observed {}\n",
@@ -187,7 +200,16 @@ fn status(address: &str) -> Result<(ChainId, Digest384), String> {
     }
 }
 
-fn owner_cells(address: &str, owner: PrincipalId) -> Result<Vec<Digest384>, String> {
+/// Lists an owner's Coin Cells, verifying each record's proof against the
+/// chain genesis rather than trusting that the node returned something.
+///
+/// "The node sent records" and "the owner provably holds Coin Cells" are
+/// different claims, and only the second one is worth asserting after a grant.
+fn owner_cells(
+    address: &str,
+    owner: PrincipalId,
+    genesis: Digest384,
+) -> Result<Vec<Digest384>, String> {
     let mut cells = Vec::new();
     let mut after = None;
     loop {
@@ -205,7 +227,11 @@ fn owner_cells(address: &str, owner: PrincipalId) -> Result<Vec<Digest384>, Stri
             RpcResponse::Error(error) => return Err(format!("node refused the query: {error:?}")),
             _ => return Err("node returned an unexpected response".to_owned()),
         };
-        cells.extend(page.records().iter().map(|record| record.key()));
+        for record in page.records() {
+            verify_query_record_with_chain_genesis(record, genesis)
+                .map_err(|error| format!("owner Coin Cell proof did not verify: {error:?}"))?;
+            cells.push(record.key());
+        }
         match page.next() {
             Some(cursor) => after = Some(cursor),
             None => return Ok(cells),
