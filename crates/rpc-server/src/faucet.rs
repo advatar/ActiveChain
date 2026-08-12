@@ -87,6 +87,7 @@ pub enum FaucetError {
     Capacity,
     InvalidFinalityEvidence,
     ReconciliationRequired,
+    ExistingPendingGrant,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -130,6 +131,83 @@ struct FaucetRecord {
     settlement_commitment: Digest384,
     created_at: u64,
     receipt: FaucetReceiptV1,
+}
+
+impl FaucetRecord {
+    /// Whether settlement has been established for this reservation.
+    ///
+    /// A reservation is written durably *before* settlement is attempted, so a
+    /// `Pending` record carrying no transaction says only that the operator
+    /// authorized a grant — not that any funds moved. Until the outcome is
+    /// established it is neither a grant nor a rejection.
+    fn is_unresolved(&self) -> bool {
+        self.receipt.state() == FaucetState::Pending && self.receipt.transaction_id().is_none()
+    }
+
+    /// Whether this record spends the recipient's allowance.
+    ///
+    /// Only records that actually reached the ledger may consume quota. An
+    /// unresolved reservation must not, or a settlement failure would charge
+    /// the recipient a cooldown and a lifetime slot for a grant they never
+    /// received — which is precisely how a stuck reservation turns into a
+    /// permanently unfundable wallet. A rejection consumes nothing; it is
+    /// retained as audit evidence, not as usage.
+    fn consumes_quota(&self) -> bool {
+        match self.receipt.state() {
+            FaucetState::Pending => self.receipt.transaction_id().is_some(),
+            FaucetState::Finalized => true,
+            FaucetState::Rejected => false,
+        }
+    }
+}
+
+/// One durable faucet record, for operator inspection.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FaucetRecordSummary {
+    pub reference: Digest384,
+    pub recipient: PrincipalId,
+    pub idempotency_key: Digest384,
+    pub amount: u128,
+    pub state: FaucetState,
+    pub transaction_id: Option<TransactionId>,
+    pub created_at: u64,
+}
+
+/// Reads durable faucet records without requiring the node's policy.
+///
+/// [`DurableFaucet::open`] validates records against the live policy, which an
+/// operator diagnosing a stuck reservation may not have to hand — and which
+/// may be precisely what is misconfigured. Diagnosis must not depend on it.
+pub fn inspect_records(path: &Path) -> Result<Vec<FaucetRecordSummary>, FaucetError> {
+    Ok(load_records(path)?
+        .into_iter()
+        .map(|record| FaucetRecordSummary {
+            reference: record.receipt.reference(),
+            recipient: record.receipt.recipient(),
+            idempotency_key: record.idempotency_key,
+            amount: record.receipt.amount(),
+            state: record.receipt.state(),
+            transaction_id: record.receipt.transaction_id(),
+            created_at: record.created_at,
+        })
+        .collect())
+}
+
+/// What startup recovery did to the reservations it found open.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct FaucetRecovery {
+    /// Replayed against a journalled authorization and now carries a transaction.
+    pub settled: usize,
+    /// Never authorized, so provably unsettled and closed.
+    pub rejected: usize,
+    /// Still uncertain; left open deliberately for the next attempt.
+    pub unresolved: usize,
+}
+
+impl FaucetRecovery {
+    pub const fn total(&self) -> usize {
+        self.settled + self.rejected + self.unresolved
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -330,10 +408,25 @@ impl DurableFaucet {
         }
         self.verify_challenge(request, abuse_identity)?;
 
+        // A recipient holding a reservation whose settlement outcome is still
+        // unknown must not be issued a second one: the operator has to
+        // establish what happened to the first, or the two could both settle.
+        // This is deliberately not a cooldown — the recipient has no grant and
+        // no allowance has been spent, so reporting it as one would tell them
+        // to wait for a timer that will never resolve the situation.
+        if self.records.iter().any(|record| {
+            record.receipt.recipient() == request.recipient() && record.is_unresolved()
+        }) {
+            return Err(FaucetError::ExistingPendingGrant);
+        }
+        // Every count below is over settled issuance only. Reservations whose
+        // settlement never completed are durable audit evidence, not usage.
         let recipient_records: Vec<_> = self
             .records
             .iter()
-            .filter(|record| record.receipt.recipient() == request.recipient())
+            .filter(|record| {
+                record.receipt.recipient() == request.recipient() && record.consumes_quota()
+            })
             .collect();
         let seconds_since_recipient =
             recipient_records.iter().map(|record| now.saturating_sub(record.created_at)).min();
@@ -342,6 +435,7 @@ impl DurableFaucet {
             .iter()
             .filter(|record| {
                 record.abuse_identity == abuse_identity
+                    && record.consumes_quota()
                     && now.saturating_sub(record.created_at) < self.policy.source_window_seconds
             })
             .count();
@@ -349,7 +443,8 @@ impl DurableFaucet {
             .records
             .iter()
             .filter(|record| {
-                now.saturating_sub(record.created_at) < self.policy.global_window_seconds
+                record.consumes_quota()
+                    && now.saturating_sub(record.created_at) < self.policy.global_window_seconds
             })
             .count();
         match admission(
@@ -460,6 +555,47 @@ impl DurableFaucet {
                 receipt: record.receipt.clone(),
             })
             .collect()
+    }
+
+    /// Resolves every reservation a crash or a failed settlement left open.
+    ///
+    /// `prepared` answers whether the operator durably authorized a transfer
+    /// for a reference. Because authorization is journalled before publication,
+    /// its answer splits the outstanding reservations into two provable cases:
+    ///
+    /// * authorized — a transfer may exist, so replay the *same* prepared
+    ///   settlement. Replay is idempotent and reuses the journalled envelope
+    ///   byte for byte, so it either attaches the transaction that was always
+    ///   going to be attached or leaves the record untouched for the next
+    ///   attempt. It is never rejected here: uncertainty is not evidence.
+    /// * never authorized — nothing was signed and nothing was published, so
+    ///   no transfer can exist. This is the only case where rejecting is safe.
+    ///
+    /// Without this, a reservation whose settlement failed stayed open forever,
+    /// and the recipient it belonged to could never be funded again.
+    pub fn recover_unresolved<P, F>(
+        &mut self,
+        prepared: P,
+        settle: F,
+    ) -> Result<FaucetRecovery, FaucetError>
+    where
+        P: Fn(Digest384) -> bool,
+        F: Fn(PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError>,
+    {
+        let mut recovery = FaucetRecovery::default();
+        for outstanding in self.pending_reconciliation() {
+            let reference = outstanding.receipt.reference();
+            if prepared(reference) {
+                match self.resume_pending(outstanding.idempotency_key, &settle, None) {
+                    Ok(receipt) if receipt.transaction_id().is_some() => recovery.settled += 1,
+                    Ok(_) | Err(_) => recovery.unresolved += 1,
+                }
+            } else {
+                self.reject_pending(reference)?;
+                recovery.rejected += 1;
+            }
+        }
+        Ok(recovery)
     }
 
     /// Reconciles an existing reservation using the same immutable request, abuse identity, and
@@ -1217,6 +1353,239 @@ mod tests {
         drop(faucet);
         let reopened = DurableFaucet::open(policy(), path.clone()).unwrap();
         assert_eq!(reopened.records.len(), 3);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    fn record_in(state: FaucetState, transaction: Option<TransactionId>) -> FaucetRecord {
+        let finalized = state == FaucetState::Finalized;
+        FaucetRecord {
+            idempotency_key: digest(60),
+            abuse_identity: digest(61),
+            request_commitment: digest(62),
+            settlement_commitment: digest(63),
+            created_at: 100,
+            receipt: FaucetReceiptV1::new(
+                digest(64),
+                principal(3),
+                1_000,
+                state,
+                transaction,
+                finalized.then_some(9),
+                finalized.then(|| digest(65)),
+                if finalized { vec![1] } else { Vec::new() },
+            )
+            .unwrap(),
+        }
+    }
+
+    /// The accounting rule itself: only issuance that actually reached the
+    /// ledger may spend a recipient's allowance.
+    #[test]
+    fn only_settled_issuance_spends_the_recipient_allowance() {
+        let transaction = Some(TransactionId::new(digest(66)));
+        let reserved = record_in(FaucetState::Pending, None);
+        let submitted = record_in(FaucetState::Pending, transaction);
+        let finalized = record_in(FaucetState::Finalized, transaction);
+        let rejected = record_in(FaucetState::Rejected, None);
+
+        assert!(!reserved.consumes_quota(), "a reservation with no settlement is not a grant");
+        assert!(submitted.consumes_quota(), "a submitted transfer is a grant awaiting finality");
+        assert!(finalized.consumes_quota(), "a finalized grant is a grant");
+        assert!(!rejected.consumes_quota(), "a rejection is audit evidence, not usage");
+
+        assert!(reserved.is_unresolved(), "no transaction means the outcome is still unknown");
+        assert!(!submitted.is_unresolved(), "a transaction establishes the outcome");
+        assert!(!rejected.is_unresolved(), "an operator has established this outcome");
+    }
+
+    /// A settlement that never reached ingress must leave the recipient exactly
+    /// as it found them: durable evidence of the attempt, no allowance spent,
+    /// and the same reference still resumable.
+    #[test]
+    fn an_unsettled_reservation_charges_no_allowance_and_stays_resumable() {
+        let path = path("unsettled-allowance");
+        let mut faucet = DurableFaucet::create(policy(), path.clone()).unwrap();
+        let attempt = request(3, 40);
+        assert_eq!(
+            faucet.request(&attempt, digest(40), digest(50), 100, |_, _, _| Err(
+                FaucetError::Persistence
+            )),
+            Err(FaucetError::Persistence)
+        );
+
+        assert_eq!(faucet.records.len(), 1, "the reservation must survive a failed settlement");
+        assert!(faucet.records[0].is_unresolved());
+        assert!(!faucet.records[0].consumes_quota(), "an unsettled grant spent no allowance");
+        assert_eq!(faucet.pending_reconciliation().len(), 1, "an operator must see it as open");
+
+        // The outcome must still be recoverable after a restart, replaying the
+        // one prepared settlement rather than authorizing a fresh one.
+        drop(faucet);
+        let mut reopened = DurableFaucet::open(policy(), path.clone()).unwrap();
+        let outstanding = reopened.pending_reconciliation();
+        assert_eq!(outstanding.len(), 1, "reconciliation state must be durable");
+        let reference = outstanding[0].receipt().reference();
+        let settled = reopened
+            .reconcile_pending(&attempt, digest(40), digest(50), |_, _, offered| {
+                assert_eq!(offered, reference, "reconciliation must resettle the same reference");
+                Ok(TransactionId::new(digest(41)))
+            })
+            .unwrap();
+        assert_eq!(settled.reference(), reference);
+        assert_eq!(settled.transaction_id(), Some(TransactionId::new(digest(41))));
+
+        // Now that it has settled, it does spend the allowance.
+        assert_eq!(
+            reopened.request(&request(3, 44), digest(40), digest(55), 110, |_, _, _| Ok(
+                TransactionId::new(digest(45))
+            )),
+            Err(FaucetError::RecipientCooldown)
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    /// An unresolved reservation blocks a second grant — but as a reconciliation
+    /// condition, not a cooldown. Reporting it as a cooldown would tell the
+    /// recipient to wait out a timer that cannot resolve their situation.
+    #[test]
+    fn an_unresolved_reservation_blocks_a_new_key_without_reporting_a_cooldown() {
+        let path = path("unresolved-second-key");
+        let mut faucet = DurableFaucet::create(policy(), path.clone()).unwrap();
+        assert_eq!(
+            faucet.request(&request(3, 40), digest(40), digest(50), 100, |_, _, _| Err(
+                FaucetError::Persistence
+            )),
+            Err(FaucetError::Persistence)
+        );
+        assert_eq!(
+            faucet.request(&request(3, 41), digest(40), digest(51), 100, |_, _, _| Ok(
+                TransactionId::new(digest(42))
+            )),
+            Err(FaucetError::ExistingPendingGrant),
+            "a second key must not mint a grant while the first outcome is unknown"
+        );
+        assert_eq!(faucet.records.len(), 1, "the blocked request must not create a record");
+
+        // Once an operator establishes that settlement did not occur, the
+        // recipient is free again and has been charged nothing for the attempt.
+        let reference = faucet.records[0].receipt.reference();
+        faucet.reject_pending(reference).unwrap();
+        let granted = faucet
+            .request(&request(3, 41), digest(40), digest(51), 100, |_, _, _| {
+                Ok(TransactionId::new(digest(42)))
+            })
+            .unwrap();
+        assert_eq!(granted.transaction_id(), Some(TransactionId::new(digest(42))));
+        assert_ne!(granted.reference(), reference, "a new grant is a new reference");
+        std::fs::remove_file(path).unwrap();
+    }
+
+    /// Source and global windows are issuance budgets, so an attempt that never
+    /// settled must not consume capacity other recipients are waiting on.
+    #[test]
+    fn unsettled_attempts_do_not_consume_source_or_global_capacity() {
+        let path = path("unsettled-capacity");
+        let mut faucet = DurableFaucet::create(policy(), path.clone()).unwrap();
+        for (recipient, key, commitment) in [(3_u8, 40_u8, 50_u8), (4, 41, 51), (5, 42, 52)] {
+            assert_eq!(
+                faucet.request(
+                    &request(recipient, key),
+                    digest(40),
+                    digest(commitment),
+                    100,
+                    |_, _, _| { Err(FaucetError::Persistence) }
+                ),
+                Err(FaucetError::Persistence)
+            );
+        }
+        // Three failed attempts is past both the source limit (2) and the
+        // global limit (3) had they counted. None of them settled, so a fresh
+        // recipient must still be servable.
+        assert_eq!(faucet.records.len(), 3);
+        assert!(
+            faucet
+                .request(&request(6, 43), digest(40), digest(53), 100, |_, _, _| Ok(
+                    TransactionId::new(digest(44))
+                ))
+                .is_ok(),
+            "unsettled attempts must not exhaust the issuance budget"
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    /// Startup recovery must close every open reservation, and the operator
+    /// journal is what decides how: replay what was authorized, reject only
+    /// what provably never was.
+    #[test]
+    fn startup_recovery_settles_authorized_reservations_and_closes_unauthorized_ones() {
+        let path = path("startup-recovery");
+        let mut faucet = DurableFaucet::create(policy(), path.clone()).unwrap();
+        for (recipient, key, commitment) in [(3_u8, 40_u8, 50_u8), (4, 41, 51)] {
+            assert_eq!(
+                faucet.request(
+                    &request(recipient, key),
+                    digest(40),
+                    digest(commitment),
+                    100,
+                    |_, _, _| Err(FaucetError::Persistence)
+                ),
+                Err(FaucetError::Persistence)
+            );
+        }
+        let outstanding = faucet.pending_reconciliation();
+        assert_eq!(outstanding.len(), 2);
+        let authorized = outstanding[0].receipt().reference();
+        let never_authorized = outstanding[1].receipt().reference();
+
+        let recovery = faucet
+            .recover_unresolved(
+                |reference| reference == authorized,
+                |_, _, reference| {
+                    assert_eq!(reference, authorized, "only an authorized reference may resettle");
+                    Ok(TransactionId::new(digest(42)))
+                },
+            )
+            .unwrap();
+        assert_eq!(recovery, FaucetRecovery { settled: 1, rejected: 1, unresolved: 0 });
+        assert!(faucet.pending_reconciliation().is_empty(), "no reservation may stay open");
+
+        // The replayed grant reached the ledger, so it spends its recipient's
+        // allowance; the rejected one never did, so its recipient is free.
+        assert_eq!(
+            faucet.request(&request(3, 43), digest(40), digest(52), 110, |_, _, _| Ok(
+                TransactionId::new(digest(44))
+            )),
+            Err(FaucetError::RecipientCooldown)
+        );
+        assert!(
+            faucet
+                .request(&request(4, 44), digest(40), digest(53), 110, |_, _, _| Ok(
+                    TransactionId::new(digest(45))
+                ))
+                .is_ok(),
+            "a recipient whose grant was never authorized must be fundable again"
+        );
+        assert_ne!(never_authorized, Digest384::ZERO);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    /// Recovery must never guess. A reservation whose settlement was authorized
+    /// but cannot be replayed right now stays open rather than being closed on
+    /// an assumption about what happened.
+    #[test]
+    fn startup_recovery_leaves_uncertain_reservations_open() {
+        let path = path("uncertain-recovery");
+        let mut faucet = DurableFaucet::create(policy(), path.clone()).unwrap();
+        assert_eq!(
+            faucet.request(&request(3, 40), digest(40), digest(50), 100, |_, _, _| Err(
+                FaucetError::Persistence
+            )),
+            Err(FaucetError::Persistence)
+        );
+        let recovery =
+            faucet.recover_unresolved(|_| true, |_, _, _| Err(FaucetError::Persistence)).unwrap();
+        assert_eq!(recovery, FaucetRecovery { settled: 0, rejected: 0, unresolved: 1 });
+        assert_eq!(faucet.pending_reconciliation().len(), 1, "uncertainty is not evidence");
         std::fs::remove_file(path).unwrap();
     }
 

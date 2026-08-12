@@ -576,16 +576,21 @@ final class ActiveChainWalletTests: XCTestCase {
         XCTAssertThrowsError(try page.validated(owner: Data(repeating: 1, count: 48), chainGenesis: Data(repeating: 2, count: 48), finalizedHeight: 4, verifier: verifier))
     }
 
-    func testOwnerCoinPageValidationRejectsUnauthenticatedAbsenceAndWrongGenesis() {
+    func testOwnerCoinPageValidationAcceptsVerifiedAbsenceButRejectsWrongGenesis() throws {
         let verifier = RejectingOwnerProofVerifier()
-        XCTAssertThrowsError(
-            try WalletOwnerCoinPage(records: [], next: nil).validated(
-                owner: Data(repeating: 1, count: 48),
-                chainGenesis: WalletKanalen.genesis,
-                finalizedHeight: 4,
-                verifier: verifier
-            )
+        // A page carrying no records is a verified statement that this owner
+        // holds no spendable Coin Cells. There is no proof to reject, so the
+        // verifier is never consulted, and the wallet must report a zero
+        // balance rather than a protocol failure — treating absence as
+        // malformed made every unfunded wallet look like a broken node.
+        let empty = try WalletOwnerCoinPage(records: [], next: nil).validated(
+            owner: Data(repeating: 1, count: 48),
+            chainGenesis: WalletKanalen.genesis,
+            finalizedHeight: 4,
+            verifier: verifier
         )
+        XCTAssertTrue(empty.records.isEmpty)
+
         let record = WalletOwnerCoinRecord(
             key: Data(repeating: 3, count: 48),
             finalizedHeight: 4,
@@ -603,8 +608,52 @@ final class ActiveChainWalletTests: XCTestCase {
         )
     }
 
+    /// The chain advances between the status call and the page call, so a
+    /// record proved at an earlier finalized height is the ordinary case. The
+    /// old equality check turned that race into a refresh failure.
+    func testOwnerCoinPageAcceptsRecordsProvedBelowTheObservedHeight() throws {
+        let record = WalletOwnerCoinRecord(
+            key: Data(repeating: 3, count: 48),
+            finalizedHeight: 4,
+            value: Data([1]),
+            proof: Data([2]),
+            finality: Data([3])
+        )
+        let page = try WalletOwnerCoinPage(records: [record], next: nil).validated(
+            owner: Data(repeating: 1, count: 48),
+            chainGenesis: WalletKanalen.genesis,
+            finalizedHeight: 5,
+            verifier: AcceptingOwnerProofVerifier()
+        )
+        XCTAssertEqual(page.records.count, 1)
+    }
+
+    /// Nothing above the height we observed has been proved to this wallet, so
+    /// a record claiming one is refused even when its own proof verifies.
+    func testOwnerCoinPageRejectsRecordsAboveTheObservedHeight() {
+        let record = WalletOwnerCoinRecord(
+            key: Data(repeating: 3, count: 48),
+            finalizedHeight: 6,
+            value: Data([1]),
+            proof: Data([2]),
+            finality: Data([3])
+        )
+        XCTAssertThrowsError(
+            try WalletOwnerCoinPage(records: [record], next: nil).validated(
+                owner: Data(repeating: 1, count: 48),
+                chainGenesis: WalletKanalen.genesis,
+                finalizedHeight: 5,
+                verifier: AcceptingOwnerProofVerifier()
+            )
+        )
+    }
+
     private struct RejectingOwnerProofVerifier: WalletOwnerCoinProofVerifier {
         func verify(record: WalletOwnerCoinRecord, owner: Data, chainGenesis: Data) -> Bool { false }
+    }
+
+    private struct AcceptingOwnerProofVerifier: WalletOwnerCoinProofVerifier {
+        func verify(record: WalletOwnerCoinRecord, owner: Data, chainGenesis: Data) -> Bool { true }
     }
 
     func testLinkedRustOwnerProofVerifierFailsClosedOnMalformedEvidence() {

@@ -539,6 +539,16 @@ fn save_journal(path: &Path, records: &[PreparedSettlement]) -> Result<(), Fauce
     result
 }
 
+/// Settlement references the operator has durably authorized.
+///
+/// The journal is written before a transfer is published, so a reference that
+/// is absent from it was never authorized and no transfer for it can exist.
+/// That is the one fact which makes rejecting an unresolved reservation safe,
+/// and startup recovery needs it before it may touch anything.
+pub fn journal_references(path: &Path) -> Result<Vec<Digest384>, FaucetError> {
+    Ok(load_journal(path)?.into_iter().map(|prepared| prepared.reference).collect())
+}
+
 fn load_journal(path: &Path) -> Result<Vec<PreparedSettlement>, FaucetError> {
     let bytes = std::fs::read(path).map_err(|_| FaucetError::Persistence)?;
     if bytes.len() < JOURNAL_TAG_LENGTH {

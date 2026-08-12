@@ -4,7 +4,7 @@ use activechain_rpc_server::{
     DurableFaucet, DurableOperatorFaucetSettlement, DurableRpcStore, FaucetPolicy,
     MlDsa44FaucetAuthorizer, RpcAccessController, RpcServer, SpoolAnchorProposalAdapter,
     SpoolOperatorFaucetIngressAdapter, SybilPolicy, WalletIngressOperatorSettlementAdapter,
-    load_access_terms, verify_access_terms,
+    journal_references, load_access_terms, verify_access_terms,
 };
 use activechain_rpc_types::RpcAccessMode;
 use ml_dsa::{MlDsa44, Seed, SigningKey};
@@ -203,6 +203,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 parse_principal(&source_setting)?
             };
             let journal = PathBuf::from(required_env("ACTIVECHAIN_FAUCET_SETTLEMENT_JOURNAL")?);
+            let journal_path = journal.clone();
             let authorizer = MlDsa44FaucetAuthorizer::new(
                 Arc::clone(ingress),
                 chain_id,
@@ -233,7 +234,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 DurableOperatorFaucetSettlement::create(journal, authorizer, ingress_adapter)
             }
             .map_err(|error| format!("could not initialize faucet settlement: {error:?}"))?;
-            server.with_faucet_settlement_adapter(settlement)
+            let server = server.with_faucet_settlement_adapter(settlement);
+            // A reservation is durable before settlement is attempted, so a run
+            // that died or failed mid-settlement leaves records nobody has
+            // resolved — and their recipients stay unfundable until someone
+            // does. The journal is the authority on what was authorized.
+            let prepared = journal_references(&journal_path)
+                .map_err(|error| format!("could not read faucet settlement journal: {error:?}"))?;
+            let recovery = server
+                .recover_faucet_reservations(|reference| prepared.contains(&reference))
+                .map_err(|error| format!("faucet reservation recovery failed: {error:?}"))?;
+            if recovery.total() > 0 {
+                eprintln!(
+                    "faucet recovery: {} settled, {} rejected as never authorized, {} still unresolved",
+                    recovery.settled, recovery.rejected, recovery.unresolved
+                );
+            }
+            server
         } else {
             server
         }

@@ -12,12 +12,12 @@ pub use anchor_settlement::{
     AnchorProposalAdapter, ProposedAnchorAction, SpoolAnchorProposalAdapter,
 };
 pub use faucet::{
-    DurableFaucet, FaucetError, FaucetPolicy, FaucetReconciliation, SybilPolicy,
-    faucet_abuse_identity, faucet_settlement_commitment,
+    DurableFaucet, FaucetError, FaucetPolicy, FaucetReconciliation, FaucetRecovery, SybilPolicy,
+    faucet_abuse_identity, faucet_settlement_commitment, inspect_records,
 };
 pub use operator_faucet::{
     DurableOperatorFaucetSettlement, FaucetEnvelopeAuthorizer, MlDsa44FaucetAuthorizer,
-    OperatorFaucetIngressAdapter, SpoolOperatorFaucetIngressAdapter,
+    OperatorFaucetIngressAdapter, SpoolOperatorFaucetIngressAdapter, journal_references,
 };
 
 use activechain_action_kernel::{ActionEnvelope, ActionPayloadV2, action_id};
@@ -1170,6 +1170,28 @@ impl RpcServer {
     {
         self.anchor_proposal = Some(Arc::new(adapter));
         self
+    }
+
+    /// Resolves faucet reservations left open by an earlier run.
+    ///
+    /// Call this once at startup, before serving. A reservation is durable from
+    /// the moment it is taken, so a node that crashed or failed to settle comes
+    /// back holding records whose outcome nobody has established — and, until
+    /// they are resolved, the recipients they belong to cannot be funded again.
+    ///
+    /// `prepared` must be backed by the operator settlement journal; see
+    /// [`journal_references`].
+    pub fn recover_faucet_reservations<P>(&self, prepared: P) -> Result<FaucetRecovery, FaucetError>
+    where
+        P: Fn(Digest384) -> bool,
+    {
+        let (Some(faucet), Some(settlement)) = (&self.faucet, &self.faucet_settlement) else {
+            return Ok(FaucetRecovery::default());
+        };
+        let mut faucet = faucet.write().map_err(|_| FaucetError::Persistence)?;
+        faucet.recover_unresolved(prepared, |recipient, amount, reference| {
+            settlement(recipient, amount, reference)
+        })
     }
 
     /// Attach the operator's durable faucet policy and receipt journal.

@@ -114,11 +114,31 @@ enum WalletFundingState: Equatable, Sendable {
     }
 }
 
+/// What the wallet can honestly claim about this owner's holdings.
+///
+/// These three cases must never collapse into one another. A verified page
+/// with no records is a *proof* that the owner holds nothing; a rejected proof
+/// is a protocol failure; an unreachable node is neither. Showing all three as
+/// "balance unavailable" hid a real funding defect for the length of a
+/// debugging session, and showing any of the latter two as a zero balance
+/// would be a false claim about the ledger.
+enum WalletBalanceState: Equatable, Sendable {
+    /// No answer was obtained: the node is unreachable, or no profile is loaded.
+    case unavailable(reason: String)
+    /// The node answered and the owner-scoped proof did not verify.
+    case unverified(reason: String)
+    /// A verified owner-scoped page. `cells == 0` is a verified zero balance.
+    case verified(cells: Int, height: UInt64)
+}
+
 @MainActor
 final class WalletLiveState: ObservableObject {
     @Published private(set) var networkState: WalletNetworkState = .checking
     @Published private(set) var deviceProfile: WalletDeviceProfile?
     @Published private(set) var verifiedOwnerPage: WalletOwnerCoinPage?
+    @Published private(set) var balanceState: WalletBalanceState = .unavailable(
+        reason: "Waiting for a finalized RPC checkpoint before loading wallet state."
+    )
     @Published private(set) var fundingState: WalletFundingState = .unavailable(
         reason: "Load a finalized wallet profile and secure cash key first."
     )
@@ -145,6 +165,8 @@ final class WalletLiveState: ObservableObject {
             WalletLog.rpc.error(
                 "status refresh failed against \(WalletKanalen.hostDescription, privacy: .public): \(String(describing: error), privacy: .public)")
             networkState = .unavailable
+            balanceState = .unavailable(
+                reason: "Kanalen RPC is unavailable; no local or optimistic balance is shown.")
             return
         }
         guard case let .healthy(height) = networkState,
@@ -155,16 +177,23 @@ final class WalletLiveState: ObservableObject {
             // A healthy network with no balance is the most confusing state the
             // wallet can show, and this guard was the silent cause: a profile
             // bound to a superseded genesis is skipped without a word.
+            var reason = "Waiting for a finalized RPC checkpoint before loading wallet state."
             if case .healthy = networkState {
                 if deviceProfile == nil {
                     WalletLog.rpc.notice("no device profile stored; balances and funding stay unavailable")
+                    reason = "No wallet exists on this device yet."
                 } else if let profile = deviceProfile, profile.chainGenesis != status.genesis {
                     WalletLog.rpc.error(
                         "device profile is bound to genesis \(WalletHex.short(profile.chainGenesis), privacy: .public) but the chain reports \(WalletHex.short(status.genesis), privacy: .public); recreate the profile for this chain")
+                    reason = "This wallet belongs to a superseded chain; recreate it for the current genesis."
                 } else if !status.supports(1) {
                     WalletLog.rpc.error("node does not advertise the owner coin-cell capability")
+                    reason = "The node does not serve owner-scoped Coin Cell proofs."
                 }
+            } else if case .stale = networkState {
+                reason = "The RPC checkpoint is stale; balances stay hidden until finality catches up."
             }
+            balanceState = .unavailable(reason: reason)
             updateFundingAvailability()
             return
         }
@@ -177,6 +206,7 @@ final class WalletLiveState: ObservableObject {
             WalletLog.rpc.notice(
                 "verified \(page.records.count, privacy: .public) owner coin cell(s) at height \(height, privacy: .public)")
             verifiedOwnerPage = page
+            balanceState = .verified(cells: page.records.count, height: height)
         } catch {
             // Discarding this was the last silent failure in the refresh path:
             // a funded wallet showing no balance looked identical to an unfunded
@@ -184,6 +214,9 @@ final class WalletLiveState: ObservableObject {
             WalletLog.rpc.error(
                 "owner coin cell verification failed for owner \(WalletHex.short(profile.owner), privacy: .public) at height \(height, privacy: .public): \(String(describing: error), privacy: .public)")
             verifiedOwnerPage = nil
+            // Deliberately not a zero balance: the ledger made no such claim.
+            balanceState = .unverified(
+                reason: "The node answered, but its owner-scoped proof did not verify.")
         }
         updateFundingAvailability()
     }
@@ -468,13 +501,22 @@ struct WalletOwnerCoinPage: Equatable, Sendable {
         finalizedHeight: UInt64,
         verifier: any WalletOwnerCoinProofVerifier
     ) throws -> WalletOwnerCoinPage {
+        // An empty page is a valid answer, not a protocol failure: it is a
+        // verified statement that this owner holds no spendable Coin Cells.
+        // Treating it as malformed made an unfunded wallet indistinguishable
+        // from a broken node, which is the opposite of what the proof says.
         guard owner.count == 48,
               owner.contains(where: { $0 != 0 }),
-              chainGenesis == WalletKanalen.genesis,
-              !records.isEmpty
+              chainGenesis == WalletKanalen.genesis
         else { throw WalletRPCError.malformedResponse }
         for record in records {
-            guard record.finalizedHeight == finalizedHeight,
+            // A record may be proved against any height the node has already
+            // finalized. Demanding equality with the status height made the
+            // page fail whenever the chain advanced between the two calls —
+            // a race the wallet loses roughly every block. A record from the
+            // future is still refused: nothing above the observed finalized
+            // height has been proved to us.
+            guard record.finalizedHeight <= finalizedHeight,
                   verifier.verify(record: record, owner: owner, chainGenesis: chainGenesis)
             else { throw WalletRPCError.unexpectedResponse }
         }

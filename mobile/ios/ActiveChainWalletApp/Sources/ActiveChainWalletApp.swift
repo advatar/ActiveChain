@@ -72,7 +72,7 @@ private struct HomeView: View {
             ScrollView {
                 LazyVStack(spacing: 18) {
                     Header()
-                    BalanceCard(networkState: liveState.networkState, verifiedPage: liveState.verifiedOwnerPage)
+                    BalanceCard(balanceState: liveState.balanceState)
                     if let secret = liveState.recoverySecret {
                         RecoveryKeyCard(secret: secret) { liveState.acknowledgeRecoverySecret() }
                     }
@@ -170,20 +170,32 @@ private struct Header: View {
 }
 
 private struct BalanceCard: View {
-    let networkState: WalletNetworkState
-    let verifiedPage: WalletOwnerCoinPage?
+    let balanceState: WalletBalanceState
+
+    /// A verified empty page is a claim the chain actually made, so it reads as
+    /// a balance. The other two cases are absences of a claim and must not.
+    private var headline: String {
+        switch balanceState {
+        case let .verified(cells, _): cells == 0 ? "0 ACT" : "\(cells) Coin Cell\(cells == 1 ? "" : "s")"
+        case .unverified: "Balance unverified"
+        case .unavailable: "Balance unavailable"
+        }
+    }
 
     private var stateMessage: String {
-        if let verifiedPage {
-            return "\(verifiedPage.records.count) owner-scoped Coin Cell proof(s) verified at finalized state."
+        switch balanceState {
+        case let .verified(cells, height):
+            cells == 0
+                ? "Verified at finalized height \(height): this wallet holds no Coin Cells yet."
+                : "\(cells) owner-scoped Coin Cell proof(s) verified at finalized height \(height)."
+        case let .unverified(reason): reason
+        case let .unavailable(reason): reason
         }
-        return switch networkState {
-        case .healthy: "The network is finalized, but no owner-scoped Coin Cell proof is loaded for this wallet."
-        case .checking: "Waiting for a finalized RPC checkpoint before loading wallet state."
-        case .stale: "The RPC checkpoint is stale; balances remain hidden until finality catches up."
-        case .unavailable: "Kanalen RPC is unavailable; no local or optimistic balance is shown."
-        case .incompatible: "Kanalen RPC protocol is incompatible; update before loading wallet state."
-        }
+    }
+
+    private var isVerified: Bool {
+        if case .verified = balanceState { return true }
+        return false
     }
 
     var body: some View {
@@ -203,7 +215,7 @@ private struct BalanceCard: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("Balance unavailable")
+                Text(headline)
                     .accessibilityIdentifier("balance.headline")
                     .font(.system(size: 28, weight: .bold, design: .rounded))
                 Text(stateMessage)
@@ -211,10 +223,12 @@ private struct BalanceCard: View {
                     .foregroundStyle(.white.opacity(0.64))
             }
 
-            Label("Transfers disabled until finalized wallet state is available",
-                  systemImage: "exclamationmark.lock.fill")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.orange)
+            if !isVerified {
+                Label("Transfers disabled until finalized wallet state is available",
+                      systemImage: "exclamationmark.lock.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+            }
         }
         .padding(22)
         .background(
