@@ -124,6 +124,7 @@ private struct FundingCard: View {
             HStack {
                 Label(state.title, systemImage: "drop.fill")
                     .font(.headline)
+                    .accessibilityIdentifier("funding.title")
                 Spacer()
                 if case .requesting = state { ProgressView().controlSize(.small) }
             }
@@ -203,6 +204,7 @@ private struct BalanceCard: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("Balance unavailable")
+                    .accessibilityIdentifier("balance.headline")
                     .font(.system(size: 28, weight: .bold, design: .rounded))
                 Text(stateMessage)
                     .font(.callout)
@@ -265,6 +267,7 @@ private struct NetworkCard: View {
                 Text(state.label)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(state.color)
+                    .accessibilityIdentifier("network.status")
             }
             .cardStyle()
         }
@@ -733,6 +736,7 @@ struct OnboardingCard: View {
             HStack {
                 Label("No wallet on this device", systemImage: "key.fill")
                     .font(.headline)
+                    .accessibilityIdentifier("onboarding.title")
                 Spacer()
                 if creating { ProgressView().controlSize(.small) }
             }
@@ -775,6 +779,7 @@ struct RecoveryKeyCard: View {
         VStack(alignment: .leading, spacing: 12) {
             Label("Save your recovery key", systemImage: "lock.rotation")
                 .font(.headline)
+                .accessibilityIdentifier("recovery.title")
             Text("Required to open this wallet on another device. It is shown once and is not stored anywhere.")
                 .font(.caption)
                 .foregroundStyle(WalletPalette.muted)

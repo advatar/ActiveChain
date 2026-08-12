@@ -27,15 +27,27 @@ final class WalletLifecycleUITests: XCTestCase {
         app = nil
     }
 
+    /// A LazyVStack only realizes what is on screen, so a card below the fold
+    /// is absent from the accessibility tree rather than merely off-view.
+    private func scrollIntoView(_ element: XCUIElement) {
+        guard let scroll = app.scrollViews.allElementsBoundByIndex.first else { return }
+        for _ in 0..<8 where !element.exists {
+            scroll.scroll(byDeltaX: 0, deltaY: -160)
+        }
+    }
+
     /// The first refresh has to complete a real round trip to Kanalen, so give
     /// it room rather than racing the network.
     private func awaitNetworkSettled() {
-        let healthy = app.staticTexts["Healthy"]
+        // SwiftUI merges a Button's children into one element, so the status
+        // is not addressable as a static text.
+        let status = app.descendants(matching: .any)["network.status"].firstMatch
         let unavailable = app.staticTexts["Unavailable"]
         let deadline = Date().addingTimeInterval(60)
         while Date() < deadline {
-            if healthy.exists || unavailable.exists { return }
-            _ = healthy.waitForExistence(timeout: 2)
+            scrollIntoView(status)
+            if status.exists || unavailable.exists { return }
+            _ = status.waitForExistence(timeout: 2)
         }
     }
 
@@ -43,10 +55,11 @@ final class WalletLifecycleUITests: XCTestCase {
     /// separates "the chain is unreachable" from "onboarding is broken".
     func testReportsKanalenHealthBeforeAnythingElse() {
         awaitNetworkSettled()
-        let healthy = app.staticTexts["Healthy"]
+        let status = app.descendants(matching: .any)["network.status"].firstMatch
+        XCTAssertTrue(status.exists, "the network card never reported a status")
         XCTAssertTrue(
-            healthy.exists,
-            "Kanalen never reported healthy; the wallet cannot be exercised without a reachable chain"
+            status.label.contains("Healthy"),
+            "Kanalen reported \(status.label) rather than Healthy; the wallet cannot be exercised without a reachable chain"
         )
     }
 
@@ -59,7 +72,7 @@ final class WalletLifecycleUITests: XCTestCase {
             // branch cannot be re-exercised without clearing the keychain, so
             // assert the state it should have left behind.
             XCTAssertTrue(
-                app.staticTexts["Request testnet ACT"].waitForExistence(timeout: 20),
+                app.staticTexts["funding.title"].waitForExistence(timeout: 20),
                 "a provisioned wallet must offer funding"
             )
             throw XCTSkip("wallet already provisioned on this machine; onboarding branch not re-run")
@@ -69,7 +82,7 @@ final class WalletLifecycleUITests: XCTestCase {
 
         // Provisioning must produce recovery material, because a wallet that
         // cannot be recovered cannot be moved to another device.
-        let recoveryHeading = app.staticTexts["Save your recovery key"]
+        let recoveryHeading = app.staticTexts["recovery.title"]
         XCTAssertTrue(
             recoveryHeading.waitForExistence(timeout: 30),
             "provisioning did not surface a recovery key"
@@ -84,7 +97,7 @@ final class WalletLifecycleUITests: XCTestCase {
             "the recovery key must be shown once and then dismissed"
         )
         XCTAssertTrue(
-            app.staticTexts["Request testnet ACT"].waitForExistence(timeout: 20),
+            app.staticTexts["funding.title"].waitForExistence(timeout: 20),
             "funding must become available once a wallet exists"
         )
         XCTAssertFalse(
@@ -97,7 +110,7 @@ final class WalletLifecycleUITests: XCTestCase {
     /// a figure while the wallet holds no verified Coin Cell proof.
     func testNeverShowsABalanceWithoutVerifiedState() {
         XCTAssertTrue(
-            app.staticTexts["Balance unavailable"].waitForExistence(timeout: 30),
+            app.staticTexts["balance.headline"].waitForExistence(timeout: 30),
             "a wallet with no verified owner-scoped proof must say so rather than show a number"
         )
     }

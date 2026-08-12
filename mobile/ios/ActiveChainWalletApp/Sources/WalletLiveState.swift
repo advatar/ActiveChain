@@ -169,12 +169,20 @@ final class WalletLiveState: ObservableObject {
             return
         }
         do {
-            verifiedOwnerPage = try await rpc.verifiedOwnerCoinCells(
+            let page = try await rpc.verifiedOwnerCoinCells(
                 profile: profile,
                 finalizedHeight: height,
                 verifier: verifier
             )
+            WalletLog.rpc.notice(
+                "verified \(page.records.count, privacy: .public) owner coin cell(s) at height \(height, privacy: .public)")
+            verifiedOwnerPage = page
         } catch {
+            // Discarding this was the last silent failure in the refresh path:
+            // a funded wallet showing no balance looked identical to an unfunded
+            // one, whether the owner held nothing or the proof was rejected.
+            WalletLog.rpc.error(
+                "owner coin cell verification failed for owner \(WalletHex.short(profile.owner), privacy: .public) at height \(height, privacy: .public): \(String(describing: error), privacy: .public)")
             verifiedOwnerPage = nil
         }
         updateFundingAvailability()
