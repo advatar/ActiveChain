@@ -758,6 +758,15 @@ struct OnboardingCard: View {
 /// This key seals the recovery envelope that lets a second device re-wrap the
 /// same seed under its own Secure Enclave. It is never written to disk and
 /// never logged, so if it is lost the wallet cannot move between devices.
+private func copyToPasteboard(_ value: String) {
+#if os(macOS)
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(value, forType: .string)
+#else
+    UIPasteboard.general.string = value
+#endif
+}
+
 struct RecoveryKeyCard: View {
     let secret: String
     let acknowledge: () -> Void
@@ -776,7 +785,7 @@ struct RecoveryKeyCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(WalletPalette.ink, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             HStack {
-                Button("Copy") { UIPasteboard.general.string = secret }
+                Button("Copy") { copyToPasteboard(secret) }
                     .buttonStyle(SecondaryWalletButton())
                 Button("I have saved it", action: acknowledge)
                     .buttonStyle(PrimaryWalletButton())

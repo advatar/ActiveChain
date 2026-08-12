@@ -285,11 +285,21 @@ final class SecureEnclaveWrappingBackend: AppleHardwareWrapping {
             WalletCustodyLog.custody.error("no Secure Enclave on this device; hardware-backed custody is required")
             throw AppleCustodyError.hardwareUnavailable
         }
+        // The simulator emulates an enclave but rejects every authentication
+        // gate: .userPresence, .biometryAny and .devicePasscode all fail with
+        // errSecAuthFailed, whether or not a biometric is enrolled. Gate the
+        // requirement at compile time so a device build always demands user
+        // presence and this relaxation cannot ship.
+#if targetEnvironment(simulator)
+        let usageFlags: SecAccessControlCreateFlags = [.privateKeyUsage]
+#else
+        let usageFlags: SecAccessControlCreateFlags = [.privateKeyUsage, .userPresence]
+#endif
         var accessError: Unmanaged<CFError>?
         guard let access = SecAccessControlCreateWithFlags(
             nil,
             kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            [.privateKeyUsage, .userPresence],
+            usageFlags,
             &accessError
         ) else {
             let reason = accessError?.takeRetainedValue().localizedDescription ?? "unspecified"
@@ -313,7 +323,11 @@ final class SecureEnclaveWrappingBackend: AppleHardwareWrapping {
             WalletCustodyLog.custody.error("secure enclave key creation failed: \(reason, privacy: .public)")
             throw AppleCustodyError.hardwareUnavailable
         }
-        WalletCustodyLog.custody.notice("secure enclave wrapping key created")
+#if targetEnvironment(simulator)
+        WalletCustodyLog.custody.notice("secure enclave wrapping key created without user presence (simulator only)")
+#else
+        WalletCustodyLog.custody.notice("secure enclave wrapping key created with user presence")
+#endif
         var encryptionError: Unmanaged<CFError>?
         guard let ciphertext = SecKeyCreateEncryptedData(
             publicKey,
