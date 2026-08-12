@@ -277,6 +277,14 @@ final class SecureEnclaveWrappingBackend: AppleHardwareWrapping {
     let capability = AppleCustodyCapability.secureEnclaveWrappedMLDSA44
 
     func createAndWrap(secret: Data, tag: Data) throws -> Data {
+        // Only hardware-backed custody is supported: there is deliberately no
+        // software fallback, so a machine without a Secure Enclave cannot hold
+        // a wallet. Say so here rather than letting key creation fail later as
+        // an opaque errSecAuthFailed.
+        guard SecureEnclave.isAvailable else {
+            WalletCustodyLog.custody.error("no Secure Enclave on this device; hardware-backed custody is required")
+            throw AppleCustodyError.hardwareUnavailable
+        }
         var accessError: Unmanaged<CFError>?
         guard let access = SecAccessControlCreateWithFlags(
             nil,
