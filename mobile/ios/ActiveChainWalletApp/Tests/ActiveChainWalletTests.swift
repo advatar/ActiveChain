@@ -1,5 +1,6 @@
 import XCTest
 import Security
+import CryptoKit
 import ActiveChainWallet
 @testable import ActiveChainWalletApp
 
@@ -37,7 +38,7 @@ final class ActiveChainWalletTests: XCTestCase {
             sourceCommitment: Data(repeating: 5, count: 48)
         )
         XCTAssertEqual(Array(frame.prefix(4)), [0, 0, 1, 0])
-        XCTAssertEqual(Array(frame[4..<8]), [0x01, 0x07, 0, 1])
+        XCTAssertEqual(Array(frame[4..<8]), [0x01, 0x07, 0, 2])
         XCTAssertEqual(Array(frame[8..<10]), [0xfa, 0x01])
         XCTAssertEqual(frame[10], 5)
         XCTAssertEqual(frame.count, 260)
@@ -222,6 +223,103 @@ final class ActiveChainWalletTests: XCTestCase {
 #if os(macOS)
         XCTAssertEqual(local[kSecUseDataProtectionKeychain] as? Bool, true)
 #endif
+    }
+
+
+    /// Proves the cross-device claim: a wallet provisioned on one device can be
+    /// recovered on another and keeps the same identity.
+    ///
+    /// Custody takes its store, hardware and engine as protocols, so two
+    /// devices are modelled as two stores with two independent wrapping keys
+    /// while the real ML-DSA-44 engine derives the keys. The Secure Enclave is
+    /// stood in for because it is device bound by construction; everything that
+    /// determines identity — the seed, its sealing, and the derived public
+    /// key — is exercised for real.
+    func testRecoveryEnvelopeMovesTheSameWalletToAnotherDevice() throws {
+        let deviceA = AppleNativeCustodyProvider(
+            store: InMemoryCustodyStore(),
+            hardware: InMemoryWrapping(),
+            engine: RustAppleMLDSA44Engine()
+        )
+        let deviceB = AppleNativeCustodyProvider(
+            store: InMemoryCustodyStore(),
+            hardware: InMemoryWrapping(),
+            engine: RustAppleMLDSA44Engine()
+        )
+        var recoveryKey = Data(repeating: 0x5A, count: 32)
+
+        let originPublicKey = try deviceA.provision(
+            slotID: "primary",
+            keyVersion: 1,
+            finalizedHeight: 100,
+            recoveryKey: &recoveryKey
+        )
+        let envelope = try deviceA.exportRecoveryEnvelope(slotID: "primary")
+
+        let recoveredPublicKey = try deviceB.recover(
+            envelopeBytes: envelope,
+            expectedPublicKey: originPublicKey,
+            newVersion: 2,
+            finalizedHeight: 100,
+            recoveryKey: &recoveryKey
+        )
+
+        // Same public key on both devices means the same owner principal, which
+        // is what "the same wallet" has to mean.
+        XCTAssertEqual(recoveredPublicKey, originPublicKey)
+        XCTAssertEqual(try deviceB.publicKey(slotID: "primary"), originPublicKey)
+
+        // And the recovered device can actually authorize.
+        let signature = try deviceB.sign(
+            slotID: "primary",
+            payload: Data("cross device authorization".utf8),
+            minimumVersion: 2,
+            minimumFinalizedHeight: 100,
+            reason: "test"
+        )
+        XCTAssertEqual(signature.count, AppleNativeCustodyProvider.signatureLength)
+    }
+
+    func testRecoveryRejectsAWrongKeyAndARolledBackVersion() throws {
+        let deviceA = AppleNativeCustodyProvider(
+            store: InMemoryCustodyStore(),
+            hardware: InMemoryWrapping(),
+            engine: RustAppleMLDSA44Engine()
+        )
+        var recoveryKey = Data(repeating: 0x11, count: 32)
+        let originPublicKey = try deviceA.provision(
+            slotID: "primary",
+            keyVersion: 3,
+            finalizedHeight: 200,
+            recoveryKey: &recoveryKey
+        )
+        let envelope = try deviceA.exportRecoveryEnvelope(slotID: "primary")
+
+        var wrongKey = Data(repeating: 0x22, count: 32)
+        let deviceB = AppleNativeCustodyProvider(
+            store: InMemoryCustodyStore(),
+            hardware: InMemoryWrapping(),
+            engine: RustAppleMLDSA44Engine()
+        )
+        XCTAssertThrowsError(
+            try deviceB.recover(
+                envelopeBytes: envelope,
+                expectedPublicKey: originPublicKey,
+                newVersion: 4,
+                finalizedHeight: 200,
+                recoveryKey: &wrongKey
+            )
+        )
+        // Anti-rollback: the receiving version must exceed the envelope's.
+        XCTAssertThrowsError(
+            try deviceB.recover(
+                envelopeBytes: envelope,
+                expectedPublicKey: originPublicKey,
+                newVersion: 3,
+                finalizedHeight: 200,
+                recoveryKey: &recoveryKey
+            )
+        )
     }
 
     func testCanonicalApprovalComesFromExactRustRequest() throws {
@@ -436,7 +534,7 @@ final class ActiveChainWalletTests: XCTestCase {
     func testOwnerCoinCellRequestUsesBoundedCanonicalEnvelope() throws {
         let frame = try WalletRPCCodec.framedOwnerCoinCellRequest(owner: Data(repeating: 7, count: 48))
         XCTAssertEqual(frame.count, 4 + 4 + 1 + 48 + 1 + 2 + 1)
-        XCTAssertEqual(Array(frame[4..<8]), [0x01, 0x07, 0, 1])
+        XCTAssertEqual(Array(frame[4..<8]), [0x01, 0x07, 0, 2])
         XCTAssertEqual(frame[8], 52)
         XCTAssertEqual(frame[9], 8)
         XCTAssertThrowsError(try WalletRPCCodec.framedOwnerCoinCellRequest(owner: Data(repeating: 0, count: 47)))
@@ -447,7 +545,7 @@ final class ActiveChainWalletTests: XCTestCase {
         var body = Data([2, 1, 1])
         body.append(Data(repeating: 1, count: 48))
         body.append(contentsOf: [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0])
-        var envelope = Data([0x01, 0x0a, 0, 1, UInt8(body.count)])
+        var envelope = Data([0x01, 0x0a, 0, 2, UInt8(body.count)])
         envelope.append(body)
         XCTAssertThrowsError(try WalletRPCCodec.decodeOwnerCoinPage(envelope))
     }
@@ -461,7 +559,8 @@ final class ActiveChainWalletTests: XCTestCase {
             body.append(Data(repeating: marker, count: 60))
         }
         body.append(0)
-        var envelope = Data([0x01, 0x0a, 0, 1])
+        // RpcResponse is canonical schema revision 2.
+        var envelope = Data([0x01, 0x0a, 0, 2])
         envelope.append(contentsOf: uleb128(body.count))
         envelope.append(body)
 
@@ -745,13 +844,13 @@ final class ActiveChainWalletTests: XCTestCase {
         body.append(contentsOf: maximumStaleness.bigEndianBytes)
         body.append(health)
         body.append(contentsOf: [2, 0, 1])
-        var envelope = Data([0x01, 0x0a, 0, 1, 0x91, 0x01])
+        var envelope = Data([0x01, 0x0a, 0, 2, 0x91, 0x01])
         envelope.append(body)
         return envelope
     }
 
     private func rpcResponse(body: Data) -> Data {
-        var envelope = Data([0x01, 0x0a, 0, 1])
+        var envelope = Data([0x01, 0x0a, 0, 2])
         envelope.append(contentsOf: uleb128(body.count))
         envelope.append(body)
         return envelope
@@ -876,4 +975,38 @@ private extension FixedWidthInteger {
     var bigEndianBytes: [UInt8] {
         withUnsafeBytes(of: bigEndian) { Array($0) }
     }
+}
+
+/// Stands in for the keychain. Custody stores an opaque record per slot, so an
+/// in-memory dictionary is a faithful substitute.
+private final class InMemoryCustodyStore: AppleCustodyRecordStore {
+    private var records: [String: Data] = [:]
+
+    func loadCustodyRecord(slotID: String) throws -> Data? { records[slotID] }
+    func saveCustodyRecord(_ data: Data, slotID: String) throws { records[slotID] = data }
+    func deleteCustodyRecord(slotID: String) throws { records[slotID] = nil }
+}
+
+/// Stands in for one device's Secure Enclave.
+///
+/// An enclave key cannot leave its device, which is exactly why recovery
+/// re-wraps rather than copies. Each instance therefore holds its own wrapping
+/// secret, so a record sealed by one instance is meaningless to another — the
+/// property that makes this a real two-device test.
+private final class InMemoryWrapping: AppleHardwareWrapping {
+    let capability = AppleCustodyCapability.secureEnclaveWrappedMLDSA44
+    private var keys: [Data: SymmetricKey] = [:]
+
+    func createAndWrap(secret: Data, tag: Data) throws -> Data {
+        let key = SymmetricKey(size: .bits256)
+        keys[tag] = key
+        return try AES.GCM.seal(secret, using: key).combined ?? Data()
+    }
+
+    func unwrap(ciphertext: Data, tag: Data, reason: String) throws -> Data {
+        guard let key = keys[tag] else { throw AppleCustodyError.hardwareUnavailable }
+        return try AES.GCM.open(try AES.GCM.SealedBox(combined: ciphertext), using: key)
+    }
+
+    func deleteWrappingKey(tag: Data) throws { keys[tag] = nil }
 }
