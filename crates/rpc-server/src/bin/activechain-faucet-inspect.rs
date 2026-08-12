@@ -18,8 +18,9 @@
 //! Read-only. It never writes to either file; the node resolves reservations
 //! itself at startup.
 
-use activechain_rpc_server::{inspect_records, journal_references};
-use activechain_rpc_types::FaucetState;
+use activechain_protocol_types::{Digest384, PrincipalId};
+use activechain_rpc_server::{inspect_records, journal_references, query};
+use activechain_rpc_types::{FaucetState, RpcRequest, RpcResponse};
 use std::{env, path::PathBuf, process::ExitCode};
 
 fn main() -> ExitCode {
@@ -39,13 +40,11 @@ fn run() -> Result<String, String> {
     let mut arguments = env::args().skip(1);
     let (Some(snapshot), Some(journal)) = (arguments.next(), arguments.next()) else {
         return Err(
-            "usage: activechain-faucet-inspect <faucet.snapshot> <faucet-settlement.journal>"
+            "usage: activechain-faucet-inspect <faucet.snapshot> <faucet-settlement.journal> \
+             [<rpc-address> <treasury-owner-hex>]"
                 .to_owned(),
         );
     };
-    if arguments.next().is_some() {
-        return Err("unexpected argument".to_owned());
-    }
     let records = inspect_records(&PathBuf::from(&snapshot))
         .map_err(|error| format!("could not read faucet snapshot: {error:?}"))?;
     let prepared = journal_references(&PathBuf::from(&journal))
@@ -81,7 +80,72 @@ fn run() -> Result<String, String> {
         ));
     }
     report.push_str(&format!("{open} reservation(s) awaiting resolution\n"));
+
+    // Reservations only explain half of a stuck faucet. Authorization needs at
+    // least two treasury Coin Cells -- one held back as the fee reserve, one or
+    // more spent as transfer inputs -- and a treasury down to a single cell
+    // fails every request with a bare InvalidTransition that names neither the
+    // treasury nor the shortfall.
+    if let (Some(address), Some(owner)) = (arguments.next(), arguments.next()) {
+        report.push_str(&treasury_report(&address, &owner)?);
+    }
     Ok(report)
+}
+
+fn treasury_report(address: &str, owner: &str) -> Result<String, String> {
+    let owner = PrincipalId::new(decode_digest(owner)?);
+    let mut cells = Vec::new();
+    let mut after = None;
+    loop {
+        let response = query(
+            address,
+            &RpcRequest::ListOwnerCoinCells {
+                owner,
+                after,
+                limit: activechain_rpc_types::MAX_RPC_PAGE_SIZE,
+            },
+        )
+        .map_err(|error| format!("could not query treasury cells: {error:?}"))?;
+        let page = match response {
+            RpcResponse::Page(page) => page,
+            RpcResponse::Error(error) => return Err(format!("node refused the query: {error:?}")),
+            _ => return Err("node returned an unexpected response".to_owned()),
+        };
+        cells.extend(page.records().iter().map(|record| record.key()));
+        match page.next() {
+            Some(cursor) => after = Some(cursor),
+            None => break,
+        }
+    }
+    let mut report = format!(
+        "treasury {} holds {} Coin Cell(s)",
+        prefix(owner.into_digest().as_bytes()),
+        cells.len()
+    );
+    if cells.len() < 2 {
+        report.push_str(
+            " -- BELOW THE MINIMUM. Authorization reserves the largest cell for\n  \
+             the fee and spends the rest, so it needs at least two. Every faucet\n  \
+             request will fail with InvalidTransition until the treasury is split.",
+        );
+    }
+    report.push('\n');
+    Ok(report)
+}
+
+fn decode_digest(value: &str) -> Result<Digest384, String> {
+    if value.len() != 96 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("owner must be 96 hex characters".to_owned());
+    }
+    let mut digest = [0_u8; 48];
+    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+        digest[index] = u8::from_str_radix(
+            std::str::from_utf8(pair).map_err(|_| "owner must be ASCII hex".to_owned())?,
+            16,
+        )
+        .map_err(|_| "owner must be hex".to_owned())?;
+    }
+    Ok(Digest384::new(digest))
 }
 
 /// Recipients are wallet identities, so they are reported as a prefix — enough

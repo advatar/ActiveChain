@@ -43,11 +43,22 @@ fn policy_commitment(chain: ChainId, label: &[u8]) -> Digest384 {
     Digest384::new(output)
 }
 
+/// How many Coin Cells the genesis treasury is split into.
+///
+/// Each faucet grant costs the treasury one cell, so this is also the number of
+/// grants the chain can ever issue before the treasury must be refilled.
+const DEFAULT_TREASURY_CELLS: usize = 1024;
+const _: () = assert!(
+    DEFAULT_TREASURY_CELLS >= 2,
+    "a treasury of fewer than two cells cannot satisfy fee reserve and input at once"
+);
+
 fn ledger(
     chain: ChainId,
     owner: PrincipalId,
     genesis_supply: u128,
     security_reserve: u128,
+    treasury_cells: usize,
 ) -> Result<CashLedger, String> {
     let allocation = genesis_supply
         .checked_sub(security_reserve)
@@ -64,14 +75,32 @@ fn ledger(
         policy_commitment(chain, b"rewards"),
     )
     .map_err(|error| format!("invalid native asset definition: {error:?}"))?;
-    let fee_reserve = allocation / 2;
-    let spendable = allocation - fee_reserve;
-    let allocations = vec![
-        GenesisAllocation::new(owner, fee_reserve, 0)
-            .map_err(|error| format!("invalid treasury fee reserve: {error:?}"))?,
-        GenesisAllocation::new(owner, spendable, 0)
-            .map_err(|error| format!("invalid treasury spendable allocation: {error:?}"))?,
-    ];
+    // The treasury has to be funded as many cells, not as one balance.
+    //
+    // A transfer consumes its inputs *and* its fee reserve and returns a single
+    // change cell, so each grant costs the treasury one cell. A fee reserve may
+    // not also be an input, so a treasury holding one cell cannot spend at all.
+    // Genesis used to create two cells, which bought exactly one grant before
+    // the faucet was permanently stuck -- and the failure surfaced only as a
+    // bare InvalidTransition on every request thereafter.
+    let cells = u128::try_from(treasury_cells).map_err(|_| "treasury cell count overflows")?;
+    let base = allocation / cells;
+    if base == 0 {
+        return Err("genesis allocation cannot be split across that many cells".to_owned());
+    }
+    // The first cell carries the rounding remainder so the cells sum to the
+    // allocation exactly; sizes need not be equal, only exhaustive.
+    let mut allocations = Vec::with_capacity(treasury_cells);
+    allocations.push(
+        GenesisAllocation::new(owner, base + allocation % cells, 0)
+            .map_err(|error| format!("invalid treasury allocation: {error:?}"))?,
+    );
+    for _ in 1..treasury_cells {
+        allocations.push(
+            GenesisAllocation::new(owner, base, 0)
+                .map_err(|error| format!("invalid treasury allocation: {error:?}"))?,
+        );
+    }
     let economy = GenesisEconomy::new(definition, allocations, security_reserve)
         .map_err(|error| format!("invalid genesis economy: {error:?}"))?;
     CashLedger::from_genesis(&economy)
@@ -87,17 +116,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let owner_argument = args.next().ok_or("missing treasury principal")?;
     let genesis_supply: u128 = args.next().ok_or("missing genesis supply")?.parse()?;
     let security_reserve: u128 = args.next().ok_or("missing security reserve")?.parse()?;
-    let operator_seed = args
-        .next()
-        .map(|argument| {
-            argument
-                .strip_prefix("--operator-seed=")
-                .map(std::path::PathBuf::from)
-                .ok_or("unexpected trailing argument")
-        })
-        .transpose()?;
-    if args.next().is_some() {
-        return Err("unexpected trailing argument".into());
+    let mut operator_seed = None;
+    let mut treasury_cells = DEFAULT_TREASURY_CELLS;
+    for argument in args {
+        if let Some(path) = argument.strip_prefix("--operator-seed=") {
+            operator_seed = Some(std::path::PathBuf::from(path));
+        } else if let Some(count) = argument.strip_prefix("--treasury-cells=") {
+            treasury_cells = count.parse()?;
+            if treasury_cells < 2 {
+                return Err("a treasury needs at least two cells to spend at all".into());
+            }
+        } else {
+            return Err("unexpected trailing argument".into());
+        }
     }
     let signing_key = operator_seed.as_deref().map(load_operator_key).transpose()?;
     let owner = if owner_argument == "operator" {
@@ -106,7 +137,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         PrincipalId::new(parse_digest(&owner_argument, "treasury principal")?)
     };
-    let ledger = ledger(chain, owner, genesis_supply, security_reserve)?;
+    let ledger = ledger(chain, owner, genesis_supply, security_reserve, treasury_cells)?;
     let mut ingress = activechain_wallet_core::TransactionIngress::from_ledger(ledger.clone())
         .map_err(|_| "cash ingress construction failed")?;
     if let Some(key) = signing_key {
@@ -164,22 +195,50 @@ mod tests {
     use super::*;
     use activechain_canonical_codec::{decode_envelope, encode_envelope};
 
+    /// A transfer consumes its inputs and its fee reserve and returns one
+    /// change cell, so the treasury loses a cell per grant and cannot spend at
+    /// all once it holds a single one. Genesis funded exactly two cells, which
+    /// bought one grant and then wedged the faucet permanently.
+    #[test]
+    fn genesis_treasury_is_split_into_enough_cells_to_keep_spending() {
+        let chain = ChainId::new(Digest384::new([1; 48]));
+        let owner = PrincipalId::new(Digest384::new([2; 48]));
+        let value = ledger(chain, owner, 1_000_000, 100, DEFAULT_TREASURY_CELLS).unwrap();
+        value.verify_invariants().unwrap();
+        assert_eq!(value.cells().as_slice().len(), DEFAULT_TREASURY_CELLS);
+        assert_eq!(
+            value.cells().as_slice().iter().map(|cell| cell.cell().amount()).sum::<u128>(),
+            999_900,
+            "splitting the treasury must not create or destroy supply"
+        );
+        // Splitting so finely that a cell would be empty is refused rather than
+        // silently producing a treasury that cannot cover a grant.
+        assert!(ledger(chain, owner, 1_000, 100, 10_000).is_err());
+    }
+
     #[test]
     fn cash_genesis_is_canonical_chain_bound_and_conserving() {
         let chain = ChainId::new(Digest384::new([1; 48]));
         let owner = PrincipalId::new(Digest384::new([2; 48]));
-        let value = ledger(chain, owner, 1_000, 100).unwrap();
+        let value = ledger(chain, owner, 1_000, 100, 9).unwrap();
         value.verify_invariants().unwrap();
         assert_eq!(value.definition().chain_id(), chain);
         assert_eq!(value.supply().genesis_supply(), 1_000);
         assert_eq!(value.supply().security_reserve_balance(), 100);
-        assert_eq!(value.cells().as_slice().len(), 2);
+        assert_eq!(value.cells().as_slice().len(), 9);
         assert_eq!(value.cells().as_slice()[0].cell().owner(), owner);
         assert!(value.cells().as_slice().iter().all(|cell| cell.cell().owner() == owner));
         assert_eq!(
             value.cells().as_slice().iter().map(|cell| cell.cell().amount()).sum::<u128>(),
             900
         );
+        // Distinct identities despite equal amounts: cell identity is derived
+        // from the allocation index, so a split treasury is not a set of
+        // colliding cells.
+        let mut ids = value.cells().as_slice().iter().map(|cell| cell.id()).collect::<Vec<_>>();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), 9, "every genesis treasury cell must be independently spendable");
         let encoded = encode_envelope(&value).unwrap();
         assert_eq!(decode_envelope::<CashLedger>(&encoded), Ok(value.clone()));
         let ingress = activechain_wallet_core::TransactionIngress::from_ledger(value).unwrap();
@@ -205,6 +264,7 @@ mod tests {
                 PrincipalId::new(Digest384::new([2; 48])),
                 100,
                 100,
+                DEFAULT_TREASURY_CELLS,
             )
             .is_err()
         );

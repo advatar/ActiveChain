@@ -148,7 +148,29 @@ for label in \
   fi
   "$plutil_bin" -lint "$plist" >/dev/null
   "$launchctl_bin" bootout "$launch_domain/$label" 2>/dev/null || true
-  "$launchctl_bin" bootstrap "$launch_domain" "$plist"
+  # launchd unloads asynchronously. Bootstrapping straight after a bootout
+  # races the old job's departure and fails with EIO ("Bootstrap failed: 5:
+  # Input/output error") -- which, because the bootout already succeeded,
+  # leaves the service *down* and aborts the rest of the activation. That is
+  # how a deployment took a validator offline. Wait for the label to leave the
+  # domain, then retry a bounded number of times.
+  for _ in $(seq 1 50); do
+    "$launchctl_bin" print "$launch_domain/$label" >/dev/null 2>&1 || break
+    sleep 0.2
+  done
+  bootstrapped=0
+  for attempt in 1 2 3 4 5; do
+    if "$launchctl_bin" bootstrap "$launch_domain" "$plist" 2>/dev/null; then
+      bootstrapped=1
+      break
+    fi
+    echo "bootstrap of $label did not take on attempt $attempt; retrying" >&2
+    sleep 1
+  done
+  if [[ "$bootstrapped" -ne 1 ]]; then
+    echo "could not bootstrap $label into $launch_domain" >&2
+    exit 1
+  fi
 done
 
 gateway_dir="$deployment_root/gateway"

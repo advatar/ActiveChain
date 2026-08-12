@@ -106,6 +106,61 @@ final class WalletLifecycleUITests: XCTestCase {
         )
     }
 
+    /// The lifecycle this whole exercise exists to prove: a provisioned wallet
+    /// asks the live faucet for funds and the grant reaches finality on
+    /// Kanalen.
+    ///
+    /// A withheld grant is the faucet working, not the wallet failing, so an
+    /// unavailable funding control is named and skipped rather than reported
+    /// as a defect. An outright rejection is a failure — that is the state
+    /// that hid a stuck reservation for a day.
+    func testRequestsFundingAndReachesFinalityOnKanalen() throws {
+        let funding = app.staticTexts["funding.title"]
+        XCTAssertTrue(
+            funding.waitForExistence(timeout: 45),
+            "a provisioned wallet must offer funding"
+        )
+        scrollIntoView(funding)
+
+        let request = app.buttons["Request testnet funding"]
+        XCTAssertTrue(request.waitForExistence(timeout: 15), "the funding control must be present")
+        guard request.isEnabled else {
+            throw XCTSkip("faucet is not offering a grant right now: '\(funding.label)'")
+        }
+        request.click()
+
+        // Submission is a signed round trip to the operator, followed by a wait
+        // for the transfer to be included and finalized, so this is minutes
+        // rather than seconds.
+        let settled = XCTNSPredicateExpectation(
+            predicate: NSPredicate(
+                format: "label CONTAINS[c] 'finalized' OR label CONTAINS[c] 'rejected'"
+            ),
+            object: funding
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [settled], timeout: 240),
+            .completed,
+            "funding never settled; last state was '\(funding.label)'"
+        )
+        XCTAssertTrue(
+            funding.label.localizedCaseInsensitiveContains("finalized"),
+            "the faucet rejected the request: '\(funding.label)'"
+        )
+
+        // A finalized grant has to surface as verified owner-scoped state. An
+        // optimistic local number here would be exactly the claim the wallet
+        // is not entitled to make.
+        let balance = app.staticTexts["balance.headline"]
+        scrollIntoView(balance)
+        XCTAssertTrue(balance.waitForExistence(timeout: 90), "balance state must be shown")
+        XCTAssertFalse(
+            balance.label.localizedCaseInsensitiveContains("unavailable")
+                || balance.label.localizedCaseInsensitiveContains("unverified"),
+            "a finalized grant must produce verified balance state, got '\(balance.label)'"
+        )
+    }
+
     /// The balance claim is the one the user acts on, so it must never read as
     /// a figure while the wallet holds no verified Coin Cell proof.
     func testNeverShowsABalanceWithoutVerifiedState() {
