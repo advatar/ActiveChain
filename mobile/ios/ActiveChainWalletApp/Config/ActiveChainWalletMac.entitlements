@@ -4,6 +4,13 @@
 <dict>
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
+	<!-- A sandboxed macOS app has no keychain scope unless it declares one, so
+	     adding a permanent Secure Enclave key fails with errSecMissingEntitlement.
+	     This is the app's own group, not a shared one: nothing else may read it. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)$(CFBundleIdentifier)</string>
+	</array>
 	<key>com.apple.security.network.client</key>
 	<true/>
 </dict>

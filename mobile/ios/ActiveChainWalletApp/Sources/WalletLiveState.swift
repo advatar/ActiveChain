@@ -287,9 +287,12 @@ final class WalletLiveState: ObservableObject {
             guard terms.chainID == WalletKanalen.chainID,
                   terms.genesis == WalletKanalen.genesis,
                   terms.challengeKind == 0 else {
+                WalletLog.rpc.error(
+                    "faucet terms incompatible: chain \(WalletHex.short(terms.chainID), privacy: .public) genesis \(WalletHex.short(terms.genesis), privacy: .public) challengeKind \(terms.challengeKind, privacy: .public)")
                 fundingState = .unavailable(reason: "The faucet policy is incompatible with this wallet build.")
                 return
             }
+            WalletLog.rpc.notice("faucet terms accepted; submitting request")
             let receipt = try await rpc.requestFaucet(owner: profile.owner)
             let reference = receipt.reference.map { String(format: "%02x", $0) }.joined()
             switch receipt.state {
@@ -302,10 +305,15 @@ final class WalletLiveState: ObservableObject {
                 fundingState = finalized
                 await refresh()
                 fundingState = finalized
-            case 2: fundingState = .rejected(reference: reference, reason: "The faucet rejected this request.")
+            case 2:
+                WalletLog.rpc.error("faucet rejected request \(reference.prefix(16), privacy: .public)")
+                fundingState = .rejected(reference: reference, reason: "The faucet rejected this request.")
             default: throw WalletRPCError.malformedResponse
             }
         } catch {
+            // Every funding failure previously read the same on screen, which
+            // cannot distinguish a faucet refusal from a transport fault.
+            WalletLog.rpc.error("funding request failed: \(String(describing: error), privacy: .public)")
             fundingState = .rejected(reference: nil, reason: "Funding request failed without changing balance.")
         }
     }
