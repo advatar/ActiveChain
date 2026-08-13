@@ -61,7 +61,7 @@ transaction ids and reconciles partial completion through the existing recovery
 path, which already replays what was authorized and refuses to close what it
 cannot establish.
 
-### 0.2 The chain caps at ~130 Coin Cells in total — **blocker** ([#800](https://github.com/advatar/ActiveChain/issues/800))
+### 0.2 The chain caps at ~130 Coin Cells in total — **fixed** ([#800](https://github.com/advatar/ActiveChain/issues/800))
 
 `activechain-rpc-ingest` publishes **every cell in the finalized cash snapshot**
 as an index record carrying its own copy of the finality bundle. Measured at
@@ -85,8 +85,17 @@ Options:
 Recommendation: **(a) and (c) together** — one snapshot/checkpoint proof per
 page, with bounded paginated records beneath it. Deduplication solves today's
 size explosion; pagination supplies a structural bound so the next global
-ceiling is not rediscovered later at a larger scale. Needs a schema revision,
-so it rides the same window as any other wire change.
+ceiling is not rediscovered later at a larger scale.
+
+**Status: fixed, and it needed no schema revision.** The 4 MiB bound was always
+on the *stored* snapshot, while responses are separately capped at four records
+per page — so this was a persistence change with no wire impact and no client
+rebuild. Records now reference a shared finality table, and the index is stored
+as a header chunk plus bounded page chunks, each encoded independently. An index
+written before pagination still loads and is rewritten paged on the next
+publication, so a node upgrading does not crash-loop on the file it already has.
+The plannable treasury moves from 110 cells to 4,304, and what bounds it now is
+an operational budget on memory and round time rather than a frame.
 
 ### 0.3 Faucet source limit collides with shared egress
 
@@ -95,7 +104,7 @@ NAT shares `SOURCE_LIMIT=5` per hour. Confirmed during the rehearsal. Needs a
 policy decision before external integrators arrive: raise the limit, or admit a
 per-recipient challenge that does not key on network position.
 
-### 0.5 The wallet can only ever see one network ([#801](https://github.com/advatar/ActiveChain/issues/801))
+### 0.5 The wallet can only ever see one network — **fixed** ([#801](https://github.com/advatar/ActiveChain/issues/801))
 
 `WalletKanalen` fixes host, chain id, and genesis as compile-time constants, so
 a rebuilt chain currently requires a source change and a new build — as it did
@@ -118,11 +127,18 @@ genesis has no meaning on another.
 This belongs to Track 0 because it is also what lets integrators use the
 testnet at all, but it is the same work Track A needs, so build it once.
 
+**Status: built.** `WalletNetwork` carries the pin and `WalletNetworkRegistry`
+holds the known networks and the selection. Both properties are enforced and
+tested: an unconfigured wallet still falls back to the built-in pin rather than
+accepting whichever chain answers first, and the custody slot and profile
+account are scoped per network so a wallet from one chain cannot appear while
+another is selected. Removing a network does not delete its wallet.
+
 ### 0.4 Routine, already understood
 
 | Item | State |
 |---|---|
-| Deploy the 7 commits on `main` (anchor sweep, cap 112, rehearsal, wallet fixes) | ready, needs a window |
+| Deploy the accumulated commits (anchor sweep, paged index, treasury cap, wallet fixes) | ready, needs a window |
 | Qualification gate green on the exact SHA | blocked: needs the Mac's login keychain unlocked |
 | macOS wallet lifecycle UI test | blocked: needs the Mac unlocked (XCUITest cannot foreground; provisioning needs Touch ID) |
 | Treasury pool maintenance | [#799](https://github.com/advatar/ActiveChain/issues/799) — 94 grants of runway remain |
@@ -244,6 +260,8 @@ compiler has no I/O in its dependency surface.*
 - Two manifests planned together allocate without collision and are refused
   when their reservations overlap.
 
+**Status: built.** `crates/network-planner`, 27 tests.
+
 ### A2. Apply
 
 - `activechain-network-apply`: idempotent execution of a plan, emitting an
@@ -254,6 +272,19 @@ compiler has no I/O in its dependency surface.*
 *Exit: a second network stood up end to end from a manifest, twice,
 byte-identical, running concurrently with Kanalen on the same host without
 touching it. A third, started while both run, allocates cleanly.*
+
+**Status: built.** `render::materialize` is pure — a plan and a home directory
+in, the exact bytes of `network.env` and every launch agent out. `apply::apply`
+is the thin effectful layer: preflight, write, never overwrite, and stop where
+custody begins. Two networks were applied side by side on one host with distinct
+derived chain ids, ten launch agents passing `plutil -lint`, and a refusal on
+re-apply.
+
+The chain id is derived rather than configured —
+`SHAKE256-384("ACTIVECHAIN-CHAIN-ID-V1" || domain)`, verified against the value
+Kanalen runs — so it can no longer be mistyped or hand-carried between tools.
+
+Apply records its plan into the deployment, which is what makes A3 possible.
 
 ### A3. Operator UI
 
@@ -267,6 +298,17 @@ touching it. A third, started while both run, allocates cleanly.*
 *Exit: an operator who has never used the CLI can stand up a network, and can
 see every network on the host with its ports, hostnames, and health.*
 
+**Status: half built.** `activechain-network-status` delivers the fleet view —
+every deployment on a host, read from the plan it recorded, with each port
+probed so intention and reality can be compared. A bound port reports as
+"listening" and nothing stronger, and a directory with no recorded plan is
+listed as unaccounted rather than omitted.
+
+The graphical shell is **not** built. What exists is the operator surface as a
+command line tool; calling that a UI would be a claim about usability nobody has
+tested. The functions beneath it are all testable without it, which is the
+condition that makes the shell a presentation layer rather than a rewrite.
+
 ### A4. Trust ceremony orchestration
 
 A network is not usable without its verifier trust bundle, so the operator app
@@ -279,6 +321,13 @@ assemble the bundle, and activate the result.
 The app must not: hold the signing keys. A 2-of-3 ceremony whose three keys live
 in one macOS application is 1-of-1 wearing a costume, and the entire value of
 the threshold is gone.
+
+**Status: built.** `trust_ceremony::coordinator` tracks a ceremony without
+holding a key: `SignerSeed` appears nowhere in its API. It verifies each
+signature at collection against that signer's public key over the exact payload,
+so a rejection names the responsible party, and it reports who is outstanding.
+One signer submitting twice does not advance a 2-of-3 — pinned by test, because
+counting a repeat would let a single party satisfy a threshold alone.
 
 The same distinction applies to "sharing the wallet's Secure Enclave custody":
 reuse the custody **architecture and interaction patterns**, but keep the
