@@ -42,6 +42,25 @@ Options, to be decided:
 Recommendation: **(a) now**, behind faucet policy, with (b) evaluated under
 [#799](https://github.com/advatar/ActiveChain/issues/799) as the durable answer.
 
+**(a) is only safe as one grant, not two fire-and-forget transfers.** If
+transfer A finalizes and B does not, the recipient holds a single cell they
+still cannot spend, while the faucet may consider the grant delivered and start
+a cooldown — reintroducing exactly the partial-settlement class just removed
+from the reservation path. Freeze the semantics first:
+
+```text
+FaucetGrantSettlementV1
+  success  = every recipient cell finalized
+  partial  = not success, and still reconcilable
+  cooldown = begins only on complete grant settlement
+```
+
+Preferably both transfers ride one consensus operation or batch. Where that
+cannot be guaranteed, the durable faucet state machine tracks **both**
+transaction ids and reconciles partial completion through the existing recovery
+path, which already replays what was authorized and refuses to close what it
+cannot establish.
+
 ### 0.2 The chain caps at ~130 Coin Cells in total — **blocker**
 
 `activechain-rpc-ingest` publishes **every cell in the finalized cash snapshot**
@@ -54,15 +73,20 @@ stops publishing entirely.
 This is a hard ceiling on how many wallets and cells the testnet can host, and
 integrators will reach it quickly.
 
-Options, to be decided:
+Options:
 
-- **(a)** Stop republishing the finality bundle per record; carry it once per
-  index and reference it. Largest win, contained to the index encoding.
-- **(b)** Raise `MAX_RPC_FRAME` — buys a small multiple, moves the wall.
-- **(c)** Paginate the durable index so no single frame holds every record.
+- **(a)** Stop republishing the finality bundle per record; carry one shared
+  proof per index page and reference it. Attacks the 32 KiB rather than the
+  4 MiB, so it is the larger win.
+- **(b)** Raise `MAX_RPC_FRAME` — buys a small multiple and moves the wall
+  without removing it. Rejected as a standalone answer.
+- **(c)** Paginate the durable index so no single frame must hold every record.
 
-Recommendation: **(a)**, since it attacks the 32 KiB, not the 4 MiB. Needs a
-schema revision, so it should ride the same window as any other wire change.
+Recommendation: **(a) and (c) together** — one snapshot/checkpoint proof per
+page, with bounded paginated records beneath it. Deduplication solves today's
+size explosion; pagination supplies a structural bound so the next global
+ceiling is not rediscovered later at a larger scale. Needs a schema revision,
+so it rides the same window as any other wire change.
 
 ### 0.3 Faucet source limit collides with shared egress
 
@@ -163,26 +187,53 @@ special case into the ordinary path.
 Delivers the ability to stand up a network from a declarative manifest, and is
 what makes Tracks B and C safe by giving them somewhere else to run.
 
-### A1. Manifest and planner *(no UI, no deploy, no Kanalen contact)*
+### A1. Plan compiler and host preflight *(no deploy, no Kanalen contact)*
 
-- `network.toml`: network name, chain identity, validator topology, treasury
-  sizing, faucet policy, trust signer set and threshold, gateway hostnames.
-- `activechain-network-plan`: resolves derived values and **refuses impossible
-  configurations before anything is created**. Preflight checks encode the
-  incidents already paid for:
-  - treasury cells against the index frame *and* against 0.2's outcome
-  - minimum spendable cells, per 0.1
-  - signer threshold sanity
-  - hostname resolution and certificate reachability
-  - **port allocation from a per-network base, refusing collisions with
-    networks already present on the host**
-- Everything currently literal — plist filenames, launchd labels, deployment
-  root, gateway hostnames, script names — templates from the network name.
-- Output: a signed, human-readable plan. Pure function, unit-testable, no I/O
-  against a live host.
+Two layers, because they have different determinism guarantees and conflating
+them would make the plan unreproducible.
 
-*Exit: plan for the current Kanalen topology reproduces its real configuration,
-and each of the four known incidents is rejected by a preflight test.*
+**A1a. `PlanCompiler` — genuinely pure.** Manifest in, `NetworkPlan` or refusal
+out. No DNS, no sockets, no filesystem inspection, no clock. It validates
+topology, names, port *ranges*, cell budgets, thresholds, derived paths and
+labels, and the expected artifact set. The same manifest must compile to the
+same plan in Stockholm, in CI, and on the target host — that property is what
+later lets us prove a manifest produced the network it claims to have produced.
+
+Preflights at this layer encode the incidents already paid for:
+
+- treasury cells against the index budget *and* against 0.2's outcome
+- minimum spendable cells for the treasury, per 0.1
+- grants that would leave a recipient unable to spend, per 0.1
+- signer threshold satisfiable by the signer set
+- port ranges that do not overlap between the networks being planned together
+- a network name safe as a launchd label, a filesystem path, and a hostname
+
+**The signed artifact is the plan digest**, taken over the canonically encoded
+plan object. Human-readable output is *rendered from* that object and is never
+itself the thing signed.
+
+**A1b. `HostPreflight` — explicitly environmental.** Everything that needs the
+world: DNS resolution, certificate reachability, ports already occupied,
+networks already installed, disk space, launchd availability. It produces an
+`EnvironmentAssessment` against a compiled plan and is never mistaken for part
+of the plan.
+
+```text
+network manifest ──▶ PlanCompiler ──▶ NetworkPlan (deterministic, digest-signed)
+                                          │
+                                          ▼
+                            HostPreflight ──▶ EnvironmentAssessment
+```
+
+*Exit: the plan for Kanalen's topology reproduces its real configuration — ports,
+labels, paths — and each known incident is rejected by a compiler test. The
+compiler has no I/O in its dependency surface.*
+
+**Status: A1a is built** (`crates/network-planner`, 12 tests). It is pure today,
+and planning `deploy/networks/kanalen.json` reproduces the live layout: rpc
+49151, validators 49153–49155, anchor 49156, work-proof 49157. Outstanding
+against this amendment: the compiler/preflight split made explicit in the API,
+and the canonical plan digest. A1b is not started.
 
 ### A2. Apply
 
@@ -206,10 +257,24 @@ touching it. A third, started while both run, allocates cleanly.*
 *Exit: an operator who has never used the CLI can stand up a network, and can
 see every network on the host with its ports, hostnames, and health.*
 
-### A4. Trust ceremony integration
+### A4. Trust ceremony orchestration
 
-Fold `crates/trust-ceremony` into the same flow, since a network is not usable
-without its verifier trust bundle.
+A network is not usable without its verifier trust bundle, so the operator app
+should drive the ceremony — **workflow integration, not custody consolidation**.
+
+The app may: prepare the ceremony, show the signer set, produce the signing
+payload, collect independently produced signatures, verify the threshold,
+assemble the bundle, and activate the result.
+
+The app must not: hold the signing keys. A 2-of-3 ceremony whose three keys live
+in one macOS application is 1-of-1 wearing a costume, and the entire value of
+the threshold is gone.
+
+The same distinction applies to "sharing the wallet's Secure Enclave custody":
+reuse the custody **architecture and interaction patterns**, but keep the
+security domains separate. Wallet keys, validator keys, treasury authority, and
+trust roots are four different domains and a compromise of one must not imply
+the others.
 
 ---
 
@@ -229,9 +294,22 @@ hold.
    present. This rule is already written in the manifests; make it executable.
 3. **Admission** — `RegulatedTransferAdmission` consults the active profile set
    and applies `require_selected_profile`, composing obligations by intersection
-   per the conflict algorithm already specified. Behind
-   `ACTIVECHAIN_JURISDICTION_PROFILES` , default off, so Kanalen behaviour is
-   bit-identical until deliberately enabled.
+   per the conflict algorithm already specified.
+
+   **Activation is consensus-visible state, never local process configuration.**
+   An environment variable controlling admission would let two validators
+   evaluate the same transaction differently and fork the chain on a
+   configuration difference. Enforcement is therefore gated on a canonical
+   activation record — a genesis feature set, or an activation transition at a
+   stated height — from which every validator derives the same answer:
+
+   ```text
+   enforcement = f(consensus state)      not      f(process environment)
+   ```
+
+   Kanalen stays bit-identical by simply carrying no activation record. A
+   compile-time or dev-harness flag remains fine for making the code reachable
+   in tests, but must not reach the validator transition path.
 4. **Vectors** — deterministic tests for inheritance without weakening,
    conflict resolution, expiry, non-retroactivity.
 
@@ -275,7 +353,13 @@ approval review, and one-shot signing.
 - Issue / redeem via `FungibleIssuerApprovalV1`, with
   `dry-run-corporate-action` preflight before any approval is requested.
 - Holder controls and halt, bounded and expiring.
-- Reserve attestation as an anchor commitment, never a raw balance.
+- Reserve attestation as a **typed, signed attestation** — issuer, asset,
+  period, reserve scope, the liability or supply figure it is claimed against,
+  the evidence provider or auditor, and an expiry — whose commitment is then
+  anchored. The anchor establishes integrity, time, and provenance; it does not
+  establish reserves. A UI must never read "reserves verified" from the mere
+  existence of an anchored digest, which is the same principle as computing
+  balance state from evidence rather than asserting it.
 
 ### C2. A2UI surface
 
@@ -320,12 +404,34 @@ Only one hard cross-track dependency: **C3 requires B1.**
 
 | Risk | Mitigation |
 |---|---|
+| Validators diverging on locally-configured admission | Enforcement gated on consensus-visible activation only; no environment flag reaches the transition path |
+| A partially settled two-cell grant leaving a recipient unable to spend | One grant lifecycle with both transaction ids tracked; cooldown only on complete settlement |
+| A threshold ceremony collapsing into single-operator custody | The operator app orchestrates and verifies; it never holds the signing keys |
+| An anchored digest being read as proof of reserves | Typed signed attestation with scope and expiry; UI computes from the evidence, never from the anchor's existence |
 | Index ceiling reached during integration | 0.2 before external integrators; monitor cell count as an operational metric |
 | Schema churn forcing repeated wallet rebuilds | Track 0 owns a single window; B1 and 0.2 ride it together if timing allows |
 | Profile work destabilising consensus | Default-off flag; Kibera only; no Kanalen enablement until vectors pass |
 | CI starving the chain | Tracks A–C hold CI while Track 0 runs; longer term, move the runner off the chain host |
 | A "Kenya" label outrunning enforcement | C3 gated on B1 and counsel; no jurisdiction naming in C1/C2 |
 | Operator UI handling keys in a browser | A3 is native; browser variants may only author and sign plans |
+
+## Amendment record
+
+Reviewed and amended before adoption:
+
+1. B1 enforcement moved from an environment flag to consensus-bound activation.
+2. A1 split into a deterministic `PlanCompiler` and an environmental
+   `HostPreflight`; the signed artifact is the plan digest, not rendered text.
+3. The two-cell grant specified as one atomic, reconcilable lifecycle.
+4. A4 orchestrates the trust ceremony without consolidating custody; security
+   domains stay separate.
+5. Reserve attestations are typed evidence; anchoring gives integrity, time and
+   provenance, not proof of reserves.
+6. The index fix is shared proof per page **plus** pagination, not deduplication
+   alone.
+
+Unchanged, and deliberately so: the track ordering, Track 0's protection, the
+move to independent networks, and the hard boundary that **C3 requires B1**.
 
 ## Out of scope
 

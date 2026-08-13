@@ -1,0 +1,27 @@
+{
+  "name": "kanalen",
+  "validators": 3,
+  "base_port": 49151,
+  "hostnames": {
+    "rpc": "rpc.kanalen.activechain.dev",
+    "anchor": "anchor.kanalen.activechain.dev",
+    "verify": "verify.kanalen.activechain.dev"
+  },
+  "treasury": {
+    "genesis_supply": 1000000000000000000000000000,
+    "security_reserve": 100000000000000000000000000,
+    "cells": 96
+  },
+  "faucet": {
+    "grant_amount": 100000000000000000000,
+    "fee": 1000000000000000,
+    "cells_per_grant": 2,
+    "recipient_cooldown_seconds": 86400,
+    "recipient_limit": 3,
+    "source_window_seconds": 3600,
+    "source_limit": 5,
+    "global_window_seconds": 3600,
+    "global_limit": 100
+  },
+  "trust": { "signers": 3, "threshold": 2 }
+}

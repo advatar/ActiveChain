@@ -102,7 +102,10 @@ Manifest-first, UI-second:
 faucet operator seed, trust ceremony shares. It must not be a browser
 application. Options, in order of preference:
 
-- a native macOS operator app reusing the wallet's Secure Enclave custody
+- a native macOS operator app reusing the wallet's custody *architecture* —
+  though wallet keys, validator keys, treasury authority and trust roots stay
+  in separate security domains, and a threshold ceremony's signers must never
+  all live in one application
 - a local TUI over the same planner
 - a browser UI that can only *author and sign a plan*, executed by an
   operator-side agent that holds the keys
@@ -141,7 +144,9 @@ The enforcement path (see above), and only then a UI.
    control mask is present — the rule the manifests already state.
 3. `RegulatedTransferAdmission` consults the active profile set and applies
    `require_selected_profile`, composing obligations by intersection per the
-   existing conflict algorithm.
+   existing conflict algorithm. Activation is a **consensus-visible record**,
+   never a local environment flag: two validators configured differently must
+   not be able to evaluate the same transfer differently.
 
 **Phase B — the UI.** Its job is *evidence collection*, not selection. The
 honest interaction is a control register checklist:
@@ -194,8 +199,11 @@ session the wallet already enforces. Concretely:
    policy commitments, jurisdiction profile binding, threshold authority set.
 2. Issue and redeem against `FungibleIssuerApprovalV1`, with
    `dry-run-corporate-action` preflight before any approval is requested.
-3. Reserve attestation published as an anchor commitment
-   (`crates/application-primitives/src/anchor.rs`), never as a raw balance.
+3. Reserve attestation as typed, signed evidence — issuer, asset, period,
+   scope, the liability it is claimed against, the provider or auditor, and an
+   expiry — whose commitment is anchored. Anchoring supplies integrity, time
+   and provenance; it does not prove reserves, and no UI may imply that it
+   does.
 4. Holder controls and halt, bounded and expiring, per the existing
    exceptional-control policy.
 

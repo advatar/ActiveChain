@@ -1,0 +1,12 @@
+[package]
+name = "activechain-network-planner"
+description = "Validated planning of ActiveChain network deployments before any state is created"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
