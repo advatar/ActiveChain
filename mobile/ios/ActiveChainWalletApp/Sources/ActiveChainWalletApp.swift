@@ -33,7 +33,7 @@ struct WalletRootView: View {
             .tag(WalletTab.home)
             .tabItem { Label("Wallet", systemImage: "wallet.bifold.fill") }
 
-            NavigationStack { ActivityView() }
+            NavigationStack { ActivityView(liveState: liveState) }
                 .tag(WalletTab.activity)
                 .tabItem { Label("Activity", systemImage: "clock.arrow.circlepath") }
 
@@ -41,7 +41,7 @@ struct WalletRootView: View {
                 .tag(WalletTab.approvals)
                 .tabItem { Label("Approvals", systemImage: "checkmark.shield.fill") }
 
-            NavigationStack { IdentityView() }
+            NavigationStack { IdentityView(liveState: liveState) }
                 .tag(WalletTab.identity)
                 .tabItem { Label("Identity", systemImage: "person.text.rectangle.fill") }
         }
@@ -340,18 +340,86 @@ private struct SecurityFooter: View {
     }
 }
 
+/// Shows the activity the wallet can actually prove.
+///
+/// This was a hardcoded empty state that reported "no verified activity"
+/// however much the wallet held — a claim it was in no position to make. There
+/// is still no owner-scoped history API, so what it shows is the finalized
+/// evidence the wallet already verifies: each Coin Cell it holds, and the
+/// outcome of the current funding request. Nothing here is inferred.
 private struct ActivityView: View {
+    @ObservedObject var liveState: WalletLiveState
+
+    private var records: [WalletOwnerCoinRecord] {
+        liveState.verifiedOwnerPage?.records ?? []
+    }
+
     var body: some View {
         ZStack {
             WalletBackground()
-            ContentUnavailableView(
-                "No verified activity",
-                systemImage: "clock.badge.questionmark",
-                description: Text("Activity will appear after finalized receipt queries are available.")
-            )
+            if records.isEmpty && !fundingIsNoteworthy {
+                ContentUnavailableView(
+                    "No verified activity",
+                    systemImage: "clock.badge.questionmark",
+                    description: Text(
+                        "Nothing has been proved to this wallet yet. Only finalized, owner-scoped evidence appears here."
+                    )
+                )
+            } else {
+                ScrollView {
+                    VStack(spacing: 18) {
+                        if fundingIsNoteworthy {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Label(liveState.fundingState.title, systemImage: "drop.fill")
+                                    .font(.headline)
+                                Text(fundingDetail)
+                                    .font(.caption)
+                                    .foregroundStyle(WalletPalette.muted)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .cardStyle()
+                        }
+                        ForEach(records, id: \.key) { record in
+                            VStack(alignment: .leading, spacing: 6) {
+                                Label("Coin Cell", systemImage: "checkmark.seal.fill")
+                                    .font(.headline)
+                                    .foregroundStyle(WalletPalette.mint)
+                                Text("Proof verified at finalized height \(record.finalizedHeight).")
+                                    .font(.caption)
+                                    .foregroundStyle(WalletPalette.muted)
+                                Text(WalletHex.short(record.key))
+                                    .font(.caption2.monospaced())
+                                    .foregroundStyle(WalletPalette.muted)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .cardStyle()
+                        }
+                    }
+                    .padding(20)
+                }
+                .scrollIndicators(.hidden)
+            }
         }
         .navigationTitle("Activity")
         .walletNavigationBarBackground()
+    }
+
+    /// A request in flight or recently resolved is activity; an idle faucet is not.
+    private var fundingIsNoteworthy: Bool {
+        switch liveState.fundingState {
+        case .pending, .finalized, .rejected, .requesting: true
+        case .ready, .unavailable: false
+        }
+    }
+
+    private var fundingDetail: String {
+        switch liveState.fundingState {
+        case let .pending(reference): "Reference \(reference) is awaiting finalized evidence."
+        case let .finalized(reference, height): "Reference \(reference) finalized at block \(height)."
+        case let .rejected(_, reason): reason
+        case .requesting: "A signed request is being submitted."
+        default: ""
+        }
     }
 }
 
@@ -678,27 +746,76 @@ private struct DetailSection: View {
     }
 }
 
+/// Reports this device's wallet identity.
+///
+/// This was hardcoded to "No wallet identity / No signing key loaded" and said
+/// so even with a provisioned wallet holding funds — the single most misleading
+/// screen in the app, since that exact wording is what a user checks when
+/// signing appears broken.
 private struct IdentityView: View {
+    @ObservedObject var liveState: WalletLiveState
+
     var body: some View {
         ZStack {
             WalletBackground()
             ScrollView {
                 VStack(spacing: 18) {
-                    VStack(spacing: 12) {
-                        Image(systemName: "person.crop.circle.badge.questionmark")
-                            .font(.system(size: 62))
-                            .foregroundStyle(WalletPalette.muted)
-                        Text("No wallet identity").font(.title2.bold())
-                        Text("Create or import a wallet profile before receiving credentials or funds.")
-                            .font(.caption)
-                            .foregroundStyle(WalletPalette.muted)
-                            .multilineTextAlignment(.center)
-                        Label("No signing key loaded", systemImage: "key.slash")
+                    if let profile = liveState.deviceProfile {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(spacing: 10) {
+                                Image(systemName: "person.crop.circle.fill.badge.checkmark")
+                                    .font(.system(size: 34))
+                                    .foregroundStyle(WalletPalette.mint)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Wallet identity").font(.headline)
+                                    Text(
+                                        liveState.supersededProfile
+                                            ? "Bound to a superseded chain"
+                                            : "Bound to this chain"
+                                    )
+                                    .font(.caption)
+                                    .foregroundStyle(
+                                        liveState.supersededProfile ? .orange : WalletPalette.muted
+                                    )
+                                }
+                                Spacer()
+                            }
+                            Text("Owner")
+                                .font(.caption.bold())
+                                .foregroundStyle(WalletPalette.muted)
+                            // The owner is this wallet's public address: the
+                            // user needs it in full to receive funds. Logs still
+                            // record only a prefix.
+                            Text(profile.owner.map { String(format: "%02x", $0) }.joined())
+                                .font(.caption2.monospaced())
+                                .textSelection(.enabled)
+                                .accessibilityIdentifier("identity.owner")
+                            Label(
+                                "Signing key held in the Secure Enclave",
+                                systemImage: "key.fill"
+                            )
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(WalletPalette.mint)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .cardStyle()
+                    } else {
+                        VStack(spacing: 12) {
+                            Image(systemName: "person.crop.circle.badge.questionmark")
+                                .font(.system(size: 62))
+                                .foregroundStyle(WalletPalette.muted)
+                            Text("No wallet identity").font(.title2.bold())
+                            Text("Create or import a wallet profile before receiving credentials or funds.")
+                                .font(.caption)
+                                .foregroundStyle(WalletPalette.muted)
+                                .multilineTextAlignment(.center)
+                            Label("No signing key loaded", systemImage: "key.slash")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.orange)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .cardStyle()
                     }
-                    .frame(maxWidth: .infinity)
-                    .cardStyle()
 
                     ContentUnavailableView(
                         "No credentials",

@@ -695,6 +695,37 @@ final class ActiveChainWalletTests: XCTestCase {
         }
     }
 
+    /// Every screen that makes a claim about the wallet must read the wallet.
+    ///
+    /// Activity and Identity were hardcoded: they reported "No verified
+    /// activity" and "No wallet identity / No signing key loaded" no matter
+    /// what the device held, and went on saying so with a provisioned wallet
+    /// holding a verified Coin Cell. A screen with no state cannot be wrong by
+    /// accident — it is wrong by construction — so pin that they take one.
+    func testStatefulTabsObserveTheWalletRatherThanHardcodingAnEmptyState() throws {
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Sources/ActiveChainWalletApp.swift"),
+            encoding: .utf8
+        )
+        for view in ["ActivityView", "IdentityView"] {
+            guard let declaration = source.range(of: "private struct \(view): View {") else {
+                return XCTFail("\(view) is missing")
+            }
+            let body = source[declaration.upperBound...].prefix(200)
+            XCTAssertTrue(
+                body.contains("@ObservedObject var liveState"),
+                "\(view) must observe wallet state rather than hardcode its content"
+            )
+            XCTAssertTrue(
+                source.contains("\(view)(liveState: liveState)"),
+                "\(view) must be given the live state at its call site"
+            )
+        }
+    }
+
     func testAgentIntentRouteIsExplicitAndOneShot() {
         let defaults = UserDefaults(suiteName: "agent-intent-test")!
         defaults.removePersistentDomain(forName: "agent-intent-test")
