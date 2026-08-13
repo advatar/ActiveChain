@@ -10,6 +10,8 @@ publish = false
 [dependencies]
 activechain-network-planner.workspace = true
 axum.workspace = true
+getrandom = "0.3"
 serde.workspace = true
 serde_json.workspace = true
+subtle = "2.6.1"
 tokio.workspace = true

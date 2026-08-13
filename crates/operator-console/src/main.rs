@@ -8,21 +8,36 @@
 //! reach the port, which is a mistake this codebase has already made once with
 //! an RPC node.
 //!
-//! It is read-only. Standing up or resetting a network stays with the planner
-//! and the operator's own hands, because those steps touch key material and a
-//! browser is the wrong place to be holding any.
+//! The browser may *trigger* work the host performs, but never holds key
+//! material itself: applying a plan creates directories and launch agents,
+//! while keys, the genesis and the trust ceremony remain the operator's.
+//! Resetting a network is deliberately absent — it is destructive and belongs
+//! in a place where a mis-click cannot reach it.
+//!
+//! Loopback is not by itself a security boundary against a browser: any page
+//! the operator visits can issue requests to this port. Three guards close
+//! that, and every mutating request must pass all of them.
+//!
+//! * a **session token**, minted at startup and printed to the terminal, so a
+//!   page that cannot read the console's own HTML cannot act;
+//! * an **origin check**, rejecting any request whose `Origin` is not this
+//!   console;
+//! * a **host check**, rejecting any `Host` that is not a loopback literal,
+//!   which is what stops DNS rebinding from turning a foreign page into a
+//!   same-origin one.
 //!
 //! ```text
 //! activechain-operator-console [--port 8787] [--home <dir>]
 //! ```
 
-use activechain_network_planner::{NetworkManifest, fleet, plan_fleet, preflight};
+use activechain_network_planner::{NetworkManifest, apply, fleet, plan_fleet, preflight};
 use axum::{
-    Router,
-    extract::State,
-    http::{StatusCode, header},
+    Json, Router,
+    extract::{DefaultBodyLimit, Request, State},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
+    middleware::{self, Next},
     response::{Html, IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
 };
 use std::{
     env,
@@ -30,11 +45,72 @@ use std::{
     path::PathBuf,
     sync::Arc,
 };
+use subtle::ConstantTimeEq;
 use tokio::net::TcpListener;
 
 #[derive(Clone)]
 struct Console {
     home: PathBuf,
+    port: u16,
+    /// Minted at startup, printed to the terminal, embedded in the console's
+    /// own page. A page that cannot read that page cannot act.
+    token: String,
+}
+
+impl Console {
+    /// Accepts a mutating request only from this console's own page.
+    fn authorize(&self, headers: &HeaderMap) -> Result<(), (StatusCode, &'static str)> {
+        // A Host that is not a loopback literal means the request arrived via a
+        // name that resolved here — the shape of a DNS rebinding attempt, where
+        // a foreign page becomes same-origin by pointing its own hostname at
+        // 127.0.0.1.
+        let host = headers.get(header::HOST).and_then(|value| value.to_str().ok()).unwrap_or("");
+        let expected_hosts =
+            [format!("127.0.0.1:{}", self.port), format!("localhost:{}", self.port)];
+        if !expected_hosts.iter().any(|candidate| candidate == host) {
+            return Err((StatusCode::MISDIRECTED_REQUEST, "unexpected Host"));
+        }
+        // A cross-site form post carries an Origin that is not ours. A same-page
+        // fetch carries ours.
+        if let Some(origin) = headers.get(header::ORIGIN).and_then(|value| value.to_str().ok()) {
+            let ours =
+                expected_hosts.iter().any(|candidate| origin == format!("http://{candidate}"));
+            if !ours {
+                return Err((StatusCode::FORBIDDEN, "cross-origin request"));
+            }
+        }
+        // A cross-site request carries Sec-Fetch-Site: cross-site. Absence is
+        // tolerated because non-browser callers on this host are legitimate.
+        if let Some(site) = headers.get("sec-fetch-site").and_then(|value| value.to_str().ok())
+            && site != "same-origin"
+            && site != "none"
+        {
+            return Err((StatusCode::FORBIDDEN, "cross-site request"));
+        }
+        let presented = headers
+            .get("x-activechain-console")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("");
+        // Constant time: a byte-at-a-time comparison would leak the token to a
+        // local page willing to measure.
+        let matches: bool = presented.as_bytes().ct_eq(self.token.as_bytes()).into();
+        if !matches {
+            return Err((StatusCode::UNAUTHORIZED, "missing or wrong console token"));
+        }
+        Ok(())
+    }
+}
+
+/// Session token, from the system CSPRNG.
+///
+/// It authorizes only what an operator sitting at this machine could already
+/// do, but it must be unguessable by a page that never saw it — so it is not
+/// derived from the clock or the process id, both of which a local attacker can
+/// approximate.
+fn mint_token() -> Result<String, String> {
+    let mut bytes = [0_u8; 32];
+    getrandom::fill(&mut bytes).map_err(|error| format!("no system randomness: {error}"))?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 #[tokio::main]
@@ -53,10 +129,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .or_else(|| env::var_os("HOME").map(PathBuf::from))
         .ok_or("could not determine the home directory; pass --home")?;
 
-    let console = Console { home };
+    let console = Console { home, port, token: mint_token()? };
+    eprintln!("console token {}", console.token);
     let router = Router::new()
         .route("/", get(page))
         .route("/api/fleet", get(fleet_json))
+        .route("/api/plan", post(plan_preview))
+        .route("/api/apply", post(apply_plan))
+        // A manifest is small. Bounding the body keeps a local page from
+        // exhausting memory on a host that is also running validators.
+        .layer(DefaultBodyLimit::max(64 * 1024))
+        .layer(middleware::from_fn(security_headers))
         .with_state(Arc::new(console));
 
     // Loopback only, and not a configurable choice. Everything this serves
@@ -91,6 +174,28 @@ struct ServiceView<'a> {
     role: &'a str,
     port: u16,
     listening: bool,
+}
+
+/// Applied to every response.
+///
+/// The console renders values read off this host's disk. None of it should be
+/// framed, sniffed, sent anywhere, or able to load anything external, and a
+/// strict policy costs nothing on a page this simple.
+async fn security_headers(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(
+            "default-src 'none'; style-src 'unsafe-inline'; connect-src 'self'; \
+             img-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+        ),
+    );
+    headers.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    headers.insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 async fn fleet_json(State(console): State<Arc<Console>>) -> Response {
@@ -135,6 +240,100 @@ async fn fleet_json(State(console): State<Arc<Console>>) -> Response {
         )
             .into_response(),
     }
+}
+
+/// Compiles manifests and reports what this host says about them, without
+/// creating anything. The safe half of the loop: an operator can see the plan
+/// and the blocking findings before deciding to apply.
+async fn plan_preview(
+    State(console): State<Arc<Console>>,
+    headers: HeaderMap,
+    Json(manifests): Json<Vec<NetworkManifest>>,
+) -> Response {
+    if let Err((status, reason)) = console.authorize(&headers) {
+        return (status, reason).into_response();
+    }
+    let plans = match plan_fleet(&manifests) {
+        Ok(plans) => plans,
+        Err(error) => {
+            return (StatusCode::BAD_REQUEST, format!("{error:?}")).into_response();
+        }
+    };
+    let findings: Vec<Vec<String>> = plans
+        .iter()
+        .map(|plan| {
+            let root = console.home.join("activechain-deploy").join(&plan.name);
+            preflight::assess(plan, &root)
+                .findings
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect()
+        })
+        .collect();
+
+    #[derive(serde::Serialize)]
+    struct Preview<'a> {
+        plans: &'a [activechain_network_planner::NetworkPlan],
+        findings: Vec<Vec<String>>,
+    }
+    match serde_json::to_string(&Preview { plans: &plans, findings }) {
+        Ok(body) => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "application/json"), (header::CACHE_CONTROL, "no-store")],
+            body,
+        )
+            .into_response(),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+    }
+}
+
+/// Creates the deployment a plan describes.
+///
+/// The browser triggers it; the host performs it. Nothing here generates or
+/// touches key material — apply stops at that boundary and reports what it left
+/// for the operator.
+async fn apply_plan(
+    State(console): State<Arc<Console>>,
+    headers: HeaderMap,
+    Json(manifests): Json<Vec<NetworkManifest>>,
+) -> Response {
+    if let Err((status, reason)) = console.authorize(&headers) {
+        return (status, reason).into_response();
+    }
+    let plans = match plan_fleet(&manifests) {
+        Ok(plans) => plans,
+        Err(error) => return (StatusCode::BAD_REQUEST, format!("{error:?}")).into_response(),
+    };
+    let agents = console.home.join("Library/LaunchAgents");
+    let mut applied = Vec::new();
+    for plan in &plans {
+        match apply::apply(plan, &console.home, &agents) {
+            Ok(record) => applied.push(serde_json::json!({
+                "network": record.network,
+                "planDigest": record.plan_digest,
+                "root": record.root.display().to_string(),
+                "launchAgents": record.launch_agents,
+                "remaining": record.remaining,
+            })),
+            // Reported rather than rolled back: earlier networks in the batch
+            // are real deployments now, and pretending otherwise would be worse
+            // than saying where it stopped.
+            Err(error) => {
+                return (
+                    StatusCode::CONFLICT,
+                    serde_json::json!({ "applied": applied, "stopped": error.to_string() })
+                        .to_string(),
+                )
+                    .into_response();
+            }
+        }
+    }
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/json"), (header::CACHE_CONTROL, "no-store")],
+        serde_json::json!({ "applied": applied }).to_string(),
+    )
+        .into_response()
 }
 
 async fn page(State(console): State<Arc<Console>>) -> Html<String> {
@@ -225,29 +424,6 @@ fn escape(value: &str) -> String {
     value.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
-/// Compiles manifests without applying them, so an operator can see what a plan
-/// would be. Unused by the read-only routes today; kept because the planner is
-/// the console's reason for existing and the next surface it should grow.
-#[allow(dead_code)]
-fn preview(manifests: &[NetworkManifest], home: &std::path::Path) -> Result<String, String> {
-    let plans = plan_fleet(manifests).map_err(|error| format!("{error:?}"))?;
-    let assessments: Vec<_> = plans
-        .iter()
-        .map(|plan| {
-            let root = home.join("activechain-deploy").join(&plan.name);
-            preflight::assess(plan, &root)
-        })
-        .collect();
-    serde_json::to_string(&serde_json::json!({
-        "plans": plans,
-        "blocking": assessments
-            .iter()
-            .map(|assessment| assessment.blocking().len())
-            .collect::<Vec<_>>(),
-    }))
-    .map_err(|error| error.to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -283,12 +459,120 @@ mod tests {
         assert!(escaped.contains("&lt;script&gt;"));
     }
 
-    /// Read-only means read-only: no route may mutate a deployment.
-    #[test]
-    fn the_console_exposes_no_mutating_route() {
-        let code = serving_code();
-        for verb in ["post(", "put(", "delete(", "patch("] {
-            assert!(!code.contains(verb), "the console must stay read-only; found a {verb} route");
+    fn console() -> Console {
+        Console {
+            home: PathBuf::from("/tmp/activechain-console-test"),
+            port: 8787,
+            token: "0123456789abcdef".to_owned(),
         }
+    }
+
+    fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
+        let mut map = HeaderMap::new();
+        for (name, value) in pairs {
+            map.insert(
+                axum::http::HeaderName::from_bytes(name.as_bytes()).unwrap(),
+                HeaderValue::from_str(value).unwrap(),
+            );
+        }
+        map
+    }
+
+    /// The console can trigger work, so the guard is the security boundary.
+    /// Loopback alone is not one: any page the operator visits can reach this
+    /// port.
+    #[test]
+    fn a_request_from_this_consoles_own_page_is_authorized() {
+        let console = console();
+        assert!(
+            console
+                .authorize(&headers(&[
+                    ("host", "127.0.0.1:8787"),
+                    ("origin", "http://127.0.0.1:8787"),
+                    ("sec-fetch-site", "same-origin"),
+                    ("x-activechain-console", "0123456789abcdef"),
+                ]))
+                .is_ok()
+        );
+    }
+
+    /// A page that never saw the console's HTML cannot have its token.
+    #[test]
+    fn a_request_without_the_token_is_refused() {
+        let console = console();
+        let base = [("host", "127.0.0.1:8787")];
+        assert_eq!(console.authorize(&headers(&base)).unwrap_err().0, StatusCode::UNAUTHORIZED);
+        let mut wrong = base.to_vec();
+        wrong.push(("x-activechain-console", "0123456789abcdee"));
+        assert_eq!(
+            console.authorize(&headers(&wrong)).unwrap_err().0,
+            StatusCode::UNAUTHORIZED,
+            "a token differing in one character must not be accepted"
+        );
+    }
+
+    /// A form posted from another site carries a foreign Origin.
+    #[test]
+    fn a_cross_origin_request_is_refused_even_with_a_token() {
+        let console = console();
+        let error = console
+            .authorize(&headers(&[
+                ("host", "127.0.0.1:8787"),
+                ("origin", "https://example.invalid"),
+                ("x-activechain-console", "0123456789abcdef"),
+            ]))
+            .unwrap_err();
+        assert_eq!(error.0, StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn a_cross_site_fetch_is_refused_even_with_a_token() {
+        let console = console();
+        let error = console
+            .authorize(&headers(&[
+                ("host", "127.0.0.1:8787"),
+                ("sec-fetch-site", "cross-site"),
+                ("x-activechain-console", "0123456789abcdef"),
+            ]))
+            .unwrap_err();
+        assert_eq!(error.0, StatusCode::FORBIDDEN);
+    }
+
+    /// DNS rebinding: a foreign page points its own hostname at 127.0.0.1 and
+    /// becomes same-origin. The Host header still names the attacker's domain.
+    #[test]
+    fn a_request_arriving_under_a_rebound_hostname_is_refused() {
+        let console = console();
+        let error = console
+            .authorize(&headers(&[
+                ("host", "attacker.invalid:8787"),
+                ("origin", "http://attacker.invalid:8787"),
+                ("x-activechain-console", "0123456789abcdef"),
+            ]))
+            .unwrap_err();
+        assert_eq!(error.0, StatusCode::MISDIRECTED_REQUEST);
+    }
+
+    /// Every mutating handler must consult the guard. A route added later that
+    /// forgets to is the failure this catches.
+    #[test]
+    fn every_mutating_handler_authorizes_before_acting() {
+        let code = serving_code();
+        for handler in ["async fn plan_preview", "async fn apply_plan"] {
+            let start = code.find(handler).unwrap_or_else(|| panic!("{handler} is missing"));
+            let body = &code[start..];
+            let guard = body.find("console.authorize(&headers)").unwrap_or(usize::MAX);
+            let acts = body.find("plan_fleet(").unwrap_or(usize::MAX);
+            assert!(guard < acts, "{handler} must authorize before it acts");
+        }
+    }
+
+    /// A token from the clock or the process id is guessable by anything local.
+    #[test]
+    fn the_token_comes_from_system_randomness_and_is_long() {
+        let first = mint_token().expect("randomness");
+        let second = mint_token().expect("randomness");
+        assert_eq!(first.len(), 64);
+        assert_ne!(first, second);
     }
 }
