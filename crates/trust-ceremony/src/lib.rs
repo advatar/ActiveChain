@@ -11,6 +11,8 @@
 //! encodes what an operator decided, and fails closed when the decision does
 //! not satisfy the frozen `SignedActumVerifierTrustBundleV1` semantics.
 
+pub mod coordinator;
+
 use activechain_application_primitives::{
     ActumVerifierTrustBundleV1, MAX_TRUST_PUBLIC_KEY_BYTES, MAX_TRUST_SIGNATURE_BYTES,
     SignedActumVerifierTrustBundleV1, TrustBundleSignatureV1, TrustSignatureAlgorithmV1,
