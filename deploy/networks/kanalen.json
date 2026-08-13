@@ -3,6 +3,7 @@
   "validators": 3,
   "base_port": 49151,
   "hostnames": {
+    "domain": "kanalen.activechain.dev",
     "rpc": "rpc.kanalen.activechain.dev",
     "anchor": "anchor.kanalen.activechain.dev",
     "verify": "verify.kanalen.activechain.dev"

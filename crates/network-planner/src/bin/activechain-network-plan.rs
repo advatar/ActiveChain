@@ -2,7 +2,13 @@
 //!
 //! ```text
 //! activechain-network-plan <manifest.json> [more.json ...] [--json]
+//! activechain-network-plan <manifest.json> --apply [--home <dir>]
 //! ```
+//!
+//! Without `--apply` nothing is written: the plan is validated and reported.
+//! With it, the deployment's files and launch agents are created. Keys, the
+//! genesis, and the trust ceremony are deliberately left to the operator and
+//! named in the result.
 //!
 //! Every manifest named in one invocation is planned as a fleet sharing a host,
 //! so name and port collisions between them are refused here rather than
@@ -11,8 +17,10 @@
 //!
 //! Exits non-zero on refusal.
 
-use activechain_network_planner::{NetworkManifest, NetworkPlan, PlanError, plan_fleet};
-use std::{env, fs, process::ExitCode};
+use activechain_network_planner::{
+    NetworkManifest, NetworkPlan, PlanError, apply, plan_fleet, preflight,
+};
+use std::{env, fs, path::PathBuf, process::ExitCode};
 
 fn main() -> ExitCode {
     match run() {
@@ -30,9 +38,18 @@ fn main() -> ExitCode {
 fn run() -> Result<String, String> {
     let mut paths = Vec::new();
     let mut as_json = false;
-    for argument in env::args().skip(1) {
+    let mut applying = false;
+    let mut home: Option<PathBuf> = None;
+    let mut arguments = env::args().skip(1);
+    while let Some(argument) = arguments.next() {
         if argument == "--json" {
             as_json = true;
+        } else if argument == "--apply" {
+            applying = true;
+        } else if argument == "--home" {
+            home = Some(PathBuf::from(
+                arguments.next().ok_or_else(|| "--home needs a directory".to_owned())?,
+            ));
         } else if argument.starts_with('-') {
             return Err(format!("unknown option {argument}"));
         } else {
@@ -55,12 +72,51 @@ fn run() -> Result<String, String> {
     }
 
     let plans = plan_fleet(&manifests).map_err(describe)?;
+
+    if applying {
+        let home = home
+            .or_else(|| env::var_os("HOME").map(PathBuf::from))
+            .ok_or_else(|| "could not determine the home directory; pass --home".to_owned())?;
+        let agents = home.join("Library/LaunchAgents");
+        let mut report = String::new();
+        for plan in &plans {
+            let record = apply::apply(plan, &home, &agents).map_err(|error| error.to_string())?;
+            report.push_str(&format!(
+                "applied {} at {}\n  plan digest      {}\n  wrote            {} directories, \
+                 {} file(s), {} launch agent(s)\n",
+                record.network,
+                record.root.display(),
+                record.plan_digest,
+                record.directories,
+                record.files.len(),
+                record.launch_agents.len()
+            ));
+            for step in &record.remaining {
+                report.push_str(&format!("  still to do      {step}\n"));
+            }
+        }
+        return Ok(report);
+    }
+
+    // Reporting a plan also reports what this host would say about it, so an
+    // operator sees both the intent and the circumstance before applying.
+    let mut environment = String::new();
+    if let Some(root) = env::var_os("HOME").map(PathBuf::from) {
+        for plan in &plans {
+            let assessment =
+                preflight::assess(plan, &root.join("activechain-deploy").join(&plan.name));
+            for finding in &assessment.findings {
+                environment.push_str(&format!("  host              {finding}\n"));
+            }
+        }
+    }
+
     if as_json {
         return serde_json::to_string_pretty(&plans)
             .map(|value| format!("{value}\n"))
             .map_err(|error| format!("could not encode the plan: {error}"));
     }
-    Ok(plans.iter().map(render).collect())
+    Ok(plans.iter().map(render).collect::<String>() + &environment)
 }
 
 fn render(plan: &NetworkPlan) -> String {

@@ -76,12 +76,17 @@ pub fn assess(plan: &NetworkPlan, deployment_root: &Path) -> EnvironmentAssessme
                 .to_owned(),
             blocking: true,
         });
-    } else if let Some(parent) = deployment_root.parent()
-        && !parent.exists()
+    } else if let Some(home) = deployment_root.parent().and_then(Path::parent)
+        && !home.exists()
     {
+        // The deploy tree itself is created by apply, so its absence is normal.
+        // The directory *containing* it is not: a missing home means a typo or
+        // an unmounted volume, and creating a fresh tree there would look like
+        // success while deploying into nowhere.
         findings.push(Finding {
-            subject: parent.display().to_string(),
-            detail: "parent directory does not exist".to_owned(),
+            subject: home.display().to_string(),
+            detail: "home directory does not exist; the deployment would be created                      somewhere unintended"
+                .to_owned(),
             blocking: true,
         });
     }

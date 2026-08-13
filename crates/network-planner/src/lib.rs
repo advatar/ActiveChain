@@ -23,7 +23,9 @@
 //! a configuration can be rejected before it costs anything. Executing a plan
 //! is a separate concern.
 
+pub mod apply;
 pub mod preflight;
+pub mod render;
 
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
@@ -31,6 +33,10 @@ use activechain_canonical_codec::{
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::Digest384;
 use serde::{Deserialize, Serialize};
+use sha3::{
+    Shake256,
+    digest::{ExtendableOutput, Update, XofReader},
+};
 use std::collections::BTreeSet;
 
 /// Bytes per indexed Coin Cell record once the shared finality bundle is
@@ -81,9 +87,27 @@ pub struct NetworkManifest {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Hostnames {
+    /// The network's own domain. The chain id is derived from it, so this is
+    /// the network's identity rather than merely where it answers.
+    pub domain: String,
     pub rpc: String,
     pub anchor: String,
     pub verify: String,
+}
+
+/// The chain id a network domain commits to.
+///
+/// Derived rather than configured, so it cannot be mistyped into a manifest or
+/// carried by hand from one tool to the next — which is how a chain id reached
+/// the cash tool and a treasury owner reached a launch agent until now.
+#[must_use]
+pub fn chain_id_for(domain: &str) -> Digest384 {
+    let mut shake = Shake256::default();
+    shake.update(b"ACTIVECHAIN-CHAIN-ID-V1");
+    shake.update(domain.as_bytes());
+    let mut digest = [0_u8; 48];
+    shake.finalize_xof().read(&mut digest);
+    Digest384::new(digest)
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -176,7 +200,15 @@ pub enum PlanError {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct NetworkPlan {
     pub name: String,
+    pub domain: String,
+    /// Derived from the domain; never supplied by hand.
+    #[serde(with = "hex_digest")]
+    pub chain_id: Digest384,
     pub deployment_root: String,
+    pub rpc_hostname: String,
+    pub genesis_supply: u128,
+    pub security_reserve: u128,
+    pub cells_per_grant: usize,
     pub ports: Ports,
     pub launch_labels: Vec<String>,
     pub treasury_cells: usize,
@@ -215,6 +247,9 @@ impl CanonicalType for NetworkPlan {
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = MAX_PLAN_NAME
         + MAX_PLAN_PATH
+        + MAX_PLAN_PATH
+        + 48
+        + 32
         + MAX_PLAN_LABELS * (MAX_PLAN_NAME + MAX_PLAN_PATH)
         + MAX_PLAN_VALIDATORS * 2
         + 64;
@@ -228,7 +263,13 @@ impl CanonicalType for NetworkPlan {
 impl CanonicalEncode for NetworkPlan {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
         e.write_bytes(self.name.as_bytes(), MAX_PLAN_NAME)?;
+        e.write_bytes(self.domain.as_bytes(), MAX_PLAN_PATH)?;
+        self.chain_id.encode(e)?;
         e.write_bytes(self.deployment_root.as_bytes(), MAX_PLAN_PATH)?;
+        e.write_bytes(self.rpc_hostname.as_bytes(), MAX_PLAN_PATH)?;
+        self.genesis_supply.encode(e)?;
+        self.security_reserve.encode(e)?;
+        (self.cells_per_grant as u64).encode(e)?;
         self.ports.rpc.encode(e)?;
         e.write_length(self.ports.validators.len(), MAX_PLAN_VALIDATORS)?;
         for port in &self.ports.validators {
@@ -259,7 +300,14 @@ impl CanonicalDecode for NetworkPlan {
                 .map_err(|_| DecodeError::InvalidValue("network plan text is not UTF-8"))
         };
         let name = text(d.read_bytes(MAX_PLAN_NAME)?)?;
+        let domain = text(d.read_bytes(MAX_PLAN_PATH)?)?;
+        let chain_id = Digest384::decode(d)?;
         let deployment_root = text(d.read_bytes(MAX_PLAN_PATH)?)?;
+        let rpc_hostname = text(d.read_bytes(MAX_PLAN_PATH)?)?;
+        let genesis_supply = u128::decode(d)?;
+        let security_reserve = u128::decode(d)?;
+        let cells_per_grant = usize::try_from(u64::decode(d)?)
+            .map_err(|_| DecodeError::InvalidValue("cells per grant overflows"))?;
         let rpc = u16::decode(d)?;
         let validator_count = d.read_length(MAX_PLAN_VALIDATORS)?;
         let mut validators = Vec::with_capacity(validator_count);
@@ -282,7 +330,13 @@ impl CanonicalDecode for NetworkPlan {
             .map_err(|_| DecodeError::InvalidValue("grant capacity overflows"))?;
         Ok(Self {
             name,
+            domain,
+            chain_id,
             deployment_root,
+            rpc_hostname,
+            genesis_supply,
+            security_reserve,
+            cells_per_grant,
             ports: Ports { rpc, validators, anchor, work_proof, reserved },
             launch_labels,
             treasury_cells,
@@ -420,7 +474,13 @@ fn plan_one(manifest: &NetworkManifest) -> Result<NetworkPlan, PlanError> {
 
     Ok(NetworkPlan {
         name: manifest.name.clone(),
+        domain: manifest.hostnames.domain.clone(),
+        chain_id: chain_id_for(&manifest.hostnames.domain),
         deployment_root: format!("$HOME/activechain-deploy/{}", manifest.name),
+        rpc_hostname: manifest.hostnames.rpc.clone(),
+        genesis_supply: manifest.treasury.genesis_supply,
+        security_reserve: manifest.treasury.security_reserve,
+        cells_per_grant: per_grant,
         ports,
         launch_labels: launch_labels(&manifest.name),
         treasury_cells: cells,
@@ -472,10 +532,25 @@ fn validate_name(name: &str) -> Result<(), PlanError> {
     if acceptable { Ok(()) } else { Err(PlanError::NameNotALabel(name.to_owned())) }
 }
 
+/// Serializes a digest as hex so a plan reads as something an operator can
+/// compare against a node, rather than as an array of numbers.
+mod hex_digest {
+    use activechain_protocol_types::Digest384;
+    use serde::Serializer;
+
+    pub fn serialize<S: Serializer>(value: &Digest384, serializer: S) -> Result<S::Ok, S::Error> {
+        let hex: String = value.as_bytes().iter().map(|byte| format!("{byte:02x}")).collect();
+        serializer.serialize_str(&hex)
+    }
+}
+
 fn validate_hostnames(hostnames: &Hostnames) -> Result<(), PlanError> {
-    for (label, value) in
-        [("rpc", &hostnames.rpc), ("anchor", &hostnames.anchor), ("verify", &hostnames.verify)]
-    {
+    for (label, value) in [
+        ("domain", &hostnames.domain),
+        ("rpc", &hostnames.rpc),
+        ("anchor", &hostnames.anchor),
+        ("verify", &hostnames.verify),
+    ] {
         if value.trim().is_empty() {
             return Err(PlanError::HostnameEmpty(label));
         }
@@ -495,6 +570,7 @@ pub(crate) mod tests_support {
             validators: 3,
             base_port,
             hostnames: Hostnames {
+                domain: format!("{name}.activechain.dev"),
                 rpc: format!("rpc.{name}.activechain.dev"),
                 anchor: format!("anchor.{name}.activechain.dev"),
                 verify: format!("verify.{name}.activechain.dev"),
@@ -674,6 +750,26 @@ mod tests {
         let mut same = manifest("kanalen", 49_151);
         same.hostnames.verify = same.hostnames.rpc.clone();
         assert_eq!(plan(&same), Err(PlanError::HostnamesNotDistinct));
+    }
+
+    /// The derivation must reproduce the chain the live network actually runs,
+    /// or planning an existing deployment would silently propose a different
+    /// chain wearing its name.
+    #[test]
+    fn the_chain_id_is_derived_from_the_domain_and_matches_the_live_network() {
+        let plan = plan(&manifest("kanalen", 49_151)).unwrap();
+        let hex: String =
+            plan.chain_id.as_bytes().iter().map(|byte| format!("{byte:02x}")).collect();
+        assert_eq!(
+            hex,
+            "b12c1c316717e9669cec36f7632a9080702c57a3125d90c72154f8a7298e4f0b\
+             095e6cfe944bd2c9f6535b4c927782f1",
+            "derived chain id must equal the one Kanalen runs"
+        );
+        // Two domains are two chains, whatever else the manifests share.
+        let mut other = manifest("kanalen", 49_151);
+        other.hostnames.domain = "kibera.activechain.dev".to_owned();
+        assert_ne!(plan.chain_id, super::plan(&other).unwrap().chain_id);
     }
 
     #[test]
