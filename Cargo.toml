@@ -19,6 +19,7 @@ members = [
     "crates/work-proof",
     "crates/work-proof-verifier",
     "crates/network-planner",
+    "crates/operator-console",
     "crates/trust-ceremony",
     "crates/verifier-api",
     "crates/verifier-ffi",
@@ -96,6 +97,7 @@ activechain-wallet-core = { path = "crates/wallet-core", version = "0.1.0", defa
 activechain-work-proof = { path = "crates/work-proof", version = "0.1.0" }
 activechain-work-proof-verifier = { path = "crates/work-proof-verifier", version = "0.1.0" }
 activechain-network-planner = { path = "crates/network-planner", version = "0.1.0" }
+activechain-operator-console = { path = "crates/operator-console", version = "0.1.0" }
 activechain-trust-ceremony = { path = "crates/trust-ceremony", version = "0.1.0" }
 activechain-wallet-ffi = { path = "crates/wallet-ffi", version = "0.1.0" }
 activechain-verifier-api = { path = "crates/verifier-api", version = "0.1.0" }

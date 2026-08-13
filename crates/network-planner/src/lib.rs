@@ -786,6 +786,22 @@ mod tests {
         assert_ne!(plan.chain_id, super::plan(&other).unwrap().chain_id);
     }
 
+    /// A genesis supply exceeds `u64::MAX`, so a plan cannot be routed through
+    /// `serde_json::Value` — `Value::Number` cannot hold it and construction
+    /// panics. Direct serialization streams and must keep working, because two
+    /// JSON surfaces were built on the wrong one and only failed when run.
+    #[test]
+    fn a_plan_serializes_despite_a_supply_larger_than_a_u64() {
+        let plan = plan(&manifest("kanalen", 49_151)).unwrap();
+        assert!(plan.genesis_supply > u128::from(u64::MAX), "the fixture must exercise this");
+        let encoded = serde_json::to_string(&plan).expect("a plan must serialize directly");
+        assert!(encoded.contains("1000000000000000000000000000"));
+        assert!(
+            serde_json::to_value(&plan).is_err(),
+            "if Value ever gains u128 support this test should be revisited rather than deleted"
+        );
+    }
+
     #[test]
     fn a_manifest_round_trips_through_its_serialized_form() {
         let original = manifest("kanalen", 49_151);

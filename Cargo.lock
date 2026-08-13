@@ -410,6 +410,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-operator-console"
+version = "0.1.0"
+dependencies = [
+ "activechain-network-planner",
+ "axum",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "activechain-payment-connector-host"
 version = "0.1.0"
 dependencies = [

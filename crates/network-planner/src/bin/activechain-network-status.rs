@@ -46,7 +46,7 @@ fn run() -> Result<String, String> {
 
     let fleet = fleet::discover(&home);
     if as_json {
-        return Ok(render_json(&fleet));
+        return render_json(&fleet);
     }
 
     if fleet.deployments.is_empty() && fleet.unaccounted.is_empty() {
@@ -89,28 +89,48 @@ fn run() -> Result<String, String> {
     Ok(out)
 }
 
-fn render_json(fleet: &fleet::Fleet) -> String {
-    let deployments: Vec<_> = fleet
-        .deployments
-        .iter()
-        .map(|deployment| {
-            serde_json::json!({
-                "plan": deployment.plan,
-                "services": deployment
+/// Typed rather than `serde_json::Value`: a `Value::Number` cannot hold a
+/// `u128` above `u64::MAX`, and a genesis supply routinely is.
+#[derive(serde::Serialize)]
+struct FleetReport<'a> {
+    deployments: Vec<DeploymentReport<'a>>,
+    unaccounted: &'a [String],
+}
+
+#[derive(serde::Serialize)]
+struct DeploymentReport<'a> {
+    plan: &'a activechain_network_planner::NetworkPlan,
+    services: Vec<ServiceReport<'a>>,
+}
+
+#[derive(serde::Serialize)]
+struct ServiceReport<'a> {
+    role: &'a str,
+    port: u16,
+    listening: bool,
+}
+
+fn render_json(fleet: &fleet::Fleet) -> Result<String, String> {
+    let report = FleetReport {
+        deployments: fleet
+            .deployments
+            .iter()
+            .map(|deployment| DeploymentReport {
+                plan: &deployment.plan,
+                services: deployment
                     .services
                     .iter()
-                    .map(|(role, port, running)| serde_json::json!({
-                        "role": role,
-                        "port": port,
-                        "listening": running,
-                    }))
-                    .collect::<Vec<_>>(),
+                    .map(|(role, port, listening)| ServiceReport {
+                        role,
+                        port: *port,
+                        listening: *listening,
+                    })
+                    .collect(),
             })
-        })
-        .collect();
-    let value = serde_json::json!({
-        "deployments": deployments,
-        "unaccounted": fleet.unaccounted,
-    });
-    format!("{}\n", serde_json::to_string_pretty(&value).unwrap_or_default())
+            .collect(),
+        unaccounted: &fleet.unaccounted,
+    };
+    serde_json::to_string_pretty(&report)
+        .map(|value| format!("{value}\n"))
+        .map_err(|error| format!("could not encode the fleet: {error}"))
 }

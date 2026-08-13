@@ -1,0 +1,15 @@
+[package]
+name = "activechain-operator-console"
+description = "Loopback-only operator console for ActiveChain networks on a host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+activechain-network-planner.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
