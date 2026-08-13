@@ -1014,6 +1014,94 @@ final class ActiveChainWalletTests: XCTestCase {
         )
     }
 
+    // MARK: - network selection
+
+    private func scratchRegistry(_ name: String) -> (WalletNetworkRegistry, UserDefaults) {
+        let suite = "network-registry-\(name)-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        return (WalletNetworkRegistry(defaults: defaults), defaults)
+    }
+
+    private func network(_ id: String, chain: UInt8, genesis: UInt8) -> WalletNetwork {
+        WalletNetwork(
+            id: id,
+            displayName: id.capitalized,
+            hostName: "rpc.\(id).example",
+            port: 443,
+            protocolRevision: 1,
+            schemaRevision: 3,
+            chainID: Data(repeating: chain, count: 48),
+            genesis: Data(repeating: genesis, count: 48)
+        )
+    }
+
+    /// A wallet with no configuration must still hold a known pin. Falling back
+    /// to "no network" would mean accepting whatever chain answered first.
+    func testAnUnconfiguredWalletStillHoldsTheBuiltInPin() {
+        let (registry, _) = scratchRegistry("empty")
+        XCTAssertEqual(registry.selected.id, WalletNetwork.kanalen.id)
+        XCTAssertEqual(registry.selected.genesis, WalletNetwork.kanalen.genesis)
+        XCTAssertEqual(registry.known.count, 1)
+    }
+
+    func testAddedNetworksBecomeSelectableAndSurviveReload() throws {
+        let (registry, defaults) = scratchRegistry("added")
+        try registry.add(network("kibera", chain: 0x11, genesis: 0x22))
+        try registry.select("kibera")
+        XCTAssertEqual(registry.selected.id, "kibera")
+
+        let reloaded = WalletNetworkRegistry(defaults: defaults)
+        XCTAssertEqual(reloaded.selected.id, "kibera", "the selection must persist")
+        XCTAssertEqual(reloaded.known.count, 2)
+    }
+
+    /// A stored network is a pin. A malformed one is discarded rather than
+    /// trusted, because nobody deliberately chose it.
+    func testMalformedOrDuplicateNetworksAreRefused() throws {
+        let (registry, _) = scratchRegistry("malformed")
+        let shortGenesis = WalletNetwork(
+            id: "broken", displayName: "Broken", hostName: "rpc.broken.example", port: 443,
+            protocolRevision: 1, schemaRevision: 3,
+            chainID: Data(repeating: 1, count: 48), genesis: Data(repeating: 2, count: 47)
+        )
+        XCTAssertThrowsError(try registry.add(shortGenesis))
+        let zeroChain = WalletNetwork(
+            id: "zero", displayName: "Zero", hostName: "rpc.zero.example", port: 443,
+            protocolRevision: 1, schemaRevision: 3,
+            chainID: Data(repeating: 0, count: 48), genesis: Data(repeating: 2, count: 48)
+        )
+        XCTAssertThrowsError(try registry.add(zeroChain))
+        XCTAssertThrowsError(try registry.add(network("kanalen", chain: 9, genesis: 9)))
+        XCTAssertThrowsError(try registry.select("never-added"))
+        XCTAssertEqual(registry.known.count, 1)
+    }
+
+    /// Keys and profiles are per network. A seed provisioned against one
+    /// genesis authorizes nothing on another, and a balance from one chain must
+    /// never appear while another is selected.
+    func testWalletStorageIsScopedPerNetworkSoIdentitiesCannotBleedAcross() {
+        let kanalen = WalletNetwork.kanalen
+        let kibera = network("kibera", chain: 0x11, genesis: 0x22)
+        XCTAssertNotEqual(kanalen.custodySlotID, kibera.custodySlotID)
+        XCTAssertNotEqual(kanalen.profileAccount, kibera.profileAccount)
+        XCTAssertTrue(kanalen.custodySlotID.contains(kanalen.id))
+        XCTAssertTrue(kibera.profileAccount.contains(kibera.id))
+    }
+
+    /// Removing a network must not destroy its wallet: the key stays under that
+    /// network's slot so re-adding it restores access rather than losing funds.
+    func testRemovalRulesProtectTheSelectedAndBuiltInNetworks() throws {
+        let (registry, _) = scratchRegistry("removal")
+        try registry.add(network("kibera", chain: 0x11, genesis: 0x22))
+        XCTAssertThrowsError(try registry.remove(WalletNetwork.kanalen.id))
+        try registry.select("kibera")
+        XCTAssertThrowsError(try registry.remove("kibera"), "the selected network cannot vanish")
+        try registry.select(WalletNetwork.kanalen.id)
+        try registry.remove("kibera")
+        XCTAssertEqual(registry.known.count, 1)
+    }
+
     private func rpcResponse(body: Data) -> Data {
         var envelope = Data([0x01, 0x0a, 0, 3])
         envelope.append(contentsOf: uleb128(body.count))

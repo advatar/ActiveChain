@@ -29,28 +29,22 @@ enum WalletHex {
     }
 }
 
+/// The network currently selected, as seen by code that has no instance to
+/// hand — chiefly the wire codec.
+///
+/// This used to be the pin itself, compiled in and unchangeable, which meant a
+/// rebuilt chain needed a new build and a second testnet could not be reached
+/// at all. It now reads the selection, while remaining a pin: the values below
+/// are still what the wallet demands of a node, never what it learns from one.
 enum WalletKanalen {
-    static let host = NWEndpoint.Host("rpc.kanalen.activechain.dev")
-    static let port = NWEndpoint.Port(rawValue: 443)!
-    static var hostDescription: String { "\(host):\(port.rawValue)" }
-    static let protocolRevision: UInt64 = 1
-    static let schemaRevision: UInt32 = 3
-    static let chainID = Data([
-        0xb1, 0x2c, 0x1c, 0x31, 0x67, 0x17, 0xe9, 0x66,
-        0x9c, 0xec, 0x36, 0xf7, 0x63, 0x2a, 0x90, 0x80,
-        0x70, 0x2c, 0x57, 0xa3, 0x12, 0x5d, 0x90, 0xc7,
-        0x21, 0x54, 0xf8, 0xa7, 0x29, 0x8e, 0x4f, 0x0b,
-        0x09, 0x5e, 0x6c, 0xfe, 0x94, 0x4b, 0xd2, 0xc9,
-        0xf6, 0x53, 0x5b, 0x4c, 0x92, 0x77, 0x82, 0xf1,
-    ])
-    static let genesis = Data([
-        0xa8, 0x36, 0xc4, 0xd2, 0x01, 0xcd, 0xa6, 0xba,
-        0x33, 0xa0, 0x1a, 0xa4, 0x80, 0x11, 0xcf, 0x5f,
-        0x4d, 0x6a, 0xcd, 0xfd, 0x1e, 0xc4, 0x09, 0xd3,
-        0x22, 0xdc, 0x1b, 0x56, 0xed, 0x35, 0x52, 0xa2,
-        0x5d, 0xcb, 0x15, 0x8e, 0x0b, 0x1e, 0xc0, 0x35,
-        0x27, 0x28, 0x65, 0x3d, 0x31, 0x5d, 0x47, 0x7c,
-    ])
+    static var current: WalletNetwork { WalletNetworkRegistry().selected }
+    static var host: NWEndpoint.Host { current.host }
+    static var port: NWEndpoint.Port { current.endpointPort }
+    static var hostDescription: String { current.hostDescription }
+    static var protocolRevision: UInt64 { current.protocolRevision }
+    static var schemaRevision: UInt32 { current.schemaRevision }
+    static var chainID: Data { current.chainID }
+    static var genesis: Data { current.genesis }
 }
 
 enum WalletNetworkState: Equatable, Sendable {
@@ -151,12 +145,40 @@ final class WalletLiveState: ObservableObject {
     /// The grant whose outcome the wallet is still waiting on, so a refresh can
     /// ask what became of it instead of asserting "pending" indefinitely.
     private var pendingFaucetReference: Data?
-    static let primarySlotID = "primary"
+    @Published private(set) var network: WalletNetwork
+    private let registry = WalletNetworkRegistry()
     private let rpc = WalletRPCClient()
     private let verifier: any WalletOwnerCoinProofVerifier = RustWalletOwnerCoinProofVerifier()
 
+    /// The custody slot for the selected network. Keys are per network: a seed
+    /// provisioned against one genesis can authorize nothing on another.
+    var primarySlotID: String { network.custodySlotID }
+
+    var knownNetworks: [WalletNetwork] { registry.known }
+
     init() {
-        deviceProfile = WalletDeviceProfileStore().load()
+        let selected = WalletNetworkRegistry().selected
+        network = selected
+        deviceProfile = WalletDeviceProfileStore(network: selected).load()
+    }
+
+    /// Switches networks and reloads everything that was scoped to the old one.
+    ///
+    /// Nothing is carried across: balance, funding, and the wallet identity all
+    /// belong to the network they were observed on, and showing any of them
+    /// against a different chain would be a false claim.
+    func selectNetwork(_ id: String) async {
+        guard id != network.id, (try? registry.select(id)) != nil else { return }
+        network = registry.selected
+        deviceProfile = WalletDeviceProfileStore(network: network).load()
+        verifiedOwnerPage = nil
+        pendingFaucetReference = nil
+        recoverySecret = nil
+        onboardingError = nil
+        balanceState = .unavailable(reason: "Selecting \(network.displayName).")
+        fundingState = .unavailable(reason: "Selecting \(network.displayName).")
+        WalletLog.rpc.notice("selected network \(self.network.id, privacy: .public)")
+        await refresh()
     }
 
     func refresh() async {
@@ -267,7 +289,7 @@ final class WalletLiveState: ObservableObject {
             var recoveryKey = try Self.randomRecoveryKey()
             defer { recoveryKey.zeroize() }
             let publicKey = try provider.provision(
-                slotID: Self.primarySlotID,
+                slotID: primarySlotID,
                 keyVersion: 1,
                 finalizedHeight: height,
                 recoveryKey: &recoveryKey
@@ -275,8 +297,8 @@ final class WalletLiveState: ObservableObject {
             let owner = try Self.principal(for: publicKey)
             // Bind the profile to the genesis this build trusts, so a rebuilt
             // chain surfaces as a pin mismatch rather than a silent skip.
-            let profile = WalletDeviceProfile(owner: owner, chainGenesis: WalletKanalen.genesis)
-            try WalletDeviceProfileStore().save(profile)
+            let profile = WalletDeviceProfile(owner: owner, chainGenesis: network.genesis)
+            try WalletDeviceProfileStore(network: network).save(profile)
             deviceProfile = profile
             recoverySecret = recoveryKey.map { String(format: "%02x", $0) }.joined()
             WalletLog.rpc.notice("provisioned wallet owner \(WalletHex.short(owner), privacy: .public)")
@@ -304,8 +326,8 @@ final class WalletLiveState: ObservableObject {
                 store: keychain,
                 hardware: SecureEnclaveWrappingBackend()
             )
-            try provider.discard(slotID: Self.primarySlotID)
-            try WalletDeviceProfileStore().delete()
+            try provider.discard(slotID: primarySlotID)
+            try WalletDeviceProfileStore(network: network).delete()
             deviceProfile = nil
             supersededProfile = false
             WalletLog.rpc.notice("discarded wallet bound to a superseded chain")
@@ -366,8 +388,8 @@ final class WalletLiveState: ObservableObject {
         fundingState = .requesting
         do {
             let terms = try await rpc.faucetTerms()
-            guard terms.chainID == WalletKanalen.chainID,
-                  terms.genesis == WalletKanalen.genesis,
+            guard terms.chainID == network.chainID,
+                  terms.genesis == network.genesis,
                   terms.challengeKind == 0 else {
                 WalletLog.rpc.error(
                     "faucet terms incompatible: chain \(WalletHex.short(terms.chainID), privacy: .public) genesis \(WalletHex.short(terms.genesis), privacy: .public) challengeKind \(terms.challengeKind, privacy: .public)")
@@ -462,7 +484,7 @@ final class WalletLiveState: ObservableObject {
 
     func refreshVerifiedOwnerPage(verifier: any WalletOwnerCoinProofVerifier) async {
         guard let profile = deviceProfile,
-              profile.chainGenesis == WalletKanalen.genesis,
+              profile.chainGenesis == network.genesis,
               case let .healthy(height) = networkState else {
             verifiedOwnerPage = nil
             return
@@ -484,7 +506,14 @@ struct WalletDeviceProfile: Equatable, Sendable {
 
 struct WalletDeviceProfileStore {
     private let service = "dev.activechain.wallet.profile.v1"
-    private let account = "owner-and-genesis"
+    private let account: String
+
+    /// Scoped to a network, because an owner is only meaningful against the
+    /// genesis it was provisioned under. One shared account would let a wallet
+    /// from one chain appear while another is selected.
+    init(network: WalletNetwork) {
+        self.account = network.profileAccount
+    }
 
     func load() -> WalletDeviceProfile? {
         guard let keychain = try? SharedKeychain(),

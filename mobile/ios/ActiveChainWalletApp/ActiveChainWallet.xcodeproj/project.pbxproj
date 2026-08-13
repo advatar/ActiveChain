@@ -10,6 +10,7 @@
 		0181244E4606199619C7743C /* ActiveChainWallet.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = FE57D7E81DE8386DD91EE7F6 /* ActiveChainWallet.xcframework */; };
 		0203D15FB843A76A4366DB52 /* AgentEnrollment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8314E013FB77F1EBBD1BDE46 /* AgentEnrollment.swift */; };
 		07334189D34A9B6C4A160EAA /* WalletLiveState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D0CAF5609EE5137D2B9241C /* WalletLiveState.swift */; };
+		0794CC607A6235E9A3BCDB91 /* WalletNetwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1F16B7D1BDA1C94116989C /* WalletNetwork.swift */; };
 		20ED92D62FC73117F71FDA7F /* AgentWallet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D41DFF27117CF804DD5B4301 /* AgentWallet.swift */; };
 		2C8CCD588629BA72F529AA84 /* RustAgentRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A908638375B69C4796EE249 /* RustAgentRegistry.swift */; };
 		374576FBA140D49B79CE92CC /* ReceiveRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A496EE1DE3CAA8472B124CAF /* ReceiveRequest.swift */; };
@@ -20,6 +21,7 @@
 		51FF834F5BBC5DD2BDDF7458 /* ActiveChainWallet.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = FE57D7E81DE8386DD91EE7F6 /* ActiveChainWallet.xcframework */; };
 		54C17C1DB2671699FD7333A0 /* ActiveChainWalletApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00F60C541C50E0093CD8C615 /* ActiveChainWalletApp.swift */; };
 		654D7699CA37C0AEB8C01FD5 /* ActiveChainWalletTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF53AD2EFD667B91B6C0E2A2 /* ActiveChainWalletTests.swift */; };
+		67E308B74C4A4A5CEABA44ED /* WalletNetwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1F16B7D1BDA1C94116989C /* WalletNetwork.swift */; };
 		681BD3D9D0213D6D54F91D6E /* McpProposalApproval.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94B4EAFAD4ADAA28A7F1AADB /* McpProposalApproval.swift */; };
 		6F511419F638665160AC7FF2 /* CanonicalApproval.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A413B7566FFCF99636E760 /* CanonicalApproval.swift */; };
 		6FC270EB9653605CB9529C82 /* RustCanonicalApproval.swift in Sources */ = {isa = PBXBuildFile; fileRef = D74A7CE5AE43E03F00D7B9F9 /* RustCanonicalApproval.swift */; };
@@ -72,6 +74,7 @@
 		2D0CAF5609EE5137D2B9241C /* WalletLiveState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletLiveState.swift; sourceTree = "<group>"; };
 		329F5D83AC50D372D7E5BA6F /* ActiveChainWalletTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ActiveChainWalletTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4B5C193E2E9CC1B91B0DFB62 /* ReceiveRequestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiveRequestView.swift; sourceTree = "<group>"; };
+		4C1F16B7D1BDA1C94116989C /* WalletNetwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletNetwork.swift; sourceTree = "<group>"; };
 		50EF838DF6F51C698FEE9C6F /* NetworkSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkSelection.swift; sourceTree = "<group>"; };
 		5BC3A913C310FA56AB7A75B0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		5FE5B79EEE48EB238AC35CE7 /* WalletLifecycleUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletLifecycleUITests.swift; sourceTree = "<group>"; };
@@ -144,6 +147,7 @@
 				D74A7CE5AE43E03F00D7B9F9 /* RustCanonicalApproval.swift */,
 				CA6F3F4E02BBBE0DE60990C5 /* SharedKeychain.swift */,
 				2D0CAF5609EE5137D2B9241C /* WalletLiveState.swift */,
+				4C1F16B7D1BDA1C94116989C /* WalletNetwork.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -374,6 +378,7 @@
 				390C635B1BF6FA4A56A98D67 /* RustCanonicalApproval.swift in Sources */,
 				70EB9560531E88DAF4876107 /* SharedKeychain.swift in Sources */,
 				E8468724E720CCEBF55A5100 /* WalletLiveState.swift in Sources */,
+				0794CC607A6235E9A3BCDB91 /* WalletNetwork.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -395,6 +400,7 @@
 				6FC270EB9653605CB9529C82 /* RustCanonicalApproval.swift in Sources */,
 				BF90236E9505812EAB94A3E1 /* SharedKeychain.swift in Sources */,
 				07334189D34A9B6C4A160EAA /* WalletLiveState.swift in Sources */,
+				67E308B74C4A4A5CEABA44ED /* WalletNetwork.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

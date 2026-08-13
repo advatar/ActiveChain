@@ -94,9 +94,13 @@ private struct HomeView: View {
                     FundingCard(state: liveState.fundingState) {
                         Task { await liveState.requestTestnetFunding() }
                     }
-                    NetworkCard(state: liveState.networkState) {
-                        Task { await liveState.refresh() }
-                    }
+                    NetworkCard(
+                        state: liveState.networkState,
+                        network: liveState.network,
+                        known: liveState.knownNetworks,
+                        refresh: { Task { await liveState.refresh() } },
+                        select: { id in Task { await liveState.selectNetwork(id) } }
+                    )
                     AssetSection()
                     SecurityFooter(
                         hasProfile: liveState.deviceProfile != nil,
@@ -268,33 +272,68 @@ private struct BalanceCard: View {
 
 private struct NetworkCard: View {
     let state: WalletNetworkState
+    let network: WalletNetwork
+    let known: [WalletNetwork]
     let refresh: () -> Void
+    let select: (String) -> Void
 
     var body: some View {
-        Button(action: refresh) {
-            HStack(spacing: 14) {
-                ZStack {
-                    Circle().fill(state.color.opacity(0.15))
-                    Circle().fill(state.color).frame(width: 9, height: 9)
+        VStack(spacing: 0) {
+            Button(action: refresh) {
+                HStack(spacing: 14) {
+                    ZStack {
+                        Circle().fill(state.color.opacity(0.15))
+                        Circle().fill(state.color).frame(width: 9, height: 9)
+                    }
+                    .frame(width: 42, height: 42)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(network.displayName).font(.headline)
+                        Text(state.detail)
+                            .font(.caption)
+                            .foregroundStyle(WalletPalette.muted)
+                    }
+                    Spacer()
+                    Text(state.label)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(state.color)
+                        .accessibilityIdentifier("network.status")
                 }
-                .frame(width: 42, height: 42)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Kanalen").font(.headline)
-                    Text(state.detail)
-                        .font(.caption)
-                        .foregroundStyle(WalletPalette.muted)
-                }
-                Spacer()
-                Text(state.label)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(state.color)
-                    .accessibilityIdentifier("network.status")
             }
-            .cardStyle()
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(network.displayName) testnet, \(state.label), \(state.detail)")
+
+            // Only worth showing once there is a choice to make. Switching is
+            // deliberate: the pin follows the person, never the peer.
+            if known.count > 1 {
+                Divider().overlay(WalletPalette.muted.opacity(0.3)).padding(.vertical, 10)
+                Menu {
+                    ForEach(known, id: \.id) { candidate in
+                        Button {
+                            select(candidate.id)
+                        } label: {
+                            if candidate.id == network.id {
+                                Label(candidate.displayName, systemImage: "checkmark")
+                            } else {
+                                Text(candidate.displayName)
+                            }
+                        }
+                    }
+                } label: {
+                    HStack {
+                        Label("Network", systemImage: "network")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(WalletPalette.muted)
+                        Spacer()
+                        Text(network.displayName)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(WalletPalette.mint)
+                    }
+                }
+                .accessibilityIdentifier("network.picker")
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Kanalen testnet, \(state.label), \(state.detail)")
+        .cardStyle()
     }
 }
 
