@@ -101,6 +101,22 @@ impl Console {
     }
 }
 
+/// A per-response value that lets exactly this page's inline script and style
+/// run, without the policy permitting inline content in general.
+#[derive(Clone)]
+struct Nonce(String);
+
+impl Nonce {
+    fn new() -> Self {
+        let mut bytes = [0_u8; 16];
+        // A nonce that cannot be generated is a page that cannot render, so
+        // fall back to a fixed value only in the impossible case and let the
+        // policy still bind it.
+        let _ = getrandom::fill(&mut bytes);
+        Self(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+    }
+}
+
 /// Session token, from the system CSPRNG.
 ///
 /// It authorizes only what an operator sitting at this machine could already
@@ -140,6 +156,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // exhausting memory on a host that is also running validators.
         .layer(DefaultBodyLimit::max(64 * 1024))
         .layer(middleware::from_fn(security_headers))
+        .layer(middleware::from_fn(attach_nonce))
         .with_state(Arc::new(console));
 
     // Loopback only, and not a configurable choice. Everything this serves
@@ -181,16 +198,26 @@ struct ServiceView<'a> {
 /// The console renders values read off this host's disk. None of it should be
 /// framed, sniffed, sent anywhere, or able to load anything external, and a
 /// strict policy costs nothing on a page this simple.
+async fn attach_nonce(mut request: Request, next: Next) -> Response {
+    request.extensions_mut().insert(Nonce::new());
+    next.run(request).await
+}
+
 async fn security_headers(request: Request, next: Next) -> Response {
+    // One nonce per response, shared with the page so its script and style can
+    // run without the policy having to allow inline content generally.
+    let nonce =
+        request.extensions().get::<Nonce>().map_or_else(|| Nonce::new().0, |value| value.0.clone());
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
-    headers.insert(
-        header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static(
-            "default-src 'none'; style-src 'unsafe-inline'; connect-src 'self'; \
-             img-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
-        ),
+    let policy = format!(
+        "default-src 'none'; style-src 'nonce-{nonce}'; script-src 'nonce-{nonce}'; \
+         connect-src 'self'; img-src 'none'; frame-ancestors 'none'; base-uri 'none'; \
+         form-action 'none'"
     );
+    if let Ok(value) = HeaderValue::from_str(&policy) {
+        headers.insert(header::CONTENT_SECURITY_POLICY, value);
+    }
     headers.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
     headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
     headers.insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
@@ -336,7 +363,9 @@ async fn apply_plan(
         .into_response()
 }
 
-async fn page(State(console): State<Arc<Console>>) -> Html<String> {
+async fn page(State(console): State<Arc<Console>>, request: Request) -> Html<String> {
+    let nonce =
+        request.extensions().get::<Nonce>().map_or_else(|| Nonce::new().0, |value| value.0.clone());
     let discovered = fleet::discover(&console.home);
     let mut body = String::from(
         "<h1>ActiveChain networks</h1>\
@@ -389,15 +418,59 @@ async fn page(State(console): State<Arc<Console>>) -> Html<String> {
         ));
     }
 
-    Html(shell(&body))
+    body.push_str(&composer(&console.token, &nonce));
+    Html(shell(&body, &nonce))
+}
+
+/// The half of the console that acts.
+///
+/// The token is embedded here rather than typed by the operator: a page that
+/// can read this HTML is already the console's own page, which is exactly the
+/// thing the guard is trying to establish.
+fn composer(token: &str, nonce: &str) -> String {
+    format!(
+        "<section><h2>Create networks</h2>\
+         <p class=\"note\">Paste one or more manifests as a JSON array. Preview compiles them \
+         and reports what this host says; apply creates the deployment and stops where key \
+         material begins.</p>\
+         <textarea id=\"manifests\" spellcheck=\"false\" \
+         placeholder='[{{\"name\": \"kibera\", ...}}]'></textarea>\
+         <div class=\"row\"><button id=\"preview\">Preview</button>\
+         <button id=\"apply\">Apply</button></div>\
+         <pre id=\"out\"></pre></section>\
+         <script nonce=\"{nonce}\">\
+         const token = {token:?};\
+         const out = document.getElementById('out');\
+         async function send(path) {{\
+           let body;\
+           try {{ body = JSON.parse(document.getElementById('manifests').value); }}\
+           catch (error) {{ out.textContent = 'that is not valid JSON: ' + error.message; return; }}\
+           out.textContent = 'working...';\
+           try {{\
+             const response = await fetch(path, {{\
+               method: 'POST',\
+               headers: {{ 'Content-Type': 'application/json', 'X-ActiveChain-Console': token }},\
+               body: JSON.stringify(body),\
+             }});\
+             const text = await response.text();\
+             let shown = text;\
+             try {{ shown = JSON.stringify(JSON.parse(text), null, 2); }} catch (_) {{}}\
+             out.textContent = response.ok ? shown : ('refused (' + response.status + ')\\n' + shown);\
+             if (response.ok && path === '/api/apply') {{ setTimeout(() => location.reload(), 800); }}\
+           }} catch (error) {{ out.textContent = 'request failed: ' + error.message; }}\
+         }}\
+         document.getElementById('preview').onclick = () => send('/api/plan');\
+         document.getElementById('apply').onclick = () => send('/api/apply');\
+         </script>"
+    )
 }
 
 /// Everything is inline: the console must work on a host with no network route
 /// to anywhere, which is rather the point of running it there.
-fn shell(body: &str) -> String {
+fn shell(body: &str, nonce: &str) -> String {
     format!(
         "<!doctype html><html><head><meta charset=\"utf-8\">\
-         <title>ActiveChain operator console</title><style>\
+         <title>ActiveChain operator console</title><style nonce=\"{nonce}\">\
          body{{font:15px/1.5 -apple-system,system-ui,sans-serif;margin:0;padding:2rem;\
          background:#0a0e17;color:#e8ecf4}}\
          h1{{font-size:1.4rem;margin:0 0 .25rem}}h2{{font-size:1.05rem;margin:0 0 .75rem}}\
@@ -413,6 +486,15 @@ fn shell(body: &str) -> String {
          .running{{background:#12402c;color:#72f5b4}}\
          .stopped{{background:#232b3b;color:#93a1bd}}\
          .partial,.unknown{{background:#42330f;color:#f5c86b}}\
+         textarea{{width:100%;min-height:9rem;background:#0a0e17;color:#e8ecf4;border:1px solid \
+         #1e2739;border-radius:8px;padding:.75rem;font-family:ui-monospace,Menlo,monospace;\
+         font-size:13px}}\
+         .row{{display:flex;gap:.5rem;margin:.75rem 0}}\
+         button{{background:#1d6f4d;color:#e8ecf4;border:0;border-radius:8px;padding:.5rem 1rem;\
+         font:inherit;cursor:pointer}}\
+         button:hover{{background:#258c61}}\
+         pre{{white-space:pre-wrap;word-break:break-word;background:#0a0e17;border-radius:8px;\
+         padding:.75rem;margin:0;font-size:12.5px;max-height:22rem;overflow:auto}}\
          </style></head><body>{body}</body></html>"
     )
 }
@@ -565,6 +647,28 @@ mod tests {
             let acts = body.find("plan_fleet(").unwrap_or(usize::MAX);
             assert!(guard < acts, "{handler} must authorize before it acts");
         }
+    }
+
+    /// The page's script only runs if its nonce is the one the policy names.
+    /// A mismatch is silent in the browser — the console would simply look
+    /// broken — so it is worth pinning that both come from one value.
+    #[test]
+    fn the_page_and_the_policy_share_one_nonce() {
+        let code = serving_code();
+        assert!(
+            code.contains("script-src 'nonce-{nonce}'"),
+            "the policy must name the nonce it was issued"
+        );
+        assert!(
+            code.contains("<script nonce=\\\"{nonce}\\\">"),
+            "the page must carry the same nonce"
+        );
+        // Both read the value the request carries rather than minting their own.
+        assert_eq!(
+            code.matches(".get::<Nonce>()").count(),
+            2,
+            "the policy and the page must read one nonce, not mint two"
+        );
     }
 
     /// A token from the clock or the process id is guessable by anything local.
