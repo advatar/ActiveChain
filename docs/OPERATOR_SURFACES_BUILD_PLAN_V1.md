@@ -345,6 +345,44 @@ No jurisdiction dropdown. The interaction is evidence collection.
 activation, and cannot cause the UI to claim readiness that the mask does not
 support.*
 
+### B3. Cross-network movement is where a profile escapes
+
+Assets can already move between networks. `ActiveBridge` is an application
+protocol over native asset actions — payment intents bind a recipient network,
+swap intents bind both legs — and `crates/payment-types`, `payment-sdk` and
+`payment-connector-host` implement parts of it.
+
+**None of those crates contain any compliance or jurisdiction concept.** The
+bridge design document does not mention profiles, jurisdictions, or regulated
+activity anywhere.
+
+This does not void regulatory obligations. It concentrates them. A bridge is
+exactly where a regulated instrument leaves the profile that made it lawful,
+and an unbound one is a regulatory arbitrage device rather than a payment
+route: if a Kenya-profile stablecoin can be moved to a network that enforces
+nothing, then the profile was advisory all along.
+
+The governing rule should be that **a profile binds the asset, not the
+network it currently sits on**:
+
+- Moving a profile-bound asset carries its obligations with it, or the move
+  fails closed. Silently dropping them is the one outcome that must be
+  impossible.
+- The destination must be able to enforce a compatible profile. Obligations
+  compose by intersection under the existing conflict algorithm, so a
+  destination enforcing less cannot receive.
+- A payment intent's recipient network is therefore subject to profile
+  applicability, not merely to route availability.
+- Unprofiled assets on unprofiled networks are unaffected. This constrains
+  regulated instruments only.
+
+Parallel testnets are unaffected: they carry unlabelled test assets. What this
+constrains is C3.
+
+**C3 therefore requires B3 as well as B1.** A Kenyan stablecoin that can be
+bridged to a network with no enforcement is not a regulated instrument, whatever
+the issuing network enforces.
+
 ---
 
 ## Track C — issuer console
@@ -408,7 +446,8 @@ off Kanalen.
 reach the testnet, Track A needs it so anyone can reach a network they just
 created. Build it once, in Track 0, early.
 
-Only one hard cross-track dependency: **C3 requires B1.**
+Two hard cross-track dependencies: **C3 requires B1** (enforcement exists) and
+**C3 requires B3** (enforcement cannot be escaped by moving the asset).
 
 ## Risk register
 
@@ -422,7 +461,8 @@ Only one hard cross-track dependency: **C3 requires B1.**
 | Schema churn forcing repeated wallet rebuilds | Track 0 owns a single window; B1 and 0.2 ride it together if timing allows |
 | Profile work destabilising consensus | Consensus-visible activation absent on Kanalen; dev network only; no activation record until vectors pass |
 | CI starving the chain | Tracks A–C hold CI while Track 0 runs; longer term, move the runner off the chain host |
-| A "Kenya" label outrunning enforcement | C3 gated on B1 and counsel; no jurisdiction naming in C1/C2 |
+| A "Kenya" label outrunning enforcement | C3 gated on B1, B3 and counsel; no jurisdiction naming in C1/C2 |
+| A regulated asset bridged to a network that enforces nothing | B3: the profile binds the asset, not its location; cross-network movement carries obligations or fails closed |
 | Operator UI handling keys in a browser | A3 is native; browser variants may only author and sign plans |
 
 ## Amendment record
