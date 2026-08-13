@@ -19,7 +19,7 @@ a stable RPC — while an operator can keep it running without hand-surgery.
 Two structural ceilings block that today. Both are the same root cause as the
 faucet incident, and neither is a UI problem.
 
-### 0.1 A wallet with one Coin Cell cannot spend — **blocker**
+### 0.1 A wallet with one Coin Cell cannot spend — **blocker** ([#799](https://github.com/advatar/ActiveChain/issues/799))
 
 `CoinTransfer` refuses a fee reserve that is also an input, so spending needs
 at least two cells. A transfer creates exactly one recipient cell, so one grant
@@ -61,7 +61,7 @@ transaction ids and reconciles partial completion through the existing recovery
 path, which already replays what was authorized and refuses to close what it
 cannot establish.
 
-### 0.2 The chain caps at ~130 Coin Cells in total — **blocker**
+### 0.2 The chain caps at ~130 Coin Cells in total — **blocker** ([#800](https://github.com/advatar/ActiveChain/issues/800))
 
 `activechain-rpc-ingest` publishes **every cell in the finalized cash snapshot**
 as an index record carrying its own copy of the finality bundle. Measured at
@@ -95,7 +95,7 @@ NAT shares `SOURCE_LIMIT=5` per hour. Confirmed during the rehearsal. Needs a
 policy decision before external integrators arrive: raise the limit, or admit a
 per-recipient challenge that does not key on network position.
 
-### 0.5 The wallet can only ever see one network
+### 0.5 The wallet can only ever see one network ([#801](https://github.com/advatar/ActiveChain/issues/801))
 
 `WalletKanalen` fixes host, chain id, and genesis as compile-time constants, so
 a rebuilt chain currently requires a source change and a new build — as it did
