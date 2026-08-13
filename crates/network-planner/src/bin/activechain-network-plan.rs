@@ -104,9 +104,9 @@ fn describe(error: PlanError) -> String {
             "{cells} Coin Cells exceed the {ceiling} the RPC index can publish; the round \
              would fail with Invalid and the index would stay empty"
         ),
-        PlanError::TreasuryNotDivisible { cells } => format!(
-            "the allocation does not divide into {cells} non-empty Coin Cells"
-        ),
+        PlanError::TreasuryNotDivisible { cells } => {
+            format!("the allocation does not divide into {cells} non-empty Coin Cells")
+        }
         PlanError::SecurityReserveExceedsSupply => {
             "the security reserve must be smaller than the genesis supply".to_owned()
         }

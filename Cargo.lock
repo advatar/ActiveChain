@@ -383,6 +383,9 @@ dependencies = [
 name = "activechain-network-planner"
 version = "0.1.0"
 dependencies = [
+ "activechain-canonical-codec",
+ "activechain-protocol-commitment",
+ "activechain-protocol-types",
  "serde",
  "serde_json",
 ]

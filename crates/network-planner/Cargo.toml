@@ -8,5 +8,8 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+activechain-canonical-codec.workspace = true
+activechain-protocol-commitment.workspace = true
+activechain-protocol-types.workspace = true
 serde.workspace = true
 serde_json.workspace = true

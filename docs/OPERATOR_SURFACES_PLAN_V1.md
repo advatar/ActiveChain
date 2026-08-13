@@ -13,7 +13,7 @@ gradient, not the UI design, is what should drive sequencing.
 | Surface | Protocol primitives | Wired into runtime | Docs/design | UI |
 |---|---|---|---|---|
 | Start a network | complete | yes (CLI) | partial | none |
-| Pick regulation | complete | **no** | extensive | none |
+| Pick regulation | schema complete, no activation transition or registry | **no** | extensive | none |
 | Issue a stablecoin | complete | yes | extensive | none |
 
 The load-bearing finding is the middle row, below.
@@ -85,22 +85,26 @@ one of these.
 
 Manifest-first, UI-second:
 
-1. **`network.toml`** — one declarative description: chain identity, validator
-   count and endpoints, treasury sizing, faucet policy, trust signer set and
-   threshold, gateway hostnames.
-2. **`activechain-network-plan`** — reads the manifest, resolves derived values,
-   and refuses impossible configurations *before* anything is created. This is
-   where the incident lessons become preflight checks: treasury cells against
-   the index frame, minimum spendable cells, hostname/DNS reachability, signer
-   threshold sanity.
-3. **`activechain-network-apply`** — executes the plan, idempotently, emitting a
+1. **A network manifest** — one declarative description: chain identity,
+   validator count and endpoints, treasury sizing, faucet policy, trust signer
+   set and threshold, gateway hostnames.
+2. **`PlanCompiler`** — a deterministic function from manifest to plan, with no
+   I/O of any kind, so the same manifest compiles identically anywhere. This is
+   where the incident lessons become refusals: treasury cells against the index
+   budget, minimum spendable cells, grants that leave recipients unable to
+   spend, signer threshold sanity, port ranges, and names safe as labels, paths
+   and hostnames. The signed artifact is the digest over the canonical plan.
+3. **`HostPreflight`** — everything environmental, kept strictly separate: DNS,
+   certificates, occupied ports, existing deployments. It assesses a plan
+   against a host and never alters the plan.
+4. **`activechain-network-apply`** — executes the plan, idempotently, emitting a
    signed record of what it did.
-4. **UI** — an editor over the manifest plus a progress and evidence view over
-   the plan. It never becomes the source of truth.
+5. **UI** — an editor over the manifest plus a progress and evidence view over
+   the plan and its assessment. It never becomes the source of truth.
 
 **Key constraint: this surface handles key material** — validator keys, the
-faucet operator seed, trust ceremony shares. It must not be a browser
-application. Options, in order of preference:
+faucet operator seed, and trust ceremony coordination and signatures. Private
+threshold key shares never enter it. It must not be a browser application. Options, in order of preference:
 
 - a native macOS operator app reusing the wallet's custody *architecture* —
   though wallet keys, validator keys, treasury authority and trust roots stay

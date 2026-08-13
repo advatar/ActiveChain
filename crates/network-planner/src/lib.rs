@@ -23,6 +23,13 @@
 //! a configuration can be rejected before it costs anything. Executing a plan
 //! is a separate concern.
 
+pub mod preflight;
+
+use activechain_canonical_codec::{
+    CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
+};
+use activechain_protocol_commitment::{DomainTag, commit};
+use activechain_protocol_types::Digest384;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -118,29 +125,51 @@ pub enum PlanError {
     NameNotALabel(String),
     NoValidators,
     /// Below the fee-reserve-plus-input minimum: the treasury could never spend.
-    TreasuryCannotSpend { cells: usize },
+    TreasuryCannotSpend {
+        cells: usize,
+    },
     /// More cells than a round can publish; the index would stay empty.
-    TreasuryExceedsIndex { cells: usize, ceiling: usize },
+    TreasuryExceedsIndex {
+        cells: usize,
+        ceiling: usize,
+    },
     /// The allocation does not divide into that many non-empty cells.
-    TreasuryNotDivisible { cells: usize },
+    TreasuryNotDivisible {
+        cells: usize,
+    },
     SecurityReserveExceedsSupply,
     /// Recipients would hold too few cells to spend what they were granted.
-    RecipientsCannotSpend { cells_per_grant: usize },
+    RecipientsCannotSpend {
+        cells_per_grant: usize,
+    },
     /// The treasury cannot fund even one recipient and remain able to spend.
-    NoGrantCapacity { cells: usize, cells_per_grant: usize },
+    NoGrantCapacity {
+        cells: usize,
+        cells_per_grant: usize,
+    },
     /// A grant must cover its own fee.
-    GrantBelowFee { grant_amount: u128, fee: u128 },
-    ThresholdExceedsSigners { threshold: u8, signers: u8 },
+    GrantBelowFee {
+        grant_amount: u128,
+        fee: u128,
+    },
+    ThresholdExceedsSigners {
+        threshold: u8,
+        signers: u8,
+    },
     ThresholdIsZero,
     BasePortTooLow(u16),
     /// Two networks on one host would fight over the same ports.
-    PortRangeOverlaps { other: String },
+    PortRangeOverlaps {
+        other: String,
+    },
     HostnameEmpty(&'static str),
     HostnamesNotDistinct,
     /// Two networks on one host cannot share a name.
     DuplicateNetworkName(String),
     /// More validators than the per-network port reservation can seat.
-    TooManyValidatorsForReservation { validators: u8 },
+    TooManyValidatorsForReservation {
+        validators: u8,
+    },
 }
 
 /// A validated deployment. Every value an executor needs is resolved here, so
@@ -175,6 +204,105 @@ pub struct Ports {
 /// Ports below this are privileged or in common use; a network deployment has
 /// no business there.
 const MINIMUM_BASE_PORT: u16 = 1024;
+
+const MAX_PLAN_NAME: usize = 32;
+const MAX_PLAN_PATH: usize = 256;
+const MAX_PLAN_LABELS: usize = 16;
+const MAX_PLAN_VALIDATORS: usize = 16;
+
+impl CanonicalType for NetworkPlan {
+    const TYPE_TAG: u16 = 0x0150;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = MAX_PLAN_NAME
+        + MAX_PLAN_PATH
+        + MAX_PLAN_LABELS * (MAX_PLAN_NAME + MAX_PLAN_PATH)
+        + MAX_PLAN_VALIDATORS * 2
+        + 64;
+}
+
+/// The plan is committed to as a canonical object, never as rendered text.
+///
+/// Advisories are deliberately excluded: they are guidance for a reader, not
+/// part of what a deployment *is*, and wording changes must not alter the
+/// identity of an otherwise identical plan.
+impl CanonicalEncode for NetworkPlan {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        e.write_bytes(self.name.as_bytes(), MAX_PLAN_NAME)?;
+        e.write_bytes(self.deployment_root.as_bytes(), MAX_PLAN_PATH)?;
+        self.ports.rpc.encode(e)?;
+        e.write_length(self.ports.validators.len(), MAX_PLAN_VALIDATORS)?;
+        for port in &self.ports.validators {
+            port.encode(e)?;
+        }
+        self.ports.anchor.encode(e)?;
+        self.ports.work_proof.encode(e)?;
+        self.ports.reserved.0.encode(e)?;
+        self.ports.reserved.1.encode(e)?;
+        e.write_length(self.launch_labels.len(), MAX_PLAN_LABELS)?;
+        for label in &self.launch_labels {
+            e.write_bytes(label.as_bytes(), MAX_PLAN_NAME + MAX_PLAN_PATH)?;
+        }
+        (self.treasury_cells as u64).encode(e)?;
+        (self.indexed_cell_budget as u64).encode(e)?;
+        (self.grant_capacity as u64).encode(e)?;
+        Ok(())
+    }
+}
+
+/// Decoding drops advisories, matching what the encoding commits to: two plans
+/// that deploy the same network are the same plan however their guidance reads.
+impl CanonicalDecode for NetworkPlan {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let text = |bytes: &[u8]| {
+            core::str::from_utf8(bytes)
+                .map(str::to_owned)
+                .map_err(|_| DecodeError::InvalidValue("network plan text is not UTF-8"))
+        };
+        let name = text(d.read_bytes(MAX_PLAN_NAME)?)?;
+        let deployment_root = text(d.read_bytes(MAX_PLAN_PATH)?)?;
+        let rpc = u16::decode(d)?;
+        let validator_count = d.read_length(MAX_PLAN_VALIDATORS)?;
+        let mut validators = Vec::with_capacity(validator_count);
+        for _ in 0..validator_count {
+            validators.push(u16::decode(d)?);
+        }
+        let anchor = u16::decode(d)?;
+        let work_proof = u16::decode(d)?;
+        let reserved = (u16::decode(d)?, u16::decode(d)?);
+        let label_count = d.read_length(MAX_PLAN_LABELS)?;
+        let mut launch_labels = Vec::with_capacity(label_count);
+        for _ in 0..label_count {
+            launch_labels.push(text(d.read_bytes(MAX_PLAN_NAME + MAX_PLAN_PATH)?)?);
+        }
+        let treasury_cells = usize::try_from(u64::decode(d)?)
+            .map_err(|_| DecodeError::InvalidValue("treasury cell count overflows"))?;
+        let indexed_cell_budget = usize::try_from(u64::decode(d)?)
+            .map_err(|_| DecodeError::InvalidValue("index budget overflows"))?;
+        let grant_capacity = usize::try_from(u64::decode(d)?)
+            .map_err(|_| DecodeError::InvalidValue("grant capacity overflows"))?;
+        Ok(Self {
+            name,
+            deployment_root,
+            ports: Ports { rpc, validators, anchor, work_proof, reserved },
+            launch_labels,
+            treasury_cells,
+            indexed_cell_budget,
+            indexed_cell_ceiling: indexed_cell_ceiling(),
+            grant_capacity,
+            advisories: Vec::new(),
+        })
+    }
+}
+
+impl NetworkPlan {
+    /// The identity of this deployment, and the thing an operator signs.
+    ///
+    /// # Errors
+    /// Returns an error only if the plan exceeds its canonical bounds.
+    pub fn digest(&self) -> Result<Digest384, EncodeError> {
+        commit(DomainTag::CANONICAL_VALUE, self)
+    }
+}
 
 /// Plans one network in isolation.
 ///
@@ -305,19 +433,14 @@ fn plan_one(manifest: &NetworkManifest) -> Result<NetworkPlan, PlanError> {
 
 fn allocate_ports(manifest: &NetworkManifest) -> Result<Ports, PlanError> {
     let base = manifest.base_port;
-    let last = base
-        .checked_add(PORTS_PER_NETWORK - 1)
-        .ok_or(PlanError::BasePortTooLow(base))?;
-    let validators = (0..u16::from(manifest.validators))
-        .map(|index| base + 2 + index)
-        .collect::<Vec<_>>();
+    let last = base.checked_add(PORTS_PER_NETWORK - 1).ok_or(PlanError::BasePortTooLow(base))?;
+    let validators =
+        (0..u16::from(manifest.validators)).map(|index| base + 2 + index).collect::<Vec<_>>();
     // Validators must not run into the anchor and work-proof ports, or a
     // network overruns its own reservation before any other network is
     // involved.
     if validators.last().is_some_and(|port| *port >= base + 5) {
-        return Err(PlanError::TooManyValidatorsForReservation {
-            validators: manifest.validators,
-        });
+        return Err(PlanError::TooManyValidatorsForReservation { validators: manifest.validators });
     }
     // Offsets match the layout Kanalen already runs, so an existing network
     // plans to exactly what it is rather than to something merely equivalent.
@@ -361,11 +484,12 @@ fn validate_hostnames(hostnames: &Hostnames) -> Result<(), PlanError> {
     if distinct.len() == 3 { Ok(()) } else { Err(PlanError::HostnamesNotDistinct) }
 }
 
+/// Shared fixtures for this crate's tests, including the preflight module's.
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests_support {
     use super::*;
 
-    fn manifest(name: &str, base_port: u16) -> NetworkManifest {
+    pub(crate) fn manifest(name: &str, base_port: u16) -> NetworkManifest {
         NetworkManifest {
             name: name.to_owned(),
             validators: 3,
@@ -394,6 +518,11 @@ mod tests {
             trust: Trust { signers: 3, threshold: 2 },
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{tests_support::manifest, *};
 
     #[test]
     fn a_sound_manifest_resolves_every_value_an_executor_needs() {
@@ -431,10 +560,7 @@ mod tests {
         let ceiling = indexed_cell_ceiling();
         let mut candidate = manifest("kanalen", 49_151);
         candidate.treasury.cells = 1024;
-        assert_eq!(
-            plan(&candidate),
-            Err(PlanError::TreasuryExceedsIndex { cells: 1024, ceiling })
-        );
+        assert_eq!(plan(&candidate), Err(PlanError::TreasuryExceedsIndex { cells: 1024, ceiling }));
         // The measured ceiling must stay in the region the live chain proved
         // publishable: 110 cells occupied 85% of the frame.
         assert!((100..=130).contains(&ceiling), "implausible ceiling {ceiling}");

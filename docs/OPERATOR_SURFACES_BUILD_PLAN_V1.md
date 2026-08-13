@@ -151,7 +151,7 @@ Six resources are shared. Tracks A–C respect these rules or they stall Track 0
 | **RPC schema revision** | One scheduled window per change, owned by Track 0. Tracks A–C queue behind it. |
 | **Treasury runway** | 94 grants. Tracks A–C use their own network, never Kanalen's faucet. |
 | **Host ports** | Allocated per network by the planner; no track hand-picks a port. |
-| **`consensus-runtime`** | Chain-critical. Track B changes land behind a default-off flag and are exercised only on the dev network. |
+| **`consensus-runtime`** | Chain-critical. Track B changes are inert without a consensus-visible activation record, and are exercised only on the dev network. |
 
 **The enabling move: several testnets in parallel.** Tracks A–C target their own
 chain from day one. This is not overhead and not merely isolation — running
@@ -229,11 +229,20 @@ network manifest ──▶ PlanCompiler ──▶ NetworkPlan (deterministic, di
 labels, paths — and each known incident is rejected by a compiler test. The
 compiler has no I/O in its dependency surface.*
 
-**Status: A1a is built** (`crates/network-planner`, 12 tests). It is pure today,
-and planning `deploy/networks/kanalen.json` reproduces the live layout: rpc
-49151, validators 49153–49155, anchor 49156, work-proof 49157. Outstanding
-against this amendment: the compiler/preflight split made explicit in the API,
-and the canonical plan digest. A1b is not started.
+**Status: A1a and A1b are built** (`crates/network-planner`, 15 tests).
+
+- The compiler is pure: no I/O anywhere in its dependency surface.
+- `NetworkPlan` has a canonical encoding and `digest()` over it, so the signed
+  artifact is the plan object rather than rendered text. Advisories are
+  excluded from the commitment — wording is guidance for a reader, not part of
+  what a deployment is.
+- `preflight::assess` is the separate environmental layer, returning an
+  `EnvironmentAssessment` and never touching the plan. A test pins that
+  assessing does not change the plan's digest.
+- Planning `deploy/networks/kanalen.json` reproduces the live layout exactly:
+  rpc 49151, validators 49153–49155, anchor 49156, work-proof 49157.
+- Two manifests planned together allocate without collision and are refused
+  when their reservations overlap.
 
 ### A2. Apply
 
@@ -248,9 +257,10 @@ touching it. A third, started while both run, allocates cleanly.*
 
 ### A3. Operator UI
 
-- Native macOS app, sharing the wallet's Secure Enclave custody. **Not a
-  browser application** — this surface handles validator keys, the faucet
-  operator seed, and trust ceremony shares.
+- Native macOS app, reusing the wallet's custody architecture. **Not a browser
+  application** — this surface handles validator keys, the faucet operator
+  seed, and trust ceremony coordination and signatures. Private threshold key
+  shares never enter it; see A4.
 - Manifest editor, plan review with preflight results, apply progress, evidence
   view.
 
@@ -284,7 +294,7 @@ Two phases, in this order, for the reason established in the study: a selector
 over an unenforced profile asserts a regulatory posture the system does not
 hold.
 
-### B1. Make a profile mean something *(dev network only, flag default off)*
+### B1. Make a profile mean something *(dev network only; no activation record on Kanalen)*
 
 1. **Registry** — durable jurisdiction profile store in the shape of the
    existing durable registries: canonical snapshot, atomic replace, fail-closed
@@ -314,8 +324,8 @@ hold.
    conflict resolution, expiry, non-retroactivity.
 
 *Exit: on the dev network, a transfer under an activated profile is admitted; the same
-transfer with an expired, incomplete, or unselected profile fails closed. On
-Kanalen with the flag off, nothing changes.*
+transfer with an expired, incomplete, or unselected profile fails closed.
+Kanalen carries no activation record, so nothing there changes.*
 
 This completes stage 4 of `docs/compliance/JURISDICTION_PROFILE_PLAN.md`.
 
@@ -410,7 +420,7 @@ Only one hard cross-track dependency: **C3 requires B1.**
 | An anchored digest being read as proof of reserves | Typed signed attestation with scope and expiry; UI computes from the evidence, never from the anchor's existence |
 | Index ceiling reached during integration | 0.2 before external integrators; monitor cell count as an operational metric |
 | Schema churn forcing repeated wallet rebuilds | Track 0 owns a single window; B1 and 0.2 ride it together if timing allows |
-| Profile work destabilising consensus | Default-off flag; Kibera only; no Kanalen enablement until vectors pass |
+| Profile work destabilising consensus | Consensus-visible activation absent on Kanalen; dev network only; no activation record until vectors pass |
 | CI starving the chain | Tracks A–C hold CI while Track 0 runs; longer term, move the runner off the chain host |
 | A "Kenya" label outrunning enforcement | C3 gated on B1 and counsel; no jurisdiction naming in C1/C2 |
 | Operator UI handling keys in a browser | A3 is native; browser variants may only author and sign plans |
