@@ -100,12 +100,13 @@ fn occupied_ports(plan: &NetworkPlan) -> Vec<(&'static str, u16)> {
     candidates.extend(plan.ports.validators.iter().map(|port| ("a validator", *port)));
     candidates.push(("the anchor gateway", plan.ports.anchor));
     candidates.push(("the work-proof service", plan.ports.work_proof));
-    candidates.into_iter().filter(|(_, port)| !is_free(*port)).collect()
+    candidates.into_iter().filter(|(_, port)| !port_is_free(*port)).collect()
 }
 
 /// Binding and immediately releasing is the only honest test of availability;
 /// a port can be free to one process and taken for another.
-fn is_free(port: u16) -> bool {
+#[must_use]
+pub fn port_is_free(port: u16) -> bool {
     TcpListener::bind(("127.0.0.1", port)).is_ok()
 }
 

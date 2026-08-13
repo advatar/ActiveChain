@@ -85,6 +85,12 @@ pub fn apply(
     }
 
     let materialization = render::materialize(plan, &home_text);
+    // The plan is written into the deployment so the network can later be
+    // described without guessing: ports, hostnames, and the digest that
+    // identifies which plan produced it. A deployment nobody can account for
+    // is how a host accumulates networks whose configuration is folklore.
+    let plan_record = serde_json::to_string_pretty(plan)
+        .map_err(|error| ApplyError::Io(format!("could not record the plan: {error}")))?;
     for directory in &materialization.directories {
         fs::create_dir_all(directory).map_err(|error| io_error("create", directory, &error))?;
     }
@@ -92,6 +98,7 @@ pub fn apply(
         let path = root.join(name);
         write_new(&path, body)?;
     }
+    write_new(&root.join("plan.json"), &plan_record)?;
     fs::create_dir_all(launch_agent_root)
         .map_err(|error| io_error("create", &launch_agent_root.display().to_string(), &error))?;
     for (label, body) in &materialization.launch_agents {
@@ -109,7 +116,12 @@ pub fn apply(
         plan_digest: digest,
         root,
         directories: materialization.directories.len(),
-        files: materialization.files.iter().map(|(name, _)| name.clone()).collect(),
+        files: materialization
+            .files
+            .iter()
+            .map(|(name, _)| name.clone())
+            .chain(std::iter::once("plan.json".to_owned()))
+            .collect(),
         launch_agents: materialization
             .launch_agents
             .iter()
@@ -172,6 +184,10 @@ mod tests {
         assert_eq!(record.network, "kibera");
         assert_eq!(record.plan_digest.len(), 96, "the record carries the plan's identity");
         assert!(home.join("activechain-deploy/kibera/network.env").exists());
+        assert!(
+            home.join("activechain-deploy/kibera/plan.json").exists(),
+            "a deployment must record the plan that produced it"
+        );
         assert!(home.join("activechain-deploy/kibera/chain/keys").is_dir());
         assert!(agents.join("dev.activechain.kibera.rpc.plist").exists());
         assert!(agents.join("dev.activechain.kibera.validator0.plist").exists());

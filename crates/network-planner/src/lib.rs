@@ -24,6 +24,7 @@
 //! is a separate concern.
 
 pub mod apply;
+pub mod fleet;
 pub mod preflight;
 pub mod render;
 
@@ -197,7 +198,7 @@ pub enum PlanError {
 
 /// A validated deployment. Every value an executor needs is resolved here, so
 /// nothing downstream has to invent one.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct NetworkPlan {
     pub name: String,
     pub domain: String,
@@ -222,7 +223,7 @@ pub struct NetworkPlan {
     pub advisories: Vec<String>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Ports {
     pub rpc: u16,
     pub validators: Vec<u16>,
@@ -536,11 +537,24 @@ fn validate_name(name: &str) -> Result<(), PlanError> {
 /// compare against a node, rather than as an array of numbers.
 mod hex_digest {
     use activechain_protocol_types::Digest384;
-    use serde::Serializer;
+    use serde::{Deserialize, Deserializer, Serializer, de::Error as _};
 
     pub fn serialize<S: Serializer>(value: &Digest384, serializer: S) -> Result<S::Ok, S::Error> {
         let hex: String = value.as_bytes().iter().map(|byte| format!("{byte:02x}")).collect();
         serializer.serialize_str(&hex)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Digest384, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        if text.len() != 96 {
+            return Err(D::Error::custom("a chain id is 96 hex characters"));
+        }
+        let mut bytes = [0_u8; 48];
+        for (index, pair) in text.as_bytes().chunks_exact(2).enumerate() {
+            let pair = core::str::from_utf8(pair).map_err(D::Error::custom)?;
+            bytes[index] = u8::from_str_radix(pair, 16).map_err(D::Error::custom)?;
+        }
+        Ok(Digest384::new(bytes))
     }
 }
 
