@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-deployment_root=${ACTIVECHAIN_KANALEN_ROOT:-"$HOME/activechain-deploy/kanalen"}
+deployment_root=${ACTIVECHAIN_NETWORK_ROOT:-${ACTIVECHAIN_KANALEN_ROOT:-"$HOME/activechain-deploy/${ACTIVECHAIN_NETWORK:-kanalen}"}}
 state_root="$deployment_root/chain"
 binary_root="$deployment_root/current/bin"
 rpc_root="$deployment_root/rpc"

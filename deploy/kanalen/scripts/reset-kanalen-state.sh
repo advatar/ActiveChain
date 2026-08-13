@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-deployment_root=${ACTIVECHAIN_KANALEN_ROOT:-"$HOME/activechain-deploy/kanalen"}
+deployment_root=${ACTIVECHAIN_NETWORK_ROOT:-${ACTIVECHAIN_KANALEN_ROOT:-"$HOME/activechain-deploy/${ACTIVECHAIN_NETWORK:-kanalen}"}}
 if test "${1:-}" != "--confirm"; then
   echo "refusing destructive reset; pass --confirm to archive and rebuild Kanalen state" >&2
   exit 2

@@ -242,6 +242,52 @@ mod tests {
         );
     }
 
+    /// The renderer and the checked-in Kanalen launch agents describe the same
+    /// deployment, so they must not drift apart. Two sources of truth for one
+    /// thing is how a hand-edited plist and a generated one end up disagreeing
+    /// about which port a validator binds.
+    ///
+    /// This pins agreement on the facts the renderer owns — labels and ports —
+    /// against the artifacts the live network actually runs.
+    #[test]
+    fn the_renderer_agrees_with_the_launch_agents_the_live_network_runs() {
+        let mut directory = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        while !directory.join("deploy/kanalen/launchagents").is_dir() {
+            assert!(directory.pop(), "could not locate deploy/kanalen/launchagents");
+        }
+        let agents = directory.join("deploy/kanalen/launchagents");
+        let out = rendered("kanalen", 49_151);
+
+        for (label, body) in &out.launch_agents {
+            let existing = std::fs::read_to_string(agents.join(format!("{label}.plist")))
+                .unwrap_or_else(|_| {
+                    panic!("the renderer produces {label} but no checked-in agent matches it")
+                });
+            assert!(existing.contains(label), "{label} disagrees on its own label");
+            for port in ports_in(body) {
+                assert!(
+                    existing.contains(&port),
+                    "{label}: rendered port {port} is not the one the live agent binds"
+                );
+            }
+        }
+    }
+
+    /// Every `<string>` that is exactly a port number.
+    fn ports_in(plist: &str) -> Vec<String> {
+        plist
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("<string>"))
+            .filter_map(|rest| rest.strip_suffix("</string>"))
+            .map(|value| value.rsplit(':').next().unwrap_or(value).to_owned())
+            .filter(|value| {
+                value.len() == 5
+                    && value.starts_with("49")
+                    && value.chars().all(|c| c.is_ascii_digit())
+            })
+            .collect()
+    }
+
     /// A generated environment must not carry values nobody has produced yet.
     /// Placeholders would let a node start against a genesis that does not
     /// exist, which is exactly the class of failure this crate exists to stop.

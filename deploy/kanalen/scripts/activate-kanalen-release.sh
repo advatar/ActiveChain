@@ -4,7 +4,11 @@ set -euo pipefail
 archive="${1:?usage: activate-kanalen-release.sh <archive> <checksum> <release-id>}"
 checksum="${2:?usage: activate-kanalen-release.sh <archive> <checksum> <release-id>}"
 release_id="${3:?usage: activate-kanalen-release.sh <archive> <checksum> <release-id>}"
-deployment_root="${ACTIVECHAIN_KANALEN_ROOT:-$HOME/activechain-deploy/kanalen}"
+# The network this release belongs to. Everything below derives from it, so a
+# second network needs a different value rather than a second copy of this
+# script -- which is how the literal name ended up in twenty places.
+network="${ACTIVECHAIN_NETWORK:-kanalen}"
+deployment_root="${ACTIVECHAIN_NETWORK_ROOT:-${ACTIVECHAIN_KANALEN_ROOT:-$HOME/activechain-deploy/$network}}"
 launchctl_bin="${ACTIVECHAIN_LAUNCHCTL:-launchctl}"
 plutil_bin="${ACTIVECHAIN_PLUTIL:-plutil}"
 # Resolved rather than inherited: this script is normally run over ssh as
@@ -58,7 +62,7 @@ fi
 
 while IFS= read -r entry; do
   case "$entry" in
-    kanalen|kanalen/*) ;;
+    "$network"|"$network"/*) ;;
     *)
       echo "release archive contains an unexpected path: $entry" >&2
       exit 1
@@ -82,12 +86,12 @@ if [[ -e "$release_dir" ]]; then
 else
   staging_dir="$(mktemp -d "$release_root/.${release_id}.XXXXXX")"
   tar -xzf "$archive" -C "$staging_dir"
-  if [[ ! -d "$staging_dir/kanalen" ]]; then
-    echo "release archive does not contain the kanalen root" >&2
+  if [[ ! -d "$staging_dir/$network" ]]; then
+    echo "release archive does not contain the $network root" >&2
     exit 1
   fi
-  printf '%s\n' "$actual_digest" >"$staging_dir/kanalen/.archive.sha256"
-  mv "$staging_dir/kanalen" "$release_dir"
+  printf '%s\n' "$actual_digest" >"$staging_dir/$network/.archive.sha256"
+  mv "$staging_dir/$network" "$release_dir"
   rmdir "$staging_dir"
   staging_dir=""
 fi
@@ -132,7 +136,7 @@ fi
 # the faucet pays anyone, and the node then refuses to start.
 cash_owner=$(sed -n 's/^ACTIVECHAIN_CASH_GENESIS_OWNER_HEX=//p' "$runtime_network")
 if [[ -n "$cash_owner" ]]; then
-  rpc_plist="$release_dir/launchagents/dev.activechain.kanalen.rpc.plist"
+  rpc_plist="$release_dir/launchagents/dev.activechain.$network.rpc.plist"
   /usr/libexec/PlistBuddy \
     -c "Add :EnvironmentVariables:ACTIVECHAIN_CASH_GENESIS_OWNER_HEX string $cash_owner" \
     "$rpc_plist" 2>/dev/null ||
@@ -154,19 +158,15 @@ ln -sfn "$release_dir" "$deployment_root/current"
 mkdir -p "$HOME/Library/Logs/ActiveChain"
 
 launch_domain="gui/$(id -u)"
-for label in \
-  dev.activechain.kanalen.validator0 \
-  dev.activechain.kanalen.validator1 \
-  dev.activechain.kanalen.validator2 \
-  dev.activechain.kanalen.rpc \
-  dev.activechain.kanalen.anchor \
-  dev.activechain.kanalen.work-proof \
-  dev.activechain.kanalen.round; do
-  plist="$release_dir/launchagents/$label.plist"
-  if [[ ! -f "$plist" ]]; then
-    echo "release is missing launch agent $label" >&2
-    exit 1
-  fi
+shopt -s nullglob
+agents=("$release_dir"/launchagents/dev.activechain."$network".*.plist)
+shopt -u nullglob
+if [[ ${#agents[@]} -eq 0 ]]; then
+  echo "release contains no launch agents for $network" >&2
+  exit 1
+fi
+for plist in "${agents[@]}"; do
+  label="$(basename "$plist" .plist)"
   "$plutil_bin" -lint "$plist" >/dev/null
   "$launchctl_bin" bootout "$launch_domain/$label" 2>/dev/null || true
   # launchd unloads asynchronously. Bootstrapping straight after a bootout
@@ -204,8 +204,8 @@ install -m 0755 "$release_dir/gateway/switch-edge.sh" "$gateway_dir/switch-edge.
 if [[ -f "$release_dir/gateway/README.md" ]]; then
   install -m 0644 "$release_dir/gateway/README.md" "$gateway_dir/README.md"
 fi
-if [[ -f "$release_dir/gateway/kanalen.Caddyfile" ]]; then
-  install -m 0644 "$release_dir/gateway/kanalen.Caddyfile" "$gateway_dir/kanalen.Caddyfile"
+if [[ -f "$release_dir/gateway/$network.Caddyfile" ]]; then
+  install -m 0644 "$release_dir/gateway/$network.Caddyfile" "$gateway_dir/$network.Caddyfile"
 fi
 "$docker_bin" compose -f "$gateway_dir/compose.yml" config >/dev/null
 "$docker_bin" compose -f "$gateway_dir/compose.yml" up -d

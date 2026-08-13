@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-deployment_root="${ACTIVECHAIN_KANALEN_ROOT:-$HOME/activechain-deploy/kanalen}"
+deployment_root="${ACTIVECHAIN_NETWORK_ROOT:-${ACTIVECHAIN_KANALEN_ROOT:-$HOME/activechain-deploy/${ACTIVECHAIN_NETWORK:-kanalen}}}"
 state_dir="$deployment_root/work-proof"
 binary_dir="${ACTIVECHAIN_WORK_PROOF_BINARY_DIR:-$deployment_root/current/bin}"
 token_file="$state_dir/bearer.token"
