@@ -2291,6 +2291,7 @@ mod tests {
         .unwrap();
         let faucet = DurableFaucet::create(
             FaucetPolicy {
+                cells_per_grant: 1,
                 chain_id: ChainId::new(digest(1)),
                 genesis_commitment: digest(2),
                 testnet_only: true,
@@ -2445,6 +2446,7 @@ mod tests {
         );
         let faucet = DurableFaucet::create(
             FaucetPolicy {
+                cells_per_grant: 1,
                 chain_id: ChainId::new(digest(1)),
                 genesis_commitment: digest(2),
                 testnet_only: true,
@@ -2524,6 +2526,7 @@ mod tests {
         let store = Arc::new(DurableRpcStore::create(index_path.clone(), index()).unwrap());
         let faucet = DurableFaucet::create(
             FaucetPolicy {
+                cells_per_grant: 1,
                 chain_id: ChainId::new(digest(1)),
                 genesis_commitment: digest(2),
                 testnet_only: true,

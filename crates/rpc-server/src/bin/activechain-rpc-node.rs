@@ -131,7 +131,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err("faucet snapshot requires ACTIVECHAIN_WALLET_INGRESS_SNAPSHOT".into());
         }
         let faucet_path = PathBuf::from(faucet_path);
+        // Default two, because one Coin Cell cannot be spent: a transfer needs
+        // an input and a distinct fee reserve.
+        let cells_per_grant: u8 = match env::var("ACTIVECHAIN_FAUCET_CELLS_PER_GRANT") {
+            Ok(value) => value.parse()?,
+            Err(env::VarError::NotPresent) => 2,
+            Err(error) => return Err(error.into()),
+        };
         let policy = FaucetPolicy {
+            cells_per_grant,
             chain_id,
             genesis_commitment: store
                 .genesis_commitment()

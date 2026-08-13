@@ -19,7 +19,27 @@ use std::{
 
 const MAX_FAUCET_RECORDS: usize = 65_535;
 const SNAPSHOT_TAG_LENGTH: usize = 32;
-const FAUCET_SNAPSHOT_VERSION: u16 = 2;
+const FAUCET_SNAPSHOT_VERSION: u16 = 3;
+
+/// A grant of more cells than this is not a faucet, it is a mistake.
+const MAX_GRANT_CELLS: usize = 8;
+
+/// The settlement reference for one cell of a grant.
+///
+/// Each cell is its own transfer and so needs its own reference: the operator
+/// journal keys prepared settlements by reference, so reusing the grant's would
+/// return the first transfer again and deliver one cell twice instead of two
+/// cells once. Derivation is deterministic, so a replay after a crash asks for
+/// exactly the same transfers.
+fn grant_cell_reference(grant: Digest384, index: u8) -> Digest384 {
+    let mut shake = Shake256::default();
+    shake.update(b"ACTIVECHAIN-FAUCET-GRANT-CELL-V1");
+    shake.update(grant.as_bytes());
+    shake.update(&[index]);
+    let mut digest = [0_u8; 48];
+    shake.finalize_xof().read(&mut digest);
+    Digest384::new(digest)
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SybilPolicy {
@@ -38,6 +58,12 @@ pub struct FaucetPolicy {
     pub policy_revision: u64,
     pub valid_until: u64,
     pub grant_amount: u128,
+    /// Coin Cells delivered per grant.
+    ///
+    /// One leaves the recipient unable to spend what they were given: a
+    /// transfer needs an input and a *distinct* fee reserve, so a wallet
+    /// holding a single cell cannot construct one at all.
+    pub cells_per_grant: u8,
     pub recipient_cooldown_seconds: u64,
     pub recipient_lifetime_limit: u16,
     pub source_window_seconds: u64,
@@ -132,6 +158,16 @@ struct FaucetRecord {
     settlement_commitment: Digest384,
     created_at: u64,
     receipt: FaucetReceiptV1,
+    /// One transaction per Coin Cell delivered so far.
+    ///
+    /// A grant of several cells is several transfers, and they do not land
+    /// together. Recording each as it settles is what makes a half-delivered
+    /// grant recoverable rather than a recipient holding one unspendable cell
+    /// while the faucet believes it has paid them.
+    delivered: Vec<TransactionId>,
+    /// How many cells this grant owes, fixed when the reservation was taken so
+    /// a later policy change cannot retroactively complete or reopen it.
+    required_cells: u8,
 }
 
 impl FaucetRecord {
@@ -141,8 +177,16 @@ impl FaucetRecord {
     /// `Pending` record carrying no transaction says only that the operator
     /// authorized a grant — not that any funds moved. Until the outcome is
     /// established it is neither a grant nor a rejection.
+    /// Every cell this grant owes has settled.
+    fn is_complete(&self) -> bool {
+        self.delivered.len() >= usize::from(self.required_cells)
+    }
+
+    /// The outcome is not yet established. A partly delivered grant is
+    /// unresolved: the recipient cannot spend what they hold, and the operator
+    /// still owes them the rest.
     fn is_unresolved(&self) -> bool {
-        self.receipt.state() == FaucetState::Pending && self.receipt.transaction_id().is_none()
+        self.receipt.state() == FaucetState::Pending && !self.is_complete()
     }
 
     /// Whether this record spends the recipient's allowance.
@@ -155,7 +199,10 @@ impl FaucetRecord {
     /// retained as audit evidence, not as usage.
     fn consumes_quota(&self) -> bool {
         match self.receipt.state() {
-            FaucetState::Pending => self.receipt.transaction_id().is_some(),
+            // Only a *complete* grant spends the allowance. Charging a
+            // cooldown for a half-delivered grant would leave the recipient
+            // unable to spend and unable to ask again.
+            FaucetState::Pending => self.is_complete(),
             FaucetState::Finalized => true,
             FaucetState::Rejected => false,
         }
@@ -387,7 +434,7 @@ impl DurableFaucet {
         submit: F,
     ) -> Result<FaucetReceiptV1, FaucetError>
     where
-        F: FnOnce(PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError>,
+        F: Fn(PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError>,
     {
         self.request_at(request, abuse_identity, settlement_commitment, now, submit, None)
     }
@@ -403,7 +450,7 @@ impl DurableFaucet {
         fault: RequestFault,
     ) -> Result<FaucetReceiptV1, FaucetError>
     where
-        F: FnOnce(PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError>,
+        F: Fn(PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError>,
     {
         self.request_at(request, abuse_identity, settlement_commitment, now, submit, Some(fault))
     }
@@ -419,7 +466,7 @@ impl DurableFaucet {
         #[cfg(not(test))] fault: Option<()>,
     ) -> Result<FaucetReceiptV1, FaucetError>
     where
-        F: FnOnce(PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError>,
+        F: Fn(PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError>,
     {
         if request.chain_id() != self.policy.chain_id
             || request.genesis_commitment() != self.policy.genesis_commitment
@@ -441,9 +488,11 @@ impl DurableFaucet {
                 && existing.request_commitment == request_commitment
                 && existing.settlement_commitment == settlement_commitment
             {
-                if existing.receipt.transaction_id().is_some()
-                    || existing.receipt.state() != FaucetState::Pending
-                {
+                // Completeness again, not merely "has a transaction": a
+                // repeat of a half-delivered grant must resume it, or the
+                // recipient is stranded holding one unspendable cell with the
+                // faucet insisting it already answered.
+                if existing.is_complete() || existing.receipt.state() != FaucetState::Pending {
                     return Ok(existing.receipt.clone());
                 }
                 return self.resume_pending(request.idempotency_key(), submit, fault);
@@ -535,11 +584,23 @@ impl DurableFaucet {
             settlement_commitment,
             created_at: now,
             receipt: reservation,
+            delivered: Vec::new(),
+            required_cells: self.policy.cells_per_grant.max(1),
         });
         self.publish_at(next, reservation_save_fault(fault))?;
         self.resume_pending(request.idempotency_key(), submit, fault)
     }
 
+    /// Delivers whatever this grant still owes, one Coin Cell at a time.
+    ///
+    /// Each cell is a separate transfer with its own derived reference, and the
+    /// record is persisted after every one. That ordering is the whole point: a
+    /// crash between two transfers leaves a grant that is visibly incomplete
+    /// and exactly recoverable, rather than a recipient holding one unspendable
+    /// cell while the faucet counts them as paid.
+    ///
+    /// The grant is only complete — and only then does it spend the recipient's
+    /// allowance — once every cell has settled.
     fn resume_pending<F>(
         &mut self,
         idempotency_key: Digest384,
@@ -548,52 +609,77 @@ impl DurableFaucet {
         #[cfg(not(test))] fault: Option<()>,
     ) -> Result<FaucetReceiptV1, FaucetError>
     where
-        F: FnOnce(PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError>,
+        F: Fn(PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError>,
     {
         let index = self
             .records
             .iter()
             .position(|record| record.idempotency_key == idempotency_key)
             .ok_or(FaucetError::NotFound)?;
-        let current = &self.records[index].receipt;
-        if current.transaction_id().is_some() || current.state() != FaucetState::Pending {
-            return Ok(current.clone());
+        if self.records[index].receipt.state() != FaucetState::Pending
+            || self.records[index].is_complete()
+        {
+            return Ok(self.records[index].receipt.clone());
         }
         #[cfg(test)]
         if fault == Some(RequestFault::BeforeSettlement) {
             return Err(FaucetError::Persistence);
         }
-        let transaction = submit(current.recipient(), current.amount(), current.reference())?;
-        #[cfg(test)]
-        if fault == Some(RequestFault::AfterSettlement) {
-            return Err(FaucetError::ReconciliationRequired);
+
+        let grant = self.records[index].receipt.reference();
+        let recipient = self.records[index].receipt.recipient();
+        let total = self.records[index].receipt.amount();
+        let required = self.records[index].required_cells;
+        // The recipient receives the grant amount in total, not per cell; the
+        // first cell carries the remainder so the parts sum exactly.
+        let per_cell = total / u128::from(required.max(1));
+        let remainder = total % u128::from(required.max(1));
+
+        for cell in 0..required {
+            if usize::from(cell) < self.records[index].delivered.len() {
+                continue;
+            }
+            let amount = if cell == 0 { per_cell + remainder } else { per_cell };
+            // A single-cell grant keeps the grant's own reference. Deriving a
+            // new one would orphan the prepared settlement an operator journal
+            // already holds under the old reference, and a replay would then
+            // authorize a second transfer instead of resuming the first.
+            let reference = if required == 1 { grant } else { grant_cell_reference(grant, cell) };
+            let transaction = submit(recipient, amount, reference)?;
+            #[cfg(test)]
+            if fault == Some(RequestFault::AfterSettlement) {
+                return Err(FaucetError::ReconciliationRequired);
+            }
+            let mut next = self.records.clone();
+            next[index].delivered.push(transaction);
+            // The receipt names the first transaction, which is what a client
+            // can resolve; the rest live in the durable record.
+            if next[index].receipt.transaction_id().is_none() {
+                next[index].receipt = FaucetReceiptV1::new(
+                    grant,
+                    recipient,
+                    total,
+                    FaucetState::Pending,
+                    Some(transaction),
+                    None,
+                    None,
+                    Vec::new(),
+                )
+                .map_err(|_| FaucetError::InvalidTransition)?;
+            }
+            self.publish_at(next, receipt_save_fault(fault))
+                .map_err(|_| FaucetError::ReconciliationRequired)?;
         }
-        let pending = FaucetReceiptV1::new(
-            current.reference(),
-            current.recipient(),
-            current.amount(),
-            FaucetState::Pending,
-            Some(transaction),
-            None,
-            None,
-            Vec::new(),
-        )
-        .map_err(|_| FaucetError::InvalidTransition)?;
-        let mut next = self.records.clone();
-        next[index].receipt = pending.clone();
-        self.publish_at(next, receipt_save_fault(fault))
-            .map_err(|_| FaucetError::ReconciliationRequired)?;
-        Ok(pending)
+        Ok(self.records[index].receipt.clone())
     }
 
     /// Returns every durable reservation whose settlement outcome still needs reconciliation.
     pub fn pending_reconciliation(&self) -> Vec<FaucetReconciliation> {
         self.records
             .iter()
-            .filter(|record| {
-                record.receipt.state() == FaucetState::Pending
-                    && record.receipt.transaction_id().is_none()
-            })
+            // Completeness, not merely "has a transaction": a grant that
+            // delivered one of two cells has a transaction and is still owed.
+            .filter(|record| record.is_unresolved())
             .map(|record| FaucetReconciliation {
                 idempotency_key: record.idempotency_key,
                 abuse_identity: record.abuse_identity,
@@ -656,7 +742,7 @@ impl DurableFaucet {
         submit: F,
     ) -> Result<FaucetReceiptV1, FaucetError>
     where
-        F: FnOnce(PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError>,
+        F: Fn(PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError>,
     {
         if !self.records.iter().any(|record| {
             record.idempotency_key == request.idempotency_key()
@@ -950,7 +1036,12 @@ impl CanonicalEncode for FaucetRecord {
         self.request_commitment.encode(encoder)?;
         self.settlement_commitment.encode(encoder)?;
         self.created_at.encode(encoder)?;
-        self.receipt.encode(encoder)
+        self.receipt.encode(encoder)?;
+        encoder.write_length(self.delivered.len(), MAX_GRANT_CELLS)?;
+        for transaction in &self.delivered {
+            transaction.encode(encoder)?;
+        }
+        self.required_cells.encode(encoder)
     }
 }
 impl CanonicalDecode for FaucetRecord {
@@ -962,6 +1053,15 @@ impl CanonicalDecode for FaucetRecord {
             settlement_commitment: Digest384::decode(decoder)?,
             created_at: u64::decode(decoder)?,
             receipt: FaucetReceiptV1::decode(decoder)?,
+            delivered: {
+                let count = decoder.read_length(MAX_GRANT_CELLS)?;
+                let mut delivered = Vec::with_capacity(count);
+                for _ in 0..count {
+                    delivered.push(TransactionId::decode(decoder)?);
+                }
+                delivered
+            },
+            required_cells: u8::decode(decoder)?,
         })
     }
 }
@@ -1061,16 +1161,50 @@ fn load_records(path: &Path) -> Result<Vec<FaucetRecord>, FaucetError> {
 
 fn decode_records_v2(bytes: &[u8]) -> Result<Vec<FaucetRecord>, FaucetError> {
     let mut decoder = Decoder::new(bytes);
-    if u16::decode(&mut decoder).map_err(|_| FaucetError::Persistence)? != FAUCET_SNAPSHOT_VERSION {
-        return Err(FaucetError::Persistence);
-    }
+    let version = u16::decode(&mut decoder).map_err(|_| FaucetError::Persistence)?;
+    // A snapshot written before grants could span several Coin Cells carries no
+    // delivered-transaction list. Those grants were one cell, and complete if
+    // they settled at all, so they migrate exactly rather than being refused —
+    // an operator upgrading must not find the faucet unable to read its own
+    // records.
+    let legacy_single_cell = match version {
+        FAUCET_SNAPSHOT_VERSION => false,
+        2 => true,
+        _ => return Err(FaucetError::Persistence),
+    };
     let count = decoder.read_length(MAX_FAUCET_RECORDS).map_err(|_| FaucetError::Persistence)?;
     let mut records = Vec::with_capacity(count);
     for _ in 0..count {
-        records.push(FaucetRecord::decode(&mut decoder).map_err(|_| FaucetError::Persistence)?);
+        let record = if legacy_single_cell {
+            decode_single_cell_record(&mut decoder)?
+        } else {
+            FaucetRecord::decode(&mut decoder).map_err(|_| FaucetError::Persistence)?
+        };
+        records.push(record);
     }
     decoder.finish().map_err(|_| FaucetError::Persistence)?;
     validate_records(records)
+}
+
+/// Reads a record from before multi-cell grants existed.
+fn decode_single_cell_record(decoder: &mut Decoder<'_>) -> Result<FaucetRecord, FaucetError> {
+    let idempotency_key = Digest384::decode(decoder).map_err(|_| FaucetError::Persistence)?;
+    let abuse_identity = Digest384::decode(decoder).map_err(|_| FaucetError::Persistence)?;
+    let request_commitment = Digest384::decode(decoder).map_err(|_| FaucetError::Persistence)?;
+    let settlement_commitment = Digest384::decode(decoder).map_err(|_| FaucetError::Persistence)?;
+    let created_at = u64::decode(decoder).map_err(|_| FaucetError::Persistence)?;
+    let receipt = FaucetReceiptV1::decode(decoder).map_err(|_| FaucetError::Persistence)?;
+    let delivered = receipt.transaction_id().into_iter().collect();
+    Ok(FaucetRecord {
+        idempotency_key,
+        abuse_identity,
+        request_commitment,
+        settlement_commitment,
+        created_at,
+        receipt,
+        delivered,
+        required_cells: 1,
+    })
 }
 
 fn decode_records_v1(bytes: &[u8]) -> Result<Vec<FaucetRecord>, FaucetError> {
@@ -1091,6 +1225,7 @@ fn decode_records_v1(bytes: &[u8]) -> Result<Vec<FaucetRecord>, FaucetError> {
         if receipt.transaction_id().is_none() {
             return Err(FaucetError::Persistence);
         }
+        let delivered = receipt.transaction_id().into_iter().collect();
         records.push(FaucetRecord {
             idempotency_key,
             abuse_identity,
@@ -1098,6 +1233,8 @@ fn decode_records_v1(bytes: &[u8]) -> Result<Vec<FaucetRecord>, FaucetError> {
             settlement_commitment: Digest384::ZERO,
             created_at,
             receipt,
+            delivered,
+            required_cells: 1,
         });
     }
     decoder.finish().map_err(|_| FaucetError::Persistence)?;
@@ -1164,6 +1301,7 @@ mod tests {
             policy_revision: 1,
             valid_until: 10_000,
             grant_amount: 1_000,
+            cells_per_grant: 1,
             recipient_cooldown_seconds: 60,
             recipient_lifetime_limit: 2,
             source_window_seconds: 60,
@@ -1406,6 +1544,8 @@ mod tests {
     fn record_in(state: FaucetState, transaction: Option<TransactionId>) -> FaucetRecord {
         let finalized = state == FaucetState::Finalized;
         FaucetRecord {
+            delivered: transaction.into_iter().collect(),
+            required_cells: 1,
             idempotency_key: digest(60),
             abuse_identity: digest(61),
             request_commitment: digest(62),
@@ -1488,6 +1628,118 @@ mod tests {
             None,
             "a reference must not ride along on an unrelated refusal"
         );
+    }
+
+    fn multi_cell_policy(cells: u8) -> FaucetPolicy {
+        FaucetPolicy { cells_per_grant: cells, ..policy() }
+    }
+
+    /// A grant of two Coin Cells is two transfers, and they do not land
+    /// together. Until both have, the recipient holds one cell they cannot
+    /// spend — so the grant is incomplete, spends no allowance, and stays
+    /// recoverable.
+    #[test]
+    fn a_half_delivered_grant_spends_no_allowance_and_remains_recoverable() {
+        let path = path("half-delivered");
+        let mut faucet = DurableFaucet::create(multi_cell_policy(2), path.clone()).unwrap();
+        let attempt = request(3, 40);
+
+        // The second transfer fails; the first has already settled.
+        let calls = std::cell::Cell::new(0_u32);
+        let outcome = faucet.request(&attempt, digest(40), digest(50), 100, |_, _, _| {
+            calls.set(calls.get() + 1);
+            if calls.get() == 1 {
+                Ok(TransactionId::new(digest(41)))
+            } else {
+                Err(FaucetError::Persistence)
+            }
+        });
+        assert_eq!(outcome, Err(FaucetError::Persistence));
+        assert_eq!(calls.get(), 2, "the second cell must have been attempted");
+
+        let record = &faucet.records[0];
+        assert_eq!(record.delivered.len(), 1, "the first cell is durably recorded");
+        assert!(!record.is_complete());
+        assert!(record.is_unresolved(), "a half-delivered grant is not resolved");
+        assert!(
+            !record.consumes_quota(),
+            "a recipient holding one unspendable cell must not be charged a cooldown"
+        );
+        assert_eq!(faucet.pending_reconciliation().len(), 1, "an operator must see it as open");
+
+        // Resuming delivers only what is still owed, and does not repeat the
+        // cell that already settled.
+        let resumed = std::cell::Cell::new(0_u32);
+        faucet
+            .request(&attempt, digest(40), digest(50), 100, |_, _, _| {
+                resumed.set(resumed.get() + 1);
+                Ok(TransactionId::new(digest(42)))
+            })
+            .expect("the remaining cell settles");
+        assert_eq!(resumed.get(), 1, "only the undelivered cell may be resubmitted");
+
+        let record = &faucet.records[0];
+        assert!(record.is_complete());
+        assert!(record.consumes_quota(), "a complete grant spends the allowance");
+        assert!(faucet.pending_reconciliation().is_empty());
+        std::fs::remove_file(path).unwrap();
+    }
+
+    /// Each cell is its own transfer and needs its own settlement reference:
+    /// reusing the grant's would return the first prepared settlement again and
+    /// deliver one cell twice instead of two cells once.
+    #[test]
+    fn each_cell_of_a_grant_settles_under_its_own_reference() {
+        let path = path("cell-references");
+        let mut faucet = DurableFaucet::create(multi_cell_policy(3), path.clone()).unwrap();
+        let seen = std::cell::RefCell::new(Vec::new());
+        let amounts = std::cell::RefCell::new(Vec::new());
+        faucet
+            .request(&request(3, 40), digest(40), digest(50), 100, |_, amount, reference| {
+                let mut seen = seen.borrow_mut();
+                seen.push(reference);
+                amounts.borrow_mut().push(amount);
+                // A distinct transaction per cell, derived from how many have
+                // been asked for so far.
+                Ok(TransactionId::new(digest(50 + seen.len() as u8)))
+            })
+            .expect("a three-cell grant settles");
+
+        let references = seen.borrow();
+        assert_eq!(references.len(), 3);
+        let mut unique = references.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), 3, "every cell needs a distinct reference");
+
+        // The recipient receives the grant amount in total, not per cell.
+        assert_eq!(amounts.borrow().iter().sum::<u128>(), 1_000);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    /// Startup recovery must finish a half-delivered grant rather than reject
+    /// it: one cell provably settled, so the operator owes the rest.
+    #[test]
+    fn recovery_completes_a_half_delivered_grant_rather_than_rejecting_it() {
+        let path = path("recover-half");
+        let mut faucet = DurableFaucet::create(multi_cell_policy(2), path.clone()).unwrap();
+        let calls = std::cell::Cell::new(0_u32);
+        let _ = faucet.request(&request(3, 40), digest(40), digest(50), 100, |_, _, _| {
+            calls.set(calls.get() + 1);
+            if calls.get() == 1 {
+                Ok(TransactionId::new(digest(41)))
+            } else {
+                Err(FaucetError::Persistence)
+            }
+        });
+        assert_eq!(faucet.records[0].delivered.len(), 1);
+
+        let recovery = faucet
+            .recover_unresolved(|_| true, |_, _, _| Ok(TransactionId::new(digest(43))))
+            .unwrap();
+        assert_eq!(recovery, FaucetRecovery { settled: 1, rejected: 0, unresolved: 0 });
+        assert!(faucet.records[0].is_complete());
+        std::fs::remove_file(path).unwrap();
     }
 
     /// The accounting rule itself: only issuance that actually reached the
