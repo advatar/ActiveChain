@@ -41,8 +41,9 @@ use activechain_protocol_types::{
 };
 use activechain_rpc_types::{
     ActionSetProof, AnchorActionSubmissionV1, AnchorServiceStatusV1, Health,
-    MAX_ANCHOR_ACTION_LENGTH, MAX_SUPPORTED_PROOFS, ProofKind, QueryKind, QueryPage, QueryRecord,
-    RpcAccessRequest, RpcAccessResponse, RpcError, RpcRequest, RpcResponse, RpcStatus,
+    MAX_ANCHOR_ACTION_LENGTH, MAX_RPC_BLOB_LENGTH, MAX_SUPPORTED_PROOFS, ProofKind, QueryKind,
+    QueryPage, QueryRecord, RpcAccessRequest, RpcAccessResponse, RpcError, RpcRequest, RpcResponse,
+    RpcStatus,
 };
 use activechain_wallet_core::AuthorizedCashTransferV1;
 use sha3::{
@@ -1596,15 +1597,258 @@ fn write_frame(stream: &mut TcpStream, body: &[u8]) -> Result<(), RpcStoreError>
     stream.write_all(body).map_err(|_| RpcStoreError::Io)
 }
 
-fn save_index(path: &Path, index: &RpcIndex) -> Result<(), RpcStoreError> {
-    let bytes = encode_envelope(index).map_err(|_| RpcStoreError::Invalid)?;
-    if bytes.len() + 32 > MAX_RPC_FRAME {
-        return Err(RpcStoreError::TooLarge);
+/// Records per stored page.
+///
+/// Each page is encoded independently, so the frame bound applies per page
+/// rather than to the whole index. This is what removes the whole-chain cell
+/// ceiling: a network is no longer limited to what fits in one encode.
+const RECORDS_PER_PAGE: usize = 32;
+
+/// Every record in an index is proved against the same finalized height, so the
+/// finality bundle they carry is byte-identical. Storing one copy per record
+/// cost roughly 13 KiB each and was 41% of the stored index.
+///
+/// A table keeps this general: records reference a bundle by position, so an
+/// index holding records from several heights still deduplicates correctly.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct StoredIndexHeader {
+    chain_id: ChainId,
+    genesis_commitment: Digest384,
+    protocol_revision: u64,
+    finalized_height: u64,
+    finalized_at_unix_seconds: u64,
+    maximum_staleness_seconds: u64,
+    supported_proofs: Vec<ProofKind>,
+    finality_bundles: Vec<Vec<u8>>,
+    record_count: u64,
+}
+
+impl CanonicalType for StoredIndexHeader {
+    const TYPE_TAG: u16 = 0x01c4;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = MAX_RPC_FRAME - 32;
+}
+
+impl CanonicalEncode for StoredIndexHeader {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain_id.encode(encoder)?;
+        self.genesis_commitment.encode(encoder)?;
+        self.protocol_revision.encode(encoder)?;
+        self.finalized_height.encode(encoder)?;
+        self.finalized_at_unix_seconds.encode(encoder)?;
+        self.maximum_staleness_seconds.encode(encoder)?;
+        encoder.write_length(self.supported_proofs.len(), MAX_SUPPORTED_PROOFS)?;
+        for proof in &self.supported_proofs {
+            proof.encode(encoder)?;
+        }
+        encoder.write_length(self.finality_bundles.len(), MAX_INDEXED_RECORDS)?;
+        for bundle in &self.finality_bundles {
+            encoder.write_bytes(bundle, MAX_RPC_BLOB_LENGTH)?;
+        }
+        self.record_count.encode(encoder)
     }
-    let tag = snapshot_tag(&bytes);
+}
+
+impl CanonicalDecode for StoredIndexHeader {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let chain_id = ChainId::decode(decoder)?;
+        let genesis_commitment = Digest384::decode(decoder)?;
+        let protocol_revision = u64::decode(decoder)?;
+        let finalized_height = u64::decode(decoder)?;
+        let finalized_at_unix_seconds = u64::decode(decoder)?;
+        let maximum_staleness_seconds = u64::decode(decoder)?;
+        let proof_count = decoder.read_length(MAX_SUPPORTED_PROOFS)?;
+        let mut supported_proofs = Vec::with_capacity(proof_count);
+        for _ in 0..proof_count {
+            supported_proofs.push(ProofKind::decode(decoder)?);
+        }
+        let bundle_count = decoder.read_length(MAX_INDEXED_RECORDS)?;
+        let mut finality_bundles = Vec::with_capacity(bundle_count);
+        for _ in 0..bundle_count {
+            finality_bundles.push(decoder.read_bytes(MAX_RPC_BLOB_LENGTH)?.to_vec());
+        }
+        let record_count = u64::decode(decoder)?;
+        Ok(Self {
+            chain_id,
+            genesis_commitment,
+            protocol_revision,
+            finalized_height,
+            finalized_at_unix_seconds,
+            maximum_staleness_seconds,
+            supported_proofs,
+            finality_bundles,
+            record_count,
+        })
+    }
+}
+
+/// A bounded batch of records, carrying a reference into the header's bundle
+/// table rather than a copy of the bundle.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct StoredIndexPage {
+    records: Vec<StoredRecord>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct StoredRecord {
+    kind: QueryKind,
+    key: Digest384,
+    finalized_height: u64,
+    value: Vec<u8>,
+    proof: Vec<u8>,
+    finality_ref: u32,
+}
+
+impl CanonicalType for StoredIndexPage {
+    const TYPE_TAG: u16 = 0x01c5;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = MAX_RPC_FRAME - 32;
+}
+
+impl CanonicalEncode for StoredIndexPage {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        encoder.write_length(self.records.len(), RECORDS_PER_PAGE)?;
+        for record in &self.records {
+            record.kind.encode(encoder)?;
+            record.key.encode(encoder)?;
+            record.finalized_height.encode(encoder)?;
+            encoder.write_bytes(&record.value, MAX_RPC_BLOB_LENGTH)?;
+            encoder.write_bytes(&record.proof, MAX_RPC_BLOB_LENGTH)?;
+            record.finality_ref.encode(encoder)?;
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for StoredIndexPage {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let count = decoder.read_length(RECORDS_PER_PAGE)?;
+        let mut records = Vec::with_capacity(count);
+        for _ in 0..count {
+            records.push(StoredRecord {
+                kind: QueryKind::decode(decoder)?,
+                key: Digest384::decode(decoder)?,
+                finalized_height: u64::decode(decoder)?,
+                value: decoder.read_bytes(MAX_RPC_BLOB_LENGTH)?.to_vec(),
+                proof: decoder.read_bytes(MAX_RPC_BLOB_LENGTH)?.to_vec(),
+                finality_ref: u32::decode(decoder)?,
+            });
+        }
+        Ok(Self { records })
+    }
+}
+
+/// Splits an index into a header carrying one copy of each distinct finality
+/// bundle, and pages of records referencing it.
+fn split_index(
+    index: &RpcIndex,
+) -> Result<(StoredIndexHeader, Vec<StoredIndexPage>), RpcStoreError> {
+    let mut bundles: Vec<Vec<u8>> = Vec::new();
+    let mut stored = Vec::with_capacity(index.records.len());
+    for record in &index.records {
+        let finality_ref = match bundles.iter().position(|bundle| bundle == record.finality()) {
+            Some(position) => position,
+            None => {
+                bundles.push(record.finality().to_vec());
+                bundles.len() - 1
+            }
+        };
+        stored.push(StoredRecord {
+            kind: record.kind(),
+            key: record.key(),
+            finalized_height: record.finalized_height(),
+            value: record.value().to_vec(),
+            proof: record.proof().to_vec(),
+            finality_ref: u32::try_from(finality_ref).map_err(|_| RpcStoreError::Invalid)?,
+        });
+    }
+    let header = StoredIndexHeader {
+        chain_id: index.chain_id,
+        genesis_commitment: index.genesis_commitment,
+        protocol_revision: index.protocol_revision,
+        finalized_height: index.finalized_height,
+        finalized_at_unix_seconds: index.finalized_at_unix_seconds,
+        maximum_staleness_seconds: index.maximum_staleness_seconds,
+        supported_proofs: index.supported_proofs.clone(),
+        finality_bundles: bundles,
+        record_count: index.records.len() as u64,
+    };
+    let pages = stored
+        .chunks(RECORDS_PER_PAGE)
+        .map(|chunk| StoredIndexPage { records: chunk.to_vec() })
+        .collect();
+    Ok((header, pages))
+}
+
+/// Rebuilds the in-memory index, restoring each record's finality bundle from
+/// the shared table. A reference the table cannot satisfy is corruption.
+fn join_index(
+    header: &StoredIndexHeader,
+    pages: &[StoredIndexPage],
+) -> Result<RpcIndex, RpcStoreError> {
+    let mut records = Vec::with_capacity(header.record_count as usize);
+    for page in pages {
+        for stored in &page.records {
+            let finality = header
+                .finality_bundles
+                .get(stored.finality_ref as usize)
+                .ok_or(RpcStoreError::Corrupt)?;
+            records.push(
+                QueryRecord::new(
+                    stored.kind,
+                    stored.key,
+                    stored.finalized_height,
+                    stored.value.clone(),
+                    stored.proof.clone(),
+                    finality.clone(),
+                )
+                .map_err(|_| RpcStoreError::Corrupt)?,
+            );
+        }
+    }
+    if records.len() as u64 != header.record_count {
+        return Err(RpcStoreError::Corrupt);
+    }
+    RpcIndex::new(
+        header.chain_id,
+        header.genesis_commitment,
+        header.protocol_revision,
+        header.finalized_height,
+        header.finalized_at_unix_seconds,
+        header.maximum_staleness_seconds,
+        header.supported_proofs.clone(),
+        records,
+    )
+}
+
+/// Writes the index as a header chunk followed by page chunks.
+///
+/// Each chunk is length-prefixed and independently bounded, so no single encode
+/// has to hold the whole index. That removes the ceiling which previously
+/// capped a chain at roughly 130 Coin Cells across all owners and, on being
+/// exceeded, left the index empty rather than degrading.
+fn save_index(path: &Path, index: &RpcIndex) -> Result<(), RpcStoreError> {
+    let (header, pages) = split_index(index)?;
+    let mut body = Vec::new();
+    let header_bytes = encode_envelope(&header).map_err(|_| RpcStoreError::Invalid)?;
+    let chunk_count = u32::try_from(pages.len() + 1).map_err(|_| RpcStoreError::Invalid)?;
+    body.extend_from_slice(&chunk_count.to_be_bytes());
+    body.extend_from_slice(
+        &u32::try_from(header_bytes.len()).map_err(|_| RpcStoreError::Invalid)?.to_be_bytes(),
+    );
+    body.extend_from_slice(&header_bytes);
+    for page in &pages {
+        let encoded = encode_envelope(page).map_err(|_| RpcStoreError::Invalid)?;
+        body.extend_from_slice(
+            &u32::try_from(encoded.len()).map_err(|_| RpcStoreError::Invalid)?.to_be_bytes(),
+        );
+        body.extend_from_slice(&encoded);
+    }
+
+    let tag = snapshot_tag(&body);
     let temporary = path.with_extension("tmp");
     let mut file = File::create(&temporary).map_err(|_| RpcStoreError::Io)?;
-    file.write_all(&bytes).map_err(|_| RpcStoreError::Io)?;
+    file.write_all(&body).map_err(|_| RpcStoreError::Io)?;
     file.write_all(&tag).map_err(|_| RpcStoreError::Io)?;
     file.sync_all().map_err(|_| RpcStoreError::Io)?;
     std::fs::rename(&temporary, path).map_err(|_| RpcStoreError::Io)?;
@@ -1612,17 +1856,61 @@ fn save_index(path: &Path, index: &RpcIndex) -> Result<(), RpcStoreError> {
         path.parent().filter(|path| !path.as_os_str().is_empty()).unwrap_or(Path::new("."));
     File::open(parent).and_then(|directory| directory.sync_all()).map_err(|_| RpcStoreError::Io)
 }
+
 fn load_index(path: &Path) -> Result<RpcIndex, RpcStoreError> {
     let bytes = std::fs::read(path).map_err(|_| RpcStoreError::Io)?;
-    if bytes.len() < 32 || bytes.len() > MAX_RPC_FRAME {
+    if bytes.len() < 36 {
         return Err(RpcStoreError::Corrupt);
     }
-    let body = bytes.len() - 32;
-    if snapshot_tag(&bytes[..body]) != bytes[body..] {
+    let body_length = bytes.len() - 32;
+    if snapshot_tag(&bytes[..body_length]) != bytes[body_length..] {
         return Err(RpcStoreError::Corrupt);
     }
-    decode_envelope(&bytes[..body]).map_err(|_| RpcStoreError::Corrupt)
+    let body = &bytes[..body_length];
+
+    // An index written before pagination is a single whole-index envelope. It
+    // is still readable and still correct, so a node upgrading into this format
+    // must not crash-loop on the file it already has; the next publication
+    // rewrites it paged.
+    if let Ok(legacy) = decode_envelope::<RpcIndex>(body) {
+        return Ok(legacy);
+    }
+
+    let mut cursor = 0_usize;
+    let take = |count: usize, cursor: &mut usize| -> Result<&[u8], RpcStoreError> {
+        let end = cursor.checked_add(count).ok_or(RpcStoreError::Corrupt)?;
+        let slice = body.get(*cursor..end).ok_or(RpcStoreError::Corrupt)?;
+        *cursor = end;
+        Ok(slice)
+    };
+    let chunk_count =
+        u32::from_be_bytes(take(4, &mut cursor)?.try_into().map_err(|_| RpcStoreError::Corrupt)?);
+    if chunk_count == 0 {
+        return Err(RpcStoreError::Corrupt);
+    }
+    let mut chunks = Vec::with_capacity(chunk_count as usize);
+    for _ in 0..chunk_count {
+        let length = u32::from_be_bytes(
+            take(4, &mut cursor)?.try_into().map_err(|_| RpcStoreError::Corrupt)?,
+        ) as usize;
+        if length > MAX_RPC_FRAME {
+            return Err(RpcStoreError::Corrupt);
+        }
+        chunks.push(take(length, &mut cursor)?.to_vec());
+    }
+    if cursor != body.len() {
+        return Err(RpcStoreError::Corrupt);
+    }
+    let header: StoredIndexHeader =
+        decode_envelope(&chunks[0]).map_err(|_| RpcStoreError::Corrupt)?;
+
+    let mut pages = Vec::with_capacity(chunks.len() - 1);
+    for chunk in &chunks[1..] {
+        pages.push(decode_envelope::<StoredIndexPage>(chunk).map_err(|_| RpcStoreError::Corrupt)?);
+    }
+    join_index(&header, &pages)
 }
+
 fn snapshot_tag(bytes: &[u8]) -> [u8; 32] {
     let mut hasher = Shake256::default();
     hasher.update(b"ACTIVECHAIN-RPC-INDEX-SNAPSHOT-V1");
@@ -2559,6 +2847,107 @@ mod tests {
         )
         .unwrap()
     }
+    /// The stored index must not cap how many Coin Cells a chain can hold.
+    ///
+    /// It used to: every record carried its own copy of the finality bundle and
+    /// the whole index had to fit one 4 MiB encode, which put the ceiling at
+    /// roughly 130 records **across all owners**. Exceeding it did not degrade
+    /// — the round failed with `Invalid` and the index stayed empty, leaving
+    /// the chain serving nothing while appearing healthy.
+    #[test]
+    fn a_stored_index_holds_far_more_records_than_one_frame_ever_could() {
+        let mut records: Vec<QueryRecord> = (0..=u8::MAX).map(receipt_record).collect();
+        records.sort_by_key(|record| (record.kind(), record.key()));
+        records.dedup_by_key(|record| (record.kind(), record.key()));
+        let count = records.len();
+        assert!(count > 130, "the fixture must exceed the old ceiling, got {count}");
+
+        let index = RpcIndex::new(
+            ChainId::new(digest(1)),
+            digest(2),
+            3,
+            7,
+            100,
+            10,
+            vec![ProofKind::FinalityCertificate, ProofKind::ReceiptCommitment],
+            records.clone(),
+        )
+        .unwrap();
+
+        let path = std::env::temp_dir().join(format!(
+            "activechain-index-paged-{}-{}.snapshot",
+            std::process::id(),
+            count
+        ));
+        let _ = std::fs::remove_file(&path);
+        save_index(&path, &index).expect("a large index must be storable");
+
+        // Every record survives the round trip, finality bundles included.
+        let restored = load_index(&path).expect("a large index must be loadable");
+        assert_eq!(restored.records.len(), count);
+        assert_eq!(restored.records, records);
+
+        // The saving is real: one shared bundle rather than one per record.
+        let stored = std::fs::metadata(&path).unwrap().len() as usize;
+        let duplicated: usize = records.iter().map(|record| record.finality().len()).sum();
+        let shared = records.first().map_or(0, |record| record.finality().len());
+        assert!(
+            stored + duplicated - shared > stored,
+            "deduplication must remove the repeated bundles"
+        );
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    /// A node upgrading into the paged format must read the index it already
+    /// has. Rejecting it would crash-loop the RPC on a file that is still
+    /// perfectly valid, which is how anchoring was quarantined once already.
+    #[test]
+    fn an_index_written_before_pagination_is_still_readable() {
+        let index = index();
+        let legacy_body = encode_envelope(&index).unwrap();
+        let mut bytes = legacy_body.clone();
+        bytes.extend_from_slice(&snapshot_tag(&legacy_body));
+        let path = std::env::temp_dir()
+            .join(format!("activechain-index-legacy-{}.snapshot", std::process::id()));
+        std::fs::write(&path, &bytes).unwrap();
+
+        let restored = load_index(&path).expect("a pre-pagination index must still load");
+        assert_eq!(restored, index);
+
+        // Re-saving migrates it, and the migrated form round-trips.
+        save_index(&path, &restored).unwrap();
+        assert_eq!(load_index(&path).unwrap(), index);
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    /// A page reference the header cannot satisfy is corruption, not a record
+    /// to be invented.
+    #[test]
+    fn an_index_whose_finality_table_is_short_fails_closed() {
+        let header = StoredIndexHeader {
+            chain_id: ChainId::new(digest(1)),
+            genesis_commitment: digest(2),
+            protocol_revision: 3,
+            finalized_height: 7,
+            finalized_at_unix_seconds: 100,
+            maximum_staleness_seconds: 10,
+            supported_proofs: vec![ProofKind::FinalityCertificate],
+            finality_bundles: Vec::new(),
+            record_count: 1,
+        };
+        let page = StoredIndexPage {
+            records: vec![StoredRecord {
+                kind: QueryKind::Receipt,
+                key: digest(9),
+                finalized_height: 7,
+                value: vec![1],
+                proof: Vec::new(),
+                finality_ref: 0,
+            }],
+        };
+        assert_eq!(join_index(&header, &[page]), Err(RpcStoreError::Corrupt));
+    }
+
     fn index() -> RpcIndex {
         let mut records = vec![
             receipt_record(10),

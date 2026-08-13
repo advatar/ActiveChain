@@ -33,31 +33,30 @@ use activechain_protocol_types::Digest384;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
-/// `RpcIndex::MAX_ENCODED_LEN` — the frame a published index must fit inside.
-pub const INDEX_FRAME_BYTES: usize = 4 * 1024 * 1024 - 32;
+/// Bytes per indexed Coin Cell record once the shared finality bundle is
+/// factored out, derived from the 32,26x per record measured on Kanalen before
+/// deduplication less the ~13 KiB bundle each record used to carry.
+pub const MEASURED_RECORD_BYTES: usize = 19_000;
 
-/// Bytes per indexed Coin Cell record, measured on Kanalen at two scales:
-/// 2,064,747 bytes for 64 cells and 3,548,662 for 110, both 32,26x per record.
+/// An operational budget for the whole-chain index, not a format limit.
 ///
-/// Every indexed cell republishes its own copy of the finality bundle, which is
-/// what makes a record this large. Reducing it is the durable fix for the
-/// ceiling; until then it is a constant to plan against rather than discover.
-pub const MEASURED_RECORD_BYTES: usize = 32_262;
+/// The stored index is paged, so a single frame no longer caps it and the
+/// format itself allows 65,535 records. What remains is practical: the index is
+/// held in memory and rebuilt on every publication, so cells cost round time
+/// and resident memory. This budget keeps that bounded at roughly 78 MiB.
+pub const INDEX_MEMORY_BUDGET_BYTES: usize = 78 * 1024 * 1024;
 
-/// Reserve against a record growing, since the measurement is a floor.
-pub const INDEX_HEADROOM: f64 = 0.85;
-
-/// The most Coin Cells a network can hold **across all owners** before a round
-/// can no longer publish its index.
+/// The most Coin Cells a network should be planned to hold **across all
+/// owners**.
 ///
-/// This is a whole-chain limit, not a per-wallet one. Ordinary transfers are
+/// This is a whole-chain figure, not a per-wallet one. Ordinary transfers are
 /// cell-count neutral at best — a transfer consumes its inputs and fee reserve
 /// and creates a recipient cell and at most one change cell — so the total is
 /// monotonically non-increasing and the genesis treasury fixes the maximum for
 /// the life of the chain.
 #[must_use]
 pub fn indexed_cell_ceiling() -> usize {
-    ((INDEX_FRAME_BYTES as f64 * INDEX_HEADROOM) as usize) / MEASURED_RECORD_BYTES
+    INDEX_MEMORY_BUDGET_BYTES / MEASURED_RECORD_BYTES
 }
 
 /// A transfer needs an input and a *distinct* fee reserve, so anything holding
@@ -211,7 +210,8 @@ const MAX_PLAN_LABELS: usize = 16;
 const MAX_PLAN_VALIDATORS: usize = 16;
 
 impl CanonicalType for NetworkPlan {
-    const TYPE_TAG: u16 = 0x0150;
+    // 0x0150 belongs to ComplianceReplayWitness; planner types occupy 0x01c3+.
+    const TYPE_TAG: u16 = 0x01c3;
     const SCHEMA_VERSION: u16 = 1;
     const MAX_ENCODED_LEN: usize = MAX_PLAN_NAME
         + MAX_PLAN_PATH
@@ -413,8 +413,8 @@ fn plan_one(manifest: &NetworkManifest) -> Result<NetworkPlan, PlanError> {
     }
     if cells * 4 > ceiling * 3 {
         advisories.push(format!(
-            "{cells} cells uses most of the {ceiling}-cell index budget, leaving little \
-             margin if a record grows"
+            "{cells} cells uses most of the {ceiling}-cell index budget; the index is held \
+             in memory and rebuilt each publication, so this costs round time"
         ));
     }
 
@@ -553,19 +553,27 @@ mod tests {
         );
     }
 
-    /// 1024 cells produced a 13 MiB index; the round failed with `Invalid` and
-    /// the index stayed empty, leaving the treasury unqueryable.
+    /// Pagination removed the 4 MiB frame that once capped a chain at ~130
+    /// cells across all owners, so 1024 is now plannable. What remains is an
+    /// operational budget on memory and round time, and exceeding that is
+    /// still refused.
     #[test]
-    fn a_treasury_larger_than_the_index_can_publish_is_refused() {
+    fn the_treasury_is_bounded_by_an_operational_budget_not_a_frame() {
         let ceiling = indexed_cell_ceiling();
+        assert!(ceiling > 1024, "pagination must have lifted the old ~130 ceiling");
+
         let mut candidate = manifest("kanalen", 49_151);
         candidate.treasury.cells = 1024;
-        assert_eq!(plan(&candidate), Err(PlanError::TreasuryExceedsIndex { cells: 1024, ceiling }));
-        // The measured ceiling must stay in the region the live chain proved
-        // publishable: 110 cells occupied 85% of the frame.
-        assert!((100..=130).contains(&ceiling), "implausible ceiling {ceiling}");
+        assert!(plan(&candidate).is_ok(), "1024 cells is publishable once the index is paged");
+
         candidate.treasury.cells = ceiling;
-        assert!(plan(&candidate).is_ok(), "the ceiling itself must be plannable");
+        assert!(plan(&candidate).is_ok(), "the budget itself must be plannable");
+
+        candidate.treasury.cells = ceiling + 1;
+        assert_eq!(
+            plan(&candidate),
+            Err(PlanError::TreasuryExceedsIndex { cells: ceiling + 1, ceiling })
+        );
     }
 
     /// A recipient holding one Coin Cell cannot spend it, so a faucet that
