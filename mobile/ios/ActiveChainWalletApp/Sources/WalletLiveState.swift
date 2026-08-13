@@ -148,6 +148,9 @@ final class WalletLiveState: ObservableObject {
     @Published private(set) var onboardingError: String?
     /// Shown once after provisioning. Never logged and never persisted.
     @Published private(set) var recoverySecret: String?
+    /// The grant whose outcome the wallet is still waiting on, so a refresh can
+    /// ask what became of it instead of asserting "pending" indefinitely.
+    private var pendingFaucetReference: Data?
     static let primarySlotID = "primary"
     private let rpc = WalletRPCClient()
     private let verifier: any WalletOwnerCoinProofVerifier = RustWalletOwnerCoinProofVerifier()
@@ -222,6 +225,7 @@ final class WalletLiveState: ObservableObject {
             balanceState = .unverified(
                 reason: "The node answered, but its owner-scoped proof did not verify.")
         }
+        await resolvePendingFunding()
         updateFundingAvailability()
     }
 
@@ -374,17 +378,21 @@ final class WalletLiveState: ObservableObject {
             let receipt = try await rpc.requestFaucet(owner: profile.owner)
             let reference = receipt.reference.map { String(format: "%02x", $0) }.joined()
             switch receipt.state {
-            case 0: fundingState = .pending(reference: reference)
+            case 0:
+                pendingFaucetReference = receipt.reference
+                fundingState = .pending(reference: reference)
             case 1:
                 guard let height = receipt.finalizedHeight else {
                     throw WalletRPCError.malformedResponse
                 }
                 let finalized = WalletFundingState.finalized(reference: reference, height: height)
+                pendingFaucetReference = nil
                 fundingState = finalized
                 await refresh()
                 fundingState = finalized
             case 2:
                 WalletLog.rpc.error("faucet rejected request \(reference.prefix(16), privacy: .public)")
+                pendingFaucetReference = nil
                 fundingState = .rejected(reference: reference, reason: "The faucet rejected this request.")
             default: throw WalletRPCError.malformedResponse
             }
@@ -400,6 +408,41 @@ final class WalletLiveState: ObservableObject {
             // cannot distinguish a faucet refusal from a transport fault.
             WalletLog.rpc.error("funding request failed: \(String(describing: error), privacy: .public)")
             fundingState = .rejected(reference: nil, reason: "Funding request failed without changing balance.")
+        }
+    }
+
+    /// Asks the node what became of a grant the wallet is still calling pending.
+    ///
+    /// A grant reaches finality some blocks after it is accepted, and nothing
+    /// asked. So the funding card went on saying "awaiting finalized evidence.
+    /// No balance has been credited" while the balance card, correctly, showed
+    /// the Coin Cell that grant had produced -- two claims about the same
+    /// ledger, one of them false.
+    private func resolvePendingFunding() async {
+        guard let reference = pendingFaucetReference else { return }
+        do {
+            let receipt = try await rpc.resolveFaucet(reference: reference)
+            let hex = receipt.reference.map { String(format: "%02x", $0) }.joined()
+            switch receipt.state {
+            case 1:
+                guard let height = receipt.finalizedHeight else { return }
+                pendingFaucetReference = nil
+                fundingState = .finalized(reference: hex, height: height)
+                WalletLog.rpc.notice(
+                    "funding finalized at height \(height, privacy: .public)")
+            case 2:
+                pendingFaucetReference = nil
+                fundingState = .rejected(
+                    reference: hex, reason: "The faucet rejected this request.")
+            default:
+                // Still pending is a legitimate answer; leave the card alone.
+                break
+            }
+        } catch {
+            // A failed lookup says nothing about the grant, so the wallet keeps
+            // waiting rather than inventing an outcome.
+            WalletLog.rpc.error(
+                "could not resolve pending funding: \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -680,6 +723,21 @@ enum WalletRPCCodec {
     static let framedStatusRequest = framedRequest(body: Data([0]))
 
     static let framedFaucetTermsRequest = framedRequest(body: Data([7]))
+
+    /// Asks the node what became of a grant it already accepted.
+    ///
+    /// Without this the wallet never revisits a pending grant: the funding card
+    /// keeps asserting "no balance has been credited" long after the balance
+    /// has been credited, which is a false claim about the ledger and exactly
+    /// the kind the rest of this screen is built to avoid.
+    static func framedResolveFaucetRequest(reference: Data) throws -> Data {
+        guard reference.count == 48, reference.contains(where: { $0 != 0 }) else {
+            throw WalletRPCError.unexpectedResponse
+        }
+        var body = Data([6])
+        body.append(reference)
+        return framedRequest(body: body)
+    }
 
     static func framedFaucetRequest(
         owner: Data,
@@ -1025,6 +1083,12 @@ final class WalletRPCClient: @unchecked Sendable {
                     sourceCommitment: try randomDigest()
                 )
             )
+        )
+    }
+
+    func resolveFaucet(reference: Data) async throws -> WalletFaucetReceipt {
+        try WalletRPCCodec.decodeFaucetReceipt(
+            await roundTrip(try WalletRPCCodec.framedResolveFaucetRequest(reference: reference))
         )
     }
 

@@ -938,6 +938,51 @@ final class ActiveChainWalletTests: XCTestCase {
         }
     }
 
+    /// A grant reaches finality some blocks after it is accepted. Nothing asked
+    /// what became of it, so the funding card went on asserting "no balance has
+    /// been credited" while the balance card showed the Coin Cell that same
+    /// grant had produced — two claims about one ledger, one of them false.
+    func testPendingGrantCanBeResolvedAfterItReachesFinality() throws {
+        let reference = Data(repeating: 7, count: 48)
+        let frame = try WalletRPCCodec.framedResolveFaucetRequest(reference: reference)
+        // Request variant 6 is ResolveFaucet, carrying just the reference. The
+        // 49-byte body needs a single uleb128 length byte, so the variant sits
+        // one earlier than in the larger faucet request above.
+        XCTAssertEqual(Array(frame[4..<8]), [0x01, 0x07, 0, 2])
+        XCTAssertEqual(frame[8], 49)
+        XCTAssertEqual(frame[9], 6)
+        XCTAssertEqual(Array(frame.suffix(48)), Array(reference))
+
+        // A zero or malformed reference is refused rather than asked about.
+        XCTAssertThrowsError(
+            try WalletRPCCodec.framedResolveFaucetRequest(reference: Data(repeating: 0, count: 48))
+        )
+        XCTAssertThrowsError(
+            try WalletRPCCodec.framedResolveFaucetRequest(reference: Data(repeating: 7, count: 47))
+        )
+
+        // The finalized receipt the node sends back must decode with its height,
+        // which is what lets the card stop claiming nothing was credited.
+        var body = Data([6])
+        body.append(reference)
+        body.append(Data(repeating: 8, count: 48))
+        body.append(Data(repeating: 0, count: 15) + Data([10]))
+        body.append(contentsOf: [1, 1])
+        body.append(Data(repeating: 9, count: 48))
+        body.append(1)
+        body.append(contentsOf: UInt64(1_147).bigEndianBytes)
+        body.append(1)
+        body.append(Data(repeating: 3, count: 48))
+        body.append(contentsOf: [1, 5])
+        let receipt = try WalletRPCCodec.decodeFaucetReceipt(rpcResponse(body: body))
+        XCTAssertEqual(receipt.state, 1)
+        XCTAssertEqual(receipt.finalizedHeight, 1_147)
+        XCTAssertTrue(
+            WalletFundingState.finalized(reference: "07", height: 1_147).creditsBalance,
+            "a finalized grant is the one funding state that may credit a balance"
+        )
+    }
+
     private func rpcResponse(body: Data) -> Data {
         var envelope = Data([0x01, 0x0a, 0, 3])
         envelope.append(contentsOf: uleb128(body.count))
