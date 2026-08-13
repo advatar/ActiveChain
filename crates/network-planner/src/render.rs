@@ -41,7 +41,10 @@ impl Materialization {
 #[must_use]
 pub fn materialize(plan: &NetworkPlan, home: &str) -> Materialization {
     let root = format!("{home}/activechain-deploy/{}", plan.name);
-    let directories = ["chain", "chain/keys", "rpc", "logs", "releases", "gateway"]
+    // chain/keys is deliberately absent: genesis-tool creates it, and refuses
+    // if it already exists, so that it can never write a validator key into a
+    // directory that might already hold one.
+    let directories = ["chain", "rpc", "logs", "releases", "gateway"]
         .iter()
         .map(|part| format!("{root}/{part}"))
         .collect();
@@ -207,7 +210,11 @@ mod tests {
         assert!(validator.contains("<string>49153</string>"));
         assert!(validator.contains("validator-0.snapshot"));
 
-        assert!(out.directories.iter().any(|d| d.ends_with("/chain/keys")));
+        assert!(out.directories.iter().any(|d| d.ends_with("/chain")));
+        assert!(
+            !out.directories.iter().any(|d| d.ends_with("/chain/keys")),
+            "genesis-tool creates the key directory and refuses a pre-existing one"
+        );
         assert!(out.directories.iter().any(|d| d.ends_with("/logs")));
     }
 

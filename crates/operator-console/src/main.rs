@@ -30,7 +30,9 @@
 //! activechain-operator-console [--port 8787] [--home <dir>]
 //! ```
 
-use activechain_network_planner::{NetworkManifest, apply, fleet, plan_fleet, preflight};
+use activechain_network_planner::{
+    NetworkManifest, apply, fleet, plan_fleet, preflight, provision,
+};
 use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, Request, State},
@@ -152,6 +154,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/fleet", get(fleet_json))
         .route("/api/plan", post(plan_preview))
         .route("/api/apply", post(apply_plan))
+        .route("/api/provision", post(provision_plan))
         // A manifest is small. Bounding the body keeps a local page from
         // exhausting memory on a host that is also running validators.
         .layer(DefaultBodyLimit::max(64 * 1024))
@@ -363,6 +366,54 @@ async fn apply_plan(
         .into_response()
 }
 
+/// Applies, then generates a genesis and starts the services.
+///
+/// The trust ceremony stays out: it needs signers who are not this process, and
+/// a chain runs without one.
+async fn provision_plan(
+    State(console): State<Arc<Console>>,
+    headers: HeaderMap,
+    Json(manifests): Json<Vec<NetworkManifest>>,
+) -> Response {
+    if let Err((status, reason)) = console.authorize(&headers) {
+        return (status, reason).into_response();
+    }
+    let plans = match plan_fleet(&manifests) {
+        Ok(plans) => plans,
+        Err(error) => return (StatusCode::BAD_REQUEST, format!("{error:?}")).into_response(),
+    };
+    let agents = console.home.join("Library/LaunchAgents");
+    let mut done: Vec<serde_json::Value> = Vec::new();
+    for plan in &plans {
+        let stopped = |done: &Vec<serde_json::Value>, detail: String| {
+            (
+                StatusCode::CONFLICT,
+                serde_json::json!({ "done": done, "stopped": detail }).to_string(),
+            )
+                .into_response()
+        };
+        if let Err(error) = apply::apply(plan, &console.home, &agents) {
+            return stopped(&done, error.to_string());
+        }
+        match provision::provision(plan, &console.home, true) {
+            Ok(result) => done.push(serde_json::json!({
+                "network": plan.name,
+                "genesisCommitment": result.genesis_commitment,
+                "treasuryOwner": result.treasury_owner,
+                "started": result.started,
+                "remaining": result.remaining,
+            })),
+            Err(error) => return stopped(&done, error.to_string()),
+        }
+    }
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/json"), (header::CACHE_CONTROL, "no-store")],
+        serde_json::json!({ "provisioned": done }).to_string(),
+    )
+        .into_response()
+}
+
 async fn page(State(console): State<Arc<Console>>, request: Request) -> Html<String> {
     let nonce =
         request.extensions().get::<Nonce>().map_or_else(|| Nonce::new().0, |value| value.0.clone());
@@ -436,7 +487,8 @@ fn composer(token: &str, nonce: &str) -> String {
          <textarea id=\"manifests\" spellcheck=\"false\" \
          placeholder='[{{\"name\": \"kibera\", ...}}]'></textarea>\
          <div class=\"row\"><button id=\"preview\">Preview</button>\
-         <button id=\"apply\">Apply</button></div>\
+         <button id=\"apply\">Apply</button>\
+         <button id=\"provision\">Create and start</button></div>\
          <pre id=\"out\"></pre></section>\
          <script nonce=\"{nonce}\">\
          const token = {token:?};\
@@ -456,11 +508,12 @@ fn composer(token: &str, nonce: &str) -> String {
              let shown = text;\
              try {{ shown = JSON.stringify(JSON.parse(text), null, 2); }} catch (_) {{}}\
              out.textContent = response.ok ? shown : ('refused (' + response.status + ')\\n' + shown);\
-             if (response.ok && path === '/api/apply') {{ setTimeout(() => location.reload(), 800); }}\
+             if (response.ok && path !== '/api/plan') {{ setTimeout(() => location.reload(), 1200); }}\
            }} catch (error) {{ out.textContent = 'request failed: ' + error.message; }}\
          }}\
          document.getElementById('preview').onclick = () => send('/api/plan');\
          document.getElementById('apply').onclick = () => send('/api/apply');\
+         document.getElementById('provision').onclick = () => send('/api/provision');\
          </script>"
     )
 }
@@ -640,7 +693,7 @@ mod tests {
     #[test]
     fn every_mutating_handler_authorizes_before_acting() {
         let code = serving_code();
-        for handler in ["async fn plan_preview", "async fn apply_plan"] {
+        for handler in ["async fn plan_preview", "async fn apply_plan", "async fn provision_plan"] {
             let start = code.find(handler).unwrap_or_else(|| panic!("{handler} is missing"));
             let body = &code[start..];
             let guard = body.find("console.authorize(&headers)").unwrap_or(usize::MAX);

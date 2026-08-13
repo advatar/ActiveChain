@@ -3,6 +3,8 @@
 //! ```text
 //! activechain-network-plan <manifest.json> [more.json ...] [--json]
 //! activechain-network-plan <manifest.json> --apply [--home <dir>]
+//! activechain-network-plan <manifest.json> --provision   # apply and generate a genesis
+//! activechain-network-plan <manifest.json> --start       # and load the launch agents
 //! ```
 //!
 //! Without `--apply` nothing is written: the plan is validated and reported.
@@ -18,7 +20,7 @@
 //! Exits non-zero on refusal.
 
 use activechain_network_planner::{
-    NetworkManifest, NetworkPlan, PlanError, apply, plan_fleet, preflight,
+    NetworkManifest, NetworkPlan, PlanError, apply, plan_fleet, preflight, provision,
 };
 use std::{env, fs, path::PathBuf, process::ExitCode};
 
@@ -39,6 +41,8 @@ fn run() -> Result<String, String> {
     let mut paths = Vec::new();
     let mut as_json = false;
     let mut applying = false;
+    let mut provisioning = false;
+    let mut starting = false;
     let mut home: Option<PathBuf> = None;
     let mut arguments = env::args().skip(1);
     while let Some(argument) = arguments.next() {
@@ -46,6 +50,13 @@ fn run() -> Result<String, String> {
             as_json = true;
         } else if argument == "--apply" {
             applying = true;
+        } else if argument == "--provision" {
+            applying = true;
+            provisioning = true;
+        } else if argument == "--start" {
+            applying = true;
+            provisioning = true;
+            starting = true;
         } else if argument == "--home" {
             home = Some(PathBuf::from(
                 arguments.next().ok_or_else(|| "--home needs a directory".to_owned())?,
@@ -80,7 +91,19 @@ fn run() -> Result<String, String> {
         let agents = home.join("Library/LaunchAgents");
         let mut report = String::new();
         for plan in &plans {
-            let record = apply::apply(plan, &home, &agents).map_err(|error| error.to_string())?;
+            // An existing deployment is not an error when the goal is to
+            // provision it: an operator may apply one day and provision the
+            // next. It stays an error when apply is the whole request, because
+            // then it would silently do nothing.
+            let record = match apply::apply(plan, &home, &agents) {
+                Ok(record) => record,
+                Err(apply::ApplyError::AlreadyPresent(_)) if provisioning => {
+                    report.push_str(&format!("{} already applied\n", plan.name));
+                    provision_into(&mut report, plan, &home, starting)?;
+                    continue;
+                }
+                Err(error) => return Err(error.to_string()),
+            };
             report.push_str(&format!(
                 "applied {} at {}\n  plan digest      {}\n  wrote            {} directories, \
                  {} file(s), {} launch agent(s)\n",
@@ -91,8 +114,12 @@ fn run() -> Result<String, String> {
                 record.files.len(),
                 record.launch_agents.len()
             ));
-            for step in &record.remaining {
-                report.push_str(&format!("  still to do      {step}\n"));
+            if provisioning {
+                provision_into(&mut report, plan, &home, starting)?;
+            } else {
+                for step in &record.remaining {
+                    report.push_str(&format!("  still to do      {step}\n"));
+                }
             }
         }
         return Ok(report);
@@ -117,6 +144,28 @@ fn run() -> Result<String, String> {
             .map_err(|error| format!("could not encode the plan: {error}"));
     }
     Ok(plans.iter().map(render).collect::<String>() + &environment)
+}
+
+fn provision_into(
+    report: &mut String,
+    plan: &NetworkPlan,
+    home: &std::path::Path,
+    starting: bool,
+) -> Result<(), String> {
+    let done = provision::provision(plan, home, starting)
+        .map_err(|error| format!("provisioning {}: {error}", plan.name))?;
+    report.push_str(&format!(
+        "  genesis          {}…\n  treasury owner   {}…\n",
+        &done.genesis_commitment[..16],
+        &done.treasury_owner[..16]
+    ));
+    if starting {
+        report.push_str(&format!("  started          {} service(s)\n", done.started.len()));
+    }
+    for step in &done.remaining {
+        report.push_str(&format!("  still to do      {step}\n"));
+    }
+    Ok(())
 }
 
 fn render(plan: &NetworkPlan) -> String {

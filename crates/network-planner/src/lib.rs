@@ -26,6 +26,7 @@
 pub mod apply;
 pub mod fleet;
 pub mod preflight;
+pub mod provision;
 pub mod render;
 
 use activechain_canonical_codec::{

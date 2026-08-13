@@ -188,7 +188,7 @@ mod tests {
             home.join("activechain-deploy/kibera/plan.json").exists(),
             "a deployment must record the plan that produced it"
         );
-        assert!(home.join("activechain-deploy/kibera/chain/keys").is_dir());
+        assert!(home.join("activechain-deploy/kibera/chain").is_dir());
         assert!(agents.join("dev.activechain.kibera.rpc.plist").exists());
         assert!(agents.join("dev.activechain.kibera.validator0.plist").exists());
 
