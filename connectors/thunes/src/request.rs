@@ -24,7 +24,10 @@ impl ThunesRequest {
         body: Vec<u8>,
         simulated: bool,
     ) -> Result<Self, AdapterError> {
-        if !path.starts_with("/v2/money-transfer/") || path.len() > 512 || body.len() > MAX_BODY_BYTES {
+        if !path.starts_with("/v2/money-transfer/")
+            || path.len() > 512
+            || body.len() > MAX_BODY_BYTES
+        {
             return Err(AdapterError::InvalidRequest);
         }
         if method == HttpMethod::Get && !body.is_empty() {
@@ -54,6 +57,8 @@ impl ThunesRequest {
         &self.body
     }
 
+    /// Whether the connector host must attach Thunes' `x-simulated-transaction: true` header.
+    /// This is intentionally exposed as metadata rather than embedded in the provider JSON body.
     #[must_use]
     pub const fn simulated(&self) -> bool {
         self.simulated
@@ -115,6 +120,33 @@ impl ThunesRequests {
         )
     }
 
+    /// Retrieves one payer including its current transaction-type requirements. These requirements
+    /// are intentionally data-driven because Thunes may add payer-specific required fields without
+    /// changing the Money Transfer major API version.
+    pub fn get_payer(payer_id: u64) -> Result<ThunesRequest, AdapterError> {
+        if payer_id == 0 {
+            return Err(AdapterError::InvalidRequest);
+        }
+        ThunesRequest::new(
+            HttpMethod::Get,
+            format!("/v2/money-transfer/payers/{payer_id}"),
+            Vec::new(),
+            false,
+        )
+    }
+
+    pub fn list_countries(page: u16, per_page: u8) -> Result<ThunesRequest, AdapterError> {
+        if page == 0 || !(1..=100).contains(&per_page) {
+            return Err(AdapterError::InvalidRequest);
+        }
+        ThunesRequest::new(
+            HttpMethod::Get,
+            format!("/v2/money-transfer/countries?page={page}&per_page={per_page}"),
+            Vec::new(),
+            false,
+        )
+    }
+
     pub fn credit_party_information(
         payer_id: u64,
         transaction_type: &str,
@@ -125,19 +157,46 @@ impl ThunesRequests {
             transaction_type,
             "credit-party-information",
             credit_party_identifier,
+            None,
+            None,
         )
     }
 
+    /// Basic CPV form for payers that require only account identifiers.
     pub fn credit_party_verification(
         payer_id: u64,
         transaction_type: &str,
         credit_party_identifier: Value,
     ) -> Result<ThunesRequest, AdapterError> {
+        Self::credit_party_verification_with_entity(
+            payer_id,
+            transaction_type,
+            credit_party_identifier,
+            None,
+            None,
+        )
+    }
+
+    /// CPV form that can carry the payer-required receiving entity. Thunes documents beneficiary
+    /// or receiving-business fields as conditionally required based on payer discovery, so the
+    /// connector must not hard-code one global schema.
+    pub fn credit_party_verification_with_entity(
+        payer_id: u64,
+        transaction_type: &str,
+        credit_party_identifier: Value,
+        beneficiary: Option<Value>,
+        receiving_business: Option<Value>,
+    ) -> Result<ThunesRequest, AdapterError> {
+        if beneficiary.is_some() && receiving_business.is_some() {
+            return Err(AdapterError::InvalidRequest);
+        }
         Self::credit_party_request(
             payer_id,
             transaction_type,
             "credit-party-verification",
             credit_party_identifier,
+            beneficiary,
+            receiving_business,
         )
     }
 
@@ -146,15 +205,32 @@ impl ThunesRequests {
         transaction_type: &str,
         operation: &str,
         credit_party_identifier: Value,
+        beneficiary: Option<Value>,
+        receiving_business: Option<Value>,
     ) -> Result<ThunesRequest, AdapterError> {
         validate_token(transaction_type, 16)?;
         if payer_id == 0 || !matches!(credit_party_identifier, Value::Object(_)) {
             return Err(AdapterError::InvalidRequest);
         }
-        let body = serde_json::to_vec(&json!({
-            "credit_party_identifier": credit_party_identifier,
-        }))
-        .map_err(|_| AdapterError::InvalidRequest)?;
+        if beneficiary
+            .as_ref()
+            .is_some_and(|value| !matches!(value, Value::Object(_)))
+            || receiving_business
+                .as_ref()
+                .is_some_and(|value| !matches!(value, Value::Object(_)))
+        {
+            return Err(AdapterError::InvalidRequest);
+        }
+        let mut fields = Map::new();
+        fields.insert("credit_party_identifier".to_owned(), credit_party_identifier);
+        if let Some(value) = beneficiary {
+            fields.insert("beneficiary".to_owned(), value);
+        }
+        if let Some(value) = receiving_business {
+            fields.insert("receiving_business".to_owned(), value);
+        }
+        let body = serde_json::to_vec(&Value::Object(fields))
+            .map_err(|_| AdapterError::InvalidRequest)?;
         ThunesRequest::new(
             HttpMethod::Post,
             format!(
@@ -175,16 +251,30 @@ impl ThunesRequests {
             return Err(AdapterError::InvalidRequest);
         }
         match input.mode {
-            QuotationMode::SourceAmount if input.source_amount.is_none() || input.destination_amount.is_some() => {
+            QuotationMode::SourceAmount
+                if input.source_amount.is_none() || input.destination_amount.is_some() =>
+            {
                 return Err(AdapterError::InvalidRequest);
             }
-            QuotationMode::DestinationAmount if input.destination_amount.is_none() || input.source_amount.is_some() => {
+            QuotationMode::DestinationAmount
+                if input.destination_amount.is_none() || input.source_amount.is_some() =>
+            {
                 return Err(AdapterError::InvalidRequest);
             }
             _ => {}
         }
-        let source_amount = input.source_amount.map_or(Value::Null, |value| Value::String(value.to_owned()));
-        let destination_amount = input.destination_amount.map_or(Value::Null, |value| Value::String(value.to_owned()));
+        if let Some(value) = input.source_amount {
+            validate_decimal_text(value)?;
+        }
+        if let Some(value) = input.destination_amount {
+            validate_decimal_text(value)?;
+        }
+        let source_amount = input
+            .source_amount
+            .map_or(Value::Null, |value| Value::String(value.to_owned()));
+        let destination_amount = input
+            .destination_amount
+            .map_or(Value::Null, |value| Value::String(value.to_owned()));
         let body = serde_json::to_vec(&json!({
             "external_id": input.external_id,
             "payer_id": input.payer_id.to_string(),
@@ -268,7 +358,9 @@ impl ThunesRequests {
 fn validate_external_id(value: &str) -> Result<(), AdapterError> {
     if value.is_empty()
         || value.len() > 64
-        || !value.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
     {
         return Err(AdapterError::InvalidExternalId);
     }
@@ -278,7 +370,9 @@ fn validate_external_id(value: &str) -> Result<(), AdapterError> {
 fn validate_token(value: &str, max_len: usize) -> Result<(), AdapterError> {
     if value.is_empty()
         || value.len() > max_len
-        || !value.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
     {
         return Err(AdapterError::InvalidRequest);
     }
@@ -296,6 +390,25 @@ fn validate_currency(value: &str) -> Result<(), AdapterError> {
     validate_iso3(value)
 }
 
+fn validate_decimal_text(value: &str) -> Result<(), AdapterError> {
+    if value.is_empty() || value.starts_with(['-', '+']) || value.contains(['e', 'E']) {
+        return Err(AdapterError::InvalidRequest);
+    }
+    let mut parts = value.split('.');
+    let whole = parts.next().ok_or(AdapterError::InvalidRequest)?;
+    let fraction = parts.next();
+    if parts.next().is_some()
+        || whole.is_empty()
+        || !whole.bytes().all(|byte| byte.is_ascii_digit())
+        || fraction.is_some_and(|digits| {
+            digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit())
+        })
+    {
+        return Err(AdapterError::InvalidRequest);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -311,14 +424,52 @@ mod tests {
             source_country_iso_code: "SWE",
             source_currency: "EUR",
             source_amount: Some("100.00"),
-            destination_currency: "KES",
+            destination_currency: "TZS",
             destination_amount: None,
         })
         .unwrap();
         let body: Value = serde_json::from_slice(request.body()).unwrap();
         assert_eq!(body["external_id"], json!("acq_abc123"));
         assert_eq!(body["source"]["amount"], json!("100.00"));
+        assert_eq!(body["destination"]["currency"], json!("TZS"));
         assert_eq!(body["destination"]["amount"], Value::Null);
+    }
+
+    #[test]
+    fn payer_discovery_is_exact_and_cp_verification_can_follow_dynamic_requirements() {
+        assert_eq!(
+            ThunesRequests::get_payer(42).unwrap().path(),
+            "/v2/money-transfer/payers/42"
+        );
+        let request = ThunesRequests::credit_party_verification_with_entity(
+            42,
+            "C2C",
+            json!({"msisdn": "255712345678"}),
+            Some(json!({"firstname": "A", "lastname": "B", "msisdn": "255712345678"})),
+            None,
+        )
+        .unwrap();
+        let body: Value = serde_json::from_slice(request.body()).unwrap();
+        assert_eq!(body["credit_party_identifier"]["msisdn"], json!("255712345678"));
+        assert_eq!(body["beneficiary"]["firstname"], json!("A"));
+    }
+
+    #[test]
+    fn quote_rejects_non_decimal_or_exponent_amounts() {
+        let invalid = |amount| QuotationRequest {
+            external_id: "acq_abc123",
+            payer_id: 7,
+            mode: QuotationMode::SourceAmount,
+            transaction_type: "C2C",
+            source_country_iso_code: "SWE",
+            source_currency: "EUR",
+            source_amount: Some(amount),
+            destination_currency: "TZS",
+            destination_amount: None,
+        };
+        assert!(ThunesRequests::create_quotation(invalid("1e3")).is_err());
+        assert!(ThunesRequests::create_quotation(invalid("-1")).is_err());
+        assert!(ThunesRequests::create_quotation(invalid("abc")).is_err());
     }
 
     #[test]
@@ -333,7 +484,8 @@ mod tests {
 
     #[test]
     fn simulated_header_is_explicit_only_on_transaction_creation() {
-        let request = ThunesRequests::create_transaction("acq_abc", "act_def", Map::new(), true).unwrap();
+        let request =
+            ThunesRequests::create_transaction("acq_abc", "act_def", Map::new(), true).unwrap();
         assert!(request.simulated());
         assert_eq!(request.method(), HttpMethod::Post);
     }
