@@ -10,6 +10,9 @@ inputs:
   ios-targets:
     description: Install Apple Rust targets
     default: 'false'
+  docker-anonymous:
+    description: Configure isolated anonymous Docker authentication
+    default: 'false'
   docker:
     description: Configure anonymous Docker and the pinned RISC0 guest builder
     default: 'false'
@@ -56,7 +59,7 @@ runs:
         cargo kani setup
         [[ "$(cargo kani --version)" == "cargo-kani ${kani_version}" ]]
     - name: Isolate public Docker authentication
-      if: inputs.docker == 'true'
+      if: inputs.docker-anonymous == 'true' || inputs.docker == 'true'
       shell: bash
       run: |
         ci_docker_config="${RUNNER_TEMP}/activechain-docker-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
@@ -86,7 +89,7 @@ runs:
         echo "DOCKER_CONFIG=${ci_docker_config}" >> "$GITHUB_ENV"
         echo "${ci_docker_bin}" >> "$GITHUB_PATH"
     - name: Verify anonymous Docker configuration
-      if: inputs.docker == 'true'
+      if: inputs.docker-anonymous == 'true' || inputs.docker == 'true'
       shell: bash
       run: |
         python3 - <<'PY'

@@ -40,6 +40,7 @@ members = [
     "crates/payment-connector-host",
     "crates/proposal-gateway",
     "connectors/ntzs",
+    "connectors/thunes",
     "crates/policy-kernel",
     "crates/principal",
     "crates/privacy-kernel",

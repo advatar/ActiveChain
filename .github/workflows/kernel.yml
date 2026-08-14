@@ -165,7 +165,7 @@ jobs:
         with: {clean: true, fetch-depth: 1, persist-credentials: false}
       - name: Install formal prerequisites
         uses: ./.github/actions/kernel-setup
-        with: {lean: 'true'}
+        with: {lean: 'true', docker-anonymous: 'true'}
       - name: Build executable Lean reference model
         working-directory: formal/lean
         run: lake build

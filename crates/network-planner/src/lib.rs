@@ -787,20 +787,27 @@ mod tests {
         assert_ne!(plan.chain_id, super::plan(&other).unwrap().chain_id);
     }
 
-    /// A genesis supply exceeds `u64::MAX`, so a plan cannot be routed through
-    /// `serde_json::Value` — `Value::Number` cannot hold it and construction
-    /// panics. Direct serialization streams and must keep working, because two
-    /// JSON surfaces were built on the wrong one and only failed when run.
+    /// A genesis supply exceeds `u64::MAX`, so direct and `serde_json::Value`
+    /// serialization must both preserve the exact quantity without truncation
+    /// or rounding.
     #[test]
     fn a_plan_serializes_despite_a_supply_larger_than_a_u64() {
         let plan = plan(&manifest("kanalen", 49_151)).unwrap();
         assert!(plan.genesis_supply > u128::from(u64::MAX), "the fixture must exercise this");
+        const GENESIS_SUPPLY: &str = "1000000000000000000000000000";
+
         let encoded = serde_json::to_string(&plan).expect("a plan must serialize directly");
-        assert!(encoded.contains("1000000000000000000000000000"));
-        assert!(
-            serde_json::to_value(&plan).is_err(),
-            "if Value ever gains u128 support this test should be revisited rather than deleted"
+        assert!(encoded.contains(&format!("\"genesis_supply\":{GENESIS_SUPPLY}")));
+        let decoded: NetworkPlan = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded.genesis_supply, plan.genesis_supply);
+
+        let value = serde_json::to_value(&plan).expect("a plan must serialize through Value");
+        assert_eq!(
+            value["genesis_supply"].as_number().and_then(serde_json::Number::as_u128),
+            Some(plan.genesis_supply),
+            "Value must preserve the exact genesis supply"
         );
+        assert_eq!(value["genesis_supply"].to_string(), GENESIS_SUPPLY);
     }
 
     #[test]

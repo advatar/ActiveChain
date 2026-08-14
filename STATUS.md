@@ -2,6 +2,15 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## ActiveBridge Thunes connector qualification
+
+Tracked by [GitHub issue #803](https://github.com/advatar/ActiveChain/issues/803).
+
+- [x] Implement and locally qualify the Thunes connector and connector-host policy integration.
+- [x] Isolate the formal-model TLA+ Docker invocation from the macOS runner keychain without
+  initializing the unrelated RISC0 builder.
+- [ ] Pass one new exact-SHA full deterministic-kernel gate before moving PR #804 out of draft.
+
 ## Active gate recovery — Republished TLA+ 1.8.0 asset
 
 Tracked by [GitHub issue #797](https://github.com/advatar/ActiveChain/issues/797).

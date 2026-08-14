@@ -10,6 +10,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_WORKFLOW = ROOT / ".github" / "workflows" / "kernel.yml"
+DEFAULT_SETUP_ACTION = ROOT / ".github" / "actions" / "kernel-setup" / "action.yml"
 
 MANDATORY_JOBS = (
     "policy",
@@ -85,6 +86,8 @@ def validate(text: str) -> None:
         errors.append("draft and ready-for-review bookkeeping must remain policy-only")
     if text.count("git status --porcelain --untracked-files=normal") != 2:
         errors.append("Apple qualification must prove cleanliness before and after header generation")
+    if text.count("with: {lean: 'true', docker-anonymous: 'true'}") != 1:
+        errors.append("formal-model job must request Lean and anonymous Docker isolation")
     for command in MANDATORY_COMMANDS:
         count = text.count(command)
         if count != 1:
@@ -93,9 +96,36 @@ def validate(text: str) -> None:
         raise ValueError("\n".join(errors))
 
 
+def validate_setup(text: str) -> None:
+    errors: list[str] = []
+    anonymous_condition = "if: inputs.docker-anonymous == 'true' || inputs.docker == 'true'"
+    if not re.search(
+        r"^  docker-anonymous:\n"
+        r"    description: Configure isolated anonymous Docker authentication\n"
+        r"    default: 'false'$",
+        text,
+        re.MULTILINE,
+    ):
+        errors.append("kernel setup must expose disabled-by-default anonymous Docker isolation")
+    if text.count(anonymous_condition) != 2:
+        errors.append("Docker isolation and its verification must accept either Docker input")
+    preflight = text.partition("    - name: Preflight pinned RISC0 guest builder")[2]
+    if not preflight or not re.search(
+        r"^      if: inputs\.docker == 'true'$", preflight, re.MULTILINE
+    ):
+        errors.append("RISC0 setup must remain gated by the dedicated Docker input")
+    if "docker-anonymous" in preflight:
+        errors.append("anonymous Docker isolation must not initialize the RISC0 builder")
+    if '"credsStore":"activechain-anonymous"' not in text:
+        errors.append("anonymous Docker isolation must not consult host credential helpers")
+    if errors:
+        raise ValueError("\n".join(errors))
+
+
 def main() -> int:
     workflow = Path(sys.argv[1]) if len(sys.argv) == 2 else DEFAULT_WORKFLOW
     validate(workflow.read_text(encoding="utf-8"))
+    validate_setup(DEFAULT_SETUP_ACTION.read_text(encoding="utf-8"))
     print(f"kernel workflow policy verified: {len(MANDATORY_JOBS)} resumable stages")
     return 0
 

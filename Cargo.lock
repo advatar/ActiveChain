@@ -429,6 +429,7 @@ version = "0.1.0"
 dependencies = [
  "activechain-canonical-codec",
  "activechain-crypto-provider",
+ "activechain-payment-connector-thunes",
  "activechain-payment-types",
  "activechain-protocol-types",
  "activechain-verifier-api",
@@ -445,6 +446,16 @@ dependencies = [
  "hmac 0.12.1",
  "serde_json",
  "sha2 0.10.9",
+ "sha3 0.10.9",
+]
+
+[[package]]
+name = "activechain-payment-connector-thunes"
+version = "0.1.0"
+dependencies = [
+ "activechain-payment-types",
+ "activechain-protocol-types",
+ "serde_json",
  "sha3 0.10.9",
 ]
 
