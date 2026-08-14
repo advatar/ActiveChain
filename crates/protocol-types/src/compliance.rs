@@ -208,6 +208,11 @@ impl KenyaRegulatedProfileV1 {
     pub const fn profile_id(&self) -> Digest384 {
         self.profile_id
     }
+    /// The revision this profile carries. Activation is monotone in it, so a
+    /// registry can tell a replayed governance decision from a downgrade.
+    pub const fn revision(&self) -> u16 {
+        self.revision
+    }
 }
 impl CanonicalEncode for KenyaRegulatedProfileV1 {
     fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
