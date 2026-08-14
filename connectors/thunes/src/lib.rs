@@ -20,18 +20,15 @@ mod request;
 mod response;
 
 pub use amount::{AmountError, parse_atomic_units, parse_decimal};
-pub use request::{
-    HttpMethod, QuotationMode, QuotationRequest, ThunesRequest, ThunesRequests,
-};
+pub use request::{HttpMethod, QuotationMode, QuotationRequest, ThunesRequest, ThunesRequests};
 pub use response::{
     ThunesCallbackHint, ThunesObservationContext, ThunesQuotation, ThunesTransaction,
     authenticated_transaction_observation, map_status_class, parse_callback_hint, parse_quotation,
     parse_transaction, provider_reference_commitment,
 };
 
-/// Thunes documents environment-specific hosts during account onboarding. The adapter therefore
-/// accepts no arbitrary base URL; the connector host supplies an origin that its policy already
-/// allow-listed for the configured Thunes account.
+/// Money Transfer v2 API prefix. Environment-specific HTTPS origins are provided during account
+/// onboarding and remain under connector-host allow-list policy rather than being hard-coded here.
 pub const MONEY_TRANSFER_V2_PREFIX: &str = "/v2/money-transfer";
 pub const MAX_BODY_BYTES: usize = 256 * 1024;
 pub const MAX_EXTERNAL_ID_BYTES: usize = 64;
@@ -162,7 +159,10 @@ fn valid_https_origin(origin: &str) -> bool {
         return false;
     };
     !rest.is_empty()
-        && !rest.contains(['/', '?', '#', '@'])
+        && !rest.contains('/')
+        && !rest.contains('?')
+        && !rest.contains('#')
+        && !rest.contains('@')
         && !rest.chars().any(char::is_whitespace)
         && rest.len() <= 253
 }
