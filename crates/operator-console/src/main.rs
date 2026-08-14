@@ -30,6 +30,8 @@
 //! activechain-operator-console [--port 8787] [--home <dir>]
 //! ```
 
+mod control_register;
+
 use activechain_network_planner::{
     NetworkManifest, apply, fleet, plan_fleet, preflight, provision,
 };
@@ -151,6 +153,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("console token {}", console.token);
     let router = Router::new()
         .route("/", get(page))
+        .route("/compliance", get(compliance_page))
         .route("/api/fleet", get(fleet_json))
         .route("/api/plan", post(plan_preview))
         .route("/api/apply", post(apply_plan))
@@ -520,6 +523,69 @@ fn composer(token: &str, nonce: &str) -> String {
 
 /// Everything is inline: the console must work on a host with no network route
 /// to anywhere, which is rather the point of running it there.
+/// The Kenya control register.
+///
+/// Read-only and computed. Nothing on this page activates anything, and there
+/// is no jurisdiction dropdown: choosing a regulation the system does not
+/// enforce would assert a posture it does not hold. What it shows is the
+/// evidence Kenya activation requires and what has been recorded against it.
+///
+/// Every row reads as outstanding today because no evidence store exists yet —
+/// that is B1's remaining work, and the page says so rather than presenting an
+/// empty register as a clean bill.
+async fn compliance_page(request: Request) -> Html<String> {
+    let nonce =
+        request.extensions().get::<Nonce>().map_or_else(|| Nonce::new().0, |value| value.0.clone());
+    let mut body = String::from(
+        "<h1>Kenya control register</h1>\
+         <p class=\"note\">Kenya Legal Notice No. 134 of 2026. This is evidence collection, \
+         not a jurisdiction selector — nothing here activates anything.</p>",
+    );
+    body.push_str(&format!(
+        "<p class=\"note\"><strong>{}</strong></p>",
+        escape(control_register::CONTROL_SET_DISCLAIMER)
+    ));
+    body.push_str(
+        "<p class=\"note\">No evidence store exists yet, so every commitment reads as \
+         outstanding. An empty register is not a clean bill.</p>",
+    );
+
+    for activity in [
+        control_register::Activity::VirtualAssetService,
+        control_register::Activity::StablecoinIssuance,
+    ] {
+        let register = control_register::register(activity, &[]);
+        let required = register.rows.iter().filter(|row| row.required).count();
+        body.push_str(&format!(
+            "<h2>{} — {} of {} families recorded</h2>",
+            escape(register.activity),
+            required - register.outstanding.len(),
+            required
+        ));
+        body.push_str(
+            "<table><tr><th>control family</th><th>commitment</th><th>accountable</th>\
+             <th>state</th></tr>",
+        );
+        for row in register.rows.iter().filter(|row| row.required) {
+            body.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+                escape(row.name),
+                escape(row.commitment),
+                escape(row.accountable),
+                if row.recorded { "recorded" } else { "outstanding" }
+            ));
+        }
+        body.push_str("</table>");
+        body.push_str(&format!(
+            "<p class=\"note\">Activation readiness: <strong>{}</strong>. Computed from the \
+             commitments recorded, never asserted.</p>",
+            if register.ready { "ready" } else { "not ready" }
+        ));
+    }
+    body.push_str("<p class=\"note\"><a href=\"/\">Networks</a></p>");
+    Html(shell(&body, &nonce))
+}
+
 fn shell(body: &str, nonce: &str) -> String {
     format!(
         "<!doctype html><html><head><meta charset=\"utf-8\">\
@@ -716,11 +782,16 @@ mod tests {
             code.contains("<script nonce=\\\"{nonce}\\\">"),
             "the page must carry the same nonce"
         );
-        // Both read the value the request carries rather than minting their own.
+        // Every rendering path reads the value the request carries rather than
+        // minting its own. Counted against the handlers that actually render,
+        // so adding a page cannot quietly introduce a second nonce, and adding
+        // one does not fail this for the wrong reason.
+        let renderers = code.matches("-> Html<String>").count();
+        assert!(renderers >= 1, "there must be something that renders");
         assert_eq!(
             code.matches(".get::<Nonce>()").count(),
-            2,
-            "the policy and the page must read one nonce, not mint two"
+            renderers + 1,
+            "each rendering handler and the policy must read one nonce, not mint their own"
         );
     }
 
