@@ -2052,4 +2052,131 @@ mod tests {
             .is_err()
         );
     }
+
+    fn applicable(id: Digest384) -> JurisdictionProfileCandidate {
+        JurisdictionProfileCandidate { id, applies: true, ambiguous: false, active: true }
+    }
+
+    fn edge(profile: Digest384, parent: Option<Digest384>) -> JurisdictionProfileInheritance {
+        JurisdictionProfileInheritance { profile, parent, stricter: true }
+    }
+
+    /// A chain of profiles must be walked to its root. Stopping at the first
+    /// parent would apply a grandparent's obligations only when someone
+    /// happened to name it directly.
+    #[test]
+    fn inheritance_is_followed_to_the_root_not_one_step() {
+        assert_eq!(
+            select_profiles_with_inheritance(
+                &[applicable(d(3))],
+                &[edge(d(3), Some(d(2))), edge(d(2), Some(d(1))), edge(d(1), None)],
+            ),
+            ProfileSelection::Selected(vec![d(1), d(2), d(3)]),
+            "every ancestor's obligations apply, not just the immediate parent"
+        );
+    }
+
+    /// A cycle has no root, so there is no set of obligations to apply. It must
+    /// refuse rather than loop or silently settle on a partial answer.
+    #[test]
+    fn an_inheritance_cycle_is_refused() {
+        assert_eq!(
+            select_profiles_with_inheritance(
+                &[applicable(d(1))],
+                &[edge(d(1), Some(d(2))), edge(d(2), Some(d(1)))],
+            ),
+            ProfileSelection::Rejected
+        );
+    }
+
+    /// A profile inheriting from itself is a cycle of length one, and would
+    /// otherwise read as a profile that trivially satisfies its own parent.
+    #[test]
+    fn a_profile_cannot_be_its_own_parent() {
+        assert_eq!(
+            select_profiles_with_inheritance(&[applicable(d(1))], &[edge(d(1), Some(d(1)))]),
+            ProfileSelection::Rejected
+        );
+    }
+
+    /// A zero id names no profile. Accepting one would let an unset field read
+    /// as a real obligation.
+    #[test]
+    fn a_zero_identity_is_refused_wherever_it_appears() {
+        assert_eq!(
+            select_profiles_with_inheritance(&[applicable(Digest384::ZERO)], &[]),
+            ProfileSelection::Rejected,
+            "a candidate must name a profile"
+        );
+        assert_eq!(
+            select_profiles_with_inheritance(&[applicable(d(1))], &[edge(Digest384::ZERO, None)]),
+            ProfileSelection::Rejected,
+            "an inheritance edge must name a profile"
+        );
+        assert_eq!(
+            select_profiles_with_inheritance(
+                &[applicable(d(1))],
+                &[edge(d(1), Some(Digest384::ZERO))],
+            ),
+            ProfileSelection::Rejected,
+            "a parent must name a profile"
+        );
+    }
+
+    /// Only profiles that apply carry obligations. A profile that does not
+    /// apply is not evidence of anything, so its state must not decide the
+    /// outcome — an expired but irrelevant profile is the common case, and
+    /// rejecting on it would fail transfers no regulation touches.
+    #[test]
+    fn a_profile_that_does_not_apply_neither_selects_nor_rejects() {
+        let irrelevant_and_expired =
+            JurisdictionProfileCandidate { applies: false, active: false, ..applicable(d(9)) };
+        assert_eq!(
+            select_jurisdiction_profiles(&[applicable(d(1)), irrelevant_and_expired]),
+            ProfileSelection::Selected(vec![d(1)]),
+            "an expired profile that does not apply must not reject the transfer"
+        );
+        let irrelevant_and_ambiguous =
+            JurisdictionProfileCandidate { applies: false, ambiguous: true, ..applicable(d(9)) };
+        assert_eq!(
+            select_jurisdiction_profiles(&[applicable(d(1)), irrelevant_and_ambiguous]),
+            ProfileSelection::Selected(vec![d(1)]),
+            "an ambiguous profile that does not apply must not force review"
+        );
+    }
+
+    /// Nothing applicable is not the same as nothing to answer. A transfer no
+    /// profile covers is a question for a person, not an automatic pass.
+    #[test]
+    fn nothing_applicable_goes_to_review_rather_than_through() {
+        let inapplicable = JurisdictionProfileCandidate { applies: false, ..applicable(d(1)) };
+        assert_eq!(select_jurisdiction_profiles(&[inapplicable]), ProfileSelection::ManualReview);
+        assert_eq!(select_jurisdiction_profiles(&[]), ProfileSelection::ManualReview);
+    }
+
+    /// An expired profile that does apply must fail closed, and must do so even
+    /// when a valid one is selected alongside it.
+    #[test]
+    fn an_applicable_expired_profile_rejects_even_beside_a_valid_one() {
+        let expired = JurisdictionProfileCandidate { active: false, ..applicable(d(2)) };
+        assert_eq!(
+            select_jurisdiction_profiles(&[applicable(d(1)), expired]),
+            ProfileSelection::Rejected,
+            "expiry is not survivable by having another profile in force"
+        );
+    }
+
+    /// Selection feeds `require_selected_profile`, which resolves by binary
+    /// search, so an unsorted result would refuse a profile it contains.
+    #[test]
+    fn an_inherited_selection_stays_ordered_for_binary_search() {
+        let ProfileSelection::Selected(ids) = select_profiles_with_inheritance(
+            &[applicable(d(9)), applicable(d(4))],
+            &[edge(d(9), Some(d(1))), edge(d(4), Some(d(7))), edge(d(1), None), edge(d(7), None)],
+        ) else {
+            panic!("expected a selection")
+        };
+        assert_eq!(ids, vec![d(1), d(4), d(7), d(9)]);
+        assert!(ids.windows(2).all(|pair| pair[0] < pair[1]), "ascending and distinct");
+    }
 }
