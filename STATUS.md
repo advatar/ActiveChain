@@ -10,7 +10,18 @@ Tracked by [GitHub issue #797](https://github.com/advatar/ActiveChain/issues/797
   release-asset digest while preserving the four-location drift regression.
 - [x] Pass both TLA suites and the exact complete deterministic-kernel gate on `0ae3ae67`
   ([run 31515122255](https://github.com/advatar/ActiveChain/actions/runs/31515122255)).
-- [ ] Merge to `main` and verify reachability from `origin/main`.
+- [x] Merge to `main` as `5187710e` and verify reachability from `origin/main`.
+
+## Active wallet release — Android parity
+
+Tracked by [GitHub issue #795](https://github.com/advatar/ActiveChain/issues/795).
+
+- [x] Pin Android to the live Kanalen identity and expose only finalized, Rust-verified owner state.
+- [x] Add device-bound profile, owner Coin Cell discovery, faucet, receive, OpenWallet, agent
+  enrollment/lifecycle, and Android-native approval entry-point parity with iOS.
+- [x] Add fail-closed codec, persistence, proof-boundary, routing, and lifecycle tests.
+- [ ] Pass Android unit/build and available instrumentation checks plus the exact final
+  deterministic-kernel gate; merge to `main` and verify reachability from `origin/main`.
 
 ## Reusable finalized-payment verifier service
 

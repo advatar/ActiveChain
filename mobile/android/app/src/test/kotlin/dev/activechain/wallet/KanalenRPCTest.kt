@@ -11,7 +11,7 @@ class KanalenRPCTest {
     @Test
     fun statusRequestUsesCanonicalFraming() {
         assertContentEquals(
-            byteArrayOf(0, 0, 0, 6, 0, 0xa0.toByte(), 0, 1, 1, 0),
+            byteArrayOf(0, 0, 0, 6, 1, 7, 0, 1, 1, 0),
             KanalenRPCCodec.framedStatusRequest,
         )
     }
@@ -22,6 +22,7 @@ class KanalenRPCTest {
         assertContentEquals(KanalenNetwork.chainID, status.chainID)
         assertContentEquals(KanalenNetwork.genesis, status.genesis)
         assertEquals(KanalenNetworkState.Healthy(5_794), status.networkState())
+        assertEquals(true, status.supports(1))
     }
 
     @Test
@@ -77,7 +78,7 @@ class KanalenRPCTest {
         val body = bodyBytes.toByteArray()
         return ByteArrayOutputStream().also { envelopeBytes ->
             DataOutputStream(envelopeBytes).use { envelope ->
-                envelope.writeShort(0x00a1)
+                envelope.writeShort(0x010a)
                 envelope.writeShort(1)
                 envelope.write(uleb128(body.size))
                 envelope.write(body)

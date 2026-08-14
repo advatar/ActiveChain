@@ -4,6 +4,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.content.Intent
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -43,12 +44,18 @@ class MainActivity : AppCompatActivity() {
     private lateinit var agents: RustAgentRegistry
     private var selected = WalletTab.WALLET
     private var networkState: KanalenNetworkState = KanalenNetworkState.Checking
+    private var profile: WalletDeviceProfile? = null
+    private var verifiedOwnerPage: WalletOwnerCoinPage? = null
+    private var fundingState: WalletFundingState = WalletFundingState.Unavailable(
+        "Load a finalized wallet profile and secure cash key first.",
+    )
     private var refreshGeneration = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         agents = RustAgentRegistry(File(filesDir, "agents-v1.bin"))
+        profile = WalletDeviceProfileStore(this).load()
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -73,6 +80,23 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
         show(WalletTab.WALLET)
         refreshNetworkStatus()
+        consumeRoute(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        consumeRoute(intent)
+    }
+
+    private fun consumeRoute(intent: Intent?) {
+        when (WalletIntentRouter.route(intent)) {
+            WalletRoute.APPROVALS -> show(WalletTab.APPROVALS)
+            WalletRoute.AGENTS -> { show(WalletTab.APPROVALS); showAgentManager() }
+            WalletRoute.RECEIVE -> showReceiveRequest()
+            WalletRoute.WALLET, null -> Unit
+        }
+        intent?.data = null
     }
 
     private fun show(tab: WalletTab) {
@@ -116,6 +140,7 @@ class MainActivity : AppCompatActivity() {
     private fun walletScreen(): View = scrollColumn {
         addView(header())
         addView(balanceCard(), marginTop = 18)
+        addView(fundingCard(), marginTop = 14)
         addView(networkCard(), marginTop = 14)
         addView(sectionTitle("Assets"), marginTop = 22)
         addView(
@@ -125,7 +150,12 @@ class MainActivity : AppCompatActivity() {
             ),
             marginTop = 10,
         )
-        addView(label("◆  No signing key is loaded on this device", 12, Palette.muted).apply {
+        addView(label(
+            if (profile == null) "◆  No wallet profile is loaded on this device"
+            else "◆  Device profile loaded; authority remains hardware-custodied",
+            12,
+            Palette.muted,
+        ).apply {
             gravity = Gravity.CENTER
             setPadding(0, dp(24), 0, dp(22))
         })
@@ -172,22 +202,51 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, dp(20), 0, 0)
         })
         addView(label(
-            "Android owner-state verification is not connected; no local or optimistic balance is shown.",
+            when {
+                verifiedOwnerPage != null -> "${verifiedOwnerPage!!.records.size} owner-scoped Coin Cell proof(s) verified at finalized state."
+                networkState is KanalenNetworkState.Healthy -> "No verified owner-scoped Coin Cell proof is loaded for this wallet."
+                else -> "Waiting for a healthy finalized checkpoint; no local or optimistic balance is shown."
+            },
             13,
             Color.rgb(184, 195, 205),
         ).apply { setPadding(0, dp(5), 0, dp(19)) })
         addView(LinearLayout(context).apply {
             gravity = Gravity.CENTER
             addView(actionButton("↗", "Send"), weighted())
-            addView(actionButton("↙", "Receive"), weighted(8))
+            addView(actionButton("↙", "Receive", profile != null) { showReceiveRequest() }, weighted(8))
             addView(actionButton("+", "Fund"), weighted(8))
         })
         addView(label(
-            "Transfers and funding remain disabled until finalized state, secure signing, and validator ingress are wired.",
+            "Transfers remain disabled until verified spendable inputs and a distinct fee reserve are available.",
             11,
             Palette.warning,
             bold = true,
         ).apply { setPadding(0, dp(14), 0, 0) })
+    }
+
+    private fun fundingCard(): View {
+        val state = fundingState
+        val (title, detail) = when (state) {
+            is WalletFundingState.Unavailable -> "Funding unavailable" to state.reason
+            WalletFundingState.Ready -> "Request testnet ACT" to "Credits appear only after proof-backed finality."
+            WalletFundingState.Requesting -> "Submitting signed request" to "The chain-bound request is being submitted."
+            is WalletFundingState.Pending -> "Funding pending" to "Reference ${state.reference}; balance is unchanged."
+            is WalletFundingState.Finalized -> "Funding finalized" to "Reference ${state.reference} finalized at block ${state.height}."
+            is WalletFundingState.Rejected -> "Funding rejected" to state.reason
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+            background = rounded(Palette.panel, 20, Color.argb(18, 255, 255, 255))
+            addView(label(title, 16, Palette.white, bold = true))
+            addView(label(detail, 12, Palette.muted).apply { setPadding(0, dp(6), 0, dp(12)) })
+            addView(Button(context).apply {
+                text = "Request testnet funding"
+                isEnabled = state == WalletFundingState.Ready
+                setOnClickListener { requestFunding() }
+            })
+            addView(label("Pending and rejected requests never change the displayed balance", 11, Palette.mint))
+        }
     }
 
     private fun networkCard(): View {
@@ -234,7 +293,21 @@ class MainActivity : AppCompatActivity() {
         if (selected == WalletTab.WALLET) show(WalletTab.WALLET)
         Thread {
             val next = try {
-                KanalenRPCClient().status().networkState()
+                val client = KanalenRPCClient()
+                val status = client.status()
+                val state = status.networkState()
+                verifiedOwnerPage = if (state is KanalenNetworkState.Healthy && profile != null &&
+                    status.supports(1) && profile!!.chainGenesis.contentEquals(status.genesis)
+                ) try {
+                    client.verifiedOwnerCoinCells(profile!!, state.finalizedHeight)
+                } catch (_: Exception) { null } else null
+                fundingState = if (state is KanalenNetworkState.Healthy && profile != null) {
+                    when (fundingState) {
+                        is WalletFundingState.Pending, is WalletFundingState.Finalized -> fundingState
+                        else -> WalletFundingState.Ready
+                    }
+                } else WalletFundingState.Unavailable("A healthy finalized Kanalen checkpoint and device profile are required.")
+                state
             } catch (_: Exception) {
                 KanalenNetworkState.Unavailable
             }
@@ -245,6 +318,43 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }.start()
+    }
+
+    private fun requestFunding() {
+        val owner = profile?.owner ?: return
+        fundingState = WalletFundingState.Requesting
+        show(WalletTab.WALLET)
+        Thread {
+            val next = try {
+                val client = KanalenRPCClient()
+                val terms = client.faucetTerms()
+                require(terms.chainID.contentEquals(KanalenNetwork.chainID) &&
+                    terms.genesis.contentEquals(KanalenNetwork.genesis) && terms.challengeKind == 0)
+                val receipt = client.requestFaucet(owner)
+                when (receipt.state) {
+                    0 -> WalletFundingState.Pending(receipt.reference.toHex())
+                    1 -> WalletFundingState.Finalized(receipt.reference.toHex(), requireNotNull(receipt.finalizedHeight))
+                    2 -> WalletFundingState.Rejected("The faucet rejected this request.")
+                    else -> error("unknown faucet state")
+                }
+            } catch (_: Exception) {
+                WalletFundingState.Rejected("Funding request failed without changing balance.")
+            }
+            runOnUiThread {
+                fundingState = next
+                if (selected == WalletTab.WALLET) show(WalletTab.WALLET)
+                if (next is WalletFundingState.Finalized) refreshNetworkStatus()
+            }
+        }.start()
+    }
+
+    private fun showReceiveRequest() {
+        val loaded = profile ?: return
+        val request = ReceiveRequest("kanalen", loaded.chainGenesis.toHex(), loaded.owner.toHex())
+        startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, request.payload)
+        }, "Share ActiveChain receive request"))
     }
 
     private fun activityScreen(): View = scrollColumn {
@@ -423,16 +533,22 @@ class MainActivity : AppCompatActivity() {
         background = rounded(Color.argb(32, Color.red(color), Color.green(color), Color.blue(color)), 22)
     }
 
-    private fun actionButton(icon: String, title: String) = TextView(this).apply {
+    private fun actionButton(
+        icon: String,
+        title: String,
+        enabled: Boolean = false,
+        action: () -> Unit = {},
+    ) = TextView(this).apply {
         text = "$icon\n$title"
         textSize = 13f
         gravity = Gravity.CENTER
         setTextColor(Palette.muted)
         typeface = Typeface.DEFAULT_BOLD
         background = rounded(Color.argb(15, 255, 255, 255), 17)
-        isEnabled = false
-        alpha = .65f
-        contentDescription = "$title unavailable"
+        isEnabled = enabled
+        alpha = if (enabled) 1f else .65f
+        contentDescription = if (enabled) title else "$title unavailable"
+        if (enabled) setOnClickListener { action() }
     }
 
     private fun screenTitle(title: String, subtitle: String) = LinearLayout(this).apply {
@@ -478,4 +594,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+}
+
+private sealed interface WalletFundingState {
+    data class Unavailable(val reason: String) : WalletFundingState
+    data object Ready : WalletFundingState
+    data object Requesting : WalletFundingState
+    data class Pending(val reference: String) : WalletFundingState
+    data class Finalized(val reference: String, val height: Long) : WalletFundingState
+    data class Rejected(val reason: String) : WalletFundingState
 }

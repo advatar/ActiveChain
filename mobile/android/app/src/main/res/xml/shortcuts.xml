@@ -1,0 +1,16 @@
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="manage_agents" android:enabled="true"
+        android:shortcutShortLabel="@string/manage_agents">
+        <intent android:action="android.intent.action.VIEW"
+            android:data="activechain-wallet://agents"
+            android:targetPackage="dev.activechain.wallet"
+            android:targetClass="dev.activechain.wallet.MainActivity" />
+    </shortcut>
+    <shortcut android:shortcutId="review_approvals" android:enabled="true"
+        android:shortcutShortLabel="@string/review_approvals">
+        <intent android:action="android.intent.action.VIEW"
+            android:data="activechain-wallet://approvals"
+            android:targetPackage="dev.activechain.wallet"
+            android:targetClass="dev.activechain.wallet.MainActivity" />
+    </shortcut>
+</shortcuts>
