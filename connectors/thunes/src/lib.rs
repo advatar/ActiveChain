@@ -16,10 +16,12 @@ use sha3::{
 use std::fmt::Write as _;
 
 mod amount;
+mod recovery;
 mod request;
 mod response;
 
 pub use amount::{AmountError, parse_atomic_units, parse_decimal};
+pub use recovery::{RecoveryAction, ThunesAttemptPhase, ThunesRecoveryState};
 pub use request::{HttpMethod, QuotationMode, QuotationRequest, ThunesRequest, ThunesRequests};
 pub use response::{
     ThunesCallbackHint, ThunesObservationContext, ThunesQuotation, ThunesTransaction,
