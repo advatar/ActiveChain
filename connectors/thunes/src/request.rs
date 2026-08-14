@@ -391,7 +391,12 @@ fn validate_currency(value: &str) -> Result<(), AdapterError> {
 }
 
 fn validate_decimal_text(value: &str) -> Result<(), AdapterError> {
-    if value.is_empty() || value.starts_with(['-', '+']) || value.contains(['e', 'E']) {
+    if value.is_empty()
+        || value.starts_with('-')
+        || value.starts_with('+')
+        || value.contains('e')
+        || value.contains('E')
+    {
         return Err(AdapterError::InvalidRequest);
     }
     let mut parts = value.split('.');
@@ -450,7 +455,10 @@ mod tests {
         )
         .unwrap();
         let body: Value = serde_json::from_slice(request.body()).unwrap();
-        assert_eq!(body["credit_party_identifier"]["msisdn"], json!("255712345678"));
+        assert_eq!(
+            body["credit_party_identifier"]["msisdn"],
+            json!("255712345678")
+        );
         assert_eq!(body["beneficiary"]["firstname"], json!("A"));
     }
 
