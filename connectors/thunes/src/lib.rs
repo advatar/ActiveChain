@@ -132,13 +132,13 @@ pub enum ExecuteError<T> {
 /// 192-bit domain-separated ID encoded in 52 ASCII bytes, below Thunes' 64-byte limit.
 #[must_use]
 pub fn quote_external_id(quote: PaymentQuoteId) -> String {
-    external_id("acq", QUOTE_EXTERNAL_ID_DOMAIN, quote.digest())
+    external_id("acq", QUOTE_EXTERNAL_ID_DOMAIN, &quote.digest())
 }
 
 /// 192-bit domain-separated ID encoded in 52 ASCII bytes, below Thunes' 64-byte limit.
 #[must_use]
 pub fn transaction_external_id(attempt: PaymentAttemptId) -> String {
-    external_id("act", TRANSACTION_EXTERNAL_ID_DOMAIN, attempt.digest())
+    external_id("act", TRANSACTION_EXTERNAL_ID_DOMAIN, &attempt.digest())
 }
 
 fn external_id(prefix: &str, domain: &[u8], digest: &Digest384) -> String {
@@ -190,7 +190,10 @@ mod tests {
             assert_eq!(origin, "https://sandbox.example.thunes.invalid");
             assert_eq!(api_key, "key");
             assert_eq!(api_secret, "secret");
-            Ok(ThunesResponse { status: 200, body: b"{}".to_vec() })
+            Ok(ThunesResponse {
+                status: 200,
+                body: b"{}".to_vec(),
+            })
         }
     }
 
@@ -225,6 +228,9 @@ mod tests {
             adapter.execute("", "secret", &request),
             Err(ExecuteError::Adapter(AdapterError::InvalidRequest))
         ));
-        assert_eq!(adapter.execute("key", "secret", &request).unwrap().status, 200);
+        assert_eq!(
+            adapter.execute("key", "secret", &request).unwrap().status,
+            200
+        );
     }
 }
