@@ -24,9 +24,9 @@ pub use amount::{AmountError, parse_atomic_units, parse_decimal};
 pub use recovery::{RecoveryAction, ThunesAttemptPhase, ThunesRecoveryState};
 pub use request::{HttpMethod, QuotationMode, QuotationRequest, ThunesRequest, ThunesRequests};
 pub use response::{
-    ThunesCallbackHint, ThunesObservationContext, ThunesQuotation, ThunesTransaction,
-    authenticated_transaction_observation, map_status_class, parse_callback_hint, parse_quotation,
-    parse_transaction, provider_reference_commitment,
+    ProviderAmountSide, ThunesCallbackHint, ThunesObservationContext, ThunesQuotation,
+    ThunesTransaction, authenticated_transaction_observation, confirmed_or_later, map_status_class,
+    parse_callback_hint, parse_quotation, parse_transaction, provider_reference_commitment,
 };
 
 /// Money Transfer v2 API prefix. Environment-specific HTTPS origins are provided during account
