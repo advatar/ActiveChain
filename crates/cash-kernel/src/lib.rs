@@ -817,7 +817,6 @@ mod tests {
     /// kernel behaviour, not a defect — a service that spends continuously must
     /// maintain its own cell pool rather than expect transfers to preserve one.
     /// The faucet did not, and wedged itself after a single grant.
-    #[test]
     fn a_sender_of_n_cells_can_make_exactly_n_minus_one_ordinary_transfers() {
         const CELLS: usize = 6;
         let definition = NativeAssetDefinition::new(
