@@ -16,11 +16,44 @@ assert SPEC is not None and SPEC.loader is not None
 POLICY = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(POLICY)
 WORKFLOW = (ROOT / ".github" / "workflows" / "kernel.yml").read_text(encoding="utf-8")
+SETUP_ACTION = (ROOT / ".github" / "actions" / "kernel-setup" / "action.yml").read_text(
+    encoding="utf-8"
+)
 
 
 class KernelWorkflowPolicyTests(unittest.TestCase):
     def test_current_workflow_is_complete(self) -> None:
         POLICY.validate(WORKFLOW)
+
+    def test_current_setup_action_is_complete(self) -> None:
+        POLICY.validate_setup(SETUP_ACTION)
+
+    def test_formal_models_require_anonymous_docker(self) -> None:
+        unsafe = WORKFLOW.replace(
+            "with: {lean: 'true', docker-anonymous: 'true'}", "with: {lean: 'true'}", 1
+        )
+        with self.assertRaisesRegex(ValueError, "formal-model job"):
+            POLICY.validate(unsafe)
+
+    def test_anonymous_docker_cannot_skip_isolation_verification(self) -> None:
+        unsafe = SETUP_ACTION.replace(
+            "if: inputs.docker-anonymous == 'true' || inputs.docker == 'true'",
+            "if: inputs.docker == 'true'",
+            1,
+        )
+        with self.assertRaisesRegex(ValueError, "must accept either Docker input"):
+            POLICY.validate_setup(unsafe)
+
+    def test_anonymous_docker_does_not_initialize_risc0(self) -> None:
+        unsafe = SETUP_ACTION.replace(
+            "    - name: Preflight pinned RISC0 guest builder\n"
+            "      if: inputs.docker == 'true'",
+            "    - name: Preflight pinned RISC0 guest builder\n"
+            "      if: inputs.docker-anonymous == 'true' || inputs.docker == 'true'",
+            1,
+        )
+        with self.assertRaisesRegex(ValueError, "dedicated Docker input"):
+            POLICY.validate_setup(unsafe)
 
     def test_main_push_cannot_repeat_the_candidate_gate(self) -> None:
         unsafe = WORKFLOW.replace("    tags: ['v*']", "    branches: [main]\n    tags: ['v*']")
