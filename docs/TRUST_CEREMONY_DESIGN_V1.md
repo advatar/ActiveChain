@@ -111,9 +111,26 @@ who has already contributed is recorded as `AlreadySigned` and does **not**
 advance the threshold — counting a repeat would let one party satisfy a 2-of-3
 alone.
 
-Outstanding: the coordinator is in-memory. A ceremony spanning sessions needs
-its state to be durable in the shape of the other durable registries here —
-canonical snapshot, atomic replace, fail-closed restart.
+`Coordinator::open` makes progress durable, so a ceremony survives the days it
+takes. That is a security property rather than a convenience: a coordinator that
+forgets on restart forces the ceremony to begin again, and the natural response
+to *that* is to gather the seeds somewhere they can all be used at once — the
+failure this design exists to prevent.
+
+Three rules govern the record, each tested:
+
+- **A record belongs to one bundle.** Resuming is refused if the recorded
+  bundle id is not the one being signed, so signatures gathered for one body can
+  never be counted toward another.
+- **The record is not trusted.** It is a file, and a file can be edited, so
+  every signature is re-verified against its signer's public key on the way back
+  in. A signature moved to another signer's id is refused.
+- **A signature is recorded before it is acknowledged.** Otherwise a signer who
+  believes they are finished would have to be asked again.
+
+Written to a temporary and renamed, so a crash mid-write leaves the previous
+record rather than a truncated one. Durability is opt-in: `begin` behaves
+exactly as before and writes nothing.
 
 ## Transport
 
@@ -134,11 +151,33 @@ every seed, and a 2-of-3 whose keys live in one place is a 1-of-1. The operator
 console can prepare, display, collect, verify, assemble and activate. It cannot
 sign, and no amount of convenience justifies changing that.
 
-## Outstanding
+## Approving a rotation
 
-- Durable coordinator state across sessions.
-- A rotation ceremony procedure: rotation is expressible today, but the human
-  process for approving one is not written down.
+Rotation is expressible in the bundle and now visible in review, but the human
+process is the control that matters, because a rotation is the one act that can
+transfer authority away from the people performing it.
+
+1. **Propose out of band.** The incoming signer set is agreed by the accountable
+   owner before any bundle is prepared, not discovered by signers during review.
+2. **Publish the incoming set independently.** Each current signer obtains the
+   incoming `signer_set.bin` from the proposer *and* verifies its
+   `signer_set_id` matches the `next_signer_set_id` in the body under review. A
+   digest that only ever arrives inside the thing being signed is not
+   corroboration.
+3. **Identify the incoming signers.** Each new public key is confirmed with the
+   person or system that holds it, over a channel that is not the one carrying
+   the bundle.
+4. **Check the activation sequence.** A rotation that activates immediately and
+   one that activates far in the future are different decisions; the sequence is
+   shown in review and should match the proposal.
+5. **Refuse on any mismatch.** A rotation is not a step to complete under time
+   pressure. The current set retains authority until the activation sequence, so
+   declining costs a delay rather than a network.
+6. **Rehearse on a throwaway network first.** The planner makes standing one up
+   cheap, and a rotation rehearsed once is a rotation whose failure modes are
+   known.
+
+## Outstanding
 - Secure Enclave custody for signers, reusing the wallet's architecture.
 - A proof scope. Threshold soundness — that no accepted sequence of signatures
   satisfies a threshold of *k* with fewer than *k* distinct signers — is

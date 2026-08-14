@@ -17,12 +17,17 @@
 //! foreign signature is rejected against a named signer as it arrives, rather
 //! than assembly failing opaquely at the end with nothing to point at.
 
-use crate::{CeremonyError, DetachedSignature, bundle_id_for_signing};
+use crate::{CeremonyError, DetachedSignature, bundle_id_for_signing, decode_hex, encode_hex};
 use activechain_application_primitives::{
-    ActumVerifierTrustBundleV1, SignedActumVerifierTrustBundleV1, TrustSignatureAlgorithmV1,
-    TrustSignerSetV1,
+    ActumVerifierTrustBundleV1, MAX_TRUST_SIGNATURE_BYTES, SignedActumVerifierTrustBundleV1,
+    TrustSignatureAlgorithmV1, TrustSignerSetV1,
 };
 use activechain_protocol_types::Digest384;
+use serde::{Deserialize, Serialize};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 /// What accepting a signature changed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -41,7 +46,36 @@ pub struct Coordinator {
     signer_set: TrustSignerSetV1,
     bundle_id: Digest384,
     collected: Vec<DetachedSignature>,
+    /// Where progress is recorded, when the ceremony is durable.
+    ///
+    /// A ceremony runs over days: signers are people, and people are not
+    /// available at once. A coordinator that forgets on restart forces the
+    /// whole thing to begin again, and the natural response to that is to
+    /// gather the seeds in one place so it can be done quickly — which is the
+    /// failure this design exists to avoid.
+    path: Option<PathBuf>,
 }
+
+/// The on-disk form.
+///
+/// Signatures are public and the bundle id is derived from a public body, so
+/// nothing here is confidential. What it must be is *exact*: a resumed ceremony
+/// that recorded a different bundle id would be collecting signatures over a
+/// body nobody agreed to.
+#[derive(Debug, Deserialize, Serialize)]
+struct CeremonyRecord {
+    schema: u16,
+    bundle_id_hex: String,
+    signatures: Vec<RecordedSignature>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct RecordedSignature {
+    signer_id_hex: String,
+    signature_hex: String,
+}
+
+const CEREMONY_SCHEMA: u16 = 1;
 
 impl Coordinator {
     /// Begins coordinating a ceremony over the exact body that will be signed.
@@ -55,7 +89,74 @@ impl Coordinator {
     ) -> Result<Self, CeremonyError> {
         signer_set.validate().map_err(|_| CeremonyError::InvalidSignerSet)?;
         let bundle_id = bundle_id_for_signing(body)?;
-        Ok(Self { signer_set, bundle_id, collected: Vec::new() })
+        Ok(Self { signer_set, bundle_id, collected: Vec::new(), path: None })
+    }
+
+    /// Begins a ceremony whose progress survives restarts, resuming one already
+    /// recorded at this path.
+    ///
+    /// Resuming is refused if the record was made for a different bundle. A
+    /// ceremony is defined by what is being signed, so signatures gathered for
+    /// one body must never be counted toward another — that is how a threshold
+    /// could be met for something nobody reviewed.
+    ///
+    /// # Errors
+    /// `MalformedInput` for an unreadable or foreign record, plus the errors
+    /// [`Self::begin`] can return.
+    pub fn open(
+        signer_set: TrustSignerSetV1,
+        body: &ActumVerifierTrustBundleV1,
+        path: impl AsRef<Path>,
+    ) -> Result<Self, CeremonyError> {
+        let mut coordinator = Self::begin(signer_set, body)?;
+        let path = path.as_ref().to_path_buf();
+        if path.exists() {
+            let bytes = fs::read(&path).map_err(|_| CeremonyError::MalformedInput)?;
+            let record: CeremonyRecord =
+                serde_json::from_slice(&bytes).map_err(|_| CeremonyError::MalformedInput)?;
+            if record.schema != CEREMONY_SCHEMA
+                || record.bundle_id_hex != encode_hex(coordinator.bundle_id.as_bytes())
+            {
+                return Err(CeremonyError::MalformedInput);
+            }
+            for recorded in record.signatures {
+                let signer = decode_hex(&recorded.signer_id_hex, 48)?;
+                let signer: [u8; 48] =
+                    signer.try_into().map_err(|_| CeremonyError::MalformedInput)?;
+                // Re-verified on the way in rather than trusted: a record is a
+                // file, and a file can be edited.
+                coordinator.accept(DetachedSignature {
+                    signer_id: Digest384::new(signer),
+                    signature: decode_hex(&recorded.signature_hex, MAX_TRUST_SIGNATURE_BYTES)?,
+                })?;
+            }
+        }
+        coordinator.path = Some(path);
+        Ok(coordinator)
+    }
+
+    fn persist(&self) -> Result<(), CeremonyError> {
+        let Some(path) = self.path.as_ref() else { return Ok(()) };
+        let record = CeremonyRecord {
+            schema: CEREMONY_SCHEMA,
+            bundle_id_hex: encode_hex(self.bundle_id.as_bytes()),
+            signatures: self
+                .collected
+                .iter()
+                .map(|signature| RecordedSignature {
+                    signer_id_hex: encode_hex(signature.signer_id.as_bytes()),
+                    signature_hex: encode_hex(&signature.signature),
+                })
+                .collect(),
+        };
+        let bytes =
+            serde_json::to_vec_pretty(&record).map_err(|_| CeremonyError::MalformedInput)?;
+        // Written to a temporary and renamed, so a crash mid-write leaves the
+        // previous record rather than a truncated one.
+        let temporary = path.with_extension("tmp");
+        fs::write(&temporary, &bytes).map_err(|_| CeremonyError::MalformedInput)?;
+        fs::rename(&temporary, path).map_err(|_| CeremonyError::MalformedInput)?;
+        Ok(())
     }
 
     /// The value each signer signs, published to them out of band.
@@ -128,6 +229,13 @@ impl Coordinator {
         }
 
         self.collected.push(signature);
+        // Recorded before the caller is told it counted. A signature the
+        // coordinator acknowledged but did not keep would have to be collected
+        // again from a signer who believes they are finished.
+        if let Err(error) = self.persist() {
+            self.collected.pop();
+            return Err(error);
+        }
         if self.threshold_met() {
             Ok(Acceptance::ThresholdMet { collected: self.collected.len() })
         } else {
@@ -304,6 +412,131 @@ mod tests {
         assert_eq!(outstanding.len(), 2);
         assert!(!outstanding.contains(&parties[0].id));
         assert_eq!(coordinator.assemble(body.clone(), 1_000), Err(CeremonyError::ThresholdNotMet));
+    }
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        std::env::temp_dir().join(format!("activechain-ceremony-{name}-{nanos}.json"))
+    }
+
+    /// A ceremony runs over days, because signers are people. Losing progress
+    /// on restart is not merely inconvenient: the natural response is to gather
+    /// the seeds somewhere they can all be used at once, which is the failure
+    /// this whole design exists to prevent.
+    #[test]
+    fn a_ceremony_resumes_where_it_was_left() {
+        let (set, parties) = ceremony(2, 3);
+        let body = body(&set);
+        let path = scratch("resume");
+
+        let mut first = Coordinator::open(set.clone(), &body, &path).expect("open");
+        let payload = first.signing_payload();
+        first
+            .accept(DetachedSignature {
+                signer_id: parties[0].id,
+                signature: sign_bundle_id(&parties[0].seed, payload),
+            })
+            .expect("first signature");
+        assert!(!first.threshold_met());
+        drop(first);
+
+        // A different process, later in the week.
+        let mut resumed = Coordinator::open(set, &body, &path).expect("resume");
+        assert_eq!(resumed.collected(), 1, "the earlier signature must still count");
+        assert_eq!(resumed.outstanding().len(), 2);
+        assert_eq!(
+            resumed
+                .accept(DetachedSignature {
+                    signer_id: parties[1].id,
+                    signature: sign_bundle_id(&parties[1].seed, payload),
+                })
+                .unwrap(),
+            Acceptance::ThresholdMet { collected: 2 }
+        );
+        resumed.assemble(body, 1_000).expect("a resumed ceremony still assembles");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A ceremony is defined by what is being signed. Signatures gathered for
+    /// one body must never be counted toward another, or a threshold could be
+    /// met for something nobody reviewed.
+    #[test]
+    fn a_record_from_a_different_ceremony_is_refused() {
+        let (set, parties) = ceremony(2, 3);
+        let body = body(&set);
+        let path = scratch("foreign");
+
+        let mut original = Coordinator::open(set.clone(), &body, &path).expect("open");
+        let payload = original.signing_payload();
+        original
+            .accept(DetachedSignature {
+                signer_id: parties[0].id,
+                signature: sign_bundle_id(&parties[0].seed, payload),
+            })
+            .expect("signature");
+        drop(original);
+
+        // The same signer set, a different bundle: a later sequence.
+        let mut other_body = body.clone();
+        other_body.bundle_sequence = 2;
+        other_body.previous_bundle_id = Digest384::new([7; 48]);
+        assert_eq!(
+            Coordinator::open(set, &other_body, &path).unwrap_err(),
+            CeremonyError::MalformedInput,
+            "a record for another bundle must not be adopted"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// The record is a file, and a file can be edited. Every signature is
+    /// re-verified on the way back in rather than trusted because it was
+    /// written down.
+    #[test]
+    fn a_tampered_record_does_not_grant_a_threshold() {
+        let (set, parties) = ceremony(2, 3);
+        let body = body(&set);
+        let path = scratch("tampered");
+
+        let mut original = Coordinator::open(set.clone(), &body, &path).expect("open");
+        let payload = original.signing_payload();
+        original
+            .accept(DetachedSignature {
+                signer_id: parties[0].id,
+                signature: sign_bundle_id(&parties[0].seed, payload),
+            })
+            .expect("signature");
+        drop(original);
+
+        // Forge a second signer by copying the first signature under their id.
+        let text = std::fs::read_to_string(&path).unwrap();
+        let forged = text
+            .replace(&encode_hex(parties[0].id.as_bytes()), &encode_hex(parties[1].id.as_bytes()));
+        std::fs::write(&path, forged).unwrap();
+
+        assert_eq!(
+            Coordinator::open(set, &body, &path).unwrap_err(),
+            CeremonyError::Rejected,
+            "a signature attributed to a signer who did not make it must be refused"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A coordinator with no path keeps its previous behaviour exactly, so
+    /// durability is opt-in and cannot surprise an existing caller.
+    #[test]
+    fn an_in_memory_ceremony_writes_nothing() {
+        let (set, parties) = ceremony(2, 3);
+        let body = body(&set);
+        let mut coordinator = Coordinator::begin(set, &body).expect("begin");
+        let payload = coordinator.signing_payload();
+        coordinator
+            .accept(DetachedSignature {
+                signer_id: parties[0].id,
+                signature: sign_bundle_id(&parties[0].seed, payload),
+            })
+            .expect("signature");
+        assert_eq!(coordinator.collected(), 1);
     }
 
     /// The end to end path: independent signatures, then a bundle that the
