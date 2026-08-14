@@ -165,7 +165,12 @@ jobs:
         with: {clean: true, fetch-depth: 1, persist-credentials: false}
       - name: Install formal prerequisites
         uses: ./.github/actions/kernel-setup
-        with: {lean: 'true'}
+        # The TLA+ runners pull a digest-pinned public JDK image, so this stage
+        # reaches Docker even though nothing here builds a guest. Without the
+        # isolated anonymous credential helper, Docker consults the login
+        # keychain, which a launchd agent cannot unlock — the models all proved
+        # and the job still failed on `error getting credentials`.
+        with: {lean: 'true', docker-anonymous: 'true'}
       - name: Build executable Lean reference model
         working-directory: formal/lean
         run: lake build
