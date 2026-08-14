@@ -9,12 +9,11 @@ pub enum AmountError {
 
 /// Parses a Thunes JSON decimal without ever routing money through binary floating point.
 pub fn parse_atomic_units(value: &Value, precision: u8) -> Result<u128, AmountError> {
-    let text = match value {
-        Value::String(value) => value.as_str(),
-        Value::Number(value) => value.as_str(),
-        _ => return Err(AmountError::Invalid),
-    };
-    parse_decimal(text, precision)
+    match value {
+        Value::String(value) => parse_decimal(value, precision),
+        Value::Number(value) => parse_decimal(&value.to_string(), precision),
+        _ => Err(AmountError::Invalid),
+    }
 }
 
 pub fn parse_decimal(text: &str, precision: u8) -> Result<u128, AmountError> {
