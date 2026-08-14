@@ -2,6 +2,16 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Compliance obligation composition integration
+
+Tracked by [PR #811](https://github.com/advatar/ActiveChain/pull/811).
+
+- [x] Rebase the obligation-composition change onto current `main` without dropping the newer
+      jurisdiction-profile inheritance and fail-closed selection tests.
+- [x] Pass formatting, the protocol-types test suite, and strict affected-crate Clippy.
+- [ ] Pass the exact final full deterministic-kernel gate, merge to `main`, and prove the
+      integrated head is reachable before deleting the source branch.
+
 ## Tanzania and Kenya VASP regulatory-pack alignment
 
 Tracked by [GitHub issue #832](https://github.com/advatar/ActiveChain/issues/832).

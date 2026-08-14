@@ -362,6 +362,72 @@ pub fn select_profiles_with_inheritance(
         ProfileSelection::Selected(selected)
     }
 }
+/// What a transfer must satisfy when more than one profile is in force.
+///
+/// Obligations compose by intersection of what is *permitted*, which is the
+/// union of what is *required*: a control demanded by any profile in force is
+/// demanded of the transfer. Nothing here can subtract a control, which is the
+/// property that makes composition safe to run without a human reading it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ObligationComposition {
+    /// Every profile's mandatory controls, and the strictest activity among
+    /// them.
+    Required { control_set: u32, activity: KenyaRegulatedActivity },
+    /// The profiles disagree in a way no rule resolves, or none were supplied.
+    ///
+    /// Fails to a person rather than to a guess. An incomparable pair is
+    /// exactly the case where picking either one silently drops the other's
+    /// obligations.
+    ManualReview,
+}
+
+/// Composes the obligations of every profile in force.
+///
+/// Two rules, both from the conflict algorithm in
+/// `docs/compliance/JURISDICTION_PROFILE_PLAN.md`:
+///
+/// - **Every profile's mandatory controls are required.** The union, because a
+///   control any regulator demands is a control the transfer owes.
+/// - **The stricter activity wins when the two are comparable.** Strictness is
+///   read from the required masks rather than declared: an activity whose
+///   required mask is a superset of another's demands everything the other
+///   does and more. When neither mask contains the other the obligations are
+///   incomparable, and the answer is review rather than a choice.
+///
+/// An empty set is `ManualReview`. Composing nothing is not permission; it
+/// means nobody established what applies.
+#[must_use]
+pub fn compose_obligations(profiles: &[KenyaRegulatedProfileV1]) -> ObligationComposition {
+    let Some((first, rest)) = profiles.split_first() else {
+        return ObligationComposition::ManualReview;
+    };
+    let mut control_set = first.control_set();
+    let mut activity = first.activity();
+    for profile in rest {
+        control_set |= profile.control_set();
+        let held = required_controls(activity);
+        let incoming = required_controls(profile.activity());
+        activity = if incoming & held == held {
+            // The incoming activity demands everything the held one does.
+            profile.activity()
+        } else if held & incoming == incoming {
+            activity
+        } else {
+            return ObligationComposition::ManualReview;
+        };
+    }
+    ObligationComposition::Required { control_set, activity }
+}
+
+/// The mask an activity must satisfy in full.
+#[must_use]
+pub const fn required_controls(activity: KenyaRegulatedActivity) -> u32 {
+    match activity {
+        KenyaRegulatedActivity::VirtualAssetService => KenyaControlSet::VASP_REQUIRED,
+        KenyaRegulatedActivity::StablecoinIssuance => KenyaControlSet::STABLECOIN_REQUIRED,
+    }
+}
+
 pub fn select_jurisdiction_profiles(
     candidates: &[JurisdictionProfileCandidate],
 ) -> ProfileSelection {
@@ -2183,5 +2249,137 @@ mod tests {
         };
         assert_eq!(ids, vec![d(1), d(4), d(7), d(9)]);
         assert!(ids.windows(2).all(|pair| pair[0] < pair[1]), "ascending and distinct");
+    }
+
+    fn profile_with(
+        id: u8,
+        activity: KenyaRegulatedActivity,
+        controls: u32,
+    ) -> KenyaRegulatedProfileV1 {
+        let stablecoin = activity == KenyaRegulatedActivity::StablecoinIssuance;
+        KenyaRegulatedProfileV1::new(
+            d(id),
+            PrincipalId::new(d(2)),
+            activity,
+            controls,
+            d(3),
+            d(4),
+            d(5),
+            d(6),
+            d(7),
+            d(8),
+            d(9),
+            d(10),
+            d(11),
+            d(12),
+            d(13),
+            d(14),
+            if stablecoin { d(15) } else { Digest384::ZERO },
+            if stablecoin { d(16) } else { Digest384::ZERO },
+            if stablecoin { d(17) } else { Digest384::ZERO },
+            if stablecoin { d(18) } else { Digest384::ZERO },
+            100,
+            200,
+            1,
+        )
+        .unwrap()
+    }
+
+    /// Composing nothing is not permission. Nobody established what applies.
+    #[test]
+    fn composing_no_profiles_goes_to_review() {
+        assert_eq!(compose_obligations(&[]), ObligationComposition::ManualReview);
+    }
+
+    /// One profile composes to itself, or composition would change the answer
+    /// merely by being called.
+    #[test]
+    fn a_single_profile_composes_to_its_own_obligations() {
+        let only = profile_with(
+            1,
+            KenyaRegulatedActivity::VirtualAssetService,
+            KenyaControlSet::VASP_REQUIRED,
+        );
+        assert_eq!(
+            compose_obligations(&[only]),
+            ObligationComposition::Required {
+                control_set: KenyaControlSet::VASP_REQUIRED,
+                activity: KenyaRegulatedActivity::VirtualAssetService,
+            }
+        );
+    }
+
+    /// The stricter activity wins, read from the masks rather than declared.
+    /// A stablecoin issuer that is also a VASP owes both sets.
+    #[test]
+    fn the_stricter_activity_wins_and_controls_union() {
+        let vasp = profile_with(
+            1,
+            KenyaRegulatedActivity::VirtualAssetService,
+            KenyaControlSet::VASP_REQUIRED,
+        );
+        let issuer = profile_with(
+            2,
+            KenyaRegulatedActivity::StablecoinIssuance,
+            KenyaControlSet::STABLECOIN_REQUIRED,
+        );
+        let expected = ObligationComposition::Required {
+            control_set: KenyaControlSet::STABLECOIN_REQUIRED,
+            activity: KenyaRegulatedActivity::StablecoinIssuance,
+        };
+        assert_eq!(compose_obligations(&[vasp, issuer]), expected);
+        assert_eq!(
+            compose_obligations(&[issuer, vasp]),
+            expected,
+            "composition must not depend on the order profiles were selected"
+        );
+    }
+
+    /// The property the whole algorithm exists to protect: composing can only
+    /// ever add controls. If this can fail, a second profile can excuse a
+    /// control the first demanded.
+    #[test]
+    fn composition_never_weakens_any_profile_it_composed() {
+        let vasp = profile_with(
+            1,
+            KenyaRegulatedActivity::VirtualAssetService,
+            KenyaControlSet::VASP_REQUIRED,
+        );
+        let issuer = profile_with(
+            2,
+            KenyaRegulatedActivity::StablecoinIssuance,
+            KenyaControlSet::STABLECOIN_REQUIRED,
+        );
+        for set in [vec![vasp], vec![issuer], vec![vasp, issuer], vec![issuer, vasp]] {
+            let ObligationComposition::Required { control_set, activity } =
+                compose_obligations(&set)
+            else {
+                panic!("expected obligations")
+            };
+            for profile in &set {
+                assert_eq!(
+                    control_set & profile.control_set(),
+                    profile.control_set(),
+                    "composition dropped a control the profile required"
+                );
+                assert_eq!(
+                    required_controls(activity) & required_controls(profile.activity()),
+                    required_controls(profile.activity()),
+                    "the composed activity demands less than one it composed"
+                );
+            }
+        }
+    }
+
+    /// Strictness is a subset relation, so the two Kenya activities are always
+    /// comparable. Pinning it means a future activity with a disjoint mask
+    /// fails this test rather than silently resolving to whichever came first.
+    #[test]
+    fn the_kenya_activities_are_comparable_by_construction() {
+        assert_eq!(
+            KenyaControlSet::VASP_REQUIRED & KenyaControlSet::STABLECOIN_REQUIRED,
+            KenyaControlSet::VASP_REQUIRED,
+            "stablecoin issuance must demand everything a VASP does"
+        );
     }
 }
