@@ -190,10 +190,7 @@ mod tests {
             assert_eq!(origin, "https://sandbox.example.thunes.invalid");
             assert_eq!(api_key, "key");
             assert_eq!(api_secret, "secret");
-            Ok(ThunesResponse {
-                status: 200,
-                body: b"{}".to_vec(),
-            })
+            Ok(ThunesResponse { status: 200, body: b"{}".to_vec() })
         }
     }
 
@@ -218,19 +215,14 @@ mod tests {
 
     #[test]
     fn execution_requires_both_basic_auth_components() {
-        let adapter = ThunesAdapter::new(
-            "https://sandbox.example.thunes.invalid".into(),
-            RecordingTransport,
-        )
-        .unwrap();
+        let adapter =
+            ThunesAdapter::new("https://sandbox.example.thunes.invalid".into(), RecordingTransport)
+                .unwrap();
         let request = ThunesRequests::list_payers(1, 50).unwrap();
         assert!(matches!(
             adapter.execute("", "secret", &request),
             Err(ExecuteError::Adapter(AdapterError::InvalidRequest))
         ));
-        assert_eq!(
-            adapter.execute("key", "secret", &request).unwrap().status,
-            200
-        );
+        assert_eq!(adapter.execute("key", "secret", &request).unwrap().status, 200);
     }
 }

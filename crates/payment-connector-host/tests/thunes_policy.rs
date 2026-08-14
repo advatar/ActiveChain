@@ -54,29 +54,17 @@ fn thunes_effect_is_preceded_by_exact_host_policy_authorization() {
     let origin = b"https://preprod.example.thunes.invalid";
     policy.authorize(connector, origin, rail, asset, 25_000).unwrap();
 
-    let adapter = ThunesAdapter::new(String::from_utf8(origin.to_vec()).unwrap(), MockTransport)
-        .unwrap();
+    let adapter =
+        ThunesAdapter::new(String::from_utf8(origin.to_vec()).unwrap(), MockTransport).unwrap();
     let request = ThunesRequests::list_payers(1, 50).unwrap();
-    assert_eq!(
-        adapter
-            .execute("resolved-key", "resolved-secret", &request)
-            .unwrap()
-            .status,
-        200
-    );
+    assert_eq!(adapter.execute("resolved-key", "resolved-secret", &request).unwrap().status, 200);
 }
 
 #[test]
 fn wrong_origin_and_amount_ceiling_fail_before_provider_transport() {
     let (policy, connector, rail, asset) = fixture();
     assert_eq!(
-        policy.authorize(
-            connector,
-            b"https://attacker.example",
-            rail,
-            asset,
-            25_000,
-        ),
+        policy.authorize(connector, b"https://attacker.example", rail, asset, 25_000,),
         Err(ConnectorPolicyError::Unauthorized)
     );
     assert_eq!(

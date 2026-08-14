@@ -156,7 +156,10 @@ mod tests {
             .unwrap();
         assert_eq!(state.action(), RecoveryAction::LookupByExternalId);
         assert!(state.before_create().is_err());
-        assert_eq!(state.recover_created(false).unwrap().action(), RecoveryAction::LookupByExternalId);
+        assert_eq!(
+            state.recover_created(false).unwrap().action(),
+            RecoveryAction::LookupByExternalId
+        );
         assert_eq!(state.recover_created(true).unwrap().action(), RecoveryAction::DispatchConfirm);
     }
 
@@ -173,6 +176,9 @@ mod tests {
             .unwrap();
         assert_eq!(state.action(), RecoveryAction::LookupByExternalId);
         assert!(state.before_confirm().is_err());
-        assert_eq!(state.recover_confirmed(true).unwrap().action(), RecoveryAction::PollByExternalId);
+        assert_eq!(
+            state.recover_confirmed(true).unwrap().action(),
+            RecoveryAction::PollByExternalId
+        );
     }
 }

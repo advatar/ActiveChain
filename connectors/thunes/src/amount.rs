@@ -55,11 +55,7 @@ pub fn parse_decimal(text: &str, precision: u8) -> Result<u128, AmountError> {
             .checked_pow(u32::try_from(padding).map_err(|_| AmountError::Overflow)?)
             .ok_or(AmountError::Overflow)?;
         result = result
-            .checked_add(
-                fraction_value
-                    .checked_mul(fraction_scale)
-                    .ok_or(AmountError::Overflow)?,
-            )
+            .checked_add(fraction_value.checked_mul(fraction_scale).ok_or(AmountError::Overflow)?)
             .ok_or(AmountError::Overflow)?;
     }
     Ok(result)
@@ -76,13 +72,7 @@ mod tests {
         assert_eq!(parse_atomic_units(&json!(10.69), 2), Ok(1069));
         assert_eq!(parse_atomic_units(&json!("10.6"), 2), Ok(1060));
         assert_eq!(parse_atomic_units(&json!("10.6900"), 2), Ok(1069));
-        assert_eq!(
-            parse_atomic_units(&json!("10.691"), 2),
-            Err(AmountError::Precision)
-        );
-        assert_eq!(
-            parse_atomic_units(&json!("1e2"), 2),
-            Err(AmountError::Invalid)
-        );
+        assert_eq!(parse_atomic_units(&json!("10.691"), 2), Err(AmountError::Precision));
+        assert_eq!(parse_atomic_units(&json!("1e2"), 2), Err(AmountError::Invalid));
     }
 }

@@ -197,10 +197,7 @@ pub fn provider_reference_commitment(
     if transaction_id == 0 || external_id.is_empty() || external_id.len() > 64 {
         return Err(AdapterError::InvalidResponse);
     }
-    Ok(commitment(
-        REFERENCE_DOMAIN,
-        &[&transaction_id.to_be_bytes(), external_id.as_bytes()],
-    ))
+    Ok(commitment(REFERENCE_DOMAIN, &[&transaction_id.to_be_bytes(), external_id.as_bytes()]))
 }
 
 fn validate_status_binding(
@@ -248,9 +245,7 @@ fn object_field<'a>(
     root: &'a serde_json::Map<String, Value>,
     name: &str,
 ) -> Result<&'a serde_json::Map<String, Value>, AdapterError> {
-    root.get(name)
-        .and_then(Value::as_object)
-        .ok_or(AdapterError::InvalidResponse)
+    root.get(name).and_then(Value::as_object).ok_or(AdapterError::InvalidResponse)
 }
 
 fn string_field(
@@ -258,10 +253,7 @@ fn string_field(
     name: &str,
     max_len: usize,
 ) -> Result<String, AdapterError> {
-    let value = root
-        .get(name)
-        .and_then(Value::as_str)
-        .ok_or(AdapterError::InvalidResponse)?;
+    let value = root.get(name).and_then(Value::as_str).ok_or(AdapterError::InvalidResponse)?;
     if value.is_empty() || value.len() > max_len {
         return Err(AdapterError::InvalidResponse);
     }
@@ -363,10 +355,8 @@ mod tests {
         assert_eq!(observation.state(), ProviderOperationState::Succeeded);
         assert_eq!(observation.evidence_class(), EvidenceClass::ConnectorAuthenticated);
 
-        let wrong_currency = ThunesObservationContext {
-            provider_currency: "KES".into(),
-            ..context.clone()
-        };
+        let wrong_currency =
+            ThunesObservationContext { provider_currency: "KES".into(), ..context.clone() };
         assert_eq!(
             authenticated_transaction_observation(&wrong_currency, &body),
             Err(AdapterError::AmountMismatch)
