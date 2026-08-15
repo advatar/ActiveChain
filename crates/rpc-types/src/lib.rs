@@ -21,8 +21,16 @@ use sha3::{
 // Revision 3: faucet refusals are a typed FaucetRejected response rather than
 // a generic InvalidRequest, so a client that does not understand it would
 // misread every refusal.
-pub const RPC_SCHEMA_REVISION: u32 = 3;
+pub const RPC_SCHEMA_REVISION: u32 = 4;
 pub const MAX_RPC_BLOB_LENGTH: usize = 256 * 1024;
+
+/// The largest transfer envelope the node will look at.
+///
+/// Checked before the signature is, because verification is the expensive step
+/// and an unbounded submission must be refused before it is ever paid for. The
+/// authoritative bound is the envelope's own `MAX_ENCODED_LEN`, enforced when
+/// it decodes; this is the cheap gate in front of it.
+pub const MAX_TRANSFER_ENVELOPE_LENGTH: usize = 64 * 1024;
 pub const MAX_ANCHOR_ACTION_LENGTH: usize = 8 * 1024;
 pub const MAX_RPC_PAGE_SIZE: u16 = 4;
 pub const MAX_SUPPORTED_PROOFS: usize = 8;
@@ -818,6 +826,22 @@ pub enum RpcRequest {
         after: Option<Digest384>,
         limit: u16,
     },
+    /// Offers a signed transfer for inclusion.
+    ///
+    /// Acceptance means durably spooled and nothing more; the receipt says so
+    /// and makes no claim about the ledger.
+    SubmitAuthorizedTransfer {
+        envelope: Vec<u8>,
+    },
+    /// Asks what became of a submission.
+    ///
+    /// The reference is the canonical commitment over the envelope, so a client
+    /// already holds it after submitting and needs nothing handed back to poll
+    /// with. Without this a refusal after spooling is unobservable: nothing
+    /// changes on chain, and polling cannot separate pending from refused.
+    ResolveTransfer {
+        reference: Digest384,
+    },
 }
 
 impl CanonicalEncode for RpcRequest {
@@ -839,6 +863,14 @@ impl CanonicalEncode for RpcRequest {
             Self::SubmitAnchor { statement } => {
                 3_u8.encode(encoder)?;
                 encoder.write_bytes(statement, 512)
+            }
+            Self::SubmitAuthorizedTransfer { envelope } => {
+                13_u8.encode(encoder)?;
+                encoder.write_bytes(envelope, MAX_TRANSFER_ENVELOPE_LENGTH)
+            }
+            Self::ResolveTransfer { reference } => {
+                14_u8.encode(encoder)?;
+                reference.encode(encoder)
             }
             Self::SubmitAnchorAction { action } => {
                 11_u8.encode(encoder)?;
@@ -896,6 +928,10 @@ impl CanonicalDecode for RpcRequest {
                 Ok(Self::List { kind, after, limit })
             }
             3 => Ok(Self::SubmitAnchor { statement: decoder.read_bytes(512)?.to_vec() }),
+            13 => Ok(Self::SubmitAuthorizedTransfer {
+                envelope: decoder.read_bytes(MAX_TRANSFER_ENVELOPE_LENGTH)?.to_vec(),
+            }),
+            14 => Ok(Self::ResolveTransfer { reference: Digest384::decode(decoder)? }),
             11 => Ok(Self::SubmitAnchorAction {
                 action: decoder.read_bytes(MAX_ANCHOR_ACTION_LENGTH)?.to_vec(),
             }),
@@ -931,8 +967,17 @@ impl CanonicalDecode for RpcRequest {
 }
 impl CanonicalType for RpcRequest {
     const TYPE_TAG: u16 = 0x0107;
-    const SCHEMA_VERSION: u16 = 2;
-    const MAX_ENCODED_LEN: usize = 1 + AuthorizedFaucetRequestV1::MAX_ENCODED_LEN;
+    // Revision 3 adds SubmitAuthorizedTransfer and ResolveTransfer. A client
+    // that cannot decode them must not mistake a transfer for something else,
+    // so this is a revision bump rather than a quietly additive tag.
+    const SCHEMA_VERSION: u16 = 3;
+    // The transfer envelope is now the largest a request can carry.
+    const MAX_ENCODED_LEN: usize =
+        1 + if AuthorizedFaucetRequestV1::MAX_ENCODED_LEN > MAX_TRANSFER_ENVELOPE_LENGTH + 3 {
+            AuthorizedFaucetRequestV1::MAX_ENCODED_LEN
+        } else {
+            MAX_TRANSFER_ENVELOPE_LENGTH + 3
+        };
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1090,7 +1135,12 @@ impl RpcAccessTerms {
             | RpcRequest::ResolveAnchor { .. }
             | RpcRequest::RequestFaucet { .. }
             | RpcRequest::RequestAuthorizedFaucet { .. }
-            | RpcRequest::ResolveFaucet { .. } => Some(self.get_units),
+            | RpcRequest::ResolveFaucet { .. }
+            // Charged like any other point operation. Free resolution would
+            // make polling cheaper than waiting and invite a client to hammer
+            // it; the submission itself is metered for the same reason.
+            | RpcRequest::SubmitAuthorizedTransfer { .. }
+            | RpcRequest::ResolveTransfer { .. } => Some(self.get_units),
             RpcRequest::List { limit, .. }
             | RpcRequest::ListOwnerCoinCells { limit, .. }
             | RpcRequest::ListOwnerFungibleCoinCells { limit, .. } => self
@@ -1854,6 +1904,236 @@ impl CanonicalDecode for FaucetRejectionV1 {
     }
 }
 
+/// Where a submitted transfer stands.
+///
+/// `Pending` means durably spooled and nothing more: not finalized, not
+/// executed, and carrying no claim about the ledger. The terminal states are
+/// reached once and never regress, because a client that has been told an
+/// outcome must not later be told a different one.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum TransferState {
+    Pending = 0,
+    Finalized = 1,
+    Rejected = 2,
+    /// The terminal receipt was retained and has since been evicted.
+    ///
+    /// Never returned for a submission that is still in flight. Reporting
+    /// `Pending` here would make eviction indistinguishable from work in
+    /// progress and would reintroduce, at the storage boundary, exactly the
+    /// ambiguity that resolution exists to remove.
+    Unknown = 3,
+}
+impl CanonicalEncode for TransferState {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(encoder)
+    }
+}
+impl CanonicalDecode for TransferState {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(decoder)? {
+            0 => Ok(Self::Pending),
+            1 => Ok(Self::Finalized),
+            2 => Ok(Self::Rejected),
+            3 => Ok(Self::Unknown),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "TransferState", tag }),
+        }
+    }
+}
+
+/// Why a transfer was refused.
+///
+/// Modelled on the faucet taxonomy without inheriting it: a faucet refuses on
+/// entitlement, while a transfer refuses on the state of the sender's own
+/// cells. `InputAlreadySpent` and `ValidityWindowLapsed` have no faucet
+/// equivalent, and the faucet's recipient-quota codes have no meaning here.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum TransferRejectionCode {
+    Disabled = 0,
+    WrongNetwork = 1,
+    /// Failed a size or structural bound. Refused before verification was paid
+    /// for, so it says nothing about whether the signature would have held.
+    Malformed = 2,
+    InvalidAuthorization = 3,
+    SessionExpired = 4,
+    SessionInvalid = 5,
+    /// An input was already consumed, typically by the sender's own earlier
+    /// transfer. Terminal: resubmitting the same envelope cannot succeed.
+    InputAlreadySpent = 6,
+    ValidityWindowLapsed = 7,
+    /// The authenticated signer or session exceeded its quota. Transient.
+    SignerLimited = 8,
+    GlobalLimited = 9,
+    /// The spool is at its count or byte bound and refuses rather than drops.
+    SpoolFull = 10,
+}
+impl TransferRejectionCode {
+    /// Whether resubmitting the identical envelope could ever succeed later.
+    ///
+    /// Quota and capacity refusals are about the node's present load; the rest
+    /// are about the submission itself and will refuse identically forever.
+    #[must_use]
+    pub const fn is_transient(self) -> bool {
+        matches!(self, Self::SignerLimited | Self::GlobalLimited | Self::SpoolFull)
+    }
+}
+impl CanonicalEncode for TransferRejectionCode {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        (*self as u8).encode(encoder)
+    }
+}
+impl CanonicalDecode for TransferRejectionCode {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        match u8::decode(decoder)? {
+            0 => Ok(Self::Disabled),
+            1 => Ok(Self::WrongNetwork),
+            2 => Ok(Self::Malformed),
+            3 => Ok(Self::InvalidAuthorization),
+            4 => Ok(Self::SessionExpired),
+            5 => Ok(Self::SessionInvalid),
+            6 => Ok(Self::InputAlreadySpent),
+            7 => Ok(Self::ValidityWindowLapsed),
+            8 => Ok(Self::SignerLimited),
+            9 => Ok(Self::GlobalLimited),
+            10 => Ok(Self::SpoolFull),
+            tag => Err(DecodeError::InvalidEnumTag { type_name: "TransferRejectionCode", tag }),
+        }
+    }
+}
+
+/// A transfer refusal, carrying only what decides the client's next move.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TransferRejectionV1 {
+    code: TransferRejectionCode,
+    /// When a wait would help. Absent when waiting cannot change the outcome.
+    retry_after_seconds: Option<u64>,
+}
+impl TransferRejectionV1 {
+    /// # Errors
+    /// Rejects a retry hint on a code that will refuse identically forever,
+    /// which would invite a client to retry something that cannot succeed.
+    pub fn new(
+        code: TransferRejectionCode,
+        retry_after_seconds: Option<u64>,
+    ) -> Result<Self, DecodeError> {
+        if retry_after_seconds.is_some() && !code.is_transient() {
+            return Err(DecodeError::InvalidValue("retry hint on a permanent transfer refusal"));
+        }
+        Ok(Self { code, retry_after_seconds })
+    }
+    #[must_use]
+    pub const fn code(&self) -> TransferRejectionCode {
+        self.code
+    }
+    #[must_use]
+    pub const fn retry_after_seconds(&self) -> Option<u64> {
+        self.retry_after_seconds
+    }
+}
+impl CanonicalEncode for TransferRejectionV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.code.encode(encoder)?;
+        self.retry_after_seconds.encode(encoder)
+    }
+}
+impl CanonicalDecode for TransferRejectionV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let code = TransferRejectionCode::decode(decoder)?;
+        let retry_after_seconds = Option::<u64>::decode(decoder)?;
+        Self::new(code, retry_after_seconds)
+    }
+}
+
+/// What the node can say about one submitted transfer.
+///
+/// Answers both submission and resolution, so a client polls with the same
+/// reference it already holds and reads the same shape it was first given.
+/// The reference is the canonical commitment over the submitted envelope,
+/// which makes it the deduplication key as well, with no second identifier to
+/// keep in step.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TransferReceiptV1 {
+    reference: Digest384,
+    state: TransferState,
+    transaction_id: Option<TransactionId>,
+    finalized_height: Option<u64>,
+    finalized_block: Option<Digest384>,
+    rejection: Option<TransferRejectionV1>,
+}
+impl TransferReceiptV1 {
+    /// # Errors
+    /// Refuses any receipt whose fields contradict its state, so an
+    /// inconsistent one cannot be encoded and then believed by a client.
+    pub fn new(
+        reference: Digest384,
+        state: TransferState,
+        transaction_id: Option<TransactionId>,
+        finalized_height: Option<u64>,
+        finalized_block: Option<Digest384>,
+        rejection: Option<TransferRejectionV1>,
+    ) -> Result<Self, DecodeError> {
+        if reference == Digest384::ZERO {
+            return Err(DecodeError::InvalidValue("transfer receipt without a reference"));
+        }
+        // A reason belongs to a refusal and nowhere else.
+        if rejection.is_some() != (state == TransferState::Rejected) {
+            return Err(DecodeError::InvalidValue("transfer rejection must accompany Rejected"));
+        }
+        // Finalization evidence is what Finalized means; absent it the state is
+        // a claim with nothing behind it.
+        let finalized = state == TransferState::Finalized;
+        if finalized
+            != (transaction_id.is_some() && finalized_height.is_some() && finalized_block.is_some())
+        {
+            return Err(DecodeError::InvalidValue("finalized transfer needs its block evidence"));
+        }
+        Ok(Self { reference, state, transaction_id, finalized_height, finalized_block, rejection })
+    }
+    #[must_use]
+    pub const fn reference(&self) -> Digest384 {
+        self.reference
+    }
+    #[must_use]
+    pub const fn state(&self) -> TransferState {
+        self.state
+    }
+    #[must_use]
+    pub const fn finalized_height(&self) -> Option<u64> {
+        self.finalized_height
+    }
+    #[must_use]
+    pub const fn rejection(&self) -> Option<TransferRejectionV1> {
+        self.rejection
+    }
+}
+impl CanonicalEncode for TransferReceiptV1 {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.reference.encode(encoder)?;
+        self.state.encode(encoder)?;
+        self.transaction_id.encode(encoder)?;
+        self.finalized_height.encode(encoder)?;
+        self.finalized_block.encode(encoder)?;
+        self.rejection.encode(encoder)
+    }
+}
+impl CanonicalDecode for TransferReceiptV1 {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let reference = Digest384::decode(decoder)?;
+        let state = TransferState::decode(decoder)?;
+        let transaction_id = Option::<TransactionId>::decode(decoder)?;
+        let finalized_height = Option::<u64>::decode(decoder)?;
+        let finalized_block = Option::<Digest384>::decode(decoder)?;
+        let rejection = Option::<TransferRejectionV1>::decode(decoder)?;
+        Self::new(reference, state, transaction_id, finalized_height, finalized_block, rejection)
+    }
+}
+impl CanonicalType for TransferReceiptV1 {
+    const TYPE_TAG: u16 = 0x01c8;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize = 48 + 1 + (1 + 48) + (1 + 8) + (1 + 48) + (1 + 1 + 1 + 8);
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RpcResponse {
     Status(RpcStatus),
@@ -1867,6 +2147,9 @@ pub enum RpcResponse {
     FaucetReceipt(FaucetReceiptV1),
     FaucetTerms(FaucetTermsV1),
     FaucetRejected(FaucetRejectionV1),
+    /// Answers both submission and resolution, so a refusal, an accepted
+    /// spooling and a finalized outcome all arrive in one shape.
+    TransferReceipt(TransferReceiptV1),
 }
 impl CanonicalEncode for RpcResponse {
     fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
@@ -1915,6 +2198,10 @@ impl CanonicalEncode for RpcResponse {
                 10_u8.encode(encoder)?;
                 rejection.encode(encoder)
             }
+            Self::TransferReceipt(receipt) => {
+                11_u8.encode(encoder)?;
+                receipt.encode(encoder)
+            }
         }
     }
 }
@@ -1932,16 +2219,18 @@ impl CanonicalDecode for RpcResponse {
             6 => Ok(Self::FaucetReceipt(FaucetReceiptV1::decode(decoder)?)),
             7 => Ok(Self::FaucetTerms(FaucetTermsV1::decode(decoder)?)),
             10 => Ok(Self::FaucetRejected(FaucetRejectionV1::decode(decoder)?)),
+            11 => Ok(Self::TransferReceipt(TransferReceiptV1::decode(decoder)?)),
             tag => Err(DecodeError::InvalidEnumTag { type_name: "RpcResponse", tag }),
         }
     }
 }
 impl CanonicalType for RpcResponse {
     const TYPE_TAG: u16 = 0x010a;
-    // Revision 3 adds FaucetRejected. A client that cannot decode the new
-    // variant must not silently treat a refusal as some other outcome, so this
-    // is a revision bump rather than a quietly additive tag.
-    const SCHEMA_VERSION: u16 = 3;
+    // Revision 3 added FaucetRejected; revision 4 adds TransferReceipt. A
+    // client that cannot decode the new variant must not silently treat an
+    // outcome as some other one, so each is a revision bump rather than a
+    // quietly additive tag.
+    const SCHEMA_VERSION: u16 = 4;
     const MAX_ENCODED_LEN: usize = 1
         + 2
         + MAX_RPC_PAGE_SIZE as usize * (1 + 48 + 8 + 3 * (4 + MAX_RPC_BLOB_LENGTH))
@@ -2146,6 +2435,142 @@ mod tests {
         };
         let encoded = encode_envelope(&authorized).unwrap();
         assert_eq!(decode_envelope::<RpcRequest>(&encoded), Ok(authorized));
+    }
+
+    /// A receipt is the only thing a client ever learns about its transfer, so
+    /// every state must survive the wire and every inconsistent combination
+    /// must be unconstructible rather than merely unlikely.
+    #[test]
+    fn transfer_receipt_round_trips_every_state_and_refuses_contradictions() {
+        let pending =
+            TransferReceiptV1::new(digest(7), TransferState::Pending, None, None, None, None)
+                .expect("a pending receipt carries only its reference");
+        let wire = encode_envelope(&pending).unwrap();
+        assert_eq!(decode_envelope::<TransferReceiptV1>(&wire), Ok(pending));
+
+        let finalized = TransferReceiptV1::new(
+            digest(7),
+            TransferState::Finalized,
+            Some(TransactionId::new(digest(8))),
+            Some(41),
+            Some(digest(9)),
+            None,
+        )
+        .expect("finalized carries its block evidence");
+        assert_eq!(finalized.finalized_height(), Some(41));
+        assert_eq!(
+            decode_envelope::<TransferReceiptV1>(&encode_envelope(&finalized).unwrap()),
+            Ok(finalized)
+        );
+
+        let refusal = TransferRejectionV1::new(TransferRejectionCode::InputAlreadySpent, None)
+            .expect("a permanent refusal carries no retry hint");
+        let rejected = TransferReceiptV1::new(
+            digest(7),
+            TransferState::Rejected,
+            None,
+            None,
+            None,
+            Some(refusal),
+        )
+        .expect("rejected carries its reason");
+        assert_eq!(
+            decode_envelope::<TransferReceiptV1>(&encode_envelope(&rejected).unwrap()),
+            Ok(rejected)
+        );
+
+        // Eviction is reported as its own state. Reporting Pending here would
+        // make a forgotten outcome look like work still in progress.
+        let unknown =
+            TransferReceiptV1::new(digest(7), TransferState::Unknown, None, None, None, None)
+                .expect("an evicted receipt still names what it refers to");
+        assert_eq!(unknown.state(), TransferState::Unknown);
+
+        assert!(
+            TransferReceiptV1::new(Digest384::ZERO, TransferState::Pending, None, None, None, None)
+                .is_err(),
+            "a receipt nobody can correlate is not a receipt"
+        );
+        assert!(
+            TransferReceiptV1::new(digest(7), TransferState::Rejected, None, None, None, None)
+                .is_err(),
+            "Rejected without a reason tells a client nothing it can act on"
+        );
+        assert!(
+            TransferReceiptV1::new(
+                digest(7),
+                TransferState::Pending,
+                None,
+                None,
+                None,
+                Some(refusal)
+            )
+            .is_err(),
+            "a reason on a pending receipt claims an outcome that has not happened"
+        );
+        assert!(
+            TransferReceiptV1::new(digest(7), TransferState::Finalized, None, None, None, None)
+                .is_err(),
+            "Finalized without block evidence is a claim with nothing behind it"
+        );
+    }
+
+    /// A retry hint is an instruction. Offering one where retrying can never
+    /// work sends a client into a loop that cannot terminate.
+    #[test]
+    fn only_a_transient_transfer_refusal_may_carry_a_retry_hint() {
+        assert!(TransferRejectionV1::new(TransferRejectionCode::SpoolFull, Some(30)).is_ok());
+        assert!(TransferRejectionV1::new(TransferRejectionCode::SignerLimited, Some(30)).is_ok());
+        assert!(TransferRejectionV1::new(TransferRejectionCode::GlobalLimited, Some(30)).is_ok());
+        for permanent in [
+            TransferRejectionCode::InputAlreadySpent,
+            TransferRejectionCode::ValidityWindowLapsed,
+            TransferRejectionCode::SessionExpired,
+            TransferRejectionCode::Malformed,
+            TransferRejectionCode::InvalidAuthorization,
+        ] {
+            assert!(!permanent.is_transient(), "{permanent:?} cannot become acceptable by waiting");
+            assert!(
+                TransferRejectionV1::new(permanent, Some(30)).is_err(),
+                "{permanent:?} must not invite a retry"
+            );
+            assert!(TransferRejectionV1::new(permanent, None).is_ok());
+        }
+    }
+
+    /// Submission and resolution are the two halves of observing a transfer,
+    /// and both must survive the wire for a refusal after spooling to be
+    /// visible at all.
+    #[test]
+    fn transfer_requests_and_their_receipt_round_trip_on_the_wire() {
+        let submit = RpcRequest::SubmitAuthorizedTransfer { envelope: vec![9_u8; 512] };
+        assert_eq!(decode_envelope::<RpcRequest>(&encode_envelope(&submit).unwrap()), Ok(submit));
+
+        let resolve = RpcRequest::ResolveTransfer { reference: digest(7) };
+        assert_eq!(decode_envelope::<RpcRequest>(&encode_envelope(&resolve).unwrap()), Ok(resolve));
+
+        let receipt =
+            TransferReceiptV1::new(digest(7), TransferState::Pending, None, None, None, None)
+                .unwrap();
+        let response = RpcResponse::TransferReceipt(receipt);
+        assert_eq!(
+            decode_envelope::<RpcResponse>(&encode_envelope(&response).unwrap()),
+            Ok(response)
+        );
+    }
+
+    /// The size bound exists so an oversized submission is refused before any
+    /// signature is verified, since verification is what an attacker would
+    /// want to make the node pay for.
+    #[test]
+    fn an_oversized_transfer_envelope_is_refused_before_verification() {
+        let oversized = RpcRequest::SubmitAuthorizedTransfer {
+            envelope: vec![0_u8; MAX_TRANSFER_ENVELOPE_LENGTH + 1],
+        };
+        assert!(
+            encode_envelope(&oversized).is_err(),
+            "an envelope past the bound must not even encode"
+        );
     }
 
     #[test]

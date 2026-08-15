@@ -764,6 +764,10 @@ impl DurableRpcStore {
             | RpcRequest::RequestFaucet { .. }
             | RpcRequest::RequestAuthorizedFaucet { .. }
             | RpcRequest::ResolveFaucet { .. }
+            // A store with no transfer admission configured cannot accept one,
+            // and must say so rather than accept and never settle.
+            | RpcRequest::SubmitAuthorizedTransfer { .. }
+            | RpcRequest::ResolveTransfer { .. }
             | RpcRequest::FaucetTerms => RpcResponse::Error(RpcError::InvalidRequest),
         }
     }
