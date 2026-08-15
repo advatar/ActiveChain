@@ -2,6 +2,16 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Kanalen integrator onboarding
+
+Tracked by [GitHub issue #815](https://github.com/advatar/ActiveChain/issues/815).
+
+- [ ] Publish one self-contained guide for pinning and probing the TLS RPC, building and creating
+  the developmental wallet, requesting faucet funding, verifying balance/finality, and respecting
+  the current spending, access, framing, and rate-limit boundaries.
+- [ ] Link the guide from the documentation index and Track 0 plan, then validate its paths, links,
+  exact public-network constants, and focused onboarding commands.
+
 ## ActiveBridge Thunes connector qualification
 
 Tracked by [GitHub issue #803](https://github.com/advatar/ActiveChain/issues/803).
