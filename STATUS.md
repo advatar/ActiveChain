@@ -2,6 +2,27 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Public authorized-transfer submission path
+
+Tracked by [GitHub issue #819](https://github.com/advatar/ActiveChain/issues/819), scoped by
+[PR #817](https://github.com/advatar/ActiveChain/pull/817).
+
+Value enters a wallet through the faucet and cannot leave it: `RpcRequest` carries reads,
+anchors, faucet and status, with no submission variant for an ordinary transfer. The two-cell
+grant made a grant spendable in the kernel's terms; nothing exposes that over the wire.
+
+- [ ] Add `RpcRequest::SubmitAuthorizedTransfer` at request tag 13 and a typed response at
+  response tag 11, reusing the existing `AuthorizedCashTransferV1` verifier rather than adding
+  a second one.
+- [ ] Carry schema revision 4 across node, probe, wallet core, CLI and UI.
+- [ ] Admit submissions through a bounded spool separate from the faucet's, with count and byte
+  limits, atomic fail-closed behaviour, authenticated-source and global quotas, and duplicate
+  rejection.
+- [ ] Cover tampering, expired and invalid sessions, duplicate submission, quota exhaustion, a
+  full spool, round inclusion, and an end-to-end transfer from a verified wallet.
+- [ ] Pass one exact-SHA `qualification=full` gate on the final revision before merge, and
+  prepare the node-first, wallet-second rollout that a wire change requires.
+
 ## ActiveBridge Thunes connector qualification
 
 Tracked by [GitHub issue #803](https://github.com/advatar/ActiveChain/issues/803).
