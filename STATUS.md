@@ -6,11 +6,14 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Tracked by [GitHub issue #815](https://github.com/advatar/ActiveChain/issues/815).
 
-- [ ] Publish one self-contained guide for pinning and probing the TLS RPC, building and creating
+- [x] Publish one self-contained guide for pinning and probing the TLS RPC, building and creating
   the developmental wallet, requesting faucet funding, verifying balance/finality, and respecting
   the current spending, access, framing, and rate-limit boundaries.
-- [ ] Link the guide from the documentation index and Track 0 plan, then validate its paths, links,
+- [x] Link the guide from the documentation index and Track 0 plan, then validate its paths, links,
   exact public-network constants, and focused onboarding commands.
+- [ ] Publish a signed external wallet distribution and a public ordinary-transfer submission path
+  before claiming that an outside developer can install and spend unaided; the onboarding audit
+  confirmed both remain unavailable in the current reference surfaces.
 
 ## ActiveBridge Thunes connector qualification
 

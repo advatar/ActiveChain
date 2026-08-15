@@ -138,11 +138,11 @@ another is selected. Removing a network does not delete its wallet.
 
 | Item | State |
 |---|---|
-| Deploy the accumulated commits (anchor sweep, paged index, treasury cap, wallet fixes) | ready, needs a window |
-| Qualification gate green on the exact SHA | blocked: needs the Mac's login keychain unlocked |
+| Deploy the accumulated commits (anchor sweep, paged index, treasury cap, wallet fixes) | deployed from `412b8e70` |
+| Qualification gate green on the exact SHA | complete: [full gate `31838029089`](https://github.com/advatar/ActiveChain/actions/runs/31838029089) passed on `412b8e70` |
 | macOS wallet lifecycle UI test | blocked: needs the Mac unlocked (XCUITest cannot foreground; provisioning needs Touch ID) |
 | Treasury pool maintenance | [#799](https://github.com/advatar/ActiveChain/issues/799) — 94 grants of runway remain |
-| Integrator onboarding doc: endpoint, genesis pin, funding, limits | not started |
+| Integrator onboarding doc: endpoint, genesis pin, funding, limits | drafted in [KANALEN_INTEGRATOR_ONBOARDING_V1.md](KANALEN_INTEGRATOR_ONBOARDING_V1.md); signed distribution and public ordinary-transfer submission remain open |
 | Android parity | [#795](https://github.com/advatar/ActiveChain/issues/795), only if integrators need it |
 
 ### Track 0 exit criteria
