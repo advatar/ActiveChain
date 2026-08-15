@@ -30,7 +30,16 @@ pub const MAX_RPC_BLOB_LENGTH: usize = 256 * 1024;
 /// and an unbounded submission must be refused before it is ever paid for. The
 /// authoritative bound is the envelope's own `MAX_ENCODED_LEN`, enforced when
 /// it decodes; this is the cheap gate in front of it.
-pub const MAX_TRANSFER_ENVELOPE_LENGTH: usize = 64 * 1024;
+///
+/// Derived rather than picked: `AuthorizedCashTransferV1::MAX_ENCODED_LEN` is
+/// 21,222 bytes, dominated by the ML-DSA-44 signatures over the transfer and
+/// its session grant. This crate cannot name that constant — wallet-core
+/// depends on this one, not the reverse — so the relationship is held by a
+/// test in `rpc-server`, which sees both. Rounding to 24 KiB leaves room for a
+/// schema revision to add a field without a wire change, and the guard test
+/// fails if a revision ever outgrows it, rather than letting valid transfers
+/// be refused as malformed.
+pub const MAX_TRANSFER_ENVELOPE_LENGTH: usize = 24 * 1024;
 pub const MAX_ANCHOR_ACTION_LENGTH: usize = 8 * 1024;
 pub const MAX_RPC_PAGE_SIZE: u16 = 4;
 pub const MAX_SUPPORTED_PROOFS: usize = 8;
@@ -1916,12 +1925,20 @@ pub enum TransferState {
     Pending = 0,
     Finalized = 1,
     Rejected = 2,
-    /// The terminal receipt was retained and has since been evicted.
+    /// Not known here, or no longer retained.
     ///
-    /// Never returned for a submission that is still in flight. Reporting
-    /// `Pending` here would make eviction indistinguishable from work in
-    /// progress and would reintroduce, at the storage boundary, exactly the
-    /// ambiguity that resolution exists to remove.
+    /// Deliberately not "definitely evicted": distinguishing a forgotten
+    /// outcome from a reference that was never submitted would require keeping
+    /// a tombstone for every reference ever asked about, which is unbounded.
+    /// A node that has never seen a reference and one that has forgotten it
+    /// can say the same true thing.
+    ///
+    /// What it never means is "still in flight". Reporting `Pending` for a
+    /// forgotten outcome would make forgetting look like work in progress and
+    /// reintroduce, at the storage boundary, the ambiguity resolution exists
+    /// to remove. A client seeing `Unknown` for something it submitted and saw
+    /// accepted has learned that the node can no longer answer, which is a
+    /// different instruction from "keep waiting".
     Unknown = 3,
 }
 impl CanonicalEncode for TransferState {
@@ -2076,17 +2093,45 @@ impl TransferReceiptV1 {
         if reference == Digest384::ZERO {
             return Err(DecodeError::InvalidValue("transfer receipt without a reference"));
         }
-        // A reason belongs to a refusal and nowhere else.
-        if rejection.is_some() != (state == TransferState::Rejected) {
-            return Err(DecodeError::InvalidValue("transfer rejection must accompany Rejected"));
-        }
-        // Finalization evidence is what Finalized means; absent it the state is
-        // a claim with nothing behind it.
-        let finalized = state == TransferState::Finalized;
-        if finalized
-            != (transaction_id.is_some() && finalized_height.is_some() && finalized_block.is_some())
-        {
-            return Err(DecodeError::InvalidValue("finalized transfer needs its block evidence"));
+        // Matched state by state rather than counted. Comparing "is finalized"
+        // against "has all three evidence fields" agrees whenever both are
+        // false, which let a Pending receipt carry a partial finalization it
+        // had no business carrying.
+        let evidence =
+            (transaction_id.is_some(), finalized_height.is_some(), finalized_block.is_some());
+        match state {
+            TransferState::Pending | TransferState::Unknown => {
+                if evidence != (false, false, false) {
+                    return Err(DecodeError::InvalidValue(
+                        "unsettled transfer cannot carry finalization evidence",
+                    ));
+                }
+                if rejection.is_some() {
+                    return Err(DecodeError::InvalidValue(
+                        "unsettled transfer cannot carry a refusal",
+                    ));
+                }
+            }
+            TransferState::Finalized => {
+                if evidence != (true, true, true) {
+                    return Err(DecodeError::InvalidValue(
+                        "finalized transfer needs its transaction, height and block",
+                    ));
+                }
+                if rejection.is_some() {
+                    return Err(DecodeError::InvalidValue("a finalized transfer was not refused"));
+                }
+            }
+            TransferState::Rejected => {
+                if rejection.is_none() {
+                    return Err(DecodeError::InvalidValue("a refusal must say why"));
+                }
+                if evidence != (false, false, false) {
+                    return Err(DecodeError::InvalidValue(
+                        "a refused transfer was never included in a block",
+                    ));
+                }
+            }
         }
         Ok(Self { reference, state, transaction_id, finalized_height, finalized_block, rejection })
     }
@@ -2101,6 +2146,14 @@ impl TransferReceiptV1 {
     #[must_use]
     pub const fn finalized_height(&self) -> Option<u64> {
         self.finalized_height
+    }
+    #[must_use]
+    pub const fn transaction_id(&self) -> Option<TransactionId> {
+        self.transaction_id
+    }
+    #[must_use]
+    pub const fn finalized_block(&self) -> Option<Digest384> {
+        self.finalized_block
     }
     #[must_use]
     pub const fn rejection(&self) -> Option<TransferRejectionV1> {
@@ -2512,6 +2565,105 @@ mod tests {
             TransferReceiptV1::new(digest(7), TransferState::Finalized, None, None, None, None)
                 .is_err(),
             "Finalized without block evidence is a claim with nothing behind it"
+        );
+    }
+
+    /// Finalization is three facts that are only true together. Checking that
+    /// "is finalized" agrees with "has all three" passes whenever both are
+    /// false, which let an unsettled receipt carry a partial finalization it
+    /// could never have earned.
+    #[test]
+    fn no_state_may_carry_partial_finalization_evidence() {
+        let transaction = Some(TransactionId::new(digest(8)));
+        let height = Some(41_u64);
+        let block = Some(digest(9));
+        let refusal =
+            TransferRejectionV1::new(TransferRejectionCode::InputAlreadySpent, None).unwrap();
+
+        // Every proper subset of the three, against every state that must
+        // carry none of them.
+        let partials = [
+            (transaction, None, None),
+            (None, height, None),
+            (None, None, block),
+            (transaction, height, None),
+            (transaction, None, block),
+            (None, height, block),
+        ];
+        for state in [TransferState::Pending, TransferState::Unknown] {
+            for (id, at, at_block) in partials {
+                assert!(
+                    TransferReceiptV1::new(digest(7), state, id, at, at_block, None).is_err(),
+                    "{state:?} must carry no finalization evidence, got {id:?}/{at:?}/{at_block:?}"
+                );
+            }
+        }
+        for (id, at, at_block) in partials {
+            assert!(
+                TransferReceiptV1::new(digest(7), TransferState::Finalized, id, at, at_block, None)
+                    .is_err(),
+                "Finalized needs all three, not {id:?}/{at:?}/{at_block:?}"
+            );
+            assert!(
+                TransferReceiptV1::new(
+                    digest(7),
+                    TransferState::Rejected,
+                    id,
+                    at,
+                    at_block,
+                    Some(refusal)
+                )
+                .is_err(),
+                "a refused transfer was never in a block, so it cannot cite one"
+            );
+        }
+
+        // A refusal is not an outcome that also finalized.
+        assert!(
+            TransferReceiptV1::new(
+                digest(7),
+                TransferState::Finalized,
+                transaction,
+                height,
+                block,
+                Some(refusal)
+            )
+            .is_err(),
+            "a finalized transfer was not refused"
+        );
+        assert!(
+            TransferReceiptV1::new(
+                digest(7),
+                TransferState::Unknown,
+                None,
+                None,
+                None,
+                Some(refusal)
+            )
+            .is_err(),
+            "an unanswerable receipt cannot also state a reason"
+        );
+    }
+
+    /// Unknown is what a node says when it cannot answer, and a client has to
+    /// be able to read that off the wire like any other outcome.
+    #[test]
+    fn an_unknown_outcome_round_trips_like_any_other() {
+        let unknown =
+            TransferReceiptV1::new(digest(7), TransferState::Unknown, None, None, None, None)
+                .expect("an unanswerable receipt still names what it refers to");
+        let wire = encode_envelope(&unknown).unwrap();
+        let decoded = decode_envelope::<TransferReceiptV1>(&wire).expect("Unknown must survive");
+        assert_eq!(decoded.state(), TransferState::Unknown);
+        assert_eq!(decoded.reference(), digest(7));
+        assert_eq!(decoded.transaction_id(), None);
+        assert_eq!(decoded.finalized_block(), None);
+        assert_eq!(decoded, unknown);
+
+        let response = RpcResponse::TransferReceipt(unknown);
+        assert_eq!(
+            decode_envelope::<RpcResponse>(&encode_envelope(&response).unwrap()),
+            Ok(response)
         );
     }
 

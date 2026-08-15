@@ -843,6 +843,22 @@ pub trait AnchorSettlementAdapter: Send + Sync {
 /// Direct validator-side adapter for deployments that host the authenticated
 /// wallet ingress in the RPC process. The ingress remains durable and shared;
 /// this boundary only admits exact signed envelopes.
+/// The submission bound lives in `rpc-types`, which cannot name the envelope it
+/// bounds: wallet-core depends on rpc-types, not the reverse. This crate sees
+/// both, so the relationship is held here — at compile time, because a schema
+/// revision that outgrows the bound would otherwise refuse every valid transfer
+/// as malformed, which is a far worse way to find out.
+const _: () = assert!(
+    activechain_wallet_core::AuthorizedCashTransferV1::MAX_ENCODED_LEN
+        <= activechain_rpc_types::MAX_TRANSFER_ENVELOPE_LENGTH,
+    "the largest authorized transfer must fit the submission bound"
+);
+/// Bounded, not merely large: a limit that admits an arbitrary blob is not one.
+const _: () = assert!(
+    activechain_rpc_types::MAX_TRANSFER_ENVELOPE_LENGTH
+        < activechain_rpc_types::MAX_RPC_BLOB_LENGTH
+);
+
 pub struct WalletIngressAuthorizedSettlementAdapter {
     ingress: Arc<std::sync::Mutex<activechain_wallet_core::TransactionIngress>>,
     snapshot_path: PathBuf,
@@ -3535,10 +3551,12 @@ mod tests {
 
     #[test]
     fn published_revisions_are_stable() {
-        // Revision 3 introduced the typed FaucetRejected response. Changing
-        // this number is a deliberate act: every client checks it to decide
-        // whether it can understand the node at all.
-        assert_eq!(RPC_SCHEMA_REVISION, 3);
+        // Revision 3 introduced the typed FaucetRejected response; revision 4
+        // adds transfer submission and resolution. Changing this number is a
+        // deliberate act: every client checks it to decide whether it can
+        // understand the node at all, and a wallet pinned to 3 must refuse a
+        // node serving 4 rather than guess.
+        assert_eq!(RPC_SCHEMA_REVISION, 4);
         assert_eq!(RpcAccessTerms::TYPE_TAG, 0x00ba);
         assert_eq!(RpcAccessRequest::TYPE_TAG, 0x00bc);
         assert_eq!(RpcAccessResponse::TYPE_TAG, 0x00bd);
