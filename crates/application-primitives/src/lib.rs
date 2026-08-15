@@ -21,6 +21,7 @@ mod fungible_transfer;
 mod holder_control;
 #[cfg(feature = "std")]
 mod receipt_nullifier;
+mod reserve;
 #[cfg(feature = "std")]
 mod sponsored_cash;
 mod telemetry;
@@ -73,6 +74,7 @@ pub use receipt_nullifier::{
     CredentialReceiptJournalError, CredentialReceiptLedgerV1, DurableCredentialReceiptJournal,
     DurableCredentialReceiptLedger,
 };
+pub use reserve::{ReserveAttestationError, ReserveAttestationV1, ReserveClaim};
 #[cfg(feature = "std")]
 pub use sponsored_cash::{
     DurableSponsoredCash, SponsoredCashPersistenceError, SponsoredCashReceiptV1,

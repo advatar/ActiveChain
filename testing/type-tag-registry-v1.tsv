@@ -331,3 +331,4 @@
 0x01C4	1	StoredIndexHeader	crates/rpc-server/src/lib.rs
 0x01C5	1	StoredIndexPage	crates/rpc-server/src/lib.rs
 0x01C6	1	ActivatedProfileSet	crates/application-primitives/src/compliance.rs
+0x01C7	1	ReserveAttestationV1	crates/application-primitives/src/reserve.rs
