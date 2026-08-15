@@ -843,19 +843,31 @@ pub trait AnchorSettlementAdapter: Send + Sync {
 /// Direct validator-side adapter for deployments that host the authenticated
 /// wallet ingress in the RPC process. The ingress remains durable and shared;
 /// this boundary only admits exact signed envelopes.
-/// The submission bound lives in `rpc-types`, which cannot name the envelope it
-/// bounds: wallet-core depends on rpc-types, not the reverse. This crate sees
-/// both, so the relationship is held here — at compile time, because a schema
-/// revision that outgrows the bound would otherwise refuse every valid transfer
-/// as malformed, which is a far worse way to find out.
+/// Each submission field carries an *encoded envelope*, while `MAX_ENCODED_LEN`
+/// describes the payload inside it, so the framing `encode_envelope` adds is
+/// counted here rather than assumed away.
+///
+/// These bounds live in `rpc-types`, which cannot name the types they bound:
+/// wallet-core depends on it, not the reverse. This crate sees both, so the
+/// relationship is held at compile time — a schema revision that outgrows a
+/// bound fails the build instead of silently refusing every valid submission
+/// as malformed.
+const _: () = assert!(
+    activechain_wallet_core::AuthorizedCashSessionGrantV1::MAX_ENCODED_LEN
+        + activechain_rpc_types::CANONICAL_ENVELOPE_OVERHEAD
+        <= activechain_rpc_types::MAX_TRANSFER_SESSION_LENGTH,
+    "an enveloped session grant must fit the session field"
+);
 const _: () = assert!(
     activechain_wallet_core::AuthorizedCashTransferV1::MAX_ENCODED_LEN
+        + activechain_rpc_types::CANONICAL_ENVELOPE_OVERHEAD
         <= activechain_rpc_types::MAX_TRANSFER_ENVELOPE_LENGTH,
-    "the largest authorized transfer must fit the submission bound"
+    "an enveloped transfer must fit the transfer field"
 );
-/// Bounded, not merely large: a limit that admits an arbitrary blob is not one.
+/// Bounded, not merely large: a limit admitting an arbitrary blob is not one.
 const _: () = assert!(
-    activechain_rpc_types::MAX_TRANSFER_ENVELOPE_LENGTH
+    activechain_rpc_types::MAX_TRANSFER_SESSION_LENGTH
+        + activechain_rpc_types::MAX_TRANSFER_ENVELOPE_LENGTH
         < activechain_rpc_types::MAX_RPC_BLOB_LENGTH
 );
 

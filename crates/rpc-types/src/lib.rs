@@ -24,21 +24,28 @@ use sha3::{
 pub const RPC_SCHEMA_REVISION: u32 = 4;
 pub const MAX_RPC_BLOB_LENGTH: usize = 256 * 1024;
 
-/// The largest transfer envelope the node will look at.
+/// Framing that `encode_envelope` puts around a payload: a type tag, a schema
+/// version, and a length prefix. The codec keeps these private, so the figure
+/// is restated here with its derivation rather than guessed at.
+pub const CANONICAL_ENVELOPE_OVERHEAD: usize = 2 + 2 + 5;
+
+/// The largest session grant a submission may carry, as an encoded envelope.
 ///
-/// Checked before the signature is, because verification is the expensive step
-/// and an unbounded submission must be refused before it is ever paid for. The
-/// authoritative bound is the envelope's own `MAX_ENCODED_LEN`, enforced when
-/// it decodes; this is the cheap gate in front of it.
+/// `AuthorizedCashSessionGrantV1` encodes to at most 20,187 bytes, dominated by
+/// its ML-DSA-44 signature. Bounded per field rather than across the pair, so
+/// neither half can consume the other's allowance.
+pub const MAX_TRANSFER_SESSION_LENGTH: usize = 24 * 1024;
+
+/// The largest transfer a submission may carry, as an encoded envelope.
 ///
-/// Derived rather than picked: `AuthorizedCashTransferV1::MAX_ENCODED_LEN` is
-/// 21,222 bytes, dominated by the ML-DSA-44 signatures over the transfer and
-/// its session grant. This crate cannot name that constant — wallet-core
-/// depends on this one, not the reverse — so the relationship is held by a
-/// test in `rpc-server`, which sees both. Rounding to 24 KiB leaves room for a
-/// schema revision to add a field without a wire change, and the guard test
-/// fails if a revision ever outgrows it, rather than letting valid transfers
-/// be refused as malformed.
+/// `AuthorizedCashTransferV1` encodes to at most 21,222 bytes — the request and
+/// one signature, not the session grant, which travels beside it.
+///
+/// Both bounds are checked before any signature is, because verification is the
+/// expensive step and precisely what an unbounded submission would make the
+/// node pay for. `rpc-server` holds each against the type it carries, plus
+/// framing, as a compile-time assertion: this crate cannot name those types,
+/// since wallet-core depends on it and not the reverse.
 pub const MAX_TRANSFER_ENVELOPE_LENGTH: usize = 24 * 1024;
 pub const MAX_ANCHOR_ACTION_LENGTH: usize = 8 * 1024;
 pub const MAX_RPC_PAGE_SIZE: u16 = 4;
@@ -835,12 +842,19 @@ pub enum RpcRequest {
         after: Option<Digest384>,
         limit: u16,
     },
-    /// Offers a signed transfer for inclusion.
+    /// Offers a signed transfer, with the session grant that authorizes it,
+    /// for inclusion.
+    ///
+    /// The pair travels together because a session is consumed by one transfer
+    /// and must be installed atomically with it: registering one separately
+    /// would need its own durable ordering and replay rules to reach a state
+    /// that is only ever one transfer from being spent.
     ///
     /// Acceptance means durably spooled and nothing more; the receipt says so
     /// and makes no claim about the ledger.
     SubmitAuthorizedTransfer {
-        envelope: Vec<u8>,
+        session: Vec<u8>,
+        transfer: Vec<u8>,
     },
     /// Asks what became of a submission.
     ///
@@ -873,9 +887,10 @@ impl CanonicalEncode for RpcRequest {
                 3_u8.encode(encoder)?;
                 encoder.write_bytes(statement, 512)
             }
-            Self::SubmitAuthorizedTransfer { envelope } => {
+            Self::SubmitAuthorizedTransfer { session, transfer } => {
                 13_u8.encode(encoder)?;
-                encoder.write_bytes(envelope, MAX_TRANSFER_ENVELOPE_LENGTH)
+                encoder.write_bytes(session, MAX_TRANSFER_SESSION_LENGTH)?;
+                encoder.write_bytes(transfer, MAX_TRANSFER_ENVELOPE_LENGTH)
             }
             Self::ResolveTransfer { reference } => {
                 14_u8.encode(encoder)?;
@@ -938,7 +953,8 @@ impl CanonicalDecode for RpcRequest {
             }
             3 => Ok(Self::SubmitAnchor { statement: decoder.read_bytes(512)?.to_vec() }),
             13 => Ok(Self::SubmitAuthorizedTransfer {
-                envelope: decoder.read_bytes(MAX_TRANSFER_ENVELOPE_LENGTH)?.to_vec(),
+                session: decoder.read_bytes(MAX_TRANSFER_SESSION_LENGTH)?.to_vec(),
+                transfer: decoder.read_bytes(MAX_TRANSFER_ENVELOPE_LENGTH)?.to_vec(),
             }),
             14 => Ok(Self::ResolveTransfer { reference: Digest384::decode(decoder)? }),
             11 => Ok(Self::SubmitAnchorAction {
@@ -2019,25 +2035,47 @@ impl CanonicalDecode for TransferRejectionCode {
     }
 }
 
-/// A transfer refusal, carrying only what decides the client's next move.
+/// A refusal to accept a submission at all.
+///
+/// Returned before anything is written, so nothing about it is resolvable and
+/// nothing it names is reserved. That is what keeps an unauthenticated
+/// submission from occupying an intent it does not own.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TransferRejectionV1 {
     code: TransferRejectionCode,
     /// When a wait would help. Absent when waiting cannot change the outcome.
     retry_after_seconds: Option<u64>,
+    /// The intent, when one could be derived.
+    ///
+    /// Optional because the refusals that matter most happen before an intent
+    /// exists: malformed bytes yield no identifier, and a rejection that could
+    /// not be returned without one would leave the node unable to refuse the
+    /// very input it most needs to. Never invented to fill the field.
+    intent: Option<Digest384>,
 }
 impl TransferRejectionV1 {
     /// # Errors
     /// Rejects a retry hint on a code that will refuse identically forever,
-    /// which would invite a client to retry something that cannot succeed.
+    /// which would invite a client to retry something that cannot succeed, and
+    /// rejects an intent on the codes that are refused before one can exist.
     pub fn new(
         code: TransferRejectionCode,
         retry_after_seconds: Option<u64>,
+        intent: Option<Digest384>,
     ) -> Result<Self, DecodeError> {
         if retry_after_seconds.is_some() && !code.is_transient() {
             return Err(DecodeError::InvalidValue("retry hint on a permanent transfer refusal"));
         }
-        Ok(Self { code, retry_after_seconds })
+        if intent == Some(Digest384::ZERO) {
+            return Err(DecodeError::InvalidValue("transfer rejection with an empty intent"));
+        }
+        // Malformed input is refused before decoding gets far enough to derive
+        // an intent, so claiming one would be claiming to know something the
+        // node cannot know.
+        if intent.is_some() && code == TransferRejectionCode::Malformed {
+            return Err(DecodeError::InvalidValue("malformed input yields no intent"));
+        }
+        Ok(Self { code, retry_after_seconds, intent })
     }
     #[must_use]
     pub const fn code(&self) -> TransferRejectionCode {
@@ -2047,18 +2085,24 @@ impl TransferRejectionV1 {
     pub const fn retry_after_seconds(&self) -> Option<u64> {
         self.retry_after_seconds
     }
+    #[must_use]
+    pub const fn intent(&self) -> Option<Digest384> {
+        self.intent
+    }
 }
 impl CanonicalEncode for TransferRejectionV1 {
     fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
         self.code.encode(encoder)?;
-        self.retry_after_seconds.encode(encoder)
+        self.retry_after_seconds.encode(encoder)?;
+        self.intent.encode(encoder)
     }
 }
 impl CanonicalDecode for TransferRejectionV1 {
     fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
         let code = TransferRejectionCode::decode(decoder)?;
         let retry_after_seconds = Option::<u64>::decode(decoder)?;
-        Self::new(code, retry_after_seconds)
+        let intent = Option::<Digest384>::decode(decoder)?;
+        Self::new(code, retry_after_seconds, intent)
     }
 }
 
@@ -2200,9 +2244,14 @@ pub enum RpcResponse {
     FaucetReceipt(FaucetReceiptV1),
     FaucetTerms(FaucetTermsV1),
     FaucetRejected(FaucetRejectionV1),
-    /// Answers both submission and resolution, so a refusal, an accepted
-    /// spooling and a finalized outcome all arrive in one shape.
+    /// A durable outcome: accepted and spooled, finalized, refused after
+    /// acceptance, or no longer retained. Everything here is resolvable.
     TransferReceipt(TransferReceiptV1),
+    /// A refusal to accept, carrying no durable state. Separate from the
+    /// receipt because handing back something resolvable for a request the
+    /// node never recorded would invite a client to poll a reference that
+    /// does not exist.
+    TransferRejected(TransferRejectionV1),
 }
 impl CanonicalEncode for RpcResponse {
     fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
@@ -2255,6 +2304,10 @@ impl CanonicalEncode for RpcResponse {
                 11_u8.encode(encoder)?;
                 receipt.encode(encoder)
             }
+            Self::TransferRejected(rejection) => {
+                12_u8.encode(encoder)?;
+                rejection.encode(encoder)
+            }
         }
     }
 }
@@ -2273,6 +2326,7 @@ impl CanonicalDecode for RpcResponse {
             7 => Ok(Self::FaucetTerms(FaucetTermsV1::decode(decoder)?)),
             10 => Ok(Self::FaucetRejected(FaucetRejectionV1::decode(decoder)?)),
             11 => Ok(Self::TransferReceipt(TransferReceiptV1::decode(decoder)?)),
+            12 => Ok(Self::TransferRejected(TransferRejectionV1::decode(decoder)?)),
             tag => Err(DecodeError::InvalidEnumTag { type_name: "RpcResponse", tag }),
         }
     }
@@ -2516,8 +2570,9 @@ mod tests {
             Ok(finalized)
         );
 
-        let refusal = TransferRejectionV1::new(TransferRejectionCode::InputAlreadySpent, None)
-            .expect("a permanent refusal carries no retry hint");
+        let refusal =
+            TransferRejectionV1::new(TransferRejectionCode::InputAlreadySpent, None, None)
+                .expect("a permanent refusal carries no retry hint");
         let rejected = TransferReceiptV1::new(
             digest(7),
             TransferState::Rejected,
@@ -2578,7 +2633,7 @@ mod tests {
         let height = Some(41_u64);
         let block = Some(digest(9));
         let refusal =
-            TransferRejectionV1::new(TransferRejectionCode::InputAlreadySpent, None).unwrap();
+            TransferRejectionV1::new(TransferRejectionCode::InputAlreadySpent, None, None).unwrap();
 
         // Every proper subset of the three, against every state that must
         // carry none of them.
@@ -2645,6 +2700,43 @@ mod tests {
         );
     }
 
+    /// A refusal happens before anything is written, so it must be returnable
+    /// for input too broken to have an identity — and must not claim one.
+    #[test]
+    fn a_refusal_carries_an_intent_only_when_one_could_be_derived() {
+        // The case that matters most: bytes that never decoded far enough to
+        // have an intent must still be refusable.
+        let malformed = TransferRejectionV1::new(TransferRejectionCode::Malformed, None, None)
+            .expect("malformed input must be refusable without an identity");
+        assert_eq!(malformed.intent(), None);
+        assert_eq!(
+            decode_envelope::<RpcResponse>(
+                &encode_envelope(&RpcResponse::TransferRejected(malformed)).unwrap()
+            ),
+            Ok(RpcResponse::TransferRejected(malformed))
+        );
+
+        assert!(
+            TransferRejectionV1::new(TransferRejectionCode::Malformed, None, Some(digest(7)))
+                .is_err(),
+            "input that never decoded cannot also have yielded an intent"
+        );
+        assert!(
+            TransferRejectionV1::new(TransferRejectionCode::SpoolFull, Some(30), Some(digest(7)))
+                .is_ok(),
+            "a refusal after derivation may correlate"
+        );
+        assert!(
+            TransferRejectionV1::new(
+                TransferRejectionCode::SessionExpired,
+                None,
+                Some(Digest384::ZERO)
+            )
+            .is_err(),
+            "an empty intent is not an intent"
+        );
+    }
+
     /// Unknown is what a node says when it cannot answer, and a client has to
     /// be able to read that off the wire like any other outcome.
     #[test]
@@ -2671,9 +2763,13 @@ mod tests {
     /// work sends a client into a loop that cannot terminate.
     #[test]
     fn only_a_transient_transfer_refusal_may_carry_a_retry_hint() {
-        assert!(TransferRejectionV1::new(TransferRejectionCode::SpoolFull, Some(30)).is_ok());
-        assert!(TransferRejectionV1::new(TransferRejectionCode::SignerLimited, Some(30)).is_ok());
-        assert!(TransferRejectionV1::new(TransferRejectionCode::GlobalLimited, Some(30)).is_ok());
+        assert!(TransferRejectionV1::new(TransferRejectionCode::SpoolFull, Some(30), None).is_ok());
+        assert!(
+            TransferRejectionV1::new(TransferRejectionCode::SignerLimited, Some(30), None).is_ok()
+        );
+        assert!(
+            TransferRejectionV1::new(TransferRejectionCode::GlobalLimited, Some(30), None).is_ok()
+        );
         for permanent in [
             TransferRejectionCode::InputAlreadySpent,
             TransferRejectionCode::ValidityWindowLapsed,
@@ -2683,10 +2779,10 @@ mod tests {
         ] {
             assert!(!permanent.is_transient(), "{permanent:?} cannot become acceptable by waiting");
             assert!(
-                TransferRejectionV1::new(permanent, Some(30)).is_err(),
+                TransferRejectionV1::new(permanent, Some(30), None).is_err(),
                 "{permanent:?} must not invite a retry"
             );
-            assert!(TransferRejectionV1::new(permanent, None).is_ok());
+            assert!(TransferRejectionV1::new(permanent, None, None).is_ok());
         }
     }
 
@@ -2695,7 +2791,10 @@ mod tests {
     /// visible at all.
     #[test]
     fn transfer_requests_and_their_receipt_round_trip_on_the_wire() {
-        let submit = RpcRequest::SubmitAuthorizedTransfer { envelope: vec![9_u8; 512] };
+        let submit = RpcRequest::SubmitAuthorizedTransfer {
+            session: vec![8_u8; 400],
+            transfer: vec![9_u8; 512],
+        };
         assert_eq!(decode_envelope::<RpcRequest>(&encode_envelope(&submit).unwrap()), Ok(submit));
 
         let resolve = RpcRequest::ResolveTransfer { reference: digest(7) };
@@ -2716,12 +2815,22 @@ mod tests {
     /// want to make the node pay for.
     #[test]
     fn an_oversized_transfer_envelope_is_refused_before_verification() {
-        let oversized = RpcRequest::SubmitAuthorizedTransfer {
-            envelope: vec![0_u8; MAX_TRANSFER_ENVELOPE_LENGTH + 1],
+        let oversized_transfer = RpcRequest::SubmitAuthorizedTransfer {
+            session: Vec::new(),
+            transfer: vec![0_u8; MAX_TRANSFER_ENVELOPE_LENGTH + 1],
         };
         assert!(
-            encode_envelope(&oversized).is_err(),
-            "an envelope past the bound must not even encode"
+            encode_envelope(&oversized_transfer).is_err(),
+            "a transfer past the bound must not even encode"
+        );
+        // Bounded per field, so a session cannot borrow the transfer's room.
+        let oversized_session = RpcRequest::SubmitAuthorizedTransfer {
+            session: vec![0_u8; MAX_TRANSFER_SESSION_LENGTH + 1],
+            transfer: Vec::new(),
+        };
+        assert!(
+            encode_envelope(&oversized_session).is_err(),
+            "a session past its own bound must not encode either"
         );
     }
 
