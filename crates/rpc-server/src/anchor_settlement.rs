@@ -209,7 +209,10 @@ impl AnchorProposalAdapter for SpoolAnchorProposalAdapter {
             .ok_or(AnchorError::InvalidTransition)?;
         let encoded_ceiling =
             u64::try_from(MAX_ANCHOR_ACTION_LENGTH).map_err(|_| AnchorError::Encoding)?;
-        let resources = ResourceVector::new(1, 0, 0, 0, 0, encoded_ceiling);
+        // SubmitAnchor derives one immutable state object, so execution charges
+        // one object read and one object write. Keep the declared ceiling
+        // aligned with `ready()` and consensus resource accounting.
+        let resources = ResourceVector::new(1, 1, 1, 0, 0, encoded_ceiling);
         let reservation = resources
             .checked_charge(state.resource_prices())
             .and_then(|charge| charge.checked_add(FEE_TICKET_ADMISSION_CHARGE))
@@ -305,6 +308,8 @@ mod tests {
         assert_eq!(action.sender(), operator);
         assert_eq!(action.authorization_commitment(), reference);
         assert_eq!(action_id(&action).unwrap(), first.transaction());
+        assert_eq!(action.maximum_resources().object_reads(), 1);
+        assert_eq!(action.maximum_resources().object_writes(), 1);
         assert_eq!(
             adapter.propose_anchor(
                 &DigestAnchorStatementV1::new(b"actum.test.anchor".to_vec(), [4; 32]).unwrap(),
