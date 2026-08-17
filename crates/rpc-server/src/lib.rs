@@ -22,8 +22,8 @@ pub use operator_faucet::{
 
 use activechain_action_kernel::{ActionEnvelope, ActionPayloadV2, action_id};
 use activechain_application_primitives::{
-    AnchorError, AnchorFinalizedEvidenceV1, AnchorStatus, DigestAnchorStatementV1,
-    DurableAnchorRegistry,
+    AnchorError, AnchorFinalizedEvidenceV1, AnchorStateRecordV1, AnchorStatus,
+    DigestAnchorStatementV1, DurableAnchorRegistry, anchor_state_record_type_id,
 };
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
@@ -45,6 +45,7 @@ use activechain_rpc_types::{
     QueryPage, QueryRecord, RpcAccessRequest, RpcAccessResponse, RpcError, RpcRequest, RpcResponse,
     RpcStatus,
 };
+use activechain_state_tree::{commit_objects, prove_object};
 use activechain_wallet_core::AuthorizedCashTransferV1;
 use sha3::{
     Shake256,
@@ -121,6 +122,57 @@ pub fn finalized_coin_cell_records_with_chain_genesis(
         return Err(RpcStoreError::Invalid);
     }
     finalized_coin_cell_records(cells, finalized_height, finality)
+}
+
+/// Builds generic state-query records for immutable native anchor objects already present in the
+/// finalized execution state. The execution state and finality certificate must describe the same
+/// canonical post-state; callers cannot choose a root or publish a pending registry entry.
+pub fn finalized_anchor_state_records_with_chain_genesis(
+    objects: &[Object],
+    finalized_height: u64,
+    finality: &[u8],
+    chain_genesis: Digest384,
+) -> Result<Vec<QueryRecord>, RpcStoreError> {
+    let bundle = activechain_verifier_api::verify_finality_bundle_with_chain_genesis(
+        finality,
+        chain_genesis,
+    )
+    .map_err(|_| RpcStoreError::Invalid)?;
+    if bundle.header().inputs.height != finalized_height
+        || commit_objects(objects).map_err(|_| RpcStoreError::Invalid)?
+            != bundle.header().inputs.post_state
+    {
+        return Err(RpcStoreError::Invalid);
+    }
+    let mut records = Vec::new();
+    for object in objects.iter().filter(|object| object.type_id() == anchor_state_record_type_id())
+    {
+        let public_value = object.public_value().ok_or(RpcStoreError::Invalid)?;
+        let state_record: AnchorStateRecordV1 =
+            decode_envelope(public_value).map_err(|_| RpcStoreError::Invalid)?;
+        if encode_envelope(&state_record).map_err(|_| RpcStoreError::Invalid)? != public_value
+            || activechain_application_primitives::anchor_state_object(&state_record)
+                .map_err(|_| RpcStoreError::Invalid)?
+                != *object
+        {
+            return Err(RpcStoreError::Invalid);
+        }
+        let proof =
+            prove_object(objects, object.object_id()).map_err(|_| RpcStoreError::Invalid)?;
+        records.push(
+            QueryRecord::new(
+                QueryKind::State,
+                object.object_id().into_digest(),
+                finalized_height,
+                encode_envelope(object).map_err(|_| RpcStoreError::Invalid)?,
+                encode_envelope(&proof).map_err(|_| RpcStoreError::Invalid)?,
+                finality.to_vec(),
+            )
+            .map_err(|_| RpcStoreError::Invalid)?,
+        );
+    }
+    records.sort_by_key(|record| record.key());
+    Ok(records)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1927,7 +1979,8 @@ mod tests {
         ACTION_PROTOCOL_VERSION, FeeTicket, ResourceVector, ValidityInterval,
     };
     use activechain_application_primitives::{
-        AnchorRecord, AnchorStatus, ApplicationReceipt, DigestAnchorStatementV1, JobStatus,
+        AnchorRecord, AnchorStateRecordV1, AnchorStatus, ApplicationReceipt,
+        DigestAnchorStatementV1, JobStatus, anchor_state_object,
     };
     use activechain_cash_kernel::{
         CoinCell, CoinCellOrigin, CoinCellSet, CoinTransfer, GenesisAllocation, GenesisEconomy,
@@ -2726,6 +2779,64 @@ mod tests {
             signed_finality(byte, inputs),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn finalized_anchor_state_publication_is_canonical_and_checkpoint_bound() {
+        let statement =
+            DigestAnchorStatementV1::new(b"generic.anchor.v1".to_vec(), [7; 32]).unwrap();
+        let record =
+            AnchorStateRecordV1::new(statement, TransactionId::new(digest(8)), 7, digest(9))
+                .unwrap();
+        let object = anchor_state_object(&record).unwrap();
+        let objects = vec![object.clone()];
+        let post_state = commit_objects(&objects).unwrap();
+        let finality = signed_finality(
+            10,
+            ProofPublicInputs {
+                post_state,
+                ..public_inputs(StateCommitment::new(digest(80), 0), post_state)
+            },
+        );
+        let bundle: FinalityCertificateBundle = decode_envelope(&finality).unwrap();
+        let genesis = bundle.certificate().genesis_commitment();
+
+        let records =
+            finalized_anchor_state_records_with_chain_genesis(&objects, 7, &finality, genesis)
+                .unwrap();
+        assert_eq!(records.len(), 1);
+        let query = &records[0];
+        assert_eq!(query.kind(), QueryKind::State);
+        assert_eq!(query.key(), object.object_id().into_digest());
+        let served: Object = decode_envelope(query.value()).unwrap();
+        assert_eq!(served, object);
+        assert_eq!(served.public_value(), Some(encode_envelope(&record).unwrap().as_slice()));
+        verify_query_record_with_finality(query, bundle.clone(), Some(genesis)).unwrap();
+
+        let empty_post = commit_objects(&[]).unwrap();
+        let empty_finality = signed_finality(
+            11,
+            ProofPublicInputs {
+                post_state: empty_post,
+                ..public_inputs(StateCommitment::new(digest(80), 0), empty_post)
+            },
+        );
+        let pending = finalized_anchor_state_records_with_chain_genesis(
+            &[],
+            7,
+            &empty_finality,
+            decode_envelope::<FinalityCertificateBundle>(&empty_finality)
+                .unwrap()
+                .certificate()
+                .genesis_commitment(),
+        )
+        .unwrap();
+        assert!(pending.is_empty());
+
+        assert_eq!(
+            finalized_anchor_state_records_with_chain_genesis(&[], 7, &finality, genesis,),
+            Err(RpcStoreError::Invalid)
+        );
     }
     fn application_receipt_record() -> QueryRecord {
         let pre_state = StateCommitment::new(digest(80), 0);
