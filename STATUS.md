@@ -10,6 +10,8 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
   durable operator trust store; reject caller-supplied trust fields and malformed input.
 - [x] Locally qualify the verifier crate and focused boundary tests; real network lifecycle remains
   pending Actum dev/staging checkpoint availability.
+- [x] Pass `cargo fmt --all --check`, affected verifier/RPC-server all-target tests, and strict
+  Clippy on the final candidate; Apple consumers target deployment version 26.5.
 
 ## ActiveBridge Thunes connector qualification
 
