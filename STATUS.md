@@ -2,6 +2,17 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Generic native anchor finality verifier (#821 / PR #822)
+
+- [x] Keep canonical `DigestAnchorStatementV1` construction, native finality, and checkpoint
+  membership verification at the Actum-owned boundary.
+- [x] Load and validate accepted chain/genesis/checkpoint/protocol/verifier trust only from the
+  durable operator trust store; reject caller-supplied trust fields and malformed input.
+- [x] Locally qualify the verifier crate and focused boundary tests; real network lifecycle remains
+  pending Actum dev/staging checkpoint availability.
+- [x] Pass `cargo fmt --all --check`, affected verifier/RPC-server all-target tests, and strict
+  Clippy on the final candidate; Apple consumers target deployment version 26.5.
+
 ## ActiveBridge Thunes connector qualification
 
 Tracked by [GitHub issue #803](https://github.com/advatar/ActiveChain/issues/803).
