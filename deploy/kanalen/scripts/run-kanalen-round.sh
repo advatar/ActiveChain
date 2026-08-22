@@ -14,6 +14,7 @@ cash_ledger="$state_root/cash-ledger.snapshot"
 cash_actions="$state_root/pending-cash-actions.batch"
 cash_action_spool="$state_root/cash-action-spool"
 cash_action_inflight="$state_root/cash-action-spool.inflight"
+transfer_snapshot="$rpc_root/transfers.snapshot"
 anchor_actions="$state_root/anchor-actions.batch"
 anchor_operator=${ACTIVECHAIN_ANCHOR_OPERATOR:-"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"}
 anchor_fee_balance=${ACTIVECHAIN_ANCHOR_FEE_BALANCE:-"1000000000"}
@@ -36,7 +37,9 @@ test -f "$cash_ledger" || {
 mkdir "$lock" 2>/dev/null || exit 0
 trap 'rmdir "$lock"' EXIT
 
-if test ! -e "$cash_actions" && test -d "$cash_action_spool"; then
+cash_actions_preexisting=0
+test ! -e "$cash_actions" || cash_actions_preexisting=1
+if test "$cash_actions_preexisting" -eq 0 && test -d "$cash_action_spool"; then
   if find "$cash_action_spool" -type f -name '*.action' -print -quit | grep -q .; then
     test ! -e "$cash_action_inflight" || {
       echo "stale faucet action inflight directory requires recovery: $cash_action_inflight" >&2
@@ -47,6 +50,13 @@ if test ! -e "$cash_actions" && test -d "$cash_action_spool"; then
     find "$cash_action_inflight" -type f -name '*.action' -print | LC_ALL=C sort | xargs cat > "$cash_actions"
   fi
 fi
+if test "$cash_actions_preexisting" -eq 0 && test -f "$transfer_snapshot"; then
+  "$binary_root/activechain-transfer-spool" prepare \
+    "$transfer_snapshot" "$cash_ledger" "$rpc_snapshot" "$cash_actions"
+  test -s "$cash_actions" || rm -f "$cash_actions"
+fi
+cash_actions_submitted=0
+test ! -s "$cash_actions" || cash_actions_submitted=1
 
 for port in 49153 49154 49155; do
   attempts=0
@@ -128,6 +138,10 @@ test -f "$finality_bundle" || {
 "$binary_root/activechain-rpc-ingest" \
   "$proposer_snapshot" "$rpc_snapshot" \
   "$cash_snapshot" "$finality_bundle" "$state_root/execution.snapshot"
+if test "$cash_actions_submitted" -eq 1 && test -f "$transfer_snapshot"; then
+  "$binary_root/activechain-transfer-spool" reconcile-latest \
+    "$transfer_snapshot" "$rpc_snapshot" "$state_root"
+fi
 if test ! -e "$cash_actions" && test -d "$cash_action_inflight"; then
   find "$cash_action_inflight" -type f -name '*.action' -delete
   rmdir "$cash_action_inflight"

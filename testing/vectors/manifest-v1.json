@@ -102,9 +102,9 @@
     {
       "id": "apple-anchor-client-v1",
       "type_tag": "0x00c6,0x0107",
-      "schema_version": 2,
+      "schema_version": 3,
       "source": "application/apple-anchor-client-v1.txt",
-      "sha256": "d4dc38f9b4a7d023056bc0c65b30d65e8d066a996232b46398891db6aca7f3e2",
+      "sha256": "7abcbdf06a908bdc15c6a1968af47899c3eeb5cb6f87a3ee9559476a6938a5e8",
       "status": "valid"
     },
     {

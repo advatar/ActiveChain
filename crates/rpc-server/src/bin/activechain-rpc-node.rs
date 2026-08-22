@@ -1,10 +1,11 @@
 use activechain_application_primitives::DurableAnchorRegistry;
 use activechain_protocol_types::{Digest384, PrincipalId};
 use activechain_rpc_server::{
-    DurableFaucet, DurableOperatorFaucetSettlement, DurableRpcStore, FaucetPolicy,
-    MlDsa44FaucetAuthorizer, RpcAccessController, RpcServer, SpoolAnchorProposalAdapter,
-    SpoolOperatorFaucetIngressAdapter, SybilPolicy, WalletIngressOperatorSettlementAdapter,
-    journal_references, load_access_terms, verify_access_terms,
+    DurableFaucet, DurableOperatorFaucetSettlement, DurableRpcStore, DurableTransferSubmissions,
+    FaucetPolicy, MlDsa44FaucetAuthorizer, RpcAccessController, RpcServer,
+    SpoolAnchorProposalAdapter, SpoolOperatorFaucetIngressAdapter, SybilPolicy,
+    TransferSubmissionPolicy, WalletIngressOperatorSettlementAdapter, journal_references,
+    load_access_terms, verify_access_terms,
 };
 use activechain_rpc_types::RpcAccessMode;
 use ml_dsa::{MlDsa44, Seed, SigningKey};
@@ -125,6 +126,47 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some((Arc::new(std::sync::Mutex::new(ingress)), wallet_path))
     } else {
         None
+    };
+    let transfer_archive =
+        env::var_os("ACTIVECHAIN_TRANSFER_FINALITY_ARCHIVE_DIR").map(PathBuf::from);
+    let server = if let Some(transfer_path) = env::var_os("ACTIVECHAIN_TRANSFER_SNAPSHOT") {
+        let (_, wallet_path) = wallet_state
+            .as_ref()
+            .ok_or("transfer snapshot requires ACTIVECHAIN_WALLET_INGRESS_SNAPSHOT")?;
+        let policy = TransferSubmissionPolicy {
+            chain_id,
+            genesis_commitment: store
+                .genesis_commitment()
+                .map_err(|error| format!("could not read transfer genesis: {error:?}"))?,
+            enabled: required_env("ACTIVECHAIN_TRANSFER_ENABLED")?.parse()?,
+            maximum_pending_count: required_env("ACTIVECHAIN_TRANSFER_MAX_PENDING_COUNT")?
+                .parse()?,
+            maximum_pending_bytes: required_env("ACTIVECHAIN_TRANSFER_MAX_PENDING_BYTES")?
+                .parse()?,
+            maximum_retained_records: required_env("ACTIVECHAIN_TRANSFER_MAX_RETAINED_RECORDS")?
+                .parse()?,
+            terminal_retention_seconds: required_env("ACTIVECHAIN_TRANSFER_RETENTION_SECONDS")?
+                .parse()?,
+            signer_window_seconds: required_env("ACTIVECHAIN_TRANSFER_SIGNER_WINDOW")?.parse()?,
+            signer_window_limit: required_env("ACTIVECHAIN_TRANSFER_SIGNER_LIMIT")?.parse()?,
+            global_window_seconds: required_env("ACTIVECHAIN_TRANSFER_GLOBAL_WINDOW")?.parse()?,
+            global_window_limit: required_env("ACTIVECHAIN_TRANSFER_GLOBAL_LIMIT")?.parse()?,
+        };
+        let transfer_path = PathBuf::from(transfer_path);
+        let transfers = if transfer_path.exists() {
+            DurableTransferSubmissions::open(policy, transfer_path)
+        } else {
+            DurableTransferSubmissions::create(policy, transfer_path)
+        }
+        .map_err(|error| format!("could not initialize transfer submissions: {error:?}"))?;
+        server
+            .with_transfer_submissions(transfers, wallet_path.clone())
+            .map_err(|error| format!("invalid transfer submission configuration: {error:?}"))?
+    } else {
+        if transfer_archive.is_some() {
+            return Err("transfer finality archive requires ACTIVECHAIN_TRANSFER_SNAPSHOT".into());
+        }
+        server
     };
     let server = if let Some(faucet_path) = env::var_os("ACTIVECHAIN_FAUCET_SNAPSHOT") {
         if !wallet_ingress_enabled {
@@ -268,18 +310,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let finality_archive =
         env::var_os("ACTIVECHAIN_FAUCET_FINALITY_ARCHIVE_DIR").map(PathBuf::from);
     let mut reconciled_archives = BTreeSet::new();
+    let mut reconciled_transfer_archives = BTreeSet::new();
     let mut reconciled_anchor_archives = BTreeSet::new();
     loop {
-        if let Some(directory) = finality_archive.as_ref() {
-            reconcile_faucet_archives(&server, directory, &mut reconciled_archives)?;
-        }
-        if let Some(spool) = anchor_archive_spool.as_ref() {
-            reconcile_anchor_archives(&server, spool, &mut reconciled_anchor_archives)?;
-        }
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|_| "system clock predates Unix epoch")?
             .as_secs();
+        if let Some(directory) = finality_archive.as_ref() {
+            reconcile_faucet_archives(&server, directory, &mut reconciled_archives)?;
+        }
+        if let Some(directory) = transfer_archive.as_ref() {
+            reconcile_transfer_archives(
+                &server,
+                directory,
+                &mut reconciled_transfer_archives,
+                now,
+            )?;
+        }
+        if let Some(spool) = anchor_archive_spool.as_ref() {
+            reconcile_anchor_archives(&server, spool, &mut reconciled_anchor_archives)?;
+        }
         if let Err(error) = server.serve_once(&listener, now) {
             eprintln!("RPC request rejected: {error:?}");
         }
@@ -356,6 +407,37 @@ fn reconcile_faucet_archives(
     Ok(())
 }
 
+fn reconcile_transfer_archives(
+    server: &RpcServer,
+    directory: &Path,
+    reconciled: &mut BTreeSet<String>,
+    now: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for entry in std::fs::read_dir(directory)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(height) = name.strip_prefix("pending-cash-actions.batch.finalized-") else {
+            continue;
+        };
+        if reconciled.contains(&name) {
+            continue;
+        }
+        let finality = directory.join(format!("finality.bundle.finalized-{height}"));
+        if !finality.is_file() {
+            continue;
+        }
+        server
+            .reconcile_transfer_finality(
+                &std::fs::read(entry.path())?,
+                &std::fs::read(finality)?,
+                now,
+            )
+            .map_err(|error| format!("could not reconcile transfer archive {name}: {error:?}"))?;
+        reconciled.insert(name);
+    }
+    Ok(())
+}
+
 enum FaucetIngress {
     Local(WalletIngressOperatorSettlementAdapter),
     Spool(SpoolOperatorFaucetIngressAdapter),
@@ -394,7 +476,7 @@ impl activechain_rpc_server::OperatorFaucetIngressAdapter for FaucetIngress {
 }
 
 fn required_env(name: &str) -> Result<String, Box<dyn std::error::Error>> {
-    env::var(name).map_err(|_| format!("{name} is required when faucet is enabled").into())
+    env::var(name).map_err(|_| format!("{name} is required by the enabled RPC service").into())
 }
 
 fn load_operator_key(path: &PathBuf) -> Result<SigningKey<MlDsa44>, Box<dyn std::error::Error>> {

@@ -11,13 +11,13 @@ class KanalenRPCTest {
     @Test
     fun statusRequestUsesCanonicalFraming() {
         assertContentEquals(
-            byteArrayOf(0, 0, 0, 6, 0, 0xa0.toByte(), 0, 1, 1, 0),
+            byteArrayOf(0, 0, 0, 6, 1, 7, 0, 3, 1, 0),
             KanalenRPCCodec.framedStatusRequest,
         )
     }
 
     @Test
-    fun schemaTwoKanalenStatusIsHealthy() {
+    fun schemaFourKanalenStatusIsHealthy() {
         val status = KanalenRPCCodec.decodeStatus(statusEnvelope())
         assertContentEquals(KanalenNetwork.chainID, status.chainID)
         assertContentEquals(KanalenNetwork.genesis, status.genesis)
@@ -55,7 +55,7 @@ class KanalenRPCTest {
     private fun statusEnvelope(
         chainID: ByteArray = KanalenNetwork.chainID,
         genesis: ByteArray = KanalenNetwork.genesis,
-        schema: Int = 2,
+        schema: Int = 4,
         health: Int = 0,
     ): ByteArray {
         val bodyBytes = ByteArrayOutputStream()

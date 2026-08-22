@@ -11,19 +11,19 @@ Value enters a wallet through the faucet and cannot leave it: `RpcRequest` carri
 anchors, faucet and status, with no submission variant for an ordinary transfer. The two-cell
 grant made a grant spendable in the kernel's terms; nothing exposes that over the wire.
 
-- [ ] Add `RpcRequest::SubmitAuthorizedTransfer` at request tag 13 and `ResolveTransfer` at
+- [x] Add `RpcRequest::SubmitAuthorizedTransfer` at request tag 13 and `ResolveTransfer` at
   request tag 14, both answered by one receipt at response tag 11, reusing the existing
   `AuthorizedCashTransferV1` verifier rather than adding a second one.
-- [ ] Carry schema revision 4 across node, probe, wallet core, CLI and UI.
-- [ ] Admit submissions through a bounded spool separate from the faucet's, with count and byte
+- [x] Carry schema revision 4 across node, probe, wallet core, CLI and UI.
+- [x] Admit submissions through a bounded spool separate from the faucet's, with count and byte
   limits, atomic fail-closed behaviour, quotas attributed to the authenticated signer and
-  session rather than a source address, and duplicate rejection keyed on the canonical envelope
-  commitment.
-- [ ] Record outcomes in a durable bounded journal: `Pending → Finalized | Rejected` with no
+  session rather than a source address, and duplicate handling keyed on the signed request's intent
+  identifier.
+- [x] Record outcomes in a durable bounded journal: `Pending → Finalized | Rejected` with no
   terminal state ever regressing, crash-consistent spool append and initial receipt, no
   permanent false `Pending` when an item leaves the spool, and an explicit `Unknown`/`Expired`
   rather than a silent `Pending` once a terminal receipt is evicted.
-- [ ] Cover tampering, expired and invalid sessions, duplicate submission before and after a
+- [x] Cover tampering, expired and invalid sessions, duplicate submission before and after a
   terminal outcome, quota exhaustion, a full spool, round inclusion, an end-to-end transfer from
   a verified wallet, and restart recovery at every lifecycle boundary.
 - [ ] Pass one exact-SHA `qualification=full` gate on the final revision before merge, and

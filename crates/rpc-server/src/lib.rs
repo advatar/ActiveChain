@@ -4,6 +4,7 @@ mod access;
 mod anchor_settlement;
 mod faucet;
 mod operator_faucet;
+mod transfer_submission;
 
 pub use access::{
     AccessCharge, RpcAccessController, load_access_terms, verify_access_terms, write_access_terms,
@@ -18,6 +19,10 @@ pub use faucet::{
 pub use operator_faucet::{
     DurableOperatorFaucetSettlement, FaucetEnvelopeAuthorizer, MlDsa44FaucetAuthorizer,
     OperatorFaucetIngressAdapter, SpoolOperatorFaucetIngressAdapter, journal_references,
+};
+pub use transfer_submission::{
+    DurableTransferSubmissions, TransferSubmissionError, TransferSubmissionPolicy, frame_actions,
+    parse_framed_actions,
 };
 
 use activechain_action_kernel::{ActionEnvelope, ActionPayloadV2, action_id};
@@ -46,7 +51,7 @@ use activechain_rpc_types::{
     RpcStatus,
 };
 use activechain_state_tree::{commit_objects, prove_object};
-use activechain_wallet_core::AuthorizedCashTransferV1;
+use activechain_wallet_core::{AuthorizedCashTransferV1, TransactionIngress};
 use sha3::{
     Shake256,
     digest::{ExtendableOutput, Update, XofReader},
@@ -856,6 +861,8 @@ pub struct RpcServer {
     faucet: Option<Arc<RwLock<DurableFaucet>>>,
     faucet_settlement: Option<Arc<FaucetSettlement>>,
     authorized_faucet_settlement: Option<Arc<AuthorizedFaucetSettlement>>,
+    transfers: Option<Arc<RwLock<DurableTransferSubmissions>>>,
+    transfer_ingress_path: Option<PathBuf>,
 }
 
 /// Production settlement boundary for faucet-authorized Coin Cell ingress.
@@ -1214,6 +1221,23 @@ impl RpcServer {
         }
         Ok(reconciled)
     }
+
+    /// Advances retained public-transfer receipts only when the archived cash
+    /// batch is committed by the accepted finalized certificate.
+    pub fn reconcile_transfer_finality(
+        &self,
+        batch: &[u8],
+        finality: &[u8],
+        now: u64,
+    ) -> Result<usize, TransferSubmissionError> {
+        let Some(transfers) = &self.transfers else {
+            return Ok(0);
+        };
+        transfers
+            .write()
+            .map_err(|_| TransferSubmissionError::Persistence)?
+            .reconcile_finality(batch, finality, now)
+    }
     pub fn new(store: Arc<DurableRpcStore>) -> Self {
         Self {
             store,
@@ -1224,6 +1248,8 @@ impl RpcServer {
             faucet: None,
             faucet_settlement: None,
             authorized_faucet_settlement: None,
+            transfers: None,
+            transfer_ingress_path: None,
         }
     }
 
@@ -1287,6 +1313,30 @@ impl RpcServer {
         self
     }
 
+    /// Attaches the durable public-transfer admission journal. The finalized
+    /// ingress snapshot is reloaded for every submission so authentication is
+    /// evaluated against the same state the next consensus round will use.
+    pub fn with_transfer_submissions(
+        mut self,
+        transfers: DurableTransferSubmissions,
+        ingress_path: PathBuf,
+    ) -> Result<Self, TransferSubmissionError> {
+        let chain = self.store.chain_id().map_err(|_| TransferSubmissionError::Persistence)?;
+        let genesis =
+            self.store.genesis_commitment().map_err(|_| TransferSubmissionError::Persistence)?;
+        if transfers.policy().chain_id != chain
+            || transfers.policy().genesis_commitment != genesis
+            || !ingress_path.is_file()
+        {
+            return Err(TransferSubmissionError::InvalidPolicy);
+        }
+        TransactionIngress::load(&ingress_path, chain)
+            .map_err(|_| TransferSubmissionError::Persistence)?;
+        self.transfers = Some(Arc::new(RwLock::new(transfers)));
+        self.transfer_ingress_path = Some(ingress_path);
+        Ok(self)
+    }
+
     pub fn with_faucet_settlement<F>(mut self, settlement: F) -> Self
     where
         F: Fn(PrincipalId, u128, Digest384) -> Result<TransactionId, FaucetError>
@@ -1348,6 +1398,8 @@ impl RpcServer {
             faucet: None,
             faucet_settlement: None,
             authorized_faucet_settlement: None,
+            transfers: None,
+            transfer_ingress_path: None,
         })
     }
 
@@ -1503,6 +1555,53 @@ impl RpcServer {
                     .resolve(reference)
                     .cloned()
                     .map_or(RpcResponse::Error(RpcError::NotFound), RpcResponse::FaucetReceipt)
+            }
+            RpcRequest::ResolveTransfer { reference } => {
+                let Some(transfers) = &self.transfers else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let Ok(mut transfers) = transfers.write() else {
+                    return RpcResponse::Error(RpcError::Internal);
+                };
+                match transfers.resolve(reference) {
+                    Ok(receipt) => RpcResponse::TransferReceipt(receipt),
+                    Err(_) => RpcResponse::Error(RpcError::Internal),
+                }
+            }
+            RpcRequest::SubmitAuthorizedTransfer { session, transfer } => {
+                let (Some(transfers), Some(ingress_path)) =
+                    (&self.transfers, &self.transfer_ingress_path)
+                else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let RpcResponse::Status(status) = self.store.handle(RpcRequest::Status, now) else {
+                    return RpcResponse::Error(RpcError::Internal);
+                };
+                if status.health() != Health::Healthy {
+                    return RpcResponse::Error(RpcError::Stale);
+                }
+                let Ok(chain) = self.store.chain_id() else {
+                    return RpcResponse::Error(RpcError::Internal);
+                };
+                let Ok(ingress) = TransactionIngress::load(ingress_path, chain) else {
+                    return RpcResponse::Error(RpcError::Internal);
+                };
+                let Ok(mut transfers) = transfers.write() else {
+                    return RpcResponse::Error(RpcError::Internal);
+                };
+                match transfers.submit(
+                    &session,
+                    &transfer,
+                    &ingress,
+                    status.finalized_height(),
+                    now,
+                ) {
+                    Ok(receipt) => RpcResponse::TransferReceipt(receipt),
+                    Err(TransferSubmissionError::Rejected(rejection)) => {
+                        RpcResponse::TransferRejected(rejection)
+                    }
+                    Err(_) => RpcResponse::Error(RpcError::Internal),
+                }
             }
             RpcRequest::RequestFaucet { request } => {
                 let (Some(faucet), Some(settlement)) = (&self.faucet, &self.faucet_settlement)
@@ -2188,6 +2287,98 @@ mod tests {
             )
             .unwrap();
         (ingress, key, owner, transfer)
+    }
+
+    #[test]
+    fn verified_wallet_transfer_round_trips_through_the_public_rpc() {
+        let (ingress, key, owner, transfer) = authorized_cash_fixture();
+        let session_id = digest(13);
+        let grant = CashSessionGrantV1::new(ChainId::new(digest(1)), owner, session_id, 1, 10, 100)
+            .unwrap();
+        let grant_signature = key.sign(&grant.signing_payload().unwrap());
+        let session = AuthorizedCashSessionGrantV1::new(
+            grant,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, grant_signature.encode().to_vec())
+                .unwrap(),
+        )
+        .unwrap();
+        let request = CashAuthorizationRequestV1::new(
+            ChainId::new(digest(1)),
+            owner,
+            0,
+            session_id,
+            10,
+            transfer,
+        )
+        .unwrap();
+        let reference = request.intent_id().unwrap();
+        let transfer_signature = key.sign(&request.signing_payload().unwrap());
+        let transfer = AuthorizedCashTransferV1::new(
+            request,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, transfer_signature.encode().to_vec())
+                .unwrap(),
+        )
+        .unwrap();
+
+        let index_path = temporary("public-transfer-index");
+        let wallet_path = temporary("public-transfer-wallet");
+        let transfer_path = temporary("public-transfer-journal");
+        for path in [&index_path, &wallet_path, &transfer_path] {
+            let _ = std::fs::remove_file(path);
+        }
+        ingress.save_atomic(&wallet_path).unwrap();
+        let store = Arc::new(DurableRpcStore::create(index_path.clone(), index()).unwrap());
+        let policy = TransferSubmissionPolicy {
+            chain_id: ChainId::new(digest(1)),
+            genesis_commitment: digest(2),
+            enabled: true,
+            maximum_pending_count: 4,
+            maximum_pending_bytes: 256 * 1_024,
+            maximum_retained_records: 8,
+            terminal_retention_seconds: 3_600,
+            signer_window_seconds: 60,
+            signer_window_limit: 4,
+            global_window_seconds: 60,
+            global_window_limit: 8,
+        };
+        let journal = DurableTransferSubmissions::create(policy, transfer_path.clone()).unwrap();
+        let server = Arc::new(
+            RpcServer::new(store).with_transfer_submissions(journal, wallet_path.clone()).unwrap(),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let serving = Arc::clone(&server);
+        let first_listener = listener.try_clone().unwrap();
+        let handle = thread::spawn(move || serving.serve_once(&first_listener, 105).unwrap());
+        let response = query(
+            address,
+            &RpcRequest::SubmitAuthorizedTransfer {
+                session: encode_envelope(&session).unwrap(),
+                transfer: encode_envelope(&transfer).unwrap(),
+            },
+        )
+        .unwrap();
+        handle.join().unwrap();
+        assert!(matches!(
+            response,
+            RpcResponse::TransferReceipt(ref receipt)
+                if receipt.reference() == reference
+                    && receipt.state() == activechain_rpc_types::TransferState::Pending
+        ));
+
+        let serving = Arc::clone(&server);
+        let handle = thread::spawn(move || serving.serve_once(&listener, 106).unwrap());
+        let resolved = query(address, &RpcRequest::ResolveTransfer { reference }).unwrap();
+        handle.join().unwrap();
+        assert_eq!(resolved, response);
+
+        drop(server);
+        for path in [&index_path, &wallet_path, &transfer_path] {
+            let _ = std::fs::remove_file(path);
+        }
+        let mut lock_name = transfer_path.as_os_str().to_os_string();
+        lock_name.push(".lock");
+        let _ = std::fs::remove_file(PathBuf::from(lock_name));
     }
 
     fn authorized_cash_envelope(

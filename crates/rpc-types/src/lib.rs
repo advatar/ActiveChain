@@ -858,8 +858,8 @@ pub enum RpcRequest {
     },
     /// Asks what became of a submission.
     ///
-    /// The reference is the canonical commitment over the envelope, so a client
-    /// already holds it after submitting and needs nothing handed back to poll
+    /// The reference is the signed request's intent identifier, so a client
+    /// already holds it after signing and needs nothing handed back to poll
     /// with. Without this a refusal after spooling is unobservable: nothing
     /// changes on chain, and polling cannot separate pending from refused.
     ResolveTransfer {
@@ -996,13 +996,15 @@ impl CanonicalType for RpcRequest {
     // that cannot decode them must not mistake a transfer for something else,
     // so this is a revision bump rather than a quietly additive tag.
     const SCHEMA_VERSION: u16 = 3;
-    // The transfer envelope is now the largest a request can carry.
-    const MAX_ENCODED_LEN: usize =
-        1 + if AuthorizedFaucetRequestV1::MAX_ENCODED_LEN > MAX_TRANSFER_ENVELOPE_LENGTH + 3 {
-            AuthorizedFaucetRequestV1::MAX_ENCODED_LEN
-        } else {
-            MAX_TRANSFER_ENVELOPE_LENGTH + 3
-        };
+    // A transfer submission carries two independently bounded byte strings.
+    // Canonical byte-string lengths use at most five ULEB128 bytes apiece.
+    const MAX_ENCODED_LEN: usize = 1 + if AuthorizedFaucetRequestV1::MAX_ENCODED_LEN
+        > MAX_TRANSFER_SESSION_LENGTH + MAX_TRANSFER_ENVELOPE_LENGTH + 10
+    {
+        AuthorizedFaucetRequestV1::MAX_ENCODED_LEN
+    } else {
+        MAX_TRANSFER_SESSION_LENGTH + MAX_TRANSFER_ENVELOPE_LENGTH + 10
+    };
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2110,7 +2112,7 @@ impl CanonicalDecode for TransferRejectionV1 {
 ///
 /// Answers both submission and resolution, so a client polls with the same
 /// reference it already holds and reads the same shape it was first given.
-/// The reference is the canonical commitment over the submitted envelope,
+/// The reference is the intent identifier committed by the signed request,
 /// which makes it the deduplication key as well, with no second identifier to
 /// keep in step.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2165,6 +2167,11 @@ impl TransferReceiptV1 {
                 if rejection.is_some() {
                     return Err(DecodeError::InvalidValue("a finalized transfer was not refused"));
                 }
+                if transaction_id != Some(TransactionId::new(reference)) {
+                    return Err(DecodeError::InvalidValue(
+                        "finalized transaction does not match its transfer reference",
+                    ));
+                }
             }
             TransferState::Rejected => {
                 if rejection.is_none() {
@@ -2173,6 +2180,11 @@ impl TransferReceiptV1 {
                 if evidence != (false, false, false) {
                     return Err(DecodeError::InvalidValue(
                         "a refused transfer was never included in a block",
+                    ));
+                }
+                if rejection.as_ref().and_then(TransferRejectionV1::intent) != Some(reference) {
+                    return Err(DecodeError::InvalidValue(
+                        "durable refusal does not match its transfer reference",
                     ));
                 }
             }
@@ -2558,7 +2570,7 @@ mod tests {
         let finalized = TransferReceiptV1::new(
             digest(7),
             TransferState::Finalized,
-            Some(TransactionId::new(digest(8))),
+            Some(TransactionId::new(digest(7))),
             Some(41),
             Some(digest(9)),
             None,
@@ -2570,9 +2582,12 @@ mod tests {
             Ok(finalized)
         );
 
-        let refusal =
-            TransferRejectionV1::new(TransferRejectionCode::InputAlreadySpent, None, None)
-                .expect("a permanent refusal carries no retry hint");
+        let refusal = TransferRejectionV1::new(
+            TransferRejectionCode::InputAlreadySpent,
+            None,
+            Some(digest(7)),
+        )
+        .expect("a permanent durable refusal carries its intent");
         let rejected = TransferReceiptV1::new(
             digest(7),
             TransferState::Rejected,

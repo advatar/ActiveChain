@@ -52,6 +52,7 @@ economics are numbered under [`spec/protocol/`](../spec/protocol/).
 - [Native asset RPC](NATIVE_ASSET_RPC_V1.md)
 - [Faucet ingress](FAUCET_INGRESS_V1.md)
 - [Faucet funding admission](FAUCET_FUNDING_ADMISSION_V2.md)
+- [Public authorized-transfer submission](PUBLIC_TRANSFER_SUBMISSION_V1.md)
 - [PQ-ZK cash proof boundary](PQ_ZK_CASH_PROOF_BOUNDARY_V1.md)
 
 ## Proofs and implementation notes
