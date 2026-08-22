@@ -20,7 +20,9 @@ Tracked by [GitHub issue #803](https://github.com/advatar/ActiveChain/issues/803
 - [x] Implement and locally qualify the Thunes connector and connector-host policy integration.
 - [x] Isolate the formal-model TLA+ Docker invocation from the macOS runner keychain without
   initializing the unrelated RISC0 builder.
-- [ ] Pass one new exact-SHA full deterministic-kernel gate before moving PR #804 out of draft.
+- [x] Pass the exact full deterministic-kernel gate on `be462abf` ([run
+  31829811529](https://github.com/advatar/ActiveChain/actions/runs/31829811529)); merge the
+  patch-equivalent tree as `412b8e70` and verify it is reachable from `origin/main`.
 
 ## Active gate recovery — Republished TLA+ 1.8.0 asset
 
