@@ -4,8 +4,9 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 tool_cache=${ACTIVECHAIN_TLA_CACHE:-${TMPDIR:-/tmp}/activechain-tla-tools}
 tla_version=1.8.0
-tla_sha256=ab323b79802aedc3203b3f9af37c6aca3ed43f4e0225b36f2aa77b26de46c05f
-tla_url="https://github.com/tlaplus/tlaplus/releases/download/v${tla_version}/tla2tools.jar"
+tla_asset_id=523952485
+tla_sha256=eabd140a70f49eb9305a3bd3f3df944eddf87e5a90d329789085f8953a80533a
+tla_url="https://api.github.com/repos/tlaplus/tlaplus/releases/assets/${tla_asset_id}"
 tla_jar="$tool_cache/tla2tools-${tla_version}.jar"
 java_image='eclipse-temurin@sha256:db1689535962d757a5adabf57387584ed543d38c0b9d1fe870123ea362ad73b0'
 workers=${ACTIVECHAIN_TLC_WORKERS:-1}
@@ -29,7 +30,9 @@ if [[ ! -f "$tla_jar" ]] || [[ "$(sha256_file "$tla_jar")" != "$tla_sha256" ]]; 
   }
   download="$tla_jar.download.$$"
   trap 'rm -f "$download"' EXIT
-  curl --fail --location --retry 3 --output "$download" "$tla_url"
+  curl --fail --location --retry 3 \
+    --header 'Accept: application/octet-stream' \
+    --output "$download" "$tla_url"
   actual_sha256=$(sha256_file "$download")
   if [[ "$actual_sha256" != "$tla_sha256" ]]; then
     echo "TLA+ tools SHA-256 mismatch: expected $tla_sha256, got $actual_sha256" >&2
