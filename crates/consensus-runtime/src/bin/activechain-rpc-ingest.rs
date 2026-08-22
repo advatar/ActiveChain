@@ -1,7 +1,11 @@
 use activechain_consensus_runtime::{
     FinalizedCashSnapshot, load_snapshot, load_snapshot_chain_genesis_commitment,
 };
-use activechain_rpc_server::{DurableRpcStore, finalized_coin_cell_records_with_chain_genesis};
+use activechain_devnet_kernel::ChainState;
+use activechain_rpc_server::{
+    DurableRpcStore, finalized_anchor_state_records_with_chain_genesis,
+    finalized_coin_cell_records_with_chain_genesis,
+};
 use std::{
     env,
     path::{Path, PathBuf},
@@ -23,11 +27,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let validator_path = PathBuf::from(
         arguments
             .next()
-            .ok_or("usage: activechain-rpc-ingest <validator-snapshot> <rpc-index-snapshot> [cash-snapshot] [finality-bundle]")?,
+            .ok_or("usage: activechain-rpc-ingest <validator-snapshot> <rpc-index-snapshot> [cash-snapshot] [finality-bundle] [execution-snapshot]")?,
     );
     let rpc_path = PathBuf::from(arguments.next().ok_or("missing RPC index snapshot")?);
     let cash_path = arguments.next().map(PathBuf::from);
     let finality_path = arguments.next().map(PathBuf::from);
+    let execution_path = arguments.next().map(PathBuf::from);
     if arguments.next().is_some() || cash_path.is_some() != finality_path.is_some() {
         return Err("unexpected argument".into());
     }
@@ -46,13 +51,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         cash.verify_against_finality(&finality)
             .map_err(|error| format!("cash snapshot/finality mismatch: {error}"))?;
         published_height = cash.finalized_height;
-        let records = finalized_coin_cell_records_with_chain_genesis(
+        let mut records = finalized_coin_cell_records_with_chain_genesis(
             &cash.cells,
             cash.finalized_height,
             &finality,
             genesis,
         )
         .map_err(|error| format!("could not build finalized Coin Cell records: {error:?}"))?;
+        if let Some(execution_path) = execution_path {
+            let execution =
+                ChainState::decode_snapshot(&std::fs::read(execution_path)?, Vec::new())
+                    .map_err(|_| "execution snapshot decoding failed")?
+                    .0;
+            let finalized_chain =
+                activechain_verifier_api::verify_finality_bundle_with_chain_genesis(
+                    &finality, genesis,
+                )
+                .map_err(|_| "finality bundle verification failed")?
+                .header()
+                .inputs
+                .chain_id;
+            if execution.chain_id() != finalized_chain
+                || execution.height() != cash.finalized_height
+            {
+                return Err(format!(
+                    "execution snapshot does not match finalized cash state: execution_chain={:?} finality_chain={:?} execution_height={} cash_height={}",
+                    execution.chain_id(), finalized_chain, execution.height(), cash.finalized_height
+                ).into());
+            }
+            records.extend(
+                finalized_anchor_state_records_with_chain_genesis(
+                    execution.objects().objects(),
+                    cash.finalized_height,
+                    &finality,
+                    genesis,
+                )
+                .map_err(|error| format!("could not build finalized anchor records: {error:?}"))?,
+            );
+            records.sort_by_key(|record| (record.kind(), record.key()));
+        }
         store
             .replace_finalized_records(genesis, cash.finalized_height, finalized_at, records)
             .map_err(|error| format!("could not ingest finalized cash state: {error:?}"))?;

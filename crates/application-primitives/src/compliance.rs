@@ -6,8 +6,9 @@ use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::{
     AssetId, ChainId, ComplianceError, ComplianceEvidenceBindingV1, ComplianceReplayKey,
     ComplianceReplaySet, ComplianceReplayWitness, ComplianceSignatureEnvelopeV2,
-    CredentialAssuranceClassV1, CredentialPredicateV1, Digest384, ML_DSA44_PUBLIC_KEY_LENGTH,
-    PrincipalId, ProfileSelection, TlsCredentialEvidenceV1, TransactionId, TravelRuleBindingV1,
+    CredentialAssuranceClassV1, CredentialPredicateV1, Digest384, Height, KenyaRegulatedProfileV1,
+    ML_DSA44_PUBLIC_KEY_LENGTH, PrincipalId, ProfileSelection, TlsCredentialEvidenceV1,
+    TransactionId, TravelRuleBindingV1,
 };
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -401,12 +402,283 @@ fn decode_legacy_compliance_replay_set(bytes: &[u8]) -> Result<ComplianceReplayS
     Ok(set)
 }
 
+const MAX_ACTIVATED_PROFILES: usize = 128;
+
+/// Why a jurisdiction profile could not be activated, or a registry restored.
+#[derive(Debug, Eq, PartialEq)]
+pub enum JurisdictionRegistryError {
+    /// The snapshot could not be read, decoded, or atomically replaced.
+    Persistence,
+    /// More activations than the registry will hold.
+    Capacity,
+    /// The snapshot names a different chain or genesis. Refused rather than
+    /// adopted: a profile activated on one chain says nothing about another,
+    /// and silently carrying one across is how a dev activation would reach a
+    /// production ledger.
+    CrossGenesis,
+    /// A revision that does not advance the one already activated. Activation
+    /// is monotone so that replaying a governance decision during restart is
+    /// safe while a downgrade is not.
+    NotAdvancing,
+    /// A profile whose identity cannot key a registry.
+    InvalidProfile,
+}
+
+/// The jurisdiction profiles a chain has activated, and the heights they bind.
+///
+/// Activation is consensus-visible state, never local process configuration.
+/// Two validators reading the same chain must reach the same admission answer,
+/// so this registry is derived from what the chain records — a genesis feature
+/// set or an activation transition at a stated height — and never from an
+/// environment variable, which would let a configuration difference fork the
+/// chain.
+///
+/// A chain that activates nothing carries an empty registry and behaves exactly
+/// as it did before this type existed. That is what keeps Kanalen bit-identical.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct JurisdictionProfileRegistry {
+    chain_id: ChainId,
+    genesis_commitment: Digest384,
+    profiles: BTreeMap<Digest384, KenyaRegulatedProfileV1>,
+}
+
+impl JurisdictionProfileRegistry {
+    /// Opens an empty registry bound to one chain.
+    ///
+    /// # Errors
+    /// Refuses a zero genesis commitment, which would bind the registry to
+    /// nothing and make the cross-genesis check vacuous.
+    pub fn new(
+        chain_id: ChainId,
+        genesis_commitment: Digest384,
+    ) -> Result<Self, JurisdictionRegistryError> {
+        if genesis_commitment == Digest384::ZERO {
+            return Err(JurisdictionRegistryError::CrossGenesis);
+        }
+        Ok(Self { chain_id, genesis_commitment, profiles: BTreeMap::new() })
+    }
+
+    pub const fn chain_id(&self) -> ChainId {
+        self.chain_id
+    }
+
+    pub const fn genesis_commitment(&self) -> Digest384 {
+        self.genesis_commitment
+    }
+
+    pub fn len(&self) -> usize {
+        self.profiles.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.profiles.is_empty()
+    }
+
+    /// Records one profile as activated.
+    ///
+    /// The profile itself is already complete by construction —
+    /// [`KenyaRegulatedProfileV1::new`] refuses a missing commitment, an
+    /// incomplete control mask, or a window that does not open before it
+    /// closes — so activation adds what a single profile cannot know: that no
+    /// earlier revision is being reinstated, and that the registry stays
+    /// bounded.
+    ///
+    /// # Errors
+    /// Refuses a zero profile id, a revision that does not advance the
+    /// activated one, and an activation beyond the registry's capacity.
+    pub fn activate(
+        &mut self,
+        profile: KenyaRegulatedProfileV1,
+    ) -> Result<(), JurisdictionRegistryError> {
+        let id = profile.profile_id();
+        if id == Digest384::ZERO {
+            return Err(JurisdictionRegistryError::InvalidProfile);
+        }
+        match self.profiles.get(&id) {
+            Some(active) if profile.revision() <= active.revision() => {
+                return Err(JurisdictionRegistryError::NotAdvancing);
+            }
+            None if self.profiles.len() >= MAX_ACTIVATED_PROFILES => {
+                return Err(JurisdictionRegistryError::Capacity);
+            }
+            _ => {}
+        }
+        self.profiles.insert(id, profile);
+        Ok(())
+    }
+
+    /// The profiles in force at a height.
+    ///
+    /// The window itself belongs to the profile, so this defers to
+    /// [`KenyaRegulatedProfileV1::active_at`] rather than restating it — one
+    /// definition of "in force", not two that can drift. Ids come back
+    /// ascending because [`require_selected_profile`] resolves them by binary
+    /// search.
+    #[must_use]
+    pub fn active_at(&self, height: Height) -> Vec<Digest384> {
+        self.profiles
+            .iter()
+            .filter(|(_, profile)| profile.active_at(height))
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
+    /// The selection to admit against at a height.
+    ///
+    /// A height with nothing in force yields `Rejected`, not an empty
+    /// `Selected`: an empty selection would let [`require_selected_profile`]
+    /// be asked a question it answers negatively for every profile, which
+    /// reads the same as a refusal but arrives there by accident. A chain that
+    /// activates nothing never reaches this call at all.
+    #[must_use]
+    pub fn selection_at(&self, height: Height) -> ProfileSelection {
+        let active = self.active_at(height);
+        if active.is_empty() {
+            ProfileSelection::Rejected
+        } else {
+            ProfileSelection::Selected(active)
+        }
+    }
+
+    fn snapshot(&self) -> ActivatedProfileSet {
+        ActivatedProfileSet {
+            chain: *self.chain_id.digest(),
+            genesis_commitment: self.genesis_commitment,
+            profiles: self.profiles.values().cloned().collect(),
+        }
+    }
+
+    /// The commitment naming this exact activation set.
+    ///
+    /// A local snapshot is a cache, not an authority. The canonical envelope
+    /// carries tag, version and length but no integrity check, so a damaged or
+    /// edited file can decode as a different yet well-formed set — a flipped
+    /// byte in a revision reads as a real profile at another revision. What
+    /// makes that detectable is not a checksum the same writer could recompute,
+    /// but comparing this root against the activation record the chain carries.
+    /// That comparison is what keeps admission `f(consensus state)` rather than
+    /// `f(process environment)`.
+    ///
+    /// # Errors
+    /// Fails only if the set cannot be encoded, which a bounded registry of
+    /// valid profiles does not.
+    pub fn activation_root(&self) -> Result<Digest384, JurisdictionRegistryError> {
+        commit(DomainTag::CANONICAL_VALUE, &self.snapshot())
+            .map_err(|_| JurisdictionRegistryError::Persistence)
+    }
+
+    /// Writes the registry, replacing any previous snapshot atomically.
+    ///
+    /// # Errors
+    /// Fails when the snapshot cannot be encoded, written, flushed, or renamed
+    /// into place.
+    pub fn save(&self, path: impl AsRef<Path>) -> Result<(), JurisdictionRegistryError> {
+        let snapshot = self.snapshot();
+        let bytes =
+            encode_envelope(&snapshot).map_err(|_| JurisdictionRegistryError::Persistence)?;
+        let path = path.as_ref();
+        let parent = path.parent().ok_or(JurisdictionRegistryError::Persistence)?;
+        std::fs::create_dir_all(parent).map_err(|_| JurisdictionRegistryError::Persistence)?;
+        let temporary = path.with_extension("tmp");
+        let mut file = std::fs::File::create(&temporary)
+            .map_err(|_| JurisdictionRegistryError::Persistence)?;
+        file.write_all(&bytes).map_err(|_| JurisdictionRegistryError::Persistence)?;
+        file.sync_all().map_err(|_| JurisdictionRegistryError::Persistence)?;
+        std::fs::rename(&temporary, path).map_err(|_| JurisdictionRegistryError::Persistence)
+    }
+
+    /// Restores the registry for one chain, or starts an empty one.
+    ///
+    /// An absent snapshot is a new registry. A snapshot that cannot be decoded
+    /// is an error rather than an empty registry, because starting empty would
+    /// silently deactivate every profile a chain had activated — the failure
+    /// mode a compliance store must never have.
+    ///
+    /// # Errors
+    /// Refuses a snapshot naming another chain or genesis, one that does not
+    /// decode, and one whose contents do not satisfy the activation rules.
+    pub fn open(
+        path: impl AsRef<Path>,
+        chain_id: ChainId,
+        genesis_commitment: Digest384,
+    ) -> Result<Self, JurisdictionRegistryError> {
+        let mut registry = Self::new(chain_id, genesis_commitment)?;
+        let path = path.as_ref();
+        if !path.exists() {
+            return Ok(registry);
+        }
+        let bytes = std::fs::read(path).map_err(|_| JurisdictionRegistryError::Persistence)?;
+        let snapshot: ActivatedProfileSet =
+            decode_envelope(&bytes).map_err(|_| JurisdictionRegistryError::Persistence)?;
+        if snapshot.chain != *chain_id.digest() || snapshot.genesis_commitment != genesis_commitment
+        {
+            return Err(JurisdictionRegistryError::CrossGenesis);
+        }
+        for profile in snapshot.profiles {
+            registry.activate(profile)?;
+        }
+        Ok(registry)
+    }
+}
+
+/// The canonical form of an activated profile set.
+///
+/// Carries the chain and genesis it was written under so a restore can refuse
+/// a snapshot from elsewhere rather than adopt it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ActivatedProfileSet {
+    chain: Digest384,
+    genesis_commitment: Digest384,
+    profiles: Vec<KenyaRegulatedProfileV1>,
+}
+
+impl CanonicalEncode for ActivatedProfileSet {
+    fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain.encode(encoder)?;
+        self.genesis_commitment.encode(encoder)?;
+        encoder.write_length(self.profiles.len(), MAX_ACTIVATED_PROFILES)?;
+        for profile in &self.profiles {
+            profile.encode(encoder)?;
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for ActivatedProfileSet {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let chain = Digest384::decode(decoder)?;
+        let genesis_commitment = Digest384::decode(decoder)?;
+        let count = decoder.read_length(MAX_ACTIVATED_PROFILES)?;
+        let mut profiles = Vec::with_capacity(count);
+        for _ in 0..count {
+            profiles.push(KenyaRegulatedProfileV1::decode(decoder)?);
+        }
+        // Ascending and distinct, so a snapshot cannot smuggle in a duplicate
+        // profile whose second copy would silently win the restore.
+        if chain == Digest384::ZERO
+            || genesis_commitment == Digest384::ZERO
+            || profiles.windows(2).any(|pair| pair[0].profile_id() >= pair[1].profile_id())
+        {
+            return Err(DecodeError::InvalidValue("invalid activated profile set"));
+        }
+        Ok(Self { chain, genesis_commitment, profiles })
+    }
+}
+
+impl CanonicalType for ActivatedProfileSet {
+    const TYPE_TAG: u16 = 0x01c6;
+    const SCHEMA_VERSION: u16 = 1;
+    const MAX_ENCODED_LEN: usize =
+        48 + 48 + 3 + MAX_ACTIVATED_PROFILES * KenyaRegulatedProfileV1::MAX_ENCODED_LEN;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use activechain_accumulator::{AccumulatorDomain, ReferenceSet};
     use activechain_protocol_types::{
-        CryptoSuiteId, Digest384, PrincipalId, ProtocolSignature, TransactionId,
+        ChainId, CryptoSuiteId, Digest384, Height, KenyaRegulatedProfileV1, PrincipalId,
+        ProtocolSignature, TransactionId,
     };
     use alloc::format;
     use alloc::vec;
@@ -821,6 +1093,231 @@ mod tests {
                 |_| true,
             ),
             Err(CredentialPredicateAdmissionError::EvidenceMismatch)
+        );
+    }
+
+    fn vasp_profile(
+        id: u8,
+        effective: Height,
+        expires: Height,
+        revision: u16,
+    ) -> KenyaRegulatedProfileV1 {
+        KenyaRegulatedProfileV1::new(
+            digest(id),
+            PrincipalId::new(digest(200)),
+            activechain_protocol_types::KenyaRegulatedActivity::VirtualAssetService,
+            activechain_protocol_types::KenyaControlSet::VASP_REQUIRED,
+            digest(3),
+            digest(4),
+            digest(5),
+            digest(6),
+            digest(7),
+            digest(8),
+            digest(9),
+            digest(10),
+            digest(11),
+            digest(12),
+            digest(13),
+            digest(14),
+            Digest384::ZERO,
+            Digest384::ZERO,
+            Digest384::ZERO,
+            Digest384::ZERO,
+            effective,
+            expires,
+            revision,
+        )
+        .expect("a complete VASP profile")
+    }
+
+    fn registry() -> JurisdictionProfileRegistry {
+        JurisdictionProfileRegistry::new(ChainId::new(digest(90)), digest(91))
+            .expect("a registry bound to a real genesis")
+    }
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(alloc::format!(
+            "activechain-jurisdiction-{name}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).expect("scratch");
+        path.join("profiles.snapshot")
+    }
+
+    /// The window belongs to the profile; the registry must not widen it.
+    #[test]
+    fn a_profile_admits_only_inside_the_window_it_declares() {
+        let mut registry = registry();
+        registry.activate(vasp_profile(1, 100, 200, 1)).unwrap();
+        assert!(registry.active_at(99).is_empty(), "not yet effective");
+        assert_eq!(
+            registry.active_at(100),
+            alloc::vec![digest(1)],
+            "effective height is inclusive"
+        );
+        assert_eq!(registry.active_at(199), alloc::vec![digest(1)]);
+        assert!(registry.active_at(200).is_empty(), "expiry is exclusive");
+    }
+
+    /// Replaying a governance decision during restart must be safe; reinstating
+    /// a superseded profile must not be.
+    #[test]
+    fn activation_advances_or_is_refused() {
+        let mut registry = registry();
+        registry.activate(vasp_profile(1, 100, 200, 2)).unwrap();
+        assert_eq!(
+            registry.activate(vasp_profile(1, 100, 200, 2)),
+            Err(JurisdictionRegistryError::NotAdvancing),
+            "the same revision is not an advance"
+        );
+        assert_eq!(
+            registry.activate(vasp_profile(1, 100, 200, 1)),
+            Err(JurisdictionRegistryError::NotAdvancing),
+            "an earlier revision must not reinstate itself"
+        );
+        registry.activate(vasp_profile(1, 100, 200, 3)).unwrap();
+        assert_eq!(registry.len(), 1, "a revision replaces rather than accumulates");
+    }
+
+    /// A profile activated on one chain says nothing about another.
+    #[test]
+    fn a_snapshot_from_another_genesis_is_refused_rather_than_adopted() {
+        let path = scratch("cross-genesis");
+        let mut written = registry();
+        written.activate(vasp_profile(1, 100, 200, 1)).unwrap();
+        written.save(&path).unwrap();
+
+        assert_eq!(
+            JurisdictionProfileRegistry::open(&path, ChainId::new(digest(90)), digest(92)),
+            Err(JurisdictionRegistryError::CrossGenesis),
+            "a different genesis must not be adopted"
+        );
+        assert_eq!(
+            JurisdictionProfileRegistry::open(&path, ChainId::new(digest(93)), digest(91)),
+            Err(JurisdictionRegistryError::CrossGenesis),
+            "a different chain must not be adopted"
+        );
+        let restored =
+            JurisdictionProfileRegistry::open(&path, ChainId::new(digest(90)), digest(91)).unwrap();
+        assert_eq!(restored, written, "its own chain and genesis restore exactly");
+    }
+
+    /// Starting empty would silently deactivate every activated profile, which
+    /// is the one failure mode a compliance store must not have.
+    #[test]
+    fn a_truncated_snapshot_fails_closed_rather_than_starting_empty() {
+        let path = scratch("truncated");
+        let mut written = registry();
+        written.activate(vasp_profile(1, 100, 200, 1)).unwrap();
+        written.save(&path).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        std::fs::write(&path, &bytes[..bytes.len() / 2]).unwrap();
+
+        assert_eq!(
+            JurisdictionProfileRegistry::open(&path, ChainId::new(digest(90)), digest(91)),
+            Err(JurisdictionRegistryError::Persistence),
+            "a truncated snapshot must not read as an empty registry"
+        );
+    }
+
+    /// The envelope carries no integrity check, so a flipped byte inside a
+    /// field decodes as a different but well-formed profile — here a revision
+    /// reads as 254 rather than 1, and nothing local can tell. That is why the
+    /// file is a cache and the chain holds the authority: the activation root
+    /// moves, so a validator comparing against a chain-recorded root sees it.
+    #[test]
+    fn tampering_a_snapshot_moves_the_activation_root_that_consensus_pins() {
+        let path = scratch("tampered");
+        let mut written = registry();
+        written.activate(vasp_profile(1, 100, 200, 1)).unwrap();
+        written.save(&path).unwrap();
+        let honest_root = written.activation_root().unwrap();
+
+        let mut bytes = std::fs::read(&path).unwrap();
+        let last = bytes.len() - 1;
+        bytes[last] ^= 0xff;
+        std::fs::write(&path, &bytes).unwrap();
+
+        let tampered =
+            JurisdictionProfileRegistry::open(&path, ChainId::new(digest(90)), digest(91))
+                .expect("a flipped field still decodes, which is the point");
+        assert_ne!(tampered, written, "the set really did change");
+        assert_ne!(
+            tampered.activation_root().unwrap(),
+            honest_root,
+            "a chain-recorded root must not accept the altered set"
+        );
+    }
+
+    /// The root names the set, not the order it was activated in, or two
+    /// validators reaching the same state by different routes would disagree.
+    #[test]
+    fn the_activation_root_depends_on_the_set_and_not_the_order() {
+        let mut forwards = registry();
+        let mut backwards = registry();
+        for id in [1_u8, 5, 9] {
+            forwards.activate(vasp_profile(id, 100, 200, 1)).unwrap();
+        }
+        for id in [9_u8, 5, 1] {
+            backwards.activate(vasp_profile(id, 100, 200, 1)).unwrap();
+        }
+        assert_eq!(forwards.activation_root().unwrap(), backwards.activation_root().unwrap());
+    }
+
+    /// A chain that has activated nothing must not present a selection that
+    /// merely happens to admit nothing.
+    #[test]
+    fn a_height_with_nothing_in_force_is_rejected_not_an_empty_selection() {
+        let mut registry = registry();
+        registry.activate(vasp_profile(1, 100, 200, 1)).unwrap();
+        assert_eq!(registry.selection_at(50), ProfileSelection::Rejected);
+        assert_eq!(registry.selection_at(100), ProfileSelection::Selected(alloc::vec![digest(1)]));
+    }
+
+    /// `require_selected_profile` resolves by binary search, so a selection
+    /// that is not ascending would refuse a profile it holds.
+    #[test]
+    fn a_selection_resolves_every_profile_it_contains() {
+        let mut registry = registry();
+        for id in [7_u8, 3, 9, 1] {
+            registry.activate(vasp_profile(id, 100, 200, 1)).unwrap();
+        }
+        let selection = registry.selection_at(150);
+        let ProfileSelection::Selected(ids) = &selection else { panic!("expected a selection") };
+        assert!(ids.windows(2).all(|pair| pair[0] < pair[1]), "ids must ascend: {ids:?}");
+        for id in [7_u8, 3, 9, 1] {
+            assert_eq!(
+                require_selected_profile(&selection, digest(id)),
+                Ok(()),
+                "an activated profile must resolve"
+            );
+        }
+        assert_eq!(
+            require_selected_profile(&selection, digest(2)),
+            Err(ComplianceAdmissionError::ProfileNotSelected),
+            "an unactivated profile must not"
+        );
+    }
+
+    /// A chain that activates nothing behaves exactly as it did before this
+    /// type existed, which is what keeps an existing network bit-identical.
+    #[test]
+    fn an_absent_snapshot_opens_an_empty_registry() {
+        let path = scratch("absent");
+        let registry =
+            JurisdictionProfileRegistry::open(&path, ChainId::new(digest(90)), digest(91)).unwrap();
+        assert!(registry.is_empty());
+        assert_eq!(registry.selection_at(150), ProfileSelection::Rejected);
+    }
+
+    /// A registry bound to nothing would make the cross-genesis check vacuous.
+    #[test]
+    fn a_registry_must_be_bound_to_a_real_genesis() {
+        assert_eq!(
+            JurisdictionProfileRegistry::new(ChainId::new(digest(90)), Digest384::ZERO),
+            Err(JurisdictionRegistryError::CrossGenesis)
         );
     }
 }

@@ -15,6 +15,17 @@ Tracked by [GitHub issue #815](https://github.com/advatar/ActiveChain/issues/815
   before claiming that an outside developer can install and spend unaided; the onboarding audit
   confirmed both remain unavailable in the current reference surfaces.
 
+## Generic native anchor finality verifier (#821 / PR #822)
+
+- [x] Keep canonical `DigestAnchorStatementV1` construction, native finality, and checkpoint
+  membership verification at the Actum-owned boundary.
+- [x] Load and validate accepted chain/genesis/checkpoint/protocol/verifier trust only from the
+  durable operator trust store; reject caller-supplied trust fields and malformed input.
+- [x] Locally qualify the verifier crate and focused boundary tests; real network lifecycle remains
+  pending Actum dev/staging checkpoint availability.
+- [x] Pass `cargo fmt --all --check`, affected verifier/RPC-server all-target tests, and strict
+  Clippy on the final candidate; Apple consumers target deployment version 26.5.
+
 ## ActiveBridge Thunes connector qualification
 
 Tracked by [GitHub issue #803](https://github.com/advatar/ActiveChain/issues/803).
@@ -22,7 +33,9 @@ Tracked by [GitHub issue #803](https://github.com/advatar/ActiveChain/issues/803
 - [x] Implement and locally qualify the Thunes connector and connector-host policy integration.
 - [x] Isolate the formal-model TLA+ Docker invocation from the macOS runner keychain without
   initializing the unrelated RISC0 builder.
-- [ ] Pass one new exact-SHA full deterministic-kernel gate before moving PR #804 out of draft.
+- [x] Pass the exact full deterministic-kernel gate on `be462abf` ([run
+  31829811529](https://github.com/advatar/ActiveChain/actions/runs/31829811529)); merge the
+  patch-equivalent tree as `412b8e70` and verify it is reachable from `origin/main`.
 
 ## Active gate recovery — Republished TLA+ 1.8.0 asset
 

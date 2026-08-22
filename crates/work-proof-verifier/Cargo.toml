@@ -14,6 +14,7 @@ activechain-consensus-verifier.workspace = true
 activechain-finality-types.workspace = true
 activechain-pq-zk = { path = "../pq-zk", version = "0.1.0", default-features = false }
 activechain-protocol-types.workspace = true
+activechain-state-tree.workspace = true
 activechain-verifier-api.workspace = true
 activechain-work-proof.workspace = true
 serde.workspace = true
@@ -25,7 +26,6 @@ zeroize = "1.8"
 activechain-action-kernel.workspace = true
 activechain-devnet-kernel.workspace = true
 activechain-protocol-commitment.workspace = true
-activechain-state-tree.workspace = true
 ml-dsa = "0.1.1"
 tempfile = "3.23.0"
 
