@@ -335,6 +335,7 @@ dependencies = [
  "activechain-finality-types",
  "activechain-pq-zk",
  "activechain-protocol-types",
+ "activechain-state-tree",
  "activechain-verifier-api",
  "activechain-work-proof",
  "serde",
