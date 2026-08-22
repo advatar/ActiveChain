@@ -127,7 +127,7 @@ test -f "$finality_bundle" || {
 }
 "$binary_root/activechain-rpc-ingest" \
   "$proposer_snapshot" "$rpc_snapshot" \
-  "$cash_snapshot" "$finality_bundle"
+  "$cash_snapshot" "$finality_bundle" "$state_root/execution.snapshot"
 if test ! -e "$cash_actions" && test -d "$cash_action_inflight"; then
   find "$cash_action_inflight" -type f -name '*.action' -delete
   rmdir "$cash_action_inflight"
