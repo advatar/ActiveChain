@@ -1392,6 +1392,17 @@ impl RpcServer {
                 let Ok(reference) = statement.submission_reference() else {
                     return RpcResponse::Error(RpcError::InvalidRequest);
                 };
+                let Ok(registry) = anchors.read() else {
+                    return RpcResponse::Error(RpcError::Internal);
+                };
+                if let Some(existing) = registry.registry().resolve(reference) {
+                    return if existing.statement() == &statement {
+                        RpcResponse::AnchorSubmission(reference)
+                    } else {
+                        RpcResponse::Error(RpcError::InvalidRequest)
+                    };
+                }
+                drop(registry);
                 let Ok(proposed) = proposal.propose_anchor(&statement, reference) else {
                     return RpcResponse::Error(RpcError::InvalidRequest);
                 };
@@ -3242,14 +3253,19 @@ mod tests {
 
     #[test]
     fn anchor_rpc_submit_is_idempotent_and_survives_restart() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
         let index_path = temporary("anchor-index");
         let anchor_path = temporary("anchors");
         let _ = std::fs::remove_file(&index_path);
         let _ = std::fs::remove_file(&anchor_path);
         let store = Arc::new(DurableRpcStore::create(index_path.clone(), index()).unwrap());
+        let proposals = Arc::new(AtomicUsize::new(0));
+        let observed_proposals = Arc::clone(&proposals);
         let server = RpcServer::new(store)
             .with_anchor_registry(DurableAnchorRegistry::open(&anchor_path).unwrap())
-            .with_anchor_proposal_adapter(|statement: &DigestAnchorStatementV1, _| {
+            .with_anchor_proposal_adapter(move |statement: &DigestAnchorStatementV1, _| {
+                observed_proposals.fetch_add(1, Ordering::Relaxed);
                 let action = anchor_action_envelope(statement.clone());
                 let transaction = action_id(&action).unwrap();
                 ProposedAnchorAction::new(encode_envelope(&action).unwrap(), transaction)
@@ -3264,6 +3280,7 @@ mod tests {
             panic!("anchor submission expected")
         };
         assert_eq!(server.handle(request, 105), RpcResponse::AnchorSubmission(reference));
+        assert_eq!(proposals.load(Ordering::Relaxed), 1);
         let RpcResponse::AnchorRecord(record) =
             server.handle(RpcRequest::ResolveAnchor { reference }, 105)
         else {
