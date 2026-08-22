@@ -5,6 +5,7 @@
 //! resolved record, queries that exact object through the generic state API, and
 //! verifies the proof-bearing RPC response before writing any artifact.
 
+use activechain_action_kernel::{ActionEnvelope, action_id};
 use activechain_application_primitives::{
     AnchorRecord, AnchorStateRecordV1, AnchorStatus, anchor_state_object,
 };
@@ -41,6 +42,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state_record = AnchorStateRecordV1::from_finalized_record(&record)
         .map_err(|_| "finalized record cannot derive an immutable anchor state record")?;
+    let native = record.evidence().ok_or("finalized record lacks native evidence")?;
+    let action: ActionEnvelope = decode_envelope(native.action_envelope())
+        .map_err(|_| "finalized record contains a malformed native action")?;
+    let native_action_id =
+        action_id(&action).map_err(|_| "finalized record native action ID derivation failed")?;
+    if native_action_id != state_record.transaction() {
+        return Err("finalized record transaction/action identity is inconsistent".into());
+    }
     let expected_object =
         anchor_state_object(&state_record).map_err(|_| "anchor state object derivation failed")?;
     let object_id = expected_object.object_id().into_digest();
@@ -71,6 +80,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     write_new(Path::new(&finality_output), query_record.finality())?;
 
     println!("submission_reference={}", hex(reference.as_bytes()));
+    println!("transaction_id={}", hex(state_record.transaction().digest().as_bytes()));
+    println!("action_id={}", hex(native_action_id.digest().as_bytes()));
     println!("anchor_state_object_id={}", hex(object_id.as_bytes()));
     println!("checkpoint_height={}", checkpoint.height);
     println!("checkpoint_state_root={}", hex(checkpoint.post_state.root().as_bytes()));
