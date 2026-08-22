@@ -80,6 +80,7 @@ contracts. These describe code as implemented; they are not automatically normat
 
 ## Operations, releases, and security
 
+- [Kanalen integrator onboarding](KANALEN_INTEGRATOR_ONBOARDING_V1.md)
 - [Testnet release boundary](TESTNET_RELEASE.md)
 - [Testnet release gate](TESTNET_RELEASE_GATE_V1.md)
 - [Testnet operations](testnet-operations.md)
