@@ -34,6 +34,13 @@ if [[ -z "$docker_bin" ]]; then
   echo "could not find docker; set ACTIVECHAIN_DOCKER to its path" >&2
   exit 1
 fi
+# Docker Desktop records `credsStore: desktop` in the user's config. Its CLI
+# may be available through /usr/local/bin while the matching credential helper
+# exists only in the application bundle, especially in a non-login SSH shell.
+docker_desktop_bin="/Applications/Docker.app/Contents/Resources/bin"
+if [[ -d "$docker_desktop_bin" ]]; then
+  export PATH="$docker_desktop_bin:$PATH"
+fi
 release_root="$deployment_root/releases"
 release_dir="$release_root/$release_id"
 staging_dir=""

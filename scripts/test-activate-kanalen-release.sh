@@ -66,6 +66,15 @@ PLUTIL
 cat >"$test_root/tools/docker" <<'DOCKER'
 #!/bin/bash
 printf '%s\n' "$*" >>"$ACTIVECHAIN_DOCKER_LOG"
+case ":$PATH:" in
+  *:/Applications/Docker.app/Contents/Resources/bin:*) ;;
+  *)
+    if [[ -d /Applications/Docker.app/Contents/Resources/bin ]]; then
+      echo "Docker Desktop credential helper directory is absent from PATH" >&2
+      exit 1
+    fi
+    ;;
+esac
 DOCKER
 cat >"$test_root/tools/plistbuddy" <<'PLISTBUDDY'
 #!/bin/bash
