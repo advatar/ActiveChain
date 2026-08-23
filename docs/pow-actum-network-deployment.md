@@ -159,4 +159,5 @@ one durable receipt, finalized height 8774, checkpoint height 8773, and trust bu
 
 This qualifies the bounded private-testnet lifecycle implementation; it does not claim
 production-scale readiness for the Preview whole-file usage registry. The exact final
-deterministic-kernel gate remains mandatory before integration into `main`.
+deterministic-kernel gate passed candidate `a7e55091ba2672b5b7b21483aa7a63ccfe7b582d` in run
+`32642557878`; integration into `main` remains the final completion condition.
