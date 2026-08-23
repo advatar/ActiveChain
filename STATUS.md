@@ -203,9 +203,11 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
       digest, network identity, authenticated local services, public TLS origins, and private-file
       permissions before attempting the state-changing production lifecycle (run `32611648434`;
       correctly failed promotion on stale trust and missing delivery DNS).
-    - [ ] Diagnose and rotate the deployed verifier's stale or build-incompatible trust bundle to
-      an operator-signed bundle derived from the current finalized checkpoint, without moving the
-      signing seed onto the verifier host.
+    - [ ] Rebootstrap stale verifier trust through an explicit, recoverable Kanalen-testnet-only
+      path that refuses non-Kanalen identity or admitted usage; production trust remains transition
+      only, while this single-operator developmental network does not require an offline ceremony.
+    - [ ] Serve delivery canonically at `delivery.kanalen.actum.network`, retaining the former
+      `activechain.dev` hostname only as a temporary compatibility alias when DNS exists.
     - [ ] Exercise real deployed delivery, anchoring, finality, and stateful usage admission.
     - [ ] Pass the exact full gate and publish production qualification evidence.
     - [ ] Promote the deployed testnet and update landing-page capabilities proven by that evidence.
