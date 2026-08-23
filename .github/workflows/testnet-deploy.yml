@@ -13,12 +13,22 @@ on:
         required: true
         default: "192.168.2.126"
         type: string
+      status_only:
+        description: "Skip the build and capture sanitized PoW deployment status"
+        required: true
+        default: false
+        type: boolean
+      expected_revision:
+        description: "Exact deployed revision required by status-only mode"
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   bundle:
+    if: ${{ inputs.status_only != true }}
     runs-on: [self-hosted, macOS, ARM64, activechain-ci]
     timeout-minutes: 30
     env:
@@ -102,3 +112,59 @@ jobs:
           ssh -i "$key_path" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
             "$KANALEN_DEPLOY_USER@$DEPLOY_HOST" \
             "bash /Volumes/ActiveChain/testnet/activate-kanalen-release.sh /Volumes/ActiveChain/testnet/kanalen-${GITHUB_SHA}.tar.gz /Volumes/ActiveChain/testnet/kanalen-${GITHUB_SHA}.sha256 ${GITHUB_SHA}"
+
+  pow-status:
+    if: ${{ inputs.status_only == true }}
+    runs-on: [self-hosted, macOS, ARM64, activechain-ci]
+    timeout-minutes: 5
+    env:
+      KANALEN_DEPLOY_USER: ${{ secrets.KANALEN_DEPLOY_USER }}
+      KANALEN_DEPLOY_KEY: ${{ secrets.KANALEN_DEPLOY_KEY }}
+      DEPLOY_HOST: ${{ inputs.deploy_host }}
+      EXPECTED_REVISION: ${{ inputs.expected_revision }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with: { clean: true, fetch-depth: 1, persist-credentials: false }
+      - name: Capture sanitized deployment status
+        run: |
+          if [[ ! "$EXPECTED_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "expected_revision must be a full lowercase Git commit" >&2
+            exit 1
+          fi
+          key_path=$(mktemp /tmp/activechain-kanalen-status-key.XXXXXX)
+          remote_script="/tmp/activechain-kanalen-pow-status-${GITHUB_RUN_ID}.py"
+          trap 'rm -f "$key_path"' EXIT
+          chmod 600 "$key_path"
+          printf '%s\n' "$KANALEN_DEPLOY_KEY" > "$key_path"
+          scp -i "$key_path" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+            scripts/capture-kanalen-pow-status.py \
+            "$KANALEN_DEPLOY_USER@$DEPLOY_HOST:$remote_script"
+          set +e
+          ssh -i "$key_path" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+            "$KANALEN_DEPLOY_USER@$DEPLOY_HOST" \
+            "python3 '$remote_script' --expected-revision '$EXPECTED_REVISION' --output -; status=\$?; rm -f '$remote_script'; exit \$status" \
+            > "pow-deployment-status-${EXPECTED_REVISION}.json"
+          capture_status=$?
+          set -e
+          python3 -m json.tool "pow-deployment-status-${EXPECTED_REVISION}.json" >/dev/null
+          printf '%s\n' "$capture_status" > pow-deployment-status.exit
+      - name: Publish sanitized status artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pow-deployment-status-${{ env.EXPECTED_REVISION }}
+          path: pow-deployment-status-${{ env.EXPECTED_REVISION }}.json
+      - name: Enforce deployment preflight
+        run: |
+          test "$(cat pow-deployment-status.exit)" = 0
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          revision = os.environ["EXPECTED_REVISION"]
+          evidence = json.loads(Path(f"pow-deployment-status-{revision}.json").read_text())
+          assert evidence["activechain_revision"] == revision
+          assert evidence["deployment_preflight_qualified"] is True
+          assert evidence["production_qualified"] is False
+          PY
