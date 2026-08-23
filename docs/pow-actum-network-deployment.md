@@ -91,7 +91,7 @@ client pinning the previous genesis rejects this chain until re-pinned.
 | Genesis commitment | `a836c4d201cda6ba33a01aa48011cf5f4d6acdfd1ec409d322dc1b56ed3552a25dcb158e0b1ec0352728653d315d477c` |
 | Protocol / RPC schema revision | 1 / 4 |
 | Metering policy | `01456c3f54e61fb20466c111f4167916b1ee9d23ac083a0e3ce1662b153c47de27af0a13b09cb5319c24ba31a9cfa8d0`, revision 1 |
-| Trust bundle | `a2dfafd2f37912d73f8e12ecf739ae9d83ed1abdfb16405978315da33d1528ce939f31a8a14e177b6d9deca9646d36f2`, sequence 1 |
+| Trust bundle | `d7cf053c9faea38b8bfed6d868ddd6a3b8439e5e7b27d057b262ad6393386ff8db8bfb186e97865d17bc80b7ca6353ed`, sequence 1 |
 | Signer set | `95bb3e7016a69e845d7354612aa08a762aa0ada40b7f087a5005e83c0969824c740863869e5c5d1d8ec1d52678f54c94`, 1-of-1 ML-DSA-44 |
 
 A claim's `policy_id` must equal the metering policy above; the verifier rejects any other value.
@@ -149,7 +149,14 @@ cannot select or replace the trust bundle.
 
 ## Promotion evidence
 
-Do not remove the Preview label until the exact deployed collector, epoch, anchor, proof image,
-stateful verifier, gateway, and ProofOfWork revisions have passed restart, replay, substitution,
-concurrency, stale-trust, delivery, finality, privacy/logging, and failure rehearsals. Preserve the
-resulting revision IDs and evidence artifact in issue #778.
+The production lifecycle passed on 2026-08-23 for ActiveChain
+`955a976821f16428f7c18f99d6de338d2ace3c33`, ProofOfWork
+`d8a49fe7f0817c4805df1db5e06c7c4e00b89795`, and deployment bundle SHA-256
+`2d8b12f1025a350832f88fb1c3887a2bdd1619860a0d8a3dfba9b0aa46dd29da`. The sanitized
+production artifact is published in issue #778. Deployment run `32639250086` and independent
+post-lifecycle status run `32639496465` prove the exact public origins, protected-service health,
+one durable receipt, finalized height 8774, checkpoint height 8773, and trust bundle above.
+
+This qualifies the bounded private-testnet lifecycle implementation; it does not claim
+production-scale readiness for the Preview whole-file usage registry. The exact final
+deterministic-kernel gate remains mandatory before integration into `main`.

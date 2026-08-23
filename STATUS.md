@@ -181,7 +181,8 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
       bring-up exposed a missing bundle binary, a faucet source that breaks after the first
       grant, a receipt the ingest pipeline never indexes, a Lima-only container host name,
       a loopback bind the containerised gateway cannot dial, and an ALPN mismatch.
-    - [ ] Capture the real exact-revision lifecycle evidence on the Kanalen host.
+    - [x] Capture the real exact-revision lifecycle evidence on the Kanalen host (deployment
+      `955a976821f16428f7c18f99d6de338d2ace3c33`, production evidence in issue #778).
     - [x] Add deterministic delivery, anchor, verifier, replay, restart, concurrency, and privacy rehearsals.
     - [x] Emit exact-revision deterministic evidence from the split runtime gate.
     - [x] Bundle the stateless verifier, stateful admission API, and trust-bootstrap tools for Kanalen deployment.
@@ -203,17 +204,20 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
       digest, network identity, authenticated local services, public TLS origins, and private-file
       permissions before attempting the state-changing production lifecycle (run `32611648434`;
       correctly failed promotion on stale trust and missing delivery DNS).
-    - [ ] Rebootstrap stale verifier trust through an explicit, recoverable Kanalen-testnet-only
+    - [x] Rebootstrap stale verifier trust through an explicit, recoverable Kanalen-testnet-only
       path that refuses non-Kanalen identity or admitted usage; production trust remains transition
       only, while this single-operator developmental network does not require an offline ceremony.
-    - [ ] Serve delivery canonically at `delivery.kanalen.actum.network`, retaining the former
+    - [x] Serve delivery canonically at `delivery.kanalen.actum.network`, retaining the former
       `activechain.dev` hostname only as a temporary compatibility alias when DNS exists.
-      - [ ] Replace the vulnerable Traefik 3.5.6 edge with patched 3.6.7, pin activation to the
+      - [x] Replace the vulnerable Traefik 3.5.6 edge with patched 3.6.7, pin activation to the
         `colima-coolify` context that owns public IPv4 port 443, and delegate delivery TLS through
         the existing Caddy HTTP-01 path because Colima's port forward rejects TLS-ALPN challenges.
-    - [ ] Exercise real deployed delivery, anchoring, finality, and stateful usage admission.
-    - [ ] Pass the exact full gate and publish production qualification evidence.
-    - [ ] Promote the deployed testnet and update landing-page capabilities proven by that evidence.
+    - [x] Exercise real deployed delivery, anchoring, finality, and stateful usage admission.
+    - [x] Publish sanitized production qualification evidence binding ActiveChain, ProofOfWork,
+      the deployment bundle, real delivery/finality/admission/replay, and privacy in issue #778.
+    - [ ] Pass the exact full deterministic-kernel gate.
+    - [x] Promote the deployed testnet and update landing-page capabilities proven by that evidence
+      (`pow.actum.network`, landing-page revision `2b665fbbcb9f4550bfa3a1bdbe7e41937dc877eb`).
 
 ## Verifier C header and Apple distribution reconciliation
 
