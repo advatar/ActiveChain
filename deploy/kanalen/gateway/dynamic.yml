@@ -34,7 +34,7 @@ tcp:
       priority: 101
       service: activechain-work-delivery
       tls:
-        certResolver: letsencrypt
+        certResolver: letsencrypt-delivery
 
     activechain-work-delivery-legacy:
       entryPoints:
@@ -43,7 +43,7 @@ tcp:
       priority: 100
       service: activechain-work-delivery
       tls:
-        certResolver: letsencrypt
+        certResolver: letsencrypt-delivery
 
     existing-https:
       entryPoints:

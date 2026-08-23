@@ -13,6 +13,11 @@ certificatesResolvers:
       email: johansellstrom@activechain.dev
       storage: /letsencrypt/acme.json
       tlsChallenge: {}
+  letsencrypt-delivery:
+    acme:
+      email: johansellstrom@activechain.dev
+      storage: /letsencrypt/delivery.json
+      tlsChallenge: {}
 
 api:
   dashboard: false
