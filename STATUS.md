@@ -2,6 +2,17 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## DCN verified-execution evidence anchoring
+
+Tracked by [GitHub issue #826](https://github.com/advatar/ActiveChain/issues/826).
+
+- [x] Admit a versioned, privacy-safe DCN evidence commitment through the existing canonical
+      `DigestAnchorStatementV1` path without introducing a parallel ledger primitive.
+- [x] Preserve operator-owned authorization, exact duplicate idempotency, and native
+      consensus/finality evidence while exposing deterministic submission and retrieval records.
+- [x] Reject non-final, substituted, unauthorized, and malformed DCN evidence anchors and qualify
+      a real local multi-validator finality round.
+
 ## Public authorized-transfer submission path
 
 Tracked by [GitHub issue #819](https://github.com/advatar/ActiveChain/issues/819), scoped by
