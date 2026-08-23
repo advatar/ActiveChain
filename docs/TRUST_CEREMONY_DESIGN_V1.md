@@ -128,9 +128,15 @@ Three rules govern the record, each tested:
 - **A signature is recorded before it is acknowledged.** Otherwise a signer who
   believes they are finished would have to be asked again.
 
-Written to a temporary and renamed, so a crash mid-write leaves the previous
-record rather than a truncated one. Durability is opt-in: `begin` behaves
-exactly as before and writes nothing.
+One coordinator holds an exclusive sidecar lock for the whole session, so two
+processes cannot overwrite each other's independently collected signatures.
+Records are bounded regular files. Each update uses a newly created
+same-directory temporary file, synchronizes its bytes, atomically renames it,
+then synchronizes the parent directory; a crash therefore leaves either the
+previous complete record or the acknowledged replacement. Every resumed
+signature is still reverified, so durability never turns the local file into a
+trust source. Durability is opt-in: `begin` behaves exactly as before and writes
+nothing.
 
 ## Transport
 

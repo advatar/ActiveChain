@@ -19,14 +19,16 @@
 
 use crate::{CeremonyError, DetachedSignature, bundle_id_for_signing, decode_hex, encode_hex};
 use activechain_application_primitives::{
-    ActumVerifierTrustBundleV1, MAX_TRUST_SIGNATURE_BYTES, SignedActumVerifierTrustBundleV1,
-    TrustSignatureAlgorithmV1, TrustSignerSetV1,
+    ActumVerifierTrustBundleV1, MAX_TRUST_SIGNATURE_BYTES, MAX_TRUST_SIGNERS,
+    SignedActumVerifierTrustBundleV1, TrustSignatureAlgorithmV1, TrustSignerSetV1,
 };
 use activechain_protocol_types::Digest384;
 use serde::{Deserialize, Serialize};
 use std::{
-    fs,
+    fs::{self, File, OpenOptions},
+    io::Write,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 /// What accepting a signature changed.
@@ -54,6 +56,10 @@ pub struct Coordinator {
     /// gather the seeds in one place so it can be done quickly — which is the
     /// failure this design exists to avoid.
     path: Option<PathBuf>,
+    /// Excludes a second coordinator for the same record. Keeping the lock for
+    /// the whole session prevents two valid signatures from racing through
+    /// separate in-memory snapshots and losing one at the final rename.
+    lock: Option<Arc<File>>,
 }
 
 /// The on-disk form.
@@ -76,6 +82,81 @@ struct RecordedSignature {
 }
 
 const CEREMONY_SCHEMA: u16 = 1;
+const MAX_CEREMONY_RECORD_BYTES: u64 = 128 * 1024;
+
+fn parent_directory(path: &Path) -> Result<&Path, CeremonyError> {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    if !parent.is_dir() {
+        return Err(CeremonyError::MalformedInput);
+    }
+    Ok(parent)
+}
+
+fn private_options() -> OpenOptions {
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options
+}
+
+fn lock_record(path: &Path) -> Result<File, CeremonyError> {
+    parent_directory(path)?;
+    let mut name = path.as_os_str().to_os_string();
+    name.push(".lock");
+    let lock_path = PathBuf::from(name);
+    if fs::symlink_metadata(&lock_path).is_ok_and(|metadata| !metadata.file_type().is_file()) {
+        return Err(CeremonyError::MalformedInput);
+    }
+    let file = private_options().open(lock_path).map_err(|_| CeremonyError::MalformedInput)?;
+    file.try_lock().map_err(|_| CeremonyError::MalformedInput)?;
+    Ok(file)
+}
+
+fn atomic_replace(path: &Path, bytes: &[u8]) -> Result<(), CeremonyError> {
+    if bytes.is_empty() || bytes.len() as u64 > MAX_CEREMONY_RECORD_BYTES {
+        return Err(CeremonyError::MalformedInput);
+    }
+    let parent = parent_directory(path)?;
+    let stem = path.file_name().ok_or(CeremonyError::MalformedInput)?.to_string_lossy();
+    let mut temporary = None;
+    for attempt in 0..16_u8 {
+        let candidate = parent.join(format!(".{stem}.{}.{}.tmp", std::process::id(), attempt));
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        match options.open(&candidate) {
+            Ok(file) => {
+                temporary = Some((candidate, file));
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(_) => return Err(CeremonyError::MalformedInput),
+        }
+    }
+    let (temporary_path, mut file) = temporary.ok_or(CeremonyError::MalformedInput)?;
+    if file.write_all(bytes).is_err() || file.sync_all().is_err() {
+        let _ = fs::remove_file(&temporary_path);
+        return Err(CeremonyError::MalformedInput);
+    }
+    if fs::rename(&temporary_path, path).is_err() {
+        let _ = fs::remove_file(&temporary_path);
+        return Err(CeremonyError::MalformedInput);
+    }
+    File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|_| CeremonyError::MalformedInput)
+}
 
 impl Coordinator {
     /// Begins coordinating a ceremony over the exact body that will be signed.
@@ -89,7 +170,7 @@ impl Coordinator {
     ) -> Result<Self, CeremonyError> {
         signer_set.validate().map_err(|_| CeremonyError::InvalidSignerSet)?;
         let bundle_id = bundle_id_for_signing(body)?;
-        Ok(Self { signer_set, bundle_id, collected: Vec::new(), path: None })
+        Ok(Self { signer_set, bundle_id, collected: Vec::new(), path: None, lock: None })
     }
 
     /// Begins a ceremony whose progress survives restarts, resuming one already
@@ -110,28 +191,41 @@ impl Coordinator {
     ) -> Result<Self, CeremonyError> {
         let mut coordinator = Self::begin(signer_set, body)?;
         let path = path.as_ref().to_path_buf();
-        if path.exists() {
-            let bytes = fs::read(&path).map_err(|_| CeremonyError::MalformedInput)?;
-            let record: CeremonyRecord =
-                serde_json::from_slice(&bytes).map_err(|_| CeremonyError::MalformedInput)?;
-            if record.schema != CEREMONY_SCHEMA
-                || record.bundle_id_hex != encode_hex(coordinator.bundle_id.as_bytes())
-            {
-                return Err(CeremonyError::MalformedInput);
+        let lock = lock_record(&path)?;
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) => {
+                if !metadata.file_type().is_file() || metadata.len() > MAX_CEREMONY_RECORD_BYTES {
+                    return Err(CeremonyError::MalformedInput);
+                }
+                let bytes = fs::read(&path).map_err(|_| CeremonyError::MalformedInput)?;
+                let record: CeremonyRecord =
+                    serde_json::from_slice(&bytes).map_err(|_| CeremonyError::MalformedInput)?;
+                if record.schema != CEREMONY_SCHEMA
+                    || record.bundle_id_hex != encode_hex(coordinator.bundle_id.as_bytes())
+                    || record.signatures.len() > MAX_TRUST_SIGNERS
+                {
+                    return Err(CeremonyError::MalformedInput);
+                }
+                for recorded in record.signatures {
+                    let signer = decode_hex(&recorded.signer_id_hex, 48)?;
+                    let signer: [u8; 48] =
+                        signer.try_into().map_err(|_| CeremonyError::MalformedInput)?;
+                    // Re-verified on the way in rather than trusted: a record is a
+                    // file, and a file can be edited.
+                    let acceptance = coordinator.accept(DetachedSignature {
+                        signer_id: Digest384::new(signer),
+                        signature: decode_hex(&recorded.signature_hex, MAX_TRUST_SIGNATURE_BYTES)?,
+                    })?;
+                    if acceptance == Acceptance::AlreadySigned {
+                        return Err(CeremonyError::MalformedInput);
+                    }
+                }
             }
-            for recorded in record.signatures {
-                let signer = decode_hex(&recorded.signer_id_hex, 48)?;
-                let signer: [u8; 48] =
-                    signer.try_into().map_err(|_| CeremonyError::MalformedInput)?;
-                // Re-verified on the way in rather than trusted: a record is a
-                // file, and a file can be edited.
-                coordinator.accept(DetachedSignature {
-                    signer_id: Digest384::new(signer),
-                    signature: decode_hex(&recorded.signature_hex, MAX_TRUST_SIGNATURE_BYTES)?,
-                })?;
-            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err(CeremonyError::MalformedInput),
         }
         coordinator.path = Some(path);
+        coordinator.lock = Some(Arc::new(lock));
         Ok(coordinator)
     }
 
@@ -151,12 +245,7 @@ impl Coordinator {
         };
         let bytes =
             serde_json::to_vec_pretty(&record).map_err(|_| CeremonyError::MalformedInput)?;
-        // Written to a temporary and renamed, so a crash mid-write leaves the
-        // previous record rather than a truncated one.
-        let temporary = path.with_extension("tmp");
-        fs::write(&temporary, &bytes).map_err(|_| CeremonyError::MalformedInput)?;
-        fs::rename(&temporary, path).map_err(|_| CeremonyError::MalformedInput)?;
-        Ok(())
+        atomic_replace(path, &bytes)
     }
 
     /// The value each signer signs, published to them out of band.
@@ -420,6 +509,13 @@ mod tests {
         std::env::temp_dir().join(format!("activechain-ceremony-{name}-{nanos}.json"))
     }
 
+    fn cleanup(path: &Path) {
+        let _ = std::fs::remove_file(path);
+        let mut lock = path.as_os_str().to_os_string();
+        lock.push(".lock");
+        let _ = std::fs::remove_file(PathBuf::from(lock));
+    }
+
     /// A ceremony runs over days, because signers are people. Losing progress
     /// on restart is not merely inconvenient: the natural response is to gather
     /// the seeds somewhere they can all be used at once, which is the failure
@@ -455,7 +551,48 @@ mod tests {
             Acceptance::ThresholdMet { collected: 2 }
         );
         resumed.assemble(body, 1_000).expect("a resumed ceremony still assembles");
-        let _ = std::fs::remove_file(&path);
+        cleanup(&path);
+    }
+
+    /// Two coordinators with independent snapshots could each persist one
+    /// signature and silently lose the other. The durable record is therefore
+    /// exclusively owned for the lifetime of a coordinator session.
+    #[test]
+    fn concurrent_coordinators_for_one_record_are_refused() {
+        let (set, _) = ceremony(2, 3);
+        let body = body(&set);
+        let path = scratch("exclusive");
+
+        let first = Coordinator::open(set.clone(), &body, &path).expect("first coordinator");
+        assert_eq!(
+            Coordinator::open(set.clone(), &body, &path).unwrap_err(),
+            CeremonyError::MalformedInput
+        );
+        drop(first);
+        Coordinator::open(set, &body, &path).expect("lock is released when the session ends");
+        cleanup(&path);
+    }
+
+    #[test]
+    fn oversized_and_non_file_records_fail_closed() {
+        let (set, _) = ceremony(2, 3);
+        let body = body(&set);
+        let oversized = scratch("oversized");
+        std::fs::write(&oversized, vec![b'x'; MAX_CEREMONY_RECORD_BYTES as usize + 1]).unwrap();
+        assert_eq!(
+            Coordinator::open(set.clone(), &body, &oversized).unwrap_err(),
+            CeremonyError::MalformedInput
+        );
+        cleanup(&oversized);
+
+        let directory = scratch("directory");
+        std::fs::create_dir(&directory).unwrap();
+        assert_eq!(
+            Coordinator::open(set, &body, &directory).unwrap_err(),
+            CeremonyError::MalformedInput
+        );
+        std::fs::remove_dir(&directory).unwrap();
+        cleanup(&directory);
     }
 
     /// A ceremony is defined by what is being signed. Signatures gathered for
@@ -486,7 +623,7 @@ mod tests {
             CeremonyError::MalformedInput,
             "a record for another bundle must not be adopted"
         );
-        let _ = std::fs::remove_file(&path);
+        cleanup(&path);
     }
 
     /// The record is a file, and a file can be edited. Every signature is
@@ -519,7 +656,7 @@ mod tests {
             CeremonyError::Rejected,
             "a signature attributed to a signer who did not make it must be refused"
         );
-        let _ = std::fs::remove_file(&path);
+        cleanup(&path);
     }
 
     /// A coordinator with no path keeps its previous behaviour exactly, so
