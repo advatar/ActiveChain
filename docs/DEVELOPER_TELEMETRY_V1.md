@@ -1,7 +1,8 @@
 # Actum developer telemetry contract v1
 
-Status: **frozen developmental contract; collection, proof generation, and verification services are
-not shipped yet**. This document is normative for issues #773 through #778.
+Status: **frozen developmental contract with shipped Rust collector, isolated local prover
+sidecar, and stateful verifier; the public integration remains Preview pending exact deployed
+qualification**. This document is normative for issues #773 through #778.
 
 ## Boundary
 
@@ -86,10 +87,13 @@ monotonic durations, or epoch Merkle roots. The authority validates permission a
 allocates durable sequences, derives monotonic intervals, constructs canonical events, signs them,
 and seals linked epochs.
 
-The initial reference authority is an Actum Rust sidecar reached over a local Unix-domain socket.
-The socket is not consensus or protocol semantics. In-process FFI, named pipes, and mobile platform
-services may implement the same trusted construction boundary later, provided applications still
-submit raw observations and cannot choose canonical identities or ordering.
+The reference collector is the `activechain-developer-telemetry` Rust authority. The
+`actum-work-prover` process consumes only its complete signed sealed-epoch artifact over a private
+Unix-domain socket, re-verifies every signature and epoch field, and owns claimant-secret access,
+canonical witness/claim construction, and isolated `r0vm` proving. The socket is not consensus or
+protocol semantics. In-process FFI, named pipes, and mobile platform services may implement the
+same trusted construction boundary later, provided applications still cannot choose canonical
+identities, ordering, witnesses, or private proving keys.
 
 Evidence and claims are separate. Re-evaluating an epoch under another policy produces another
 claim ID and never rewrites evidence.

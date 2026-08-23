@@ -852,9 +852,8 @@ pub fn derive_claim_id(
     if proof.is_empty() || proof.len() > MAX_WORK_PROOF_BYTES {
         return Err(VerificationErrorV1::terminal(VerificationErrorCodeV1::ProofTooLarge));
     }
-    let public = encode_envelope(public)
-        .map_err(|_| VerificationErrorV1::terminal(VerificationErrorCodeV1::MalformedRequest))?;
-    Ok(domain_hash(b"ACTUM-WORK-CLAIM-V1", &[&public, proof]))
+    activechain_work_proof::derive_work_claim_id(public, proof)
+        .map_err(|_| VerificationErrorV1::terminal(VerificationErrorCodeV1::MalformedRequest))
 }
 
 pub fn work_proof_profile_id() -> Digest384 {

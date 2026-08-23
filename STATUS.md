@@ -195,9 +195,9 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
       for explicit deploys.
     - [x] Split formal proofs from Verus/vector conformance into independently rerunnable,
       fail-closed qualification jobs.
-    - [ ] Add an authenticated durable delivery receiver and require a protected delivery-token
+    - [x] Add an authenticated durable delivery receiver and require a protected delivery-token
       file in the portable plugin; unauthorized or failed delivery must never create a receipt.
-    - [ ] Ship the ActiveChain-owned canonical collector/prover/claim-assembly sidecar so
+    - [x] Ship the ActiveChain-owned canonical collector/prover/claim-assembly sidecar so
       ProofOfWork never reimplements canonical events, witnesses, proving, or private key custody.
     - [ ] Exercise real deployed delivery, anchoring, finality, and stateful usage admission.
     - [ ] Pass the exact full gate and publish production qualification evidence.

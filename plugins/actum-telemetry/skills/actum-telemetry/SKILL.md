@@ -26,6 +26,11 @@ artifacts. Delivery does not imply anchoring; anchoring does not imply finality;
 imply usage-nullifier admission. Report `relation_verified`, `anchor_verified`, and
 `usage_verified` separately whenever available.
 
+Use only the operator-pinned `actum-work-prover` Unix-socket daemon for `work.prove`. Its private
+config and claimant secret remain outside the plugin process and MCP arguments. A successful result records the exact generated admission
+artifact and canonical anchor request ID; `work.anchor` may extract canonical anchor bytes only
+from that recorded artifact. Never hand-build event, witness, claim, proof, or anchor encodings.
+
 `ACTUM_DELIVERY_WEBHOOK` and `ACTUM_ANCHOR_URL` are optional Preview integrations until their exact
 deployed revisions pass #775/#778 qualification. Delivery also requires the protected
 `ACTUM_DELIVERY_BEARER_TOKEN_FILE`; never put its value in an argument. Missing, pending, stale,

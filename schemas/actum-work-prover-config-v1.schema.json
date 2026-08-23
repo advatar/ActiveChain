@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://actum.network/schemas/actum-work-prover-config-v1.schema.json",
+  "title": "Actum Work Prover Private Configuration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "chain_id",
+    "genesis_commitment",
+    "usage_domain",
+    "submitter_id",
+    "policy_envelope_hex",
+    "claimant_secret_file",
+    "output_directory",
+    "socket_path",
+    "r0vm_path"
+  ],
+  "properties": {
+    "schema": {"const": "actum.work-prover.config.v1"},
+    "chain_id": {"$ref": "#/$defs/digest384"},
+    "genesis_commitment": {"$ref": "#/$defs/digest384"},
+    "usage_domain": {"$ref": "#/$defs/digest384"},
+    "submitter_id": {"$ref": "#/$defs/digest384"},
+    "policy_envelope_hex": {"type": "string", "pattern": "^[0-9a-f]+$", "maxLength": 1024},
+    "claimant_secret_file": {"$ref": "#/$defs/absolute_path"},
+    "output_directory": {"$ref": "#/$defs/absolute_path"},
+    "socket_path": {"$ref": "#/$defs/absolute_path"},
+    "r0vm_path": {"$ref": "#/$defs/absolute_path"}
+  },
+  "$defs": {
+    "digest384": {"type": "string", "pattern": "^[0-9a-f]{96}$"},
+    "absolute_path": {"type": "string", "pattern": "^/", "minLength": 2, "maxLength": 4096}
+  }
+}

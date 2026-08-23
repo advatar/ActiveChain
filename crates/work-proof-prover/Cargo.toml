@@ -1,0 +1,31 @@
+[package]
+name = "activechain-work-proof-prover"
+description = "Canonical Actum work-claim assembly and private proving sidecar"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "actum-work-prover"
+path = "src/main.rs"
+
+[dependencies]
+activechain-application-primitives.workspace = true
+activechain-canonical-codec.workspace = true
+activechain-developer-telemetry.workspace = true
+activechain-pq-zk = { workspace = true, features = ["prover", "reproducible-build"] }
+activechain-protocol-types.workspace = true
+activechain-work-proof.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha3.workspace = true
+zeroize = "1.8"
+
+[dev-dependencies]
+ml-dsa = "0.1.1"
+tempfile = "3.23.0"
+
+[lints]
+workspace = true

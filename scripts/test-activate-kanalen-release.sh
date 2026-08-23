@@ -11,7 +11,7 @@ archive="$test_root/kanalen-$release_id.tar.gz"
 checksum="$test_root/kanalen-$release_id.sha256"
 
 mkdir -p "$payload/bin" "$payload/scripts" "$payload/launchagents" "$payload/gateway" "$deployment/work-proof" "$test_root/tools"
-for binary in validator-node activechain-rpc-node activechain-transfer-spool activechain-telemetry-anchor-gateway actum-work-proof-api actum-work-proof-verifier actum-work-delivery-api; do
+for binary in validator-node activechain-rpc-node activechain-transfer-spool activechain-telemetry-anchor-gateway actum-work-proof-api actum-work-proof-verifier actum-work-prover actum-work-delivery-api; do
   printf '#!/bin/sh\nexit 0\n' >"$payload/bin/$binary"
   chmod 0755 "$payload/bin/$binary"
 done

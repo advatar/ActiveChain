@@ -33,6 +33,7 @@ if ((skip_build == 0)); then
   run cargo build --locked --release \
     -p activechain-consensus-runtime \
     -p activechain-rpc-server \
+    -p activechain-work-proof-prover \
     -p activechain-work-proof-verifier \
     -p activechain-wallet-core \
     -p activechain-wallet-ffi \

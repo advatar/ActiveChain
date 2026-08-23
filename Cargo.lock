@@ -878,6 +878,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "activechain-work-proof-prover"
+version = "0.1.0"
+dependencies = [
+ "activechain-application-primitives",
+ "activechain-canonical-codec",
+ "activechain-developer-telemetry",
+ "activechain-pq-zk",
+ "activechain-protocol-types",
+ "activechain-work-proof",
+ "ml-dsa",
+ "serde",
+ "serde_json",
+ "sha3 0.10.9",
+ "tempfile",
+ "zeroize",
+]
+
+[[package]]
 name = "activechain-work-proof-verifier"
 version = "0.1.0"
 dependencies = [

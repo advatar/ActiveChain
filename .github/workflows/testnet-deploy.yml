@@ -41,6 +41,7 @@ jobs:
             -p activechain-wallet-core \
             -p activechain-wallet-ffi \
             -p activechain-verifier-ffi \
+            -p activechain-work-proof-prover \
             -p activechain-work-proof-verifier
           mkdir -p dist/kanalen/{bin,lib,headers,manifests}
           cp target/release/validator-node dist/kanalen/bin/
@@ -58,6 +59,7 @@ jobs:
           cp target/release/actum-work-proof-json-verifier dist/kanalen/bin/
           cp target/release/actum-work-proof-api dist/kanalen/bin/
           cp target/release/actum-work-proof-trust-bootstrap dist/kanalen/bin/
+          cp target/release/actum-work-prover dist/kanalen/bin/
           cp target/release/actum-work-delivery-api dist/kanalen/bin/
           cp target/release/activechain-wallet dist/kanalen/bin/
           cp target/release/activechain-faucet dist/kanalen/bin/

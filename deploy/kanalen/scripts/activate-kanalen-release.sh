@@ -97,7 +97,7 @@ else
   staging_dir=""
 fi
 
-for binary in validator-node activechain-rpc-node activechain-transfer-spool activechain-telemetry-anchor-gateway actum-work-proof-api actum-work-proof-verifier actum-work-proof-trust-bootstrap actum-work-delivery-api; do
+for binary in validator-node activechain-rpc-node activechain-transfer-spool activechain-telemetry-anchor-gateway actum-work-proof-api actum-work-proof-verifier actum-work-proof-trust-bootstrap actum-work-prover actum-work-delivery-api; do
   if [[ ! -x "$release_dir/bin/$binary" ]]; then
     echo "release is missing executable $binary" >&2
     exit 1
