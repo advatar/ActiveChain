@@ -93,7 +93,7 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
 
 - [ ] Deliver the protocol and integration contract promised by `pow.actum.network`
   ([GitHub initiative #771](https://github.com/advatar/ActiveChain/issues/771)).
-  - [ ] Freeze canonical event, epoch, policy, proof, disclosure, and verification contracts plus
+  - [x] Freeze canonical event, epoch, policy, proof, disclosure, and verification contracts plus
     app-developer documentation and vectors
     ([GitHub issue #772](https://github.com/advatar/ActiveChain/issues/772)).
     - [x] Publish the normative boundary, threat model, app integration guide, JSON schema, fixture,
@@ -172,7 +172,7 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Emit the deployed build's proof binding instead of transcribing it into bundle
       specifications.
     - [x] Pass the exact full deterministic-kernel gate.
-  - [ ] Qualify and document the complete `pow.actum.network` integration (#778; follow-up
+  - [x] Qualify and document the complete `pow.actum.network` integration (#778; follow-up
     reclaimed on `feat/778-pow-e2e-qualification` on 2026-08-23).
     - [x] Assemble checkpointed anchor evidence from a live RPC node. Nothing built
       `CheckpointedTelemetryAnchorEvidenceV1`, so every claim failed retryable
@@ -220,6 +220,8 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Pass the exact full deterministic-kernel gate on `a7e55091` (run `32642557878`).
     - [x] Promote the deployed testnet and update landing-page capabilities proven by that evidence
       (`pow.actum.network`, landing-page revision `2b665fbbcb9f4550bfa3a1bdbe7e41937dc877eb`).
+  - [ ] Reconcile the completed child issues, live qualified surfaces, and `origin/main`
+    integration before closing initiative #771.
 
 ## Verifier C header and Apple distribution reconciliation
 
