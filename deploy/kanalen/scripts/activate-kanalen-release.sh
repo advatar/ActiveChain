@@ -126,7 +126,7 @@ if [[ ! -x "$release_dir/scripts/qualification-http.py" ]]; then
   echo "release is missing the private qualification HTTP adapter" >&2
   exit 1
 fi
-for gateway_file in compose.yml dynamic.yml traefik.yml switch-edge.sh; do
+for gateway_file in compose.yml dynamic.yml traefik.yml switch-edge.sh install-caddy-fragment.sh; do
   if [[ ! -f "$release_dir/gateway/$gateway_file" ]]; then
     echo "release is missing gateway/$gateway_file" >&2
     exit 1
@@ -239,11 +239,15 @@ for gateway_file in compose.yml dynamic.yml traefik.yml; do
   install -m 0644 "$release_dir/gateway/$gateway_file" "$gateway_dir/$gateway_file"
 done
 install -m 0755 "$release_dir/gateway/switch-edge.sh" "$gateway_dir/switch-edge.sh"
+install -m 0755 "$release_dir/gateway/install-caddy-fragment.sh" \
+  "$gateway_dir/install-caddy-fragment.sh"
 if [[ -f "$release_dir/gateway/README.md" ]]; then
   install -m 0644 "$release_dir/gateway/README.md" "$gateway_dir/README.md"
 fi
 if [[ -f "$release_dir/gateway/$network.Caddyfile" ]]; then
   install -m 0644 "$release_dir/gateway/$network.Caddyfile" "$gateway_dir/$network.Caddyfile"
+  ACTIVECHAIN_DOCKER="$docker_bin" \
+    bash "$gateway_dir/install-caddy-fragment.sh" "$gateway_dir/$network.Caddyfile"
 fi
 "$docker_bin" compose -f "$gateway_dir/compose.yml" config >/dev/null
 # The configuration files are bind-mounted individually. `install` replaces
