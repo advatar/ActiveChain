@@ -202,6 +202,9 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [ ] Capture a sanitized, fail-closed deployment-status artifact that binds the active release
       digest, network identity, authenticated local services, public TLS origins, and private-file
       permissions before attempting the state-changing production lifecycle.
+    - [ ] Diagnose and rotate the deployed verifier's stale or build-incompatible trust bundle to
+      an operator-signed bundle derived from the current finalized checkpoint, without moving the
+      signing seed onto the verifier host.
     - [ ] Exercise real deployed delivery, anchoring, finality, and stateful usage admission.
     - [ ] Pass the exact full gate and publish production qualification evidence.
     - [ ] Promote the deployed testnet and update landing-page capabilities proven by that evidence.
