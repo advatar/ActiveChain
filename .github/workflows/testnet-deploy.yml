@@ -142,7 +142,7 @@ jobs:
           set +e
           ssh -i "$key_path" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
             "$KANALEN_DEPLOY_USER@$DEPLOY_HOST" \
-            "python3 '$remote_script' --expected-revision '$EXPECTED_REVISION' --output -; status=\$?; rm -f '$remote_script'; exit \$status" \
+            "python3 '$remote_script' --expected-revision '$EXPECTED_REVISION' --output -; remote_exit=\$?; rm -f '$remote_script'; exit \$remote_exit" \
             > "pow-deployment-status-${EXPECTED_REVISION}.json"
           capture_status=$?
           set -e

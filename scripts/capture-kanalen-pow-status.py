@@ -233,7 +233,7 @@ def capture(
     qualified = all(item["result"] == "passed" for item in checks)
     evidence: dict[str, Any] = {
         "$schema": "https://actum.network/evidence/pow-deployment-status/v1",
-        "generated_at": datetime.datetime.now(datetime.UTC).isoformat(),
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "activechain_revision": expected_revision,
         "deployment_bundle_sha256": archive_digest,
         "network": {
@@ -297,7 +297,7 @@ def main() -> int:
     except (OSError, ValueError) as error:
         evidence = {
             "$schema": "https://actum.network/evidence/pow-deployment-status/v1",
-            "generated_at": datetime.datetime.now(datetime.UTC).isoformat(),
+            "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "activechain_revision": arguments.expected_revision,
             "deployment_preflight_qualified": False,
             "production_qualified": False,
