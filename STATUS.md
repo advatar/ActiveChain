@@ -199,9 +199,10 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
       file in the portable plugin; unauthorized or failed delivery must never create a receipt.
     - [x] Ship the ActiveChain-owned canonical collector/prover/claim-assembly sidecar so
       ProofOfWork never reimplements canonical events, witnesses, proving, or private key custody.
-    - [ ] Capture a sanitized, fail-closed deployment-status artifact that binds the active release
+    - [x] Capture a sanitized, fail-closed deployment-status artifact that binds the active release
       digest, network identity, authenticated local services, public TLS origins, and private-file
-      permissions before attempting the state-changing production lifecycle.
+      permissions before attempting the state-changing production lifecycle (run `32611648434`;
+      correctly failed promotion on stale trust and missing delivery DNS).
     - [ ] Diagnose and rotate the deployed verifier's stale or build-incompatible trust bundle to
       an operator-signed bundle derived from the current finalized checkpoint, without moving the
       signing seed onto the verifier host.
