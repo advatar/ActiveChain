@@ -99,6 +99,22 @@ class CaptureKanalenPowStatusTests(unittest.TestCase):
         )
         self.assertEqual(delivery["reason"], "transport_unavailable")
 
+    def test_typed_verifier_failure_is_sanitized_but_preserved(self):
+        def stale_probe(url, token, timeout):
+            if ("49157" in url or "verify.kanalen" in url) and token is not None:
+                return 503, {
+                    "status": "error",
+                    "error": {"code": "stale_trust", "retryable": False},
+                }
+            return self.probe(url, token, timeout)
+
+        evidence, qualified = MODULE.capture(self.root, self.revision, 1.0, stale_probe)
+        self.assertFalse(qualified)
+        verifier = next(
+            check for check in evidence["checks"] if check["id"] == "local_verifier_status"
+        )
+        self.assertEqual(verifier["reason"], "stale_trust")
+
     def test_rejects_non_private_token_before_any_probe(self):
         (self.root / "anchor" / "bearer.token").chmod(0o644)
         with self.assertRaisesRegex(ValueError, "not private"):

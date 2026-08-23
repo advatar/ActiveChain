@@ -12,6 +12,7 @@ The Kanalen release contains:
 - `actum-work-proof-verifier`: bounded subprocess relation verifier.
 - `actum-work-proof-json-verifier`: stateless JSON adapter for diagnostics only.
 - `actum-work-proof-trust-bootstrap`: one-time validation and creation of the durable trust store.
+- `actum-work-proof-trust-transition`: signature-checked, crash-atomic renewal of that trust store.
 
 Production admission uses the stateful API. The stateless JSON adapter cannot establish
 `anchor_verified` or enforce durable usage uniqueness and must not be presented as production
@@ -36,6 +37,22 @@ bash "$HOME/activechain-deploy/kanalen/current/scripts/provision-work-proof-veri
 Provisioning creates a random bearer token, validates the signed bundle and signer set through
 `actum-work-proof-trust-bootstrap`, and refuses symlinks or group/world-readable secret files. It
 is idempotent and does not overwrite an existing token or trust store.
+
+Trust renewal is a signed transition, including when the previous bundle's time window has expired;
+never delete or replace `trust.bin`. Prepare and threshold-sign bundle sequence `N + 1` with the
+current signer set and the current finalized checkpoint, then install it atomically with:
+
+```sh
+actum-work-proof-trust-transition \
+  "$HOME/activechain-deploy/kanalen/work-proof/trust.bin" \
+  signed-next-bundle.bin trust-signer-set.bin - "$(($(date +%s) * 1000))"
+```
+
+Pass the activated signer-set path instead of `-` only when the preceding bundle explicitly
+scheduled that set for this sequence. The command verifies the complete chain, checkpoint
+monotonicity, time window, signer-set identity, and threshold signatures before updating the store.
+Restart the work-proof service after a successful transition so its in-memory view reloads the new
+bundle.
 
 Load `dev.activechain.kanalen.work-proof.plist` only after provisioning succeeds. The API listens
 on `0.0.0.0:49157` because the gateway runs as a container and reaches the host through
@@ -62,8 +79,8 @@ client pinning the previous genesis rejects this chain until re-pinned.
 | Value | |
 | --- | --- |
 | Chain ID | `b12c1c316717e9669cec36f7632a9080702c57a3125d90c72154f8a7298e4f0b095e6cfe944bd2c9f6535b4c927782f1` |
-| Genesis commitment | `f600eb4a562a3acd2bd82e46fa8ee063217153f827af12300c35fcb1b75fc96ab5650477691a6ce1b4350a314e5dbca4` |
-| Protocol / RPC schema revision | 1 / 2 |
+| Genesis commitment | `a836c4d201cda6ba33a01aa48011cf5f4d6acdfd1ec409d322dc1b56ed3552a25dcb158e0b1ec0352728653d315d477c` |
+| Protocol / RPC schema revision | 1 / 4 |
 | Metering policy | `a7c9d070a32fbc81a154ee8f9ca9ab475ab97bd8f6760645601f2638a8235c44dfd86c395a843182ef65dd5385849cf8`, revision 1 |
 | Trust bundle | `a2dfafd2f37912d73f8e12ecf739ae9d83ed1abdfb16405978315da33d1528ce939f31a8a14e177b6d9deca9646d36f2`, sequence 1 |
 | Signer set | `95bb3e7016a69e845d7354612aa08a762aa0ada40b7f087a5005e83c0969824c740863869e5c5d1d8ec1d52678f54c94`, 1-of-1 ML-DSA-44 |
@@ -81,7 +98,7 @@ two routes:
 
 | Method and path | Body | Auth |
 | --- | --- | --- |
-| `GET /v1/health` | empty | none |
+| `GET /v1/health` | empty | bearer |
 | `POST /v1/anchors` | canonical `TelemetryEpochAnchorRequestV1` **binary envelope** | bearer |
 
 The request body is a canonical envelope, not JSON. There is no JSON anchor-submission schema, and

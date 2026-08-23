@@ -122,12 +122,15 @@ def capture(
         try:
             status_code, body = probe(url, token, timeout)
             passed = status_code == expected_status and validator(body)
+            error = body.get("error")
+            typed_reason = error.get("code") if isinstance(error, dict) else body.get("code")
+            reason = typed_reason if isinstance(typed_reason, str) else "unexpected_response"
             checks.append(
                 {
                     "id": identifier,
                     "result": "passed" if passed else "failed",
                     "http_status": status_code,
-                    "reason": None if passed else "unexpected_response",
+                    "reason": None if passed else reason,
                 }
             )
             return body if passed else None

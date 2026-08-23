@@ -8,7 +8,7 @@ target_dir="${3:-$repo_root/target/release}"
 
 release_dir="$output_dir/$release_id"
 mkdir -p "$release_dir/bin" "$release_dir/scripts" "$release_dir/launchagents"
-for binary in validator-node genesis-tool cash-genesis-tool activechain-rpc-node activechain-rpc-ingest activechain-rpc-bootstrap activechain-rpc-probe activechain-transfer-spool activechain-telemetry-anchor-gateway actum-work-proof-verifier actum-work-proof-json-verifier actum-work-proof-api actum-work-proof-trust-bootstrap actum-work-prover actum-work-delivery-api; do
+for binary in validator-node genesis-tool cash-genesis-tool activechain-rpc-node activechain-rpc-ingest activechain-rpc-bootstrap activechain-rpc-probe activechain-transfer-spool activechain-telemetry-anchor-gateway actum-work-proof-verifier actum-work-proof-json-verifier actum-work-proof-api actum-work-proof-trust-bootstrap actum-work-proof-trust-transition actum-work-prover actum-work-delivery-api; do
   test -x "$target_dir/$binary"
   install -m 755 "$target_dir/$binary" "$release_dir/bin/$binary"
 done

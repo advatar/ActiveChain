@@ -46,6 +46,12 @@ pub struct DurableDeliveryStore {
     _lock: File,
 }
 
+impl Drop for DurableDeliveryStore {
+    fn drop(&mut self) {
+        let _ = File::unlock(&self._lock);
+    }
+}
+
 impl DurableDeliveryStore {
     pub fn open(root: impl Into<PathBuf>) -> Result<Self, DeliveryError> {
         let root = root.into();
