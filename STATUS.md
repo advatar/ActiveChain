@@ -199,6 +199,9 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
       file in the portable plugin; unauthorized or failed delivery must never create a receipt.
     - [x] Ship the ActiveChain-owned canonical collector/prover/claim-assembly sidecar so
       ProofOfWork never reimplements canonical events, witnesses, proving, or private key custody.
+    - [ ] Capture a sanitized, fail-closed deployment-status artifact that binds the active release
+      digest, network identity, authenticated local services, public TLS origins, and private-file
+      permissions before attempting the state-changing production lifecycle.
     - [ ] Exercise real deployed delivery, anchoring, finality, and stateful usage admission.
     - [ ] Pass the exact full gate and publish production qualification evidence.
     - [ ] Promote the deployed testnet and update landing-page capabilities proven by that evidence.
