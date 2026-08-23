@@ -58,6 +58,10 @@ The production artifact must fail closed when any endpoint, trust bundle, proof 
 or deployment revision is absent or mismatched. Secrets, raw artifacts, and subprocess stderr are
 never evidence fields.
 
+The production runner also executes the checked-out ProofOfWork adapter against the same admission
+artifact and protected deployed verifier. Its temporary token copy is mode 0600, deleted before
+evidence is written, and only the exact ProofOfWork commit and pass/fail result cross that boundary.
+
 Before the state-changing lifecycle, run the no-build deployment preflight workflow. It checks the
 active release symlink and archive digest, immutable chain/genesis identity, private credential-file
 permissions, authenticated local anchor/verifier health, unauthorized rejection, and each public

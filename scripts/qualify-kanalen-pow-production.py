@@ -75,12 +75,25 @@ def tool(directory: Path, name: str) -> Path:
     return path
 
 
+def require_proof_of_work_report(report: dict, activechain_revision: str, proof_of_work_revision: str) -> None:
+    if (
+        report.get("schema") != "actum.pow.qualification-report.v1"
+        or report.get("activeChainCommit") != activechain_revision
+        or report.get("proofOfWorkCommit") != proof_of_work_revision
+        or report.get("deterministic", {}).get("qualified") is not True
+        or report.get("production", {}).get("qualified") is not True
+        or report.get("production", {}).get("status") != "verified"
+    ):
+        raise RuntimeError("ProofOfWork did not qualify the exact deployed admission")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="johansellstrom@192.168.2.126")
     parser.add_argument("--expected-revision", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--release-tools", type=Path, default=ROOT / "target/release")
+    parser.add_argument("--proof-of-work-root", type=Path, default=ROOT.parent / "ProofOfWork")
     arguments = parser.parse_args()
     if not REVISION.fullmatch(arguments.expected_revision):
         raise SystemExit("expected revision must be a full lowercase Git commit")
@@ -96,10 +109,21 @@ def main() -> int:
     r0vm = Path(shutil.which("r0vm") or "")
     if not r0vm.is_absolute() or not os.access(r0vm, os.X_OK):
         raise SystemExit("r0vm is unavailable")
+    proof_of_work_root = arguments.proof_of_work_root.resolve(strict=True)
+    proof_of_work_revision = run(
+        ["git", "-C", str(proof_of_work_root), "rev-parse", "HEAD"], capture_output=True
+    ).stdout.strip()
+    if not REVISION.fullmatch(proof_of_work_revision):
+        raise RuntimeError("ProofOfWork revision is malformed")
 
     active = ssh(arguments.host, f"basename $(readlink {shlex.quote(REMOTE_ROOT + '/current')})")
     if active != arguments.expected_revision:
         raise RuntimeError(f"deployed revision is {active}, expected {arguments.expected_revision}")
+    deployment_bundle_sha256 = ssh(
+        arguments.host, f"cat {shlex.quote(REMOTE_ROOT + '/current/.archive.sha256')}"
+    )
+    if not re.fullmatch(r"[0-9a-f]{64}", deployment_bundle_sha256):
+        raise RuntimeError("deployed bundle digest is malformed")
     run_id = f"pow-{int(time.time())}-{secrets.token_hex(4)}"
     remote_dir = f"{REMOTE_ROOT}/work-proof-qualification/{run_id}"
     remote_current = f"{REMOTE_ROOT}/current"
@@ -383,6 +407,40 @@ def main() -> int:
         else:
             raise RuntimeError("durable admission did not survive verifier restart")
 
+        proof_of_work_token = private / "proof-of-work-verifier.token"
+        run(
+            [
+                "scp",
+                "-q",
+                f"{arguments.host}:{REMOTE_ROOT}/work-proof/bearer.token",
+                str(proof_of_work_token),
+            ]
+        )
+        proof_of_work_token.chmod(0o600)
+        proof_of_work_report_path = private / "proof-of-work-report.json"
+        proof_of_work_environment = os.environ.copy()
+        proof_of_work_environment.update(
+            {
+                "ACTUM_ACTIVECHAIN_COMMIT": arguments.expected_revision,
+                "ACTUM_QUALIFICATION_REPORT": str(proof_of_work_report_path),
+                "ACTUM_WORK_ADMISSION_FIXTURE": str(artifact),
+                "ACTUM_WORK_VERIFIER_BEARER_TOKEN_FILE": str(proof_of_work_token),
+                "ACTUM_WORK_VERIFIER_URL": "https://verify.kanalen.activechain.dev/v1/proofs/verify",
+            }
+        )
+        run(
+            ["npm", "run", "qualify:actum"],
+            cwd=proof_of_work_root,
+            env=proof_of_work_environment,
+            capture_output=True,
+            timeout=180,
+        )
+        proof_of_work_report = json.loads(proof_of_work_report_path.read_text())
+        require_proof_of_work_report(
+            proof_of_work_report, arguments.expected_revision, proof_of_work_revision
+        )
+        proof_of_work_token.unlink()
+
         with urllib.request.urlopen(
             "https://delivery.kanalen.actum.network/v1/health", timeout=15
         ) as response:
@@ -400,6 +458,8 @@ def main() -> int:
         evidence = {
             "$schema": "https://actum.network/evidence/pow-production-qualification/v1",
             "activechain_revision": arguments.expected_revision,
+            "proof_of_work_revision": proof_of_work_revision,
+            "deployment_bundle_sha256": deployment_bundle_sha256,
             "chain_id": CHAIN,
             "genesis_commitment": GENESIS,
             "generated_at": datetime.datetime.now(datetime.UTC).isoformat(),
@@ -407,12 +467,18 @@ def main() -> int:
             "project_id": project_id,
             "policy_id": policy_id,
             "policy_revision": 1,
+            "public_origins": {
+                "delivery": "https://delivery.kanalen.actum.network",
+                "anchor": "https://anchor.kanalen.activechain.dev",
+                "verifier": "https://verify.kanalen.activechain.dev",
+            },
             "cases": cases,
             "privacy": {
                 "raw_telemetry_published": False,
                 "bearer_material_published": False,
                 "claimant_secret_published": False,
                 "ephemeral_trust_seed_destroyed": True,
+                "proof_of_work_verifier_token_destroyed": True,
             },
         }
         arguments.output.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")
