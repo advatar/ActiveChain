@@ -65,6 +65,10 @@ TLS origin. It deliberately reports `production_qualified: false`; passing prefl
 exact deployment is reachable and ready to attempt lifecycle qualification, not that the lifecycle
 has passed.
 
+The canonical delivery origin is `https://delivery.kanalen.actum.network`. The former
+`delivery.kanalen.activechain.dev` SNI remains a temporary gateway alias but is not a qualification
+dependency and may have no DNS record.
+
 ## Promotion rule
 
 Keep every affected control labelled **Preview** until both artifacts pass for the exact deployed

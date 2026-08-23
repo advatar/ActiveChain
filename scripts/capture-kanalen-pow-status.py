@@ -192,7 +192,7 @@ def capture(
         lambda body: body.get("code") == "unauthorized",
     )
     origins = {
-        "delivery": f"https://delivery.{domain}",
+        "delivery": "https://delivery.kanalen.actum.network",
         "anchor": f"https://anchor.{domain}",
         "verifier": f"https://verify.{domain}",
     }

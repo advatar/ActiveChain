@@ -54,6 +54,15 @@ monotonicity, time window, signer-set identity, and threshold signatures before 
 Restart the work-proof service after a successful transition so its in-memory view reloads the new
 bundle.
 
+Kanalen is a private developmental testnet with a single operator, so it has one narrower recovery
+path that is not a production renewal mechanism. The `trust_rebootstrap_only` workflow generates a
+fresh ephemeral 1-of-1 key on the CI runner, binds a sequence-1 bundle to the exact deployed proof
+image and finalized checkpoint, and destroys the seed before publishing sanitized evidence. The
+host-side installer hard-pins the Kanalen chain ID and genesis commitment, stops the verifier,
+refuses the reset if any durable usage has been admitted, archives the prior trust inputs, installs
+the candidate atomically, and rolls back unless authenticated health succeeds. Production and any
+used network remain transition-only.
+
 Load `dev.activechain.kanalen.work-proof.plist` only after provisioning succeeds. The API listens
 on `0.0.0.0:49157` because the gateway runs as a container and reaches the host through
 `host.docker.internal`, which cannot dial a loopback-only listener. Every request is still

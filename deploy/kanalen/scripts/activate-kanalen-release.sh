@@ -104,7 +104,7 @@ else
   staging_dir=""
 fi
 
-for binary in validator-node activechain-rpc-node activechain-transfer-spool activechain-telemetry-anchor-gateway actum-work-proof-api actum-work-proof-verifier actum-work-proof-trust-bootstrap actum-work-proof-trust-transition actum-work-prover actum-work-delivery-api; do
+for binary in validator-node activechain-rpc-node activechain-transfer-spool activechain-telemetry-anchor-gateway actum-work-proof-api actum-work-proof-verifier actum-work-proof-trust-bootstrap actum-work-proof-trust-transition actum-work-proof-testnet-trust-bootstrap actum-work-prover actum-work-delivery-api; do
   if [[ ! -x "$release_dir/bin/$binary" ]]; then
     echo "release is missing executable $binary" >&2
     exit 1
@@ -116,6 +116,10 @@ if [[ ! -x "$release_dir/scripts/provision-work-proof-verifier.sh" ]]; then
 fi
 if [[ ! -x "$release_dir/scripts/provision-work-delivery.sh" ]]; then
   echo "release is missing the work-delivery provisioning script" >&2
+  exit 1
+fi
+if [[ ! -x "$release_dir/scripts/rebootstrap-testnet-work-proof-trust.sh" ]]; then
+  echo "release is missing the testnet work-proof trust rebootstrap script" >&2
   exit 1
 fi
 for gateway_file in compose.yml dynamic.yml traefik.yml switch-edge.sh; do

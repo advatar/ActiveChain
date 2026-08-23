@@ -61,6 +61,12 @@ The idempotency journal is created mode 0600 on first accepted request. Configur
 token to the trusted application/plugin deployment. Never place the bearer in telemetry, logs,
 proof inputs, browser code, repository secrets, or command-line arguments.
 
+## Work delivery gateway
+
+`delivery.kanalen.actum.network` is the canonical TLS origin for the authenticated durable work
+delivery API on host port `49158`. `delivery.kanalen.activechain.dev` remains an SNI alias during
+the domain migration, but qualification requires only the canonical `actum.network` origin.
+
 The authenticated `GET /v1/health` endpoint returns healthy only when the finalized RPC view is
 fresh and the native anchor registry, operator fee account, nonce channel, and empty proposal spool
 are all ready to accept a new submission. Operators must alert on any non-200 response.

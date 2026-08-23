@@ -23,10 +23,20 @@ on:
         required: true
         default: false
         type: boolean
+      trust_rebootstrap_only:
+        description: "Reset unused Kanalen testnet trust with an ephemeral runner key"
+        required: true
+        default: false
+        type: boolean
       trust_valid_days:
         description: "Validity of the unsigned testnet renewal body"
         required: true
         default: 30
+        type: number
+      trust_rebootstrap_valid_days:
+        description: "Validity of the private-testnet trust reset"
+        required: true
+        default: 3650
         type: number
       expected_revision:
         description: "Exact deployed revision required by status-only mode"
@@ -38,7 +48,9 @@ permissions:
 
 jobs:
   bundle:
-    if: ${{ inputs.status_only != true && inputs.trust_prepare_only != true }}
+    if: >-
+      ${{ inputs.status_only != true && inputs.trust_prepare_only != true &&
+      inputs.trust_rebootstrap_only != true }}
     runs-on: [self-hosted, macOS, ARM64, activechain-ci]
     timeout-minutes: 30
     env:
@@ -80,6 +92,7 @@ jobs:
           cp target/release/actum-work-proof-api dist/kanalen/bin/
           cp target/release/actum-work-proof-trust-bootstrap dist/kanalen/bin/
           cp target/release/actum-work-proof-trust-transition dist/kanalen/bin/
+          cp target/release/actum-work-proof-testnet-trust-bootstrap dist/kanalen/bin/
           cp target/release/actum-work-prover dist/kanalen/bin/
           cp target/release/actum-work-delivery-api dist/kanalen/bin/
           cp target/release/activechain-wallet dist/kanalen/bin/
@@ -125,7 +138,9 @@ jobs:
             "bash /Volumes/ActiveChain/testnet/activate-kanalen-release.sh /Volumes/ActiveChain/testnet/kanalen-${GITHUB_SHA}.tar.gz /Volumes/ActiveChain/testnet/kanalen-${GITHUB_SHA}.sha256 ${GITHUB_SHA}"
 
   pow-status:
-    if: ${{ inputs.status_only == true && inputs.trust_prepare_only != true }}
+    if: >-
+      ${{ inputs.status_only == true && inputs.trust_prepare_only != true &&
+      inputs.trust_rebootstrap_only != true }}
     runs-on: [self-hosted, macOS, ARM64, activechain-ci]
     timeout-minutes: 5
     env:
@@ -181,7 +196,9 @@ jobs:
           PY
 
   trust-prepare:
-    if: ${{ inputs.trust_prepare_only == true && inputs.status_only != true }}
+    if: >-
+      ${{ inputs.trust_prepare_only == true && inputs.status_only != true &&
+      inputs.trust_rebootstrap_only != true }}
     runs-on: [self-hosted, macOS, ARM64, activechain-ci]
     timeout-minutes: 10
     env:
@@ -311,3 +328,148 @@ jobs:
             ${{ runner.temp }}/kanalen-trust-${{ github.run_id }}/current-review.txt
             ${{ runner.temp }}/kanalen-trust-${{ github.run_id }}/next-review.txt
             ${{ runner.temp }}/kanalen-trust-${{ github.run_id }}/request.json
+
+  trust-rebootstrap:
+    if: >-
+      ${{ inputs.trust_rebootstrap_only == true && inputs.status_only != true &&
+      inputs.trust_prepare_only != true }}
+    runs-on: [self-hosted, macOS, ARM64, activechain-ci]
+    timeout-minutes: 15
+    env:
+      CARGO_TERM_COLOR: always
+      KANALEN_DEPLOY_USER: ${{ secrets.KANALEN_DEPLOY_USER }}
+      KANALEN_DEPLOY_KEY: ${{ secrets.KANALEN_DEPLOY_KEY }}
+      DEPLOY_HOST: ${{ inputs.deploy_host }}
+      EXPECTED_REVISION: ${{ inputs.expected_revision }}
+      TRUST_VALID_DAYS: ${{ inputs.trust_rebootstrap_valid_days }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with: { clean: true, fetch-depth: 1, persist-credentials: false }
+      - name: Build ephemeral testnet trust package and install it
+        run: |
+          if [[ ! "$EXPECTED_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "expected_revision must be a full lowercase Git commit" >&2
+            exit 1
+          fi
+          if [[ ! "$TRUST_VALID_DAYS" =~ ^[0-9]+$ ]] || \
+            ((TRUST_VALID_DAYS < 1 || TRUST_VALID_DAYS > 3650)); then
+            echo "trust_rebootstrap_valid_days must be an integer from 1 through 3650" >&2
+            exit 1
+          fi
+          cargo build --locked --release -p activechain-trust-ceremony
+          key_path=$(mktemp /tmp/activechain-kanalen-rebootstrap-key.XXXXXX)
+          private_dir="$RUNNER_TEMP/kanalen-trust-rebootstrap-private-${GITHUB_RUN_ID}"
+          public_dir="$RUNNER_TEMP/kanalen-trust-rebootstrap-${GITHUB_RUN_ID}"
+          remote_dir="/tmp/activechain-kanalen-trust-rebootstrap-${GITHUB_RUN_ID}"
+          cleanup() {
+            rm -f "$key_path"
+            rm -rf "$private_dir"
+          }
+          trap cleanup EXIT
+          chmod 600 "$key_path"
+          install -d -m 700 "$private_dir" "$public_dir"
+          printf '%s\n' "$KANALEN_DEPLOY_KEY" > "$key_path"
+          remote_root="/Users/johansellstrom/activechain-deploy/kanalen"
+          active_revision=$(ssh -i "$key_path" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+            "$KANALEN_DEPLOY_USER@$DEPLOY_HOST" \
+            "basename \$(readlink '$remote_root/current')")
+          test "$active_revision" = "$EXPECTED_REVISION"
+          scp -i "$key_path" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+            "$KANALEN_DEPLOY_USER@$DEPLOY_HOST:$remote_root/chain/finality.bundle" \
+            "$private_dir/finality.bundle"
+          scp -i "$key_path" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+            "$KANALEN_DEPLOY_USER@$DEPLOY_HOST:$remote_root/chain/execution.snapshot" \
+            "$private_dir/execution.snapshot"
+          ssh -i "$key_path" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+            "$KANALEN_DEPLOY_USER@$DEPLOY_HOST" \
+            "'$remote_root/current/bin/actum-work-proof-trust-bootstrap' --emit-trust-inputs" \
+            > "$private_dir/proof.json"
+
+          target/release/actum-trust-keygen \
+            "$private_dir/root.seed" "$private_dir/root.pub" >/dev/null
+          python3 - "$private_dir" "$TRUST_VALID_DAYS" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+          import time
+
+          root = Path(sys.argv[1])
+          days = int(sys.argv[2])
+          public_key = (root / "root.pub").read_text().strip()
+          entries = [{
+              "public_key_hex": public_key,
+              "valid_from_sequence": 1,
+              "valid_until_sequence": 64,
+          }]
+          (root / "signers.json").write_text(json.dumps(entries) + "\n")
+          now_ms = int(time.time()) * 1000
+          spec = {
+              "bundle_sequence": 1,
+              "policy_id_hex": "a7c9d070a32fbc81a154ee8f9ca9ab475ab97bd8f6760645601f2638a8235c44dfd86c395a843182ef65dd5385849cf8",
+              "policy_revision": 1,
+              "issued_at_ms": now_ms,
+              "not_before_ms": now_ms,
+              "not_after_ms": now_ms + days * 86_400_000,
+          }
+          (root / "spec.json").write_text(json.dumps(spec, indent=2, sort_keys=True) + "\n")
+          (root / "now-ms").write_text(f"{now_ms}\n")
+          PY
+          target/release/actum-trust-signer-set \
+            "$private_dir/trust-signer-set.bin" 1 1 "$private_dir/signers.json" >/dev/null
+          target/release/actum-trust-bundle prepare \
+            "$private_dir/body.bin" "$private_dir/spec.json" "$private_dir/proof.json" \
+            "$private_dir/finality.bundle" "$private_dir/execution.snapshot" \
+            "$private_dir/trust-signer-set.bin" >/dev/null
+          target/release/actum-trust-bundle sign \
+            "$private_dir/root.sig.json" "$private_dir/root.seed" \
+            "$private_dir/body.bin" >/dev/null
+          target/release/actum-trust-bundle assemble \
+            "$private_dir/signed-trust-bundle.bin" "$private_dir/body.bin" \
+            "$private_dir/trust-signer-set.bin" "$(cat "$private_dir/now-ms")" \
+            "$private_dir/root.sig.json" >/dev/null
+          chmod 0600 "$private_dir/signed-trust-bundle.bin" \
+            "$private_dir/trust-signer-set.bin"
+          target/release/actum-trust-bundle inspect-signed \
+            "$private_dir/signed-trust-bundle.bin" > "$public_dir/review.txt"
+
+          ssh -i "$key_path" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+            "$KANALEN_DEPLOY_USER@$DEPLOY_HOST" "install -d -m 700 '$remote_dir'"
+          scp -i "$key_path" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+            "$private_dir/signed-trust-bundle.bin" "$private_dir/trust-signer-set.bin" \
+            "$KANALEN_DEPLOY_USER@$DEPLOY_HOST:$remote_dir/"
+          ssh -i "$key_path" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+            "$KANALEN_DEPLOY_USER@$DEPLOY_HOST" \
+            "chmod 600 '$remote_dir/signed-trust-bundle.bin' '$remote_dir/trust-signer-set.bin'; remote_status=0; bash '$remote_root/current/scripts/rebootstrap-testnet-work-proof-trust.sh' '$remote_dir/signed-trust-bundle.bin' '$remote_dir/trust-signer-set.bin' '$EXPECTED_REVISION' || remote_status=\$?; rm -rf '$remote_dir'; exit \$remote_status"
+          rm -rf "$private_dir"
+          python3 - "$public_dir" "$EXPECTED_REVISION" "$TRUST_VALID_DAYS" <<'PY'
+          import datetime
+          import json
+          from pathlib import Path
+          import re
+          import sys
+
+          root = Path(sys.argv[1])
+          review = (root / "review.txt").read_text()
+          identity = re.search(r"^bundle_id ([0-9a-f]{96})$", review, re.MULTILINE)
+          checkpoint = re.search(r"^checkpoint_height ([0-9]+)$", review, re.MULTILINE)
+          if not identity or not checkpoint:
+              raise SystemExit("installed bundle review is incomplete")
+          evidence = {
+              "schema": "actum.kanalen.testnet-trust-rebootstrap.v1",
+              "activechain_revision": sys.argv[2],
+              "valid_days": int(sys.argv[3]),
+              "bundle_id": identity.group(1),
+              "bundle_sequence": 1,
+              "checkpoint_height": int(checkpoint.group(1)),
+              "ephemeral_runner_signer_seed_destroyed": True,
+              "installed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+          }
+          (root / "evidence.json").write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")
+          PY
+      - name: Publish sanitized trust-reset evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: kanalen-trust-rebootstrap-${{ env.EXPECTED_REVISION }}
+          path: |
+            ${{ runner.temp }}/kanalen-trust-rebootstrap-${{ github.run_id }}/review.txt
+            ${{ runner.temp }}/kanalen-trust-rebootstrap-${{ github.run_id }}/evidence.json

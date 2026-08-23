@@ -32,6 +32,16 @@ tcp:
     activechain-work-delivery:
       entryPoints:
         - websecure
+      rule: HostSNI(`delivery.kanalen.actum.network`)
+      priority: 101
+      service: activechain-work-delivery
+      tls:
+        certResolver: letsencrypt
+        options: actum-http1
+
+    activechain-work-delivery-legacy:
+      entryPoints:
+        - websecure
       rule: HostSNI(`delivery.kanalen.activechain.dev`)
       priority: 100
       service: activechain-work-delivery

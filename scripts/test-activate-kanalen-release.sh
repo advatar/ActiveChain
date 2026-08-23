@@ -11,7 +11,7 @@ archive="$test_root/kanalen-$release_id.tar.gz"
 checksum="$test_root/kanalen-$release_id.sha256"
 
 mkdir -p "$payload/bin" "$payload/scripts" "$payload/launchagents" "$payload/gateway" "$deployment/work-proof" "$test_root/tools"
-for binary in validator-node activechain-rpc-node activechain-transfer-spool activechain-telemetry-anchor-gateway actum-work-proof-api actum-work-proof-verifier actum-work-proof-trust-transition actum-work-prover actum-work-delivery-api; do
+for binary in validator-node activechain-rpc-node activechain-transfer-spool activechain-telemetry-anchor-gateway actum-work-proof-api actum-work-proof-verifier actum-work-proof-trust-transition actum-work-proof-testnet-trust-bootstrap actum-work-prover actum-work-delivery-api; do
   printf '#!/bin/sh\nexit 0\n' >"$payload/bin/$binary"
   chmod 0755 "$payload/bin/$binary"
 done
@@ -31,6 +31,8 @@ cp "$repo_root/deploy/kanalen/scripts/provision-work-proof-verifier.sh" "$payloa
 chmod 0755 "$payload/scripts/provision-work-proof-verifier.sh"
 cp "$repo_root/deploy/kanalen/scripts/provision-work-delivery.sh" "$payload/scripts/"
 chmod 0755 "$payload/scripts/provision-work-delivery.sh"
+cp "$repo_root/deploy/kanalen/scripts/rebootstrap-testnet-work-proof-trust.sh" "$payload/scripts/"
+chmod 0755 "$payload/scripts/rebootstrap-testnet-work-proof-trust.sh"
 cat >"$payload/network.env" <<'NETWORK'
 ACTIVECHAIN_CHAIN_ID_HEX=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 ACTIVECHAIN_GENESIS_COMMITMENT_HEX=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

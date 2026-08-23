@@ -321,6 +321,19 @@ impl DurableUsageRegistry {
         Ok(UsageRegistrationV1::Inserted)
     }
 
+    /// Reloads the durable registry while holding its inter-process lock and
+    /// reports whether no claim has ever been admitted.
+    ///
+    /// Kanalen's private testnet trust reset uses this as a hard safety gate:
+    /// once any usage exists, replacing the trust root would sever the durable
+    /// audit history and the reset must be refused.
+    pub fn is_empty(&self) -> Result<bool, VerificationErrorV1> {
+        let mut state = self.state.lock().map_err(|_| persistence(()))?;
+        let _exclusive = ExclusiveUsageFileLock::acquire(&self.lock_file)?;
+        *state = load_usage_state(&self.path)?;
+        Ok(state.entries.is_empty())
+    }
+
     fn claim_entries(&self) -> Result<Vec<UsageEntry>, VerificationErrorV1> {
         let mut state = self.state.lock().map_err(|_| persistence(()))?;
         let _exclusive = ExclusiveUsageFileLock::acquire(&self.lock_file)?;
@@ -1130,10 +1143,12 @@ mod tests {
         let directory = tempdir().unwrap();
         let path = directory.path().join("usage.bin");
         let registry = Arc::new(DurableUsageRegistry::open(&path).unwrap());
+        assert_eq!(registry.is_empty(), Ok(true));
         assert_eq!(
             registry.register_all(d(1), &[d(2), d(3)], d(4), 1, 1, 100),
             Ok(UsageRegistrationV1::Inserted)
         );
+        assert_eq!(registry.is_empty(), Ok(false));
         assert_eq!(
             registry.register_all(d(1), &[d(2), d(3)], d(4), 1, 1, 100),
             Ok(UsageRegistrationV1::Idempotent)

@@ -7,7 +7,8 @@
     "rpc": "rpc.kanalen.activechain.dev",
     "anchor": "anchor.kanalen.activechain.dev",
     "verify": "verify.kanalen.activechain.dev",
-    "delivery": "delivery.kanalen.activechain.dev"
+    "delivery": "delivery.kanalen.actum.network",
+    "delivery_legacy": "delivery.kanalen.activechain.dev"
   },
   "treasury": {
     "genesis_supply": 1000000000000000000000000000,

@@ -33,6 +33,7 @@ class CaptureKanalenPowStatusTests(unittest.TestCase):
             "ACTIVECHAIN_NETWORK_DOMAIN=kanalen.activechain.dev\n"
         )
         self.tokens = {}
+        self.probed_urls = []
         for area, byte in (("work-delivery", "x"), ("anchor", "y"), ("work-proof", "z")):
             directory = self.root / area
             directory.mkdir()
@@ -46,6 +47,7 @@ class CaptureKanalenPowStatusTests(unittest.TestCase):
         self.temp.cleanup()
 
     def probe(self, url, token, _timeout):
+        self.probed_urls.append(url)
         unauthorized = {"status": "error", "code": "unauthorized"}
         identity = {"chain_id": self.chain, "genesis_commitment": self.genesis}
         if "49158" in url or "delivery.kanalen" in url:
@@ -81,6 +83,8 @@ class CaptureKanalenPowStatusTests(unittest.TestCase):
         self.assertTrue(evidence["deployment_preflight_qualified"])
         self.assertFalse(evidence["production_qualified"])
         self.assertEqual(evidence["services"]["delivery"]["durable_receipts"], 3)
+        self.assertIn("https://delivery.kanalen.actum.network/v1/health", self.probed_urls)
+        self.assertFalse(any("delivery.kanalen.activechain.dev" in url for url in self.probed_urls))
         encoded = json.dumps(evidence)
         for token in self.tokens.values():
             self.assertNotIn(token.decode(), encoded)
