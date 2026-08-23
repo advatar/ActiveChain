@@ -94,6 +94,7 @@ jobs:
           cp target/release/actum-work-proof-trust-transition dist/kanalen/bin/
           cp target/release/actum-work-proof-testnet-trust-bootstrap dist/kanalen/bin/
           cp target/release/actum-work-prover dist/kanalen/bin/
+          cp target/release/actum-work-qualification-source dist/kanalen/bin/
           cp target/release/actum-work-delivery-api dist/kanalen/bin/
           cp target/release/activechain-wallet dist/kanalen/bin/
           cp target/release/activechain-faucet dist/kanalen/bin/
@@ -356,7 +357,8 @@ jobs:
             echo "trust_rebootstrap_valid_days must be an integer from 1 through 3650" >&2
             exit 1
           fi
-          cargo build --locked --release -p activechain-trust-ceremony
+          cargo build --locked --release \
+            -p activechain-trust-ceremony -p activechain-work-proof-prover
           key_path=$(mktemp /tmp/activechain-kanalen-rebootstrap-key.XXXXXX)
           private_dir="$RUNNER_TEMP/kanalen-trust-rebootstrap-private-${GITHUB_RUN_ID}"
           public_dir="$RUNNER_TEMP/kanalen-trust-rebootstrap-${GITHUB_RUN_ID}"
@@ -395,6 +397,10 @@ jobs:
 
           root = Path(sys.argv[1])
           days = int(sys.argv[2])
+          policy_id = __import__("subprocess").check_output(
+              ["target/release/actum-work-qualification-source", "--policy-id"],
+              text=True,
+          ).strip()
           public_key = (root / "root.pub").read_text().strip()
           entries = [{
               "public_key_hex": public_key,
@@ -405,7 +411,7 @@ jobs:
           now_ms = int(time.time()) * 1000
           spec = {
               "bundle_sequence": 1,
-              "policy_id_hex": "a7c9d070a32fbc81a154ee8f9ca9ab475ab97bd8f6760645601f2638a8235c44dfd86c395a843182ef65dd5385849cf8",
+              "policy_id_hex": policy_id,
               "policy_revision": 1,
               "issued_at_ms": now_ms,
               "not_before_ms": now_ms,

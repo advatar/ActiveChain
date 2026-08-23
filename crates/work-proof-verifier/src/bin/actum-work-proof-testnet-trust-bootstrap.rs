@@ -24,10 +24,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let now_ms = arguments.next().ok_or(usage())?.parse::<u64>()?;
     let expected_chain = decode_digest(&arguments.next().ok_or(usage())?)?;
     let expected_genesis = decode_digest(&arguments.next().ok_or(usage())?)?;
+    let expected_policy = decode_digest(&arguments.next().ok_or(usage())?)?;
     if arguments.next().is_some() {
         return Err(usage().into());
     }
-    if bundle.body.chain_id != expected_chain || bundle.body.genesis_commitment != expected_genesis
+    if bundle.body.chain_id != expected_chain
+        || bundle.body.genesis_commitment != expected_genesis
+        || bundle.body.policy_id != expected_policy
     {
         return Err("signed bundle does not match the explicitly permitted testnet identity".into());
     }
@@ -42,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn usage() -> &'static str {
     "usage: actum-work-proof-testnet-trust-bootstrap <output> <signed-bundle> \
      <signer-set> <usage-store> <now-ms> <expected-chain-id-hex> \
-     <expected-genesis-commitment-hex>"
+     <expected-genesis-commitment-hex> <expected-policy-id-hex>"
 }
 
 fn decode_digest(value: &str) -> Result<Digest384, Box<dyn std::error::Error>> {

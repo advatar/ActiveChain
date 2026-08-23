@@ -887,6 +887,7 @@ dependencies = [
  "activechain-pq-zk",
  "activechain-protocol-types",
  "activechain-work-proof",
+ "getrandom 0.3.4",
  "ml-dsa",
  "serde",
  "serde_json",

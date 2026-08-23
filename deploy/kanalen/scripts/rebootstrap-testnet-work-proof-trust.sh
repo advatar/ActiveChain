@@ -118,6 +118,16 @@ if [[ ! -x "$bootstrap" ]]; then
   echo "testnet trust bootstrap binary is missing or not executable" >&2
   exit 1
 fi
+policy_source="$current/bin/actum-work-qualification-source"
+if [[ ! -x "$policy_source" ]]; then
+  echo "qualification policy source binary is missing or not executable" >&2
+  exit 1
+fi
+policy_id="$("$policy_source" --policy-id)"
+if [[ ! "$policy_id" =~ ^[0-9a-f]{96}$ ]]; then
+  echo "deployed qualification policy identity is malformed" >&2
+  exit 1
+fi
 
 umask 077
 "$launchctl_bin" bootout "$launch_domain/$label"
@@ -131,7 +141,7 @@ candidate="$(mktemp "$state_dir/.testnet-trust-candidate.XXXXXX")"
 rm -f "$candidate"
 now_ms="$(($(date +%s) * 1000))"
 "$bootstrap" "$candidate" "$signed_bundle" "$signer_set" "$usage_store" \
-  "$now_ms" "$chain_id" "$genesis"
+  "$now_ms" "$chain_id" "$genesis" "$policy_id"
 chmod 0600 "$candidate"
 
 bundle_digest="$(shasum -a 256 "$signed_bundle" | awk '{print $1}')"

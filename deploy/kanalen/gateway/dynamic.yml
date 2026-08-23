@@ -89,3 +89,7 @@ tls:
     actum-http1:
       alpnProtocols:
         - http/1.1
+        # Required for Traefik's TLS-ALPN-01 certificate challenge. Normal
+        # clients do not offer it, so application traffic still negotiates
+        # HTTP/1.1 and never h2.
+        - acme-tls/1

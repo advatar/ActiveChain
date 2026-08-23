@@ -104,7 +104,7 @@ else
   staging_dir=""
 fi
 
-for binary in validator-node activechain-rpc-node activechain-transfer-spool activechain-telemetry-anchor-gateway actum-work-proof-api actum-work-proof-verifier actum-work-proof-trust-bootstrap actum-work-proof-trust-transition actum-work-proof-testnet-trust-bootstrap actum-work-prover actum-work-delivery-api; do
+for binary in validator-node activechain-rpc-node activechain-transfer-spool activechain-telemetry-anchor-gateway actum-work-proof-api actum-work-proof-verifier actum-work-proof-trust-bootstrap actum-work-proof-trust-transition actum-work-proof-testnet-trust-bootstrap actum-work-prover actum-work-qualification-source actum-work-delivery-api; do
   if [[ ! -x "$release_dir/bin/$binary" ]]; then
     echo "release is missing executable $binary" >&2
     exit 1
@@ -120,6 +120,10 @@ if [[ ! -x "$release_dir/scripts/provision-work-delivery.sh" ]]; then
 fi
 if [[ ! -x "$release_dir/scripts/rebootstrap-testnet-work-proof-trust.sh" ]]; then
   echo "release is missing the testnet work-proof trust rebootstrap script" >&2
+  exit 1
+fi
+if [[ ! -x "$release_dir/scripts/qualification-http.py" ]]; then
+  echo "release is missing the private qualification HTTP adapter" >&2
   exit 1
 fi
 for gateway_file in compose.yml dynamic.yml traefik.yml switch-edge.sh; do
@@ -242,6 +246,10 @@ if [[ -f "$release_dir/gateway/$network.Caddyfile" ]]; then
   install -m 0644 "$release_dir/gateway/$network.Caddyfile" "$gateway_dir/$network.Caddyfile"
 fi
 "$docker_bin" compose -f "$gateway_dir/compose.yml" config >/dev/null
-"$docker_bin" compose -f "$gateway_dir/compose.yml" up -d
+# The configuration files are bind-mounted individually. `install` replaces
+# them by inode, while an existing container keeps the prior inode mounted;
+# a plain `compose up` therefore leaves Traefik serving stale routers. Recreate
+# the edge so every activated revision reads the files just installed above.
+"$docker_bin" compose -f "$gateway_dir/compose.yml" up -d --force-recreate
 
 echo "activated Kanalen release $release_id"

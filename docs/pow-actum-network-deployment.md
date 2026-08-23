@@ -90,14 +90,15 @@ client pinning the previous genesis rejects this chain until re-pinned.
 | Chain ID | `b12c1c316717e9669cec36f7632a9080702c57a3125d90c72154f8a7298e4f0b095e6cfe944bd2c9f6535b4c927782f1` |
 | Genesis commitment | `a836c4d201cda6ba33a01aa48011cf5f4d6acdfd1ec409d322dc1b56ed3552a25dcb158e0b1ec0352728653d315d477c` |
 | Protocol / RPC schema revision | 1 / 4 |
-| Metering policy | `a7c9d070a32fbc81a154ee8f9ca9ab475ab97bd8f6760645601f2638a8235c44dfd86c395a843182ef65dd5385849cf8`, revision 1 |
+| Metering policy | `01456c3f54e61fb20466c111f4167916b1ee9d23ac083a0e3ce1662b153c47de27af0a13b09cb5319c24ba31a9cfa8d0`, revision 1 |
 | Trust bundle | `a2dfafd2f37912d73f8e12ecf739ae9d83ed1abdfb16405978315da33d1528ce939f31a8a14e177b6d9deca9646d36f2`, sequence 1 |
 | Signer set | `95bb3e7016a69e845d7354612aa08a762aa0ada40b7f087a5005e83c0969824c740863869e5c5d1d8ec1d52678f54c94`, 1-of-1 ML-DSA-44 |
 
-A claim's `policy_id` must equal the metering policy above; the verifier rejects any other value. The
-bootstrap signer is a single offline ML-DSA-44 root held off the verifier host, which is acceptable
-for a testnet bootstrap only: the format is threshold-capable and production requires migrating to a
-separated N-of-M set before promotion.
+A claim's `policy_id` must equal the metering policy above; the verifier rejects any other value.
+The policy is emitted canonically by the deployed `actum-work-qualification-source` binary, and the
+unused-testnet trust reset derives the ID from that exact binary instead of copying it into workflow
+logic. The ephemeral reset signer is acceptable only for this private testnet; production requires
+a separately governed N-of-M authority and transition-only renewal.
 
 ## Telemetry anchor endpoint
 

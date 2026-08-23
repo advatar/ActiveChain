@@ -28,14 +28,21 @@ output="$1"
 usage="$4"
 chain="$6"
 genesis="$7"
+policy="$8"
 test "$chain" = "b12c1c316717e9669cec36f7632a9080702c57a3125d90c72154f8a7298e4f0b095e6cfe944bd2c9f6535b4c927782f1"
 test "$genesis" = "a836c4d201cda6ba33a01aa48011cf5f4d6acdfd1ec409d322dc1b56ed3552a25dcb158e0b1ec0352728653d315d477c"
+test "$policy" = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 if [[ -s "$usage" ]]; then
   echo "durable usage is not empty" >&2
   exit 1
 fi
 printf '%s\n' "$ACTIVECHAIN_TEST_CANDIDATE" > "$output"
 BOOTSTRAP
+cat > "$release/bin/actum-work-qualification-source" <<'POLICY'
+#!/usr/bin/env bash
+test "${1:-}" = "--policy-id"
+printf '%096d\n' 0 | tr 0 d
+POLICY
 cat > "$test_root/tools/launchctl" <<'LAUNCHCTL'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$ACTIVECHAIN_LAUNCHCTL_LOG"
@@ -50,6 +57,7 @@ test -s "$1"
 test "$(cat "$ACTIVECHAIN_TEST_TRUST_STORE")" = "$ACTIVECHAIN_EXPECTED_TRUST"
 HEALTH
 chmod 0755 "$release/bin/actum-work-proof-testnet-trust-bootstrap" \
+  "$release/bin/actum-work-qualification-source" \
   "$test_root/tools/launchctl" "$test_root/tools/health"
 
 run_reset() {
