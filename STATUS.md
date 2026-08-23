@@ -26,7 +26,8 @@ grant made a grant spendable in the kernel's terms; nothing exposes that over th
 - [x] Cover tampering, expired and invalid sessions, duplicate submission before and after a
   terminal outcome, quota exhaustion, a full spool, round inclusion, an end-to-end transfer from
   a verified wallet, and restart recovery at every lifecycle boundary.
-- [ ] Pass one exact-SHA `qualification=full` gate on the final revision before merge, and
+- [x] Pass one exact-SHA `qualification=full` gate on final revision `ae3c565e`
+  ([run 32603601983](https://github.com/advatar/ActiveChain/actions/runs/32603601983)) and
   prepare the node-first, wallet-second rollout that a wire change requires.
 
 ## Kanalen integrator onboarding
