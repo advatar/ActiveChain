@@ -27,6 +27,24 @@ tcp:
       tls:
         certResolver: letsencrypt
 
+    activechain-work-delivery:
+      entryPoints:
+        - websecure
+      rule: HostSNI(`delivery.kanalen.actum.network`)
+      priority: 101
+      service: activechain-work-delivery
+      tls:
+        certResolver: letsencrypt
+
+    activechain-work-delivery-legacy:
+      entryPoints:
+        - websecure
+      rule: HostSNI(`delivery.kanalen.activechain.dev`)
+      priority: 100
+      service: activechain-work-delivery
+      tls:
+        certResolver: letsencrypt
+
     existing-https:
       entryPoints:
         - websecure
@@ -51,6 +69,11 @@ tcp:
       loadBalancer:
         servers:
           - address: host.docker.internal:49157
+
+    activechain-work-delivery:
+      loadBalancer:
+        servers:
+          - address: host.docker.internal:49158
 
     existing-caddy:
       loadBalancer:

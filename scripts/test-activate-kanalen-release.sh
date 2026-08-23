@@ -10,7 +10,7 @@ deployment="$test_root/deployment"
 archive="$test_root/kanalen-$release_id.tar.gz"
 checksum="$test_root/kanalen-$release_id.sha256"
 
-mkdir -p "$payload/bin" "$payload/scripts" "$payload/launchagents" "$payload/gateway" "$deployment/work-proof" "$test_root/tools" "$test_root/providehr"
+mkdir -p "$payload/bin" "$payload/scripts" "$payload/launchagents" "$payload/gateway" "$deployment/work-proof" "$test_root/tools"
 for binary in validator-node activechain-rpc-node activechain-transfer-spool activechain-telemetry-anchor-gateway actum-work-proof-api actum-work-proof-verifier actum-work-proof-trust-transition actum-work-proof-testnet-trust-bootstrap actum-work-prover actum-work-qualification-source actum-work-delivery-api; do
   printf '#!/bin/sh\nexit 0\n' >"$payload/bin/$binary"
   chmod 0755 "$payload/bin/$binary"
@@ -21,21 +21,6 @@ for gateway_file in compose.yml dynamic.yml traefik.yml; do
 done
 printf '#!/bin/sh\nexit 0\n' >"$payload/gateway/switch-edge.sh"
 chmod 0755 "$payload/gateway/switch-edge.sh"
-cp "$repo_root/deploy/kanalen/gateway/install-caddy-fragment.sh" "$payload/gateway/"
-chmod 0755 "$payload/gateway/install-caddy-fragment.sh"
-cp "$repo_root/deploy/kanalen/gateway/kanalen.Caddyfile" "$payload/gateway/"
-cat >"$test_root/providehr/Caddyfile" <<'CADDY'
-example.test {
-  respond "fixture"
-}
-
-# BEGIN activechain-kanalen
-old.kanalen.test {
-  respond "stale"
-}
-# END activechain-kanalen
-CADDY
-printf 'services:\n  caddy:\n    image: caddy:fixture\n' >"$test_root/providehr/compose.yml"
 cat >"$payload/bin/actum-work-proof-trust-bootstrap" <<'BOOTSTRAP'
 #!/bin/bash
 set -euo pipefail
@@ -112,7 +97,7 @@ ACTIVECHAIN_PLISTBUDDY="$test_root/tools/plistbuddy" \
 ACTIVECHAIN_PLISTBUDDY_LOG="$test_root/plistbuddy.log" \
 ACTIVECHAIN_DOCKER="$test_root/tools/docker" \
 ACTIVECHAIN_DOCKER_LOG="$test_root/docker.log" \
-ACTIVECHAIN_CADDY_DIR="$test_root/providehr" \
+ACTIVECHAIN_DOCKER_CONTEXT="test-kanalen" \
   bash "$repo_root/deploy/kanalen/scripts/activate-kanalen-release.sh" \
     "$archive" "$checksum" "$release_id"
 
@@ -123,11 +108,8 @@ test -s "$deployment/work-proof/bearer.token"
 test -s "$deployment/work-delivery/bearer.token"
 test -d "$deployment/work-delivery/receipts"
 test "$(grep -c '^bootstrap ' "$test_root/launchctl.log")" = 8
-test "$(grep -c '^compose ' "$test_root/docker.log")" = 4
+test "$(grep -c '^--context test-kanalen compose ' "$test_root/docker.log")" = 2
 test "$(grep -c 'Set :ProgramArguments:' "$test_root/plistbuddy.log")" = 3
-test "$(grep -c '^# BEGIN activechain-kanalen$' "$test_root/providehr/Caddyfile")" = 1
-grep -q '^delivery\.kanalen\.actum\.network' "$test_root/providehr/Caddyfile"
-! grep -q 'old\.kanalen\.test' "$test_root/providehr/Caddyfile"
 
 ACTIVECHAIN_KANALEN_ROOT="$deployment" \
 ACTIVECHAIN_LAUNCHCTL="$test_root/tools/launchctl" \
@@ -137,12 +119,11 @@ ACTIVECHAIN_PLISTBUDDY="$test_root/tools/plistbuddy" \
 ACTIVECHAIN_PLISTBUDDY_LOG="$test_root/plistbuddy.log" \
 ACTIVECHAIN_DOCKER="$test_root/tools/docker" \
 ACTIVECHAIN_DOCKER_LOG="$test_root/docker.log" \
-ACTIVECHAIN_CADDY_DIR="$test_root/providehr" \
+ACTIVECHAIN_DOCKER_CONTEXT="test-kanalen" \
   bash "$repo_root/deploy/kanalen/scripts/activate-kanalen-release.sh" \
     "$archive" "$checksum" "$release_id"
 
 test "$(grep -c '^bootstrap ' "$test_root/launchctl.log")" = 16
-test "$(grep -c '^compose ' "$test_root/docker.log")" = 8
+test "$(grep -c '^--context test-kanalen compose ' "$test_root/docker.log")" = 4
 test "$(grep -c 'Set :ProgramArguments:' "$test_root/plistbuddy.log")" = 6
-test "$(grep -c '^# BEGIN activechain-kanalen$' "$test_root/providehr/Caddyfile")" = 1
 echo "Kanalen release activation rehearsal passed"

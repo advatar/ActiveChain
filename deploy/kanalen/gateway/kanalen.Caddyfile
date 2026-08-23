@@ -8,11 +8,4 @@ kanalen.activechain.dev {
 	respond "ActiveChain Kanalen — developmental network infrastructure. No security audit has been completed. Do not use it for value you are unwilling to lose. RPC: rpc.kanalen.activechain.dev:443. Telemetry anchor: anchor.kanalen.activechain.dev." 200
 }
 
-delivery.kanalen.actum.network, delivery.kanalen.activechain.dev {
-	header {
-		Cache-Control "no-store"
-		X-Content-Type-Options "nosniff"
-	}
-	reverse_proxy host.docker.internal:49158
-}
 # END activechain-kanalen

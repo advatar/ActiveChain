@@ -136,7 +136,7 @@ jobs:
             "$KANALEN_DEPLOY_USER@$DEPLOY_HOST:/Volumes/ActiveChain/testnet/"
           ssh -i "$key_path" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
             "$KANALEN_DEPLOY_USER@$DEPLOY_HOST" \
-            "bash /Volumes/ActiveChain/testnet/activate-kanalen-release.sh /Volumes/ActiveChain/testnet/kanalen-${GITHUB_SHA}.tar.gz /Volumes/ActiveChain/testnet/kanalen-${GITHUB_SHA}.sha256 ${GITHUB_SHA}"
+            "ACTIVECHAIN_DOCKER_CONTEXT=colima-coolify bash /Volumes/ActiveChain/testnet/activate-kanalen-release.sh /Volumes/ActiveChain/testnet/kanalen-${GITHUB_SHA}.tar.gz /Volumes/ActiveChain/testnet/kanalen-${GITHUB_SHA}.sha256 ${GITHUB_SHA}"
 
   pow-status:
     if: >-

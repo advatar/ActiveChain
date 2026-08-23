@@ -18,6 +18,7 @@ plistbuddy_bin="${ACTIVECHAIN_PLISTBUDDY:-/usr/libexec/PlistBuddy}"
 # meant a deployment that had already restarted every service then aborted at
 # the gateway step with "docker: command not found".
 docker_bin="${ACTIVECHAIN_DOCKER:-}"
+docker_context="${ACTIVECHAIN_DOCKER_CONTEXT:-colima-coolify}"
 if [[ -z "$docker_bin" ]]; then
   for candidate in \
     docker \
@@ -126,7 +127,7 @@ if [[ ! -x "$release_dir/scripts/qualification-http.py" ]]; then
   echo "release is missing the private qualification HTTP adapter" >&2
   exit 1
 fi
-for gateway_file in compose.yml dynamic.yml traefik.yml switch-edge.sh install-caddy-fragment.sh; do
+for gateway_file in compose.yml dynamic.yml traefik.yml switch-edge.sh; do
   if [[ ! -f "$release_dir/gateway/$gateway_file" ]]; then
     echo "release is missing gateway/$gateway_file" >&2
     exit 1
@@ -239,21 +240,18 @@ for gateway_file in compose.yml dynamic.yml traefik.yml; do
   install -m 0644 "$release_dir/gateway/$gateway_file" "$gateway_dir/$gateway_file"
 done
 install -m 0755 "$release_dir/gateway/switch-edge.sh" "$gateway_dir/switch-edge.sh"
-install -m 0755 "$release_dir/gateway/install-caddy-fragment.sh" \
-  "$gateway_dir/install-caddy-fragment.sh"
 if [[ -f "$release_dir/gateway/README.md" ]]; then
   install -m 0644 "$release_dir/gateway/README.md" "$gateway_dir/README.md"
 fi
 if [[ -f "$release_dir/gateway/$network.Caddyfile" ]]; then
   install -m 0644 "$release_dir/gateway/$network.Caddyfile" "$gateway_dir/$network.Caddyfile"
-  ACTIVECHAIN_DOCKER="$docker_bin" \
-    bash "$gateway_dir/install-caddy-fragment.sh" "$gateway_dir/$network.Caddyfile"
 fi
-"$docker_bin" compose -f "$gateway_dir/compose.yml" config >/dev/null
+"$docker_bin" --context "$docker_context" compose -f "$gateway_dir/compose.yml" config >/dev/null
 # The configuration files are bind-mounted individually. `install` replaces
 # them by inode, while an existing container keeps the prior inode mounted;
 # a plain `compose up` therefore leaves Traefik serving stale routers. Recreate
 # the edge so every activated revision reads the files just installed above.
-"$docker_bin" compose -f "$gateway_dir/compose.yml" up -d --force-recreate
+"$docker_bin" --context "$docker_context" compose -f "$gateway_dir/compose.yml" \
+  up -d --force-recreate
 
 echo "activated Kanalen release $release_id"
