@@ -208,10 +208,9 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
       only, while this single-operator developmental network does not require an offline ceremony.
     - [ ] Serve delivery canonically at `delivery.kanalen.actum.network`, retaining the former
       `activechain.dev` hostname only as a temporary compatibility alias when DNS exists.
-      - [ ] Replace the vulnerable Traefik 3.5.6 TLS-ALPN handler with patched 3.6.7, keep ACME on
-        its untouched default TLS policy while scoping HTTP/1.1 to application routers, and pin
-        activation to the `colima-coolify` context that owns public IPv4 port 443 instead of
-        updating a duplicate Docker Desktop edge.
+      - [ ] Replace the vulnerable Traefik 3.5.6 edge with patched 3.6.7, pin activation to the
+        `colima-coolify` context that owns public IPv4 port 443, and delegate delivery TLS through
+        the existing Caddy HTTP-01 path because Colima's port forward rejects TLS-ALPN challenges.
     - [ ] Exercise real deployed delivery, anchoring, finality, and stateful usage admission.
     - [ ] Pass the exact full gate and publish production qualification evidence.
     - [ ] Promote the deployed testnet and update landing-page capabilities proven by that evidence.
