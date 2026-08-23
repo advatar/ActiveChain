@@ -23,6 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let record_output = arguments.next().ok_or(usage())?;
     let proof_output = arguments.next().ok_or(usage())?;
     let finality_output = arguments.next().ok_or(usage())?;
+    let native_evidence_output = arguments.next();
     if arguments.next().is_some() {
         return Err(usage().into());
     }
@@ -78,6 +79,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     write_new(Path::new(&record_output), &record_bytes)?;
     write_new(Path::new(&proof_output), query_record.proof())?;
     write_new(Path::new(&finality_output), query_record.finality())?;
+    if let Some(output) = native_evidence_output {
+        let native = record.evidence().ok_or("finalized record lacks native evidence")?;
+        let native = encode_envelope(native).map_err(|_| "native evidence encoding failed")?;
+        write_new(Path::new(&output), &native)?;
+        println!("native_evidence_bytes={}", native.len());
+    }
 
     println!("submission_reference={}", hex(reference.as_bytes()));
     println!("transaction_id={}", hex(state_record.transaction().digest().as_bytes()));
@@ -127,7 +134,7 @@ fn hex(bytes: &[u8]) -> String {
 
 fn usage() -> &'static str {
     "usage: actum-anchor-export <host:port> <reference-hex> <record-output> \
-     <state-proof-output> <checkpoint-finality-output>"
+     <state-proof-output> <checkpoint-finality-output> [native-evidence-output]"
 }
 
 #[cfg(test)]
