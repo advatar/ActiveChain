@@ -215,6 +215,8 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Exercise real deployed delivery, anchoring, finality, and stateful usage admission.
     - [x] Publish sanitized production qualification evidence binding ActiveChain, ProofOfWork,
       the deployment bundle, real delivery/finality/admission/replay, and privacy in issue #778.
+    - [x] Regenerate the published work-guest image vector after canonical claim assembly changed
+      the RISC Zero guest ELF, and prove the exact replacement with the focused release test.
     - [ ] Pass the exact full deterministic-kernel gate.
     - [x] Promote the deployed testnet and update landing-page capabilities proven by that evidence
       (`pow.actum.network`, landing-page revision `2b665fbbcb9f4550bfa3a1bdbe7e41937dc877eb`).
