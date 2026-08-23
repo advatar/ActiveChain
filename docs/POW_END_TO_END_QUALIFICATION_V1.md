@@ -58,6 +58,13 @@ The production artifact must fail closed when any endpoint, trust bundle, proof 
 or deployment revision is absent or mismatched. Secrets, raw artifacts, and subprocess stderr are
 never evidence fields.
 
+Before the state-changing lifecycle, run the no-build deployment preflight workflow. It checks the
+active release symlink and archive digest, immutable chain/genesis identity, private credential-file
+permissions, authenticated local anchor/verifier health, unauthorized rejection, and each public
+TLS origin. It deliberately reports `production_qualified: false`; passing preflight proves that the
+exact deployment is reachable and ready to attempt lifecycle qualification, not that the lifecycle
+has passed.
+
 ## Promotion rule
 
 Keep every affected control labelled **Preview** until both artifacts pass for the exact deployed
