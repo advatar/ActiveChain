@@ -32,6 +32,13 @@ actum-trust-keygen
 The secret seed never leaves the signer host. `sign` takes the canonical body, not a handed-over
 digest, so a signer recomputes the identity it authorizes and can `inspect` it first.
 
+For an expired deployed bundle, the Kanalen workflow's `trust_prepare_only` mode fetches one
+consistent finalized checkpoint and the public current bundle/signer set, derives sequence `N + 1`
+with the same policy and exact deployed proof binding, and publishes `body.bin` plus complete review
+text. It never fetches or holds a signer seed. The existing root holder reviews and signs that body
+offline; the verifier host accepts the assembled result only through
+`actum-work-proof-trust-transition`.
+
 ## Bootstrap, 1-of-1
 
 ```sh

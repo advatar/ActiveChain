@@ -18,6 +18,16 @@ on:
         required: true
         default: false
         type: boolean
+      trust_prepare_only:
+        description: "Skip deployment and prepare a signer-reviewable trust renewal"
+        required: true
+        default: false
+        type: boolean
+      trust_valid_days:
+        description: "Validity of the unsigned testnet renewal body"
+        required: true
+        default: 30
+        type: number
       expected_revision:
         description: "Exact deployed revision required by status-only mode"
         required: false
@@ -28,7 +38,7 @@ permissions:
 
 jobs:
   bundle:
-    if: ${{ inputs.status_only != true }}
+    if: ${{ inputs.status_only != true && inputs.trust_prepare_only != true }}
     runs-on: [self-hosted, macOS, ARM64, activechain-ci]
     timeout-minutes: 30
     env:
@@ -115,7 +125,7 @@ jobs:
             "bash /Volumes/ActiveChain/testnet/activate-kanalen-release.sh /Volumes/ActiveChain/testnet/kanalen-${GITHUB_SHA}.tar.gz /Volumes/ActiveChain/testnet/kanalen-${GITHUB_SHA}.sha256 ${GITHUB_SHA}"
 
   pow-status:
-    if: ${{ inputs.status_only == true }}
+    if: ${{ inputs.status_only == true && inputs.trust_prepare_only != true }}
     runs-on: [self-hosted, macOS, ARM64, activechain-ci]
     timeout-minutes: 5
     env:
@@ -169,3 +179,135 @@ jobs:
           assert evidence["deployment_preflight_qualified"] is True
           assert evidence["production_qualified"] is False
           PY
+
+  trust-prepare:
+    if: ${{ inputs.trust_prepare_only == true && inputs.status_only != true }}
+    runs-on: [self-hosted, macOS, ARM64, activechain-ci]
+    timeout-minutes: 10
+    env:
+      CARGO_TERM_COLOR: always
+      KANALEN_DEPLOY_USER: ${{ secrets.KANALEN_DEPLOY_USER }}
+      KANALEN_DEPLOY_KEY: ${{ secrets.KANALEN_DEPLOY_KEY }}
+      DEPLOY_HOST: ${{ inputs.deploy_host }}
+      EXPECTED_REVISION: ${{ inputs.expected_revision }}
+      TRUST_VALID_DAYS: ${{ inputs.trust_valid_days }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with: { clean: true, fetch-depth: 1, persist-credentials: false }
+      - name: Build offline ceremony tool
+        run: cargo build --locked --release -p activechain-trust-ceremony
+      - name: Prepare exact-checkpoint renewal body
+        run: |
+          if [[ ! "$EXPECTED_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "expected_revision must be a full lowercase Git commit" >&2
+            exit 1
+          fi
+          if [[ ! "$TRUST_VALID_DAYS" =~ ^[0-9]+$ ]] || \
+            ((TRUST_VALID_DAYS < 1 || TRUST_VALID_DAYS > 90)); then
+            echo "trust_valid_days must be an integer from 1 through 90" >&2
+            exit 1
+          fi
+          key_path=$(mktemp /tmp/activechain-kanalen-trust-key.XXXXXX)
+          trust_dir="$RUNNER_TEMP/kanalen-trust-${GITHUB_RUN_ID}"
+          trap 'rm -f "$key_path"' EXIT
+          chmod 600 "$key_path"
+          install -d -m 700 "$trust_dir"
+          printf '%s\n' "$KANALEN_DEPLOY_KEY" > "$key_path"
+          remote_root="/Users/johansellstrom/activechain-deploy/kanalen"
+          active_revision=$(ssh -i "$key_path" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+            "$KANALEN_DEPLOY_USER@$DEPLOY_HOST" \
+            "basename \$(readlink '$remote_root/current')")
+          test "$active_revision" = "$EXPECTED_REVISION"
+          scp -i "$key_path" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+            "$KANALEN_DEPLOY_USER@$DEPLOY_HOST:$remote_root/work-proof/signed-trust-bundle.bin" \
+            "$trust_dir/current-signed-trust-bundle.bin"
+          scp -i "$key_path" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+            "$KANALEN_DEPLOY_USER@$DEPLOY_HOST:$remote_root/work-proof/trust-signer-set.bin" \
+            "$trust_dir/trust-signer-set.bin"
+          scp -i "$key_path" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+            "$KANALEN_DEPLOY_USER@$DEPLOY_HOST:$remote_root/chain/finality.bundle" \
+            "$trust_dir/finality.bundle"
+          scp -i "$key_path" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+            "$KANALEN_DEPLOY_USER@$DEPLOY_HOST:$remote_root/chain/execution.snapshot" \
+            "$trust_dir/execution.snapshot"
+          ssh -i "$key_path" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+            "$KANALEN_DEPLOY_USER@$DEPLOY_HOST" \
+            "'$remote_root/current/bin/actum-work-proof-trust-bootstrap' --emit-trust-inputs" \
+            > "$trust_dir/proof.json"
+          target/release/actum-trust-bundle inspect-signed \
+            "$trust_dir/current-signed-trust-bundle.bin" > "$trust_dir/current-review.txt"
+          python3 - "$trust_dir" "$EXPECTED_REVISION" "$TRUST_VALID_DAYS" <<'PY'
+          import datetime
+          import json
+          from pathlib import Path
+          import re
+          import sys
+          import time
+
+          root = Path(sys.argv[1])
+          revision = sys.argv[2]
+          days = int(sys.argv[3])
+          review = (root / "current-review.txt").read_text()
+          fields = {}
+          for name, pattern in {
+              "current_bundle_id": r"^bundle_id ([0-9a-f]{96})$",
+              "sequence": r"^bundle_sequence ([0-9]+)$",
+              "policy": r"^policy ([0-9a-f]{96}) revision ([0-9]+)$",
+          }.items():
+              match = re.search(pattern, review, re.MULTILINE)
+              if not match:
+                  raise SystemExit(f"current signed bundle omits {name}")
+              fields[name] = match.groups()
+          now_ms = int(time.time()) * 1000
+          spec = {
+              "bundle_sequence": int(fields["sequence"][0]) + 1,
+              "previous_bundle_id_hex": fields["current_bundle_id"][0],
+              "policy_id_hex": fields["policy"][0],
+              "policy_revision": int(fields["policy"][1]),
+              "issued_at_ms": now_ms,
+              "not_before_ms": now_ms,
+              "not_after_ms": now_ms + days * 86_400_000,
+          }
+          (root / "spec.json").write_text(json.dumps(spec, indent=2, sort_keys=True) + "\n")
+          metadata = {
+              "schema": "actum.kanalen.trust-renewal-request.v1",
+              "activechain_revision": revision,
+              "prepared_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              "current_bundle_id": fields["current_bundle_id"][0],
+              "requested_sequence": spec["bundle_sequence"],
+              "valid_days": days,
+              "requires_existing_offline_signer": True,
+          }
+          (root / "request.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+          PY
+          target/release/actum-trust-bundle prepare \
+            "$trust_dir/body.bin" "$trust_dir/spec.json" "$trust_dir/proof.json" \
+            "$trust_dir/finality.bundle" "$trust_dir/execution.snapshot" \
+            "$trust_dir/trust-signer-set.bin" > "$trust_dir/next-review.txt"
+          python3 - "$trust_dir" <<'PY'
+          import json
+          from pathlib import Path
+          import re
+          import sys
+
+          root = Path(sys.argv[1])
+          review = (root / "next-review.txt").read_text()
+          bundle = re.search(r"^bundle_id ([0-9a-f]{96})$", review, re.MULTILINE)
+          if not bundle:
+              raise SystemExit("prepared body has no bundle identity")
+          request = json.loads((root / "request.json").read_text())
+          request["requested_bundle_id"] = bundle.group(1)
+          (root / "request.json").write_text(json.dumps(request, indent=2, sort_keys=True) + "\n")
+          PY
+      - name: Publish offline signing request
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: kanalen-trust-renewal-${{ env.EXPECTED_REVISION }}
+          path: |
+            ${{ runner.temp }}/kanalen-trust-${{ github.run_id }}/body.bin
+            ${{ runner.temp }}/kanalen-trust-${{ github.run_id }}/trust-signer-set.bin
+            ${{ runner.temp }}/kanalen-trust-${{ github.run_id }}/spec.json
+            ${{ runner.temp }}/kanalen-trust-${{ github.run_id }}/proof.json
+            ${{ runner.temp }}/kanalen-trust-${{ github.run_id }}/current-review.txt
+            ${{ runner.temp }}/kanalen-trust-${{ github.run_id }}/next-review.txt
+            ${{ runner.temp }}/kanalen-trust-${{ github.run_id }}/request.json
