@@ -208,6 +208,8 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
       only, while this single-operator developmental network does not require an offline ceremony.
     - [ ] Serve delivery canonically at `delivery.kanalen.actum.network`, retaining the former
       `activechain.dev` hostname only as a temporary compatibility alias when DNS exists.
+      - [ ] Replace the vulnerable Traefik 3.5.6 TLS-ALPN handler with patched 3.6.7 and make the
+        HTTP/1.1-only TLS policy the default so ACME's internal challenge router shares it.
     - [ ] Exercise real deployed delivery, anchoring, finality, and stateful usage admission.
     - [ ] Pass the exact full gate and publish production qualification evidence.
     - [ ] Promote the deployed testnet and update landing-page capabilities proven by that evidence.

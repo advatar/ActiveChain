@@ -1,6 +1,6 @@
 services:
   edge:
-    image: traefik:v3.5@sha256:16acb89c6db341182970d6fdafece31303b0a380a8ed7aa51682e225229bf1d2
+    image: traefik:v3.6.7@sha256:a9890c898f379c1905ee5b28342f6b408dc863f08db2dab20e46c267d1ff463a
     container_name: activechain-kanalen-edge
     restart: unless-stopped
     ports:

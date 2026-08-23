@@ -17,7 +17,6 @@ tcp:
       service: activechain-anchor
       tls:
         certResolver: letsencrypt
-        options: actum-http1
 
     activechain-work-proof:
       entryPoints:
@@ -27,7 +26,6 @@ tcp:
       service: activechain-work-proof
       tls:
         certResolver: letsencrypt
-        options: actum-http1
 
     activechain-work-delivery:
       entryPoints:
@@ -37,7 +35,6 @@ tcp:
       service: activechain-work-delivery
       tls:
         certResolver: letsencrypt
-        options: actum-http1
 
     activechain-work-delivery-legacy:
       entryPoints:
@@ -47,7 +44,6 @@ tcp:
       service: activechain-work-delivery
       tls:
         certResolver: letsencrypt
-        options: actum-http1
 
     existing-https:
       entryPoints:
@@ -86,10 +82,10 @@ tcp:
 
 tls:
   options:
-    actum-http1:
+    # TCP termination forwards the negotiated protocol directly to the HTTP/1.1
+    # application servers. Keep this as the default so Traefik's internal ACME
+    # TLS-ALPN router and every terminating application router use one policy.
+    default:
       alpnProtocols:
         - http/1.1
-        # Required for Traefik's TLS-ALPN-01 certificate challenge. Normal
-        # clients do not offer it, so application traffic still negotiates
-        # HTTP/1.1 and never h2.
         - acme-tls/1
