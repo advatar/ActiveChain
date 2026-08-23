@@ -102,6 +102,17 @@ fn rpc_agent(plan: &NetworkPlan, root: &str) -> String {
         ],
         &[
             ("ACTIVECHAIN_WALLET_INGRESS_SNAPSHOT", format!("{root}/chain/cash-ledger.snapshot")),
+            ("ACTIVECHAIN_TRANSFER_SNAPSHOT", format!("{root}/rpc/transfers.snapshot")),
+            ("ACTIVECHAIN_TRANSFER_ENABLED", "true".to_owned()),
+            ("ACTIVECHAIN_TRANSFER_MAX_PENDING_COUNT", "16".to_owned()),
+            ("ACTIVECHAIN_TRANSFER_MAX_PENDING_BYTES", "786432".to_owned()),
+            ("ACTIVECHAIN_TRANSFER_MAX_RETAINED_RECORDS", "1024".to_owned()),
+            ("ACTIVECHAIN_TRANSFER_RETENTION_SECONDS", "604800".to_owned()),
+            ("ACTIVECHAIN_TRANSFER_SIGNER_WINDOW", "60".to_owned()),
+            ("ACTIVECHAIN_TRANSFER_SIGNER_LIMIT", "4".to_owned()),
+            ("ACTIVECHAIN_TRANSFER_GLOBAL_WINDOW", "60".to_owned()),
+            ("ACTIVECHAIN_TRANSFER_GLOBAL_LIMIT", "32".to_owned()),
+            ("ACTIVECHAIN_TRANSFER_FINALITY_ARCHIVE_DIR", format!("{root}/chain")),
             ("ACTIVECHAIN_FAUCET_SNAPSHOT", format!("{root}/rpc/faucet.snapshot")),
             (
                 "ACTIVECHAIN_FAUCET_SETTLEMENT_JOURNAL",
@@ -205,6 +216,8 @@ mod tests {
         assert!(rpc.contains("<string>0.0.0.0:49151</string>"));
         assert!(rpc.contains("/Users/operator/activechain-deploy/kanalen/rpc/rpc-index.snapshot"));
         assert!(rpc.contains("ACTIVECHAIN_FAUCET_SETTLEMENT_JOURNAL"));
+        assert!(rpc.contains("ACTIVECHAIN_TRANSFER_SNAPSHOT"));
+        assert!(rpc.contains("/Users/operator/activechain-deploy/kanalen/rpc/transfers.snapshot"));
 
         let validator = out.launch_agent("dev.activechain.kanalen.validator0").expect("validator");
         assert!(validator.contains("<string>49153</string>"));

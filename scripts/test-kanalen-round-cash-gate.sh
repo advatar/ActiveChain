@@ -46,10 +46,27 @@ printf '%s\n' "$@" > "$ACTIVECHAIN_INGEST_ARGUMENTS"
 EOF
 chmod +x "$binary_root/activechain-rpc-ingest"
 
+cat > "$binary_root/activechain-transfer-spool" <<'EOF'
+#!/bin/sh
+case "$1" in
+  prepare)
+    printf '%s\n' "$@" > "$ACTIVECHAIN_TRANSFER_PREPARE_ARGUMENTS"
+    printf '\000\000\000\001\001' > "$5"
+    ;;
+  reconcile-latest)
+    printf '%s\n' "$@" > "$ACTIVECHAIN_TRANSFER_RECONCILE_ARGUMENTS"
+    ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$binary_root/activechain-transfer-spool"
+
 run_round() {
   ACTIVECHAIN_KANALEN_ROOT="$deployment_root" \
   ACTIVECHAIN_INGEST_ARGUMENTS="$test_root/ingest-arguments" \
     ACTIVECHAIN_VALIDATOR_ARGUMENTS="$test_root/validator-arguments" \
+    ACTIVECHAIN_TRANSFER_PREPARE_ARGUMENTS="$test_root/transfer-prepare-arguments" \
+    ACTIVECHAIN_TRANSFER_RECONCILE_ARGUMENTS="$test_root/transfer-reconcile-arguments" \
     PATH="$fake_path:$PATH" \
     "$test_root/run-kanalen-round.sh"
 }
@@ -74,7 +91,8 @@ fi
 grep -q 'refusing unauthenticated RPC publication' "$test_root/missing-finality.out"
 
 : > "$state_root/finality.bundle"
-printf '\000\000\000\001\001' > "$state_root/pending-cash-actions.batch"
+rm -f "$state_root/pending-cash-actions.batch"
+: > "$rpc_root/transfers.snapshot"
 cat > "$binary_root/validator-node" <<'EOF'
 #!/bin/sh
 test "$5" != 0 || exit 1
@@ -101,5 +119,11 @@ grep -q "^--cash-ledger=$state_root/cash-ledger.snapshot$" "$test_root/validator
 grep -q "^--cash-actions=$state_root/pending-cash-actions.batch$" "$test_root/validator-arguments"
 grep -q '^--peer=1@127.0.0.1:49153$' "$test_root/validator-arguments"
 grep -q '^--peer=3@127.0.0.1:49155$' "$test_root/validator-arguments"
+test "$(sed -n '1p' "$test_root/transfer-prepare-arguments")" = prepare
+test "$(sed -n '2p' "$test_root/transfer-prepare-arguments")" = "$rpc_root/transfers.snapshot"
+test "$(sed -n '5p' "$test_root/transfer-prepare-arguments")" = "$state_root/pending-cash-actions.batch"
+test "$(sed -n '1p' "$test_root/transfer-reconcile-arguments")" = reconcile-latest
+test "$(sed -n '2p' "$test_root/transfer-reconcile-arguments")" = "$rpc_root/transfers.snapshot"
+test "$(sed -n '4p' "$test_root/transfer-reconcile-arguments")" = "$state_root"
 
 echo "Kanalen finalized-cash publication gate passed"

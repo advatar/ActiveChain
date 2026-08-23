@@ -262,7 +262,7 @@ fn write_manifest(
         verifier_abi_revision: 1,
         verifier_schema_revision: 1,
         wallet_abi_revision: 3,
-        rpc_schema_revision: 1,
+        rpc_schema_revision: 4,
         light_client_schema_revision: 1,
         minimum_protocol_revision: 1,
         supported_protocol_revisions: vec![1],
@@ -296,7 +296,7 @@ fn verify_manifest(
         || manifest.verifier_abi_revision != 1
         || manifest.verifier_schema_revision != 1
         || manifest.wallet_abi_revision != 3
-        || manifest.rpc_schema_revision != 1
+        || manifest.rpc_schema_revision != 4
         || manifest.light_client_schema_revision != 1
         || manifest.minimum_protocol_revision != 1
         || manifest.supported_protocol_revisions != [1]

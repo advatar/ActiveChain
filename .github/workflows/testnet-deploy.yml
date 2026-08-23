@@ -51,6 +51,7 @@ jobs:
           cp target/release/activechain-rpc-bootstrap dist/kanalen/bin/
           cp target/release/activechain-rpc-ingest dist/kanalen/bin/
           cp target/release/activechain-rpc-probe dist/kanalen/bin/
+          cp target/release/activechain-transfer-spool dist/kanalen/bin/
           cp target/release/activechain-telemetry-anchor-gateway dist/kanalen/bin/
           cp target/release/actum-anchor-evidence dist/kanalen/bin/
           cp target/release/actum-work-proof-verifier dist/kanalen/bin/

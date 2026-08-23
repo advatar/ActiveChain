@@ -9,7 +9,7 @@ internal object KanalenNetwork {
     const val host = "rpc.kanalen.activechain.dev"
     const val port = 443
     const val protocolRevision = 1L
-    const val schemaRevision = 2L
+    const val schemaRevision = 4L
     val chainID = hex(
         "b12c1c316717e9669cec36f7632a9080702c57a3125d90c72154f8a7298e4f0" +
             "b095e6cfe944bd2c9f6535b4c927782f1",
@@ -64,7 +64,7 @@ internal class KanalenRPCException(message: String) : Exception(message)
 internal object KanalenRPCCodec {
     const val maximumFrameLength = 4 * 1_024 * 1_024
     private const val maximumStatusBodyLength = 151
-    val framedStatusRequest = byteArrayOf(0, 0, 0, 6, 0, 0xa0.toByte(), 0, 1, 1, 0)
+    val framedStatusRequest = byteArrayOf(0, 0, 0, 6, 1, 7, 0, 3, 1, 0)
 
     fun decodeStatus(envelope: ByteArray): KanalenRPCStatus {
         val decoder = Decoder(envelope)

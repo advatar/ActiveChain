@@ -27,6 +27,19 @@
     <string>0</string>
     <key>ACTIVECHAIN_WALLET_INGRESS_SNAPSHOT</key>
     <string>/Users/johansellstrom/activechain-deploy/kanalen/chain/cash-ledger.snapshot</string>
+    <key>ACTIVECHAIN_TRANSFER_SNAPSHOT</key>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/rpc/transfers.snapshot</string>
+    <key>ACTIVECHAIN_TRANSFER_ENABLED</key><string>true</string>
+    <key>ACTIVECHAIN_TRANSFER_MAX_PENDING_COUNT</key><string>16</string>
+    <key>ACTIVECHAIN_TRANSFER_MAX_PENDING_BYTES</key><string>786432</string>
+    <key>ACTIVECHAIN_TRANSFER_MAX_RETAINED_RECORDS</key><string>1024</string>
+    <key>ACTIVECHAIN_TRANSFER_RETENTION_SECONDS</key><string>604800</string>
+    <key>ACTIVECHAIN_TRANSFER_SIGNER_WINDOW</key><string>60</string>
+    <key>ACTIVECHAIN_TRANSFER_SIGNER_LIMIT</key><string>4</string>
+    <key>ACTIVECHAIN_TRANSFER_GLOBAL_WINDOW</key><string>60</string>
+    <key>ACTIVECHAIN_TRANSFER_GLOBAL_LIMIT</key><string>32</string>
+    <key>ACTIVECHAIN_TRANSFER_FINALITY_ARCHIVE_DIR</key>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/chain</string>
     <key>ACTIVECHAIN_FAUCET_SNAPSHOT</key>
     <string>/Users/johansellstrom/activechain-deploy/kanalen/rpc/faucet.snapshot</string>
     <key>ACTIVECHAIN_FAUCET_ENABLED</key><string>true</string>

@@ -55,7 +55,7 @@ extension WalletNetwork {
         hostName: "rpc.kanalen.activechain.dev",
         port: 443,
         protocolRevision: 1,
-        schemaRevision: 3,
+        schemaRevision: 4,
         chainID: Data([
             0xb1, 0x2c, 0x1c, 0x31, 0x67, 0x17, 0xe9, 0x66,
             0x9c, 0xec, 0x36, 0xf7, 0x63, 0x2a, 0x90, 0x80,

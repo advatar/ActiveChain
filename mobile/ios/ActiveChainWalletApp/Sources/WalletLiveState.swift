@@ -740,14 +740,13 @@ enum WalletRPCCodec {
 
     /// Canonical (type tag, schema revision) pairs for the RPC envelopes.
     ///
-    /// These were previously inlined as literals at five call sites pinned to
-    /// revision 1. When RpcRequest and RpcResponse moved to revision 2 the node
-    /// began rejecting every request as undecodable and closing the connection,
-    /// which reached the UI only as an unexplained transport failure.
-    static let requestSchemaRevision: UInt16 = 2
+    /// These were previously inlined as literals at five call sites. Keeping
+    /// each envelope revision explicit makes newly added variants fail closed
+    /// instead of reaching the UI as an unexplained transport failure.
+    static let requestSchemaRevision: UInt16 = 3
     static let responseTypeTag: UInt16 = 0x010a
-    static let responseSchemaRevision: UInt16 = 3
-    private static let requestEnvelopeHeader = Data([0x01, 0x07, 0x00, 0x02])
+    static let responseSchemaRevision: UInt16 = 4
+    private static let requestEnvelopeHeader = Data([0x01, 0x07, 0x00, 0x03])
 
     static let framedStatusRequest = framedRequest(body: Data([0]))
 

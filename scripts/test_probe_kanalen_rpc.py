@@ -23,7 +23,7 @@ PUBLIC_STATUS = bytes.fromhex(
     "f600eb4a562a3acd2bd82e46fa8ee063217153f827af12300c35fcb1b75fc96a"
     "b5650477691a6ce1b4350a314e5dbca4"
     "0000000000000001"
-    "00000002"
+    "00000004"
     "0000000000004587"
     "000000006a778641"
     "000000006a778641"
@@ -52,7 +52,7 @@ def status_envelope(
     chain_id: bytes = probe.EXPECTED_CHAIN_ID,
     genesis: bytes = probe.EXPECTED_GENESIS,
     protocol: int = 1,
-    schema: int = 2,
+    schema: int = 4,
     finalized_at: int = 1_785_233_700,
     served_at: int = 1_785_233_703,
     maximum_staleness: int = 300,
@@ -80,7 +80,7 @@ def status_envelope(
 
 class DecodeStatusTests(unittest.TestCase):
     def test_status_request_uses_current_canonical_rpc_request_tag(self) -> None:
-        self.assertEqual(probe.STATUS_REQUEST, bytes.fromhex("00000006010700010100"))
+        self.assertEqual(probe.STATUS_REQUEST, bytes.fromhex("00000006010700030100"))
 
     def test_exact_kanalen_status_decodes(self) -> None:
         status = probe.decode_status_envelope(status_envelope())

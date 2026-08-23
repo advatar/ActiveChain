@@ -2,6 +2,34 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Public authorized-transfer submission path
+
+Tracked by [GitHub issue #819](https://github.com/advatar/ActiveChain/issues/819), scoped by
+[PR #817](https://github.com/advatar/ActiveChain/pull/817).
+
+Value enters a wallet through the faucet and cannot leave it: `RpcRequest` carries reads,
+anchors, faucet and status, with no submission variant for an ordinary transfer. The two-cell
+grant made a grant spendable in the kernel's terms; nothing exposes that over the wire.
+
+- [x] Add `RpcRequest::SubmitAuthorizedTransfer` at request tag 13 and `ResolveTransfer` at
+  request tag 14, both answered by one receipt at response tag 11, reusing the existing
+  `AuthorizedCashTransferV1` verifier rather than adding a second one.
+- [x] Carry schema revision 4 across node, probe, wallet core, CLI and UI.
+- [x] Admit submissions through a bounded spool separate from the faucet's, with count and byte
+  limits, atomic fail-closed behaviour, quotas attributed to the authenticated signer and
+  session rather than a source address, and duplicate handling keyed on the signed request's intent
+  identifier.
+- [x] Record outcomes in a durable bounded journal: `Pending → Finalized | Rejected` with no
+  terminal state ever regressing, crash-consistent spool append and initial receipt, no
+  permanent false `Pending` when an item leaves the spool, and an explicit `Unknown`/`Expired`
+  rather than a silent `Pending` once a terminal receipt is evicted.
+- [x] Cover tampering, expired and invalid sessions, duplicate submission before and after a
+  terminal outcome, quota exhaustion, a full spool, round inclusion, an end-to-end transfer from
+  a verified wallet, and restart recovery at every lifecycle boundary.
+- [x] Pass one exact-SHA `qualification=full` gate on final revision `ae3c565e`
+  ([run 32603601983](https://github.com/advatar/ActiveChain/actions/runs/32603601983)) and
+  prepare the node-first, wallet-second rollout that a wire change requires.
+
 ## Kanalen integrator onboarding
 
 Tracked by [GitHub issue #815](https://github.com/advatar/ActiveChain/issues/815).
