@@ -58,6 +58,21 @@ The production artifact must fail closed when any endpoint, trust bundle, proof 
 or deployment revision is absent or mismatched. Secrets, raw artifacts, and subprocess stderr are
 never evidence fields.
 
+The production runner also executes the checked-out ProofOfWork adapter against the same admission
+artifact and protected deployed verifier. Its temporary token copy is mode 0600, deleted before
+evidence is written, and only the exact ProofOfWork commit and pass/fail result cross that boundary.
+
+Before the state-changing lifecycle, run the no-build deployment preflight workflow. It checks the
+active release symlink and archive digest, immutable chain/genesis identity, private credential-file
+permissions, authenticated local anchor/verifier health, unauthorized rejection, and each public
+TLS origin. It deliberately reports `production_qualified: false`; passing preflight proves that the
+exact deployment is reachable and ready to attempt lifecycle qualification, not that the lifecycle
+has passed.
+
+The canonical delivery origin is `https://delivery.kanalen.actum.network`. The former
+`delivery.kanalen.activechain.dev` SNI remains a temporary gateway alias but is not a qualification
+dependency and may have no DNS record.
+
 ## Promotion rule
 
 Keep every affected control labelled **Preview** until both artifacts pass for the exact deployed

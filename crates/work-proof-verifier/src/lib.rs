@@ -1,6 +1,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod api;
+pub mod delivery;
 pub mod json_adapter;
 pub mod status;
 
@@ -318,6 +319,19 @@ impl DurableUsageRegistry {
         persist_usage_atomic(&self.path, &encode_usage(&candidate))?;
         *state = candidate;
         Ok(UsageRegistrationV1::Inserted)
+    }
+
+    /// Reloads the durable registry while holding its inter-process lock and
+    /// reports whether no claim has ever been admitted.
+    ///
+    /// Kanalen's private testnet trust reset uses this as a hard safety gate:
+    /// once any usage exists, replacing the trust root would sever the durable
+    /// audit history and the reset must be refused.
+    pub fn is_empty(&self) -> Result<bool, VerificationErrorV1> {
+        let mut state = self.state.lock().map_err(|_| persistence(()))?;
+        let _exclusive = ExclusiveUsageFileLock::acquire(&self.lock_file)?;
+        *state = load_usage_state(&self.path)?;
+        Ok(state.entries.is_empty())
     }
 
     fn claim_entries(&self) -> Result<Vec<UsageEntry>, VerificationErrorV1> {
@@ -851,9 +865,8 @@ pub fn derive_claim_id(
     if proof.is_empty() || proof.len() > MAX_WORK_PROOF_BYTES {
         return Err(VerificationErrorV1::terminal(VerificationErrorCodeV1::ProofTooLarge));
     }
-    let public = encode_envelope(public)
-        .map_err(|_| VerificationErrorV1::terminal(VerificationErrorCodeV1::MalformedRequest))?;
-    Ok(domain_hash(b"ACTUM-WORK-CLAIM-V1", &[&public, proof]))
+    activechain_work_proof::derive_work_claim_id(public, proof)
+        .map_err(|_| VerificationErrorV1::terminal(VerificationErrorCodeV1::MalformedRequest))
 }
 
 pub fn work_proof_profile_id() -> Digest384 {
@@ -1130,10 +1143,12 @@ mod tests {
         let directory = tempdir().unwrap();
         let path = directory.path().join("usage.bin");
         let registry = Arc::new(DurableUsageRegistry::open(&path).unwrap());
+        assert_eq!(registry.is_empty(), Ok(true));
         assert_eq!(
             registry.register_all(d(1), &[d(2), d(3)], d(4), 1, 1, 100),
             Ok(UsageRegistrationV1::Inserted)
         );
+        assert_eq!(registry.is_empty(), Ok(false));
         assert_eq!(
             registry.register_all(d(1), &[d(2), d(3)], d(4), 1, 1, 100),
             Ok(UsageRegistrationV1::Idempotent)

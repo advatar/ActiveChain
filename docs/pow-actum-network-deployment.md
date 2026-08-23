@@ -12,6 +12,7 @@ The Kanalen release contains:
 - `actum-work-proof-verifier`: bounded subprocess relation verifier.
 - `actum-work-proof-json-verifier`: stateless JSON adapter for diagnostics only.
 - `actum-work-proof-trust-bootstrap`: one-time validation and creation of the durable trust store.
+- `actum-work-proof-trust-transition`: signature-checked, crash-atomic renewal of that trust store.
 
 Production admission uses the stateful API. The stateless JSON adapter cannot establish
 `anchor_verified` or enforce durable usage uniqueness and must not be presented as production
@@ -36,6 +37,31 @@ bash "$HOME/activechain-deploy/kanalen/current/scripts/provision-work-proof-veri
 Provisioning creates a random bearer token, validates the signed bundle and signer set through
 `actum-work-proof-trust-bootstrap`, and refuses symlinks or group/world-readable secret files. It
 is idempotent and does not overwrite an existing token or trust store.
+
+Trust renewal is a signed transition, including when the previous bundle's time window has expired;
+never delete or replace `trust.bin`. Prepare and threshold-sign bundle sequence `N + 1` with the
+current signer set and the current finalized checkpoint, then install it atomically with:
+
+```sh
+actum-work-proof-trust-transition \
+  "$HOME/activechain-deploy/kanalen/work-proof/trust.bin" \
+  signed-next-bundle.bin trust-signer-set.bin - "$(($(date +%s) * 1000))"
+```
+
+Pass the activated signer-set path instead of `-` only when the preceding bundle explicitly
+scheduled that set for this sequence. The command verifies the complete chain, checkpoint
+monotonicity, time window, signer-set identity, and threshold signatures before updating the store.
+Restart the work-proof service after a successful transition so its in-memory view reloads the new
+bundle.
+
+Kanalen is a private developmental testnet with a single operator, so it has one narrower recovery
+path that is not a production renewal mechanism. The `trust_rebootstrap_only` workflow generates a
+fresh ephemeral 1-of-1 key on the CI runner, binds a sequence-1 bundle to the exact deployed proof
+image and finalized checkpoint, and destroys the seed before publishing sanitized evidence. The
+host-side installer hard-pins the Kanalen chain ID and genesis commitment, stops the verifier,
+refuses the reset if any durable usage has been admitted, archives the prior trust inputs, installs
+the candidate atomically, and rolls back unless authenticated health succeeds. Production and any
+used network remain transition-only.
 
 Load `dev.activechain.kanalen.work-proof.plist` only after provisioning succeeds. The API listens
 on `0.0.0.0:49157` because the gateway runs as a container and reaches the host through
@@ -62,16 +88,17 @@ client pinning the previous genesis rejects this chain until re-pinned.
 | Value | |
 | --- | --- |
 | Chain ID | `b12c1c316717e9669cec36f7632a9080702c57a3125d90c72154f8a7298e4f0b095e6cfe944bd2c9f6535b4c927782f1` |
-| Genesis commitment | `f600eb4a562a3acd2bd82e46fa8ee063217153f827af12300c35fcb1b75fc96ab5650477691a6ce1b4350a314e5dbca4` |
-| Protocol / RPC schema revision | 1 / 2 |
-| Metering policy | `a7c9d070a32fbc81a154ee8f9ca9ab475ab97bd8f6760645601f2638a8235c44dfd86c395a843182ef65dd5385849cf8`, revision 1 |
-| Trust bundle | `a2dfafd2f37912d73f8e12ecf739ae9d83ed1abdfb16405978315da33d1528ce939f31a8a14e177b6d9deca9646d36f2`, sequence 1 |
+| Genesis commitment | `a836c4d201cda6ba33a01aa48011cf5f4d6acdfd1ec409d322dc1b56ed3552a25dcb158e0b1ec0352728653d315d477c` |
+| Protocol / RPC schema revision | 1 / 4 |
+| Metering policy | `01456c3f54e61fb20466c111f4167916b1ee9d23ac083a0e3ce1662b153c47de27af0a13b09cb5319c24ba31a9cfa8d0`, revision 1 |
+| Trust bundle | `d7cf053c9faea38b8bfed6d868ddd6a3b8439e5e7b27d057b262ad6393386ff8db8bfb186e97865d17bc80b7ca6353ed`, sequence 1 |
 | Signer set | `95bb3e7016a69e845d7354612aa08a762aa0ada40b7f087a5005e83c0969824c740863869e5c5d1d8ec1d52678f54c94`, 1-of-1 ML-DSA-44 |
 
-A claim's `policy_id` must equal the metering policy above; the verifier rejects any other value. The
-bootstrap signer is a single offline ML-DSA-44 root held off the verifier host, which is acceptable
-for a testnet bootstrap only: the format is threshold-capable and production requires migrating to a
-separated N-of-M set before promotion.
+A claim's `policy_id` must equal the metering policy above; the verifier rejects any other value.
+The policy is emitted canonically by the deployed `actum-work-qualification-source` binary, and the
+unused-testnet trust reset derives the ID from that exact binary instead of copying it into workflow
+logic. The ephemeral reset signer is acceptable only for this private testnet; production requires
+a separately governed N-of-M authority and transition-only renewal.
 
 ## Telemetry anchor endpoint
 
@@ -81,7 +108,7 @@ two routes:
 
 | Method and path | Body | Auth |
 | --- | --- | --- |
-| `GET /v1/health` | empty | none |
+| `GET /v1/health` | empty | bearer |
 | `POST /v1/anchors` | canonical `TelemetryEpochAnchorRequestV1` **binary envelope** | bearer |
 
 The request body is a canonical envelope, not JSON. There is no JSON anchor-submission schema, and
@@ -122,7 +149,15 @@ cannot select or replace the trust bundle.
 
 ## Promotion evidence
 
-Do not remove the Preview label until the exact deployed collector, epoch, anchor, proof image,
-stateful verifier, gateway, and ProofOfWork revisions have passed restart, replay, substitution,
-concurrency, stale-trust, delivery, finality, privacy/logging, and failure rehearsals. Preserve the
-resulting revision IDs and evidence artifact in issue #778.
+The production lifecycle passed on 2026-08-23 for ActiveChain
+`955a976821f16428f7c18f99d6de338d2ace3c33`, ProofOfWork
+`d8a49fe7f0817c4805df1db5e06c7c4e00b89795`, and deployment bundle SHA-256
+`2d8b12f1025a350832f88fb1c3887a2bdd1619860a0d8a3dfba9b0aa46dd29da`. The sanitized
+production artifact is published in issue #778. Deployment run `32639250086` and independent
+post-lifecycle status run `32639496465` prove the exact public origins, protected-service health,
+one durable receipt, finalized height 8774, checkpoint height 8773, and trust bundle above.
+
+This qualifies the bounded private-testnet lifecycle implementation; it does not claim
+production-scale readiness for the Preview whole-file usage registry. The exact final
+deterministic-kernel gate passed candidate `a7e55091ba2672b5b7b21483aa7a63ccfe7b582d` in run
+`32642557878`; integration into `main` remains the final completion condition.

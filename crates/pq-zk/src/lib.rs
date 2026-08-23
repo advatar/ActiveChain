@@ -30,7 +30,7 @@ use activechain_protocol_types::Digest384;
 use activechain_work_proof::{WorkClaimPublicV1, WorkClaimRelationInputV1, public_journal};
 use risc0_zkvm::{ExecutorEnv, Receipt, default_executor};
 #[cfg(feature = "prover")]
-use risc0_zkvm::{ProverOpts, default_prover};
+use risc0_zkvm::{ExternalProver, Prover, ProverOpts, default_prover};
 use sha3::{Digest, Sha3_256, Sha3_384};
 
 /// Consensus-visible identifier for this exact proof profile.
@@ -381,6 +381,27 @@ pub fn prove_work_non_overlap(
     input: &WorkClaimRelationInputV1,
 ) -> Result<WorkNonOverlapProof, PqZkError> {
     let receipt = default_prover()
+        .prove_with_opts(relation_env(input)?, WORK_NON_OVERLAP_ELF, &ProverOpts::succinct())
+        .map_err(|_| PqZkError::Prover)?
+        .receipt;
+    let proof = WorkNonOverlapProof { receipt };
+    verify_work_non_overlap(&proof, &input.public)?;
+    Ok(proof)
+}
+
+/// Generate a work proof in an isolated `r0vm` process.
+///
+/// Production sidecars use this boundary so a native prover crash cannot take down the
+/// key-owning service process.
+#[cfg(feature = "prover")]
+pub fn prove_work_non_overlap_external(
+    input: &WorkClaimRelationInputV1,
+    r0vm_path: &std::path::Path,
+) -> Result<WorkNonOverlapProof, PqZkError> {
+    if !r0vm_path.is_absolute() || !r0vm_path.is_file() {
+        return Err(PqZkError::Prover);
+    }
+    let receipt = ExternalProver::new("actum-work-sidecar", r0vm_path)
         .prove_with_opts(relation_env(input)?, WORK_NON_OVERLAP_ELF, &ProverOpts::succinct())
         .map_err(|_| PqZkError::Prover)?
         .receipt;

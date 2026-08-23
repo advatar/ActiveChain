@@ -11,12 +11,14 @@ network="${ACTIVECHAIN_NETWORK:-kanalen}"
 deployment_root="${ACTIVECHAIN_NETWORK_ROOT:-${ACTIVECHAIN_KANALEN_ROOT:-$HOME/activechain-deploy/$network}}"
 launchctl_bin="${ACTIVECHAIN_LAUNCHCTL:-launchctl}"
 plutil_bin="${ACTIVECHAIN_PLUTIL:-plutil}"
+plistbuddy_bin="${ACTIVECHAIN_PLISTBUDDY:-/usr/libexec/PlistBuddy}"
 # Resolved rather than inherited: this script is normally run over ssh as
 # `bash activate-kanalen-release.sh`, which gets a non-login shell whose PATH
 # does not include Homebrew or Docker Desktop. Depending on the caller's PATH
 # meant a deployment that had already restarted every service then aborted at
 # the gateway step with "docker: command not found".
 docker_bin="${ACTIVECHAIN_DOCKER:-}"
+docker_context="${ACTIVECHAIN_DOCKER_CONTEXT:-colima-coolify}"
 if [[ -z "$docker_bin" ]]; then
   for candidate in \
     docker \
@@ -32,6 +34,13 @@ fi
 if [[ -z "$docker_bin" ]]; then
   echo "could not find docker; set ACTIVECHAIN_DOCKER to its path" >&2
   exit 1
+fi
+# Docker Desktop records `credsStore: desktop` in the user's config. Its CLI
+# may be available through /usr/local/bin while the matching credential helper
+# exists only in the application bundle, especially in a non-login SSH shell.
+docker_desktop_bin="/Applications/Docker.app/Contents/Resources/bin"
+if [[ -d "$docker_desktop_bin" ]]; then
+  export PATH="$docker_desktop_bin:$PATH"
 fi
 release_root="$deployment_root/releases"
 release_dir="$release_root/$release_id"
@@ -96,7 +105,7 @@ else
   staging_dir=""
 fi
 
-for binary in validator-node activechain-rpc-node activechain-transfer-spool activechain-telemetry-anchor-gateway actum-work-proof-api actum-work-proof-verifier actum-work-proof-trust-bootstrap; do
+for binary in validator-node activechain-rpc-node activechain-transfer-spool activechain-telemetry-anchor-gateway actum-work-proof-api actum-work-proof-verifier actum-work-proof-trust-bootstrap actum-work-proof-trust-transition actum-work-proof-testnet-trust-bootstrap actum-work-prover actum-work-qualification-source actum-work-delivery-api; do
   if [[ ! -x "$release_dir/bin/$binary" ]]; then
     echo "release is missing executable $binary" >&2
     exit 1
@@ -106,7 +115,19 @@ if [[ ! -x "$release_dir/scripts/provision-work-proof-verifier.sh" ]]; then
   echo "release is missing the work-proof provisioning script" >&2
   exit 1
 fi
-for gateway_file in compose.yml dynamic.yml traefik.yml switch-edge.sh; do
+if [[ ! -x "$release_dir/scripts/provision-work-delivery.sh" ]]; then
+  echo "release is missing the work-delivery provisioning script" >&2
+  exit 1
+fi
+if [[ ! -x "$release_dir/scripts/rebootstrap-testnet-work-proof-trust.sh" ]]; then
+  echo "release is missing the testnet work-proof trust rebootstrap script" >&2
+  exit 1
+fi
+if [[ ! -x "$release_dir/scripts/qualification-http.py" ]]; then
+  echo "release is missing the private qualification HTTP adapter" >&2
+  exit 1
+fi
+for gateway_file in compose.yml dynamic.yml traefik.yml switch-edge.sh install-caddy-fragment.sh; do
   if [[ ! -f "$release_dir/gateway/$gateway_file" ]]; then
     echo "release is missing gateway/$gateway_file" >&2
     exit 1
@@ -137,18 +158,36 @@ fi
 cash_owner=$(sed -n 's/^ACTIVECHAIN_CASH_GENESIS_OWNER_HEX=//p' "$runtime_network")
 if [[ -n "$cash_owner" ]]; then
   rpc_plist="$release_dir/launchagents/dev.activechain.$network.rpc.plist"
-  /usr/libexec/PlistBuddy \
+  "$plistbuddy_bin" \
     -c "Add :EnvironmentVariables:ACTIVECHAIN_CASH_GENESIS_OWNER_HEX string $cash_owner" \
     "$rpc_plist" 2>/dev/null ||
-    /usr/libexec/PlistBuddy \
+    "$plistbuddy_bin" \
       -c "Set :EnvironmentVariables:ACTIVECHAIN_CASH_GENESIS_OWNER_HEX $cash_owner" \
       "$rpc_plist"
   "$plutil_bin" -lint "$rpc_plist" >/dev/null
 fi
 
+runtime_genesis=$(sed -n 's/^ACTIVECHAIN_GENESIS_COMMITMENT_HEX=//p' "$runtime_network")
+if [[ ! "$candidate_chain" =~ ^[0-9a-f]{96}$ ||
+  ! "$runtime_genesis" =~ ^[0-9a-f]{96}$ ]]; then
+  echo "runtime network identity is missing or malformed" >&2
+  exit 1
+fi
+delivery_plist="$release_dir/launchagents/dev.activechain.$network.work-delivery.plist"
+if [[ ! -f "$delivery_plist" ]]; then
+  echo "release is missing the work-delivery launch agent" >&2
+  exit 1
+fi
+"$plistbuddy_bin" -c "Set :ProgramArguments:4 $candidate_chain" "$delivery_plist"
+"$plistbuddy_bin" -c "Set :ProgramArguments:5 $runtime_genesis" "$delivery_plist"
+"$plistbuddy_bin" -c "Set :ProgramArguments:6 $release_id" "$delivery_plist"
+"$plutil_bin" -lint "$delivery_plist" >/dev/null
+
 ACTIVECHAIN_KANALEN_ROOT="$deployment_root" \
 ACTIVECHAIN_WORK_PROOF_BINARY_DIR="$release_dir/bin" \
   bash "$release_dir/scripts/provision-work-proof-verifier.sh"
+ACTIVECHAIN_KANALEN_ROOT="$deployment_root" \
+  bash "$release_dir/scripts/provision-work-delivery.sh"
 
 if [[ -e "$deployment_root/current" && ! -L "$deployment_root/current" ]]; then
   echo "current release path must be absent or a symlink" >&2
@@ -201,13 +240,22 @@ for gateway_file in compose.yml dynamic.yml traefik.yml; do
   install -m 0644 "$release_dir/gateway/$gateway_file" "$gateway_dir/$gateway_file"
 done
 install -m 0755 "$release_dir/gateway/switch-edge.sh" "$gateway_dir/switch-edge.sh"
+install -m 0755 "$release_dir/gateway/install-caddy-fragment.sh" \
+  "$gateway_dir/install-caddy-fragment.sh"
 if [[ -f "$release_dir/gateway/README.md" ]]; then
   install -m 0644 "$release_dir/gateway/README.md" "$gateway_dir/README.md"
 fi
 if [[ -f "$release_dir/gateway/$network.Caddyfile" ]]; then
   install -m 0644 "$release_dir/gateway/$network.Caddyfile" "$gateway_dir/$network.Caddyfile"
+  ACTIVECHAIN_DOCKER="$docker_bin" ACTIVECHAIN_DOCKER_CONTEXT="$docker_context" \
+    bash "$gateway_dir/install-caddy-fragment.sh" "$gateway_dir/$network.Caddyfile"
 fi
-"$docker_bin" compose -f "$gateway_dir/compose.yml" config >/dev/null
-"$docker_bin" compose -f "$gateway_dir/compose.yml" up -d
+"$docker_bin" --context "$docker_context" compose -f "$gateway_dir/compose.yml" config >/dev/null
+# The configuration files are bind-mounted individually. `install` replaces
+# them by inode, while an existing container keeps the prior inode mounted;
+# a plain `compose up` therefore leaves Traefik serving stale routers. Recreate
+# the edge so every activated revision reads the files just installed above.
+"$docker_bin" --context "$docker_context" compose -f "$gateway_dir/compose.yml" \
+  up -d --force-recreate
 
 echo "activated Kanalen release $release_id"

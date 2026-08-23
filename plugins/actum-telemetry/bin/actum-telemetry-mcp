@@ -83,7 +83,7 @@ def status(args):
     if pid is not None: pid=project(pid)
     auth=state["authorizations"].get(pid) if pid else None
     result=base("configured" if auth else "not_authorized")
-    result.update({"project_id":pid,"paused":state["paused"].get(pid,True) if pid else True,"authorization":auth,"journal_health":"healthy","delivery_configured":bool(os.environ.get("ACTUM_DELIVERY_WEBHOOK")),"anchor_configured":bool(os.environ.get("ACTUM_ANCHOR_URL") and os.environ.get("ACTUM_ANCHOR_BEARER_TOKEN_FILE")),"work_verifier_configured":bool(os.environ.get("ACTUM_WORK_VERIFIER_URL") and os.environ.get("ACTUM_WORK_VERIFIER_BEARER_TOKEN_FILE")),"stateless_work_verifier_configured":bool(os.environ.get("ACTUM_WORK_VERIFIER")),"signing_authority":"external"})
+    result.update({"project_id":pid,"paused":state["paused"].get(pid,True) if pid else True,"authorization":auth,"journal_health":"healthy","delivery_configured":bool(os.environ.get("ACTUM_DELIVERY_WEBHOOK") and os.environ.get("ACTUM_DELIVERY_BEARER_TOKEN_FILE")),"anchor_configured":bool(os.environ.get("ACTUM_ANCHOR_URL") and os.environ.get("ACTUM_ANCHOR_BEARER_TOKEN_FILE")),"work_verifier_configured":bool(os.environ.get("ACTUM_WORK_VERIFIER_URL") and os.environ.get("ACTUM_WORK_VERIFIER_BEARER_TOKEN_FILE")),"stateless_work_verifier_configured":bool(os.environ.get("ACTUM_WORK_VERIFIER")),"signing_authority":"external"})
     if auth: result["policy_revision"]=auth["revision"]
     return result
 
@@ -149,14 +149,34 @@ def protected_bearer(env_name,label):
     return token.decode("ascii")
 
 def anchor_bearer(): return protected_bearer("ACTUM_ANCHOR_BEARER_TOKEN_FILE","anchor")
+def delivery_bearer(): return protected_bearer("ACTUM_DELIVERY_BEARER_TOKEN_FILE","delivery")
+
+def anchor_artifact(path,state,pid,fallback_request_id):
+    raw=path.read_bytes()
+    try: value=json.loads(raw)
+    except (UnicodeDecodeError,json.JSONDecodeError): return raw,fallback_request_id
+    expected={"schema","operation","profile","claim_id","public_claim_envelope_hex","proof_envelope_hex","anchor_request_envelope_hex","checkpointed_anchor_evidence_envelope_hex"}
+    if not isinstance(value,dict) or value.get("schema")!="actum.work-proof.admit.request.v1": return raw,fallback_request_id
+    if set(value)!=expected or value.get("operation")!="verify_and_register" or value.get("profile")!="actum.non-overlap.risc0.v1": raise RuntimeError("malformed prover artifact")
+    encoded=value.get("anchor_request_envelope_hex")
+    if not isinstance(encoded,str) or not encoded or len(encoded)>524288 or len(encoded)%2 or any(byte not in "0123456789abcdef" for byte in encoded): raise RuntimeError("malformed prover artifact")
+    matches=[]
+    for entry in state["requests"].values():
+        result=entry.get("result",{})
+        if result.get("status")=="proof_generated" and result.get("project_id")==pid and result.get("artifact_path")==str(path): matches.append(result)
+    if len(matches)!=1 or not REQUEST.fullmatch(matches[0].get("anchor_request_id", "")): raise RuntimeError("untrusted prover artifact")
+    return bytes.fromhex(encoded),matches[0]["anchor_request_id"]
 
 def post_artifact(name,args,env_name,lifecycle):
     exact(args,("capability","request_id","project_id","artifact_path")); pid=project(args["project_id"]); path=artifact_path(args["artifact_path"])
     def op(state):
         if pid not in state["authorizations"]: raise ValueError("project not authorized")
-        headers={"Content-Type":"application/octet-stream","X-Actum-Request-Id":args["request_id"]}
+        payload=path.read_bytes(); backend_request_id=args["request_id"]
+        if env_name=="ACTUM_ANCHOR_URL": payload,backend_request_id=anchor_artifact(path,state,pid,backend_request_id)
+        headers={"Content-Type":"application/octet-stream","X-Actum-Request-Id":backend_request_id}
         if env_name=="ACTUM_ANCHOR_URL": headers["Authorization"]="Bearer "+anchor_bearer()
-        req=Request(backend_url(env_name),data=path.read_bytes(),method="POST",headers=headers)
+        if env_name=="ACTUM_DELIVERY_WEBHOOK": headers["Authorization"]="Bearer "+delivery_bearer()
+        req=Request(backend_url(env_name),data=payload,method="POST",headers=headers)
         try:
             with urlopen(req,timeout=10) as response:
                 body=response.read(MAX_RESPONSE+1)
@@ -204,6 +224,11 @@ def subprocess_tool(name,args,env_name):
         if not binary or not Path(binary).is_absolute() or not os.access(binary,os.X_OK): raise RuntimeError("integration unavailable")
         command=[binary]
         options={"capture_output":True,"timeout":30,"check":False}
+        if name=="work.prove":
+            try: timeout=int(os.environ.get("ACTUM_WORK_PROVER_TIMEOUT_SECONDS","600"))
+            except ValueError as error: raise RuntimeError("prover timeout configuration rejected") from error
+            if not 30<=timeout<=900: raise RuntimeError("prover timeout configuration rejected")
+            options["timeout"]=timeout
         if name=="work.verify": options["input"]=path.read_bytes()
         else: command.extend(["--input",str(path),"--request-id",args["request_id"]])
         completed=subprocess.run(command,**options)
@@ -216,8 +241,14 @@ def subprocess_tool(name,args,env_name):
             result=base("relation_verified" if reply["verified"] else reply["code"].lower(),args["request_id"])
             result.update({"claim_id":None,"relation_verified":reply["verified"],"anchor_verified":False,"usage_verified":False,"artifact_path":None})
         else:
-            if set(reply)-{"status","artifact_path"} or reply.get("status") not in {"proof_generated","unsupported","unavailable","invalid"}: raise RuntimeError("malformed subprocess response")
-            result=base(reply["status"],args["request_id"]); result.update({"claim_id":None,"relation_verified":False,"anchor_verified":False,"usage_verified":False,"artifact_path":reply.get("artifact_path")})
+            if reply.get("status") not in {"proof_generated","unsupported","unavailable","invalid"}: raise RuntimeError("malformed subprocess response")
+            if reply["status"]=="proof_generated":
+                if set(reply)!={"status","artifact_path","anchor_request_id","project_id","claim_id"} or reply.get("anchor_request_id")!=args["request_id"] or reply.get("project_id")!=pid or not isinstance(reply.get("claim_id"),str) or not DIGEST.fullmatch(reply["claim_id"]): raise RuntimeError("malformed subprocess response")
+                generated=artifact_path(reply.get("artifact_path"))
+                result=base(reply["status"],args["request_id"]); result.update({"claim_id":reply["claim_id"],"relation_verified":False,"anchor_verified":False,"usage_verified":False,"artifact_path":str(generated),"anchor_request_id":reply["anchor_request_id"]})
+            else:
+                if set(reply)!={"status"}: raise RuntimeError("malformed subprocess response")
+                result=base(reply["status"],args["request_id"]); result.update({"claim_id":None,"relation_verified":False,"anchor_verified":False,"usage_verified":False,"artifact_path":None,"anchor_request_id":None})
         result.update({"project_id":pid,"policy_revision":state["authorizations"][pid]["revision"]}); return result
     return mutate(name,args,op)
 

@@ -58,9 +58,57 @@ auth headers, raw evidence, source, prompts, or command output.
 | `work.anchor` | consequential | submitted/pending/finalized/rejected anchor lifecycle from `ACTUM_ANCHOR_URL` |
 | `work.verify` | consequential | separate `relation_verified`, `anchor_verified`, and `usage_verified` results from an operator-pinned verifier |
 
-`ACTUM_DELIVERY_WEBHOOK` and `ACTUM_ANCHOR_URL` are optional Preview integrations. Their values are
-never returned. Delivery does not imply anchoring, finalized anchoring does not imply relation
-verification, and verification does not imply usage-nullifier admission.
+`work.prove` uses the ActiveChain-owned `actum-work-prover` sidecar over a private mode-0600 Unix
+socket in a mode-0700 directory. Its input schema is
+`schemas/actum-work-prover-source-v1.schema.json`: a Rust collector-produced sealed epoch plus the
+complete signed event set and requested claim class. The sidecar independently verifies every
+ML-DSA event signature and epoch binding, builds the canonical class witnesses/aggregate and
+class-neutral usage nullifiers, keeps the claimant secret in a private operator file, invokes the
+pinned RISC Zero prover, and emits an `actum.work-proof.admit.request.v1` artifact. ProofOfWork and
+the Python plugin never construct canonical event IDs, Merkle paths, claims, proofs, or anchor
+requests. The plugin will extract anchor bytes only from a successful sidecar artifact recorded in
+its durable request journal.
+
+The sidecar config is frozen by `schemas/actum-work-prover-config-v1.schema.json` with schema
+identifier `actum.work-prover.config.v1` and contains exact lowercase
+chain, genesis, usage-domain, and submitter digests; a canonical policy envelope; an absolute
+private claimant-secret file; and a private output directory under plugin data. Both config and
+secret files must be regular, non-symlink, mode-0400/0600 files. The config also pins the absolute
+`r0vm` executable; the daemon always proves through that isolated subprocess. Set the client
+executable with `ACTUM_WORK_PROVER`, the socket path with `ACTUM_WORK_PROVER_SOCKET`, and an optional bounded
+`ACTUM_WORK_PROVER_TIMEOUT_SECONDS=30..900`. Start the key-owning process separately with
+`actum-work-prover --serve /absolute/private/config.json`; the plugin client never reads that
+config or the claimant secret.
+
+Example private daemon config (all placeholders are exact lowercase canonical values, not browser
+configuration):
+
+```json
+{
+  "schema": "actum.work-prover.config.v1",
+  "chain_id": "<96 lowercase hex>",
+  "genesis_commitment": "<96 lowercase hex>",
+  "usage_domain": "<96 lowercase hex>",
+  "submitter_id": "<96 lowercase hex>",
+  "policy_envelope_hex": "<canonical MeteringPolicyV1 envelope hex>",
+  "claimant_secret_file": "/private/actum/claimant-secret.hex",
+  "output_directory": "/private/plugin-data/work-proofs",
+  "socket_path": "/private/actum/work-prover.sock",
+  "r0vm_path": "/absolute/path/to/r0vm"
+}
+```
+
+The source artifact is schema-validated JSON transport, but all identifiers, signatures, epoch
+bindings, witnesses, claims, anchor requests, and proofs are re-derived or canonically decoded by
+Rust before use. The daemon atomically publishes a private request directory, returns the same
+artifact for an exact request/source retry, and rejects the same request ID with different source
+bytes.
+
+`ACTUM_DELIVERY_WEBHOOK` and `ACTUM_ANCHOR_URL` are optional Preview integrations. Delivery requires
+a private regular `ACTUM_DELIVERY_BEARER_TOKEN_FILE`, just as anchoring requires its protected token
+file; neither credential is accepted through an MCP argument or returned. Delivery does not imply
+anchoring, finalized anchoring does not imply relation verification, and verification does not
+imply usage-nullifier admission.
 
 ## Verification service contract
 

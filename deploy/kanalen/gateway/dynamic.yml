@@ -61,6 +61,9 @@ tcp:
 
 tls:
   options:
+    # TCP termination forwards the negotiated protocol directly to these
+    # HTTP/1.1 application servers. Keep ACME on Traefik's untouched built-in
+    # default, which includes its private acme-tls/1 challenge handling.
     actum-http1:
       alpnProtocols:
         - http/1.1

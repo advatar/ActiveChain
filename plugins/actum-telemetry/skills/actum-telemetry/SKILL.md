@@ -2,7 +2,7 @@
 name: actum-telemetry
 description: Manage permissioned Actum developer telemetry, project attribution, work-proof generation, delivery, anchoring, and verification. Use when asked about pow.actum.network, telemetry authorization, pause/resume/export/delete, activity epochs, proof delivery, finalized anchors, or work verification.
 license: Apache-2.0
-compatibility: Requires Python 3.11+ on a POSIX host. Mutations require ACTUM_TELEMETRY_CAPABILITY. Optional delivery requires ACTUM_DELIVERY_WEBHOOK; anchoring requires ACTUM_ANCHOR_URL and a protected ACTUM_ANCHOR_BEARER_TOKEN_FILE.
+compatibility: Requires Python 3.11+ on a POSIX host. Mutations require ACTUM_TELEMETRY_CAPABILITY. Optional delivery requires ACTUM_DELIVERY_WEBHOOK and a protected ACTUM_DELIVERY_BEARER_TOKEN_FILE; anchoring requires ACTUM_ANCHOR_URL and a protected ACTUM_ANCHOR_BEARER_TOKEN_FILE.
 metadata:
   author: activechain-contributors
   version: "0.1.0"
@@ -26,6 +26,12 @@ artifacts. Delivery does not imply anchoring; anchoring does not imply finality;
 imply usage-nullifier admission. Report `relation_verified`, `anchor_verified`, and
 `usage_verified` separately whenever available.
 
+Use only the operator-pinned `actum-work-prover` Unix-socket daemon for `work.prove`. Its private
+config and claimant secret remain outside the plugin process and MCP arguments. A successful result records the exact generated admission
+artifact and canonical anchor request ID; `work.anchor` may extract canonical anchor bytes only
+from that recorded artifact. Never hand-build event, witness, claim, proof, or anchor encodings.
+
 `ACTUM_DELIVERY_WEBHOOK` and `ACTUM_ANCHOR_URL` are optional Preview integrations until their exact
-deployed revisions pass #775/#778 qualification. Missing, pending, stale, malformed, wrong-chain,
-or unavailable results must never be described as verified.
+deployed revisions pass #775/#778 qualification. Delivery also requires the protected
+`ACTUM_DELIVERY_BEARER_TOKEN_FILE`; never put its value in an argument. Missing, pending, stale,
+malformed, wrong-chain, or unavailable results must never be described as verified.

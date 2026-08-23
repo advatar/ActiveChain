@@ -11,7 +11,9 @@
 //! assemble  build host    deployable signed-trust-bundle.bin
 //! ```
 
-use activechain_application_primitives::{ActumVerifierTrustBundleV1, TrustSignerSetV1};
+use activechain_application_primitives::{
+    ActumVerifierTrustBundleV1, SignedActumVerifierTrustBundleV1, TrustSignerSetV1,
+};
 use activechain_canonical_codec::{CanonicalType, decode_envelope, encode_envelope};
 use activechain_protocol_types::Digest384;
 use activechain_trust_ceremony::{
@@ -32,9 +34,10 @@ struct DetachedSignatureFile {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut arguments = env::args().skip(1);
     let command = arguments.next().ok_or(
-        "usage: actum-trust-bundle <prepare|inspect|sign|assemble> ...\n\
+        "usage: actum-trust-bundle <prepare|inspect|inspect-signed|sign|assemble> ...\n\
          \x20 prepare  <body-out> <spec.json> <proof.json> <finality.bundle> <execution.snapshot> <signer-set.bin>\n\
          \x20 inspect  <body.bin>\n\
+         \x20 inspect-signed <signed-bundle.bin>\n\
          \x20 sign     <signature-out> <secret-seed> <body.bin>\n\
          \x20 assemble <bundle-out> <body.bin> <signer-set.bin> <now-ms> <signature.json>...",
     )?;
@@ -42,6 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match command.as_str() {
         "prepare" => prepare(&rest),
         "inspect" => inspect(&rest),
+        "inspect-signed" => inspect_signed(&rest),
         "sign" => sign(&rest),
         "assemble" => assemble(&rest),
         _ => Err("unknown subcommand".into()),
@@ -80,6 +84,18 @@ fn inspect(arguments: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let body = read_canonical::<ActumVerifierTrustBundleV1>(Path::new(body_path))?;
     println!("bundle_id {}", encode_hex(bundle_id_for_signing(&body)?.as_bytes()));
     print_body(&body);
+    Ok(())
+}
+
+fn inspect_signed(arguments: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let [bundle_path] = arguments else {
+        return Err("inspect-signed takes exactly one argument".into());
+    };
+    let bundle = read_canonical::<SignedActumVerifierTrustBundleV1>(Path::new(bundle_path))?;
+    bundle.validate().map_err(|_| "invalid signed trust bundle")?;
+    println!("bundle_id {}", encode_hex(bundle.bundle_id.as_bytes()));
+    println!("signatures {}", bundle.signatures.len());
+    print_body(&bundle.body);
     Ok(())
 }
 

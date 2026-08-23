@@ -172,7 +172,8 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Emit the deployed build's proof binding instead of transcribing it into bundle
       specifications.
     - [x] Pass the exact full deterministic-kernel gate.
-  - [ ] Qualify and document the complete `pow.actum.network` integration (#778; claimed on `feat/778-pow-e2e-qualification`).
+  - [ ] Qualify and document the complete `pow.actum.network` integration (#778; follow-up
+    reclaimed on `feat/778-pow-e2e-qualification` on 2026-08-23).
     - [x] Assemble checkpointed anchor evidence from a live RPC node. Nothing built
       `CheckpointedTelemetryAnchorEvidenceV1`, so every claim failed retryable
       `CheckpointUnavailable` and no production case was reachable.
@@ -180,7 +181,8 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
       bring-up exposed a missing bundle binary, a faucet source that breaks after the first
       grant, a receipt the ingest pipeline never indexes, a Lima-only container host name,
       a loopback bind the containerised gateway cannot dial, and an ALPN mismatch.
-    - [ ] Capture the real exact-revision lifecycle evidence on the Kanalen host.
+    - [x] Capture the real exact-revision lifecycle evidence on the Kanalen host (deployment
+      `955a976821f16428f7c18f99d6de338d2ace3c33`, production evidence in issue #778).
     - [x] Add deterministic delivery, anchor, verifier, replay, restart, concurrency, and privacy rehearsals.
     - [x] Emit exact-revision deterministic evidence from the split runtime gate.
     - [x] Bundle the stateless verifier, stateful admission API, and trust-bootstrap tools for Kanalen deployment.
@@ -194,9 +196,30 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
       for explicit deploys.
     - [x] Split formal proofs from Verus/vector conformance into independently rerunnable,
       fail-closed qualification jobs.
-    - [ ] Exercise real deployed delivery, anchoring, finality, and stateful usage admission.
-    - [ ] Pass the exact full gate and publish production qualification evidence.
-    - [ ] Promote the deployed testnet and update landing-page capabilities proven by that evidence.
+    - [x] Add an authenticated durable delivery receiver and require a protected delivery-token
+      file in the portable plugin; unauthorized or failed delivery must never create a receipt.
+    - [x] Ship the ActiveChain-owned canonical collector/prover/claim-assembly sidecar so
+      ProofOfWork never reimplements canonical events, witnesses, proving, or private key custody.
+    - [x] Capture a sanitized, fail-closed deployment-status artifact that binds the active release
+      digest, network identity, authenticated local services, public TLS origins, and private-file
+      permissions before attempting the state-changing production lifecycle (run `32611648434`;
+      correctly failed promotion on stale trust and missing delivery DNS).
+    - [x] Rebootstrap stale verifier trust through an explicit, recoverable Kanalen-testnet-only
+      path that refuses non-Kanalen identity or admitted usage; production trust remains transition
+      only, while this single-operator developmental network does not require an offline ceremony.
+    - [x] Serve delivery canonically at `delivery.kanalen.actum.network`, retaining the former
+      `activechain.dev` hostname only as a temporary compatibility alias when DNS exists.
+      - [x] Replace the vulnerable Traefik 3.5.6 edge with patched 3.6.7, pin activation to the
+        `colima-coolify` context that owns public IPv4 port 443, and delegate delivery TLS through
+        the existing Caddy HTTP-01 path because Colima's port forward rejects TLS-ALPN challenges.
+    - [x] Exercise real deployed delivery, anchoring, finality, and stateful usage admission.
+    - [x] Publish sanitized production qualification evidence binding ActiveChain, ProofOfWork,
+      the deployment bundle, real delivery/finality/admission/replay, and privacy in issue #778.
+    - [x] Regenerate the published work-guest image vector after canonical claim assembly changed
+      the RISC Zero guest ELF, and prove the exact replacement with the focused release test.
+    - [x] Pass the exact full deterministic-kernel gate on `a7e55091` (run `32642557878`).
+    - [x] Promote the deployed testnet and update landing-page capabilities proven by that evidence
+      (`pow.actum.network`, landing-page revision `2b665fbbcb9f4550bfa3a1bdbe7e41937dc877eb`).
 
 ## Verifier C header and Apple distribution reconciliation
 

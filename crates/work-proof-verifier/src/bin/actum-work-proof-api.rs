@@ -6,7 +6,7 @@ use activechain_work_proof_verifier::api::{
 };
 use activechain_work_proof_verifier::{
     DurableTrustStore, DurableUsageRegistry, FixedWindowRateLimiter, SubprocessRelationVerifier,
-    VerificationErrorCodeV1, WorkProofVerificationService,
+    VerificationErrorCodeV1, VerificationErrorV1, WorkProofVerificationService,
 };
 use serde::Serialize;
 use std::{
@@ -89,7 +89,9 @@ fn serve<R: activechain_work_proof_verifier::RelationVerifier>(
         }
         return match service.status(now_ms()?) {
             Ok(status) => write_json(stream, 200, &status),
-            Err(_) => write_error(stream, 503, "verifier_unavailable"),
+            Err(error) => {
+                write_json(stream, 503, &StatusErrorResponseV1 { status: "error", error })
+            }
         };
     }
     if request.method == b"GET" && request.path.starts_with(b"/v1/claims/") {
@@ -145,6 +147,12 @@ fn serve<R: activechain_work_proof_verifier::RelationVerifier>(
             write_json(stream, status, &StatefulVerificationErrorResponseV1::new(error))
         }
     }
+}
+
+#[derive(Serialize)]
+struct StatusErrorResponseV1 {
+    status: &'static str,
+    error: VerificationErrorV1,
 }
 
 struct HttpRequest {
@@ -341,5 +349,20 @@ mod tests {
         assert!(parse_claim_query(b"/v1/claims?limit=101").is_none());
         assert!(parse_claim_query(b"/v1/claims?limit=0&limit=1").is_none());
         assert!(parse_claim_query(b"/v1/claims?unknown=1").is_none());
+    }
+
+    #[test]
+    fn status_errors_preserve_the_safe_typed_reason() {
+        let body = serde_json::to_value(StatusErrorResponseV1 {
+            status: "error",
+            error: VerificationErrorV1 {
+                code: VerificationErrorCodeV1::StaleTrust,
+                retryable: false,
+            },
+        })
+        .unwrap();
+        assert_eq!(body["status"], "error");
+        assert_eq!(body["error"]["code"], "stale_trust");
+        assert_eq!(body["error"]["retryable"], false);
     }
 }

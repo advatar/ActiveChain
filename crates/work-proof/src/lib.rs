@@ -5,10 +5,12 @@ extern crate alloc;
 
 pub use activechain_application_primitives::DeveloperEventV1;
 use activechain_application_primitives::{
-    DeveloperEventMeasurementV1, event_leaf_hash, event_node_hash, telemetry_merkle_root,
+    ActivityEpochV1, DeveloperEventMeasurementV1, event_leaf_hash, event_node_hash,
+    telemetry_merkle_root,
 };
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
+    encode_envelope,
 };
 use activechain_protocol_commitment::{DomainTag, commit};
 use activechain_protocol_types::Digest384;
@@ -355,6 +357,24 @@ pub enum WorkProofError {
     Relation,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WorkClaimClassV1 {
+    Attention,
+    Compute,
+    Contribution,
+}
+
+pub fn derive_work_claim_id(
+    public: &WorkClaimPublicV1,
+    proof_envelope: &[u8],
+) -> Result<Digest384, WorkProofError> {
+    if proof_envelope.is_empty() {
+        return Err(WorkProofError::Malformed);
+    }
+    let public_envelope = encode_envelope(public).map_err(|_| WorkProofError::Malformed)?;
+    Ok(hash(b"ACTUM-WORK-CLAIM-V1", &[&public_envelope, proof_envelope]))
+}
+
 fn hash(domain: &[u8], fields: &[&[u8]]) -> Digest384 {
     let mut h = Sha3_384::new();
     h.update(domain);
@@ -580,6 +600,173 @@ fn evaluate_contribution(
     })
 }
 
+/// Assemble the canonical private relation for one class from a complete sealed epoch.
+///
+/// The caller remains responsible for authenticating the events before invoking this function.
+/// This boundary rechecks the complete epoch structure, derives Merkle witnesses and aggregates,
+/// and binds class-neutral usage nullifiers without exposing the claimant secret publicly.
+#[allow(clippy::too_many_arguments)]
+pub fn build_work_claim_relation(
+    chain_id: Digest384,
+    genesis: Digest384,
+    usage_domain: Digest384,
+    claimant_secret: Digest384,
+    epoch: &ActivityEpochV1,
+    events: &[DeveloperEventV1],
+    policy: MeteringPolicyV1,
+    class: WorkClaimClassV1,
+) -> Result<WorkClaimRelationInputV1, WorkProofError> {
+    epoch.validate().map_err(|_| WorkProofError::Malformed)?;
+    policy.validate()?;
+    let epoch_count = usize::try_from(epoch.event_count).map_err(|_| WorkProofError::Malformed)?;
+    if chain_id == Digest384::ZERO
+        || genesis == Digest384::ZERO
+        || usage_domain == Digest384::ZERO
+        || claimant_secret == Digest384::ZERO
+        || events.len() != epoch_count
+        || epoch_depth(epoch.event_count) > MAX_EPOCH_DEPTH
+        || policy.policy_id().map_err(|_| WorkProofError::Malformed)? != epoch.policy_id
+    {
+        return Err(WorkProofError::Malformed);
+    }
+
+    let event_ids = events
+        .iter()
+        .map(|event| event.event_id().map_err(|_| WorkProofError::Malformed))
+        .collect::<Result<Vec<_>, _>>()?;
+    if events.first().map(|event| event.collector_sequence) != Some(epoch.first_collector_sequence)
+        || events.last().map(|event| event.collector_sequence)
+            != Some(epoch.last_collector_sequence)
+        || events.first().map(|event| event.project_sequence) != Some(epoch.first_project_sequence)
+        || events.last().map(|event| event.project_sequence) != Some(epoch.last_project_sequence)
+        || events.iter().map(|event| event.wall_start_ms).min() != Some(epoch.wall_start_ms)
+        || events.iter().map(|event| event.wall_end_ms).max() != Some(epoch.wall_end_ms)
+        || events.iter().map(|event| event.monotonic_start_ns).min()
+            != Some(epoch.monotonic_start_ns)
+        || events.iter().map(|event| event.monotonic_end_ns).max() != Some(epoch.monotonic_end_ns)
+        || telemetry_merkle_root(&event_ids).map_err(|_| WorkProofError::Malformed)?
+            != epoch.event_root
+    {
+        return Err(WorkProofError::Relation);
+    }
+    for (index, event) in events.iter().enumerate() {
+        let offset = u64::try_from(index).map_err(|_| WorkProofError::Malformed)?;
+        if event.collector_id != epoch.collector_id
+            || event.project_id != epoch.project_id
+            || event.authorization_revision != epoch.authorization_revision
+            || epoch.first_collector_sequence.checked_add(offset) != Some(event.collector_sequence)
+            || epoch.first_project_sequence.checked_add(offset) != Some(event.project_sequence)
+        {
+            return Err(WorkProofError::Relation);
+        }
+    }
+
+    let selected = events
+        .iter()
+        .enumerate()
+        .filter(|(_, event)| match class {
+            WorkClaimClassV1::Attention => {
+                matches!(event.measurement, DeveloperEventMeasurementV1::HumanInteraction { .. })
+            }
+            WorkClaimClassV1::Compute => matches!(
+                event.measurement,
+                DeveloperEventMeasurementV1::AgentExecution { .. }
+                    | DeveloperEventMeasurementV1::BuildTest { .. }
+                    | DeveloperEventMeasurementV1::ModelUsage { .. }
+            ),
+            WorkClaimClassV1::Contribution => {
+                matches!(event.measurement, DeveloperEventMeasurementV1::GitArtifact { .. })
+            }
+        })
+        .collect::<Vec<_>>();
+    if selected.is_empty() || selected.len() > MAX_WORK_EVENTS {
+        return Err(WorkProofError::Relation);
+    }
+    let aggregate_input =
+        selected.iter().map(|(index, event)| (event_ids[*index], *event)).collect::<Vec<_>>();
+    let aggregate = match class {
+        WorkClaimClassV1::Attention => evaluate_attention(&policy, &aggregate_input)?,
+        WorkClaimClassV1::Compute => evaluate_compute(&policy, &aggregate_input)?,
+        WorkClaimClassV1::Contribution => evaluate_contribution(&aggregate_input)?,
+    };
+    let witnesses = selected
+        .iter()
+        .map(|(index, event)| {
+            Ok(WorkEventWitnessV1 {
+                event: (*event).clone(),
+                merkle_index: u32::try_from(*index).map_err(|_| WorkProofError::Malformed)?,
+                merkle_path: merkle_path(&event_ids, *index)?,
+            })
+        })
+        .collect::<Result<Vec<_>, WorkProofError>>()?;
+    let first = witnesses.first().ok_or(WorkProofError::Relation)?;
+    let last = witnesses.last().ok_or(WorkProofError::Relation)?;
+    let mut input = WorkClaimRelationInputV1 {
+        public: WorkClaimPublicV1 {
+            chain_id,
+            genesis,
+            telemetry_schema: 1,
+            policy_id: epoch.policy_id,
+            policy_revision: policy.revision,
+            authorization_revision: epoch.authorization_revision,
+            usage_domain,
+            collector_id: epoch.collector_id,
+            project_id: epoch.project_id,
+            claimant_key: hash(b"ACTUM-WORK-CLAIMANT-V1", &[claimant_secret.as_bytes()]),
+            epoch_root: epoch.event_root,
+            first_sequence: first.event.project_sequence,
+            last_sequence: last.event.project_sequence,
+            event_count: u16::try_from(witnesses.len()).map_err(|_| WorkProofError::Malformed)?,
+            epoch_event_count: epoch.event_count,
+            interval_start_ms: witnesses
+                .iter()
+                .map(|witness| witness.event.wall_start_ms)
+                .min()
+                .ok_or(WorkProofError::Relation)?,
+            interval_end_ms: witnesses
+                .iter()
+                .map(|witness| witness.event.wall_end_ms)
+                .max()
+                .ok_or(WorkProofError::Relation)?,
+            aggregate,
+            nullifier_root: Digest384::ZERO,
+            usage_nullifier_root: Digest384::ZERO,
+            usage_nullifiers: Vec::new(),
+        },
+        policy,
+        claimant_secret,
+        events: witnesses,
+    };
+    let (class_root, usage_root, usage) =
+        derive_nullifier_bindings(&input.public, claimant_secret, &input.events)?;
+    input.public.nullifier_root = class_root;
+    input.public.usage_nullifier_root = usage_root;
+    input.public.usage_nullifiers = usage;
+    verify_relation(&input)?;
+    Ok(input)
+}
+
+fn merkle_path(event_ids: &[Digest384], index: usize) -> Result<Vec<Digest384>, WorkProofError> {
+    if event_ids.is_empty() || index >= event_ids.len() {
+        return Err(WorkProofError::Malformed);
+    }
+    let mut position = index;
+    let mut level = event_ids.iter().copied().map(event_leaf_hash).collect::<Vec<_>>();
+    let mut path = Vec::with_capacity(epoch_depth(
+        u32::try_from(event_ids.len()).map_err(|_| WorkProofError::Malformed)?,
+    ));
+    while level.len() > 1 {
+        if level.len() % 2 == 1 {
+            level.push(*level.last().ok_or(WorkProofError::Malformed)?);
+        }
+        let sibling = if position.is_multiple_of(2) { position + 1 } else { position - 1 };
+        path.push(*level.get(sibling).ok_or(WorkProofError::Malformed)?);
+        level = level.chunks_exact(2).map(|pair| event_node_hash(pair[0], pair[1])).collect();
+        position /= 2;
+    }
+    Ok(path)
+}
+
 pub fn verify_relation(input: &WorkClaimRelationInputV1) -> Result<(), WorkProofError> {
     let p = &input.public;
     input.policy.validate()?;
@@ -781,6 +968,64 @@ mod tests {
             end_ms * 1_000_000,
             DeveloperEventMeasurementV1::AgentExecution { run_count: 1 },
         )
+    }
+
+    #[test]
+    fn canonical_builder_derives_witnesses_aggregate_and_nullifiers() {
+        let events = alloc::vec![human(10, 0, 70), human(11, 50, 100)];
+        let ids = events.iter().map(|event| event.event_id().unwrap()).collect::<Vec<_>>();
+        let policy = policy();
+        let epoch = ActivityEpochV1 {
+            collector_id: d(2),
+            project_id: d(4),
+            first_collector_sequence: 10,
+            last_collector_sequence: 11,
+            first_project_sequence: 10,
+            last_project_sequence: 11,
+            event_count: 2,
+            wall_start_ms: 100,
+            wall_end_ms: 200,
+            monotonic_start_ns: 0,
+            monotonic_end_ns: 100_000_000,
+            event_root: telemetry_merkle_root(&ids).unwrap(),
+            previous_epoch_id: Digest384::ZERO,
+            authorization_revision: 7,
+            policy_id: policy.policy_id().unwrap(),
+        };
+        let input = build_work_claim_relation(
+            d(1),
+            d(3),
+            d(6),
+            d(9),
+            &epoch,
+            &events,
+            policy,
+            WorkClaimClassV1::Attention,
+        )
+        .unwrap();
+        assert_eq!(input.events.len(), 2);
+        assert_eq!(input.events[0].merkle_path.len(), 1);
+        assert_eq!(
+            input.public.aggregate,
+            WorkClaimAggregateV1::Attention { attributable_ms: 100, interaction_count: 2 }
+        );
+        assert_eq!(verify_relation(&input), Ok(()));
+
+        let mut substituted = epoch;
+        substituted.event_root = d(99);
+        assert_eq!(
+            build_work_claim_relation(
+                d(1),
+                d(3),
+                d(6),
+                d(9),
+                &substituted,
+                &events,
+                policy,
+                WorkClaimClassV1::Attention,
+            ),
+            Err(WorkProofError::Relation)
+        );
     }
 
     #[test]
