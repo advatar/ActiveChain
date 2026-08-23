@@ -91,7 +91,7 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
 
 ## Active initiative — Verifiable developer telemetry
 
-- [ ] Deliver the protocol and integration contract promised by `pow.actum.network`
+- [x] Deliver the protocol and integration contract promised by `pow.actum.network`
   ([GitHub initiative #771](https://github.com/advatar/ActiveChain/issues/771)).
   - [x] Freeze canonical event, epoch, policy, proof, disclosure, and verification contracts plus
     app-developer documentation and vectors
@@ -220,7 +220,7 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Pass the exact full deterministic-kernel gate on `a7e55091` (run `32642557878`).
     - [x] Promote the deployed testnet and update landing-page capabilities proven by that evidence
       (`pow.actum.network`, landing-page revision `2b665fbbcb9f4550bfa3a1bdbe7e41937dc877eb`).
-  - [ ] Reconcile the completed child issues, live qualified surfaces, and `origin/main`
+  - [x] Reconcile the completed child issues, live qualified surfaces, and `origin/main`
     integration before closing initiative #771.
 
 ## Verifier C header and Apple distribution reconciliation
