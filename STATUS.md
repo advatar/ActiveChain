@@ -172,7 +172,8 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
     - [x] Emit the deployed build's proof binding instead of transcribing it into bundle
       specifications.
     - [x] Pass the exact full deterministic-kernel gate.
-  - [ ] Qualify and document the complete `pow.actum.network` integration (#778; claimed on `feat/778-pow-e2e-qualification`).
+  - [ ] Qualify and document the complete `pow.actum.network` integration (#778; follow-up
+    reclaimed on `feat/778-pow-e2e-qualification` on 2026-08-23).
     - [x] Assemble checkpointed anchor evidence from a live RPC node. Nothing built
       `CheckpointedTelemetryAnchorEvidenceV1`, so every claim failed retryable
       `CheckpointUnavailable` and no production case was reachable.
@@ -194,6 +195,10 @@ Tracked by [GitHub issue #786](https://github.com/advatar/ActiveChain/issues/786
       for explicit deploys.
     - [x] Split formal proofs from Verus/vector conformance into independently rerunnable,
       fail-closed qualification jobs.
+    - [ ] Add an authenticated durable delivery receiver and require a protected delivery-token
+      file in the portable plugin; unauthorized or failed delivery must never create a receipt.
+    - [ ] Ship the ActiveChain-owned canonical collector/prover/claim-assembly sidecar so
+      ProofOfWork never reimplements canonical events, witnesses, proving, or private key custody.
     - [ ] Exercise real deployed delivery, anchoring, finality, and stateful usage admission.
     - [ ] Pass the exact full gate and publish production qualification evidence.
     - [ ] Promote the deployed testnet and update landing-page capabilities proven by that evidence.
