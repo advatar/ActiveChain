@@ -1,6 +1,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod api;
+pub mod delivery;
 pub mod json_adapter;
 pub mod status;
 

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.activechain.kanalen.work-delivery</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/current/bin/actum-work-delivery-api</string>
+    <string>0.0.0.0:49158</string>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/work-delivery/receipts</string>
+    <string>/Users/johansellstrom/activechain-deploy/kanalen/work-delivery/bearer.token</string>
+    <string>ACTIVECHAIN_CHAIN_ID_HEX</string>
+    <string>ACTIVECHAIN_GENESIS_COMMITMENT_HEX</string>
+    <string>ACTIVECHAIN_RELEASE_ID</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/johansellstrom/activechain-deploy/kanalen/work-delivery</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/johansellstrom/Library/Logs/ActiveChain/work-delivery.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/johansellstrom/Library/Logs/ActiveChain/work-delivery.error.log</string>
+</dict>
+</plist>

@@ -44,6 +44,7 @@ run cargo test --locked -p activechain-verifier-api
 run bash scripts/test-kanalen-round-cash-gate.sh
 run bash scripts/rehearse-testnet-wallet-acceptance.sh
 run bash scripts/test-provision-work-proof-verifier.sh
+run bash scripts/test-provision-work-delivery.sh
 run bash scripts/test-activate-kanalen-release.sh
 
 if ((dry_run == 0)); then

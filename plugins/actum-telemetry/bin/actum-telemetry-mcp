@@ -83,7 +83,7 @@ def status(args):
     if pid is not None: pid=project(pid)
     auth=state["authorizations"].get(pid) if pid else None
     result=base("configured" if auth else "not_authorized")
-    result.update({"project_id":pid,"paused":state["paused"].get(pid,True) if pid else True,"authorization":auth,"journal_health":"healthy","delivery_configured":bool(os.environ.get("ACTUM_DELIVERY_WEBHOOK")),"anchor_configured":bool(os.environ.get("ACTUM_ANCHOR_URL") and os.environ.get("ACTUM_ANCHOR_BEARER_TOKEN_FILE")),"work_verifier_configured":bool(os.environ.get("ACTUM_WORK_VERIFIER_URL") and os.environ.get("ACTUM_WORK_VERIFIER_BEARER_TOKEN_FILE")),"stateless_work_verifier_configured":bool(os.environ.get("ACTUM_WORK_VERIFIER")),"signing_authority":"external"})
+    result.update({"project_id":pid,"paused":state["paused"].get(pid,True) if pid else True,"authorization":auth,"journal_health":"healthy","delivery_configured":bool(os.environ.get("ACTUM_DELIVERY_WEBHOOK") and os.environ.get("ACTUM_DELIVERY_BEARER_TOKEN_FILE")),"anchor_configured":bool(os.environ.get("ACTUM_ANCHOR_URL") and os.environ.get("ACTUM_ANCHOR_BEARER_TOKEN_FILE")),"work_verifier_configured":bool(os.environ.get("ACTUM_WORK_VERIFIER_URL") and os.environ.get("ACTUM_WORK_VERIFIER_BEARER_TOKEN_FILE")),"stateless_work_verifier_configured":bool(os.environ.get("ACTUM_WORK_VERIFIER")),"signing_authority":"external"})
     if auth: result["policy_revision"]=auth["revision"]
     return result
 
@@ -149,6 +149,7 @@ def protected_bearer(env_name,label):
     return token.decode("ascii")
 
 def anchor_bearer(): return protected_bearer("ACTUM_ANCHOR_BEARER_TOKEN_FILE","anchor")
+def delivery_bearer(): return protected_bearer("ACTUM_DELIVERY_BEARER_TOKEN_FILE","delivery")
 
 def post_artifact(name,args,env_name,lifecycle):
     exact(args,("capability","request_id","project_id","artifact_path")); pid=project(args["project_id"]); path=artifact_path(args["artifact_path"])
@@ -156,6 +157,7 @@ def post_artifact(name,args,env_name,lifecycle):
         if pid not in state["authorizations"]: raise ValueError("project not authorized")
         headers={"Content-Type":"application/octet-stream","X-Actum-Request-Id":args["request_id"]}
         if env_name=="ACTUM_ANCHOR_URL": headers["Authorization"]="Bearer "+anchor_bearer()
+        if env_name=="ACTUM_DELIVERY_WEBHOOK": headers["Authorization"]="Bearer "+delivery_bearer()
         req=Request(backend_url(env_name),data=path.read_bytes(),method="POST",headers=headers)
         try:
             with urlopen(req,timeout=10) as response:

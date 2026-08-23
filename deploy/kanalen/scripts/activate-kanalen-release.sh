@@ -11,6 +11,7 @@ network="${ACTIVECHAIN_NETWORK:-kanalen}"
 deployment_root="${ACTIVECHAIN_NETWORK_ROOT:-${ACTIVECHAIN_KANALEN_ROOT:-$HOME/activechain-deploy/$network}}"
 launchctl_bin="${ACTIVECHAIN_LAUNCHCTL:-launchctl}"
 plutil_bin="${ACTIVECHAIN_PLUTIL:-plutil}"
+plistbuddy_bin="${ACTIVECHAIN_PLISTBUDDY:-/usr/libexec/PlistBuddy}"
 # Resolved rather than inherited: this script is normally run over ssh as
 # `bash activate-kanalen-release.sh`, which gets a non-login shell whose PATH
 # does not include Homebrew or Docker Desktop. Depending on the caller's PATH
@@ -96,7 +97,7 @@ else
   staging_dir=""
 fi
 
-for binary in validator-node activechain-rpc-node activechain-transfer-spool activechain-telemetry-anchor-gateway actum-work-proof-api actum-work-proof-verifier actum-work-proof-trust-bootstrap; do
+for binary in validator-node activechain-rpc-node activechain-transfer-spool activechain-telemetry-anchor-gateway actum-work-proof-api actum-work-proof-verifier actum-work-proof-trust-bootstrap actum-work-delivery-api; do
   if [[ ! -x "$release_dir/bin/$binary" ]]; then
     echo "release is missing executable $binary" >&2
     exit 1
@@ -104,6 +105,10 @@ for binary in validator-node activechain-rpc-node activechain-transfer-spool act
 done
 if [[ ! -x "$release_dir/scripts/provision-work-proof-verifier.sh" ]]; then
   echo "release is missing the work-proof provisioning script" >&2
+  exit 1
+fi
+if [[ ! -x "$release_dir/scripts/provision-work-delivery.sh" ]]; then
+  echo "release is missing the work-delivery provisioning script" >&2
   exit 1
 fi
 for gateway_file in compose.yml dynamic.yml traefik.yml switch-edge.sh; do
@@ -137,18 +142,36 @@ fi
 cash_owner=$(sed -n 's/^ACTIVECHAIN_CASH_GENESIS_OWNER_HEX=//p' "$runtime_network")
 if [[ -n "$cash_owner" ]]; then
   rpc_plist="$release_dir/launchagents/dev.activechain.$network.rpc.plist"
-  /usr/libexec/PlistBuddy \
+  "$plistbuddy_bin" \
     -c "Add :EnvironmentVariables:ACTIVECHAIN_CASH_GENESIS_OWNER_HEX string $cash_owner" \
     "$rpc_plist" 2>/dev/null ||
-    /usr/libexec/PlistBuddy \
+    "$plistbuddy_bin" \
       -c "Set :EnvironmentVariables:ACTIVECHAIN_CASH_GENESIS_OWNER_HEX $cash_owner" \
       "$rpc_plist"
   "$plutil_bin" -lint "$rpc_plist" >/dev/null
 fi
 
+runtime_genesis=$(sed -n 's/^ACTIVECHAIN_GENESIS_COMMITMENT_HEX=//p' "$runtime_network")
+if [[ ! "$candidate_chain" =~ ^[0-9a-f]{96}$ ||
+  ! "$runtime_genesis" =~ ^[0-9a-f]{96}$ ]]; then
+  echo "runtime network identity is missing or malformed" >&2
+  exit 1
+fi
+delivery_plist="$release_dir/launchagents/dev.activechain.$network.work-delivery.plist"
+if [[ ! -f "$delivery_plist" ]]; then
+  echo "release is missing the work-delivery launch agent" >&2
+  exit 1
+fi
+"$plistbuddy_bin" -c "Set :ProgramArguments:4 $candidate_chain" "$delivery_plist"
+"$plistbuddy_bin" -c "Set :ProgramArguments:5 $runtime_genesis" "$delivery_plist"
+"$plistbuddy_bin" -c "Set :ProgramArguments:6 $release_id" "$delivery_plist"
+"$plutil_bin" -lint "$delivery_plist" >/dev/null
+
 ACTIVECHAIN_KANALEN_ROOT="$deployment_root" \
 ACTIVECHAIN_WORK_PROOF_BINARY_DIR="$release_dir/bin" \
   bash "$release_dir/scripts/provision-work-proof-verifier.sh"
+ACTIVECHAIN_KANALEN_ROOT="$deployment_root" \
+  bash "$release_dir/scripts/provision-work-delivery.sh"
 
 if [[ -e "$deployment_root/current" && ! -L "$deployment_root/current" ]]; then
   echo "current release path must be absent or a symlink" >&2

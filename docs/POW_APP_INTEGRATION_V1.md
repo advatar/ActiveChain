@@ -58,9 +58,11 @@ auth headers, raw evidence, source, prompts, or command output.
 | `work.anchor` | consequential | submitted/pending/finalized/rejected anchor lifecycle from `ACTUM_ANCHOR_URL` |
 | `work.verify` | consequential | separate `relation_verified`, `anchor_verified`, and `usage_verified` results from an operator-pinned verifier |
 
-`ACTUM_DELIVERY_WEBHOOK` and `ACTUM_ANCHOR_URL` are optional Preview integrations. Their values are
-never returned. Delivery does not imply anchoring, finalized anchoring does not imply relation
-verification, and verification does not imply usage-nullifier admission.
+`ACTUM_DELIVERY_WEBHOOK` and `ACTUM_ANCHOR_URL` are optional Preview integrations. Delivery requires
+a private regular `ACTUM_DELIVERY_BEARER_TOKEN_FILE`, just as anchoring requires its protected token
+file; neither credential is accepted through an MCP argument or returned. Delivery does not imply
+anchoring, finalized anchoring does not imply relation verification, and verification does not
+imply usage-nullifier admission.
 
 ## Verification service contract
 

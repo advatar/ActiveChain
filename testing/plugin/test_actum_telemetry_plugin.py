@@ -18,7 +18,8 @@ class Reply:
 class TelemetryPluginTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
-        self.env=patch.dict(os.environ,{"ACTUM_PLUGIN_DATA":self.temp.name,"ACTUM_TELEMETRY_CAPABILITY":"secret-capability","ACTUM_CHAIN_ID":"1"*96,"ACTUM_GENESIS_COMMITMENT":"2"*96},clear=True); self.env.start(); self.addCleanup(self.env.stop)
+        self.delivery_token=Path(self.temp.name)/"delivery-token"; self.delivery_token.write_text("abcdefghijklmnopqrstuvwxyz012345"); self.delivery_token.chmod(0o600)
+        self.env=patch.dict(os.environ,{"ACTUM_PLUGIN_DATA":self.temp.name,"ACTUM_TELEMETRY_CAPABILITY":"secret-capability","ACTUM_CHAIN_ID":"1"*96,"ACTUM_GENESIS_COMMITMENT":"2"*96,"ACTUM_DELIVERY_BEARER_TOKEN_FILE":str(self.delivery_token)},clear=True); self.env.start(); self.addCleanup(self.env.stop)
         self.project="3"*96; self.policy="4"*96
     def auth(self,request="auth-1",capability="secret-capability"):
         return {"capability":capability,"request_id":request,"project_id":self.project,"policy_id":self.policy,"revision":1,"purpose":"proof of developer contribution","categories":["build_test"],"valid_from_ms":1,"retain_until_ms":10_000}
@@ -54,9 +55,24 @@ class TelemetryPluginTests(unittest.TestCase):
         self.authorize(); artifact=Path(self.temp.name)/"proof.bin"; artifact.write_bytes(b"proof")
         os.environ["ACTUM_DELIVERY_WEBHOOK"]="https://delivery.example/submit"
         args={"capability":"secret-capability","request_id":"deliver-1","project_id":self.project,"artifact_path":str(artifact)}
-        with patch.object(module,"urlopen",return_value=Reply({"status":"delivered","chain_id":"9"*96,"genesis_commitment":"2"*96})):
+        captured=[]
+        def respond(request,**_): captured.append(request); return Reply({"status":"delivered","chain_id":"9"*96,"genesis_commitment":"2"*96})
+        with patch.object(module,"urlopen",side_effect=respond):
             with self.assertRaises(RuntimeError): module.call("work.deliver",args)
+        self.assertEqual(captured[0].headers["Authorization"],"Bearer abcdefghijklmnopqrstuvwxyz012345")
         self.assertNotIn("deliver-1",module.load_state()["requests"])
+    def test_delivery_requires_a_private_operator_token(self):
+        self.authorize(); artifact=Path(self.temp.name)/"proof.bin"; artifact.write_bytes(b"proof")
+        os.environ["ACTUM_DELIVERY_WEBHOOK"]="https://delivery.example/submit"
+        args={"capability":"secret-capability","request_id":"deliver-private","project_id":self.project,"artifact_path":str(artifact)}
+        self.delivery_token.chmod(0o640)
+        with patch.object(module,"urlopen") as backend:
+            with self.assertRaises(RuntimeError): module.call("work.deliver",args)
+            backend.assert_not_called()
+        self.assertNotIn("deliver-private",module.load_state()["requests"])
+        self.delivery_token.chmod(0o600)
+        del os.environ["ACTUM_DELIVERY_BEARER_TOKEN_FILE"]
+        self.assertFalse(module.call("telemetry.status",{"project_id":self.project})["delivery_configured"])
     def test_anchor_uses_protected_backend_credential_without_exposing_it(self):
         self.authorize(); artifact=Path(self.temp.name)/"anchor.bin"; artifact.write_bytes(b"anchor")
         token=Path(self.temp.name)/"anchor-token"; token.write_text("abcdefghijklmnopqrstuvwxyz012345"); token.chmod(0o600)

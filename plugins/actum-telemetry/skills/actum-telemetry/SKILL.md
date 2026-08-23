@@ -2,7 +2,7 @@
 name: actum-telemetry
 description: Manage permissioned Actum developer telemetry, project attribution, work-proof generation, delivery, anchoring, and verification. Use when asked about pow.actum.network, telemetry authorization, pause/resume/export/delete, activity epochs, proof delivery, finalized anchors, or work verification.
 license: Apache-2.0
-compatibility: Requires Python 3.11+ on a POSIX host. Mutations require ACTUM_TELEMETRY_CAPABILITY. Optional delivery requires ACTUM_DELIVERY_WEBHOOK; anchoring requires ACTUM_ANCHOR_URL and a protected ACTUM_ANCHOR_BEARER_TOKEN_FILE.
+compatibility: Requires Python 3.11+ on a POSIX host. Mutations require ACTUM_TELEMETRY_CAPABILITY. Optional delivery requires ACTUM_DELIVERY_WEBHOOK and a protected ACTUM_DELIVERY_BEARER_TOKEN_FILE; anchoring requires ACTUM_ANCHOR_URL and a protected ACTUM_ANCHOR_BEARER_TOKEN_FILE.
 metadata:
   author: activechain-contributors
   version: "0.1.0"
@@ -27,5 +27,6 @@ imply usage-nullifier admission. Report `relation_verified`, `anchor_verified`, 
 `usage_verified` separately whenever available.
 
 `ACTUM_DELIVERY_WEBHOOK` and `ACTUM_ANCHOR_URL` are optional Preview integrations until their exact
-deployed revisions pass #775/#778 qualification. Missing, pending, stale, malformed, wrong-chain,
-or unavailable results must never be described as verified.
+deployed revisions pass #775/#778 qualification. Delivery also requires the protected
+`ACTUM_DELIVERY_BEARER_TOKEN_FILE`; never put its value in an argument. Missing, pending, stale,
+malformed, wrong-chain, or unavailable results must never be described as verified.
