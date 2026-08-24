@@ -14,6 +14,20 @@ Tracked by [GitHub issue #828](https://github.com/advatar/ActiveChain/issues/828
       stale-finality, and insufficient-balance requests across restart and real three-validator
       qualification.
 
+## Kanalen Actum domain migration
+
+Tracked by [GitHub issue #830](https://github.com/advatar/ActiveChain/issues/830).
+
+- [ ] Serve the Kanalen apex, RPC, anchor, verifier, and delivery endpoints with valid automatic
+      TLS at `*.kanalen.actum.network`, retaining old endpoint aliases only for compatibility.
+- [ ] Migrate ActiveChain runtime defaults, deployment descriptors, clients, scripts, tests, and
+      documentation while preserving `kanalen.activechain.dev` solely as the current immutable
+      chain-identity input.
+- [ ] Audit and migrate genuine dependencies in adjacent repositories without editing agent-owned
+      worktrees or unrelated uses of the former project website and schema namespace.
+- [ ] Pass targeted repository and live endpoint checks plus the exact final full deterministic-
+      kernel gate, merge the verified changes, and prove reachability from `origin/main`.
+
 ## DCN verified-execution evidence anchoring
 
 Tracked by [GitHub issue #826](https://github.com/advatar/ActiveChain/issues/826).
