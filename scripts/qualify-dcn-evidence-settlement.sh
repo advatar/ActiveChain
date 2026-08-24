@@ -106,16 +106,42 @@ evidence_block=$(sed -n 's/^finalized_block=//p' "$output_directory/g8/finality.
   "$output_directory/settlement-ledger.bin" "$chain_id" "$unit" "$settlement_authority" \
   "$payer" 1000 "$executor" 50 1050 >"$output_directory/ledger-init.json"
 
+apply_settlement() {
+  local result=$1
+  if [[ -n "${DCN_G81_SETTLEMENT_BIN:-}" ]]; then
+    "$bin/actum-evidence-settle" apply \
+      "$output_directory/settlement-ledger.bin" \
+      "$output_directory/g8/native-finality-evidence.bin" \
+      "$output_directory/settlement-instruction.bin" \
+      "$output_directory/settlement-record.bin" "$output_directory/reputation-event.bin" \
+      "$output_directory/settlement-state-anchor.bin" >"$result"
+  else
+    "$bin/actum-evidence-settle" settle \
+      "$output_directory/settlement-ledger.bin" \
+      "$output_directory/g8/native-finality-evidence.bin" \
+      "$evidence_commitment" "$statement_reference" "$evidence_transaction" \
+      "$evidence_height" "$evidence_block" "$chain_id" "$genesis_commitment" \
+      "$settlement_authority" "$payer" "$executor" "$agreement" "$capability" \
+      "$scope_commitment" "$amount" "$unit" "$logical_time" \
+      "$output_directory/settlement-record.bin" "$output_directory/reputation-event.bin" \
+      "$output_directory/settlement-state-anchor.bin" >"$result"
+  fi
+}
+
+if [[ -n "${DCN_G81_SETTLEMENT_BIN:-}" ]]; then
+  [[ -x "$DCN_G81_SETTLEMENT_BIN" ]]
+  [[ -n "${DCN_G81_AGREEMENT:-}" && -f "$DCN_G81_AGREEMENT" ]]
+  [[ -n "${DCN_G8_STORE:-}" && -f "$DCN_G8_STORE" ]]
+  [[ -n "${DCN_G8_ATTESTATION_ID:-}" ]]
+  "$DCN_G81_SETTLEMENT_BIN" prepare \
+    "$DCN_G8_STORE" "$DCN_G8_ATTESTATION_ID" "$DCN_G81_AGREEMENT" \
+    "$output_directory/g8/native-finality-evidence.bin" "$chain_id" "$genesis_commitment" \
+    1 1 "$output_directory/settlement-instruction.bin" \
+    >"$output_directory/dcn-prepared-settlement.json"
+fi
+
 settlement_started=$(now_ns)
-"$bin/actum-evidence-settle" settle \
-  "$output_directory/settlement-ledger.bin" \
-  "$output_directory/g8/native-finality-evidence.bin" \
-  "$evidence_commitment" "$statement_reference" "$evidence_transaction" \
-  "$evidence_height" "$evidence_block" "$chain_id" "$genesis_commitment" \
-  "$settlement_authority" "$payer" "$executor" "$agreement" "$capability" \
-  "$scope_commitment" "$amount" "$unit" "$logical_time" \
-  "$output_directory/settlement-record.bin" "$output_directory/reputation-event.bin" \
-  "$output_directory/settlement-state-anchor.bin" >"$output_directory/settlement.json"
+apply_settlement "$output_directory/settlement.json"
 settlement_finished=$(now_ns)
 grep -q '"duplicate":false' "$output_directory/settlement.json"
 grep -q '"payerBalance":"875"' "$output_directory/settlement.json"
@@ -174,15 +200,7 @@ wait "$rpc_pid" 2>/dev/null || true
 printf '' >"$workdir/g81-rpc.log"
 start_rpc
 submit_settlement_anchor "$output_directory/settlement-duplicate-after-rpc-restart.json"
-"$bin/actum-evidence-settle" settle \
-  "$output_directory/settlement-ledger.bin" \
-  "$output_directory/g8/native-finality-evidence.bin" \
-  "$evidence_commitment" "$statement_reference" "$evidence_transaction" \
-  "$evidence_height" "$evidence_block" "$chain_id" "$genesis_commitment" \
-  "$settlement_authority" "$payer" "$executor" "$agreement" "$capability" \
-  "$scope_commitment" "$amount" "$unit" "$logical_time" \
-  "$output_directory/settlement-record.bin" "$output_directory/reputation-event.bin" \
-  "$output_directory/settlement-state-anchor.bin" >"$output_directory/settlement-after-restart.json"
+apply_settlement "$output_directory/settlement-after-restart.json"
 grep -q '"duplicate":true' "$output_directory/settlement-after-restart.json"
 grep -q '"payerBalance":"875"' "$output_directory/settlement-after-restart.json"
 grep -q '"executorBalance":"175"' "$output_directory/settlement-after-restart.json"
@@ -249,16 +267,35 @@ lookup_started=$(now_ns)
 lookup_finished=$(now_ns)
 grep -q "submission_reference=$state_anchor_reference" "$output_directory/settlement-finality.txt"
 grep -q "^checkpoint_height=$settlement_finalized_height$" "$output_directory/settlement-finality.txt"
+settlement_transaction=$(sed -n 's/^transaction_id=//p' "$output_directory/settlement-finality.txt")
+settlement_finalized_block=$(sed -n 's/^finalized_block=//p' "$output_directory/settlement-finality.txt")
+settlement_state_root=$(sed -n 's/^checkpoint_state_root=//p' "$output_directory/settlement-finality.txt")
+settlement_object_count=$(sed -n 's/^checkpoint_object_count=//p' "$output_directory/settlement-finality.txt")
+accounting_commitment=$(sed -n 's/.*"accountingCommitment":"\([0-9a-f]*\)".*/\1/p' "$output_directory/settlement.json")
+state_commitment=$(sed -n 's/.*"stateCommitment":"\([0-9a-f]*\)".*/\1/p' "$output_directory/settlement.json")
+reputation_event=$(sed -n 's/.*"reputationEventId":"\([0-9a-f]*\)".*/\1/p' "$output_directory/settlement.json")
+idempotency_id=$(sed -n 's/.*"idempotencyId":"\([0-9a-f]*\)".*/\1/p' "$output_directory/settlement.json")
+[[ ${#settlement_transaction} -eq 96 ]]
+[[ ${#settlement_finalized_block} -eq 96 ]]
+[[ ${#settlement_state_root} -eq 96 ]]
+[[ "$settlement_object_count" =~ ^[0-9]+$ ]]
+[[ ${#accounting_commitment} -eq 96 ]]
+[[ ${#state_commitment} -eq 96 ]]
+[[ ${#reputation_event} -eq 96 ]]
+[[ ${#idempotency_id} -eq 96 ]]
 
 settlement_ms=$(( (settlement_finished - settlement_started) / 1000000 ))
 submit_ms=$(( (submit_finished - submit_started) / 1000000 ))
 consensus_ms=$(( (round_finished - round_started) / 1000000 ))
 lookup_ms=$(( (lookup_finished - lookup_started) / 1000000 ))
 application_lookup_ms=$(( (application_lookup_finished - application_lookup_started) / 1000000 ))
-printf '{"schema":"actum.dcn-evidence-settlement-qualification.v1","status":"finalized","evidenceAnchorCommitment":"%s","evidenceAction":"%s","evidenceHeight":%s,"settlementId":"%s","stateAnchorDigest":"%s","stateAnchorReference":"%s","settlementFinalizedHeight":%s,"payer":"%s","payerBefore":"1000","payerAfter":"875","executor":"%s","executorBefore":"50","executorAfter":"175","amount":"%s","conservedTotal":"1050","assurance":"cryptographic","settlementPolicyVersion":1,"reputationPolicyVersion":1,"validatorCount":3,"duplicateApplicationAfterRestart":true,"duplicateSubmissionBeforeRestart":true,"duplicateSubmissionAfterRestart":true,"finalityRevalidation":true,"queryRoundtrip":true,"settlementMs":%s,"anchorSubmitMs":%s,"consensusMs":%s,"lookupMs":%s,"applicationLookupMs":%s,"accountingFirst":true,"nativeTokenTransfer":false}\n' \
+printf '{"schema":"actum.dcn-evidence-settlement-qualification.v1","status":"finalized","evidenceAnchorCommitment":"%s","evidenceAction":"%s","evidenceHeight":%s,"settlementId":"%s","idempotencyId":"%s","accountingCommitment":"%s","stateCommitment":"%s","stateAnchorDigest":"%s","stateAnchorReference":"%s","settlementAction":"%s","settlementFinalizedHeight":%s,"settlementFinalizedBlock":"%s","settlementStateRoot":"%s","settlementObjectCount":%s,"reputationEventId":"%s","payer":"%s","payerBefore":"1000","payerAfter":"875","executor":"%s","executorBefore":"50","executorAfter":"175","amount":"%s","conservedTotal":"1050","assurance":"cryptographic","settlementPolicyVersion":1,"reputationPolicyVersion":1,"validatorCount":3,"duplicateApplicationAfterRestart":true,"duplicateSubmissionBeforeRestart":true,"duplicateSubmissionAfterRestart":true,"finalityRevalidation":true,"queryRoundtrip":true,"settlementMs":%s,"anchorSubmitMs":%s,"consensusMs":%s,"lookupMs":%s,"applicationLookupMs":%s,"accountingFirst":true,"nativeTokenTransfer":false}\n' \
   "$evidence_commitment" "$evidence_transaction" "$evidence_height" "$settlement_id" \
-  "$state_anchor_digest" "$state_anchor_reference" "$settlement_finalized_height" \
-  "$payer" "$executor" "$amount" "$settlement_ms" "$submit_ms" "$consensus_ms" "$lookup_ms" \
+  "$idempotency_id" "$accounting_commitment" "$state_commitment" "$state_anchor_digest" \
+  "$state_anchor_reference" "$settlement_transaction" "$settlement_finalized_height" \
+  "$settlement_finalized_block" "$settlement_state_root" "$settlement_object_count" \
+  "$reputation_event" "$payer" "$executor" "$amount" "$settlement_ms" "$submit_ms" \
+  "$consensus_ms" "$lookup_ms" \
   "$application_lookup_ms" \
   >"$output_directory/network-qualification.json"
 

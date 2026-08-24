@@ -32,6 +32,7 @@ fn run(args: Vec<String>) -> Result<String, String> {
     match args.first().map(String::as_str) {
         Some("init") if args.len() == 10 => initialize(&args[1..]),
         Some("settle") if args.len() == 22 => settle(&args[1..]),
+        Some("apply") if args.len() == 7 => apply(&args[1..]),
         Some("query-evidence") if args.len() == 3 => query_evidence(&args[1..]),
         Some("query-settlement") if args.len() == 3 => query_settlement(&args[1..]),
         Some("query-account") if args.len() == 3 => query_account(&args[1..]),
@@ -171,6 +172,104 @@ fn settle(args: &[String]) -> Result<String, String> {
     let state_anchor_envelope =
         encode_envelope(&state_anchor).map_err(|_| "could not encode state anchor")?;
     write_new_or_exact(state_anchor_path, &state_anchor_envelope)?;
+    let payer_balance = ledger.ledger().balance(payer).ok_or("payer account disappeared")?;
+    let executor_balance =
+        ledger.ledger().balance(executor).ok_or("executor account disappeared")?;
+    let state_commitment = ledger.ledger().state_commitment().map_err(debug_error)?;
+    Ok(json!({
+        "schema": "actum.dcn-evidence-settlement.result.v1",
+        "status": "settled",
+        "duplicate": outcome.duplicate,
+        "settlementId": hex(outcome.record.settlement_id().as_bytes()),
+        "idempotencyId": hex(outcome.record.idempotency_id().as_bytes()),
+        "evidenceAnchorCommitment": format!("sha256:{}", hex(&anchor_commitment)),
+        "evidenceTransaction": hex(transaction.digest().as_bytes()),
+        "finalizedHeight": finalized_height,
+        "finalizedBlock": hex(finalized_block.as_bytes()),
+        "amount": amount.to_string(),
+        "unit": hex(unit.as_bytes()),
+        "payer": hex(payer.digest().as_bytes()),
+        "payerBalance": payer_balance.balance().to_string(),
+        "executor": hex(executor.digest().as_bytes()),
+        "executorBalance": executor_balance.balance().to_string(),
+        "accountingCommitment": hex(outcome.record.resulting_accounting_commitment().as_bytes()),
+        "stateCommitment": hex(state_commitment.as_bytes()),
+        "stateAnchorDigest": hex(state_anchor.digest()),
+        "stateAnchorReference": hex(state_anchor.submission_reference().map_err(debug_error)?.as_bytes()),
+        "reputationEventId": hex(outcome.reputation_event.event_id().as_bytes()),
+        "finalityRevalidationMs": finality_verified_ms,
+        "settlementExecutionMs": settlement_ms,
+    })
+    .to_string())
+}
+
+fn apply(args: &[String]) -> Result<String, String> {
+    let started = Instant::now();
+    let ledger_path = Path::new(&args[0]);
+    let evidence_bytes =
+        fs::read(&args[1]).map_err(|error| format!("could not read finality evidence: {error}"))?;
+    let instruction_bytes = fs::read(&args[2])
+        .map_err(|error| format!("could not read settlement instruction: {error}"))?;
+    let instruction: SettlementInstructionV1 = decode_envelope(&instruction_bytes)
+        .map_err(|_| "settlement instruction envelope is malformed")?;
+    let record_path = Path::new(&args[3]);
+    let reputation_path = Path::new(&args[4]);
+    let state_anchor_path = Path::new(&args[5]);
+    let finality = instruction.finality();
+    let expected_statement = finality.expected_statement().map_err(debug_error)?;
+    let statement_envelope =
+        encode_envelope(&expected_statement).map_err(|_| "could not encode evidence statement")?;
+    let verified = verify_anchor_finalized_evidence(
+        &evidence_bytes,
+        &statement_envelope,
+        finality.chain(),
+        finality.genesis(),
+        finality.protocol_revision(),
+        finality.verifier_revision(),
+    )
+    .map_err(|error| format!("native evidence finality revalidation failed: {error:?}"))?;
+    if verified.transaction() != finality.transaction()
+        || verified.finalized_height() != finality.finalized_height()
+        || verified.finalized_block() != finality.finalized_block()
+    {
+        return Err("native evidence finality identity was substituted".into());
+    }
+    let evidence: AnchorFinalizedEvidenceV1 =
+        decode_envelope(&evidence_bytes).map_err(|_| "native evidence envelope is malformed")?;
+    let finality_verified_ms = started.elapsed().as_millis();
+    let authority = instruction.submitter();
+    let payer = instruction.payer();
+    let executor = instruction.executor();
+    let amount = instruction.amount();
+    let unit = instruction.unit();
+    let anchor_commitment = *finality.evidence_anchor_commitment();
+    let transaction = finality.transaction();
+    let finalized_height = finality.finalized_height();
+    let finalized_block = finality.finalized_block();
+    let mut ledger = DurableEvidenceSettlementLedger::open(ledger_path).map_err(debug_error)?;
+    let settlement_started = Instant::now();
+    let outcome = ledger
+        .settle(instruction, &evidence, authority, |_, _, tx, height, block| {
+            tx == verified.transaction()
+                && height == verified.finalized_height()
+                && block == verified.finalized_block()
+        })
+        .map_err(debug_error)?;
+    let settlement_ms = settlement_started.elapsed().as_millis();
+    write_new_or_exact(
+        record_path,
+        &encode_envelope(&outcome.record).map_err(|_| "could not encode settlement record")?,
+    )?;
+    write_new_or_exact(
+        reputation_path,
+        &encode_envelope(&outcome.reputation_event)
+            .map_err(|_| "could not encode reputation event")?,
+    )?;
+    let state_anchor = ledger.ledger().settlement_anchor_statement().map_err(debug_error)?;
+    write_new_or_exact(
+        state_anchor_path,
+        &encode_envelope(&state_anchor).map_err(|_| "could not encode state anchor")?,
+    )?;
     let payer_balance = ledger.ledger().balance(payer).ok_or("payer account disappeared")?;
     let executor_balance =
         ledger.ledger().balance(executor).ok_or("executor account disappeared")?;
@@ -367,6 +466,8 @@ fn usage() -> &'static str {
      <statement-reference> <evidence-transaction> <height> <block> <chain> <genesis> \
      <authority> <payer> <executor> <agreement> <capability> <sha256-scope> <amount> \
      <unit> <logical-time> <record-out> <reputation-out> <state-anchor-out>\n  \
+     actum-evidence-settle apply <ledger> <native-evidence> <instruction> <record-out> \
+     <reputation-out> <state-anchor-out>\n  \
      actum-evidence-settle query-evidence <ledger> <sha256-anchor>\n  \
      actum-evidence-settle query-settlement <ledger> <settlement-id>\n  \
      actum-evidence-settle query-account <ledger> <principal>\n  \
