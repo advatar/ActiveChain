@@ -14,6 +14,27 @@ Tracked by [GitHub issue #828](https://github.com/advatar/ActiveChain/issues/828
       stale-finality, and insufficient-balance requests across restart and real three-validator
       qualification.
 
+## Kanalen Actum domain migration
+
+Tracked by [GitHub issue #830](https://github.com/advatar/ActiveChain/issues/830).
+
+- [x] Serve the Kanalen apex, RPC, anchor, verifier, and delivery endpoints with valid automatic
+      TLS at `*.kanalen.actum.network`, retaining old endpoint aliases only for compatibility.
+- [x] Migrate ActiveChain runtime defaults, deployment descriptors, clients, scripts, tests, and
+      documentation while preserving `kanalen.activechain.dev` solely as the current immutable
+      chain-identity input.
+- [x] Audit and migrate genuine dependencies in adjacent repositories without editing agent-owned
+      worktrees or unrelated uses of the former project website and schema namespace.
+- [x] Pass targeted repository and live endpoint checks plus the exact final full deterministic-
+      kernel gate, merge the verified changes, and prove reachability from `origin/main`.
+  - [x] Qualify the exact substantive revision `f4f8b6ca` with the full deterministic-kernel gate
+        (run `32703007959`) after targeted Python, Rust, Android, Amber, activation, and live TLS/RPC
+        checks passed.
+  - [x] Verify the apex, RPC, authenticated anchor, authenticated verifier, and delivery endpoints
+        on the new domain, with valid Let's Encrypt certificates and healthy canonical chain state.
+  - [x] Merge the dependent endpoint updates to DCN (`2d22cc1d`) and ProofOfWork (`1b225379`) and
+        verify both effective changes on their respective `origin/main` branches.
+
 ## DCN verified-execution evidence anchoring
 
 Tracked by [GitHub issue #826](https://github.com/advatar/ActiveChain/issues/826).
@@ -1958,7 +1979,8 @@ Tracked by [GitHub issue #137](https://github.com/advatar/ActiveChain/issues/137
 
 - [x] Build and checksum a release bundle pinned to the deployed `main` revision.
 - [x] Install a revisioned deployment on the Kanalen Mac without disturbing unrelated services.
-- [x] Configure `rpc.kanalen.activechain.dev` with TLS 1.3 and automatic certificate renewal.
+- [x] Configure the canonical `rpc.kanalen.actum.network` endpoint with TLS 1.3 and automatic
+  certificate renewal; retain `rpc.kanalen.activechain.dev` temporarily as a compatibility alias.
 - [x] Keep validator, faucet, and metrics ports private.
 - [x] Verify DNS, certificate identity, public TLS, existing HTTPS routing, and exposed ports.
 - [x] Add a canonical operator path from genesis/finalized validator state to the durable RPC index,

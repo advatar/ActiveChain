@@ -52,7 +52,7 @@ extension WalletNetwork {
     static let kanalen = WalletNetwork(
         id: "kanalen",
         displayName: "Kanalen",
-        hostName: "rpc.kanalen.activechain.dev",
+        hostName: "rpc.kanalen.actum.network",
         port: 443,
         protocolRevision: 1,
         schemaRevision: 4,

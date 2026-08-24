@@ -67,7 +67,7 @@ Load `dev.activechain.kanalen.work-proof.plist` only after provisioning succeeds
 on `0.0.0.0:49157` because the gateway runs as a container and reaches the host through
 `host.docker.internal`, which cannot dial a loopback-only listener. Every request is still
 bearer-authenticated, and only the gateway's `443` is published; `49157` is not forwarded.
-The Kanalen gateway terminates TLS for `https://verify.kanalen.activechain.dev` and pins the
+The Kanalen gateway terminates TLS for `https://verify.kanalen.actum.network` and pins the
 route to `http/1.1` ALPN, because the API speaks HTTP/1.1 and a client that negotiates h2
 otherwise fails on the first response frame.
 
@@ -103,7 +103,7 @@ a separately governed N-of-M authority and transition-only renewal.
 ## Telemetry anchor endpoint
 
 `activechain-telemetry-anchor-gateway` listens on `0.0.0.0:49156` for the same containerised-gateway
-reason as the verifier, and is fronted at `https://anchor.kanalen.activechain.dev`. It serves exactly
+reason as the verifier, and is fronted at `https://anchor.kanalen.actum.network`. It serves exactly
 two routes:
 
 | Method and path | Body | Auth |
@@ -126,7 +126,7 @@ let it produce the epoch and the anchor request.
 Configure only the server-side application process:
 
 ```sh
-export ACTUM_WORK_VERIFIER_URL="https://verify.kanalen.activechain.dev/v1/proofs/verify"
+export ACTUM_WORK_VERIFIER_URL="https://verify.kanalen.actum.network/v1/proofs/verify"
 export ACTUM_WORK_VERIFIER_BEARER_TOKEN_FILE="/private/path/to/work-proof-verifier.token"
 ```
 

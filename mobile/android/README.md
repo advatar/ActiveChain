@@ -1,6 +1,6 @@
 # ActiveChain Wallet for Android
 
-The app queries the canonical TLS RPC endpoint at `rpc.kanalen.activechain.dev:443` and accepts
+The app queries the canonical TLS RPC endpoint at `rpc.kanalen.actum.network:443` and accepts
 network status only when the returned chain ID, genesis commitment, protocol revision, and schema
 revision exactly match Kanalen. Status decoding is bounded and canonical; malformed, stale,
 unavailable, or incompatible responses are shown explicitly.

@@ -425,7 +425,7 @@ def main() -> int:
                 "ACTUM_QUALIFICATION_REPORT": str(proof_of_work_report_path),
                 "ACTUM_WORK_ADMISSION_FIXTURE": str(artifact),
                 "ACTUM_WORK_VERIFIER_BEARER_TOKEN_FILE": str(proof_of_work_token),
-                "ACTUM_WORK_VERIFIER_URL": "https://verify.kanalen.activechain.dev/v1/proofs/verify",
+                "ACTUM_WORK_VERIFIER_URL": "https://verify.kanalen.actum.network/v1/proofs/verify",
             }
         )
         run(
@@ -469,8 +469,8 @@ def main() -> int:
             "policy_revision": 1,
             "public_origins": {
                 "delivery": "https://delivery.kanalen.actum.network",
-                "anchor": "https://anchor.kanalen.activechain.dev",
-                "verifier": "https://verify.kanalen.activechain.dev",
+                "anchor": "https://anchor.kanalen.actum.network",
+                "verifier": "https://verify.kanalen.actum.network",
             },
             "cases": cases,
             "privacy": {

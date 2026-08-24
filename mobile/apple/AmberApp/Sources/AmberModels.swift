@@ -196,7 +196,7 @@ struct AmberNetwork: Hashable, Sendable {
 
     static let kanalenTestnet = AmberNetwork(
         name: "Kanalen testnet",
-        rpcURL: URL(string: "https://rpc.kanalen.activechain.dev")!
+        rpcURL: URL(string: "https://rpc.kanalen.actum.network")!
     )
 }
 

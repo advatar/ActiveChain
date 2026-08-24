@@ -13,7 +13,7 @@ requiring private operator access.
 
 | Surface | Current state |
 |---|---|
-| Public RPC | Live as raw canonical frames inside TLS 1.3 at `rpc.kanalen.activechain.dev:443` |
+| Public RPC | Live as raw canonical frames inside TLS 1.3 at `rpc.kanalen.actum.network:443` |
 | Network status | Public and unmetered; exact chain, genesis, protocol, and schema checks required |
 | RPC access | `Free` on the deployed node; no access grant is currently required |
 | Apple reference wallet | Builds from source; creates a network-scoped key, requests funding, and verifies owner Coin Cells |
@@ -35,7 +35,7 @@ identity from a peer and then trust that same response as the authority for the 
 | Field | Required value |
 |---|---|
 | Network | Kanalen |
-| TLS server name | `rpc.kanalen.activechain.dev` |
+| TLS server name | `rpc.kanalen.actum.network` |
 | Port | `443` |
 | Chain ID | `b12c1c316717e9669cec36f7632a9080702c57a3125d90c72154f8a7298e4f0b095e6cfe944bd2c9f6535b4c927782f1` |
 | Genesis commitment | `a836c4d201cda6ba33a01aa48011cf5f4d6acdfd1ec409d322dc1b56ed3552a25dcb158e0b1ec0352728653d315d477c` |
@@ -57,8 +57,8 @@ First verify that the certificate is valid for the exact host:
 
 ```sh
 openssl s_client \
-  -connect rpc.kanalen.activechain.dev:443 \
-  -servername rpc.kanalen.activechain.dev \
+  -connect rpc.kanalen.actum.network:443 \
+  -servername rpc.kanalen.actum.network \
   -tls1_3 </dev/null 2>/dev/null |
   openssl x509 -noout -subject -issuer -dates -ext subjectAltName
 ```
@@ -75,7 +75,7 @@ git checkout --detach 412b8e70c564872532bb9c83ada453ff04ea9d80
 
 cargo build --locked -p activechain-rpc-server --bin activechain-rpc-probe
 
-export KANALEN_HOST=rpc.kanalen.activechain.dev
+export KANALEN_HOST=rpc.kanalen.actum.network
 export TLS_CA_FILE=/etc/ssl/cert.pem
 ncat -lk 127.0.0.1 49191 --sh-exec \
   'ncat --ssl --ssl-verify --ssl-servername "$KANALEN_HOST" \
@@ -207,7 +207,7 @@ distribution and public ordinary-transfer path are available.
 Use `activechain-rpc-types` for bounded wire types and `activechain-verifier-api` or an independently
 qualified equivalent for proof verification. A client implementation must:
 
-1. validate the TLS certificate for `rpc.kanalen.activechain.dev` with SNI;
+1. validate the TLS certificate for `rpc.kanalen.actum.network` with SNI;
 2. send and receive exactly one four-byte big-endian length prefix plus one canonical envelope;
 3. reject zero-length or larger-than-4-MiB frames, non-minimal lengths, wrong type/schema tags,
    trailing bytes, and unknown variants;

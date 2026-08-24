@@ -127,6 +127,9 @@ test "$(grep -c '^bootstrap ' "$test_root/launchctl.log")" = 8
 test "$(grep -c '^--context test-kanalen compose ' "$test_root/docker.log")" = 4
 test "$(grep -c 'Set :ProgramArguments:' "$test_root/plistbuddy.log")" = 3
 test "$(grep -c '^# BEGIN activechain-kanalen$' "$test_root/providehr/Caddyfile")" = 1
+grep -q '^kanalen\.actum\.network, kanalen\.activechain\.dev {' "$test_root/providehr/Caddyfile"
+grep -q '^anchor\.kanalen\.actum\.network {' "$test_root/providehr/Caddyfile"
+grep -q '^verify\.kanalen\.actum\.network {' "$test_root/providehr/Caddyfile"
 grep -q '^delivery\.kanalen\.actum\.network' "$test_root/providehr/Caddyfile"
 ! grep -q 'old\.kanalen\.test' "$test_root/providehr/Caddyfile"
 

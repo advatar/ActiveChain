@@ -28,7 +28,7 @@
 //!
 //! Transport is the framed RPC protocol over plain TCP, so
 //! `ACTUM_ANCHOR_RPC_ADDRESS` must name a directly reachable node such as
-//! `127.0.0.1:49151`. A TLS-terminating edge like `rpc.kanalen.activechain.dev`
+//! `127.0.0.1:49151`. A TLS-terminating edge like `rpc.kanalen.actum.network`
 //! is not a valid target for this client.
 
 use activechain_application_primitives::DigestAnchorStatementV1;
