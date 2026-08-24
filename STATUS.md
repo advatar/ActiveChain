@@ -18,15 +18,22 @@ Tracked by [GitHub issue #828](https://github.com/advatar/ActiveChain/issues/828
 
 Tracked by [GitHub issue #830](https://github.com/advatar/ActiveChain/issues/830).
 
-- [ ] Serve the Kanalen apex, RPC, anchor, verifier, and delivery endpoints with valid automatic
+- [x] Serve the Kanalen apex, RPC, anchor, verifier, and delivery endpoints with valid automatic
       TLS at `*.kanalen.actum.network`, retaining old endpoint aliases only for compatibility.
-- [ ] Migrate ActiveChain runtime defaults, deployment descriptors, clients, scripts, tests, and
+- [x] Migrate ActiveChain runtime defaults, deployment descriptors, clients, scripts, tests, and
       documentation while preserving `kanalen.activechain.dev` solely as the current immutable
       chain-identity input.
-- [ ] Audit and migrate genuine dependencies in adjacent repositories without editing agent-owned
+- [x] Audit and migrate genuine dependencies in adjacent repositories without editing agent-owned
       worktrees or unrelated uses of the former project website and schema namespace.
-- [ ] Pass targeted repository and live endpoint checks plus the exact final full deterministic-
+- [x] Pass targeted repository and live endpoint checks plus the exact final full deterministic-
       kernel gate, merge the verified changes, and prove reachability from `origin/main`.
+  - [x] Qualify the exact substantive revision `f4f8b6ca` with the full deterministic-kernel gate
+        (run `32703007959`) after targeted Python, Rust, Android, Amber, activation, and live TLS/RPC
+        checks passed.
+  - [x] Verify the apex, RPC, authenticated anchor, authenticated verifier, and delivery endpoints
+        on the new domain, with valid Let's Encrypt certificates and healthy canonical chain state.
+  - [x] Merge the dependent endpoint updates to DCN (`2d22cc1d`) and ProofOfWork (`1b225379`) and
+        verify both effective changes on their respective `origin/main` branches.
 
 ## DCN verified-execution evidence anchoring
 
