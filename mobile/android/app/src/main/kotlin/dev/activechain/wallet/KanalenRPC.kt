@@ -15,8 +15,8 @@ internal object KanalenNetwork {
             "b095e6cfe944bd2c9f6535b4c927782f1",
     )
     val genesis = hex(
-        "5d3d2587b77cd7f149b0955dba3eee22d5795bf2f23732bd4ecc5b5fb0155fed" +
-            "6c2079b3f83da1610132f6588b519f7c",
+        "a836c4d201cda6ba33a01aa48011cf5f4d6acdfd1ec409d322dc1b56ed3552a2" +
+            "5dcb158e0b1ec0352728653d315d477c",
     )
 
     private fun hex(value: String): ByteArray {
@@ -68,8 +68,8 @@ internal object KanalenRPCCodec {
 
     fun decodeStatus(envelope: ByteArray): KanalenRPCStatus {
         val decoder = Decoder(envelope)
-        requireRPC(decoder.readUnsignedShort() == 0x00a1, "unexpected response type")
-        requireRPC(decoder.readUnsignedShort() == 1, "unexpected envelope schema")
+        requireRPC(decoder.readUnsignedShort() == 0x010a, "unexpected response type")
+        requireRPC(decoder.readUnsignedShort() == 4, "unexpected envelope schema")
         val bodyLength = decoder.readULEB128(maximumStatusBodyLength)
         requireRPC(bodyLength == decoder.remaining, "status body length mismatch")
         requireRPC(decoder.readUnsignedByte() == 0, "unexpected response variant")

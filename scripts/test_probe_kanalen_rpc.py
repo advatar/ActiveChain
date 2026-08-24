@@ -17,11 +17,11 @@ sys.modules[SPEC.name] = probe
 SPEC.loader.exec_module(probe)
 
 PUBLIC_STATUS = bytes.fromhex(
-    "010a0001910100"
+    "010a0004910100"
     "b12c1c316717e9669cec36f7632a9080702c57a3125d90c72154f8a7298e4f0"
     "b095e6cfe944bd2c9f6535b4c927782f1"
-    "f600eb4a562a3acd2bd82e46fa8ee063217153f827af12300c35fcb1b75fc96a"
-    "b5650477691a6ce1b4350a314e5dbca4"
+    "a836c4d201cda6ba33a01aa48011cf5f4d6acdfd1ec409d322dc1b56ed3552a2"
+    "5dcb158e0b1ec0352728653d315d477c"
     "0000000000000001"
     "00000004"
     "0000000000004587"
@@ -75,7 +75,7 @@ def status_envelope(
             proofs,
         )
     )
-    return bytes.fromhex("010a0001") + uleb128(len(body)) + body
+    return bytes.fromhex("010a0004") + uleb128(len(body)) + body
 
 
 class DecodeStatusTests(unittest.TestCase):

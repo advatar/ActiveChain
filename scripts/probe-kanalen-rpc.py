@@ -17,8 +17,8 @@ EXPECTED_CHAIN_ID = bytes.fromhex(
     "b095e6cfe944bd2c9f6535b4c927782f1"
 )
 EXPECTED_GENESIS = bytes.fromhex(
-    "f600eb4a562a3acd2bd82e46fa8ee063217153f827af12300c35fcb1b75fc96a"
-    "b5650477691a6ce1b4350a314e5dbca4"
+    "a836c4d201cda6ba33a01aa48011cf5f4d6acdfd1ec409d322dc1b56ed3552a2"
+    "5dcb158e0b1ec0352728653d315d477c"
 )
 EXPECTED_PROTOCOL_REVISION = 1
 EXPECTED_RPC_SCHEMA_REVISION = 4
@@ -97,7 +97,7 @@ def decode_status_envelope(envelope: bytes) -> RpcStatus:
     decoder = Decoder(envelope)
     if decoder.uint(2) != 0x010A:
         raise ProbeError("unexpected RPC response type")
-    if decoder.uint(2) != 1:
+    if decoder.uint(2) != EXPECTED_RPC_SCHEMA_REVISION:
         raise ProbeError("unexpected RPC response envelope schema")
     body_length = decoder.length(MAXIMUM_STATUS_BODY_LENGTH)
     if body_length != decoder.remaining:

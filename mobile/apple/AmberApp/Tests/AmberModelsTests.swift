@@ -125,14 +125,14 @@ final class AmberModelsTests: XCTestCase {
     func testStatusRequestUsesCanonicalFraming() {
         XCTAssertEqual(
             Array(AmberRPCCodec.framedStatusRequest),
-            [0, 0, 0, 6, 0x01, 0x07, 0, 1, 1, 0]
+            [0, 0, 0, 6, 0x01, 0x07, 0, 3, 1, 0]
         )
     }
 
     func testStatusDecoderMapsStaleAndRejectsMalformedEnvelope() throws {
         let response = makeStatusResponse(
             protocolRevision: 1,
-            schemaRevision: 2,
+            schemaRevision: 4,
             finalizedHeight: 0,
             finalizedAt: 10,
             servedAt: 100,
@@ -147,7 +147,7 @@ final class AmberModelsTests: XCTestCase {
     func testStatusDecoderReportsIncompatibleRevision() throws {
         let response = makeStatusResponse(
             protocolRevision: 2,
-            schemaRevision: 2,
+            schemaRevision: 4,
             finalizedHeight: 12,
             finalizedAt: 90,
             servedAt: 100,
@@ -159,7 +159,7 @@ final class AmberModelsTests: XCTestCase {
 
     func testStatusDecoderPinsKanalenChainAndGenesis() throws {
         let live = makeStatusResponse(
-            protocolRevision: 1, schemaRevision: 2, finalizedHeight: 12,
+            protocolRevision: 1, schemaRevision: 4, finalizedHeight: 12,
             finalizedAt: 90, servedAt: 100, maximumStaleness: 30, health: 0
         )
         XCTAssertEqual(try AmberRPCCodec.decodeStatus(live).connectionState, .verified(finalizedHeight: 12))
@@ -167,7 +167,7 @@ final class AmberModelsTests: XCTestCase {
             try AmberRPCCodec.decodeStatus(
                 makeStatusResponse(
                     chainID: Data(repeating: 0x44, count: 48), protocolRevision: 1,
-                    schemaRevision: 2, finalizedHeight: 12, finalizedAt: 90,
+                    schemaRevision: 4, finalizedHeight: 12, finalizedAt: 90,
                     servedAt: 100, maximumStaleness: 30, health: 0
                 )
             ).connectionState,
@@ -177,7 +177,7 @@ final class AmberModelsTests: XCTestCase {
             try AmberRPCCodec.decodeStatus(
                 makeStatusResponse(
                     genesis: Data(repeating: 0x55, count: 48), protocolRevision: 1,
-                    schemaRevision: 2, finalizedHeight: 12, finalizedAt: 90,
+                    schemaRevision: 4, finalizedHeight: 12, finalizedAt: 90,
                     servedAt: 100, maximumStaleness: 30, health: 0
                 )
             ).connectionState,
@@ -221,7 +221,7 @@ final class AmberModelsTests: XCTestCase {
         body.append(health)
         body.append(contentsOf: [2, 0, 1])
         XCTAssertEqual(body.count, 145)
-        var envelope = Data([0x01, 0x0a, 0, 1, 0x91, 0x01])
+        var envelope = Data([0x01, 0x0a, 0, 4, 0x91, 0x01])
         envelope.append(body)
         return envelope
     }

@@ -77,8 +77,8 @@ class KanalenRPCTest {
         val body = bodyBytes.toByteArray()
         return ByteArrayOutputStream().also { envelopeBytes ->
             DataOutputStream(envelopeBytes).use { envelope ->
-                envelope.writeShort(0x00a1)
-                envelope.writeShort(1)
+                envelope.writeShort(0x010a)
+                envelope.writeShort(4)
                 envelope.write(uleb128(body.size))
                 envelope.write(body)
             }
