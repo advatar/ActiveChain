@@ -131,10 +131,12 @@ apply_settlement() {
 if [[ -n "${DCN_G81_SETTLEMENT_BIN:-}" ]]; then
   [[ -x "$DCN_G81_SETTLEMENT_BIN" ]]
   [[ -n "${DCN_G81_AGREEMENT:-}" && -f "$DCN_G81_AGREEMENT" ]]
+  [[ "${DCN_G81_AGREEMENT_COMMITMENT:-}" =~ ^sha256:[0-9a-f]{64}$ ]]
   [[ -n "${DCN_G8_STORE:-}" && -f "$DCN_G8_STORE" ]]
   [[ -n "${DCN_G8_ATTESTATION_ID:-}" ]]
   "$DCN_G81_SETTLEMENT_BIN" prepare \
     "$DCN_G8_STORE" "$DCN_G8_ATTESTATION_ID" "$DCN_G81_AGREEMENT" \
+    "$DCN_G81_AGREEMENT_COMMITMENT" \
     "$output_directory/g8/native-finality-evidence.bin" "$chain_id" "$genesis_commitment" \
     1 1 "$output_directory/settlement-instruction.bin" \
     >"$output_directory/dcn-prepared-settlement.json"
