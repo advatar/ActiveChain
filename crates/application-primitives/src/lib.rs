@@ -15,6 +15,7 @@ mod compute;
 mod controller_rotation;
 #[cfg(feature = "std")]
 mod corporate_action;
+mod evidence_settlement;
 #[cfg(feature = "std")]
 mod fungible_transfer;
 #[cfg(feature = "std")]
@@ -57,6 +58,11 @@ pub use controller_rotation::{
 };
 #[cfg(feature = "std")]
 pub use corporate_action::{CorporateActionPersistenceError, DurableCorporateActionRegistry};
+pub use evidence_settlement::{
+    AccountBalanceV1, DurableEvidenceSettlementLedger, EvidenceFinalityReferenceV1,
+    EvidenceSettlementError, EvidenceSettlementLedger, ReputationEventV1,
+    SettlementAssuranceClassV1, SettlementInstructionV1, SettlementOutcomeV1, SettlementRecordV1,
+};
 #[cfg(feature = "std")]
 pub use fungible_transfer::{
     AssetLedgerAnchorV1, DurableFungibleAssetLedger, DurableFungibleTransferLedger,
