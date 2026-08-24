@@ -2,6 +2,18 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## DCN finalized-evidence settlement and reputation
+
+Tracked by [GitHub issue #828](https://github.com/advatar/ActiveChain/issues/828).
+
+- [ ] Freeze canonical settlement/accounting and raw reputation-event objects that reference the
+      exact finalized DCN evidence anchor without changing `GenerationAttestation` v1.
+- [ ] Revalidate native Actum finality, then atomically debit the payer, credit the executor,
+      persist one idempotent settlement record, and append one auditable reputation fact.
+- [ ] Reject non-finalized, substituted, unauthorized, replay-conflicting, unsupported-assurance,
+      stale-finality, and insufficient-balance requests across restart and real three-validator
+      qualification.
+
 ## DCN verified-execution evidence anchoring
 
 Tracked by [GitHub issue #826](https://github.com/advatar/ActiveChain/issues/826).
