@@ -58,10 +58,12 @@ pub use controller_rotation::{
 };
 #[cfg(feature = "std")]
 pub use corporate_action::{CorporateActionPersistenceError, DurableCorporateActionRegistry};
+#[cfg(feature = "std")]
+pub use evidence_settlement::DurableEvidenceSettlementLedger;
 pub use evidence_settlement::{
-    AccountBalanceV1, DurableEvidenceSettlementLedger, EvidenceFinalityReferenceV1,
-    EvidenceSettlementError, EvidenceSettlementLedger, ReputationEventV1,
-    SettlementAssuranceClassV1, SettlementInstructionV1, SettlementOutcomeV1, SettlementRecordV1,
+    AccountBalanceV1, EvidenceFinalityReferenceV1, EvidenceSettlementError,
+    EvidenceSettlementLedger, ReputationEventV1, SettlementAssuranceClassV1,
+    SettlementInstructionV1, SettlementOutcomeV1, SettlementRecordV1,
 };
 #[cfg(feature = "std")]
 pub use fungible_transfer::{
