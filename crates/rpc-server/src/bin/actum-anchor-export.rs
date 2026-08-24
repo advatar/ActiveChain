@@ -91,6 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("action_id={}", hex(native_action_id.digest().as_bytes()));
     println!("anchor_state_object_id={}", hex(object_id.as_bytes()));
     println!("checkpoint_height={}", checkpoint.height);
+    println!("finalized_block={}", hex(state_record.admitted_block().as_bytes()));
     println!("checkpoint_state_root={}", hex(checkpoint.post_state.root().as_bytes()));
     println!("checkpoint_object_count={}", checkpoint.post_state.object_count());
     Ok(())

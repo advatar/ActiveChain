@@ -27,10 +27,12 @@ def registry_tags() -> set[int]:
 
 def main() -> int:
     tags = registry_tags()
-    # P-133 application escrow/attestation records are deliberately outside the consensus
-    # verifier surface even when present in the global canonical registry.
-    application_compute = set(range(0x0146, 0x0149))
-    normative_tags = tags - application_compute
+    # Application-only records are deliberately outside the consensus verifier surface even
+    # when present in the global canonical registry. P-133 owns escrow/attestation records;
+    # G8.1 owns finalized-evidence settlement/accounting records whose state commitment is
+    # anchored through the existing consensus surface rather than interpreted by validators.
+    application_only = set(range(0x0146, 0x0149)) | set(range(0x01CA, 0x01D3))
+    normative_tags = tags - application_only
     private = set(range(0x00A0, 0x00AC))
     protected = set(range(0x00AC, 0x00BA))
     compute_jobs = set(range(0x00C3, 0x00C6))
