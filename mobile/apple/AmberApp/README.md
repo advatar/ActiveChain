@@ -29,7 +29,7 @@ For release qualification, run
 `scripts/validate-apple-app-icon.sh /path/to/Amber.app`. The validator requires a compiled asset
 catalog, primary iPhone/iPad icon metadata, and the required 152×152 iPad rendition.
 
-The default endpoint is `https://rpc.kanalen.activechain.dev`. The status client validates canonical
+The default endpoint is `https://rpc.kanalen.actum.network`. The status client validates canonical
 framing, the response envelope, the exact Kanalen chain identity and genesis commitment, protocol
 and schema revisions, finalized height, proof identifiers, and health/staleness consistency.
 Operator/user endpoint overrides remain unavailable so an alternate service cannot silently replace

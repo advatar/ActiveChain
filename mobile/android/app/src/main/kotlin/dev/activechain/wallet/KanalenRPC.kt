@@ -6,7 +6,7 @@ import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 
 internal object KanalenNetwork {
-    const val host = "rpc.kanalen.activechain.dev"
+    const val host = "rpc.kanalen.actum.network"
     const val port = 443
     const val protocolRevision = 1L
     const val schemaRevision = 4L

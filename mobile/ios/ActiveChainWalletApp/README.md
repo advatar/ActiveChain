@@ -34,7 +34,7 @@ payload. Production signing remains disabled until the wire-compatible native ML
 connected and physical-device recovery/user-presence qualification passes.
 
 The dashboard obtains Kanalen health and finalized height from the canonical TLS-framed status RPC
-at `rpc.kanalen.activechain.dev`. It pins the immutable chain ID, genesis commitment, protocol
+at `rpc.kanalen.actum.network`. It pins the immutable chain ID, genesis commitment, protocol
 revision, and RPC schema before reporting health. It does not synthesize balances, assets,
 activity, approvals, credentials, identities, agents, fees, or finality. Persisted agent
 registrations are displayed only when they exist.

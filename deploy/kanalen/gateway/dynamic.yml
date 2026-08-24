@@ -1,5 +1,14 @@
 tcp:
   routers:
+    activechain-rpc-actum:
+      entryPoints:
+        - websecure
+      rule: HostSNI(`rpc.kanalen.actum.network`)
+      priority: 100
+      service: activechain-rpc
+      tls:
+        certResolver: letsencrypt
+
     activechain-rpc:
       entryPoints:
         - websecure

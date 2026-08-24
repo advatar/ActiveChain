@@ -65,7 +65,7 @@ final class AmberModelsTests: XCTestCase {
         XCTAssertEqual(AmberNetwork.kanalenTestnet.rpcURL.scheme, "https")
         XCTAssertEqual(
             AmberNetwork.kanalenTestnet.rpcURL.host(),
-            "rpc.kanalen.activechain.dev"
+            "rpc.kanalen.actum.network"
         )
         XCTAssertEqual(AmberConnectionState.verified(finalizedHeight: 42).label, "Finalized #42")
         XCTAssertEqual(AmberConnectionState.stale(finalizedHeight: 0).label, "Stale at #0")

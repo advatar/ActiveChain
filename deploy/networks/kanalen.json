@@ -4,9 +4,9 @@
   "base_port": 49151,
   "hostnames": {
     "domain": "kanalen.activechain.dev",
-    "rpc": "rpc.kanalen.activechain.dev",
-    "anchor": "anchor.kanalen.activechain.dev",
-    "verify": "verify.kanalen.activechain.dev",
+    "rpc": "rpc.kanalen.actum.network",
+    "anchor": "anchor.kanalen.actum.network",
+    "verify": "verify.kanalen.actum.network",
     "delivery": "delivery.kanalen.actum.network",
     "delivery_legacy": "delivery.kanalen.activechain.dev"
   },

@@ -10,7 +10,7 @@ import struct
 import sys
 
 
-DEFAULT_HOST = "rpc.kanalen.activechain.dev"
+DEFAULT_HOST = "rpc.kanalen.actum.network"
 DEFAULT_PORT = 443
 EXPECTED_CHAIN_ID = bytes.fromhex(
     "b12c1c316717e9669cec36f7632a9080702c57a3125d90c72154f8a7298e4f0"
