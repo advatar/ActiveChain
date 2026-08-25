@@ -12,8 +12,10 @@ Tracked by [GitHub issue #832](https://github.com/advatar/ActiveChain/issues/832
       design that cannot be mistaken for operative VASP authorization.
 - [x] Add deterministic drift tests for authority allocation, activities, capital, entity/local
       presence, transition timing, legal-tender treatment, cross-border scope, and sandbox status.
-- [ ] Pass targeted checks and the exact final full deterministic-kernel gate, merge the verified
-      changes, and prove reachability from `origin/main`.
+- [x] Pass targeted checks and the exact final full deterministic-kernel gate, merge the verified
+      changes, and prove reachability from `origin/main` (qualified substantive candidate
+      `179a74dc14a5c40a460b8bde108f74a9b0324713` in
+      [run 32880165092](https://github.com/advatar/ActiveChain/actions/runs/32880165092)).
 
 ## DCN finalized-evidence settlement and reputation
 
