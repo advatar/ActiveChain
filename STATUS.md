@@ -2,6 +2,19 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Tanzania and Kenya VASP regulatory-pack alignment
+
+Tracked by [GitHub issue #832](https://github.com/advatar/ActiveChain/issues/832).
+
+- [ ] Map every material Tanzania/Kenya distinction in the 20 August 2026 comparison source to a
+      machine-readable pack field, control-register statement, or explicit non-applicability.
+- [ ] Preserve Kenya as an enacted but activation-gated regime and Tanzania as a proposal-only
+      design that cannot be mistaken for operative VASP authorization.
+- [ ] Add deterministic drift tests for authority allocation, activities, capital, entity/local
+      presence, transition timing, legal-tender treatment, cross-border scope, and sandbox status.
+- [ ] Pass targeted checks and the exact final full deterministic-kernel gate, merge the verified
+      changes, and prove reachability from `origin/main`.
+
 ## DCN finalized-evidence settlement and reputation
 
 Tracked by [GitHub issue #828](https://github.com/advatar/ActiveChain/issues/828).
