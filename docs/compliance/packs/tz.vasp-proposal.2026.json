@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "pack_id": "tz.vasp-proposal.2026",
+  "jurisdiction": "TZ",
+  "status": "proposal_only",
+  "activation_permitted": false,
+  "comparison_source": {
+    "title": "Which Model Is Tanzania Actually Copying?",
+    "file": "Tanzania_vs_Kenya_VASP_Model_Comparison.docx",
+    "prepared_date": "2026-08-20",
+    "sha256": "cd4da651c0e3d367f2b200cab864d57add595e2bb59aa676b9e7063483cb3f30",
+    "role": "internal_comparison_snapshot_not_authoritative_law"
+  },
+  "legal_framework": {
+    "state": "concept_note_and_proposed_bespoke_act",
+    "act": "TBD_NOT_ENACTED_IN_REVIEWED_SNAPSHOT",
+    "regulations": "TBD_NOT_GAZETTED_IN_REVIEWED_SNAPSHOT",
+    "bill_target": "2026-09",
+    "readings_and_regulations_target": "2026-11",
+    "effective_target": "FY2026_2027",
+    "targets_are_binding": false
+  },
+  "proposed_supervisors": [
+    {
+      "authority": "Bank of Tanzania",
+      "code": "BOT",
+      "proposed_scope": "payment_and_stablecoin_functions"
+    },
+    {
+      "authority": "Capital Markets and Securities Authority",
+      "code": "CMSA",
+      "proposed_scope": "investment_and_market_functions"
+    },
+    {
+      "authority": "Financial Intelligence Unit",
+      "code": "FIU",
+      "proposed_scope": "aml_cft_oversight"
+    }
+  ],
+  "scope": {
+    "mandatory_licensing": "proposed",
+    "cross_border_resident_targeting": "expressly_proposed",
+    "cross_border_scope_relative_to_kenya": "broader_express_targeting_intent",
+    "virtual_assets_are_legal_tender": "proposed_false",
+    "legal_characterisation": "proposed_digital_representation_of_value_tradeable_or_transferable_and_usable_for_payment_or_investment_excluding_fiat_and_regulated_e_money",
+    "fatf_recommendations": [15, 16],
+    "travel_rule": "proposed"
+  },
+  "activity_categories": {
+    "status": "TBD_TO_BE_SET_IN_REGULATIONS",
+    "kenya_ten_category_model_is_reference_only": true,
+    "categories": []
+  },
+  "capital_requirements": {
+    "status": "TBD",
+    "amounts": []
+  },
+  "applicant_requirements": {
+    "entity_type": "TBD",
+    "local_registration": "TBD",
+    "physical_office_in_tanzania": "TBD",
+    "local_bank_account": "TBD",
+    "natural_person_applicant": "TBD"
+  },
+  "prohibitions": {
+    "status": "TBD_COMPARATOR_BANS_COMMENDED_EXCEPT_PROPOSED_LEGAL_TENDER_RULE",
+    "items": []
+  },
+  "transition": {
+    "length": "TBD",
+    "trigger": "TBD",
+    "recommended_policy_not_law": "Start any transition clock on gazettement of operative regulations, not merely Act commencement."
+  },
+  "sandbox": {
+    "authority": "BOT",
+    "status": "functioning_in_reviewed_snapshot",
+    "vasp_participants": 3,
+    "permanent_exit_path": "TBD"
+  },
+  "market_context": {
+    "bot_existing_e_money_licence_restriction_to_mnos": "comparison_risk_context_not_vasp_proposal_rule",
+    "kenya_corporate_and_local_presence_rules": "comparison_template_not_tanzania_requirement"
+  },
+  "non_activation_gates": [
+    "enacted_primary_legislation",
+    "gazetted_operative_regulations",
+    "authoritative_source_snapshot_commitment",
+    "final_activity_categories_and_supervisor_allocations",
+    "final_capital_requirements",
+    "final_entity_local_presence_and_eligibility_rules",
+    "final_transition_length_and_trigger",
+    "qualified_tanzanian_counsel_review",
+    "named_operator_and_verified_regulatory_authorization",
+    "executable_profile_implementation_and_tests"
+  ]
+}

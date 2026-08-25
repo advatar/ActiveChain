@@ -2,6 +2,21 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Tanzania and Kenya VASP regulatory-pack alignment
+
+Tracked by [GitHub issue #832](https://github.com/advatar/ActiveChain/issues/832).
+
+- [x] Map every material Tanzania/Kenya distinction in the 20 August 2026 comparison source to a
+      machine-readable pack field, control-register statement, or explicit non-applicability.
+- [x] Preserve Kenya as an enacted but activation-gated regime and Tanzania as a proposal-only
+      design that cannot be mistaken for operative VASP authorization.
+- [x] Add deterministic drift tests for authority allocation, activities, capital, entity/local
+      presence, transition timing, legal-tender treatment, cross-border scope, and sandbox status.
+- [x] Pass targeted checks and the exact final full deterministic-kernel gate, merge the verified
+      changes, and prove reachability from `origin/main` (qualified substantive candidate
+      `179a74dc14a5c40a460b8bde108f74a9b0324713` in
+      [run 32880165092](https://github.com/advatar/ActiveChain/actions/runs/32880165092)).
+
 ## DCN finalized-evidence settlement and reputation
 
 Tracked by [GitHub issue #828](https://github.com/advatar/ActiveChain/issues/828).
@@ -3109,18 +3124,18 @@ Tracked by [GitHub issue #387](https://github.com/advatar/ActiveChain/issues/387
     a single active implementation branch per issue
     ([GitHub issue #125](https://github.com/advatar/ActiveChain/issues/125)).
 
-## Planned initiative — Kenya VASP and stablecoin regulatory profile
+## Completed initiative — Kenya VASP and stablecoin regulatory profile
 
-- [ ] Implement fail-closed Kenya VASP and stablecoin regulatory support aligned to the 2025 Act
+- [x] Implement fail-closed Kenya VASP and stablecoin regulatory support aligned to the 2025 Act
   and 2026 Regulations without representing protocol capability as legal approval
   ([GitHub issue #369](https://github.com/advatar/ActiveChain/issues/369)).
-  - [ ] Publish a regulation-by-regulation Kenya control register and source/version metadata.
-  - [ ] Replace the Kenya design placeholder with versioned VASP and stablecoin-issuer manifests.
-  - [ ] Add canonical activation validation for mandatory controls, approvals, validity, and policy
+  - [x] Publish a regulation-by-regulation Kenya control register and source/version metadata.
+  - [x] Replace the Kenya design placeholder with versioned VASP and stablecoin-issuer manifests.
+  - [x] Add canonical activation validation for mandatory controls, approvals, validity, and policy
     commitments.
-  - [ ] Add deterministic positive, negative, expiry, ambiguity, inheritance, and cross-border
+  - [x] Add deterministic positive, negative, expiry, ambiguity, inheritance, and cross-border
     conformance vectors and unit tests.
-  - [ ] Document deployment gates for licensing, regulator approval, counsel, reserves, custody,
+  - [x] Document deployment gates for licensing, regulator approval, counsel, reserves, custody,
     audits, reporting, and operating-period evidence.
 
 ## Planned milestone — external pre-launch security audit

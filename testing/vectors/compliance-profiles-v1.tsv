@@ -1,6 +1,9 @@
 case_id	profiles	facts	expected
 eu-only	eu.casp.transfer.v1	EU/hosted_transfer	select-eu
 tz-only	tz.payment-operator.v1	TZ/payment_operator	select-tz
+tz-vasp-proposal	tz.virtual-asset-service-proposal.v1,activation_permitted=false,effective_height=0,expires_height=0	TZ/virtual_asset_service	reject-production
+tz-payment-not-vasp	tz.payment-operator.v1	TZ/virtual_asset_service	reject-wrong-activity
+tz-cross-border-proposal	tz.virtual-asset-service-proposal.v1,cross_border_resident_targeting=expressly_proposed	outside-TZ/targets-TZ-resident	reject-production
 us-kenya	us.msb.transfer.v1,ke.virtual-asset-service.v2	US+KE/hosted_transfer	intersection
 ambiguous-jurisdiction	eu.casp.transfer.v1,us.msb.transfer.v1	EU+US/unknown_entity	manual-review
 expired-profile	eu.casp.transfer.v1	EU/hosted_transfer/expired	reject
@@ -15,3 +18,5 @@ kenya-vasp-missing-cdd	ke.virtual-asset-service.v2,control_mask=0x00003ffb	KE/vi
 kenya-stablecoin-complete	ke.stablecoin-issuer.v1,control_mask=0x0003ffff,all_common_and_asset_commitments=nonzero,bounded_validity	KE/stablecoin_issuance	accept-activation
 kenya-stablecoin-missing-reserve	ke.stablecoin-issuer.v1,control_mask=0x0002ffff,reserve_commitment=zero	KE/stablecoin_issuance	reject-activation
 kenya-stablecoin-expired	ke.stablecoin-issuer.v1,current_height=expires_height	KE/stablecoin_issuance	reject-activation
+kenya-wallet-supervisor	ke.virtual-asset-service.v2,activity=wallet_provision,supervisor=CBK,minimum_capital_kes=150000000	KE/wallet_provision	classify-licence-evidence
+kenya-exchange-supervisor	ke.virtual-asset-service.v2,activity=exchange_operation,supervisor=CMA,minimum_capital_kes=100000000	KE/exchange_operation	classify-licence-evidence
