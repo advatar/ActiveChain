@@ -14,6 +14,50 @@ window is bounded. Stablecoin issuance additionally requires nonzero reserve, cu
 and approved-white-paper commitments. A commitment proves only that the operator bound a signed
 versioned artefact; it does not prove its truth, execution, licence status, or regulatory approval.
 
+The machine-readable [Kenya regime pack](packs/ke.vasp-regime.2026.json) pins the operating-model
+facts reviewed in *Which Model Is Tanzania Actually Copying?* (20 August 2026), SHA-256
+`cd4da651c0e3d367f2b200cab864d57add595e2bb59aa676b9e7063483cb3f30`. The comparison is an internal
+cross-check, not authoritative law; each deployment must still commit the exact official sources
+reviewed by qualified Kenyan counsel.
+
+## Licensed activity model
+
+| Activity | Supervisor | Minimum capital (KES) |
+|---|---|---:|
+| Wallet provision | CBK | 150,000,000 |
+| Exchange operation | CMA | 100,000,000 |
+| Payment processing | CBK | 10,000,000 |
+| Brokerage | CMA | 10,000,000 |
+| Investment advisory | CMA | Nil |
+| Asset management | CMA | 20,000,000 |
+| ICO issuance | CMA | 20,000,000 |
+| Real-world-asset tokenisation | CMA | 10,000,000 |
+| Token issuance platform | CMA | 20,000,000 |
+| Stablecoin issuance | CBK | 300,000,000 |
+
+One licence may cover multiple activities at the relevant regulator's discretion. Applicants are
+companies limited by shares; a foreign company must be registered in Kenya. A physical Kenyan
+office and local bank account are required, and a natural person cannot be the VASP applicant.
+The exact board size is intentionally not encoded because the reviewed comparison did not confirm
+it. The Act's application clause and licensing prohibition are represented separately: the former
+addresses services `in Kenya`, while the latter prohibits unlicensed services `in or from Kenya`.
+The pack does not invent an express nonresident-provider targeting test. It also records that
+virtual assets are not legal tender and the 4 November 2026 deadline reported for existing
+providers.
+
+CBK supervises wallet provision, payment processing, and stablecoin issuance. CMA supervises
+exchange operation, brokerage, investment advisory, asset management, ICO issuance, real-world-
+asset tokenisation, and token issuance platforms. These allocations and capital amounts classify
+the licence evidence required for an operator; they do not grant a licence through repository
+configuration.
+
+The pack preserves consultation provenance without treating drafts as current obligations:
+stablecoin minimum capital moved from KES 500 million to KES 300 million, investment-adviser
+capital moved from KES 2.5 million to nil, and the draft 33.3% single-holder cap was replaced by a
+notify-below-10% / approve-above-10% ownership-change regime. The transition likewise moved from
+six months in the published Bill to twelve months in the enacted framework. Only the final fields
+classify deployment evidence.
+
 ## Canonical control families
 
 | Bit | Control family | Regulations | Required evidence and enforcement boundary |

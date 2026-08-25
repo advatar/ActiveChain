@@ -1,0 +1,159 @@
+{
+  "schema_version": 1,
+  "pack_id": "ke.vasp-regime.2026",
+  "jurisdiction": "KE",
+  "status": "enacted_activation_gated",
+  "activation_permitted": true,
+  "comparison_source": {
+    "title": "Which Model Is Tanzania Actually Copying?",
+    "file": "Tanzania_vs_Kenya_VASP_Model_Comparison.docx",
+    "prepared_date": "2026-08-20",
+    "sha256": "cd4da651c0e3d367f2b200cab864d57add595e2bb59aa676b9e7063483cb3f30",
+    "role": "internal_comparison_snapshot_not_authoritative_law"
+  },
+  "legal_framework": {
+    "act": "Virtual Asset Service Providers Act No. 20 of 2025",
+    "assented_date": "2025-10-15",
+    "gazetted_date": "2025-10-21",
+    "effective_date": "2025-11-04",
+    "regulations": "Virtual Asset Service Providers Regulations, 2026, Legal Notice No. 134",
+    "regulations_gazetted_date": "2026-07-22",
+    "licensing_operational_from": "2026-07-22",
+    "pre_regulation_licensing_gap_months_approximate": 8.5
+  },
+  "scope": {
+    "act_application_clause": "services_in_kenya",
+    "licensing_prohibition": "unlicensed_services_in_or_from_kenya",
+    "express_nonresident_provider_targeting_test": false,
+    "wider_extraterritorial_reach": "not_encoded_inference_only",
+    "virtual_assets_are_legal_tender": false,
+    "multiple_activities_under_one_licence": "regulator_discretion",
+    "legal_characterisation": "digital_representation_of_value_excluding_fiat_e_money_securities_and_other_financial_assets"
+  },
+  "supervisors": [
+    {
+      "authority": "Central Bank of Kenya",
+      "code": "CBK",
+      "activities": [
+        "wallet_provision",
+        "payment_processing",
+        "stablecoin_issuance"
+      ]
+    },
+    {
+      "authority": "Capital Markets Authority",
+      "code": "CMA",
+      "activities": [
+        "exchange_operation",
+        "brokerage",
+        "investment_advisory",
+        "asset_management",
+        "ico_issuance",
+        "real_world_asset_tokenisation",
+        "token_issuance_platform"
+      ]
+    }
+  ],
+  "activity_categories": [
+    {
+      "id": "wallet_provision",
+      "name": "Wallet provision",
+      "supervisor": "CBK",
+      "minimum_capital_kes": 150000000
+    },
+    {
+      "id": "exchange_operation",
+      "name": "Exchange operation",
+      "supervisor": "CMA",
+      "minimum_capital_kes": 100000000
+    },
+    {
+      "id": "payment_processing",
+      "name": "Payment processing",
+      "supervisor": "CBK",
+      "minimum_capital_kes": 10000000
+    },
+    {
+      "id": "brokerage",
+      "name": "Brokerage",
+      "supervisor": "CMA",
+      "minimum_capital_kes": 10000000
+    },
+    {
+      "id": "investment_advisory",
+      "name": "Investment advisory",
+      "supervisor": "CMA",
+      "minimum_capital_kes": 0
+    },
+    {
+      "id": "asset_management",
+      "name": "Asset management",
+      "supervisor": "CMA",
+      "minimum_capital_kes": 20000000
+    },
+    {
+      "id": "ico_issuance",
+      "name": "ICO issuance",
+      "supervisor": "CMA",
+      "minimum_capital_kes": 20000000
+    },
+    {
+      "id": "real_world_asset_tokenisation",
+      "name": "Real-world-asset tokenisation",
+      "supervisor": "CMA",
+      "minimum_capital_kes": 10000000
+    },
+    {
+      "id": "token_issuance_platform",
+      "name": "Token issuance platform",
+      "supervisor": "CMA",
+      "minimum_capital_kes": 20000000
+    },
+    {
+      "id": "stablecoin_issuance",
+      "name": "Stablecoin issuance",
+      "supervisor": "CBK",
+      "minimum_capital_kes": 300000000
+    }
+  ],
+  "applicant_requirements": {
+    "entity_type": "company_limited_by_shares",
+    "foreign_company_must_be_registered_in_kenya": true,
+    "physical_office_in_kenya": true,
+    "local_bank_account": true,
+    "natural_person_applicant": "prohibited",
+    "exact_board_size": "not_encoded_source_unconfirmed"
+  },
+  "prohibitions": [
+    "unlicensed_services_in_or_from_kenya",
+    "natural_person_carrying_on_vasp_business",
+    "anonymity_enhancing_services"
+  ],
+  "transition": {
+    "existing_provider_deadline": "2026-11-04",
+    "trigger": "act_effective_date",
+    "period_months": 12,
+    "published_bill_period_months": 6,
+    "parliament_extended_period": true
+  },
+  "consultation_provenance": {
+    "draft_published_date": "2026-03-17",
+    "consultation_closed_date": "2026-04-10",
+    "final_regulations_gazetted_date": "2026-07-22",
+    "stablecoin_capital_draft_kes": 500000000,
+    "stablecoin_capital_final_kes": 300000000,
+    "investment_adviser_capital_draft_kes": 2500000,
+    "investment_adviser_capital_final_kes": 0,
+    "draft_single_shareholder_cap_percent": 33.3,
+    "final_single_shareholder_cap": "dropped",
+    "final_ownership_change_rule": "notify_below_10_percent_approve_above_10_percent"
+  },
+  "activation_gates": [
+    "authoritative_source_snapshot_commitment",
+    "qualified_kenyan_counsel_review",
+    "named_kenyan_legal_entity_and_operator",
+    "verified_activity_specific_licence_or_approval",
+    "all_required_control_and_policy_commitments",
+    "bounded_nonzero_activation_window"
+  ]
+}
