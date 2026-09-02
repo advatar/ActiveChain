@@ -2,6 +2,16 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## In progress — restore exact-main qualification
+
+Tracked by [GitHub issue #835](https://github.com/advatar/ActiveChain/issues/835).
+
+- [ ] Re-pin both TLA+ runners and proof-scope records to the official replacement v1.8.0
+      release asset and its published SHA-256 digest.
+- [ ] Extend pin-alignment coverage and pass targeted shell, policy, and TLA+ model checks.
+- [ ] Retry the isolated BuildKit client-session failure, pass the complete deterministic-kernel
+      gate on the final substantive candidate, merge to `main`, and prove reachability.
+
 ## Compliance obligation composition integration
 
 Tracked by [PR #811](https://github.com/advatar/ActiveChain/pull/811).
