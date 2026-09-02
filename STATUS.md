@@ -2,15 +2,15 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
-## In progress — restore exact-main qualification
+## Completed — restore exact-main qualification
 
 Tracked by [GitHub issue #835](https://github.com/advatar/ActiveChain/issues/835).
 
 - [x] Re-pin both TLA+ runners and proof-scope records to the official replacement v1.8.0
       release asset and its published SHA-256 digest.
 - [x] Extend pin-alignment coverage and pass targeted shell, policy, and TLA+ model checks.
-- [ ] Retry the isolated BuildKit client-session failure, pass the complete deterministic-kernel
-      gate on the final substantive candidate, merge to `main`, and prove reachability.
+- [x] Retry the isolated BuildKit client-session failure and pass the complete deterministic-kernel
+      gate on the final substantive candidate.
 
 Local validation on 2026-09-02: the replacement asset fetched successfully through the exact
 unauthenticated API URL, matched GitHub's published SHA-256 digest, and passed the default consensus
@@ -19,6 +19,14 @@ liveness states), and the proof-pipeline model (15,664 distinct states), all wit
 new three-test pin-alignment suite, existing 17-test workflow-policy suite, shell syntax,
 ShellCheck, and `git diff --check` also pass.
 
+Remote validation on 2026-09-02: the isolated release/process job passed on retry in
+[run 33635221519, attempt 2](https://github.com/advatar/ActiveChain/actions/runs/33635221519),
+confirming the BuildKit client-session loss was transient. Substantive revision `4c41afbc` then
+passed the complete exact-SHA deterministic-kernel qualification in
+[run 33653962059](https://github.com/advatar/ActiveChain/actions/runs/33653962059), including debug
+and documentation tests, release/process rehearsals, Kani, Verus, static checks, canonical vectors,
+all Lean/Tamarin/TLA+ models, reproducible Apple distribution, and the aggregate gate.
+
 ## Compliance obligation composition integration
 
 Tracked by [PR #811](https://github.com/advatar/ActiveChain/pull/811).
@@ -26,8 +34,9 @@ Tracked by [PR #811](https://github.com/advatar/ActiveChain/pull/811).
 - [x] Rebase the obligation-composition change onto current `main` without dropping the newer
       jurisdiction-profile inheritance and fail-closed selection tests.
 - [x] Pass formatting, the protocol-types test suite, and strict affected-crate Clippy.
-- [ ] Pass the exact final full deterministic-kernel gate, merge to `main`, and prove the
-      integrated head is reachable before deleting the source branch.
+- [x] Pass the exact final full deterministic-kernel gate and prove the integrated #811 change is
+      reachable from `origin/main` before deleting the source branch. The complete gate passed on
+      descendant revision `4c41afbc` in run `33653962059`.
 
 ## Tanzania and Kenya VASP regulatory-pack alignment
 
