@@ -80,8 +80,9 @@ pub use compliance::{
     ComplianceReplayWitness, ComplianceSignatureEnvelopeV1, ComplianceSignatureEnvelopeV2,
     EvidenceDeletionMode, EvidenceRetentionPolicyV1, JurisdictionProfileCandidate, KenyaControlSet,
     KenyaRegulatedActivity, KenyaRegulatedProfileV1, LEGACY_MAX_COMPLIANCE_REPLAY_KEYS,
-    ProfileSelection, ScreeningDecisionV1, ScreeningOutcome, ScreeningOverrideV1,
-    ScreeningPolicyV1, TravelRuleBindingV1, select_jurisdiction_profiles,
+    ObligationComposition, ProfileSelection, ScreeningDecisionV1, ScreeningOutcome,
+    ScreeningOverrideV1, ScreeningPolicyV1, TravelRuleBindingV1, compose_obligations,
+    required_controls, select_jurisdiction_profiles,
 };
 pub use consensus::{
     BlockProposal, BlockProposalError, ConsensusBlockRef, ConsensusUpgradeAuthorization,
