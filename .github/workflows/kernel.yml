@@ -112,6 +112,7 @@ jobs:
         run: |
           python3 scripts/check-kernel-workflow-policy.py
           python3 scripts/test_check_kernel_workflow_policy.py
+          python3 scripts/test_check_tla_tool_pin.py
 
   static:
     name: Static kernel checks

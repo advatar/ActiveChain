@@ -6,11 +6,18 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 Tracked by [GitHub issue #835](https://github.com/advatar/ActiveChain/issues/835).
 
-- [ ] Re-pin both TLA+ runners and proof-scope records to the official replacement v1.8.0
+- [x] Re-pin both TLA+ runners and proof-scope records to the official replacement v1.8.0
       release asset and its published SHA-256 digest.
-- [ ] Extend pin-alignment coverage and pass targeted shell, policy, and TLA+ model checks.
+- [x] Extend pin-alignment coverage and pass targeted shell, policy, and TLA+ model checks.
 - [ ] Retry the isolated BuildKit client-session failure, pass the complete deterministic-kernel
       gate on the final substantive candidate, merge to `main`, and prove reachability.
+
+Local validation on 2026-09-02: the replacement asset fetched successfully through the exact
+unauthenticated API URL, matched GitHub's published SHA-256 digest, and passed the default consensus
+model (936,652 distinct states), both reconfiguration configurations (2,116 safety and 1,058
+liveness states), and the proof-pipeline model (15,664 distinct states), all with zero errors. The
+new three-test pin-alignment suite, existing 17-test workflow-policy suite, shell syntax,
+ShellCheck, and `git diff --check` also pass.
 
 ## Compliance obligation composition integration
 

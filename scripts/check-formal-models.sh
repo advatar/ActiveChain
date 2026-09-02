@@ -10,18 +10,7 @@ authorization_derivcheck_timeout=${ACTIVECHAIN_AUTHORIZATION_DERIVCHECK_TIMEOUT:
 authorization_preflight_timeout=${ACTIVECHAIN_AUTHORIZATION_PREFLIGHT_TIMEOUT:-1200}
 authorization_lemma_timeout=${ACTIVECHAIN_AUTHORIZATION_LEMMA_TIMEOUT:-900}
 
-tla_pins=$(grep -Eh '^(tla_sha256=|`[0-9a-f]{64}`)' \
-  "$root/scripts/check-tla-consensus.sh" \
-  "$root/scripts/check-tla-proof-pipeline.sh" \
-  "$root/formal/CONSENSUS_TLA_PROOF_SCOPE.md" \
-  "$root/formal/PROOF_PIPELINE_TLA_PROOF_SCOPE.md" \
-  | grep -Eo '[0-9a-f]{64}')
-tla_pin_count=$(printf '%s\n' "$tla_pins" | wc -l | tr -d ' ')
-tla_unique_pins=$(printf '%s\n' "$tla_pins" | sort -u)
-if [[ "$tla_pin_count" != 4 ]] || [[ "$tla_unique_pins" != eabd140a70f49eb9305a3bd3f3df944eddf87e5a90d329789085f8953a80533a ]]; then
-  echo "TLA+ runner and proof-scope SHA-256 pins are not aligned" >&2
-  exit 1
-fi
+python3 "$root/scripts/check_tla_tool_pin.py"
 
 "$root/scripts/test-formal-output-capture.sh"
 python3 "$root/scripts/check-formal-coverage.py"
