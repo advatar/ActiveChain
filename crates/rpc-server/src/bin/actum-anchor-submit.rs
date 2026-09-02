@@ -45,6 +45,7 @@ use std::{
 const MAX_REQUEST_BYTES: usize = 256 * 1024;
 const DEFAULT_APPLICATION_DOMAIN: &str = "proof-of-work.checkpoint.v1";
 const DCN_EVIDENCE_APPLICATION_DOMAIN: &str = "dcn.generation-attestation.evidence-anchor.v1";
+const PROVIDEHR_CHECKPOINT_APPLICATION_DOMAIN: &str = "providehr.transparency.checkpoint.v1";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -202,6 +203,33 @@ fn prepare_submission(
                 decode_sha256_commitment(&evidence.evidence_commitment, "evidenceCommitment")?;
             Ok(PreparedSubmission {
                 result_schema: "actum.evidence-anchor.submit.result.v1",
+                subject_id: evidence.evidence_id.clone(),
+                digest_hex,
+                domain: evidence.application_domain.clone(),
+                is_evidence: true,
+            })
+        }
+        ("actum.providehr-checkpoint.submit.request.v1", "submit_providehr_checkpoint") => {
+            let evidence = request
+                .evidence
+                .as_ref()
+                .ok_or_else(|| "ProvidEHR checkpoint request is missing evidence".to_owned())?;
+            if request.checkpoint.is_some()
+                || evidence.application_domain != PROVIDEHR_CHECKPOINT_APPLICATION_DOMAIN
+            {
+                return Err("ProvidEHR checkpoint request is malformed".to_owned());
+            }
+            decode_sha256_commitment(&evidence.evidence_id, "checkpointId")?;
+            let configured_domain = configured_domain.ok_or_else(|| {
+                "ACTUM_ANCHOR_APPLICATION_DOMAIN is required for ProvidEHR checkpoints".to_owned()
+            })?;
+            if configured_domain != evidence.application_domain {
+                return Err("ProvidEHR checkpoint domain is not authorized".to_owned());
+            }
+            let digest_hex =
+                decode_sha256_commitment(&evidence.evidence_commitment, "checkpointCommitment")?;
+            Ok(PreparedSubmission {
+                result_schema: "actum.providehr-checkpoint.submit.result.v1",
                 subject_id: evidence.evidence_id.clone(),
                 digest_hex,
                 domain: evidence.application_domain.clone(),
