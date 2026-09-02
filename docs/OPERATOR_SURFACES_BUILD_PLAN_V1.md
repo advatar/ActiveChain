@@ -153,6 +153,17 @@ another is selected. Removing a network does not delete its wallet.
 3. Gate green on the deployed SHA; lifecycle test green on hardware.
 4. An integrator can onboard from a document without asking us anything.
 
+*Status: 1 and 2 are fixed in main but **not deployed**. The live release predates both, so the
+testnet still hands out one unspendable Coin Cell per grant and its RPC index sits at roughly 74% of
+the 4 MiB ceiling — about seventeen two-cell grants of headroom. The deployed wallet cannot reach the
+node at all, since it pins RPC schema revision 3 against a node serving 2.*
+
+*The deploy is ready and blocked on one thing: main is red on three qualification jobs, all fixed by
+[#804](https://github.com/advatar/ActiveChain/pull/804), which is draft pending its author's own
+checklist. Every other precondition is verified — deploy secrets present, LAN ssh open, the
+activation script defaults to `kanalen`, and the live chain id and genesis commitment match the
+wallet's pins byte for byte, so the upgrade migrates in place without a reset.*
+
 ---
 
 ## The interference contract
@@ -345,6 +356,16 @@ hold.
 
 ### B1. Make a profile mean something *(dev network only; no activation record on Kanalen)*
 
+*Status: 1, 3 and 4 built and in review — the durable registry
+([#807](https://github.com/advatar/ActiveChain/pull/807)), admission enforcement gated on a
+chain-recorded activation root ([#810](https://github.com/advatar/ActiveChain/pull/810)), and the
+selection vectors ([#808](https://github.com/advatar/ActiveChain/pull/808)). Obligation
+composition, which 3 also calls for, is
+[#811](https://github.com/advatar/ActiveChain/pull/811) and has no consumer yet. **2 remains**:
+activation is expressible but the canonical activation record a chain carries — genesis feature
+set or transition at a stated height — is undesigned, and nothing should enforce against a local
+file alone.*
+
 1. **Registry** — durable jurisdiction profile store in the shape of the
    existing durable registries: canonical snapshot, atomic replace, fail-closed
    restart, refusing cross-genesis records.
@@ -379,6 +400,10 @@ Kanalen carries no activation record, so nothing there changes.*
 This completes stage 4 of `docs/compliance/JURISDICTION_PROFILE_PLAN.md`.
 
 ### B2. Control register UI
+
+*Status: built and in review ([#809](https://github.com/advatar/ActiveChain/pull/809)). Every row
+reads outstanding because no evidence store exists; the page says so rather than presenting an
+empty register as a clean bill.*
 
 - One row per control family, showing which commitment is present, which is
   outstanding, and who is accountable.
@@ -441,6 +466,11 @@ a jurisdiction label after B1 lands.
 
 ### C1. Issuer surface over existing primitives
 
+*Status: the reserve attestation is built and in review
+([#812](https://github.com/advatar/ActiveChain/pull/812)) — typed, signed, with no reachable state
+that asserts reserves were verified. The register, issue/redeem through
+`FungibleIssuerApprovalV1`, and holder controls are not started.*
+
 Reuse rather than rebuild. Issuance approvals flow through the **existing
 wallet approval path** so they inherit Secure Enclave custody, canonical
 approval review, and one-shot signing.
@@ -465,6 +495,10 @@ facts over `A2uiSurfaceV1`. Extend that rather than introducing a second
 rendering path.
 
 ### C3. Kenya labelling — gated
+
+*Status: **must not be started.** Its preconditions — B1 deployed and enabled, both Kenya
+manifests resolved, counsel review — are unmet, and building ahead of them would produce exactly
+the thing this section forbids.*
 
 Requires B1 deployed and enabled, both Kenya manifests fully resolved, and
 counsel review. **Nothing before this point may present as a Kenyan
