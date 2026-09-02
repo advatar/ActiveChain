@@ -812,6 +812,94 @@ pub fn render_issuer_operation(
     )
 }
 
+/// What a reserve attestation supports, as a surface may state it.
+///
+/// A closed set with no "verified" member, and that absence is the design.
+/// Anchoring an attestation establishes that a statement existed and has not
+/// changed; it establishes nothing about reserves. A caller cannot render a
+/// verification claim here because there is no value that means one.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReserveClaimState {
+    /// No attestation covers this moment.
+    Uncovered,
+    /// The attestation has lapsed.
+    Expired,
+    /// Supply now exceeds the figure the attestor examined.
+    ClaimExceeded,
+    /// An attestation covers this moment and figure.
+    Attested,
+}
+
+impl ReserveClaimState {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Uncovered => "No attestation covers this",
+            Self::Expired => "Attestation expired",
+            Self::ClaimExceeded => "Supply exceeds the attested figure",
+            Self::Attested => "Attested",
+        }
+    }
+}
+
+/// Facts about a reserve attestation, reconstructed by the wallet.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReserveClaimFacts {
+    pub attestation_commitment: String,
+    pub asset: String,
+    pub attestor: String,
+    pub state: ReserveClaimState,
+    pub claimed_against: String,
+    pub supply: String,
+    /// Whether the issuer attested to its own reserves. Rendered always, not
+    /// only when true, so its absence is a statement rather than a gap.
+    pub self_attested: bool,
+    pub expires: u64,
+}
+
+/// The caveat every reserve surface carries, which no caller can replace.
+///
+/// It is a fixed row rather than part of the agent's explanation because the
+/// explanation is untrusted text: a surface that let the caller word this could
+/// let it be worded away.
+pub const RESERVE_ANCHOR_CAVEAT: &str = "An anchored attestation establishes who stated what, when, and that it has not changed. \
+     It does not establish that the reserves exist.";
+
+/// Renders a reserve attestation without asserting the reserves were checked.
+///
+/// # Errors
+/// Refuses malformed digests, unparsable figures, and deceptive display text.
+pub fn render_reserve_claim(
+    facts: &ReserveClaimFacts,
+    agent_explanation: &str,
+) -> Result<RenderedApproval, RenderError> {
+    for digest in [&facts.attestation_commitment, &facts.asset, &facts.attestor] {
+        require_digest_text(digest)?;
+    }
+    if facts.claimed_against.parse::<u128>().is_err() || facts.supply.parse::<u128>().is_err() {
+        return Err(RenderError::InvalidCanonicalFacts);
+    }
+    render_fact_surface(
+        "activechain.reserve_claim.v1",
+        "Reserve attestation",
+        &facts.attestation_commitment,
+        &[
+            ("Asset ID".into(), facts.asset.clone()),
+            ("State".into(), facts.state.label().into()),
+            ("Attestor".into(), facts.attestor.clone()),
+            (
+                "Attested by the issuer itself".into(),
+                if facts.self_attested { "yes" } else { "no" }.into(),
+            ),
+            ("Figure attested against".into(), facts.claimed_against.clone()),
+            ("Supply now".into(), facts.supply.clone()),
+            ("Expires".into(), facts.expires.to_string()),
+            ("What this establishes".into(), RESERVE_ANCHOR_CAVEAT.into()),
+        ],
+        Some(agent_explanation),
+        false,
+    )
+}
+
 pub fn render_nft_issuer_operation(
     facts: &NftIssuerOperationFacts,
     explanation: &str,
@@ -2152,5 +2240,114 @@ mod tests {
             ),
             Err(RenderError::InvalidCanonicalFacts)
         );
+    }
+
+    fn reserve_facts(state: ReserveClaimState) -> ReserveClaimFacts {
+        ReserveClaimFacts {
+            attestation_commitment: "11".repeat(48),
+            asset: "22".repeat(48),
+            attestor: "33".repeat(48),
+            state,
+            claimed_against: "1000".into(),
+            supply: "900".into(),
+            self_attested: false,
+            expires: 300,
+        }
+    }
+
+    /// The property the type exists to hold, checked against what is actually
+    /// rendered rather than against the enum: no reachable surface tells a
+    /// reader the reserves were checked.
+    #[test]
+    fn no_rendered_reserve_state_claims_the_reserves_were_verified() {
+        for state in [
+            ReserveClaimState::Uncovered,
+            ReserveClaimState::Expired,
+            ReserveClaimState::ClaimExceeded,
+            ReserveClaimState::Attested,
+        ] {
+            let rendered = render_reserve_claim(&reserve_facts(state), "issuer published a report")
+                .expect("valid facts render");
+            for (label, value) in &rendered.fallback.verified_rows {
+                let text = format!("{label} {value}").to_lowercase();
+                assert!(
+                    !text.contains("reserves verified") && !text.contains("reserves confirmed"),
+                    "a surface claimed verification: {label} = {value}"
+                );
+            }
+        }
+    }
+
+    /// The caveat is the renderer's, not the agent's. An untrusted explanation
+    /// must not be able to displace it.
+    #[test]
+    fn the_anchor_caveat_is_carried_whatever_the_explanation_says() {
+        for explanation in ["reserves are fully verified and audited", "x"] {
+            let rendered =
+                render_reserve_claim(&reserve_facts(ReserveClaimState::Attested), explanation)
+                    .expect("renders");
+            let caveat = rendered
+                .fallback
+                .verified_rows
+                .iter()
+                .find(|(label, _)| label == "What this establishes")
+                .expect("the caveat row is always present");
+            assert_eq!(caveat.1, RESERVE_ANCHOR_CAVEAT, "the caveat is fixed, not caller-supplied");
+            assert!(
+                caveat.1.contains("does not establish that the reserves exist"),
+                "the caveat must say what anchoring does not do"
+            );
+        }
+    }
+
+    /// A self-attestation must be visible as one, and its absence stated
+    /// rather than left to inference.
+    #[test]
+    fn self_attestation_is_always_stated_either_way() {
+        let mut facts = reserve_facts(ReserveClaimState::Attested);
+        facts.self_attested = true;
+        let rendered = render_reserve_claim(&facts, "x").unwrap();
+        let row = rendered
+            .fallback
+            .verified_rows
+            .iter()
+            .find(|(label, _)| label == "Attested by the issuer itself")
+            .expect("always rendered");
+        assert_eq!(row.1, "yes");
+
+        facts.self_attested = false;
+        let rendered = render_reserve_claim(&facts, "x").unwrap();
+        let row = rendered
+            .fallback
+            .verified_rows
+            .iter()
+            .find(|(label, _)| label == "Attested by the issuer itself")
+            .expect("rendered even when false");
+        assert_eq!(row.1, "no");
+    }
+
+    #[test]
+    fn malformed_reserve_facts_are_refused() {
+        let mut facts = reserve_facts(ReserveClaimState::Attested);
+        facts.asset = "not a digest".into();
+        assert!(render_reserve_claim(&facts, "x").is_err());
+
+        let mut facts = reserve_facts(ReserveClaimState::Attested);
+        facts.supply = "many".into();
+        assert_eq!(
+            render_reserve_claim(&facts, "x"),
+            Err(RenderError::InvalidCanonicalFacts),
+            "a figure that does not parse is not a figure"
+        );
+    }
+
+    /// Reviewing an attestation is not approving a transaction, so the surface
+    /// must not offer approve and reject controls.
+    #[test]
+    fn a_reserve_surface_offers_no_approval_actions() {
+        let rendered =
+            render_reserve_claim(&reserve_facts(ReserveClaimState::Attested), "x").unwrap();
+        assert!(rendered.fallback.approve_label.is_empty());
+        assert!(rendered.fallback.reject_label.is_empty());
     }
 }
