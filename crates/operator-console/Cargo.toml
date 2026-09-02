@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 activechain-network-planner.workspace = true
+activechain-protocol-types.workspace = true
 axum.workspace = true
 getrandom = "0.3"
 serde.workspace = true
