@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.advatar.systems/cognitive-health-demo/v1/demo-event-envelope.schema.json",
+  "title": "Advatar Cognitive Health Demo Event Envelope v1",
+  "description": "A PHI-free presentation and orchestration envelope. Domain payloads remain in their authoritative systems and are referenced only by canonical digest.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "event_id",
+    "trace_id",
+    "scenario_id",
+    "sequence",
+    "emitted_at",
+    "producer",
+    "event_type",
+    "payload_digest",
+    "privacy",
+    "display"
+  ],
+  "properties": {
+    "schema": {
+      "const": "advatar.cognitive-health-demo.event.v1"
+    },
+    "event_id": {
+      "$ref": "#/$defs/stableId"
+    },
+    "trace_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "scenario_id": {
+      "$ref": "#/$defs/stableId"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "emitted_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "type": "string",
+      "enum": [
+        "invivo",
+        "metabolog",
+        "openbody",
+        "dcn",
+        "kline",
+        "brian",
+        "providehr",
+        "actum",
+        "activechain",
+        "scenario-controller"
+      ]
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "observation.projected",
+        "capability.selected",
+        "capability.rejected",
+        "execution.completed",
+        "evaluation.completed",
+        "body-state.composed",
+        "counterfactual.completed",
+        "user.approved",
+        "clinical.admitted",
+        "clinical.denied",
+        "outcome.observed",
+        "calibration.recorded",
+        "kline.candidate",
+        "kline.promoted",
+        "kline.reused",
+        "actum.recorded",
+        "activechain.finalized",
+        "abstention.recorded",
+        "persistence.verified"
+      ]
+    },
+    "subject_ref": {
+      "type": "string",
+      "pattern": "^subject:[A-Za-z0-9._:-]{1,120}$"
+    },
+    "payload_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "payload_ref": {
+      "type": "string",
+      "pattern": "^(personal|openbody|dcn|kline|clinical|actum)://[^\\s]{1,240}$"
+    },
+    "authority_ref": {
+      "$ref": "#/$defs/stableId"
+    },
+    "parent_event_ids": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stableId"
+      },
+      "uniqueItems": true,
+      "maxItems": 32,
+      "default": []
+    },
+    "receipt_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "id", "digest"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["model", "evaluation", "authority", "clinical", "kline", "actum", "finality"]
+          },
+          "id": {
+            "$ref": "#/$defs/stableId"
+          },
+          "digest": {
+            "$ref": "#/$defs/sha256"
+          }
+        }
+      },
+      "uniqueItems": true,
+      "maxItems": 32,
+      "default": []
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["classification", "synthetic", "contains_raw_health_data"],
+      "properties": {
+        "classification": {
+          "type": "string",
+          "enum": ["synthetic", "phi-free-commitment"]
+        },
+        "synthetic": {
+          "const": true
+        },
+        "contains_raw_health_data": {
+          "const": false
+        }
+      }
+    },
+    "display": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lane", "title", "summary", "status"],
+      "properties": {
+        "lane": {
+          "type": "string",
+          "enum": ["evidence", "specialists", "body", "decision", "learning"]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 96
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 280
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "running", "accepted", "rejected", "abstained", "authorized", "learned", "verified"]
+        }
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)+$"
+      },
+      "additionalProperties": true,
+      "default": {}
+    }
+  },
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}
