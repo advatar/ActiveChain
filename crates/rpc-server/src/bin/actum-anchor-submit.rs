@@ -277,7 +277,10 @@ fn hex(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{DCN_EVIDENCE_APPLICATION_DOMAIN, SubmitRequest, prepare_submission};
+    use super::{
+        DCN_EVIDENCE_APPLICATION_DOMAIN, PROVIDEHR_CHECKPOINT_APPLICATION_DOMAIN, SubmitRequest,
+        prepare_submission,
+    };
 
     #[test]
     fn dcn_evidence_request_is_explicitly_domain_authorized() {
@@ -355,4 +358,30 @@ mod tests {
         assert!(!prepared.is_evidence);
         assert_eq!(prepared.domain, "proof-of-work.checkpoint.v1");
     }
+
+    #[test]
+    fn providehr_checkpoint_uses_only_its_authorized_native_domain() {
+        let request: SubmitRequest = serde_json::from_value(serde_json::json!({
+            "schema": "actum.providehr-checkpoint.submit.request.v1",
+            "operation": "submit_providehr_checkpoint",
+            "evidence": {
+                "evidenceId": format!("sha256:{}", "44".repeat(32)),
+                "evidenceCommitment": format!("sha256:{}", "55".repeat(32)),
+                "applicationDomain": PROVIDEHR_CHECKPOINT_APPLICATION_DOMAIN
+            }
+        }))
+        .unwrap();
+        let prepared = prepare_submission(
+            &request,
+            Some(PROVIDEHR_CHECKPOINT_APPLICATION_DOMAIN),
+        )
+        .unwrap();
+        assert!(prepared.is_evidence);
+        assert_eq!(prepared.digest_hex, "55".repeat(32));
+        assert_eq!(prepared.domain, PROVIDEHR_CHECKPOINT_APPLICATION_DOMAIN);
+        assert!(
+            prepare_submission(&request, Some(DCN_EVIDENCE_APPLICATION_DOMAIN)).is_err()
+        );
+    }
+
 }
