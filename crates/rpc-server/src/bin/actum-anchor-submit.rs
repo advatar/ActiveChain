@@ -45,6 +45,7 @@ use std::{
 const MAX_REQUEST_BYTES: usize = 256 * 1024;
 const DEFAULT_APPLICATION_DOMAIN: &str = "proof-of-work.checkpoint.v1";
 const DCN_EVIDENCE_APPLICATION_DOMAIN: &str = "dcn.generation-attestation.evidence-anchor.v1";
+const PROVIDEHR_CHECKPOINT_APPLICATION_DOMAIN: &str = "providehr.transparency.checkpoint.v1";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -208,6 +209,33 @@ fn prepare_submission(
                 is_evidence: true,
             })
         }
+        ("actum.providehr-checkpoint.submit.request.v1", "submit_providehr_checkpoint") => {
+            let evidence = request
+                .evidence
+                .as_ref()
+                .ok_or_else(|| "ProvidEHR checkpoint request is missing evidence".to_owned())?;
+            if request.checkpoint.is_some()
+                || evidence.application_domain != PROVIDEHR_CHECKPOINT_APPLICATION_DOMAIN
+            {
+                return Err("ProvidEHR checkpoint request is malformed".to_owned());
+            }
+            decode_sha256_commitment(&evidence.evidence_id, "checkpointId")?;
+            let configured_domain = configured_domain.ok_or_else(|| {
+                "ACTUM_ANCHOR_APPLICATION_DOMAIN is required for ProvidEHR checkpoints".to_owned()
+            })?;
+            if configured_domain != evidence.application_domain {
+                return Err("ProvidEHR checkpoint domain is not authorized".to_owned());
+            }
+            let digest_hex =
+                decode_sha256_commitment(&evidence.evidence_commitment, "checkpointCommitment")?;
+            Ok(PreparedSubmission {
+                result_schema: "actum.providehr-checkpoint.submit.result.v1",
+                subject_id: evidence.evidence_id.clone(),
+                digest_hex,
+                domain: evidence.application_domain.clone(),
+                is_evidence: true,
+            })
+        }
         _ => Err("unsupported request schema or operation".to_owned()),
     }
 }
@@ -249,7 +277,10 @@ fn hex(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{DCN_EVIDENCE_APPLICATION_DOMAIN, SubmitRequest, prepare_submission};
+    use super::{
+        DCN_EVIDENCE_APPLICATION_DOMAIN, PROVIDEHR_CHECKPOINT_APPLICATION_DOMAIN, SubmitRequest,
+        prepare_submission,
+    };
 
     #[test]
     fn dcn_evidence_request_is_explicitly_domain_authorized() {
@@ -327,4 +358,30 @@ mod tests {
         assert!(!prepared.is_evidence);
         assert_eq!(prepared.domain, "proof-of-work.checkpoint.v1");
     }
+
+    #[test]
+    fn providehr_checkpoint_uses_only_its_authorized_native_domain() {
+        let request: SubmitRequest = serde_json::from_value(serde_json::json!({
+            "schema": "actum.providehr-checkpoint.submit.request.v1",
+            "operation": "submit_providehr_checkpoint",
+            "evidence": {
+                "evidenceId": format!("sha256:{}", "44".repeat(32)),
+                "evidenceCommitment": format!("sha256:{}", "55".repeat(32)),
+                "applicationDomain": PROVIDEHR_CHECKPOINT_APPLICATION_DOMAIN
+            }
+        }))
+        .unwrap();
+        let prepared = prepare_submission(
+            &request,
+            Some(PROVIDEHR_CHECKPOINT_APPLICATION_DOMAIN),
+        )
+        .unwrap();
+        assert!(prepared.is_evidence);
+        assert_eq!(prepared.digest_hex, "55".repeat(32));
+        assert_eq!(prepared.domain, PROVIDEHR_CHECKPOINT_APPLICATION_DOMAIN);
+        assert!(
+            prepare_submission(&request, Some(DCN_EVIDENCE_APPLICATION_DOMAIN)).is_err()
+        );
+    }
+
 }

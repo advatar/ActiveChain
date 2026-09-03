@@ -1,5 +1,19 @@
 # ActiveChain implementation status
 
+## Active — Finalized PHI-free ProvidEHR transparency checkpoints — issue #837
+
+GitHub issue: https://github.com/advatar/ActiveChain/issues/837
+Branch: `feat/837-cognitive-health-demo`
+
+- [x] Admit only the pinned providehr.transparency.checkpoint.v1 domain and canonical commitment.
+- [ ] Expose narrow submission/status/finality retrieval with idempotency and restart safety.
+- [ ] Return independently verifiable finalized record, inclusion/state proof and finality evidence.
+- [ ] Add privacy-negative and three-validator local qualification tests.
+
+Boundary: synthetic demonstration only. No clinical validation claim, raw personal data disclosure, authority bypass, or production-security claim.
+
+Implementation progress (2026-09-02): the shared event ABI is pinned. Application primitives admit only `providehr.transparency.checkpoint.v1`, bind clinical/K-line/DCN commitments into a deterministic SHA-256 projection, reject raw or non-synthetic inputs, and construct the existing canonical `DigestAnchorStatementV1`. The native Actum submit tool now accepts this exact authorized domain. HTTP status/finality exposure and three-validator qualification remain open.
+
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
 ## Completed — restore exact-main qualification

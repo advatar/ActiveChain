@@ -1,0 +1,11 @@
+FROM rust:1.97.1-bookworm AS builder
+
+WORKDIR /src
+COPY . .
+RUN cargo build --locked --release -p activechain-rpc-server --bin activechain-providehr-demo-gateway
+
+FROM debian:bookworm-slim
+RUN useradd --system --uid 10001 --no-create-home activechain
+COPY --from=builder /src/target/release/activechain-providehr-demo-gateway /usr/local/bin/
+USER 10001:10001
+ENTRYPOINT ["/usr/local/bin/activechain-providehr-demo-gateway"]
