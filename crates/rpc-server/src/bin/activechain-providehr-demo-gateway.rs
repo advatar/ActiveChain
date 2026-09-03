@@ -8,10 +8,11 @@ use activechain_rpc_types::{RpcRequest, RpcResponse};
 use serde::Deserialize;
 use serde_json::json;
 use std::{
+    collections::BTreeMap,
     env, fs,
     io::{Read, Write},
     net::{TcpListener, TcpStream},
-    path::Path,
+    path::{Path, PathBuf},
     time::Duration,
 };
 use zeroize::Zeroize;
@@ -50,6 +51,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let token_path = env::var("ACTUM_DEMO_BEARER_TOKEN_FILE")
         .map_err(|_| "ACTUM_DEMO_BEARER_TOKEN_FILE is required")?;
     let mut token = load_token(Path::new(&token_path))?;
+    let journal_path = env::var("ACTUM_DEMO_IDEMPOTENCY_JOURNAL")
+        .map_err(|_| "ACTUM_DEMO_IDEMPOTENCY_JOURNAL is required")?;
+    let mut journal = IdempotencyJournal::load(PathBuf::from(journal_path))
+        .map_err(|_| "could not load demo idempotency journal")?;
     let listener = TcpListener::bind(&bind)?;
     eprintln!(
         "ActiveChain ProvidEHR demo gateway listening on {}",
@@ -61,7 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(mut stream) => {
                 let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
                 let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
-                if let Err(error) = serve(&mut stream, &rpc, &token) {
+                if let Err(error) = serve(&mut stream, &rpc, &token, &mut journal) {
                     let _ = write_error(&mut stream, 500, "internal");
                     eprintln!("ProvidEHR demo gateway request failed: {error}");
                 }
@@ -73,7 +78,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn serve(stream: &mut TcpStream, rpc: &str, token: &[u8]) -> Result<(), &'static str> {
+fn serve(
+    stream: &mut TcpStream,
+    rpc: &str,
+    token: &[u8],
+    journal: &mut IdempotencyJournal,
+) -> Result<(), &'static str> {
     let request = match read_request(stream) {
         Ok(request) => request,
         Err(_) => return write_error(stream, 400, "invalid_request"),
@@ -138,6 +148,14 @@ fn serve(stream: &mut TcpStream, rpc: &str, token: &[u8]) -> Result<(), &'static
         Ok(checkpoint) => checkpoint,
         Err(_) => return write_error(stream, 400, "invalid_checkpoint"),
     };
+    let commitment = encode_hex(&checkpoint.checkpoint_commitment());
+    match journal.reserve(&payload.request_id, &commitment) {
+        Ok(()) => {}
+        Err(JournalError::Conflict) => {
+            return write_error(stream, 409, "idempotency_conflict");
+        }
+        Err(_) => return write_error(stream, 503, "journal_unavailable"),
+    }
     let statement = checkpoint.anchor_statement().map_err(|_| "invalid checkpoint")?;
     let encoded = encode_envelope(&statement).map_err(|_| "encoding")?;
     let reference = match query(rpc, &RpcRequest::SubmitAnchor { statement: encoded }) {
@@ -211,6 +229,58 @@ fn resolve_and_write(
         })
         .to_string(),
     )
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum JournalError {
+    Conflict,
+    Invalid,
+    Io,
+}
+
+struct IdempotencyJournal {
+    path: PathBuf,
+    entries: BTreeMap<String, String>,
+}
+
+impl IdempotencyJournal {
+    fn load(path: PathBuf) -> Result<Self, JournalError> {
+        let entries = if path.exists() {
+            let metadata = fs::symlink_metadata(&path).map_err(|_| JournalError::Io)?;
+            if !metadata.file_type().is_file() {
+                return Err(JournalError::Invalid);
+            }
+            serde_json::from_slice(&fs::read(&path).map_err(|_| JournalError::Io)?)
+                .map_err(|_| JournalError::Invalid)?
+        } else {
+            BTreeMap::new()
+        };
+        Ok(Self { path, entries })
+    }
+
+    fn reserve(&mut self, request_id: &str, commitment: &str) -> Result<(), JournalError> {
+        match self.entries.get(request_id) {
+            Some(existing) if existing == commitment => return Ok(()),
+            Some(_) => return Err(JournalError::Conflict),
+            None => {}
+        }
+        let mut next = self.entries.clone();
+        next.insert(request_id.to_owned(), commitment.to_owned());
+        let bytes = serde_json::to_vec(&next).map_err(|_| JournalError::Invalid)?;
+        let temporary = self.path.with_extension("tmp");
+        let mut file = fs::File::create(&temporary).map_err(|_| JournalError::Io)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(fs::Permissions::from_mode(0o600))
+                .map_err(|_| JournalError::Io)?;
+        }
+        file.write_all(&bytes).map_err(|_| JournalError::Io)?;
+        file.sync_all().map_err(|_| JournalError::Io)?;
+        fs::rename(&temporary, &self.path).map_err(|_| JournalError::Io)?;
+        self.entries = next;
+        Ok(())
+    }
 }
 
 struct HttpRequest {
