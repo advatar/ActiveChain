@@ -1,4 +1,14 @@
 apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: activechain-demo-gateway-state
+  labels: {app.kubernetes.io/part-of: cognitive-health-demo}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: {storage: 256Mi}
+---
+apiVersion: v1
 kind: Secret
 metadata:
   name: activechain-demo-token
@@ -32,6 +42,7 @@ spec:
           args: ["0.0.0.0:8797", "activechain-rpc:49152"]
           env:
             - {name: ACTUM_DEMO_BEARER_TOKEN_FILE, value: "/var/run/secrets/activechain/token"}
+            - {name: ACTUM_DEMO_IDEMPOTENCY_JOURNAL, value: "/var/lib/activechain-demo/idempotency.json"}
           ports: [{name: http, containerPort: 8797}]
           readinessProbe:
             httpGet:
@@ -43,6 +54,7 @@ spec:
           livenessProbe: {tcpSocket: {port: http}, periodSeconds: 10}
           volumeMounts:
             - {name: token, mountPath: /var/run/secrets/activechain, readOnly: true}
+            - {name: state, mountPath: /var/lib/activechain-demo}
           resources:
             requests: {cpu: 50m, memory: 32Mi}
             limits: {cpu: "1", memory: 128Mi}
@@ -51,6 +63,8 @@ spec:
             capabilities: {drop: [ALL]}
             readOnlyRootFilesystem: true
       volumes:
+        - name: state
+          persistentVolumeClaim: {claimName: activechain-demo-gateway-state}
         - name: token
           secret:
             secretName: activechain-demo-token
