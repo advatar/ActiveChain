@@ -192,39 +192,44 @@ fn resolve_and_write(
     reference: Digest384,
     expected: Option<&activechain_application_primitives::DigestAnchorStatementV1>,
 ) -> Result<(), &'static str> {
-    let record = match query(rpc, &RpcRequest::ResolveAnchor { reference }) {
-        Ok(RpcResponse::AnchorRecord(bytes)) => {
-            decode_envelope::<AnchorRecord>(&bytes).map_err(|_| "malformed backend response")?
+    let attempts = if expected.is_some() { 20 } else { 1 };
+    let mut lifecycle = "submitted";
+    for attempt in 0..attempts {
+        match query(rpc, &RpcRequest::ResolveAnchor { reference }) {
+            Ok(RpcResponse::AnchorRecord(bytes)) => {
+                let record = decode_envelope::<AnchorRecord>(&bytes)
+                    .map_err(|_| "malformed backend response")?;
+                if expected.is_some_and(|statement| record.statement() != statement) {
+                    return write_error(stream, 502, "malformed_backend_response");
+                }
+                lifecycle = match record.status() {
+                    AnchorStatus::Pending if record.submitted_transaction().is_some() => "submitted",
+                    AnchorStatus::Pending => "pending",
+                    AnchorStatus::Finalized => "finalized",
+                    AnchorStatus::Rejected => "rejected",
+                };
+                if matches!(record.status(), AnchorStatus::Finalized | AnchorStatus::Rejected) {
+                    break;
+                }
+            }
+            Ok(RpcResponse::Error(_)) => lifecycle = "submitted",
+            _ => return write_error(stream, 503, "backend_unavailable"),
         }
-        Ok(RpcResponse::Error(_)) => {
-            return write_json(
-                stream,
-                202,
-                &json!({
-                    "schema": "actum.providehr-checkpoint.lifecycle.v1",
-                    "status": "submitted",
-                    "reference": encode_hex(reference.as_bytes())
-                })
-                .to_string(),
-            );
+        if attempt + 1 < attempts {
+            std::thread::sleep(Duration::from_millis(100));
         }
-        _ => return write_error(stream, 503, "backend_unavailable"),
-    };
-    if expected.is_some_and(|statement| record.statement() != statement) {
-        return write_error(stream, 502, "malformed_backend_response");
     }
-    let status = match record.status() {
-        AnchorStatus::Pending if record.submitted_transaction().is_some() => "submitted",
-        AnchorStatus::Pending => "pending",
-        AnchorStatus::Finalized => "finalized",
-        AnchorStatus::Rejected => "rejected",
+    let http_status = if lifecycle == "pending" || lifecycle == "submitted" {
+        202
+    } else {
+        200
     };
     write_json(
         stream,
-        200,
+        http_status,
         &json!({
             "schema": "actum.providehr-checkpoint.lifecycle.v1",
-            "status": status,
+            "status": lifecycle,
             "reference": encode_hex(reference.as_bytes())
         })
         .to_string(),
