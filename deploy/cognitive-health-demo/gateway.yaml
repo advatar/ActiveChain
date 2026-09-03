@@ -23,6 +23,7 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
+        fsGroup: 10001
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: gateway
@@ -32,7 +33,13 @@ spec:
           env:
             - {name: ACTUM_DEMO_BEARER_TOKEN_FILE, value: "/var/run/secrets/activechain/token"}
           ports: [{name: http, containerPort: 8797}]
-          readinessProbe: {httpGet: {path: /v1/health, port: http}, periodSeconds: 3}
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+              httpHeaders:
+                - {name: Authorization, value: "Bearer cognitive-health-demo-token-0001"}
+            periodSeconds: 3
           livenessProbe: {tcpSocket: {port: http}, periodSeconds: 10}
           volumeMounts:
             - {name: token, mountPath: /var/run/secrets/activechain, readOnly: true}
@@ -47,7 +54,7 @@ spec:
         - name: token
           secret:
             secretName: activechain-demo-token
-            defaultMode: 0400
+            defaultMode: 0440
       nodeSelector: {kubernetes.io/arch: arm64}
 ---
 apiVersion: v1
