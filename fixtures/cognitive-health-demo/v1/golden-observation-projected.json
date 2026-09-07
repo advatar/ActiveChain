@@ -1,0 +1,31 @@
+{
+  "schema": "advatar.cognitive-health-demo.event.v1",
+  "event_id": "evt:demo:meal:0001",
+  "trace_id": "0123456789abcdef0123456789abcdef",
+  "scenario_id": "post-meal-walk-v1",
+  "sequence": 1,
+  "emitted_at": "2026-09-02T12:35:00Z",
+  "producer": "invivo",
+  "event_type": "observation.projected",
+  "subject_ref": "subject:demo-patient-001",
+  "payload_digest": "sha256:4f7e66c9a314504c3f40e173449386924c20823c8c59e25723692d4f2f82fd39",
+  "payload_ref": "personal://demo-patient-001/observations/meal-0001",
+  "parent_event_ids": [],
+  "receipt_refs": [],
+  "privacy": {
+    "classification": "synthetic",
+    "synthetic": true,
+    "contains_raw_health_data": false
+  },
+  "display": {
+    "lane": "evidence",
+    "title": "Lunch observed",
+    "summary": "A governed synthetic meal observation is available for specialist reasoning.",
+    "status": "accepted"
+  },
+  "extensions": {
+    "advatar.demo.fixture": {
+      "fixture_id": "post-meal-walk-observation-v1"
+    }
+  }
+}

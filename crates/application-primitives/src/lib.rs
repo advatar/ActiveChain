@@ -10,6 +10,7 @@ extern crate std;
 mod anchor;
 #[cfg(feature = "std")]
 mod compliance;
+mod cognitive_health_demo;
 mod compute;
 #[cfg(feature = "std")]
 mod controller_rotation;
@@ -45,6 +46,10 @@ pub use compliance::{
     JurisdictionRegistryError, admit_credential_predicate, admit_regulated_transfer,
     admit_tls_credential_predicate, compliance_evidence_commitment, require_selected_profile,
     verify_compliance_signature,
+};
+pub use cognitive_health_demo::{
+    PROVIDEHR_DEMO_CHECKPOINT_DOMAIN, ProvidehrDemoCheckpointError,
+    ProvidehrDemoCheckpointV1,
 };
 pub use compute::{
     ComputeAssuranceAttestationV1, ComputeAssuranceClassV1, ComputeAssuranceStatementV1,
