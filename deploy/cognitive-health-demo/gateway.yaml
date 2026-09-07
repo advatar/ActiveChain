@@ -8,15 +8,6 @@ spec:
   resources:
     requests: {storage: 256Mi}
 ---
-apiVersion: v1
-kind: Secret
-metadata:
-  name: activechain-demo-token
-  labels: {app.kubernetes.io/part-of: cognitive-health-demo}
-type: Opaque
-stringData:
-  token: cognitive-health-demo-token-0001
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -44,14 +35,8 @@ spec:
             - {name: ACTUM_DEMO_BEARER_TOKEN_FILE, value: "/var/run/secrets/activechain/token"}
             - {name: ACTUM_DEMO_IDEMPOTENCY_JOURNAL, value: "/var/lib/activechain-demo/idempotency.json"}
           ports: [{name: http, containerPort: 8797}]
-          readinessProbe:
-            httpGet:
-              path: /v1/health
-              port: http
-              httpHeaders:
-                - {name: Authorization, value: "Bearer cognitive-health-demo-token-0001"}
-            periodSeconds: 3
-          livenessProbe: {tcpSocket: {port: http}, periodSeconds: 10}
+          readinessProbe: {httpGet: {path: /readyz, port: http}, periodSeconds: 3}
+          livenessProbe: {httpGet: {path: /livez, port: http}, periodSeconds: 10}
           volumeMounts:
             - {name: token, mountPath: /var/run/secrets/activechain, readOnly: true}
             - {name: state, mountPath: /var/lib/activechain-demo}

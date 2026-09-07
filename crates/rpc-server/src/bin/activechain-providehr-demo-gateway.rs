@@ -6,7 +6,7 @@ use activechain_protocol_types::Digest384;
 use activechain_rpc_server::query;
 use activechain_rpc_types::{RpcRequest, RpcResponse};
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     env, fs,
@@ -88,6 +88,25 @@ fn serve(
         Ok(request) => request,
         Err(_) => return write_error(stream, 400, "invalid_request"),
     };
+
+    if request.method == b"GET" && request.path == b"/livez" {
+        return if request.body.is_empty() {
+            write_json(stream, 200, &json!({"status": "alive"}).to_string())
+        } else {
+            write_error(stream, 400, "invalid_request")
+        };
+    }
+    if request.method == b"GET" && request.path == b"/readyz" {
+        if !request.body.is_empty() {
+            return write_error(stream, 400, "invalid_request");
+        }
+        return match query(rpc, &RpcRequest::Status) {
+            Ok(RpcResponse::Status(_)) => {
+                write_json(stream, 200, &json!({"status": "ready"}).to_string())
+            }
+            _ => write_error(stream, 503, "backend_unavailable"),
+        };
+    }
 
     let Some(supplied) = request.authorization.strip_prefix(b"Bearer ") else {
         return write_error(stream, 401, "unauthorized");
@@ -194,6 +213,7 @@ fn resolve_and_write(
 ) -> Result<(), &'static str> {
     let attempts = if expected.is_some() { 20 } else { 1 };
     let mut lifecycle = "submitted";
+    let mut finalized_evidence: Option<Value> = None;
     for attempt in 0..attempts {
         match query(rpc, &RpcRequest::ResolveAnchor { reference }) {
             Ok(RpcResponse::AnchorRecord(bytes)) => {
@@ -208,6 +228,11 @@ fn resolve_and_write(
                     AnchorStatus::Finalized => "finalized",
                     AnchorStatus::Rejected => "rejected",
                 };
+                if record.status() == AnchorStatus::Finalized {
+                    finalized_evidence = record.evidence()
+                        .map(finality_evidence_json)
+                        .transpose()?;
+                }
                 if matches!(record.status(), AnchorStatus::Finalized | AnchorStatus::Rejected) {
                     break;
                 }
@@ -230,10 +255,27 @@ fn resolve_and_write(
         &json!({
             "schema": "actum.providehr-checkpoint.lifecycle.v1",
             "status": lifecycle,
-            "reference": encode_hex(reference.as_bytes())
+            "reference": encode_hex(reference.as_bytes()),
+            "finality_evidence": finalized_evidence
         })
         .to_string(),
     )
+}
+
+fn finality_evidence_json(
+    evidence: &activechain_application_primitives::AnchorFinalizedEvidenceV1,
+) -> Result<Value, &'static str> {
+    let canonical = encode_envelope(evidence).map_err(|_| "encoding")?;
+    Ok(json!({
+        "schema": "activechain.anchor-finality-evidence.http.v1",
+        "canonical_envelope": encode_hex(&canonical),
+        "finalized_height": evidence.finalized_height(),
+        "finalized_block": encode_hex(evidence.finalized_block().as_bytes()),
+        "protocol_revision": evidence.protocol_revision(),
+        "verifier_revision": evidence.verifier_revision(),
+        "inclusion_proof": encode_hex(evidence.inclusion_proof()),
+        "finality_proof": encode_hex(evidence.finality_proof())
+    }))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
