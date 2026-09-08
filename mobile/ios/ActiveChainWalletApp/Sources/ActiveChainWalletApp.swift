@@ -140,6 +140,7 @@ private struct FundingCard: View {
                 if case .requesting = state { ProgressView().controlSize(.small) }
             }
             Text(detail)
+                .accessibilityIdentifier("funding.detail")
                 .font(.caption)
                 .foregroundStyle(WalletPalette.muted)
             Button("Request testnet funding", action: request)
@@ -230,6 +231,7 @@ private struct BalanceCard: View {
                     .accessibilityIdentifier("balance.headline")
                     .font(.system(size: 28, weight: .bold, design: .rounded))
                 Text(stateMessage)
+                    .accessibilityIdentifier("balance.detail")
                     .font(.callout)
                     .foregroundStyle(.white.opacity(0.64))
             }
@@ -302,6 +304,7 @@ private struct NetworkCard: View {
             .buttonStyle(.plain)
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(network.displayName) testnet, \(state.label), \(state.detail)")
+            .accessibilityIdentifier("network.refresh")
 
             // Only worth showing once there is a choice to make. Switching is
             // deliberate: the pin follows the person, never the peer.

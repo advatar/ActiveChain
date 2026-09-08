@@ -78,6 +78,17 @@ targets:
       SWIFT_VERSION: "5.9"
     dependencies:
       - target: ActiveChainWalletMac
+  ActiveChainWalletIOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: IOSUITests
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+      SWIFT_VERSION: "5.9"
+      TEST_TARGET_NAME: ActiveChainWallet
+    dependencies:
+      - target: ActiveChainWallet
   ActiveChainWalletMacUITests:
     type: bundle.ui-testing
     platform: macOS
@@ -91,3 +102,12 @@ targets:
       TEST_TARGET_NAME: ActiveChainWalletMac
     dependencies:
       - target: ActiveChainWalletMac
+schemes:
+  ActiveChainWalletLiveE2E:
+    build:
+      targets:
+        ActiveChainWallet: all
+    test:
+      gatherCoverageData: false
+      targets:
+        - ActiveChainWalletIOSUITests

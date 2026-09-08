@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 import socket
 import ssl
@@ -181,10 +182,13 @@ def query_status(host: str, port: int) -> tuple[RpcStatus, int, str]:
 
 
 def main(arguments: list[str]) -> int:
-    host = arguments[0] if arguments else DEFAULT_HOST
-    port = int(arguments[1]) if len(arguments) > 1 else DEFAULT_PORT
-    if len(arguments) > 2:
-        raise ProbeError("usage: probe-kanalen-rpc.py [host [port]]")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("host", nargs="?", default=DEFAULT_HOST)
+    parser.add_argument("port", nargs="?", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--require-healthy", action="store_true",
+                        help="fail if the pinned RPC has no fresh finalized checkpoint")
+    args = parser.parse_args(arguments)
+    host, port = args.host, args.port
     status, frame_length, tls_version = query_status(host, port)
     proofs = ",".join(PROOF_NAMES[value] for value in status.supported_proofs)
     print(
@@ -192,8 +196,12 @@ def main(arguments: list[str]) -> int:
         f"chain={status.chain_id.hex()}; genesis={status.genesis.hex()}; "
         f"protocol={status.protocol_revision}; schema={status.schema_revision}; "
         f"height={status.finalized_height}; health={status.health_name}; "
+        f"finalized_at={status.finalized_at}; served_at={status.served_at}; "
+        f"staleness_seconds={status.served_at - status.finalized_at}; "
         f"proofs={proofs}; frame_bytes={frame_length}"
     )
+    if args.require_healthy and (status.health != 0 or status.finalized_height == 0):
+        raise ProbeError("Kanalen has no healthy finalized checkpoint")
     return 0
 
 

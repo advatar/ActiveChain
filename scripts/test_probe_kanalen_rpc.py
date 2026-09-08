@@ -6,6 +6,8 @@ from pathlib import Path
 import struct
 import sys
 import unittest
+from unittest.mock import patch
+from dataclasses import replace
 
 sys.dont_write_bytecode = True
 
@@ -76,6 +78,30 @@ def status_envelope(
         )
     )
     return bytes.fromhex("010a0004") + uleb128(len(body)) + body
+
+
+class ProbeHealthGateTests(unittest.TestCase):
+    def test_live_gate_rejects_stale_and_unfinalized_status(self) -> None:
+        healthy = probe.decode_status_envelope(status_envelope())
+        stale = probe.decode_status_envelope(status_envelope(
+            served_at=1_785_234_001, health=1))
+        for status in (stale, replace(healthy, finalized_height=0)):
+            with self.subTest(status=status), patch.object(
+                probe, "query_status", return_value=(status, 151, "TLSv1.3")
+            ), patch("builtins.print"):
+                with self.assertRaisesRegex(probe.ProbeError, "healthy finalized"):
+                    probe.main(["--require-healthy"])
+
+    def test_live_gate_accepts_healthy_and_keeps_diagnostic_mode(self) -> None:
+        for health, served_at, arguments in (
+            (0, 1_785_233_703, ["--require-healthy"]),
+            (1, 1_785_234_001, ["localhost", "443"]),
+        ):
+            status = probe.decode_status_envelope(status_envelope(
+                health=health, served_at=served_at))
+            with patch.object(probe, "query_status", return_value=(status, 151, "TLSv1.3")), \
+                    patch("builtins.print"):
+                self.assertEqual(probe.main(arguments), 0)
 
 
 class DecodeStatusTests(unittest.TestCase):
