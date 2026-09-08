@@ -2,20 +2,41 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
-## Active — live Kanalen health and fresh iOS wallet faucet lifecycle
+## Blocked — live Kanalen health and fresh iOS wallet faucet lifecycle
 
-Tracked by [GitHub issue #839](https://github.com/advatar/ActiveChain/issues/839).
+Tracked by [GitHub issue #839](https://github.com/advatar/ActiveChain/issues/839) and
+[draft PR #840](https://github.com/advatar/ActiveChain/pull/840).
 
-- [ ] Verify live pinned RPC health, advancing finality, and faucet readiness; diagnose stale state.
-- [ ] Add an isolated, serial iOS end-to-end run covering fresh wallet creation, recovery
-      acknowledgement, real faucet settlement, positive verified funds, and relaunch persistence.
-- [ ] Pass local build and focused checks, record live execution evidence, and qualify the exact
-      substantive revision with the complete deterministic-kernel gate before merging.
-- [ ] Verify integration into `origin/main` and delete the source branch.
+- [x] Verify live pinned RPC health and diagnose stale finality; restore the missing validator 0
+      LaunchAgent and the active release's omitted RPC faucet configuration.
+- [x] Add an isolated, serial iOS acceptance runner covering fresh wallet creation, recovery
+      acknowledgement, real faucet settlement, at least two verified Coin Cells, and relaunch.
+- [x] Build the Apple distribution and iOS app/UI target locally; pass nine health-probe tests
+      and the iOS unit suite (44 passed, two existing opt-in live tests skipped).
+- [ ] Pass the live funded-wallet lifecycle. Blocked by reproduced
+      [faucet settlement defect #841](https://github.com/advatar/ActiveChain/issues/841).
+- [ ] Pass the exact substantive revision's full deterministic-kernel gate, merge, prove
+      `origin/main` reachability, and delete the source branch after live qualification succeeds.
 
-Initial probe on 2026-09-08: TLS 1.3 and chain/genesis/schema pins verify, but Kanalen reports
-stale finality at block 16,801, last finalized 2026-08-26T20:54:40Z (300-second freshness bound).
-The existing macOS lifecycle suite does not establish a fresh iOS wallet or require positive funds.
+On 2026-09-08, initial TLS 1.3 and chain/genesis/schema pins verified, but finality was stale at
+16,801 since 2026-08-26T20:54:40Z. Restoring existing service definitions resumed quorum rounds
+with three votes and zero rejected consensus messages. The iOS simulator app then created a new
+wallet, acknowledged recovery, proved zero holdings, and requested the real faucet. The grant
+remained pending for the complete 240-second finality window with no credited balance.
+
+Both signed grant-cell transfers used treasury nonce 1. Validators rejected the batch atomically
+with `InvalidNonce`, stalling indexed finality at 16,837. New faucet admissions were paused and
+the exact hash-verified batch was preserved under the Kanalen host's
+`incidents/839-duplicate-faucet-nonce-20260908T190155Z`, with snapshot/journal evidence and the
+prior RPC configuration. Original receipt/journal records remain intact. Consensus resumed and
+public pinned RPC was healthy at height 16,839; faucet funding remains blocked, not qualified.
+
+The dedicated wallet simulator is `C0A7750B-8775-4AA6-89DB-52EE7CB46911`. Local XCTest evidence is
+under `tmp/ios-wallet-e2e.CxvT6t/`: `SignedRetry.xcresult` records the live pending-grant failure,
+and `UnitTests.xcresult` records the successful unit suite. The unsigned initial run exposed
+Keychain `-34018`; the runner now uses ad-hoc simulator signing, bounded test timeouts, and no
+verbose system diagnostics. All agent simulator tests ran serially and disposable XCTest clones
+were cleaned after each run. The full merge gate has not run because live acceptance is blocked.
 
 ## Completed — restore exact-main qualification
 

@@ -27,6 +27,7 @@
 		6FC270EB9653605CB9529C82 /* RustCanonicalApproval.swift in Sources */ = {isa = PBXBuildFile; fileRef = D74A7CE5AE43E03F00D7B9F9 /* RustCanonicalApproval.swift */; };
 		70EB9560531E88DAF4876107 /* SharedKeychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA6F3F4E02BBBE0DE60990C5 /* SharedKeychain.swift */; };
 		8F340B6575254D29F91B96E8 /* ActiveChainWalletTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF53AD2EFD667B91B6C0E2A2 /* ActiveChainWalletTests.swift */; };
+		9D0E94D450087317D80E144E /* FreshWalletFaucetUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE2DDD588E6426122AFF97C6 /* FreshWalletFaucetUITests.swift */; };
 		A238900342B0AD7AF8819CE2 /* ActiveChainWalletApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00F60C541C50E0093CD8C615 /* ActiveChainWalletApp.swift */; };
 		A255F0544F1A5B6B4D343181 /* NetworkSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50EF838DF6F51C698FEE9C6F /* NetworkSelection.swift */; };
 		A955F5A4F6398043E6F147B7 /* OpenWalletAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9A7B68A6BF40EC2B257B49E /* OpenWalletAdapter.swift */; };
@@ -67,6 +68,13 @@
 			remoteGlobalIDString = 3F7AA32FF009B3FF5F283FFC;
 			remoteInfo = ActiveChainWalletMac;
 		};
+		D324D023D5FF1B00EB49E687 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 77A9E9EBA9991A93F53CE8AA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5A9189AF9FFFB212F868608E;
+			remoteInfo = ActiveChainWallet;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
@@ -92,6 +100,8 @@
 		D41DFF27117CF804DD5B4301 /* AgentWallet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentWallet.swift; sourceTree = "<group>"; };
 		D74A7CE5AE43E03F00D7B9F9 /* RustCanonicalApproval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RustCanonicalApproval.swift; sourceTree = "<group>"; };
 		D9A7B68A6BF40EC2B257B49E /* OpenWalletAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenWalletAdapter.swift; sourceTree = "<group>"; };
+		EC14403DED1743BE1698DF2B /* ActiveChainWalletIOSUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ActiveChainWalletIOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		FE2DDD588E6426122AFF97C6 /* FreshWalletFaucetUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreshWalletFaucetUITests.swift; sourceTree = "<group>"; };
 		FE57D7E81DE8386DD91EE7F6 /* ActiveChainWallet.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = ActiveChainWallet.xcframework; path = ../../../dist/apple/current/ActiveChainWallet.xcframework; sourceTree = "<group>"; };
 		FF53AD2EFD667B91B6C0E2A2 /* ActiveChainWalletTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveChainWalletTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -156,6 +166,7 @@
 			isa = PBXGroup;
 			children = (
 				6E90D7FAE93E0DFDE9D868BD /* ActiveChainWallet.app */,
+				EC14403DED1743BE1698DF2B /* ActiveChainWalletIOSUITests.xctest */,
 				A967749B3E6D962AAA26E424 /* ActiveChainWalletMac.app */,
 				82AF43EE862E7362F5827841 /* ActiveChainWalletMacTests.xctest */,
 				B24AB3B38442EC791981F411 /* ActiveChainWalletMacUITests.xctest */,
@@ -182,6 +193,14 @@
 			path = UITests;
 			sourceTree = "<group>";
 		};
+		CF5EBC375696389627B7011B /* IOSUITests */ = {
+			isa = PBXGroup;
+			children = (
+				FE2DDD588E6426122AFF97C6 /* FreshWalletFaucetUITests.swift */,
+			);
+			path = IOSUITests;
+			sourceTree = "<group>";
+		};
 		E5B2E86B466AF0263F41456D /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -194,6 +213,7 @@
 			isa = PBXGroup;
 			children = (
 				8FFD750E9DA0C36FF3E40877 /* ActiveChainWallet */,
+				CF5EBC375696389627B7011B /* IOSUITests */,
 				2B616ED7147EF2CA2AE01E2C /* Resources */,
 				5677E6675108CDAAF144981B /* Sources */,
 				0D6E1EC9D5FCDE4213B61210 /* Tests */,
@@ -223,6 +243,24 @@
 			productName = ActiveChainWalletTests;
 			productReference = 329F5D83AC50D372D7E5BA6F /* ActiveChainWalletTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		276EF2BB7314889528E2D4A9 /* ActiveChainWalletIOSUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8B1D98F4B501917A7F9B7C95 /* Build configuration list for PBXNativeTarget "ActiveChainWalletIOSUITests" */;
+			buildPhases = (
+				A107FC277B972C6433AD5870 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				375EC1C5477BE76199E8E382 /* PBXTargetDependency */,
+			);
+			name = ActiveChainWalletIOSUITests;
+			packageProductDependencies = (
+			);
+			productName = ActiveChainWalletIOSUITests;
+			productReference = EC14403DED1743BE1698DF2B /* ActiveChainWalletIOSUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 		3F7AA32FF009B3FF5F283FFC /* ActiveChainWalletMac */ = {
 			isa = PBXNativeTarget;
@@ -306,6 +344,9 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					276EF2BB7314889528E2D4A9 = {
+						TestTargetID = 5A9189AF9FFFB212F868608E;
+					};
 					3F7AA32FF009B3FF5F283FFC = {
 						DevelopmentTeam = L2AF8KFX35;
 					};
@@ -335,6 +376,7 @@
 				3F7AA32FF009B3FF5F283FFC /* ActiveChainWalletMac */,
 				22BEA71FD65EBC58B18D2D4E /* ActiveChainWalletTests */,
 				E54E4A3712AB0052855DBF44 /* ActiveChainWalletMacTests */,
+				276EF2BB7314889528E2D4A9 /* ActiveChainWalletIOSUITests */,
 				F5E684DA3C0C6BD458234993 /* ActiveChainWalletMacUITests */,
 			);
 		};
@@ -382,6 +424,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A107FC277B972C6433AD5870 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9D0E94D450087317D80E144E /* FreshWalletFaucetUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		C5E941163FED6D12870EF095 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -423,6 +473,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		375EC1C5477BE76199E8E382 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5A9189AF9FFFB212F868608E /* ActiveChainWallet */;
+			targetProxy = D324D023D5FF1B00EB49E687 /* PBXContainerItemProxy */;
+		};
 		830C5AB4FDCA7F7A074B2FF0 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 5A9189AF9FFFB212F868608E /* ActiveChainWallet */;
@@ -441,6 +496,24 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		187CE1ABD2B631C9877D4FB6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.activechain.ActiveChainWalletIOSUITests;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = ActiveChainWallet;
+			};
+			name = Debug;
+		};
 		2E1DDD139A66295CE7DC5FED /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -487,6 +560,24 @@
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ActiveChainWallet.app/ActiveChainWallet";
 			};
 			name = Debug;
+		};
+		45F14C61730DA651C77BFCB4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.activechain.ActiveChainWalletIOSUITests;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = ActiveChainWallet;
+			};
+			name = Release;
 		};
 		5B256CDE188C8C7F8C848167 /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -814,6 +905,15 @@
 			buildConfigurations = (
 				B924A891C3FFCC96E561DF11 /* Debug */,
 				5B256CDE188C8C7F8C848167 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		8B1D98F4B501917A7F9B7C95 /* Build configuration list for PBXNativeTarget "ActiveChainWalletIOSUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				187CE1ABD2B631C9877D4FB6 /* Debug */,
+				45F14C61730DA651C77BFCB4 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

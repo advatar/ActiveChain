@@ -56,7 +56,12 @@ xcodebuild \
   -resultBundlePath "$run_root/LiveWallet.xcresult" \
   -parallel-testing-enabled NO \
   -maximum-concurrent-test-simulator-destinations 1 \
-  CODE_SIGNING_ALLOWED=NO \
+  -collect-test-diagnostics never \
+  -test-timeouts-enabled YES \
+  -default-test-execution-time-allowance 600 \
+  -maximum-test-execution-time-allowance 600 \
+  CODE_SIGNING_ALLOWED=YES \
+  CODE_SIGN_IDENTITY=- \
   test
 
 python3 scripts/probe-kanalen-rpc.py --require-healthy
