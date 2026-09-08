@@ -107,10 +107,10 @@ final class FreshWalletFaucetUITests: XCTestCase {
         XCTAssertTrue(balance.waitForExistence(timeout: 30))
         waitForLabel(balance, pattern: "[1-9][0-9]* Coin Cells?", timeout: 60)
         XCTAssertEqual(balance.label, fundedBalance)
-        reveal(create)
+        XCTAssertGreaterThanOrEqual(try healthyHeight(), finalHeight)
+        reveal(app.staticTexts["funding.title"], upwards: false)
         XCTAssertFalse(create.exists, "Relaunch must load the original wallet from keychain")
         XCTAssertFalse(recovery.exists, "Acknowledged recovery material must not reappear")
-        XCTAssertGreaterThanOrEqual(try healthyHeight(), finalHeight)
         reveal(balance, upwards: false)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Funded iOS wallet after relaunch"
