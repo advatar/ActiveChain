@@ -2,6 +2,21 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Active — live Kanalen health and fresh iOS wallet faucet lifecycle
+
+Tracked by [GitHub issue #839](https://github.com/advatar/ActiveChain/issues/839).
+
+- [ ] Verify live pinned RPC health, advancing finality, and faucet readiness; diagnose stale state.
+- [ ] Add an isolated, serial iOS end-to-end run covering fresh wallet creation, recovery
+      acknowledgement, real faucet settlement, positive verified funds, and relaunch persistence.
+- [ ] Pass local build and focused checks, record live execution evidence, and qualify the exact
+      substantive revision with the complete deterministic-kernel gate before merging.
+- [ ] Verify integration into `origin/main` and delete the source branch.
+
+Initial probe on 2026-09-08: TLS 1.3 and chain/genesis/schema pins verify, but Kanalen reports
+stale finality at block 16,801, last finalized 2026-08-26T20:54:40Z (300-second freshness bound).
+The existing macOS lifecycle suite does not establish a fresh iOS wallet or require positive funds.
+
 ## Completed — restore exact-main qualification
 
 Tracked by [GitHub issue #835](https://github.com/advatar/ActiveChain/issues/835).
