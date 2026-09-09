@@ -2,6 +2,16 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## In progress — demo merchant checkout
+
+Tracked by [issue #844](https://github.com/advatar/ActiveChain/issues/844). Claimed by Codex.
+
+- [ ] Add a native testnet demo shop with a separate merchant address and exact price/fee review.
+- [ ] Build and sign payments from verified wallet holdings, submit through RPC, and persist pending purchases.
+- [ ] Verify settlement and merchant holdings before displaying a paid receipt; handle retry and relaunch.
+- [ ] Add unit coverage and a serial live iOS purchase test using faucet-funded coins.
+- [ ] Pass local builds, relevant suites, and the full exact-candidate gate; merge and verify origin/main reachability.
+
 ## Completed — funded wallet lifecycle and composite identity proofs
 
 Tracked by [issue #839](https://github.com/advatar/ActiveChain/issues/839),
