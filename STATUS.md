@@ -5,6 +5,13 @@ This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 ## In progress — demo merchant checkout
 
 Tracked by [issue #844](https://github.com/advatar/ActiveChain/issues/844). Claimed by Codex.
+Draft [PR #845](https://github.com/advatar/ActiveChain/pull/845) owns the unit.
+
+- [x] Verify live testnet health and create a separate merchant receiver with a private local key.
+- [ ] Resolve spending policy and implement finalized wallet-key enrollment before checkout.
+      The current app only provisions local custody; production cash-key installation is missing.
+      Wallet-key ownership alone versus required composite credentials is pending user input.
+      See [merchant setup and findings](docs/DEMO_MERCHANT.md).
 
 - [ ] Add a native testnet demo shop with a separate merchant address and exact price/fee review.
 - [ ] Build and sign payments from verified wallet holdings, submit through RPC, and persist pending purchases.
