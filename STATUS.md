@@ -2,10 +2,11 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
-## Active — Kanalen faucet settlement recovery and fresh iOS wallet lifecycle
+## Active — funded wallet lifecycle and composite identity proofs
 
 Tracked by [GitHub issue #839](https://github.com/advatar/ActiveChain/issues/839) and
-[draft PR #840](https://github.com/advatar/ActiveChain/pull/840).
+[draft PR #840](https://github.com/advatar/ActiveChain/pull/840), with composite identity work in
+[issue #842](https://github.com/advatar/ActiveChain/issues/842).
 
 - [x] Verify live pinned RPC health and diagnose stale finality; restore the missing validator 0
       LaunchAgent and the active release's omitted RPC faucet configuration.
@@ -19,8 +20,13 @@ Tracked by [GitHub issue #839](https://github.com/advatar/ActiveChain/issues/839
 - [x] Persist complete release LaunchAgents across login and add offline, evidence-bound recovery.
 - [ ] Recover the expired incident grant without replacing its signed envelopes, qualify the
       corrected deployment, and restore faucet admissions.
+- [ ] Refresh verified holdings again when a pending grant finalizes during a refresh.
 - [ ] Pass the live funded-wallet lifecycle after deploying the repair for
       [faucet settlement defect #841](https://github.com/advatar/ActiveChain/issues/841).
+- [ ] Pin and integrate the requested AnyIdentity package into the shared wallet and Apple apps.
+- [ ] Add composite evidence verification, exact native-intent binding, durable challenge consumption,
+      optional native approval checks, and negative/restart tests.
+- [ ] Verify both Rust libraries link in the real iOS/macOS apps.
 - [ ] Pass the exact substantive revision's full deterministic-kernel gate, merge, prove
       `origin/main` reachability, and delete the source branch after live qualification succeeds.
 
