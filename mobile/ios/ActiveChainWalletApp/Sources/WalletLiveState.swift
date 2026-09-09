@@ -188,7 +188,24 @@ final class WalletLiveState: ObservableObject {
         supersededProfile = false
         let status: WalletRPCStatus
         do {
-            status = try await rpc.status()
+            var checkpoint = try await rpc.status()
+            if case let .finalized(_, receiptHeight) = fundingState {
+                // Receipt reconciliation can precede publication of the status index.
+                // Never query an older checkpoint and present its zero balance as funded state.
+                balanceState = .unverified(reason: "Waiting for the finalized grant's owner proofs.")
+                for _ in 0..<20 {
+                    guard checkpoint.health == .healthy, checkpoint.finalizedHeight < receiptHeight else { break }
+                    try await Task.sleep(nanoseconds: 500_000_000)
+                    checkpoint = try await rpc.status()
+                }
+                guard checkpoint.finalizedHeight >= receiptHeight else {
+                    networkState = checkpoint.networkState
+                    balanceState = .unverified(
+                        reason: "The grant finalized, but the wallet checkpoint is still catching up. Refresh to retry.")
+                    return
+                }
+            }
+            status = checkpoint
             networkState = status.networkState
         } catch {
             WalletLog.rpc.error(

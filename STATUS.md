@@ -20,7 +20,7 @@ Tracked by [GitHub issue #839](https://github.com/advatar/ActiveChain/issues/839
 - [x] Persist complete release LaunchAgents across login and add offline, evidence-bound recovery.
 - [x] Recover the expired incident grant without replacing its signed envelopes, qualify the
       corrected deployment, and restore faucet admissions.
-- [x] Refresh verified holdings again when a pending grant finalizes during a refresh.
+- [x] Wait for status/index catch-up after receipt finality, then refresh verified holdings.
 - [ ] Pass the live funded-wallet lifecycle after deploying the repair for
       [faucet settlement defect #841](https://github.com/advatar/ActiveChain/issues/841).
 - [x] Pin and integrate the requested AnyIdentity package into the shared wallet and Apple apps.
@@ -74,7 +74,11 @@ persistence. See [composite identity integration](docs/COMPOSITE_IDENTITY_PROOFS
 GitHub closed PR #840 when its head branch was renamed; PR #843 is the replacement claim on the
 sole active implementation branch `feat/839-wallet-funding-identity`. The earlier full gate on
 `e280574b` was cancelled after the refresh defect and expanded identity scope; final consolidated
-qualification remains pending. Local AnyIdentity qualification passed 17 Rust tests, strict all-feature
+qualification remains pending. A second live run finalized a new 100 ACT grant at 19,411 but
+exposed the status index still serving 19,410 after receipt resolution. Add bounded checkpoint
+catch-up before loading holdings and exclude the new generated identity/Swift caches from guest build contexts; the candidate full run was cancelled for this related fix.
+The follow-up iOS suite passed 47 tests with two existing opt-in skips, including bounded index-lag
+recovery and timeout regressions. Local AnyIdentity qualification passed 17 Rust tests, strict all-feature
 Clippy, 11 upstream Swift tests, 10 shared-wallet tests, and both actual Apple app builds. The expanded
 iOS unit suite passed 46 tests with two existing opt-in skips; disposable test simulators were cleaned.
 

@@ -101,9 +101,27 @@ final class ActiveChainWalletTests: XCTestCase {
             }
             let heights = await rpc.requestedHeights
             let resolutions = await rpc.resolutions
+            let checkpointQueries = await rpc.finalizedStatusQueries
             XCTAssertEqual(heights, [10, 10, 11])
+            XCTAssertEqual(checkpointQueries, 3, "Wait for the status index to catch up to receipt finality")
             XCTAssertEqual(resolutions, 1, "The follow-up refresh must not resolve the same grant recursively")
         }
+    }
+
+    @MainActor
+    func testFinalizedGrantWithPersistentlyOlderCheckpointKeepsBalanceUnverified() async {
+        let rpc = FundingRefreshRaceRPC(refuseNewProofs: false, delayedStatusResponses: 100)
+        let profile = WalletDeviceProfile(owner: Data(repeating: 8, count: 48), chainGenesis: WalletKanalen.genesis)
+        let wallet = WalletLiveState(rpc: rpc, profile: profile)
+        await wallet.refresh()
+        await wallet.requestTestnetFunding()
+        await wallet.refresh()
+        guard case .unverified = wallet.balanceState else { return XCTFail("An older checkpoint is not the grant balance") }
+        XCTAssertNil(wallet.verifiedOwnerPage)
+        let heights = await rpc.requestedHeights
+        let queries = await rpc.finalizedStatusQueries
+        XCTAssertEqual(heights, [10, 10], "Never query old holdings after learning the receipt's newer height")
+        XCTAssertEqual(queries, 21, "Checkpoint polling is bounded")
     }
 
     func testFundingPresentationNeverCreditsPendingOrRejectedRequests() {
@@ -1243,17 +1261,23 @@ final class ActiveChainWalletTests: XCTestCase {
 
 private actor FundingRefreshRaceRPC: WalletLiveRPC {
     let refuseNewProofs: Bool
+    let delayedStatusResponses: Int
     private var finalized = false
+    private(set) var finalizedStatusQueries = 0
     private(set) var requestedHeights: [UInt64] = []
     private(set) var resolutions = 0
 
-    init(refuseNewProofs: Bool) { self.refuseNewProofs = refuseNewProofs }
+    init(refuseNewProofs: Bool, delayedStatusResponses: Int = 2) {
+        self.refuseNewProofs = refuseNewProofs
+        self.delayedStatusResponses = delayedStatusResponses
+    }
 
     func status() async throws -> WalletRPCStatus {
-        WalletRPCStatus(supportedProofs: [1], chainID: WalletKanalen.chainID,
+        if finalized { finalizedStatusQueries += 1 }
+        return WalletRPCStatus(supportedProofs: [1], chainID: WalletKanalen.chainID,
                         genesis: WalletKanalen.genesis, protocolRevision: WalletRPCCodec.supportedProtocolRevision,
                         schemaRevision: WalletRPCCodec.supportedSchemaRevision,
-                        finalizedHeight: finalized ? 11 : 10, health: .healthy)
+                        finalizedHeight: finalized && finalizedStatusQueries > delayedStatusResponses ? 11 : 10, health: .healthy)
     }
 
     func faucetTerms() async throws -> WalletFaucetTerms {
@@ -1273,7 +1297,7 @@ private actor FundingRefreshRaceRPC: WalletLiveRPC {
     func verifiedOwnerCoinCells(profile: WalletDeviceProfile, finalizedHeight: UInt64,
                                 verifier: any WalletOwnerCoinProofVerifier, limit: UInt16) async throws -> WalletOwnerCoinPage {
         requestedHeights.append(finalizedHeight)
-        if !finalized { return WalletOwnerCoinPage(records: [], next: nil) }
+        if finalizedHeight < 11 { return WalletOwnerCoinPage(records: [], next: nil) }
         if refuseNewProofs { throw WalletRPCError.malformedResponse }
         let records = [UInt8(1), 2].map { value in
             WalletOwnerCoinRecord(key: Data(repeating: value, count: 48), finalizedHeight: 11,
