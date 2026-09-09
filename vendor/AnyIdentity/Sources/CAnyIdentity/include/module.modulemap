@@ -1,0 +1,4 @@
+module CAnyIdentity {
+    header "anyidentity.h"
+    export *
+}

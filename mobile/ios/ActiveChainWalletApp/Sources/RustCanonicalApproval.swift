@@ -7,6 +7,8 @@ enum CanonicalApprovalError: Error, Equatable {
     case alreadyConsumed
     case substitutedReview
     case custody
+    case identityRequired
+    case identityExpired
 }
 
 enum RustCanonicalApproval {
@@ -97,13 +99,65 @@ final class CanonicalMcpProposalApprovalSession {
     private let approval: CanonicalMcpProposalApproval
     private let lock = NSLock()
     private var consumed = false
+    private let identity: (verifier: CompositeIdentityApprovalVerifier, challenge: CompositeIdentityChallenge)?
 
-    init(approval: CanonicalMcpProposalApproval) { self.approval = approval }
+    init(approval: CanonicalMcpProposalApproval) {
+        self.approval = approval
+        identity = nil
+    }
+
+    private init(approval: CanonicalMcpProposalApproval, verifier: CompositeIdentityApprovalVerifier,
+                 challenge: CompositeIdentityChallenge) {
+        self.approval = approval
+        identity = (verifier, challenge)
+    }
+
+    /// Application policy chooses this factory when composite identity is required. The
+    /// challenge binds the actual Rust review; a reply cannot supply its own expected action.
+    static func requiringIdentity(intent: Data, finalizedHeight: UInt64, audience: String,
+                                  verifier: CompositeIdentityApprovalVerifier) async throws -> CanonicalMcpProposalApprovalSession {
+        let approval = try RustCanonicalApproval.reviewProposal(intent, finalizedHeight: finalizedHeight)
+        let challenge = try await verifier.issue(for: approval, audience: audience,
+                                                  finalizedHeight: finalizedHeight, now: unixSeconds())
+        return CanonicalMcpProposalApprovalSession(approval: approval, verifier: verifier, challenge: challenge)
+    }
+
+    var identityChallenge: CompositeIdentityChallenge? { identity?.challenge }
 
     func sign(
         with custody: AppleNativeCustodyProvider, slotID: String, minimumVersion: UInt32,
         finalizedHeight: UInt64
     ) throws -> Data {
+        guard identity == nil else { throw CanonicalApprovalError.identityRequired }
+        return try signNative(with: custody, slotID: slotID, minimumVersion: minimumVersion,
+                              finalizedHeight: finalizedHeight)
+    }
+
+    func sign(with custody: AppleNativeCustodyProvider, slotID: String, minimumVersion: UInt32,
+              finalizedHeight: UInt64, identityProof: Data) async throws -> Data {
+        guard let identity else { throw CanonicalApprovalError.identityRequired }
+        guard try RustCanonicalApproval.reviewProposal(approval.intent, finalizedHeight: finalizedHeight) == approval else {
+            throw CanonicalApprovalError.substitutedReview
+        }
+        let started = try Self.unixSeconds()
+        let verified = try await identity.verifier.verifyAndConsume(identityProof, challenge: identity.challenge.nonce,
+                                                                    approval: approval, finalizedHeight: finalizedHeight, now: started)
+        guard try Self.unixSeconds() < verified.validUntil else { throw CanonicalApprovalError.identityExpired }
+        let signed = try signNative(with: custody, slotID: slotID, minimumVersion: minimumVersion,
+                                    finalizedHeight: finalizedHeight)
+        let completed = try Self.unixSeconds()
+        guard completed >= started, completed < verified.validUntil else { throw CanonicalApprovalError.identityExpired }
+        return signed
+    }
+
+    private static func unixSeconds() throws -> UInt64 {
+        let time = Date().timeIntervalSince1970
+        guard time >= 0, time < Double(UInt64.max) else { throw CanonicalApprovalError.identityExpired }
+        return UInt64(time)
+    }
+
+    private func signNative(with custody: AppleNativeCustodyProvider, slotID: String, minimumVersion: UInt32,
+                            finalizedHeight: UInt64) throws -> Data {
         guard try RustCanonicalApproval.reviewProposal(
             approval.intent, finalizedHeight: finalizedHeight
         ) == approval else { throw CanonicalApprovalError.substitutedReview }

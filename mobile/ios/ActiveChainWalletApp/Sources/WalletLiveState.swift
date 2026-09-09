@@ -147,7 +147,7 @@ final class WalletLiveState: ObservableObject {
     private var pendingFaucetReference: Data?
     @Published private(set) var network: WalletNetwork
     private let registry = WalletNetworkRegistry()
-    private let rpc = WalletRPCClient()
+    private let rpc: any WalletLiveRPC
     private let verifier: any WalletOwnerCoinProofVerifier = RustWalletOwnerCoinProofVerifier()
 
     /// The custody slot for the selected network. Keys are per network: a seed
@@ -156,10 +156,11 @@ final class WalletLiveState: ObservableObject {
 
     var knownNetworks: [WalletNetwork] { registry.known }
 
-    init() {
+    init(rpc: any WalletLiveRPC = WalletRPCClient(), profile: WalletDeviceProfile? = nil) {
+        self.rpc = rpc
         let selected = WalletNetworkRegistry().selected
         network = selected
-        deviceProfile = WalletDeviceProfileStore(network: selected).load()
+        deviceProfile = profile ?? WalletDeviceProfileStore(network: selected).load()
     }
 
     /// Switches networks and reloads everything that was scoped to the old one.
@@ -247,7 +248,12 @@ final class WalletLiveState: ObservableObject {
             balanceState = .unverified(
                 reason: "The node answered, but its owner-scoped proof did not verify.")
         }
-        await resolvePendingFunding()
+        if await resolvePendingFunding() {
+            // Finality can advance between the holdings query and receipt resolution.
+            // Fetch a new checkpoint and proofs; the receipt itself never credits balance.
+            await refresh()
+            return
+        }
         updateFundingAvailability()
     }
 
@@ -440,18 +446,19 @@ final class WalletLiveState: ObservableObject {
     /// No balance has been credited" while the balance card, correctly, showed
     /// the Coin Cell that grant had produced -- two claims about the same
     /// ledger, one of them false.
-    private func resolvePendingFunding() async {
-        guard let reference = pendingFaucetReference else { return }
+    private func resolvePendingFunding() async -> Bool {
+        guard let reference = pendingFaucetReference else { return false }
         do {
             let receipt = try await rpc.resolveFaucet(reference: reference)
             let hex = receipt.reference.map { String(format: "%02x", $0) }.joined()
             switch receipt.state {
             case 1:
-                guard let height = receipt.finalizedHeight else { return }
+                guard let height = receipt.finalizedHeight else { return false }
                 pendingFaucetReference = nil
                 fundingState = .finalized(reference: hex, height: height)
                 WalletLog.rpc.notice(
                     "funding finalized at height \(height, privacy: .public)")
+                return true
             case 2:
                 pendingFaucetReference = nil
                 fundingState = .rejected(
@@ -466,6 +473,7 @@ final class WalletLiveState: ObservableObject {
             WalletLog.rpc.error(
                 "could not resolve pending funding: \(String(describing: error), privacy: .public)")
         }
+        return false
     }
 
     private func updateFundingAvailability() {
@@ -1091,7 +1099,24 @@ private struct WalletBinaryDecoder {
     }
 }
 
-final class WalletRPCClient: @unchecked Sendable {
+protocol WalletLiveRPC: Sendable {
+    func status() async throws -> WalletRPCStatus
+    func faucetTerms() async throws -> WalletFaucetTerms
+    func requestFaucet(owner: Data) async throws -> WalletFaucetReceipt
+    func resolveFaucet(reference: Data) async throws -> WalletFaucetReceipt
+    func verifiedOwnerCoinCells(profile: WalletDeviceProfile, finalizedHeight: UInt64,
+                                verifier: any WalletOwnerCoinProofVerifier, limit: UInt16) async throws -> WalletOwnerCoinPage
+}
+
+extension WalletLiveRPC {
+    func verifiedOwnerCoinCells(profile: WalletDeviceProfile, finalizedHeight: UInt64,
+                                verifier: any WalletOwnerCoinProofVerifier) async throws -> WalletOwnerCoinPage {
+        try await verifiedOwnerCoinCells(profile: profile, finalizedHeight: finalizedHeight,
+                                        verifier: verifier, limit: 4)
+    }
+}
+
+final class WalletRPCClient: WalletLiveRPC, @unchecked Sendable {
     private let queue = DispatchQueue(label: "dev.activechain.wallet.rpc")
 
     func status() async throws -> WalletRPCStatus {

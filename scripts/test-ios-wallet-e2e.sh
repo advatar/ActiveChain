@@ -22,6 +22,7 @@ if [[ ! -d "$distribution" ]]; then
 fi
 ln -sfn "$revision" "$repo_root/dist/apple/current"
 project="$repo_root/mobile/ios/ActiveChainWalletApp"
+"$repo_root/scripts/build-anyidentity.sh"
 xcodegen generate --spec "$project/project.yml" --project "$project"
 
 runtime=${ACTIVECHAIN_IOS_E2E_RUNTIME:-com.apple.CoreSimulator.SimRuntime.iOS-26-5}
