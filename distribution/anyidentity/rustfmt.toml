@@ -1,0 +1,2 @@
+# Keep the unmodified upstream package under its original rustfmt defaults.
+edition = "2021"

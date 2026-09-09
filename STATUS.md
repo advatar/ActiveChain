@@ -2,6 +2,86 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## Active — funded wallet lifecycle and composite identity proofs
+
+Tracked by [GitHub issue #839](https://github.com/advatar/ActiveChain/issues/839) and
+[draft PR #843](https://github.com/advatar/ActiveChain/pull/843), with composite identity work in
+[issue #842](https://github.com/advatar/ActiveChain/issues/842).
+
+- [x] Verify live pinned RPC health and diagnose stale finality; restore the missing validator 0
+      LaunchAgent and the active release's omitted RPC faucet configuration.
+- [x] Add an isolated, serial iOS acceptance runner covering fresh wallet creation, recovery
+      acknowledgement, real faucet settlement, at least two verified Coin Cells, and relaunch.
+- [x] Build the Apple distribution and iOS app/UI target locally; pass nine health-probe tests
+      and the iOS unit suite (44 passed, two existing opt-in live tests skipped).
+- [x] Repair durable treasury nonce/input reservation across queued grant cells and restarts.
+- [x] Order pending transfers by dependencies, isolate invalid work, and require every grant cell
+      to have finalized evidence before reporting completion.
+- [x] Persist complete release LaunchAgents across login and add offline, evidence-bound recovery.
+- [x] Recover the expired incident grant without replacing its signed envelopes, qualify the
+      corrected deployment, and restore faucet admissions.
+- [x] Wait for status/index catch-up after receipt finality, then refresh verified holdings.
+- [ ] Pass the live funded-wallet lifecycle after deploying the repair for
+      [faucet settlement defect #841](https://github.com/advatar/ActiveChain/issues/841).
+- [x] Pin and integrate the requested AnyIdentity package into the shared wallet and Apple apps.
+- [x] Add composite evidence verification, exact native-intent binding, durable challenge consumption,
+      optional native approval checks, and negative/restart tests.
+- [x] Verify both Rust libraries link in the real iOS/macOS apps.
+- [ ] Pass the exact substantive revision's full deterministic-kernel gate, merge, prove
+      `origin/main` reachability, and delete the source branch after live qualification succeeds.
+
+On 2026-09-08, initial TLS 1.3 and chain/genesis/schema pins verified, but finality was stale at
+16,801 since 2026-08-26T20:54:40Z. Restoring existing service definitions resumed quorum rounds
+with three votes and zero rejected consensus messages. The iOS simulator app then created a new
+wallet, acknowledged recovery, proved zero holdings, and requested the real faucet. The grant
+remained pending for the complete 240-second finality window with no credited balance.
+
+Both signed grant-cell transfers used treasury nonce 1. Validators rejected the batch atomically
+with `InvalidNonce`, stalling indexed finality at 16,837. New faucet admissions were paused and
+the exact hash-verified batch was preserved under the Kanalen host's
+`incidents/839-duplicate-faucet-nonce-20260908T190155Z`, with snapshot/journal evidence and the
+prior RPC configuration. Original receipt/journal records remain intact. Consensus resumed and
+public pinned RPC was healthy at height 16,839. Faucet admissions remained paused until the repair below.
+
+The dedicated wallet simulator is `C0A7750B-8775-4AA6-89DB-52EE7CB46911`. Local XCTest evidence is
+under `tmp/ios-wallet-e2e.CxvT6t/`: `SignedRetry.xcresult` records the live pending-grant failure,
+and `UnitTests.xcresult` records the successful unit suite. The unsigned initial run exposed
+Keychain `-34018`; the runner now uses ad-hoc simulator signing, bounded test timeouts, and no
+verbose system diagnostics. All agent simulator tests ran serially and disposable XCTest clones
+were cleaned after each run. The repair is now implemented with restart, dependency, partial-finality, migration, and expired-grant
+regressions. See [the recovery runbook](docs/FAUCET_SETTLEMENT_RECOVERY.md). Local qualification passed: 78 RPC library tests plus the complete RPC binary/doc suites, strict
+all-feature Clippy, formatting, nine probe tests, serial iOS builds/unit tests, activation and bounded
+spool regressions, and the three-validator wallet/process acceptance rehearsal. Full qualification
+and live acceptance remain required before completion.
+
+
+On 2026-09-09, the expired incident grant was rejected offline at native-verified height 19,313,
+with its signed journal preserved byte-for-byte. Recovery evidence is retained in
+`incidents/839-recovery-20260909T184210Z`. Release `e280574b` was deployed after local qualification;
+all eight installed LaunchAgents match the release and faucet admissions are enabled. A new wallet
+on simulator `C70DF2CE-4BC6-4F0F-AB9F-FBFB97C4CE3B` received a finalized 100 ACT grant in two cells.
+The UI test exposed a subsequent refresh race: finality arrived after its zero-holdings query.
+The fix reloads verified holdings after that transition and fails closed if new proofs fail.
+The targeted iOS unit suite passed 45 tests with two existing opt-in skips.
+
+AnyIdentity is vendored unchanged at `0d59e583a8641dccc08c6eb19ffe2c77696c7587` from the user-specified
+package, with file hashes and build bootstrap. The optional approval gate consumes a durable,
+verifier-owned challenge bound to the exact Rust-reviewed intent before native signing. Two
+independent roots are required. No real issuer configuration is presumed. Shared-wallet tests
+cover policy, revocation, substitution, delegation, expiry, replay/restart/concurrency, and corrupt
+persistence. See [composite identity integration](docs/COMPOSITE_IDENTITY_PROOFS.md).
+
+GitHub closed PR #840 when its head branch was renamed; PR #843 is the replacement claim on the
+sole active implementation branch `feat/839-wallet-funding-identity`. The earlier full gate on
+`e280574b` was cancelled after the refresh defect and expanded identity scope; final consolidated
+qualification remains pending. A second live run finalized a new 100 ACT grant at 19,411 but
+exposed the status index still serving 19,410 after receipt resolution. Add bounded checkpoint
+catch-up before loading holdings and exclude the new generated identity/Swift caches from guest build contexts; the candidate full run was cancelled for this related fix.
+The follow-up iOS suite passed 47 tests with two existing opt-in skips, including bounded index-lag
+recovery and timeout regressions. Local AnyIdentity qualification passed 17 Rust tests, strict all-feature
+Clippy, 11 upstream Swift tests, 10 shared-wallet tests, and both actual Apple app builds. The expanded
+iOS unit suite passed 46 tests with two existing opt-in skips; disposable test simulators were cleaned.
+
 ## Completed — restore exact-main qualification
 
 Tracked by [GitHub issue #835](https://github.com/advatar/ActiveChain/issues/835).

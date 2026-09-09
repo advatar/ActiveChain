@@ -17,3 +17,4 @@ cmp \
   "$temporary/second/activechain-compatibility.json"
 diff -qr "$temporary/first" "$temporary/second"
 "$repo_root/scripts/check-apple-distribution.sh" "$temporary/first"
+"$repo_root/scripts/test-wallet-identity.sh" "$temporary/first"

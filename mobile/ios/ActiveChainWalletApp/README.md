@@ -9,6 +9,46 @@ scripts/build-ios-wallet-app.sh
 scripts/build-macos-wallet-app.sh
 ```
 
+Run the real iOS fresh-wallet faucet acceptance test from a clean, committed checkout:
+
+```bash
+scripts/test-ios-wallet-e2e.sh
+```
+
+The runner requires a healthy pinned public Kanalen RPC, builds the exact revision's Rust
+distribution, and creates a new iPhone 17 Pro simulator on iOS 26.5. Override
+`ACTIVECHAIN_IOS_E2E_RUNTIME` or `ACTIVECHAIN_IOS_E2E_DEVICE_TYPE` with installed simulator
+identifiers if needed. It runs the dedicated `ActiveChainWalletLiveE2E` scheme serially, with
+separate DerivedData and an `.xcresult` under `tmp/ios-wallet-e2e.*`. The normal unit-test scheme
+does not issue live faucet requests.
+
+The simulator app uses ad-hoc signing so its application identifier permits Keychain access;
+disabling signing produces `errSecMissingEntitlement` during wallet creation. No distribution
+certificate is required for this simulator run. Use the pinned rustup toolchain from
+`rust-toolchain.toml`, with its proxies before any Homebrew Rust compiler in `PATH`.
+
+The test requires fresh onboarding, acknowledges the disposable identity's recovery key, proves
+an initial zero balance, requests the real faucet, refreshes until the receipt finalizes at a
+new height, requires at least two owner-proof-verified Coin Cells, and checks persistence after
+relaunch. A stale network, existing wallet, rejected/disabled faucet, timeout, zero balance, or
+unverified proof fails the test. Recovery secrets are never deliberately attached or copied.
+Treat local XCTest diagnostics as private, since automatic UI failure capture can include the
+recovery screen.
+
+The runner prints and retains the dedicated simulator UUID and its wallet for inspection, then
+shuts it down. Reopen it with `xcrun simctl boot <UUID>` and Simulator. Each invocation creates
+a new identity; remove only that UUID with `xcrun simctl delete <UUID>` when finished. Disposable
+XCTest clones are cleaned only when no other `xcodebuild` is active; existing interactive
+simulators and wallets are preserved.
+
+As of 2026-09-08, live funding is blocked by [#841](https://github.com/advatar/ActiveChain/issues/841):
+multiple grant cells reuse one treasury nonce. The test correctly fails while this remains
+unresolved; new grants are paused on Kanalen.
+
+The suite covers the live iOS application/network path. Physical-device user-presence and
+recovery qualification remains separate because simulator
+custody already omits the user-presence gate at compile time.
+
 `project.yml` is the source of truth and preserves the ActiveChain Apple development-team ID across
 regeneration. Certificates, private keys, Xcode user data, and build state remain local and must not
 be committed. If Xcode reports that `ActiveChainWallet.xcframework` is missing, close it and rerun

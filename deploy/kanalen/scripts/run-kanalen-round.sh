@@ -41,19 +41,32 @@ cash_actions_preexisting=0
 test ! -e "$cash_actions" || cash_actions_preexisting=1
 if test "$cash_actions_preexisting" -eq 0 && test -d "$cash_action_spool"; then
   if find "$cash_action_spool" -type f -name '*.action' -print -quit | grep -q .; then
-    test ! -e "$cash_action_inflight" || {
-      echo "stale faucet action inflight directory requires recovery: $cash_action_inflight" >&2
-      exit 1
-    }
-    mv "$cash_action_spool" "$cash_action_inflight"
-    mkdir "$cash_action_spool"
-    find "$cash_action_inflight" -type f -name '*.action' -print | LC_ALL=C sort | xargs cat > "$cash_actions"
+    mkdir -p "$cash_action_inflight"
+    count=$(find "$cash_action_inflight" -type f -name '*.action' | wc -l | tr -d ' ')
+    test "$count" -le 32 || { echo "inflight batch exceeds 32 actions" >&2; exit 1; }
+    slots=$((32 - count))
+    find "$cash_action_spool" -type f -name '*.action' -print | LC_ALL=C sort |
+      awk -v limit="$slots" 'NR <= limit' | while IFS= read -r action; do
+        mv "$action" "$cash_action_inflight/"
+      done
   fi
 fi
-if test "$cash_actions_preexisting" -eq 0 && test -f "$transfer_snapshot"; then
+# Recover a crash during the move/assembly boundary without dropping inflight files.
+if test "$cash_actions_preexisting" -eq 0 && test -d "$cash_action_inflight"; then
+  count=$(find "$cash_action_inflight" -type f -name '*.action' | wc -l | tr -d ' ')
+  test "$count" -le 32 || { echo "inflight batch exceeds 32 actions" >&2; exit 1; }
+  find "$cash_action_inflight" -type f -name '*.action' -print | LC_ALL=C sort | xargs cat > "$cash_actions"
+fi
+if test -f "$transfer_snapshot"; then
   "$binary_root/activechain-transfer-spool" prepare \
     "$transfer_snapshot" "$cash_ledger" "$rpc_snapshot" "$cash_actions"
-  test -s "$cash_actions" || rm -f "$cash_actions"
+  if test ! -s "$cash_actions"; then
+    rm -f "$cash_actions"
+    if test -d "$cash_action_inflight"; then
+      find "$cash_action_inflight" -type f -name '*.action' -delete
+      rmdir "$cash_action_inflight"
+    fi
+  fi
 fi
 cash_actions_submitted=0
 test ! -s "$cash_actions" || cash_actions_submitted=1

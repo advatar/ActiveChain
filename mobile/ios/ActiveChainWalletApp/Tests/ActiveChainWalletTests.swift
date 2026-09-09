@@ -1,10 +1,129 @@
 import XCTest
 import Security
 import CryptoKit
+import AnyIdentity
 import ActiveChainWallet
 @testable import ActiveChainWalletApp
 
 final class ActiveChainWalletTests: XCTestCase {
+    func testCompositeIdentityGateUsesRustReviewAndCannotBypassOrReplayAfterCustodyFailure() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let now = UInt64(Date().timeIntervalSince1970)
+        let person = try IdentityKey(seed: Data(repeating: 0x31, count: 32))
+        let authority = try AnyIdentity.createAuthority(key: person)
+        var roots: [TrustedRoot] = []
+        var evidence: [Signed<Evidence>] = []
+        for index in 0..<2 {
+            let issuer = try IdentityKey(seed: Data(repeating: UInt8(index + 2), count: 32))
+            let name = "test-issuer-\(index)"
+            let enrollment = try AnyIdentity.enroll(Enrollment(authorityId: authority.authorityId,
+                subjectKey: authority.currentKey, audience: name, nonce: name,
+                issuedAt: now, expiresAt: now + 300), key: person)
+            evidence.append(try AnyIdentity.attest(enrollment: enrollment,
+                evidence: Evidence(id: name, authorityId: authority.authorityId, subjectKey: authority.currentKey,
+                    issuer: name, credentialKind: "test", claims: ["adult"], assuranceLevel: 2,
+                    liveness: true, hardwareBound: false, issuedAt: now, expiresAt: now + 1_000),
+                expectedAudience: name, expectedNonce: name, now: now, issuerKey: issuer))
+            roots.append(TrustedRoot(issuer: name, publicKey: try issuer.publicKey,
+                independenceGroup: name, credentialKinds: ["test"], maximumAssuranceLevel: 2))
+        }
+        let policy = AssurancePolicy(minimumIndependentRoots: 2, requiredClaims: ["adult"])
+        let revocations = RevocationSnapshot(checkedAt: now, validUntil: now + 1_000)
+        let journal = directory.appendingPathComponent("identity.json")
+        let verifier = try CompositeIdentityApprovalVerifier(authority: authority, roots: roots, policy: policy,
+                                                              revocations: revocations, journalURL: journal)
+        // Canonical ActionIntentV1 bytes are independently decoded/reviewed by the Rust FFI.
+        var body = Data()
+        for text in ["request", "testnet", "wallet"] {
+            body.append(UInt8(text.utf8.count)); body.append(contentsOf: text.utf8)
+        }
+        body.append(Data(repeating: 21, count: 48)); body.append(Data(repeating: 22, count: 48))
+        body.append(5); body.append(contentsOf: "nonce".utf8); body.append(0)
+        body.append(Data(repeating: 23, count: 48)); body.append(Data(repeating: 24, count: 48))
+        body.append(Data(repeating: 0, count: 15)); body.append(50)
+        body.append(Data(repeating: 0, count: 15)); body.append(2)
+        body.append(contentsOf: UInt64(500).bigEndianBytes)
+        body.append(Data(repeating: 25, count: 48))
+        var intent = Data([0x01, 0x49, 0, 1])
+        intent.append(contentsOf: uleb128(body.count)); intent.append(body)
+        let approval = try RustCanonicalApproval.reviewProposal(intent, finalizedHeight: 100)
+        XCTAssertEqual(approval.amount.low, 50)
+        let session = try await CanonicalMcpProposalApprovalSession.requiringIdentity(
+            intent: intent, finalizedHeight: 100, audience: "wallet.example", verifier: verifier)
+        let challenge = try XCTUnwrap(session.identityChallenge)
+        XCTAssertEqual(challenge.expected.payloadDigest, try AnyIdentity.sha256(intent))
+        let fixture = AppleCustodyFixture()
+        XCTAssertThrowsError(try session.sign(with: fixture.provider, slotID: "missing", minimumVersion: 1,
+                                              finalizedHeight: 100)) {
+            XCTAssertEqual($0 as? CanonicalApprovalError, .identityRequired)
+        }
+        XCTAssertEqual(fixture.hardware.unwrapCount, 0)
+        let proof = try CompositeIdentityProof(action: AnyIdentity.sign(challenge.expected, key: person),
+                                               evidence: evidence).encoded()
+        do {
+            _ = try await session.sign(with: fixture.provider, slotID: "missing", minimumVersion: 1,
+                                       finalizedHeight: 100, identityProof: proof)
+            XCTFail("Missing native custody must still fail after successful identity verification")
+        } catch { XCTAssertNil(error as? CompositeIdentityError) }
+        let restarted = try CompositeIdentityApprovalVerifier(authority: authority, roots: roots, policy: policy,
+                                                               revocations: revocations, journalURL: journal)
+        do {
+            _ = try await restarted.verifyAndConsume(proof, challenge: challenge.nonce, approval: approval,
+                                                      finalizedHeight: 100, now: UInt64(Date().timeIntervalSince1970))
+            XCTFail("Native custody failure must not undo identity consumption")
+        } catch { XCTAssertEqual(error as? CompositeIdentityError, .replay) }
+        do {
+            _ = try await CanonicalMcpProposalApprovalSession.requiringIdentity(intent: Data([0]),
+                finalizedHeight: 100, audience: "wallet.example", verifier: verifier)
+            XCTFail("Malformed native intent reached the identity gate")
+        } catch { XCTAssertNotNil(error as? CanonicalApprovalError) }
+    }
+
+    @MainActor
+    func testGrantFinalizingAfterHoldingsQueryReloadsProofsWithoutOptimisticCredit() async {
+        for refuseNewProofs in [false, true] {
+            let rpc = FundingRefreshRaceRPC(refuseNewProofs: refuseNewProofs)
+            let profile = WalletDeviceProfile(owner: Data(repeating: 8, count: 48), chainGenesis: WalletKanalen.genesis)
+            let wallet = WalletLiveState(rpc: rpc, profile: profile)
+            await wallet.refresh()
+            XCTAssertEqual(wallet.balanceState, .verified(cells: 0, height: 10))
+            await wallet.requestTestnetFunding()
+            await wallet.refresh()
+            if refuseNewProofs {
+                guard case .unverified = wallet.balanceState else {
+                    return XCTFail("A finalized receipt cannot substitute for verified holdings")
+                }
+                XCTAssertNil(wallet.verifiedOwnerPage)
+            } else {
+                XCTAssertEqual(wallet.balanceState, .verified(cells: 2, height: 11))
+                XCTAssertEqual(wallet.verifiedOwnerPage?.records.count, 2)
+            }
+            let heights = await rpc.requestedHeights
+            let resolutions = await rpc.resolutions
+            let checkpointQueries = await rpc.finalizedStatusQueries
+            XCTAssertEqual(heights, [10, 10, 11])
+            XCTAssertEqual(checkpointQueries, 3, "Wait for the status index to catch up to receipt finality")
+            XCTAssertEqual(resolutions, 1, "The follow-up refresh must not resolve the same grant recursively")
+        }
+    }
+
+    @MainActor
+    func testFinalizedGrantWithPersistentlyOlderCheckpointKeepsBalanceUnverified() async {
+        let rpc = FundingRefreshRaceRPC(refuseNewProofs: false, delayedStatusResponses: 100)
+        let profile = WalletDeviceProfile(owner: Data(repeating: 8, count: 48), chainGenesis: WalletKanalen.genesis)
+        let wallet = WalletLiveState(rpc: rpc, profile: profile)
+        await wallet.refresh()
+        await wallet.requestTestnetFunding()
+        await wallet.refresh()
+        guard case .unverified = wallet.balanceState else { return XCTFail("An older checkpoint is not the grant balance") }
+        XCTAssertNil(wallet.verifiedOwnerPage)
+        let heights = await rpc.requestedHeights
+        let queries = await rpc.finalizedStatusQueries
+        XCTAssertEqual(heights, [10, 10], "Never query old holdings after learning the receipt's newer height")
+        XCTAssertEqual(queries, 21, "Checkpoint polling is bounded")
+    }
+
     func testFundingPresentationNeverCreditsPendingOrRejectedRequests() {
         let states: [WalletFundingState] = [
             .unavailable(reason: "missing key"),
@@ -1137,6 +1256,54 @@ final class ActiveChainWalletTests: XCTestCase {
             directory.deleteLastPathComponent()
         }
         throw CanonicalApprovalError.malformed
+    }
+}
+
+private actor FundingRefreshRaceRPC: WalletLiveRPC {
+    let refuseNewProofs: Bool
+    let delayedStatusResponses: Int
+    private var finalized = false
+    private(set) var finalizedStatusQueries = 0
+    private(set) var requestedHeights: [UInt64] = []
+    private(set) var resolutions = 0
+
+    init(refuseNewProofs: Bool, delayedStatusResponses: Int = 2) {
+        self.refuseNewProofs = refuseNewProofs
+        self.delayedStatusResponses = delayedStatusResponses
+    }
+
+    func status() async throws -> WalletRPCStatus {
+        if finalized { finalizedStatusQueries += 1 }
+        return WalletRPCStatus(supportedProofs: [1], chainID: WalletKanalen.chainID,
+                        genesis: WalletKanalen.genesis, protocolRevision: WalletRPCCodec.supportedProtocolRevision,
+                        schemaRevision: WalletRPCCodec.supportedSchemaRevision,
+                        finalizedHeight: finalized && finalizedStatusQueries > delayedStatusResponses ? 11 : 10, health: .healthy)
+    }
+
+    func faucetTerms() async throws -> WalletFaucetTerms {
+        WalletFaucetTerms(chainID: WalletKanalen.chainID, genesis: WalletKanalen.genesis, challengeKind: 0)
+    }
+
+    func requestFaucet(owner: Data) async throws -> WalletFaucetReceipt {
+        WalletFaucetReceipt(reference: Data(repeating: 7, count: 48), state: 0, finalizedHeight: nil)
+    }
+
+    func resolveFaucet(reference: Data) async throws -> WalletFaucetReceipt {
+        finalized = true
+        resolutions += 1
+        return WalletFaucetReceipt(reference: reference, state: 1, finalizedHeight: 11)
+    }
+
+    func verifiedOwnerCoinCells(profile: WalletDeviceProfile, finalizedHeight: UInt64,
+                                verifier: any WalletOwnerCoinProofVerifier, limit: UInt16) async throws -> WalletOwnerCoinPage {
+        requestedHeights.append(finalizedHeight)
+        if finalizedHeight < 11 { return WalletOwnerCoinPage(records: [], next: nil) }
+        if refuseNewProofs { throw WalletRPCError.malformedResponse }
+        let records = [UInt8(1), 2].map { value in
+            WalletOwnerCoinRecord(key: Data(repeating: value, count: 48), finalizedHeight: 11,
+                                  value: Data([value]), proof: Data([value]), finality: Data([value]))
+        }
+        return WalletOwnerCoinPage(records: records, next: nil)
     }
 }
 

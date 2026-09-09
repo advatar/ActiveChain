@@ -19,7 +19,7 @@ use std::{
 
 const MAX_FAUCET_RECORDS: usize = 65_535;
 const SNAPSHOT_TAG_LENGTH: usize = 32;
-const FAUCET_SNAPSHOT_VERSION: u16 = 3;
+const FAUCET_SNAPSHOT_VERSION: u16 = 4;
 
 /// A grant of more cells than this is not a faucet, it is a mistake.
 const MAX_GRANT_CELLS: usize = 8;
@@ -82,6 +82,9 @@ impl FaucetPolicy {
         if !self.testnet_only
             || self.genesis_commitment == Digest384::ZERO
             || self.grant_amount == 0
+            || self.cells_per_grant == 0
+            || usize::from(self.cells_per_grant) > MAX_GRANT_CELLS
+            || self.grant_amount < u128::from(self.cells_per_grant)
             || self.policy_revision == 0
             || self.valid_until == 0
             || self.recipient_cooldown_seconds == 0
@@ -168,6 +171,9 @@ struct FaucetRecord {
     /// How many cells this grant owes, fixed when the reservation was taken so
     /// a later policy change cannot retroactively complete or reopen it.
     required_cells: u8,
+    /// Exact delivered transaction IDs whose block inclusion was verified, persisted across
+    /// mixed-round delivery and RPC restart. Admission alone is never finality.
+    confirmed: Vec<TransactionId>,
 }
 
 impl FaucetRecord {
@@ -285,6 +291,93 @@ pub fn inspect_records(path: &Path) -> Result<Vec<FaucetRecordSummary>, FaucetEr
             created_at: record.created_at,
         })
         .collect())
+}
+
+/// Offline recovery only: stop RPC and the round runner before calling. The supplied ingress
+/// must be the authoritative deployment snapshot, bound to the current native finality root.
+/// Signed journal entries and delivered transaction identities remain immutable audit evidence.
+pub fn reject_expired_unexecuted_grant(
+    snapshot: &Path,
+    journal: &Path,
+    reference: Digest384,
+    ingress: &activechain_wallet_core::TransactionIngress,
+    genesis: Digest384,
+    height: u64,
+    finality: &[u8],
+) -> Result<FaucetReceiptV1, FaucetError> {
+    let bundle =
+        activechain_verifier_api::verify_finality_bundle_with_chain_genesis(finality, genesis)
+            .map_err(|_| FaucetError::InvalidFinalityEvidence)?;
+    let inputs = &bundle.header().inputs;
+    let root = activechain_cash_kernel::authenticated_coin_cell_root(ingress.ledger().cells())
+        .map_err(|_| FaucetError::InvalidFinalityEvidence)?;
+    if inputs.chain_id != ingress.ledger().definition().chain_id()
+        || inputs.height != height
+        || height == 0
+        || inputs.cash_cell_root != root.into_digest()
+    {
+        return Err(FaucetError::InvalidFinalityEvidence);
+    }
+    let mut records = load_records(snapshot)?;
+    let record = records
+        .iter_mut()
+        .find(|record| record.receipt.reference() == reference)
+        .ok_or(FaucetError::NotFound)?;
+    if record.receipt.state() != FaucetState::Pending || !record.confirmed.is_empty() {
+        return Err(FaucetError::InvalidTransition);
+    }
+    let authorizations = crate::operator_faucet::journal_authorizations(journal)?;
+    for cell in 0..record.required_cells {
+        let child = if record.required_cells == 1 {
+            reference
+        } else {
+            grant_cell_reference(reference, cell)
+        };
+        let authorization = authorizations
+            .iter()
+            .find(|a| a.transfer().request().settlement_reference() == Some(child));
+        let Some(authorization) = authorization else {
+            if usize::from(cell) < record.delivered.len() {
+                return Err(FaucetError::ReconciliationRequired);
+            }
+            continue;
+        };
+        let request = authorization.transfer().request();
+        let transaction =
+            TransactionId::new(request.intent_id().map_err(|_| FaucetError::Persistence)?);
+        let amount = record.receipt.amount() / u128::from(record.required_cells)
+            + if cell == 0 {
+                record.receipt.amount() % u128::from(record.required_cells)
+            } else {
+                0
+            };
+        if request.chain_id() != inputs.chain_id
+            || request.transfer().recipient() != record.receipt.recipient()
+            || request.transfer().amount() != amount
+            || request.transfer().valid_until() >= height
+            || ingress.transaction_admitted(transaction)
+            || ingress.session_consumed(request.signer(), request.session_id())
+            || ingress.next_nonce(request.signer()).is_none_or(|nonce| nonce > request.nonce())
+            || record.delivered.get(usize::from(cell)).is_some_and(|id| *id != transaction)
+        {
+            return Err(FaucetError::ReconciliationRequired);
+        }
+    }
+    let current = &record.receipt;
+    let rejected = FaucetReceiptV1::new(
+        reference,
+        current.recipient(),
+        current.amount(),
+        FaucetState::Rejected,
+        current.transaction_id(),
+        None,
+        None,
+        Vec::new(),
+    )
+    .map_err(|_| FaucetError::InvalidTransition)?;
+    record.receipt = rejected.clone();
+    save_records(snapshot, &records)?;
+    Ok(rejected)
 }
 
 /// What startup recovery did to the reservations it found open.
@@ -585,7 +678,8 @@ impl DurableFaucet {
             created_at: now,
             receipt: reservation,
             delivered: Vec::new(),
-            required_cells: self.policy.cells_per_grant.max(1),
+            required_cells: self.policy.cells_per_grant,
+            confirmed: Vec::new(),
         });
         self.publish_at(next, reservation_save_fault(fault))?;
         self.resume_pending(request.idempotency_key(), submit, fault)
@@ -718,7 +812,20 @@ impl DurableFaucet {
         let mut recovery = FaucetRecovery::default();
         for outstanding in self.pending_reconciliation() {
             let reference = outstanding.receipt.reference();
-            if prepared(reference) {
+            let record = self
+                .records
+                .iter()
+                .find(|record| record.receipt.reference() == reference)
+                .ok_or(FaucetError::NotFound)?;
+            let authorized = !record.delivered.is_empty()
+                || (0..record.required_cells).any(|cell| {
+                    prepared(if record.required_cells == 1 {
+                        reference
+                    } else {
+                        grant_cell_reference(reference, cell)
+                    })
+                });
+            if authorized {
                 match self.resume_pending(outstanding.idempotency_key, &settle, None) {
                     Ok(receipt) if receipt.transaction_id().is_some() => recovery.settled += 1,
                     Ok(_) | Err(_) => recovery.unresolved += 1,
@@ -796,6 +903,49 @@ impl DurableFaucet {
             .map(|record| &record.receipt)
     }
 
+    /// Called only after RpcServer verifies the complete ordered batch commitment and native
+    /// finality certificate. Each cell may finalize in a different block.
+    pub(crate) fn record_verified_transactions(
+        &mut self,
+        ids: &[TransactionId],
+        height: u64,
+        block: Digest384,
+        proof: &[u8],
+    ) -> Result<usize, FaucetError> {
+        let mut next = self.records.clone();
+        let mut completed = 0;
+        for record in &mut next {
+            if record.receipt.state() != FaucetState::Pending {
+                continue;
+            }
+            for transaction in &record.delivered {
+                if ids.contains(transaction) && !record.confirmed.contains(transaction) {
+                    record.confirmed.push(*transaction);
+                }
+            }
+            record.confirmed.sort_unstable();
+            if record.is_complete() && record.confirmed.len() == record.delivered.len() {
+                let current = &record.receipt;
+                record.receipt = FaucetReceiptV1::new(
+                    current.reference(),
+                    current.recipient(),
+                    current.amount(),
+                    FaucetState::Finalized,
+                    current.transaction_id(),
+                    Some(height),
+                    Some(block),
+                    proof.to_vec(),
+                )
+                .map_err(|_| FaucetError::InvalidTransition)?;
+                completed += 1;
+            }
+        }
+        if next != self.records {
+            self.publish(next)?;
+        }
+        Ok(completed)
+    }
+
     pub fn pending_transactions(&self) -> Vec<(Digest384, TransactionId)> {
         self.records
             .iter()
@@ -809,7 +959,7 @@ impl DurableFaucet {
             .collect()
     }
 
-    pub fn finalize(
+    fn finalize(
         &mut self,
         reference: Digest384,
         height: u64,
@@ -836,14 +986,14 @@ impl DurableFaucet {
         .map_err(|_| FaucetError::InvalidTransition)?;
         let mut next = self.records.clone();
         next[index].receipt = finalized.clone();
+        next[index].confirmed = next[index].delivered.clone();
+        next[index].confirmed.sort_unstable();
         self.publish(next)?;
         Ok(finalized)
     }
 
-    /// Finalizes a grant only when the supplied evidence is a valid certificate
-    /// for the configured chain and exact block identity.  The legacy
-    /// `finalize` method remains available for local fixtures; production RPC
-    /// adapters should use this fail-closed boundary.
+    /// Finalizes a dedicated grant-only batch with valid native evidence and the exact
+    /// ordered commitment to every delivered cell. Mixed batches use RpcServer reconciliation.
     pub fn finalize_verified(
         &mut self,
         reference: Digest384,
@@ -856,7 +1006,23 @@ impl DurableFaucet {
             self.policy.genesis_commitment,
         )
         .map_err(|_| FaucetError::InvalidFinalityEvidence)?;
-        if bundle.header().inputs.height != height
+        let record = self
+            .records
+            .iter()
+            .find(|record| record.receipt.reference() == reference)
+            .ok_or(FaucetError::NotFound)?;
+        let mut committed = Vec::new();
+        for transaction in &record.delivered {
+            committed.extend_from_slice(transaction.digest().as_bytes());
+        }
+        if !record.is_complete()
+            || record.receipt.state() != FaucetState::Pending
+            || bundle.header().inputs.chain_id != self.policy.chain_id
+            || activechain_finality_types::commit_parts(
+                b"ACTIVECHAIN-BLOCK-CASH-ACTIONS-V1",
+                &[&committed],
+            ) != bundle.header().inputs.cash_action_root
+            || bundle.header().inputs.height != height
             || bundle.header().digest().map_err(|_| FaucetError::InvalidFinalityEvidence)? != block
         {
             return Err(FaucetError::InvalidFinalityEvidence);
@@ -1041,11 +1207,16 @@ impl CanonicalEncode for FaucetRecord {
         for transaction in &self.delivered {
             transaction.encode(encoder)?;
         }
-        self.required_cells.encode(encoder)
+        self.required_cells.encode(encoder)?;
+        encoder.write_length(self.confirmed.len(), MAX_GRANT_CELLS)?;
+        for transaction in &self.confirmed {
+            transaction.encode(encoder)?;
+        }
+        Ok(())
     }
 }
-impl CanonicalDecode for FaucetRecord {
-    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+impl FaucetRecord {
+    fn decode_v3(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
         Ok(Self {
             idempotency_key: Digest384::decode(decoder)?,
             abuse_identity: Digest384::decode(decoder)?,
@@ -1062,7 +1233,19 @@ impl CanonicalDecode for FaucetRecord {
                 delivered
             },
             required_cells: u8::decode(decoder)?,
+            confirmed: Vec::new(),
         })
+    }
+}
+
+impl CanonicalDecode for FaucetRecord {
+    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let mut record = Self::decode_v3(decoder)?;
+        let count = decoder.read_length(MAX_GRANT_CELLS)?;
+        for _ in 0..count {
+            record.confirmed.push(TransactionId::decode(decoder)?);
+        }
+        Ok(record)
     }
 }
 
@@ -1167,19 +1350,23 @@ fn decode_records_v2(bytes: &[u8]) -> Result<Vec<FaucetRecord>, FaucetError> {
     // they settled at all, so they migrate exactly rather than being refused —
     // an operator upgrading must not find the faucet unable to read its own
     // records.
-    let legacy_single_cell = match version {
-        FAUCET_SNAPSHOT_VERSION => false,
-        2 => true,
-        _ => return Err(FaucetError::Persistence),
-    };
+    if !matches!(version, 2 | 3 | FAUCET_SNAPSHOT_VERSION) {
+        return Err(FaucetError::Persistence);
+    }
     let count = decoder.read_length(MAX_FAUCET_RECORDS).map_err(|_| FaucetError::Persistence)?;
     let mut records = Vec::with_capacity(count);
     for _ in 0..count {
-        let record = if legacy_single_cell {
-            decode_single_cell_record(&mut decoder)?
-        } else {
-            FaucetRecord::decode(&mut decoder).map_err(|_| FaucetError::Persistence)?
+        let mut record = match version {
+            2 => decode_single_cell_record(&mut decoder)?,
+            3 => FaucetRecord::decode_v3(&mut decoder).map_err(|_| FaucetError::Persistence)?,
+            _ => FaucetRecord::decode(&mut decoder).map_err(|_| FaucetError::Persistence)?,
         };
+        if version < 4 && record.receipt.state() == FaucetState::Finalized {
+            // Preserve historical terminal records; pending legacy grants must accumulate
+            // verified inclusion from retained finality archives under the new rule.
+            record.confirmed = record.delivered.clone();
+            record.confirmed.sort_unstable();
+        }
         records.push(record);
     }
     decoder.finish().map_err(|_| FaucetError::Persistence)?;
@@ -1204,6 +1391,7 @@ fn decode_single_cell_record(decoder: &mut Decoder<'_>) -> Result<FaucetRecord, 
         receipt,
         delivered,
         required_cells: 1,
+        confirmed: Vec::new(),
     })
 }
 
@@ -1235,6 +1423,7 @@ fn decode_records_v1(bytes: &[u8]) -> Result<Vec<FaucetRecord>, FaucetError> {
             receipt,
             delivered,
             required_cells: 1,
+            confirmed: Vec::new(),
         });
     }
     decoder.finish().map_err(|_| FaucetError::Persistence)?;
@@ -1251,6 +1440,20 @@ fn validate_records(mut records: Vec<FaucetRecord>) -> Result<Vec<FaucetRecord>,
                 && record.receipt.transaction_id().is_none())
     }) {
         return Err(FaucetError::Persistence);
+    }
+    for record in &records {
+        let mut delivered = record.delivered.clone();
+        delivered.sort_unstable();
+        if record.required_cells == 0
+            || usize::from(record.required_cells) > MAX_GRANT_CELLS
+            || record.delivered.len() > usize::from(record.required_cells)
+            || delivered.windows(2).any(|pair| pair[0] == pair[1])
+            || record.confirmed.windows(2).any(|pair| pair[0] >= pair[1])
+            || record.confirmed.iter().any(|id| !record.delivered.contains(id))
+            || record.receipt.transaction_id() != record.delivered.first().copied()
+        {
+            return Err(FaucetError::Persistence);
+        }
     }
     records.sort_by_key(|record| record.idempotency_key);
     if records.windows(2).any(|pair| pair[0].idempotency_key == pair[1].idempotency_key) {
@@ -1546,6 +1749,7 @@ mod tests {
         FaucetRecord {
             delivered: transaction.into_iter().collect(),
             required_cells: 1,
+            confirmed: Vec::new(),
             idempotency_key: digest(60),
             abuse_identity: digest(61),
             request_commitment: digest(62),
@@ -1950,6 +2154,128 @@ mod tests {
             faucet.recover_unresolved(|_| true, |_, _, _| Err(FaucetError::Persistence)).unwrap();
         assert_eq!(recovery, FaucetRecovery { settled: 0, rejected: 0, unresolved: 1 });
         assert_eq!(faucet.pending_reconciliation().len(), 1, "uncertainty is not evidence");
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn multi_cell_recovery_uses_child_references_and_finality_survives_restart() {
+        let path = path("multi-cell-recovery-finality");
+        let policy = FaucetPolicy { cells_per_grant: 2, ..policy() };
+        let mut faucet = DurableFaucet::create(policy, path.clone()).unwrap();
+        let counter = AtomicUsize::new(0);
+        assert_eq!(
+            faucet.request(&request(3, 40), digest(40), digest(50), 100, |_, _, _| {
+                if counter.fetch_add(1, Ordering::SeqCst) == 0 {
+                    Ok(TransactionId::new(digest(42)))
+                } else {
+                    Err(FaucetError::Persistence)
+                }
+            }),
+            Err(FaucetError::Persistence)
+        );
+        let reference = faucet.pending_reconciliation()[0].receipt().reference();
+        drop(faucet);
+        let mut faucet = DurableFaucet::open(policy, path.clone()).unwrap();
+        let recovery = faucet
+            .recover_unresolved(
+                |child| child == grant_cell_reference(reference, 0),
+                |_, amount, child| {
+                    assert_eq!(child, grant_cell_reference(reference, 1));
+                    assert_eq!(amount, 500);
+                    Ok(TransactionId::new(digest(43)))
+                },
+            )
+            .unwrap();
+        assert_eq!(recovery.settled, 1);
+        let first = TransactionId::new(digest(42));
+        let second = TransactionId::new(digest(43));
+        assert_eq!(
+            faucet.record_verified_transactions(&[first, first], 10, digest(80), &[1]).unwrap(),
+            0
+        );
+        assert_eq!(faucet.resolve(reference).unwrap().state(), FaucetState::Pending);
+        drop(faucet);
+        let mut faucet = DurableFaucet::open(policy, path.clone()).unwrap();
+        assert_eq!(
+            faucet
+                .record_verified_transactions(
+                    &[first, TransactionId::new(digest(44))],
+                    11,
+                    digest(81),
+                    &[2]
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            faucet.record_verified_transactions(&[second], 12, digest(82), &[3]).unwrap(),
+            1
+        );
+        assert_eq!(faucet.resolve(reference).unwrap().finalized_height(), Some(12));
+        assert_eq!(
+            faucet.record_verified_transactions(&[second], 13, digest(83), &[4]).unwrap(),
+            0
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn multi_cell_recovery_preserves_authorization_before_first_receipt_write() {
+        let path = path("multi-cell-prepared-recovery");
+        let policy = FaucetPolicy { cells_per_grant: 2, ..policy() };
+        let mut faucet = DurableFaucet::create(policy, path.clone()).unwrap();
+        assert_eq!(
+            faucet.request(&request(3, 40), digest(40), digest(50), 100, |_, _, _| Err(
+                FaucetError::ReconciliationRequired
+            )),
+            Err(FaucetError::ReconciliationRequired)
+        );
+        let reference = faucet.pending_reconciliation()[0].receipt().reference();
+        let recovery = faucet
+            .recover_unresolved(
+                |child| child == grant_cell_reference(reference, 0),
+                |_, _, child| Ok(TransactionId::new(child)),
+            )
+            .unwrap();
+        assert_eq!(recovery, FaucetRecovery { settled: 1, rejected: 0, unresolved: 0 });
+        assert_eq!(faucet.records[0].delivered.len(), 2);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn v3_pending_grants_migrate_without_inventing_confirmations() {
+        let path = path("v3-pending-migration");
+        let policy = FaucetPolicy { cells_per_grant: 2, ..policy() };
+        let mut faucet = DurableFaucet::create(policy, path.clone()).unwrap();
+        faucet
+            .request(&request(3, 40), digest(40), digest(50), 100, |_, _, reference| {
+                Ok(TransactionId::new(reference))
+            })
+            .unwrap();
+        let record = &faucet.records[0];
+        let mut encoder = Encoder::new(4096);
+        3_u16.encode(&mut encoder).unwrap();
+        encoder.write_length(1, MAX_FAUCET_RECORDS).unwrap();
+        record.idempotency_key.encode(&mut encoder).unwrap();
+        record.abuse_identity.encode(&mut encoder).unwrap();
+        record.request_commitment.encode(&mut encoder).unwrap();
+        record.settlement_commitment.encode(&mut encoder).unwrap();
+        record.created_at.encode(&mut encoder).unwrap();
+        record.receipt.encode(&mut encoder).unwrap();
+        encoder.write_length(record.delivered.len(), MAX_GRANT_CELLS).unwrap();
+        for transaction in &record.delivered {
+            transaction.encode(&mut encoder).unwrap();
+        }
+        record.required_cells.encode(&mut encoder).unwrap();
+        let mut bytes = encoder.finish();
+        bytes.extend_from_slice(&snapshot_tag_v2(&bytes));
+        std::fs::write(&path, bytes).unwrap();
+        let migrated = DurableFaucet::open(policy, path.clone()).unwrap();
+        assert_eq!(migrated.records[0].delivered.len(), 2);
+        assert!(migrated.records[0].confirmed.is_empty());
+        let mut corrupt = migrated.records.clone();
+        corrupt[0].confirmed.push(TransactionId::new(digest(99)));
+        assert_eq!(validate_records(corrupt), Err(FaucetError::Persistence));
         std::fs::remove_file(path).unwrap();
     }
 

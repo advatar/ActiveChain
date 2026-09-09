@@ -16,6 +16,7 @@ if [[ ! -d "$distribution" ]]; then
 fi
 mkdir -p "$(dirname "$current")"
 ln -sfn "$revision" "$current"
+"$repo_root/scripts/build-anyidentity.sh"
 xcodegen generate --spec "$project/project.yml" --project "$project"
 
 archive_path=${ACTIVECHAIN_MACOS_ARCHIVE_PATH:-"$repo_root/target/apple-archives/ActiveChainWalletMac-$revision.xcarchive"}
