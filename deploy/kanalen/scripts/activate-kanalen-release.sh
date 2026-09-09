@@ -197,6 +197,8 @@ ln -sfn "$release_dir" "$deployment_root/current"
 mkdir -p "$HOME/Library/Logs/ActiveChain"
 
 launch_domain="gui/$(id -u)"
+launchagent_dir="${ACTIVECHAIN_LAUNCHAGENT_DIR:-$HOME/Library/LaunchAgents}"
+install -d -m 0755 "$launchagent_dir"
 shopt -s nullglob
 agents=("$release_dir"/launchagents/dev.activechain."$network".*.plist)
 shopt -u nullglob
@@ -207,6 +209,11 @@ fi
 for plist in "${agents[@]}"; do
   label="$(basename "$plist" .plist)"
   "$plutil_bin" -lint "$plist" >/dev/null
+  # Bootstrap alone does not install a job for the next login. Persist the complete
+  # release configuration so validators and RPC environment cannot revert on restart.
+  installed_plist="$launchagent_dir/$label.plist"
+  install -m 0644 "$plist" "$installed_plist.tmp"
+  mv -f "$installed_plist.tmp" "$installed_plist"
   "$launchctl_bin" bootout "$launch_domain/$label" 2>/dev/null || true
   # launchd unloads asynchronously. Bootstrapping straight after a bootout
   # races the old job's departure and fails with EIO ("Bootstrap failed: 5:
@@ -220,7 +227,7 @@ for plist in "${agents[@]}"; do
   done
   bootstrapped=0
   for attempt in 1 2 3 4 5; do
-    if "$launchctl_bin" bootstrap "$launch_domain" "$plist" 2>/dev/null; then
+    if "$launchctl_bin" bootstrap "$launch_domain" "$installed_plist" 2>/dev/null; then
       bootstrapped=1
       break
     fi

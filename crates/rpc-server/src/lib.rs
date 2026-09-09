@@ -15,6 +15,7 @@ pub use anchor_settlement::{
 pub use faucet::{
     DurableFaucet, FaucetError, FaucetPolicy, FaucetReconciliation, FaucetRecovery, SybilPolicy,
     faucet_abuse_identity, faucet_rejection, faucet_settlement_commitment, inspect_records,
+    reject_expired_unexecuted_grant,
 };
 pub use operator_faucet::{
     DurableOperatorFaucetSettlement, FaucetEnvelopeAuthorizer, MlDsa44FaucetAuthorizer,
@@ -22,7 +23,7 @@ pub use operator_faucet::{
 };
 pub use transfer_submission::{
     DurableTransferSubmissions, TransferSubmissionError, TransferSubmissionPolicy, frame_actions,
-    parse_framed_actions,
+    parse_framed_actions, qualify_cash_actions,
 };
 
 use activechain_action_kernel::{ActionEnvelope, ActionPayloadV2, action_id};
@@ -1204,22 +1205,15 @@ impl RpcServer {
             faucet.policy().genesis_commitment,
         )
         .map_err(|_| FaucetError::InvalidFinalityEvidence)?;
-        if commit_parts(b"ACTIVECHAIN-BLOCK-CASH-ACTIONS-V1", &[&committed])
-            != bundle.header().inputs.cash_action_root
+        if bundle.header().inputs.chain_id != faucet.policy().chain_id
+            || commit_parts(b"ACTIVECHAIN-BLOCK-CASH-ACTIONS-V1", &[&committed])
+                != bundle.header().inputs.cash_action_root
         {
             return Err(FaucetError::InvalidFinalityEvidence);
         }
         let height = bundle.header().inputs.height;
         let block = bundle.header().digest().map_err(|_| FaucetError::InvalidFinalityEvidence)?;
-        let pending = faucet.pending_transactions();
-        let mut reconciled = 0;
-        for (reference, transaction) in pending {
-            if ids.contains(&transaction) {
-                faucet.finalize_verified(reference, height, block, finality.to_vec())?;
-                reconciled += 1;
-            }
-        }
-        Ok(reconciled)
+        faucet.record_verified_transactions(&ids, height, block, finality)
     }
 
     /// Advances retained public-transfer receipts only when the archived cash
@@ -2208,6 +2202,12 @@ mod tests {
 
     fn authorized_cash_fixture()
     -> (TransactionIngress, SigningKey<MlDsa44>, PrincipalId, CoinTransfer) {
+        authorized_cash_fixture_with_cells(2)
+    }
+
+    fn authorized_cash_fixture_with_cells(
+        count: usize,
+    ) -> (TransactionIngress, SigningKey<MlDsa44>, PrincipalId, CoinTransfer) {
         let owner = PrincipalId::new(digest(10));
         let recipient = PrincipalId::new(digest(11));
         let definition = NativeAssetDefinition::new(
@@ -2223,10 +2223,16 @@ mod tests {
         .unwrap();
         let economy = GenesisEconomy::new(
             definition,
-            vec![
-                GenesisAllocation::new(owner, 700, 100).unwrap(),
-                GenesisAllocation::new(owner, 100, 0).unwrap(),
-            ],
+            {
+                let mut allocations = vec![GenesisAllocation::new(owner, 700, 100).unwrap()];
+                let each = 100 / (count as u128 - 1);
+                for index in 1..count {
+                    let amount =
+                        if index == count - 1 { 100 - each * (count as u128 - 2) } else { each };
+                    allocations.push(GenesisAllocation::new(owner, amount, 0).unwrap());
+                }
+                allocations
+            },
             100,
         )
         .unwrap();
@@ -2539,6 +2545,295 @@ mod tests {
         std::fs::remove_file(index_path).unwrap();
         std::fs::remove_file(wallet_path).unwrap();
         std::fs::remove_file(journal_path).unwrap();
+    }
+
+    #[test]
+    fn queued_faucet_cells_reserve_nonces_and_inputs_across_signer_restart() {
+        let (mut ingress, key, owner, transfer) = authorized_cash_fixture_with_cells(6);
+        let recipient = transfer.recipient();
+        let root = temporary("queued-faucet");
+        std::fs::create_dir_all(&root).unwrap();
+        let wallet = root.join("wallet");
+        ingress.save_atomic(&wallet).unwrap();
+        let store = Arc::new(DurableRpcStore::create(root.join("index"), index()).unwrap());
+        let shared = Arc::new(std::sync::Mutex::new(ingress.clone()));
+        let make_authorizer = || {
+            MlDsa44FaucetAuthorizer::new(
+                Arc::clone(&shared),
+                ChainId::new(digest(1)),
+                owner,
+                key.clone(),
+                1,
+                20,
+                Arc::clone(&store),
+            )
+            .unwrap()
+            .with_snapshot_reload(wallet.clone())
+        };
+        let make_spool = || SpoolOperatorFaucetIngressAdapter::new(root.join("spool")).unwrap();
+        let journal = root.join("journal");
+        let settlement = DurableOperatorFaucetSettlement::create(
+            journal.clone(),
+            make_authorizer(),
+            make_spool(),
+        )
+        .unwrap();
+        let first = settlement.settle(recipient, 10, digest(81)).unwrap();
+        let second = settlement.settle(recipient, 10, digest(82)).unwrap();
+        drop(settlement);
+        let settlement =
+            DurableOperatorFaucetSettlement::open(journal.clone(), make_authorizer(), make_spool())
+                .unwrap();
+        assert_eq!(settlement.settle(recipient, 10, digest(81)).unwrap(), first);
+        let third = settlement.settle(recipient, 10, digest(83)).unwrap();
+        assert_eq!(
+            TransactionIngress::load(&wallet, ChainId::new(digest(1))).unwrap().next_nonce(owner),
+            Some(0)
+        );
+        let mut actions = std::fs::read_dir(root.join("spool"))
+            .unwrap()
+            .map(|entry| {
+                let frame = std::fs::read(entry.unwrap().path()).unwrap();
+                decode_envelope::<OperatorFaucetAuthorizationV1>(&frame[4..]).unwrap()
+            })
+            .collect::<Vec<_>>();
+        actions.sort_by_key(|action| action.transfer().request().nonce());
+        assert_eq!(
+            actions.iter().map(|a| a.transfer().request().nonce()).collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
+        let mut shuffled =
+            actions.iter().rev().map(|action| encode_envelope(action).unwrap()).collect::<Vec<_>>();
+        shuffled.push(encode_envelope(&actions[0]).unwrap());
+        shuffled.push(vec![0xff]);
+        let (qualified, rejected) = qualify_cash_actions(&ingress, shuffled, 8).unwrap();
+        assert_eq!(qualified.len(), 3);
+        assert_eq!(rejected.len(), 2);
+        assert!(rejected.contains(&vec![0xff]));
+        assert_eq!(
+            ingress.next_nonce(owner),
+            Some(0),
+            "qualification cannot mutate finalized state"
+        );
+        assert_eq!(
+            qualified,
+            actions.iter().map(|a| encode_envelope(a).unwrap()).collect::<Vec<_>>()
+        );
+        for action in &actions {
+            ingress.submit_operator_faucet_authorization(action, 8).unwrap();
+        }
+        assert!(ingress.transaction_admitted(first));
+        assert!(ingress.transaction_admitted(second));
+        assert!(ingress.transaction_admitted(third));
+        assert_eq!(
+            ingress
+                .ledger()
+                .cells()
+                .as_slice()
+                .iter()
+                .filter(|r| r.cell().owner() == recipient)
+                .count(),
+            3
+        );
+        ingress.save_atomic(&wallet).unwrap();
+        // Finalized reservations are no longer replayed over the new snapshot.
+        settlement.settle(recipient, 10, digest(84)).unwrap();
+        drop(settlement);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn expired_grant_recovery_requires_native_current_state_and_preserves_journal() {
+        let (ingress, key, owner, transfer) = authorized_cash_fixture_with_cells(3);
+        let root = temporary("expired-faucet-recovery");
+        std::fs::create_dir_all(&root).unwrap();
+        let cash_root =
+            activechain_cash_kernel::authenticated_coin_cell_root(ingress.ledger().cells())
+                .unwrap()
+                .into_digest();
+        let evidence = |height, cash_cell_root| {
+            signed_finality(
+                9,
+                ProofPublicInputs {
+                    height,
+                    cash_cell_root,
+                    ..public_inputs(
+                        StateCommitment::new(digest(80), 0),
+                        StateCommitment::new(digest(81), 0),
+                    )
+                },
+            )
+        };
+        let finality = evidence(9, cash_root);
+        let genesis = decode_envelope::<FinalityCertificateBundle>(&finality)
+            .unwrap()
+            .validator_genesis()
+            .genesis_commitment();
+        let policy = FaucetPolicy {
+            chain_id: ChainId::new(digest(1)),
+            genesis_commitment: genesis,
+            testnet_only: true,
+            enabled: true,
+            policy_revision: 1,
+            valid_until: 1_000,
+            grant_amount: 20,
+            cells_per_grant: 2,
+            recipient_cooldown_seconds: 60,
+            recipient_lifetime_limit: 2,
+            source_window_seconds: 60,
+            source_window_limit: 3,
+            global_window_seconds: 60,
+            global_window_limit: 3,
+            sybil_policy: SybilPolicy::CooldownOnly,
+        };
+        let store = Arc::new(DurableRpcStore::create(root.join("index"), index()).unwrap());
+        let authorizer = MlDsa44FaucetAuthorizer::new(
+            Arc::new(std::sync::Mutex::new(ingress.clone())),
+            policy.chain_id,
+            owner,
+            key,
+            1,
+            1,
+            store,
+        )
+        .unwrap();
+        let journal = root.join("journal");
+        let settlement = DurableOperatorFaucetSettlement::create(
+            journal.clone(),
+            authorizer,
+            SpoolOperatorFaucetIngressAdapter::new(root.join("spool")).unwrap(),
+        )
+        .unwrap();
+        let snapshot = root.join("faucet");
+        let mut faucet = DurableFaucet::create(policy, snapshot.clone()).unwrap();
+        let request = FaucetRequestV1::new(
+            policy.chain_id,
+            genesis,
+            transfer.recipient(),
+            digest(45),
+            digest(46),
+            0,
+            vec![],
+        )
+        .unwrap();
+        let receipt = faucet
+            .request(&request, digest(47), digest(48), 100, |recipient, amount, reference| {
+                settlement.settle(recipient, amount, reference)
+            })
+            .unwrap();
+        drop(faucet);
+        let before = std::fs::read(&snapshot).unwrap();
+        let journal_before = std::fs::read(&journal).unwrap();
+        let finalizing = root.join("finalizing-faucet");
+        std::fs::write(&finalizing, &before).unwrap();
+        let mut actions = crate::operator_faucet::journal_authorizations(&journal).unwrap();
+        actions.sort_by_key(|a| a.transfer().request().nonce());
+        let proof_for = |action: &OperatorFaucetAuthorizationV1, height| {
+            signed_finality(
+                9,
+                ProofPublicInputs {
+                    height,
+                    cash_cell_root: cash_root,
+                    cash_action_root: commit_parts(
+                        b"ACTIVECHAIN-BLOCK-CASH-ACTIONS-V1",
+                        &[action.transfer().request().intent_id().unwrap().as_bytes()],
+                    ),
+                    ..public_inputs(
+                        StateCommitment::new(digest(80), 0),
+                        StateCommitment::new(digest(81), 0),
+                    )
+                },
+            )
+        };
+        let make_server = || {
+            RpcServer::new(Arc::new(DurableRpcStore::load(root.join("index")).unwrap()))
+                .with_faucet(DurableFaucet::open(policy, finalizing.clone()).unwrap())
+        };
+        let server = make_server();
+        let first_batch = frame_actions(&[encode_envelope(&actions[0]).unwrap()]).unwrap();
+        let second_batch = frame_actions(&[encode_envelope(&actions[1]).unwrap()]).unwrap();
+        assert_eq!(
+            server.reconcile_faucet_finality(&first_batch, &proof_for(&actions[1], 8)),
+            Err(FaucetError::InvalidFinalityEvidence)
+        );
+        assert_eq!(
+            server.reconcile_faucet_finality(&first_batch, &proof_for(&actions[0], 8)).unwrap(),
+            0
+        );
+        drop(server);
+        let server = make_server();
+        assert_eq!(
+            server.reconcile_faucet_finality(&first_batch, &proof_for(&actions[0], 8)).unwrap(),
+            0
+        );
+        assert_eq!(
+            server.reconcile_faucet_finality(&second_batch, &proof_for(&actions[1], 9)).unwrap(),
+            1
+        );
+        assert_eq!(
+            DurableFaucet::open(policy, finalizing)
+                .unwrap()
+                .resolve(receipt.reference())
+                .unwrap()
+                .finalized_height(),
+            Some(9)
+        );
+        for (proof, height, pinned) in [
+            (evidence(8, cash_root), 8, genesis),
+            (evidence(9, digest(99)), 9, genesis),
+            (finality.clone(), 10, genesis),
+            (finality.clone(), 9, digest(99)),
+        ] {
+            assert!(
+                reject_expired_unexecuted_grant(
+                    &snapshot,
+                    &journal,
+                    receipt.reference(),
+                    &ingress,
+                    pinned,
+                    height,
+                    &proof
+                )
+                .is_err()
+            );
+            assert_eq!(std::fs::read(&snapshot).unwrap(), before);
+        }
+        let mut executed = ingress.clone();
+        let mut actions = crate::operator_faucet::journal_authorizations(&journal).unwrap();
+        actions.sort_by_key(|a| a.transfer().request().nonce());
+        executed.submit_operator_faucet_authorization(&actions[0], 8).unwrap();
+        let executed_root =
+            activechain_cash_kernel::authenticated_coin_cell_root(executed.ledger().cells())
+                .unwrap()
+                .into_digest();
+        assert_eq!(
+            reject_expired_unexecuted_grant(
+                &snapshot,
+                &journal,
+                receipt.reference(),
+                &executed,
+                genesis,
+                9,
+                &evidence(9, executed_root)
+            ),
+            Err(FaucetError::ReconciliationRequired)
+        );
+        let rejected = reject_expired_unexecuted_grant(
+            &snapshot,
+            &journal,
+            receipt.reference(),
+            &ingress,
+            genesis,
+            9,
+            &finality,
+        )
+        .unwrap();
+        assert_eq!(rejected.state(), activechain_rpc_types::FaucetState::Rejected);
+        assert_eq!(rejected.transaction_id(), receipt.transaction_id());
+        assert_eq!(std::fs::read(&journal).unwrap(), journal_before);
+        let restored = DurableFaucet::open(policy, snapshot).unwrap();
+        assert_eq!(restored.resolve(receipt.reference()).unwrap(), &rejected);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -2896,7 +3191,7 @@ mod tests {
         let unsigned = ValidatorVote::new(
             validator,
             context,
-            7,
+            inputs.height,
             2,
             header.digest().unwrap(),
             header.proof_statement_commitment,
@@ -2907,7 +3202,7 @@ mod tests {
         let vote = ValidatorVote::new(
             validator,
             context,
-            7,
+            inputs.height,
             2,
             header.digest().unwrap(),
             header.proof_statement_commitment,
@@ -2923,7 +3218,7 @@ mod tests {
         XofReader::read(&mut hasher.finalize_xof(), &mut vote_root);
         let certificate = QuorumCertificate::new(
             context,
-            7,
+            inputs.height,
             2,
             header.digest().unwrap(),
             header.proof_statement_commitment,

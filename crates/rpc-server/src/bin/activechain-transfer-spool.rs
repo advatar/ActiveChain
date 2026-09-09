@@ -1,5 +1,6 @@
 use activechain_rpc_server::{
     DurableRpcStore, DurableTransferSubmissions, frame_actions, parse_framed_actions,
+    qualify_cash_actions,
 };
 use activechain_wallet_core::TransactionIngress;
 use std::{
@@ -52,11 +53,23 @@ fn prepare(mut arguments: impl Iterator<Item = String>) -> Result<(), Box<dyn st
         return Err("transfer snapshot does not match the finalized RPC identity".into());
     }
     let prefix = if batch_path.exists() {
-        parse_framed_actions(&std::fs::read(&batch_path)?)
-            .map_err(|error| format!("existing cash action batch is invalid: {error:?}"))?
+        let bytes = std::fs::read(&batch_path)?;
+        match parse_framed_actions(&bytes) {
+            Ok(actions) if actions.len() <= MAX_ROUND_ACTIONS => actions,
+            _ => {
+                quarantine(&batch_path, height, &bytes)?;
+                Vec::new()
+            }
+        }
     } else {
         Vec::new()
     };
+    let (prefix, rejected) = qualify_cash_actions(&ingress, prefix, height)
+        .map_err(|error| format!("could not qualify cash batch: {error:?}"))?;
+    if !rejected.is_empty() {
+        let bytes = frame_actions(&rejected).map_err(|_| "invalid quarantine frame")?;
+        quarantine(&batch_path, height, &bytes)?;
+    }
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| "system clock predates Unix epoch")?
@@ -75,6 +88,23 @@ fn prepare(mut arguments: impl Iterator<Item = String>) -> Result<(), Box<dyn st
         actions.len(),
         appended_count
     );
+    Ok(())
+}
+
+// Publish the exact rejected bytes durably before changing the active batch.
+fn quarantine(batch: &Path, height: u64, bytes: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    let digest =
+        activechain_finality_types::commit_parts(b"ACTIVECHAIN-QUARANTINED-CASH-V1", &[bytes]);
+    let name = digest.as_bytes().iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let archive = batch.with_extension(format!("quarantined-{height}-{name}"));
+    if archive.exists() {
+        if std::fs::read(&archive)? != bytes {
+            return Err("quarantine archive conflict".into());
+        }
+    } else {
+        atomic_write(&archive, bytes)?;
+    }
+    eprintln!("quarantined invalid cash action bytes: {}", archive.display());
     Ok(())
 }
 

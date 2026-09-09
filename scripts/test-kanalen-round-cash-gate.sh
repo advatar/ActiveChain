@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-repo_root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+repo_root=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 test_root=$(mktemp -d "${TMPDIR:-/tmp}/activechain-kanalen-cash-gate.XXXXXX")
 trap 'rm -rf "$test_root"' EXIT
 
@@ -126,4 +126,29 @@ test "$(sed -n '1p' "$test_root/transfer-reconcile-arguments")" = reconcile-late
 test "$(sed -n '2p' "$test_root/transfer-reconcile-arguments")" = "$rpc_root/transfers.snapshot"
 test "$(sed -n '4p' "$test_root/transfer-reconcile-arguments")" = "$state_root"
 
-echo "Kanalen finalized-cash publication gate passed"
+# Retrying an existing batch still passes the qualification boundary.
+rm "$test_root/transfer-prepare-arguments"
+run_round
+test -f "$test_root/transfer-prepare-arguments"
+
+# Simulate a crash after moving the first member but before assembling a batch.
+rm -f "$state_root/pending-cash-actions.batch" "$rpc_root/transfers.snapshot"
+mkdir -p "$state_root/cash-action-spool" "$state_root/cash-action-spool.inflight"
+printf '000\n' > "$state_root/cash-action-spool.inflight/000.action"
+index=1
+while test "$index" -le 39; do
+  name=$(printf '%03d' "$index")
+  printf '%s\n' "$name" > "$state_root/cash-action-spool/$name.action"
+  index=$((index + 1))
+done
+run_round
+test "$(wc -l < "$state_root/pending-cash-actions.batch" | tr -d ' ')" = 32
+test "$(head -n 1 "$state_root/pending-cash-actions.batch")" = 000
+test "$(tail -n 1 "$state_root/pending-cash-actions.batch")" = 031
+test "$(find "$state_root/cash-action-spool" -name '*.action' | wc -l | tr -d ' ')" = 8
+cp "$state_root/pending-cash-actions.batch" "$test_root/expected-batch"
+run_round
+cmp "$state_root/pending-cash-actions.batch" "$test_root/expected-batch"
+test "$(find "$state_root/cash-action-spool" -name '*.action' | wc -l | tr -d ' ')" = 8
+
+echo "Kanalen finalized-cash publication and bounded spool recovery gates passed"

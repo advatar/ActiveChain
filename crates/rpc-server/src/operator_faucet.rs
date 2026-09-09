@@ -30,6 +30,10 @@ const MAX_AUTHORIZED_ENVELOPE: usize = 64 * 1024;
 /// Operator/HSM boundary that produces a treasury-signed cash envelope only after faucet policy
 /// admission. Implementations retain custody of the faucet source key.
 pub trait FaucetEnvelopeAuthorizer: Send {
+    /// Restore durable reservations before signing. External signers may maintain their own
+    /// reservation service; the built-in signer replays these over finalized treasury state.
+    fn restore_prepared(&mut self, _prepared: Vec<OperatorFaucetAuthorizationV1>) {}
+
     fn authorize(
         &mut self,
         recipient: PrincipalId,
@@ -76,6 +80,7 @@ pub struct MlDsa44FaucetAuthorizer {
     valid_for_blocks: u64,
     finalized_height: std::sync::Arc<crate::DurableRpcStore>,
     reload_path: Option<PathBuf>,
+    prepared: Vec<OperatorFaucetAuthorizationV1>,
 }
 
 impl MlDsa44FaucetAuthorizer {
@@ -101,6 +106,7 @@ impl MlDsa44FaucetAuthorizer {
             valid_for_blocks,
             finalized_height,
             reload_path: None,
+            prepared: Vec::new(),
         })
     }
 
@@ -113,6 +119,10 @@ impl MlDsa44FaucetAuthorizer {
 }
 
 impl FaucetEnvelopeAuthorizer for MlDsa44FaucetAuthorizer {
+    fn restore_prepared(&mut self, prepared: Vec<OperatorFaucetAuthorizationV1>) {
+        self.prepared = prepared;
+    }
+
     fn authorize(
         &mut self,
         recipient: PrincipalId,
@@ -120,17 +130,37 @@ impl FaucetEnvelopeAuthorizer for MlDsa44FaucetAuthorizer {
         reference: Digest384,
     ) -> Result<OperatorFaucetAuthorizationV1, FaucetError> {
         self.finalized_height.reload().map_err(|_| FaucetError::Persistence)?;
-        if let Some(path) = self.reload_path.as_ref() {
-            let fresh = TransactionIngress::load(path, self.chain_id)
-                .map_err(|_| FaucetError::Persistence)?;
-            *self.ingress.lock().map_err(|_| FaucetError::Persistence)? = fresh;
-        }
+        let mut ingress = if let Some(path) = self.reload_path.as_ref() {
+            TransactionIngress::load(path, self.chain_id).map_err(|_| FaucetError::Persistence)?
+        } else {
+            self.ingress.lock().map_err(|_| FaucetError::Persistence)?.clone()
+        };
         let height =
             self.finalized_height.finalized_height().map_err(|_| FaucetError::Persistence)?;
+        let next_height = height.checked_add(1).ok_or(FaucetError::InvalidTransition)?;
         let valid_until =
             height.checked_add(self.valid_for_blocks).ok_or(FaucetError::InvalidTransition)?;
         let required = amount.checked_add(self.fee).ok_or(FaucetError::InvalidTransition)?;
-        let ingress = self.ingress.lock().map_err(|_| FaucetError::Persistence)?;
+        let finalized_nonce =
+            ingress.next_nonce(self.source).ok_or(FaucetError::InvalidTransition)?;
+        let mut pending = self
+            .prepared
+            .iter()
+            .filter(|authorization| {
+                let request = authorization.transfer().request();
+                request.signer() == self.source
+                    && request.nonce() >= finalized_nonce
+                    && request.transfer().valid_until() >= next_height
+            })
+            .collect::<Vec<_>>();
+        pending.sort_by_key(|authorization| authorization.transfer().request().nonce());
+        for authorization in pending {
+            // Never alter the consensus-owned snapshot. Replay reserves both the nonce and
+            // the resulting Coin Cell topology, including dependent change outputs.
+            ingress
+                .submit_operator_faucet_authorization(authorization, next_height)
+                .map_err(|_| FaucetError::InvalidTransition)?;
+        }
         let nonce = ingress.next_nonce(self.source).ok_or(FaucetError::InvalidTransition)?;
         let mut cells = ingress
             .ledger()
@@ -271,7 +301,8 @@ impl OperatorFaucetIngressAdapter for SpoolOperatorFaucetIngressAdapter {
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
-        let target = self.directory.join(format!("{name}.action"));
+        // The bounded round queue must select predecessors before their dependants.
+        let target = self.directory.join(format!("{:020}-{name}.action", request.nonce()));
         if target.exists() {
             return if std::fs::read(&target).map_err(|_| FaucetError::Persistence)? == framed {
                 Ok(transaction)
@@ -445,11 +476,17 @@ where
             }
             prepared.clone()
         } else {
-            let authorization = self
-                .authorizer
-                .lock()
-                .map_err(|_| FaucetError::Persistence)?
-                .authorize(recipient, amount, reference)?;
+            let mut authorizer = self.authorizer.lock().map_err(|_| FaucetError::Persistence)?;
+            let prepared = journal
+                .records
+                .iter()
+                .map(|record| {
+                    decode_envelope::<OperatorFaucetAuthorizationV1>(&record.envelope)
+                        .map_err(|_| FaucetError::Persistence)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            authorizer.restore_prepared(prepared);
+            let authorization = authorizer.authorize(recipient, amount, reference)?;
             let envelope =
                 encode_envelope(&authorization).map_err(|_| FaucetError::InvalidTransition)?;
             let prepared = prepared_settlement(envelope, recipient, amount, reference)?;
@@ -547,6 +584,15 @@ fn save_journal(path: &Path, records: &[PreparedSettlement]) -> Result<(), Fauce
 /// and startup recovery needs it before it may touch anything.
 pub fn journal_references(path: &Path) -> Result<Vec<Digest384>, FaucetError> {
     Ok(load_journal(path)?.into_iter().map(|prepared| prepared.reference).collect())
+}
+
+pub(crate) fn journal_authorizations(
+    path: &Path,
+) -> Result<Vec<OperatorFaucetAuthorizationV1>, FaucetError> {
+    load_journal(path)?
+        .into_iter()
+        .map(|record| decode_envelope(&record.envelope).map_err(|_| FaucetError::Persistence))
+        .collect()
 }
 
 fn load_journal(path: &Path) -> Result<Vec<PreparedSettlement>, FaucetError> {

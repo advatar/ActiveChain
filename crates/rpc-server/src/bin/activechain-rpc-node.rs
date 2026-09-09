@@ -384,8 +384,18 @@ fn reconcile_faucet_archives(
     directory: &PathBuf,
     reconciled: &mut BTreeSet<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    for entry in std::fs::read_dir(directory)? {
-        let entry = entry?;
+    let mut entries = std::fs::read_dir(directory)?.collect::<Result<Vec<_>, _>>()?;
+    entries.sort_by_key(|entry| {
+        entry
+            .file_name()
+            .to_string_lossy()
+            .strip_prefix("pending-cash-actions.batch.finalized-")
+            .and_then(|height| height.parse::<u64>().ok())
+            .unwrap_or(0)
+    });
+    // Replaying archives chronologically makes the final receipt name the block that
+    // completed the whole grant, including after a restart between its cells.
+    for entry in entries {
         let name = entry.file_name().to_string_lossy().into_owned();
         let Some(height) = name.strip_prefix("pending-cash-actions.batch.finalized-") else {
             continue;

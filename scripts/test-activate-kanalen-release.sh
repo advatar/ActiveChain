@@ -105,6 +105,7 @@ tar -czf "$archive" -C "$test_root/payload" kanalen
 shasum -a 256 "$archive" >"$checksum"
 
 ACTIVECHAIN_KANALEN_ROOT="$deployment" \
+ACTIVECHAIN_LAUNCHAGENT_DIR="$test_root/LaunchAgents" \
 ACTIVECHAIN_LAUNCHCTL="$test_root/tools/launchctl" \
 ACTIVECHAIN_LAUNCHCTL_LOG="$test_root/launchctl.log" \
 ACTIVECHAIN_PLUTIL="$test_root/tools/plutil" \
@@ -124,6 +125,10 @@ test -s "$deployment/work-proof/bearer.token"
 test -s "$deployment/work-delivery/bearer.token"
 test -d "$deployment/work-delivery/receipts"
 test "$(grep -c '^bootstrap ' "$test_root/launchctl.log")" = 8
+for plist in "$deployment/current/launchagents/"*.plist; do
+  cmp "$plist" "$test_root/LaunchAgents/$(basename "$plist")"
+done
+grep -q "$test_root/LaunchAgents/" "$test_root/launchctl.log"
 test "$(grep -c '^--context test-kanalen compose ' "$test_root/docker.log")" = 4
 test "$(grep -c 'Set :ProgramArguments:' "$test_root/plistbuddy.log")" = 3
 test "$(grep -c '^# BEGIN activechain-kanalen$' "$test_root/providehr/Caddyfile")" = 1
@@ -131,9 +136,13 @@ grep -q '^kanalen\.actum\.network, kanalen\.activechain\.dev {' "$test_root/prov
 grep -q '^anchor\.kanalen\.actum\.network {' "$test_root/providehr/Caddyfile"
 grep -q '^verify\.kanalen\.actum\.network {' "$test_root/providehr/Caddyfile"
 grep -q '^delivery\.kanalen\.actum\.network' "$test_root/providehr/Caddyfile"
-! grep -q 'old\.kanalen\.test' "$test_root/providehr/Caddyfile"
+if grep -q 'old\.kanalen\.test' "$test_root/providehr/Caddyfile"; then
+  echo 'activation retained the stale gateway configuration' >&2
+  exit 1
+fi
 
 ACTIVECHAIN_KANALEN_ROOT="$deployment" \
+ACTIVECHAIN_LAUNCHAGENT_DIR="$test_root/LaunchAgents" \
 ACTIVECHAIN_LAUNCHCTL="$test_root/tools/launchctl" \
 ACTIVECHAIN_LAUNCHCTL_LOG="$test_root/launchctl.log" \
 ACTIVECHAIN_PLUTIL="$test_root/tools/plutil" \

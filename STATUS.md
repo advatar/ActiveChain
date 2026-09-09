@@ -13,12 +13,13 @@ Tracked by [GitHub issue #839](https://github.com/advatar/ActiveChain/issues/839
       acknowledgement, real faucet settlement, at least two verified Coin Cells, and relaunch.
 - [x] Build the Apple distribution and iOS app/UI target locally; pass nine health-probe tests
       and the iOS unit suite (44 passed, two existing opt-in live tests skipped).
-- [ ] Repair durable treasury nonce/input reservation across queued grant cells and restarts.
-- [ ] Order pending transfers by dependencies, isolate invalid work, and require every grant cell
+- [x] Repair durable treasury nonce/input reservation across queued grant cells and restarts.
+- [x] Order pending transfers by dependencies, isolate invalid work, and require every grant cell
       to have finalized evidence before reporting completion.
+- [x] Persist complete release LaunchAgents across login and add offline, evidence-bound recovery.
 - [ ] Recover the expired incident grant without replacing its signed envelopes, qualify the
       corrected deployment, and restore faucet admissions.
-- [ ] Pass the live funded-wallet lifecycle. Blocked by reproduced
+- [ ] Pass the live funded-wallet lifecycle after deploying the repair for
       [faucet settlement defect #841](https://github.com/advatar/ActiveChain/issues/841).
 - [ ] Pass the exact substantive revision's full deterministic-kernel gate, merge, prove
       `origin/main` reachability, and delete the source branch after live qualification succeeds.
@@ -41,7 +42,11 @@ under `tmp/ios-wallet-e2e.CxvT6t/`: `SignedRetry.xcresult` records the live pend
 and `UnitTests.xcresult` records the successful unit suite. The unsigned initial run exposed
 Keychain `-34018`; the runner now uses ad-hoc simulator signing, bounded test timeouts, and no
 verbose system diagnostics. All agent simulator tests ran serially and disposable XCTest clones
-were cleaned after each run. The full merge gate has not run because live acceptance is blocked.
+were cleaned after each run. The repair is now implemented with restart, dependency, partial-finality, migration, and expired-grant
+regressions. See [the recovery runbook](docs/FAUCET_SETTLEMENT_RECOVERY.md). Local qualification passed: 78 RPC library tests plus the complete RPC binary/doc suites, strict
+all-feature Clippy, formatting, nine probe tests, serial iOS builds/unit tests, activation and bounded
+spool regressions, and the three-validator wallet/process acceptance rehearsal. Full qualification
+and live acceptance remain required before completion.
 
 ## Completed — restore exact-main qualification
 

@@ -560,6 +560,42 @@ impl DurableTransferSubmissions {
     }
 }
 
+/// Qualify an operator batch against finalized state, resolving dependencies before execution.
+/// Rejected bytes are returned unchanged for durable quarantine, never silently discarded.
+pub type CashActionBatch = Vec<Vec<u8>>;
+
+pub fn qualify_cash_actions(
+    ingress: &TransactionIngress,
+    mut actions: Vec<Vec<u8>>,
+    height: u64,
+) -> Result<(CashActionBatch, CashActionBatch), TransferSubmissionError> {
+    if actions.len() > 32 {
+        return Err(TransferSubmissionError::Persistence);
+    }
+    actions.sort_by_key(|bytes| {
+        decode_envelope::<OperatorFaucetAuthorizationV1>(bytes)
+            .ok()
+            .map(|a| (a.transfer().request().signer(), a.transfer().request().nonce()))
+    });
+    let mut preview = ingress.clone();
+    let mut accepted = Vec::new();
+    loop {
+        let before = actions.len();
+        let mut remaining = Vec::new();
+        for action in actions {
+            if apply_action(&mut preview, &action, height).is_ok() {
+                accepted.push(action);
+            } else {
+                remaining.push(action);
+            }
+        }
+        if remaining.len() == before || remaining.is_empty() {
+            return Ok((accepted, remaining));
+        }
+        actions = remaining;
+    }
+}
+
 pub fn parse_framed_actions(bytes: &[u8]) -> Result<Vec<Vec<u8>>, TransferSubmissionError> {
     let mut offset = 0;
     let mut actions = Vec::new();
