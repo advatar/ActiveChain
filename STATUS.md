@@ -2,7 +2,7 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
-## Blocked — live Kanalen health and fresh iOS wallet faucet lifecycle
+## Active — Kanalen faucet settlement recovery and fresh iOS wallet lifecycle
 
 Tracked by [GitHub issue #839](https://github.com/advatar/ActiveChain/issues/839) and
 [draft PR #840](https://github.com/advatar/ActiveChain/pull/840).
@@ -13,6 +13,11 @@ Tracked by [GitHub issue #839](https://github.com/advatar/ActiveChain/issues/839
       acknowledgement, real faucet settlement, at least two verified Coin Cells, and relaunch.
 - [x] Build the Apple distribution and iOS app/UI target locally; pass nine health-probe tests
       and the iOS unit suite (44 passed, two existing opt-in live tests skipped).
+- [ ] Repair durable treasury nonce/input reservation across queued grant cells and restarts.
+- [ ] Order pending transfers by dependencies, isolate invalid work, and require every grant cell
+      to have finalized evidence before reporting completion.
+- [ ] Recover the expired incident grant without replacing its signed envelopes, qualify the
+      corrected deployment, and restore faucet admissions.
 - [ ] Pass the live funded-wallet lifecycle. Blocked by reproduced
       [faucet settlement defect #841](https://github.com/advatar/ActiveChain/issues/841).
 - [ ] Pass the exact substantive revision's full deterministic-kernel gate, merge, prove
