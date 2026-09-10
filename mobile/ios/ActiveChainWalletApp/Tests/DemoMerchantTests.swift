@@ -7,7 +7,7 @@ final class DemoMerchantTests: XCTestCase {
     private func coin(key: UInt8, amount: DemoAmount, owner: Data? = nil) -> WalletOwnerCoinRecord {
         let body = Data(repeating: 9, count: 48) + DemoMerchant.integer(UInt16(0)) + (owner ?? self.owner) + DemoMerchant.integer(amount.high) + DemoMerchant.integer(amount.low) + DemoMerchant.integer(UInt64(10))
         return WalletOwnerCoinRecord(key: Data(repeating: key, count: 48), finalizedHeight: 10,
-            value: Data([0, 0x83, 0, 1, 122]) + body, proof: Data([1]), finality: Data([1]))
+            value: Data([1, 0x2d, 0, 1, 0xaa, 1]) + Data(repeating: key, count: 48) + body, proof: Data([1]), finality: Data([1]))
     }
     func testPriceAndFeeSelectionUseDistinctOwnedCellsAndExactNativeReview() throws {
         let first = coin(key: 2, amount: DemoAmount(high: 2, low: 13_106_511_852_580_896_768))
@@ -49,6 +49,29 @@ final class DemoMerchantTests: XCTestCase {
         XCTAssertThrowsError(try DemoCoin(value: value + Data([0])))
         var altered = value; altered[1] = 0x84
         XCTAssertThrowsError(try DemoCoin(value: altered))
+    }
+    func testRPCRecordMatchesRustCanonicalEncoding() throws {
+        // Produced by activechain_canonical_codec::encode_envelope(CoinCellRecord::new(
+        // id=[7;48], CoinCell(origin=([9;48], 2), owner=[8;48], amount=50e18, height=20890))).
+        // RPC values contain the record ID before the cell, without a nested cell envelope.
+        let hex =
+            "012d0001aa010707070707070707070707070707070707070707070707070707070707070707070707070707" +
+            "0707070707070707070709090909090909090909090909090909090909090909090909090909090909090909" +
+            "0909090909090909090909090909000208080808080808080808080808080808080808080808080808080808" +
+            "08080808080808080808080808080808080808080000000000000002b5e3af16b1880000000000000000519a"
+        let value = Data(stride(from: 0, to: hex.count, by: 2).map { offset in
+            let start = hex.index(hex.startIndex, offsetBy: offset)
+            return UInt8(hex[start..<hex.index(start, offsetBy: 2)], radix: 16)!
+        })
+        let cell = try DemoCoin(value: value)
+        XCTAssertEqual(cell.id, Data(repeating: 7, count: 48))
+        XCTAssertEqual(cell.origin, Data(repeating: 9, count: 48))
+        XCTAssertEqual(cell.outputIndex, 2)
+        XCTAssertEqual(cell.owner, owner)
+        XCTAssertEqual(cell.amount.actText, "50 ACT")
+        XCTAssertEqual(cell.creationHeight, 20890)
+        let standalone = Data([0, 0x83, 0, 1, 122]) + value.suffix(122)
+        XCTAssertThrowsError(try DemoCoin(value: standalone))
     }
     func testPendingJournalSurvivesRelaunchWithoutClaimingPayment() throws {
         let purchase = DemoPurchase(request: Data([1]), reference: owner, session: Data([2]), transfer: Data([3]), paymentChange: DemoAmount(high: 0, low: 4), feeChange: DemoAmount(high: 0, low: 5))

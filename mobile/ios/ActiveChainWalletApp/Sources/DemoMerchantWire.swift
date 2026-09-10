@@ -134,6 +134,7 @@ struct DemoAmount: Equatable, Codable {
     }
 }
 struct DemoCoin: Equatable {
+    let id: Data
     let origin: Data
     let outputIndex: UInt16
     let owner: Data
@@ -141,8 +142,10 @@ struct DemoCoin: Equatable {
     let creationHeight: UInt64
     init(value: Data) throws {
         var d = WalletBinaryDecoder(data: value)
-        guard try d.readUInt16() == 0x0083, try d.readUInt16() == 1,
-              try d.readULEB128(maximum: 122) == 122, d.remaining == 122 else { throw DemoShopError("Unsupported Coin Cell value.") }
+        // RPC QueryRecord.value is the canonical CoinCellRecord envelope: ID + cell.
+        guard try d.readUInt16() == 0x012d, try d.readUInt16() == 1,
+              try d.readULEB128(maximum: 170) == 170, d.remaining == 170 else { throw DemoShopError("Unsupported Coin Cell record.") }
+        id = try d.read(count: 48)
         origin = try d.read(count: 48); outputIndex = try d.readUInt16(); owner = try d.read(count: 48)
         amount = try DemoAmount(high: d.readUInt64(), low: d.readUInt64()); creationHeight = try d.readUInt64()
     }

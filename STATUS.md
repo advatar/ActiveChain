@@ -17,11 +17,14 @@ Draft [PR #845](https://github.com/advatar/ActiveChain/pull/845) owns the unit.
 - [x] Build and sign payments from verified wallet holdings, submit through RPC, and persist pending purchases.
 - [x] Verify settlement and merchant holdings before displaying a paid receipt; handle retry and relaunch.
 - [x] Add unit coverage and a serial live iOS purchase test using faucet-funded coins.
-- [ ] Restore the schema 5 app/server connection now that deployment SSH is reachable.
-- [ ] Replace the hardcoded asset card with verified ACT holdings and remove claims about unimplemented credential storage.
+- [x] Restore the schema 5 app/server connection now that deployment SSH is reachable.
+- [x] Replace the hardcoded asset card with verified ACT holdings and remove claims about unimplemented credential storage.
 - [ ] Deploy RPC schema 5 and pass the live faucet → enrollment → coffee → relaunch test.
-      SSH access to `192.168.2.126` was restored on 2026-09-10. The deployed schema 4 RPC is
-      healthy; schema 5 app requests are closed by the older server. Upgrade and live acceptance remain.
+      Schema 5 deployed on 2026-09-10 with chain state preserved; the user wallet faucet
+      finalized at block 20890. Live acceptance found the Swift amount reader expected a
+      CoinCell envelope instead of RPC CoinCellRecord. Corrected against Rust-generated
+      canonical bytes; the user simulator now displays 100 ACT as two verified 50 ACT cells.
+      The corrected iOS unit suite passes (58 passed, two opt-in live tests skipped).
 - [ ] Pass local builds, relevant suites, and the full exact-candidate gate; merge and verify origin/main reachability.
 
 Local checkpoint: the iOS wallet suite passed (55 passed, two opt-in live tests skipped),

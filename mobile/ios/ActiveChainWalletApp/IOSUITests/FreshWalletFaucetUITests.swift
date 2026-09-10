@@ -142,6 +142,13 @@ final class FreshWalletFaucetUITests: XCTestCase {
         app.tabBars.buttons["Shop"].tap()
         XCTAssertTrue(paid.waitForExistence(timeout: 45), "The verified purchase must survive relaunch")
         XCTAssertEqual(app.staticTexts["shop.receipt"].label, paymentReceipt)
+        app.tabBars.buttons["Wallet"].tap()
+        reveal(balance, upwards: false)
+        waitForLabel(balance, pattern: "94.999 ACT", timeout: 60)
+        let assetBalance = app.staticTexts["assets.act.balance"]
+        reveal(assetBalance)
+        XCTAssertEqual(assetBalance.label, "94.999 ACT")
+        app.tabBars.buttons["Shop"].tap()
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Verified demo coffee purchase after relaunch"
         screenshot.lifetime = .keepAlways
