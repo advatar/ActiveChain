@@ -1075,7 +1075,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         1,
                         signer.validator(),
                     )
-                    .map_err(|_| std::io::Error::other("canonical finalized cash draft construction failed").into())
+                    .map_err(|error| std::io::Error::other(format!("canonical finalized cash draft construction failed: {error:?}")).into())
                 })
                 .transpose()?;
             if let Some(draft) = publication_draft.as_ref() {

@@ -36,7 +36,9 @@ fn derive_proof_public_inputs(
     data_shards: usize,
     parity_shards: usize,
 ) -> Result<(ProofPublicInputs, ChainState, BlockReceipt, Vec<u8>), FinalizedBlockAdmissionError> {
-    if cash_action_ids.is_empty() != (pre_cash_cell_root == cash_cell_root) {
+    // Enrollment changes authorization state and commits an action ID while
+    // preserving every Coin Cell. Only an unaccounted holdings change is invalid.
+    if cash_action_ids.is_empty() && pre_cash_cell_root != cash_cell_root {
         return Err(FinalizedBlockAdmissionError::Execution);
     }
     let encoded =
@@ -804,6 +806,91 @@ mod tests {
             .unwrap(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn finalized_draft_commits_real_enrollment_without_changing_coin_cells() {
+        use activechain_cash_kernel::{GenesisAllocation, GenesisEconomy, NativeAssetDefinition};
+        use activechain_protocol_types::{CryptoSuiteId, ProtocolSignature, TransactionId};
+        use activechain_wallet_core::CashKeyEnrollmentV1;
+
+        let (state, block, inputs, _, _, _, root) = fixture();
+        let key = SigningKey::<MlDsa44>::from_seed(&Seed::from([62; 32]));
+        let public = key.verifying_key().encode().to_vec();
+        let owner = activechain_wallet_core::wallet_principal_id(&public);
+        let definition = NativeAssetDefinition::new(
+            block.chain_id(),
+            b"ACT".to_vec(),
+            18,
+            1000,
+            150,
+            Digest384::new([3; 48]),
+            Digest384::new([4; 48]),
+            Digest384::new([5; 48]),
+        )
+        .unwrap();
+        let economy = GenesisEconomy::new(
+            definition,
+            vec![GenesisAllocation::new(owner, 800, 100).unwrap()],
+            100,
+        )
+        .unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "activechain-enrollment-finalized-draft-{}.snapshot",
+            std::process::id(),
+        ));
+        let gateway =
+            crate::WalletTransactionGateway::from_genesis(&economy, path.clone()).unwrap();
+        let payload =
+            CashKeyEnrollmentV1::signing_payload(block.chain_id(), &public, 1, 100).unwrap();
+        let enrollment = CashKeyEnrollmentV1::new(
+            block.chain_id(),
+            public,
+            1,
+            100,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, key.sign(&payload).encode().to_vec())
+                .unwrap(),
+        )
+        .unwrap();
+        let batch =
+            gateway.prepare_envelope_batch(&[encode_envelope(&enrollment).unwrap()], 1).unwrap();
+        assert_eq!(batch.pre_cash_cell_root(), batch.post_cash_cell_root());
+        assert_eq!(batch.action_ids(), &[TransactionId::new(enrollment.reference().unwrap())]);
+        let build = |actions: &[TransactionId], post_root| {
+            PreparedDirectFinalizedBlock::new(
+                &state,
+                &block,
+                inputs.epoch,
+                inputs.protocol_revision,
+                root,
+                1000,
+                0,
+                0,
+                batch.pre_cash_cell_root(),
+                actions,
+                post_root,
+                1,
+                1,
+                owner,
+            )
+        };
+        let draft = build(batch.action_ids(), batch.post_cash_cell_root()).unwrap();
+        assert_eq!(
+            draft.header().inputs.cash_action_root,
+            commitment(
+                b"ACTIVECHAIN-BLOCK-CASH-ACTIONS-V1",
+                &[enrollment.reference().unwrap().as_bytes()],
+            )
+        );
+        assert!(DirectExecutionProofVerifier.verify(
+            draft.proof.proof_system,
+            draft.proof.statement_commitment().unwrap(),
+            &draft.proof.proof_bytes,
+        ));
+        let empty = build(&[], batch.post_cash_cell_root()).unwrap();
+        assert_ne!(empty.header().digest().unwrap(), draft.header().digest().unwrap());
+        assert!(build(&[], Digest384::new([99; 48])).is_err());
+        assert!(!path.exists(), "preparing the draft must not publish ingress state");
     }
 
     #[test]

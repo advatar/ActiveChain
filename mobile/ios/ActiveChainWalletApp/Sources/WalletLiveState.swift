@@ -212,7 +212,8 @@ final class WalletLiveState: ObservableObject {
                 "status refresh failed against \(WalletKanalen.hostDescription, privacy: .public): \(String(describing: error), privacy: .public)")
             networkState = .unavailable
             balanceState = .unavailable(
-                reason: "Kanalen RPC is unavailable; no local or optimistic balance is shown.")
+                reason: "Cannot connect to Kanalen. Tap the network card to retry.")
+            updateFundingAvailability()
             return
         }
         guard case let .healthy(height) = networkState,
@@ -237,6 +238,8 @@ final class WalletLiveState: ObservableObject {
                     WalletLog.rpc.error("node does not advertise the owner coin-cell capability")
                     reason = "The node does not serve owner-scoped Coin Cell proofs."
                 }
+            } else if case .incompatible = networkState {
+                reason = "This wallet build and the network configuration do not match."
             } else if case .stale = networkState {
                 reason = "The RPC checkpoint is stale; balances stay hidden until finality catches up."
             }
@@ -628,7 +631,7 @@ struct WalletFaucetReceipt: Equatable, Sendable {
     let finalizedHeight: UInt64?
 }
 
-struct WalletOwnerCoinRecord: Equatable, Sendable {
+struct WalletOwnerCoinRecord: Equatable, Sendable, Codable {
     let key: Data
     let finalizedHeight: UInt64
     let value: Data
@@ -768,10 +771,10 @@ enum WalletRPCCodec {
     /// These were previously inlined as literals at five call sites. Keeping
     /// each envelope revision explicit makes newly added variants fail closed
     /// instead of reaching the UI as an unexplained transport failure.
-    static let requestSchemaRevision: UInt16 = 3
+    static let requestSchemaRevision: UInt16 = 4
     static let responseTypeTag: UInt16 = 0x010a
-    static let responseSchemaRevision: UInt16 = 4
-    private static let requestEnvelopeHeader = Data([0x01, 0x07, 0x00, 0x03])
+    static let responseSchemaRevision: UInt16 = 5
+    private static let requestEnvelopeHeader = Data([0x01, 0x07, 0x00, 0x04])
 
     static let framedStatusRequest = framedRequest(body: Data([0]))
 
@@ -915,7 +918,7 @@ enum WalletRPCCodec {
         return WalletFaucetReceipt(reference: reference, state: state, finalizedHeight: height)
     }
 
-    private static func responseBody(
+    static func responseBody(
         _ envelope: Data,
         variant: UInt8
     ) throws -> WalletBinaryDecoder {
@@ -929,7 +932,7 @@ enum WalletRPCCodec {
         return decoder
     }
 
-    private static func framedRequest(body: Data) -> Data {
+    static func framedRequest(body: Data) -> Data {
         var envelope = requestEnvelopeHeader
         envelope.append(contentsOf: uleb128(body.count))
         envelope.append(body)
@@ -939,7 +942,7 @@ enum WalletRPCCodec {
         return frame
     }
 
-    private static func uleb128(_ input: Int) -> [UInt8] {
+    static func uleb128(_ input: Int) -> [UInt8] {
         var value = input
         var bytes: [UInt8] = []
         repeat {
@@ -954,11 +957,14 @@ enum WalletRPCCodec {
     /// Canonical envelope for RpcRequest::ListOwnerCoinCells. The owner is a
     /// 48-byte PrincipalId digest; pagination is deliberately bounded by the
     /// protocol maximum and no local balance is inferred from the request.
-    static func framedOwnerCoinCellRequest(owner: Data, limit: UInt16 = 4) throws -> Data {
+    static func framedOwnerCoinCellRequest(owner: Data, limit: UInt16 = 4, after: Data? = nil) throws -> Data {
         guard owner.count == 48, limit > 0, limit <= 4 else { throw WalletRPCError.unexpectedResponse }
         var body = Data([8])
         body.append(owner)
-        body.append(0) // Option<Digest384>::None
+        if let after {
+            guard after.count == 48 else { throw WalletRPCError.malformedResponse }
+            body.append(1); body.append(after)
+        } else { body.append(0) }
         body.append(UInt8(limit >> 8))
         body.append(UInt8(limit & 0xff))
         var envelope = requestEnvelopeHeader
@@ -973,10 +979,11 @@ enum WalletRPCCodec {
         return framed
     }
 
-    static func decodeStatus(_ envelope: Data) throws -> WalletRPCStatus {
+    static func decodeStatus(_ envelope: Data, responseRevision: UInt16 = responseSchemaRevision) throws -> WalletRPCStatus {
         var decoder = WalletBinaryDecoder(data: envelope)
         guard try decoder.readUInt16() == responseTypeTag,
-              try decoder.readUInt16() == responseSchemaRevision
+              [4, 5].contains(responseRevision),
+              try decoder.readUInt16() == responseRevision
         else {
             throw WalletRPCError.unexpectedResponse
         }
@@ -1070,7 +1077,7 @@ enum WalletRPCCodec {
     }
 }
 
-private struct WalletBinaryDecoder {
+struct WalletBinaryDecoder {
     let data: Data
     private(set) var offset = 0
     var remaining: Int { data.count - offset }
@@ -1137,7 +1144,16 @@ final class WalletRPCClient: WalletLiveRPC, @unchecked Sendable {
     private let queue = DispatchQueue(label: "dev.activechain.wallet.rpc")
 
     func status() async throws -> WalletRPCStatus {
-        try WalletRPCCodec.decodeStatus(await roundTrip(WalletRPCCodec.framedStatusRequest))
+        do { return try WalletRPCCodec.decodeStatus(await roundTrip(WalletRPCCodec.framedStatusRequest)) }
+        catch WalletRPCError.transport {
+            // Diagnose the known previous server's handshake only. Its schema remains
+            // incompatible, so no holdings, faucet or spending operation is downgraded.
+            var legacy = WalletRPCCodec.framedStatusRequest
+            legacy[7] = 3
+            let status = try WalletRPCCodec.decodeStatus(await roundTrip(legacy), responseRevision: 4)
+            guard status.schemaRevision == 4 else { throw WalletRPCError.unexpectedResponse }
+            return status
+        }
     }
 
     func faucetTerms() async throws -> WalletFaucetTerms {
@@ -1162,7 +1178,7 @@ final class WalletRPCClient: WalletLiveRPC, @unchecked Sendable {
         )
     }
 
-    func ownerCoinCells(owner: Data, limit: UInt16 = 4) async throws -> WalletOwnerCoinPage {
+    func ownerCoinCells(owner: Data, limit: UInt16 = 4, after: Data? = nil) async throws -> WalletOwnerCoinPage {
         let connection = NWConnection(host: WalletKanalen.host, port: WalletKanalen.port, using: .tls)
         let timeout = DispatchSource.makeTimerSource(queue: queue)
         timeout.schedule(deadline: .now() + 8)
@@ -1170,7 +1186,7 @@ final class WalletRPCClient: WalletLiveRPC, @unchecked Sendable {
         timeout.resume()
         defer { timeout.cancel(); connection.cancel() }
         try await waitUntilReady(connection)
-        try await send(try WalletRPCCodec.framedOwnerCoinCellRequest(owner: owner, limit: limit), over: connection)
+        try await send(try WalletRPCCodec.framedOwnerCoinCellRequest(owner: owner, limit: limit, after: after), over: connection)
         let prefix = try await receiveExactly(4, over: connection)
         let length = prefix.reduce(0) { ($0 << 8) | Int($1) }
         guard length > 0, length <= WalletRPCCodec.maximumFrameLength else {
@@ -1243,7 +1259,7 @@ final class WalletRPCClient: WalletLiveRPC, @unchecked Sendable {
         }
     }
 
-    private func roundTrip(_ request: Data) async throws -> Data {
+    func roundTrip(_ request: Data) async throws -> Data {
         let connection = NWConnection(host: WalletKanalen.host, port: WalletKanalen.port, using: .tls)
         let timeout = DispatchSource.makeTimerSource(queue: queue)
         timeout.schedule(deadline: .now() + 8)

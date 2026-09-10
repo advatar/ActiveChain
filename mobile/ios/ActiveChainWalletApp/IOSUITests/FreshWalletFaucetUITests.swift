@@ -92,7 +92,7 @@ final class FreshWalletFaucetUITests: XCTestCase {
         reveal(balance, upwards: false)
         // Kanalen grants two cells so payment and fee inputs can be distinct.
         // One finalized half of the grant must not pass acceptance.
-        waitForLabel(balance, pattern: "([2-9]|[1-9][0-9]+) Coin Cells", timeout: 60)
+        waitForLabel(balance, pattern: "100 ACT", timeout: 60)
         let fundedBalance = balance.label
         let proof = app.staticTexts["balance.detail"].label
         XCTAssertTrue(proof.contains("proof(s) verified at finalized height"))
@@ -107,15 +107,50 @@ final class FreshWalletFaucetUITests: XCTestCase {
         app.terminate()
         app.launch()
         XCTAssertTrue(balance.waitForExistence(timeout: 30))
-        waitForLabel(balance, pattern: "([2-9]|[1-9][0-9]+) Coin Cells", timeout: 60)
+        waitForLabel(balance, pattern: "100 ACT", timeout: 60)
         XCTAssertEqual(balance.label, fundedBalance)
         XCTAssertGreaterThanOrEqual(try healthyHeight(), finalHeight)
         reveal(app.staticTexts["funding.title"], upwards: false)
         XCTAssertFalse(create.exists, "Relaunch must load the original wallet from keychain")
         XCTAssertFalse(recovery.exists, "Acknowledged recovery material must not reappear")
         reveal(balance, upwards: false)
+        app.tabBars.buttons["Shop"].tap()
+        let enroll = app.buttons["shop.enroll"]
+        XCTAssertTrue(enroll.waitForExistence(timeout: 30))
+        XCTAssertTrue(enroll.isEnabled)
+        enroll.tap()
+        XCTAssertTrue(app.staticTexts["shop.enrollment"].waitForExistence(timeout: 180),
+                      "Wallet enrollment must finalize: \(app.staticTexts["shop.status"].label)")
+        let buy = app.buttons["shop.buy"]
+        reveal(buy)
+        let readyToBuy = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: buy)
+        XCTAssertEqual(XCTWaiter.wait(for: [readyToBuy], timeout: 90), .completed)
+        buy.tap()
+        let confirm = app.buttons["shop.confirm"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 30))
+        confirm.tap()
+        let paid = app.staticTexts["shop.paid"]
+        XCTAssertTrue(paid.waitForExistence(timeout: 180),
+                      "Payment must have native finality and output proofs: \(app.staticTexts["shop.status"].label)")
+        let paymentReceipt = app.staticTexts["shop.receipt"].label
+        let purchaseEvidence = XCTAttachment(string: paymentReceipt + "\n" + app.staticTexts["shop.status"].label)
+        purchaseEvidence.name = "Verified demo merchant payment"
+        purchaseEvidence.lifetime = .keepAlways
+        add(purchaseEvidence)
+        app.terminate()
+        app.launch()
+        app.tabBars.buttons["Shop"].tap()
+        XCTAssertTrue(paid.waitForExistence(timeout: 45), "The verified purchase must survive relaunch")
+        XCTAssertEqual(app.staticTexts["shop.receipt"].label, paymentReceipt)
+        app.tabBars.buttons["Wallet"].tap()
+        reveal(balance, upwards: false)
+        waitForLabel(balance, pattern: "94.999 ACT", timeout: 60)
+        let assetBalance = app.staticTexts["assets.act.balance"]
+        reveal(assetBalance)
+        XCTAssertEqual(assetBalance.label, "94.999 ACT")
+        app.tabBars.buttons["Shop"].tap()
         let screenshot = XCTAttachment(screenshot: app.screenshot())
-        screenshot.name = "Funded iOS wallet after relaunch"
+        screenshot.name = "Verified demo coffee purchase after relaunch"
         screenshot.lifetime = .keepAlways
         add(screenshot)
     }

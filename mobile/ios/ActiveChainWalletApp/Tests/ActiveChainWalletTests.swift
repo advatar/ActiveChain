@@ -157,7 +157,7 @@ final class ActiveChainWalletTests: XCTestCase {
             sourceCommitment: Data(repeating: 5, count: 48)
         )
         XCTAssertEqual(Array(frame.prefix(4)), [0, 0, 1, 0])
-        XCTAssertEqual(Array(frame[4..<8]), [0x01, 0x07, 0, 3])
+        XCTAssertEqual(Array(frame[4..<8]), [0x01, 0x07, 0, 4])
         XCTAssertEqual(Array(frame[8..<10]), [0xfa, 0x01])
         XCTAssertEqual(frame[10], 5)
         XCTAssertEqual(frame.count, 260)
@@ -580,7 +580,7 @@ final class ActiveChainWalletTests: XCTestCase {
     func testRPCStatusDecoderUsesFinalizedHealthInsteadOfDisplayFixtures() throws {
         let response = makeStatusResponse(
             protocolRevision: 1,
-            schemaRevision: 4,
+            schemaRevision: 5,
             finalizedHeight: 23,
             finalizedAt: 10,
             servedAt: 100,
@@ -653,7 +653,7 @@ final class ActiveChainWalletTests: XCTestCase {
     func testOwnerCoinCellRequestUsesBoundedCanonicalEnvelope() throws {
         let frame = try WalletRPCCodec.framedOwnerCoinCellRequest(owner: Data(repeating: 7, count: 48))
         XCTAssertEqual(frame.count, 4 + 4 + 1 + 48 + 1 + 2 + 1)
-        XCTAssertEqual(Array(frame[4..<8]), [0x01, 0x07, 0, 3])
+        XCTAssertEqual(Array(frame[4..<8]), [0x01, 0x07, 0, 4])
         XCTAssertEqual(frame[8], 52)
         XCTAssertEqual(frame[9], 8)
         XCTAssertThrowsError(try WalletRPCCodec.framedOwnerCoinCellRequest(owner: Data(repeating: 0, count: 47)))
@@ -664,7 +664,7 @@ final class ActiveChainWalletTests: XCTestCase {
         var body = Data([2, 1, 1])
         body.append(Data(repeating: 1, count: 48))
         body.append(contentsOf: [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0])
-        var envelope = Data([0x01, 0x0a, 0, 4, UInt8(body.count)])
+        var envelope = Data([0x01, 0x0a, 0, 5, UInt8(body.count)])
         envelope.append(body)
         XCTAssertThrowsError(try WalletRPCCodec.decodeOwnerCoinPage(envelope))
     }
@@ -679,7 +679,7 @@ final class ActiveChainWalletTests: XCTestCase {
         }
         body.append(0)
         // RpcResponse is canonical schema revision 4.
-        var envelope = Data([0x01, 0x0a, 0, 4])
+        var envelope = Data([0x01, 0x0a, 0, 5])
         envelope.append(contentsOf: uleb128(body.count))
         envelope.append(body)
 
@@ -1021,11 +1021,20 @@ final class ActiveChainWalletTests: XCTestCase {
         ) { XCTAssertEqual($0 as? AppleCustodyError, .unsupportedRecord) }
     }
 
+    func testKnownLegacyStatusExplainsVersionMismatchWithoutAcceptingOldWireForWalletOperations() throws {
+        var legacy = makeStatusResponse(schemaRevision: 4)
+        legacy[3] = 4
+        XCTAssertThrowsError(try WalletRPCCodec.decodeStatus(legacy))
+        let status = try WalletRPCCodec.decodeStatus(legacy, responseRevision: 4)
+        XCTAssertEqual(status.networkState, .incompatible)
+        XCTAssertThrowsError(try WalletRPCCodec.decodeStatus(legacy, responseRevision: 6))
+    }
+
     private func makeStatusResponse(
         chainID: Data = WalletKanalen.chainID,
         genesis: Data = WalletKanalen.genesis,
         protocolRevision: UInt64 = 1,
-        schemaRevision: UInt32 = 4,
+        schemaRevision: UInt32 = 5,
         finalizedHeight: UInt64 = 23,
         finalizedAt: UInt64 = 10,
         servedAt: UInt64 = 100,
@@ -1043,7 +1052,7 @@ final class ActiveChainWalletTests: XCTestCase {
         body.append(contentsOf: maximumStaleness.bigEndianBytes)
         body.append(health)
         body.append(contentsOf: [2, 0, 1])
-        var envelope = Data([0x01, 0x0a, 0, 4, 0x91, 0x01])
+        var envelope = Data([0x01, 0x0a, 0, 5, 0x91, 0x01])
         envelope.append(body)
         return envelope
     }
@@ -1098,7 +1107,7 @@ final class ActiveChainWalletTests: XCTestCase {
         // Request variant 6 is ResolveFaucet, carrying just the reference. The
         // 49-byte body needs a single uleb128 length byte, so the variant sits
         // one earlier than in the larger faucet request above.
-        XCTAssertEqual(Array(frame[4..<8]), [0x01, 0x07, 0, 3])
+        XCTAssertEqual(Array(frame[4..<8]), [0x01, 0x07, 0, 4])
         XCTAssertEqual(frame[8], 49)
         XCTAssertEqual(frame[9], 6)
         XCTAssertEqual(Array(frame.suffix(48)), Array(reference))
@@ -1149,7 +1158,7 @@ final class ActiveChainWalletTests: XCTestCase {
             hostName: "rpc.\(id).example",
             port: 443,
             protocolRevision: 1,
-            schemaRevision: 4,
+            schemaRevision: 5,
             chainID: Data(repeating: chain, count: 48),
             genesis: Data(repeating: genesis, count: 48)
         )
@@ -1181,13 +1190,13 @@ final class ActiveChainWalletTests: XCTestCase {
         let (registry, _) = scratchRegistry("malformed")
         let shortGenesis = WalletNetwork(
             id: "broken", displayName: "Broken", hostName: "rpc.broken.example", port: 443,
-            protocolRevision: 1, schemaRevision: 4,
+            protocolRevision: 1, schemaRevision: 5,
             chainID: Data(repeating: 1, count: 48), genesis: Data(repeating: 2, count: 47)
         )
         XCTAssertThrowsError(try registry.add(shortGenesis))
         let zeroChain = WalletNetwork(
             id: "zero", displayName: "Zero", hostName: "rpc.zero.example", port: 443,
-            protocolRevision: 1, schemaRevision: 4,
+            protocolRevision: 1, schemaRevision: 5,
             chainID: Data(repeating: 0, count: 48), genesis: Data(repeating: 2, count: 48)
         )
         XCTAssertThrowsError(try registry.add(zeroChain))
@@ -1222,7 +1231,7 @@ final class ActiveChainWalletTests: XCTestCase {
     }
 
     private func rpcResponse(body: Data) -> Data {
-        var envelope = Data([0x01, 0x0a, 0, 4])
+        var envelope = Data([0x01, 0x0a, 0, 5])
         envelope.append(contentsOf: uleb128(body.count))
         envelope.append(body)
         return envelope

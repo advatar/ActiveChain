@@ -69,6 +69,7 @@ pub struct WalletTransactionGateway {
 /// Unpublished all-or-nothing cash successor bound to its exact durable pre-state.
 pub struct PreparedWalletTransactionBatch {
     pre_ledger: activechain_cash_kernel::CashLedger,
+    pre_ingress: activechain_wallet_core::TransactionIngress,
     next: WalletTransactionGateway,
     action_ids: Vec<TransactionId>,
 }
@@ -160,34 +161,29 @@ impl WalletTransactionGateway {
         let mut action_ids = Vec::with_capacity(envelopes.len());
         next.ingress.prune_replay_state(height);
         for envelope in envelopes {
-            let operator =
-                decode_envelope::<activechain_wallet_core::OperatorFaucetAuthorizationV1>(envelope)
-                    .ok();
-            let transaction =
-                if let Some(operator) = operator.as_ref() {
-                    TransactionId::new(operator.transfer().request().intent_id().map_err(|_| {
-                        activechain_wallet_core::WalletError::MalformedAuthorization
-                    })?)
-                } else {
-                    let authorized = decode_envelope::<
-                        activechain_wallet_core::AuthorizedCashTransferV1,
-                    >(envelope)
-                    .map_err(|_| activechain_wallet_core::WalletError::MalformedAuthorization)?;
-                    TransactionId::new(authorized.request().intent_id().map_err(|_| {
-                        activechain_wallet_core::WalletError::MalformedAuthorization
-                    })?)
-                };
+            let transaction = activechain_wallet_core::cash_action_id(envelope)?;
             if self.ingress.transaction_admitted(transaction) {
                 continue;
             }
-            if let Some(operator) = operator.as_ref() {
-                next.ingress.submit_operator_faucet_authorization(operator, height)?;
+            if let Ok(enrollment) =
+                decode_envelope::<activechain_wallet_core::CashKeyEnrollmentV1>(envelope)
+            {
+                next.ingress.stage_cash_key_enrollment(&enrollment, height)?;
+            } else if let Ok(operator) =
+                decode_envelope::<activechain_wallet_core::OperatorFaucetAuthorizationV1>(envelope)
+            {
+                next.ingress.submit_operator_faucet_authorization(&operator, height)?;
             } else {
                 next.ingress.submit_envelope(envelope, height)?;
             }
             action_ids.push(transaction);
         }
-        Ok(PreparedWalletTransactionBatch { pre_ledger: self.ledger().clone(), next, action_ids })
+        Ok(PreparedWalletTransactionBatch {
+            pre_ledger: self.ledger().clone(),
+            pre_ingress: self.ingress.clone(),
+            next,
+            action_ids,
+        })
     }
 
     /// Durably publishes a previously prepared batch after consensus certifies its exact root.
@@ -195,8 +191,7 @@ impl WalletTransactionGateway {
         &mut self,
         prepared: PreparedWalletTransactionBatch,
     ) -> Result<(), activechain_wallet_core::WalletError> {
-        if prepared.next.snapshot_path != self.snapshot_path
-            || prepared.pre_ledger != *self.ledger()
+        if prepared.next.snapshot_path != self.snapshot_path || prepared.pre_ingress != self.ingress
         {
             return Err(activechain_wallet_core::WalletError::Persistence);
         }
@@ -4847,6 +4842,65 @@ mod tests {
             vec![vote],
         )
         .unwrap()
+    }
+
+    #[test]
+    fn wallet_enrollment_candidate_is_unpublished_until_commit_and_rejects_stale_commit() {
+        fn digest(byte: u8) -> Digest384 {
+            Digest384::new([byte; 48])
+        }
+        let chain = ChainId::new(digest(1));
+        let key = SigningKey::<MlDsa44>::from_seed(&Seed::from([62; 32]));
+        let public = key.verifying_key().encode().to_vec();
+        let owner = activechain_wallet_core::wallet_principal_id(&public);
+        let definition = NativeAssetDefinition::new(
+            chain,
+            b"ACT".to_vec(),
+            18,
+            1000,
+            150,
+            digest(3),
+            digest(4),
+            digest(5),
+        )
+        .unwrap();
+        let economy = GenesisEconomy::new(
+            definition,
+            vec![GenesisAllocation::new(owner, 800, 100).unwrap()],
+            100,
+        )
+        .unwrap();
+        let path = std::env::temp_dir()
+            .join(format!("activechain-enrollment-gateway-{}.snapshot", std::process::id()));
+        let mut gateway = WalletTransactionGateway::from_genesis(&economy, path.clone()).unwrap();
+        let payload =
+            activechain_wallet_core::CashKeyEnrollmentV1::signing_payload(chain, &public, 5, 100)
+                .unwrap();
+        let enrollment = activechain_wallet_core::CashKeyEnrollmentV1::new(
+            chain,
+            public,
+            5,
+            100,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, key.sign(&payload).encode().to_vec())
+                .unwrap(),
+        )
+        .unwrap();
+        let bytes = encode_envelope(&enrollment).unwrap();
+        let first = gateway.prepare_envelope_batch(std::slice::from_ref(&bytes), 7).unwrap();
+        let stale = gateway.prepare_envelope_batch(std::slice::from_ref(&bytes), 7).unwrap();
+        assert_eq!(first.pre_cash_cell_root(), first.post_cash_cell_root());
+        assert_eq!(first.action_ids(), &[TransactionId::new(enrollment.reference().unwrap())]);
+        assert!(gateway.ingress.authorization_key(owner).is_none());
+        gateway.commit_prepared(first).unwrap();
+        assert!(gateway.ingress.authorization_key(owner).is_some());
+        assert_eq!(
+            gateway.commit_prepared(stale),
+            Err(activechain_wallet_core::WalletError::Persistence)
+        );
+        let restored = WalletTransactionGateway::load_snapshot(&path, chain).unwrap();
+        assert_eq!(restored.ingress.next_nonce(owner), Some(0));
+        assert!(restored.prepare_envelope_batch(&[bytes], 8).unwrap().action_ids().is_empty());
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

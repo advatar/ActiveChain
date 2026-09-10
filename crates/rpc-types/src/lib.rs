@@ -21,7 +21,7 @@ use sha3::{
 // Revision 3: faucet refusals are a typed FaucetRejected response rather than
 // a generic InvalidRequest, so a client that does not understand it would
 // misread every refusal.
-pub const RPC_SCHEMA_REVISION: u32 = 4;
+pub const RPC_SCHEMA_REVISION: u32 = 5;
 pub const MAX_RPC_BLOB_LENGTH: usize = 256 * 1024;
 
 /// Framing that `encode_envelope` puts around a payload: a type tag, a schema
@@ -865,6 +865,12 @@ pub enum RpcRequest {
     ResolveTransfer {
         reference: Digest384,
     },
+    EnrollCashKey {
+        enrollment: Vec<u8>,
+    },
+    CashSubmissionEvidence {
+        reference: Digest384,
+    },
 }
 
 impl CanonicalEncode for RpcRequest {
@@ -891,6 +897,14 @@ impl CanonicalEncode for RpcRequest {
                 13_u8.encode(encoder)?;
                 encoder.write_bytes(session, MAX_TRANSFER_SESSION_LENGTH)?;
                 encoder.write_bytes(transfer, MAX_TRANSFER_ENVELOPE_LENGTH)
+            }
+            Self::EnrollCashKey { enrollment } => {
+                15_u8.encode(encoder)?;
+                encoder.write_bytes(enrollment, 4096)
+            }
+            Self::CashSubmissionEvidence { reference } => {
+                16_u8.encode(encoder)?;
+                reference.encode(encoder)
             }
             Self::ResolveTransfer { reference } => {
                 14_u8.encode(encoder)?;
@@ -957,6 +971,8 @@ impl CanonicalDecode for RpcRequest {
                 transfer: decoder.read_bytes(MAX_TRANSFER_ENVELOPE_LENGTH)?.to_vec(),
             }),
             14 => Ok(Self::ResolveTransfer { reference: Digest384::decode(decoder)? }),
+            15 => Ok(Self::EnrollCashKey { enrollment: decoder.read_bytes(4096)?.to_vec() }),
+            16 => Ok(Self::CashSubmissionEvidence { reference: Digest384::decode(decoder)? }),
             11 => Ok(Self::SubmitAnchorAction {
                 action: decoder.read_bytes(MAX_ANCHOR_ACTION_LENGTH)?.to_vec(),
             }),
@@ -992,10 +1008,8 @@ impl CanonicalDecode for RpcRequest {
 }
 impl CanonicalType for RpcRequest {
     const TYPE_TAG: u16 = 0x0107;
-    // Revision 3 adds SubmitAuthorizedTransfer and ResolveTransfer. A client
-    // that cannot decode them must not mistake a transfer for something else,
-    // so this is a revision bump rather than a quietly additive tag.
-    const SCHEMA_VERSION: u16 = 3;
+    // Revision 4 adds wallet-key enrollment and certificate-backed cash evidence.
+    const SCHEMA_VERSION: u16 = 4;
     // A transfer submission carries two independently bounded byte strings.
     // Canonical byte-string lengths use at most five ULEB128 bytes apiece.
     const MAX_ENCODED_LEN: usize = 1 + if AuthorizedFaucetRequestV1::MAX_ENCODED_LEN
@@ -1167,6 +1181,8 @@ impl RpcAccessTerms {
             // make polling cheaper than waiting and invite a client to hammer
             // it; the submission itself is metered for the same reason.
             | RpcRequest::SubmitAuthorizedTransfer { .. }
+            | RpcRequest::EnrollCashKey { .. }
+            | RpcRequest::CashSubmissionEvidence { .. }
             | RpcRequest::ResolveTransfer { .. } => Some(self.get_units),
             RpcRequest::List { limit, .. }
             | RpcRequest::ListOwnerCoinCells { limit, .. }
@@ -2264,6 +2280,11 @@ pub enum RpcResponse {
     /// node never recorded would invite a client to poll a reference that
     /// does not exist.
     TransferRejected(TransferRejectionV1),
+    /// Ordered cash action IDs (32 maximum) followed by the complete native certificate.
+    CashSubmissionEvidence {
+        action_ids: Vec<Digest384>,
+        finality: Vec<u8>,
+    },
 }
 impl CanonicalEncode for RpcResponse {
     fn encode(&self, encoder: &mut Encoder) -> Result<(), EncodeError> {
@@ -2316,6 +2337,14 @@ impl CanonicalEncode for RpcResponse {
                 11_u8.encode(encoder)?;
                 receipt.encode(encoder)
             }
+            Self::CashSubmissionEvidence { action_ids, finality } => {
+                13_u8.encode(encoder)?;
+                encoder.write_length(action_ids.len(), 32)?;
+                for id in action_ids {
+                    id.encode(encoder)?;
+                }
+                encoder.write_bytes(finality, MAX_RPC_BLOB_LENGTH)
+            }
             Self::TransferRejected(rejection) => {
                 12_u8.encode(encoder)?;
                 rejection.encode(encoder)
@@ -2339,17 +2368,25 @@ impl CanonicalDecode for RpcResponse {
             10 => Ok(Self::FaucetRejected(FaucetRejectionV1::decode(decoder)?)),
             11 => Ok(Self::TransferReceipt(TransferReceiptV1::decode(decoder)?)),
             12 => Ok(Self::TransferRejected(TransferRejectionV1::decode(decoder)?)),
+            13 => {
+                let count = decoder.read_length(32)?;
+                let mut action_ids = Vec::with_capacity(count);
+                for _ in 0..count {
+                    action_ids.push(Digest384::decode(decoder)?);
+                }
+                Ok(Self::CashSubmissionEvidence {
+                    action_ids,
+                    finality: decoder.read_bytes(MAX_RPC_BLOB_LENGTH)?.to_vec(),
+                })
+            }
             tag => Err(DecodeError::InvalidEnumTag { type_name: "RpcResponse", tag }),
         }
     }
 }
 impl CanonicalType for RpcResponse {
     const TYPE_TAG: u16 = 0x010a;
-    // Revision 3 added FaucetRejected; revision 4 adds TransferReceipt. A
-    // client that cannot decode the new variant must not silently treat an
-    // outcome as some other one, so each is a revision bump rather than a
-    // quietly additive tag.
-    const SCHEMA_VERSION: u16 = 4;
+    // Revision 5 adds certificate-backed cash submission evidence.
+    const SCHEMA_VERSION: u16 = 5;
     const MAX_ENCODED_LEN: usize = 1
         + 2
         + MAX_RPC_PAGE_SIZE as usize * (1 + 48 + 8 + 3 * (4 + MAX_RPC_BLOB_LENGTH))
@@ -2846,6 +2883,33 @@ mod tests {
         assert!(
             encode_envelope(&oversized_session).is_err(),
             "a session past its own bound must not encode either"
+        );
+    }
+
+    #[test]
+    fn enrollment_and_cash_evidence_are_bounded_and_versioned() {
+        for request in [
+            RpcRequest::EnrollCashKey { enrollment: vec![1; 4096] },
+            RpcRequest::CashSubmissionEvidence { reference: digest(7) },
+        ] {
+            let bytes = encode_envelope(&request).unwrap();
+            assert_eq!(&bytes[..4], &[1, 7, 0, 4]);
+            assert_eq!(decode_envelope::<RpcRequest>(&bytes), Ok(request));
+        }
+        assert!(encode_envelope(&RpcRequest::EnrollCashKey { enrollment: vec![1; 4097] }).is_err());
+        let response = RpcResponse::CashSubmissionEvidence {
+            action_ids: vec![digest(3), digest(1)],
+            finality: vec![8; 100],
+        };
+        let bytes = encode_envelope(&response).unwrap();
+        assert_eq!(&bytes[..4], &[1, 10, 0, 5]);
+        assert_eq!(decode_envelope::<RpcResponse>(&bytes), Ok(response));
+        assert!(
+            encode_envelope(&RpcResponse::CashSubmissionEvidence {
+                action_ids: vec![digest(1); 33],
+                finality: vec![8]
+            })
+            .is_err()
         );
     }
 

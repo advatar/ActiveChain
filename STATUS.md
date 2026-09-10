@@ -2,6 +2,36 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## In progress — demo merchant final qualification
+
+Tracked by [issue #844](https://github.com/advatar/ActiveChain/issues/844). Claimed by Codex.
+Draft [PR #845](https://github.com/advatar/ActiveChain/pull/845) owns the unit.
+
+- [x] Verify live testnet health and create a separate merchant receiver with a private local key.
+- [x] Implement signed, chain-bound wallet-key enrollment finalized before spending; identity credentials are optional.
+- [x] Add the native Kanalen Coffee shop with exact 5 ACT price and 0.001 ACT fee review.
+- [x] Persist exact signed actions before submission and verify native finality, merchant output and customer change.
+- [x] Restore schema 5 connectivity and show actual ACT holdings from canonical RPC CoinCellRecord proofs.
+- [x] Remove hardcoded empty-asset and unimplemented credential-storage claims.
+- [x] Finalize enrollment without changing Coin Cells; preserve pending actions across round retries and repair false rejections from verified finality.
+- [x] Derive the native transfer output ID and verify one combined change cell; recover an existing payment without resubmission.
+- [x] Deploy server release c14db3d4 with original chain state preserved and advancing healthy blocks.
+- [x] Pass the fresh-wallet faucet → enrollment → coffee → relaunch test on implementation 236e0784.
+      On 2026-09-10, faucet funding finalized at block 20949 and merchant payment at block
+      20952. The test verified 100 ACT before spending, 94.999 ACT afterward, native merchant
+      and change proofs, and the persisted receipt after relaunch. Evidence is retained in
+      `tmp/ios-wallet-e2e.mKPsOm/LiveWallet.xcresult`; simulator
+      `503FEE97-8EEA-4DFB-962B-8AD9A76CFBBA` retains the test wallet.
+- [ ] Pass the full settled-candidate gate, merge and verify origin/main reachability.
+
+Contextual validation: 191 affected consensus/RPC tests and strict Clippy passed for the
+server fixes; 22 wallet FFI tests, 11 selected merchant tests and strict FFI Clippy passed
+for receipt mapping. The required simulator wallet library built in 16 seconds, without
+rebuilding the unrelated proof-prover distribution or rerunning unaffected app suites.
+Earlier iOS baseline coverage passed 58 tests with two opt-in live skips; the macOS app
+built. Full qualification starts only after the relevant live flow is settled.
+See [merchant setup and verified flow](docs/DEMO_MERCHANT.md).
+
 ## Completed — funded wallet lifecycle and composite identity proofs
 
 Tracked by [issue #839](https://github.com/advatar/ActiveChain/issues/839),

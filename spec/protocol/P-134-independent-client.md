@@ -32,12 +32,17 @@ At the current frozen registry it yields this cumulative budget:
 
 | Version | Active canonical identities | Newly active | Incremental estimate |
 |---|---:|---:|---:|
-| v1.0 | 292 | 292 | 20–30 engineer-months |
-| v1.1 | 292 | 0 | 6–10 engineer-months for mandatory-proof semantics |
-| v1.2 | 304 | 12 | 12–18 engineer-months |
-| v1.3 | 318 | 14 | 8–12 engineer-months |
-| v1.4 | 321 | 3 | 6–10 engineer-months |
-| v2 | 321 currently assigned | 0 currently assigned | 12–24 engineer-months, provisional |
+| v1.0 | 301 | 301 | 20–30 engineer-months |
+| v1.1 | 301 | 0 | 6–10 engineer-months for mandatory-proof semantics |
+| v1.2 | 313 | 12 | 12–18 engineer-months |
+| v1.3 | 327 | 14 | 8–12 engineer-months |
+| v1.4 | 330 | 3 | 6–10 engineer-months |
+| v2 | 330 currently assigned | 0 currently assigned | 12–24 engineer-months, provisional |
+
+The public cash surface includes first enrollment of a key-derived wallet through
+`CashKeyEnrollmentV1`; independent cash verification must check its ownership signature, chain
+and validity window, funded-owner requirement, first-registration rule and later-block spending.
+This adds one canonical identity to the machine-counted inventory.
 
 The identity count is not a proxy for implementation difficulty: v1.1 changes proof admission
 semantics without activating another currently registered envelope. Estimates include independent

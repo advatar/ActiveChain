@@ -640,6 +640,73 @@ uint32_t activechain_wallet_submit_authorized(const uint8_t *envelope,
                                               activechain_wallet_submit_callback callback,
                                               void *callback_context);
 
+/**
+ * Derives the Coin Cell output origin from the exact reviewed cash request.
+ * This transfer identifier differs from the authorization intent committed by finality.
+ * # Safety
+ * Request is readable for request_len bytes; transition_out is writable for 48 bytes.
+ */
+uint32_t activechain_wallet_cash_transition_id(const uint8_t *request,
+                                               uint32_t request_len,
+                                               uint8_t *transition_out);
+
+/**
+ * Encodes and verifies a signed wallet-key enrollment. Querying requires no signature.
+ * # Safety
+ * Fixed inputs are readable for 48/1312/2420 bytes; outputs are writable. Signature may be null
+ * only for a zero-capacity query, and output may be null only when capacity is zero.
+ */
+uint32_t activechain_wallet_encode_key_enrollment(const uint8_t *chain,
+                                                  const uint8_t *public_key,
+                                                  uint64_t valid_from,
+                                                  uint64_t expires_at,
+                                                  const uint8_t *signature,
+                                                  uint8_t *output,
+                                                  uint32_t capacity,
+                                                  uint32_t *required,
+                                                  uint8_t *reference);
+
+/**
+ * Encodes a bounded session grant whose budget and identity come from the reviewed cash request.
+ * # Safety
+ * Request has request_len readable bytes; key/signature are 1312/2420 bytes. Output/required are
+ * writable. Signature may be null only for a size query; output may be null at zero capacity.
+ */
+uint32_t activechain_wallet_encode_cash_session(const uint8_t *request,
+                                                uint32_t request_len,
+                                                const uint8_t *public_key,
+                                                uint64_t valid_from,
+                                                const uint8_t *signature,
+                                                uint8_t *output,
+                                                uint32_t capacity,
+                                                uint32_t *required);
+
+/**
+ * Verifies the exact cash-action inclusion under a pinned chain's native finality certificate.
+ * # Safety
+ * Chain/genesis/reference are readable 48-byte values; IDs/finality have their declared lengths;
+ * height_out is writable. The ID list preserves consensus order and contains at most 32 IDs.
+ */
+uint32_t activechain_wallet_verify_cash_finality(const uint8_t *chain,
+                                                 const uint8_t *genesis,
+                                                 const uint8_t *reference,
+                                                 const uint8_t *ids,
+                                                 uint32_t ids_len,
+                                                 const uint8_t *finality,
+                                                 uint32_t finality_len,
+                                                 uint64_t *height_out);
+
+/**
+ * Checks signed enrollment bytes against the exact wallet, chain and expected action ID.
+ * # Safety
+ * Bytes are readable for length; chain/owner/reference each point to 48 readable bytes.
+ */
+uint32_t activechain_wallet_check_key_enrollment(const uint8_t *bytes,
+                                                 uint32_t length,
+                                                 const uint8_t *chain,
+                                                 const uint8_t *owner,
+                                                 const uint8_t *reference);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

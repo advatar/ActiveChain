@@ -959,7 +959,7 @@ impl CanonicalType for AuthorizedVerifierBondRegistrationV1 {
     const MAX_ENCODED_LEN: usize = Self::MAX_ENCODED_LEN;
 }
 
-fn verify_ml_dsa(
+pub(crate) fn verify_ml_dsa(
     public_key: &[u8],
     signature: &ProtocolSignature,
     payload: &[u8],

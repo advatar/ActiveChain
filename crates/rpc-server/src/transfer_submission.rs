@@ -9,8 +9,8 @@ use activechain_rpc_types::{
     TransferRejectionCode, TransferRejectionV1, TransferState,
 };
 use activechain_wallet_core::{
-    AuthorizedCashSessionGrantV1, AuthorizedCashTransferV1, OperatorFaucetAuthorizationV1,
-    TransactionIngress, WalletError,
+    AuthorizedCashSessionGrantV1, AuthorizedCashTransferV1, CashKeyEnrollmentV1,
+    OperatorFaucetAuthorizationV1, TransactionIngress, WalletError,
 };
 use sha3::{
     Shake256,
@@ -142,6 +142,17 @@ impl TransferRecord {
             || self.receipt.state() == TransferState::Unknown
         {
             return Err(TransferSubmissionError::Persistence);
+        }
+        if let Ok(enrollment) = decode_envelope::<CashKeyEnrollmentV1>(&self.session) {
+            if self.transfer != self.session
+                || enrollment.signer() != self.signer
+                || enrollment.reference().map_err(|_| TransferSubmissionError::Persistence)?
+                    != self.reference
+                || self.session_id != self.reference
+            {
+                return Err(TransferSubmissionError::Persistence);
+            }
+            return Ok(());
         }
         let session = canonical_session(&self.session)?;
         let transfer = canonical_transfer(&self.transfer)?;
@@ -302,8 +313,55 @@ impl DurableTransferSubmissions {
             rejected(classify_pre_spool(error, request, finalized_height), None, Some(reference))
         })?;
 
-        let signer = request.signer();
-        let session_id = request.session_id();
+        self.record_submission(
+            request.signer(),
+            request.session_id(),
+            reference,
+            session_bytes,
+            transfer_bytes,
+            now,
+        )
+    }
+
+    pub fn submit_enrollment(
+        &mut self,
+        bytes: &[u8],
+        ingress: &TransactionIngress,
+        height: u64,
+        now: u64,
+    ) -> Result<TransferReceiptV1, TransferSubmissionError> {
+        if self.faulted {
+            return Err(TransferSubmissionError::Persistence);
+        }
+        let _lock = lock_snapshot(&self.path)?;
+        self.reload_locked()?;
+        if !self.policy.enabled {
+            return Err(rejected(TransferRejectionCode::Disabled, None, None));
+        }
+        let enrollment = decode_envelope::<CashKeyEnrollmentV1>(bytes)
+            .map_err(|_| rejected(TransferRejectionCode::Malformed, None, None))?;
+        let reference = enrollment.reference().map_err(|_| TransferSubmissionError::Persistence)?;
+        if let Ok(index) = self.records.binary_search_by_key(&reference, |record| record.reference)
+        {
+            return Ok(self.records[index].receipt.clone());
+        }
+        let mut preview = ingress.clone();
+        preview.stage_cash_key_enrollment(&enrollment, height).map_err(|_| {
+            rejected(TransferRejectionCode::InvalidAuthorization, None, Some(reference))
+        })?;
+        self.record_submission(enrollment.signer(), reference, reference, bytes, bytes, now)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_submission(
+        &mut self,
+        signer: PrincipalId,
+        session_id: Digest384,
+        reference: Digest384,
+        session_bytes: &[u8],
+        transfer_bytes: &[u8],
+        now: u64,
+    ) -> Result<TransferReceiptV1, TransferSubmissionError> {
         if self.records.iter().any(|record| {
             record.receipt.state() == TransferState::Pending
                 && record.signer == signer
@@ -428,8 +486,10 @@ impl DurableTransferSubmissions {
             return Err(TransferSubmissionError::Persistence);
         }
         let mut preview = ingress.clone();
+        let mut prefix_ids = Vec::with_capacity(prefix_actions.len());
         for action in prefix_actions {
             apply_action(&mut preview, action, height)?;
+            prefix_ids.push(action_id(action)?.into_digest());
         }
         let mut next = self.records.clone();
         let mut actions = Vec::new();
@@ -442,8 +502,40 @@ impl DurableTransferSubmissions {
             .collect::<Vec<_>>();
         pending.sort_by_key(|(_, accepted_at, reference)| (*accepted_at, *reference));
         for (index, _, _) in pending {
+            // A failed round retains its exact batch. Its pending submissions
+            // were already applied to the preview above and must not be replayed
+            // against their own successor state or falsely marked rejected.
+            if prefix_ids.contains(&next[index].reference) {
+                continue;
+            }
             if prefix_actions.len() + actions.len() == maximum_actions {
                 break;
+            }
+            if let Ok(enrollment) = decode_envelope::<CashKeyEnrollmentV1>(&next[index].session) {
+                match preview.stage_cash_key_enrollment(&enrollment, height) {
+                    Ok(()) => actions.push(next[index].session.clone()),
+                    Err(_) => {
+                        next[index].receipt = TransferReceiptV1::new(
+                            next[index].reference,
+                            TransferState::Rejected,
+                            None,
+                            None,
+                            None,
+                            Some(
+                                TransferRejectionV1::new(
+                                    TransferRejectionCode::InvalidAuthorization,
+                                    None,
+                                    Some(next[index].reference),
+                                )
+                                .map_err(|_| TransferSubmissionError::Persistence)?,
+                            ),
+                        )
+                        .map_err(|_| TransferSubmissionError::Persistence)?;
+                        next[index].updated_at = now;
+                        changed = true;
+                    }
+                }
+                continue;
             }
             let session = canonical_session(&next[index].session)?;
             let transfer = canonical_transfer(&next[index].transfer)?;
@@ -508,8 +600,9 @@ impl DurableTransferSubmissions {
             self.policy.genesis_commitment,
         )
         .map_err(|_| TransferSubmissionError::InvalidFinality)?;
-        if commit_parts(b"ACTIVECHAIN-BLOCK-CASH-ACTIONS-V1", &[&committed])
-            != bundle.header().inputs.cash_action_root
+        if bundle.header().inputs.chain_id != self.policy.chain_id
+            || commit_parts(b"ACTIVECHAIN-BLOCK-CASH-ACTIONS-V1", &[&committed])
+                != bundle.header().inputs.cash_action_root
         {
             return Err(TransferSubmissionError::InvalidFinality);
         }
@@ -520,7 +613,20 @@ impl DurableTransferSubmissions {
         let mut reconciled = 0;
         for record in &mut next {
             let transaction = TransactionId::new(record.reference);
-            if record.receipt.state() == TransferState::Pending && ids.contains(&transaction) {
+            // Verified consensus finality is authoritative even if an older
+            // round retry incorrectly stored a terminal rejection for this ID.
+            if ids.contains(&transaction) {
+                if record.receipt.state() == TransferState::Finalized
+                    && record.receipt.finalized_height() != Some(height)
+                {
+                    return Err(TransferSubmissionError::InvalidFinality);
+                }
+                // Proof is durable before publishing Finalized. A crash can leave an orphan
+                // proof, but never a finalized receipt whose proof was not written.
+                self.save_evidence(record.reference, &ids, finality)?;
+                if record.receipt.state() == TransferState::Finalized {
+                    continue;
+                }
                 record.receipt = TransferReceiptV1::new(
                     record.reference,
                     TransferState::Finalized,
@@ -540,12 +646,101 @@ impl DurableTransferSubmissions {
         Ok(reconciled)
     }
 
+    fn evidence_directory(&self) -> PathBuf {
+        self.path.with_extension("evidence")
+    }
+
+    fn save_evidence(
+        &self,
+        reference: Digest384,
+        ids: &[TransactionId],
+        finality: &[u8],
+    ) -> Result<(), TransferSubmissionError> {
+        if ids.is_empty()
+            || ids.len() > 32
+            || finality.is_empty()
+            || finality.len() > activechain_rpc_types::MAX_RPC_BLOB_LENGTH
+        {
+            return Err(TransferSubmissionError::InvalidFinality);
+        }
+        let directory = self.evidence_directory();
+        std::fs::create_dir_all(&directory).map_err(|_| TransferSubmissionError::Persistence)?;
+        let mut bytes = vec![ids.len() as u8];
+        for id in ids {
+            bytes.extend_from_slice(id.digest().as_bytes());
+        }
+        bytes.extend_from_slice(finality);
+        atomic_write(&directory.join(evidence_name(reference)), &bytes)
+    }
+
+    pub fn evidence(
+        &mut self,
+        reference: Digest384,
+    ) -> Result<(Vec<Digest384>, Vec<u8>), TransferSubmissionError> {
+        let _lock = lock_snapshot(&self.path)?;
+        self.reload_locked()?;
+        let index = self
+            .records
+            .binary_search_by_key(&reference, |record| record.reference)
+            .map_err(|_| TransferSubmissionError::InvalidFinality)?;
+        let record = &self.records[index];
+        if record.receipt.state() != TransferState::Finalized {
+            return Err(TransferSubmissionError::InvalidFinality);
+        }
+        let path = self.evidence_directory().join(evidence_name(reference));
+        let metadata =
+            std::fs::symlink_metadata(&path).map_err(|_| TransferSubmissionError::Persistence)?;
+        if !metadata.is_file()
+            || metadata.len() > (1 + 32 * 48 + activechain_rpc_types::MAX_RPC_BLOB_LENGTH) as u64
+        {
+            return Err(TransferSubmissionError::Persistence);
+        }
+        let bytes = std::fs::read(path).map_err(|_| TransferSubmissionError::Persistence)?;
+        let count = usize::from(*bytes.first().ok_or(TransferSubmissionError::InvalidFinality)?);
+        if count == 0 || count > 32 || bytes.len() <= 1 + count * 48 {
+            return Err(TransferSubmissionError::InvalidFinality);
+        }
+        let ids: Vec<Digest384> = bytes[1..1 + count * 48]
+            .chunks_exact(48)
+            .map(|id| Digest384::new(id.try_into().expect("fixed chunk")))
+            .collect();
+        let finality = bytes[1 + count * 48..].to_vec();
+        let bundle = activechain_verifier_api::verify_finality_bundle_with_chain_genesis(
+            &finality,
+            self.policy.genesis_commitment,
+        )
+        .map_err(|_| TransferSubmissionError::InvalidFinality)?;
+        if !ids.contains(&reference)
+            || bundle.header().inputs.chain_id != self.policy.chain_id
+            || record.receipt.finalized_height() != Some(bundle.header().inputs.height)
+            || bundle.header().inputs.cash_action_root
+                != commit_parts(b"ACTIVECHAIN-BLOCK-CASH-ACTIONS-V1", &[&bytes[1..1 + count * 48]])
+        {
+            return Err(TransferSubmissionError::InvalidFinality);
+        }
+        Ok((ids, finality))
+    }
+
     fn publish(&mut self, records: Vec<TransferRecord>) -> Result<(), TransferSubmissionError> {
         if save_snapshot(&self.path, self.policy, &records).is_err() {
             self.faulted = true;
             return Err(TransferSubmissionError::Persistence);
         }
         self.records = records;
+        // Bound retained proof files by the same record-retention policy as receipts.
+        if let Ok(entries) = std::fs::read_dir(self.evidence_directory()) {
+            let retained: std::collections::BTreeSet<_> =
+                self.records.iter().map(|r| evidence_name(r.reference)).collect();
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name.len() == 96
+                    && name.bytes().all(|b| b.is_ascii_hexdigit())
+                    && !retained.contains(&name)
+                {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+        }
         Ok(())
     }
 
@@ -663,7 +858,11 @@ fn apply_action(
     action: &[u8],
     height: u64,
 ) -> Result<(), TransferSubmissionError> {
-    if let Ok(bundle) = decode_envelope::<OperatorFaucetAuthorizationV1>(action) {
+    if let Ok(enrollment) = decode_envelope::<CashKeyEnrollmentV1>(action) {
+        ingress
+            .stage_cash_key_enrollment(&enrollment, height)
+            .map_err(|_| TransferSubmissionError::Persistence)
+    } else if let Ok(bundle) = decode_envelope::<OperatorFaucetAuthorizationV1>(action) {
         ingress
             .submit_operator_faucet_authorization(&bundle, height)
             .map_err(|_| TransferSubmissionError::Persistence)
@@ -673,16 +872,8 @@ fn apply_action(
 }
 
 fn action_id(action: &[u8]) -> Result<TransactionId, TransferSubmissionError> {
-    let digest = if let Ok(bundle) = decode_envelope::<OperatorFaucetAuthorizationV1>(action) {
-        bundle.transfer().request().intent_id()
-    } else {
-        decode_envelope::<AuthorizedCashTransferV1>(action)
-            .map_err(|_| TransferSubmissionError::InvalidFinality)?
-            .request()
-            .intent_id()
-    }
-    .map_err(|_| TransferSubmissionError::InvalidFinality)?;
-    Ok(TransactionId::new(digest))
+    activechain_wallet_core::cash_action_id(action)
+        .map_err(|_| TransferSubmissionError::InvalidFinality)
 }
 
 fn classify_pre_spool(
@@ -865,6 +1056,10 @@ fn snapshot_tag(body: &[u8]) -> [u8; SNAPSHOT_TAG_LENGTH] {
     tag
 }
 
+fn evidence_name(reference: Digest384) -> String {
+    reference.as_bytes().iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -897,6 +1092,7 @@ mod tests {
 
     fn remove_snapshot(path: &Path) {
         let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_dir_all(path.with_extension("evidence"));
         let mut lock_name = path.as_os_str().to_os_string();
         lock_name.push(".lock");
         let _ = std::fs::remove_file(PathBuf::from(lock_name));
@@ -1012,7 +1208,7 @@ mod tests {
         let unsigned = ValidatorVote::new(
             validator,
             context,
-            7,
+            header.inputs.height,
             2,
             header.digest().unwrap(),
             header.proof_statement_commitment,
@@ -1023,7 +1219,7 @@ mod tests {
         let vote = ValidatorVote::new(
             validator,
             context,
-            7,
+            header.inputs.height,
             2,
             header.digest().unwrap(),
             header.proof_statement_commitment,
@@ -1039,7 +1235,7 @@ mod tests {
         XofReader::read(&mut hasher.finalize_xof(), &mut vote_root);
         let certificate = QuorumCertificate::new(
             context,
-            7,
+            header.inputs.height,
             2,
             header.digest().unwrap(),
             header.proof_statement_commitment,
@@ -1391,6 +1587,198 @@ mod tests {
         drop(submissions);
         let mut restored = DurableTransferSubmissions::open(configured, path.clone()).unwrap();
         assert_eq!(restored.resolve(reference), Ok(receipt));
+        assert_eq!(restored.evidence(reference).unwrap(), (vec![reference], finality));
+        let evidence_path = restored.evidence_directory().join(evidence_name(reference));
+        let mut corrupted = std::fs::read(&evidence_path).unwrap();
+        corrupted[10] ^= 1;
+        std::fs::write(evidence_path, corrupted).unwrap();
+        assert!(restored.evidence(reference).is_err());
+        remove_snapshot(&path);
+    }
+
+    #[test]
+    fn funded_key_enrollment_is_durable_idempotent_and_finality_bound() {
+        let path = path("key-enrollment");
+        remove_snapshot(&path);
+        let key = SigningKey::<MlDsa44>::from_seed(&Seed::from([61; 32]));
+        let public = key.verifying_key().encode().to_vec();
+        let chain = policy().chain_id;
+        let owner = activechain_wallet_core::wallet_principal_id(&public);
+        let definition = NativeAssetDefinition::new(
+            chain,
+            b"ACT".to_vec(),
+            18,
+            1000,
+            150,
+            digest(3),
+            digest(4),
+            digest(5),
+        )
+        .unwrap();
+        let economy = GenesisEconomy::new(
+            definition,
+            vec![
+                GenesisAllocation::new(owner, 700, 100).unwrap(),
+                GenesisAllocation::new(owner, 100, 0).unwrap(),
+            ],
+            100,
+        )
+        .unwrap();
+        let ingress = TransactionIngress::from_genesis(&economy).unwrap();
+        let payload = CashKeyEnrollmentV1::signing_payload(chain, &public, 5, 100).unwrap();
+        let enrollment = CashKeyEnrollmentV1::new(
+            chain,
+            public,
+            5,
+            100,
+            ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, key.sign(&payload).encode().to_vec())
+                .unwrap(),
+        )
+        .unwrap();
+        let bytes = encode_envelope(&enrollment).unwrap();
+        let reference = enrollment.reference().unwrap();
+        let (genesis, finality) = signed_finality(finality_inputs(commit_parts(
+            b"ACTIVECHAIN-BLOCK-CASH-ACTIONS-V1",
+            &[reference.as_bytes()],
+        )));
+        let mut configured = policy();
+        configured.genesis_commitment = genesis;
+        let mut submissions = DurableTransferSubmissions::create(configured, path.clone()).unwrap();
+        let pending = submissions.submit_enrollment(&bytes, &ingress, 5, 100).unwrap();
+        assert_eq!(pending.state(), TransferState::Pending);
+        assert!(ingress.authorization_key(owner).is_none(), "RPC admission cannot enroll a key");
+        assert!(submissions.evidence(reference).is_err());
+        drop(submissions);
+        let mut restored = DurableTransferSubmissions::open(configured, path.clone()).unwrap();
+        assert_eq!(restored.submit_enrollment(&bytes, &ingress, 6, 101).unwrap(), pending);
+        let actions = restored.prepare_pending_batch(&ingress, &[], 7, 110, 32).unwrap();
+        assert_eq!(actions, vec![bytes.clone()]);
+        let (accepted, rejected) = qualify_cash_actions(&ingress, actions.clone(), 7).unwrap();
+        assert_eq!(accepted, actions);
+        assert!(rejected.is_empty());
+        // The operator retains this prefix when consensus construction fails.
+        // Preparing the next attempt must leave the already-batched request pending.
+        assert!(restored.prepare_pending_batch(&ingress, &actions, 7, 111, 32).unwrap().is_empty());
+        assert_eq!(restored.resolve(reference).unwrap(), pending);
+        drop(restored);
+        let mut restored = DurableTransferSubmissions::open(configured, path.clone()).unwrap();
+        assert!(restored.prepare_pending_batch(&ingress, &actions, 7, 112, 32).unwrap().is_empty());
+        assert_eq!(restored.resolve(reference).unwrap(), pending);
+        // Reproduce the erroneous status persisted by the older retry code.
+        let mut legacy = restored.records.clone();
+        legacy[0].receipt = TransferReceiptV1::new(
+            reference,
+            TransferState::Rejected,
+            None,
+            None,
+            None,
+            Some(
+                TransferRejectionV1::new(
+                    TransferRejectionCode::InvalidAuthorization,
+                    None,
+                    Some(reference),
+                )
+                .unwrap(),
+            ),
+        )
+        .unwrap();
+        restored.publish(legacy).unwrap();
+        let (_, wrong_finality) = signed_finality(finality_inputs(digest(99)));
+        assert_eq!(
+            restored.reconcile_finality(&frame_actions(&actions).unwrap(), &wrong_finality, 119),
+            Err(TransferSubmissionError::InvalidFinality),
+        );
+        assert_eq!(restored.resolve(reference).unwrap().state(), TransferState::Rejected);
+        restored.reconcile_finality(&frame_actions(&actions).unwrap(), &finality, 120).unwrap();
+        assert_eq!(restored.resolve(reference).unwrap().state(), TransferState::Finalized);
+        assert_eq!(restored.evidence(reference).unwrap(), (vec![reference], finality));
+        let mut forged = bytes;
+        *forged.last_mut().unwrap() ^= 1;
+        assert!(restored.submit_enrollment(&forged, &ingress, 8, 121).is_err());
+        // Follow the registered key through the real session and payment ingress boundary.
+        // Admission must fail before registration and at the enrollment height itself.
+        let cells = ingress.ledger().cells().as_slice();
+        let merchant = principal(11);
+        let transfer =
+            CoinTransfer::new(owner, merchant, vec![cells[0].id()], cells[1].id(), 10, 1, 20)
+                .unwrap();
+        let grant = CashSessionGrantV1::new(chain, owner, digest(62), 7, 20, 11).unwrap();
+        let signature = key.sign(&grant.signing_payload().unwrap());
+        let session = encode_envelope(
+            &AuthorizedCashSessionGrantV1::new(
+                grant,
+                ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec())
+                    .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let request =
+            CashAuthorizationRequestV1::new(chain, owner, 0, digest(62), 20, transfer).unwrap();
+        let payment_id = request.intent_id().unwrap();
+        let signature = key.sign(&request.signing_payload().unwrap());
+        let transfer = encode_envelope(
+            &AuthorizedCashTransferV1::new(
+                request,
+                ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec())
+                    .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(restored.submit(&session, &transfer, &ingress, 8, 122).is_err());
+        let mut finalized = ingress.clone();
+        apply_action(&mut finalized, &actions[0], 7).unwrap();
+        assert!(restored.submit(&session, &transfer, &finalized, 7, 122).is_err());
+        let payment = restored.submit(&session, &transfer, &finalized, 8, 123).unwrap();
+        assert_eq!(payment.state(), TransferState::Pending);
+        let payment_actions = restored.prepare_pending_batch(&finalized, &[], 9, 124, 32).unwrap();
+        assert_eq!(payment_actions.len(), 1);
+        let (accepted, rejected) =
+            qualify_cash_actions(&finalized, payment_actions.clone(), 9).unwrap();
+        assert_eq!(accepted, payment_actions);
+        assert!(rejected.is_empty());
+        assert!(
+            restored
+                .prepare_pending_batch(&finalized, &payment_actions, 9, 125, 32)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(restored.resolve(payment_id).unwrap(), payment);
+        apply_action(&mut finalized, &payment_actions[0], 9).unwrap();
+        let merchant_cells = finalized
+            .ledger()
+            .cells()
+            .as_slice()
+            .iter()
+            .filter(|cell| cell.cell().owner() == merchant)
+            .collect::<Vec<_>>();
+        assert_eq!(merchant_cells.len(), 1);
+        assert_eq!(merchant_cells[0].cell().amount(), 10);
+        let (_, payment_finality) = signed_finality(ProofPublicInputs {
+            height: 9,
+            ..finality_inputs(commit_parts(
+                b"ACTIVECHAIN-BLOCK-CASH-ACTIONS-V1",
+                &[payment_id.as_bytes()],
+            ))
+        });
+        restored
+            .reconcile_finality(&frame_actions(&payment_actions).unwrap(), &payment_finality, 125)
+            .unwrap();
+        assert_eq!(restored.evidence(payment_id).unwrap(), (vec![payment_id], payment_finality));
+        assert_eq!(
+            restored.submit(&session, &transfer, &finalized, 10, 126).unwrap().state(),
+            TransferState::Finalized
+        );
+        assert!(restored.prepare_pending_batch(&finalized, &[], 10, 127, 32).unwrap().is_empty());
+        assert!(
+            apply_action(&mut finalized, &actions[0], 10).is_err(),
+            "enrollment cannot reset the spent nonce"
+        );
+        assert!(
+            apply_action(&mut finalized, &payment_actions[0], 10).is_err(),
+            "payment cannot be replayed"
+        );
         remove_snapshot(&path);
     }
 
