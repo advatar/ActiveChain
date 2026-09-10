@@ -1,6 +1,9 @@
 //! Bounded, network-isolated verification of VCIssuer SD-JWT VC presentations.
 
 pub mod mdoc;
+pub mod openid4vp;
+pub mod openid4vp_store;
+mod strict_json;
 
 use activechain_protocol_types::{
     ChainId, CredentialAssuranceClassV1, CredentialPredicateKind, CredentialPredicateV1, Digest384,
@@ -189,10 +192,16 @@ pub struct SdJwtVerificationContext<'a> {
 pub fn verify_sd_jwt_vc(
     context: &SdJwtVerificationContext<'_>,
 ) -> Result<VerifiedExternalPresentation, SdJwtRejection> {
+    verify_sd_jwt_profile(context, true)
+}
+
+fn verify_sd_jwt_profile(
+    context: &SdJwtVerificationContext<'_>,
+    extended_key_binding: bool,
+) -> Result<VerifiedExternalPresentation, SdJwtRejection> {
     if context.presentation.len() > MAX_PRESENTATION_BYTES {
         return Err(SdJwtRejection::Oversize);
     }
-    reject_duplicate_json_keys_in_segments(context.presentation)?;
     let mut parts: Vec<&str> = context.presentation.split('~').collect();
     if parts.last() == Some(&"") {
         parts.pop();
@@ -277,13 +286,14 @@ pub fn verify_sd_jwt_vc(
     verify_es256_with_jwk(holder_jwk, kb_input, &kb_signature)
         .map_err(|_| SdJwtRejection::InvalidKeyBindingSignature)?;
     validate_times(&kb_payload, context.now, context.maximum_clock_skew)?;
-    for (field, expected_value) in [
+    let bindings = [
         ("nonce", context.expected_nonce),
         ("aud", context.expected_audience),
         ("purpose", context.expected_purpose),
         ("response_uri", context.expected_response_uri),
-    ] {
-        if string(&kb_payload, field)? != expected_value {
+    ];
+    for (field, expected_value) in &bindings[..if extended_key_binding { 4 } else { 2 }] {
+        if string(&kb_payload, field)? != *expected_value {
             return Err(SdJwtRejection::RequestBindingMismatch);
         }
     }
@@ -357,8 +367,8 @@ pub fn verify_sd_jwt_vc(
         status_anchor_height: context.status_snapshot.anchor_height(),
         status_age: context.verified_height.saturating_sub(context.status_snapshot.anchor_height()),
         has_issuance_log: context.issuance_log_root.is_some(),
-        verifier_version: 1,
-        proof_version: 1,
+        verifier_version: if extended_key_binding { 1 } else { 2 },
+        proof_version: if extended_key_binding { 1 } else { 2 },
         replay_nullifier: commitment(
             b"ACTIVECHAIN-SD-JWT-OPENID4VP-REPLAY-V1",
             context.presentation.as_bytes(),
@@ -398,7 +408,7 @@ fn parse_jwt(token: &str) -> Result<ParsedJwt<'_>, SdJwtRejection> {
 
 fn decode_json(encoded: &str) -> Result<Value, SdJwtRejection> {
     let bytes = URL_SAFE_NO_PAD.decode(encoded).map_err(|_| SdJwtRejection::MalformedBase64Url)?;
-    let value: Value = serde_json::from_slice(&bytes).map_err(|_| SdJwtRejection::MalformedJson)?;
+    let value = strict_json::parse(&bytes)?;
     if json_depth(&value) > MAX_JSON_DEPTH {
         return Err(SdJwtRejection::Oversize);
     }
@@ -483,34 +493,6 @@ pub(crate) fn commitment(domain: &[u8], bytes: &[u8]) -> Digest384 {
     let mut out = [0; 48];
     XofReader::read(&mut h.finalize_xof(), &mut out);
     Digest384::new(out)
-}
-
-fn reject_duplicate_json_keys_in_segments(presentation: &str) -> Result<(), SdJwtRejection> {
-    // A conservative lexical guard catches duplicate keys before serde_json can collapse them.
-    for token in presentation.split(['~', '.']) {
-        if token.is_empty() {
-            continue;
-        }
-        let Ok(bytes) = URL_SAFE_NO_PAD.decode(token) else {
-            continue;
-        };
-        let Ok(text) = std::str::from_utf8(&bytes) else {
-            continue;
-        };
-        if !text.starts_with(['{', '[']) {
-            continue;
-        }
-        let mut keys = BTreeSet::new();
-        for fragment in text.split(',') {
-            if let Some((key, _)) = fragment.split_once(':') {
-                let key = key.trim().trim_start_matches('{').trim().trim_matches('"');
-                if !key.is_empty() && !keys.insert(key.to_owned()) {
-                    return Err(SdJwtRejection::DuplicateJsonKey);
-                }
-            }
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -652,6 +634,338 @@ mod tests {
         }
     }
 
+    /// Actual EUWallet state-machine output. Test-only issuer/holder/RP identities; this does not
+    /// stand in for a live issuer, registered app, or on-chain status publication.
+    fn euwallet_presentation(f: &Fixture, nonce: &str, issued_at: i64) -> String {
+        euwallet_presentation_with_request(f, nonce, issued_at, None)
+    }
+
+    fn euwallet_presentation_with_request(
+        f: &Fixture,
+        nonce: &str,
+        issued_at: i64,
+        request_input: Option<String>,
+    ) -> String {
+        use euwallet_crypto_backend::{AwsLc, SoftwareSigner};
+        use euwallet_crypto_traits::{Alg, KeyRef, Signer};
+        use euwallet_oid4vp::{Env, Input, Output, ResolvedTrust, SelectedCredential, State, step};
+        let holder = SoftwareSigner::generate_p256().unwrap();
+        let rp = SoftwareSigner::generate_p256().unwrap();
+        let point = holder.public_key_raw();
+        let (_, mut issuer_payload, _, _) =
+            parse_jwt(f.presentation.split('~').next().unwrap()).unwrap();
+        issuer_payload["cnf"] = json!({"jwk": {
+            "kty":"EC", "crv":"P-256", "x":URL_SAFE_NO_PAD.encode(&point[1..33]),
+            "y":URL_SAFE_NO_PAD.encode(&point[33..65])
+        }});
+        let issuer_jwt =
+            jwt(&json!({"alg":"ES256","typ":"dc+sd-jwt"}), &issuer_payload, &signing_key(1));
+        let credentials = [SelectedCredential::SdJwt {
+            issuer_jwt,
+            disclosures: vec![f.presentation.split('~').nth(1).unwrap().to_owned()],
+            dcql_id: request_input.as_ref().map(|_| "identity".to_owned()),
+        }];
+        let payload = json!({
+            "client_id":"aud-1", "aud":"wallet.example", "nonce":nonce,
+            "response_uri":"https://verifier.example/cb", "response_mode":"direct_post",
+            "purpose":"age-check", "iat":issued_at, "exp":issued_at + 120
+        });
+        let input = request_input.clone().unwrap_or_else(|| {
+            format!(
+                "{}.{}",
+                URL_SAFE_NO_PAD.encode(br#"{"alg":"ES256","typ":"oauth-authz-req+jwt"}"#),
+                URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap())
+            )
+        });
+        let signature = rp.sign(&KeyRef("rp".into()), Alg::Es256, input.as_bytes()).unwrap();
+        let request = format!("{input}.{}", URL_SAFE_NO_PAD.encode(signature)).into_bytes();
+        let env = Env {
+            wallet_client_id: "wallet.example",
+            seen_nonces: &[],
+            verifier: &AwsLc,
+            digest: &AwsLc,
+            now_epoch: issued_at,
+            selected_credentials: &credentials,
+            device_key_ref: "holder",
+        };
+        let (state, _) = step(&State::Idle, &Input::AuthorizationRequest(request), &env);
+        let (state, _) = step(
+            &state,
+            &Input::RpTrustResolved(ResolvedTrust {
+                registered: true,
+                rp_public_key: rp.public_key_raw().to_vec(),
+                registered_redirect_uris: vec!["https://verifier.example/cb".into()],
+                leaf_dns_sans: vec![],
+            }),
+            &env,
+        );
+        assert!(matches!(state, State::RequestValidated(_)), "{state:?}");
+        let (state, effects) = step(&state, &Input::ConsentGranted, &env);
+        let [Output::SignKeyBinding { signing_input, .. }] = effects.as_slice() else {
+            panic!("{effects:?}")
+        };
+        let signed = holder.sign(&KeyRef("holder".into()), Alg::Es256, signing_input).unwrap();
+        let (_, effects) = step(&state, &Input::DeviceSignatureProduced(signed), &env);
+        let [Output::SendVpToken(form)] = effects.as_slice() else { panic!("{effects:?}") };
+        let fields: std::collections::BTreeMap<_, _> =
+            form_urlencoded::parse(form).into_owned().collect();
+        let presentation = &fields["vp_token"];
+        if request_input.is_some() {
+            let openid4vp::PresentationResponse::Presented(compact) =
+                openid4vp::parse_direct_post(form, &"s".repeat(32)).unwrap()
+            else {
+                panic!("EUWallet returned an unexpected decline")
+            };
+            compact
+        } else {
+            presentation.clone()
+        }
+    }
+
+    #[test]
+    fn actual_euwallet_holder_proof_is_accepted_only_by_the_bound_standard_profile() {
+        use openid4vp::{OpenId4VpRequest, verify_openid4vp_sd_jwt_once};
+        let mut f = fixture();
+        let request = OpenId4VpRequest::new(
+            &context(&f),
+            principal(50),
+            d(51),
+            "wallet.example",
+            "eu.europa.ec.eudi.pid.1",
+            100,
+            200,
+        )
+        .unwrap();
+        let signed_input = request
+            .authorization_signing_input(&context(&f), &"s".repeat(32), &[vec![0x30, 1, 0]])
+            .unwrap();
+        f.presentation =
+            euwallet_presentation_with_request(&f, request.nonce(), 110, Some(signed_input));
+        let mut c = context(&f);
+        c.expected_nonce = request.nonce();
+        // The original extended profile deliberately still requires its additional bindings.
+        assert!(verify_sd_jwt_vc(&c).is_err());
+        let mut cache = SdJwtReplayCache::default();
+        let verified = verify_openid4vp_sd_jwt_once(&mut cache, &c, &request).unwrap();
+        assert_eq!(verified.proof_version(), 2);
+        assert_eq!(verified.verifier_version(), 2);
+        let mut restored = SdJwtReplayCache::from_entries(cache.entries()).unwrap();
+        assert_eq!(
+            verify_openid4vp_sd_jwt_once(&mut restored, &c, &request),
+            Err(SdJwtRejection::Replay)
+        );
+        let resigned = euwallet_presentation(&f, request.nonce(), 111);
+        assert_ne!(resigned, f.presentation);
+        c.presentation = &resigned;
+        assert_eq!(
+            verify_openid4vp_sd_jwt_once(&mut restored, &c, &request),
+            Err(SdJwtRejection::Replay)
+        );
+    }
+
+    #[test]
+    fn euwallet_proof_cannot_be_rebound_to_another_wallet_network_or_purpose() {
+        use openid4vp::{OpenId4VpRequest, verify_openid4vp_sd_jwt_once};
+        let mut f = fixture();
+        let request = OpenId4VpRequest::new(
+            &context(&f),
+            principal(50),
+            d(51),
+            "wallet.example",
+            "eu.europa.ec.eudi.pid.1",
+            100,
+            200,
+        )
+        .unwrap();
+        f.presentation = euwallet_presentation(&f, request.nonce(), 110);
+        let mut c = context(&f);
+        c.expected_nonce = request.nonce();
+        let wrong_wallet = OpenId4VpRequest::new(
+            &c,
+            principal(52),
+            d(51),
+            "wallet.example",
+            "eu.europa.ec.eudi.pid.1",
+            100,
+            200,
+        )
+        .unwrap();
+        let mut cache = SdJwtReplayCache::default();
+        assert_eq!(
+            verify_openid4vp_sd_jwt_once(&mut cache, &c, &wrong_wallet),
+            Err(SdJwtRejection::RequestBindingMismatch)
+        );
+        c.chain_id = ChainId::new(d(53));
+        assert_eq!(
+            verify_openid4vp_sd_jwt_once(&mut cache, &c, &request),
+            Err(SdJwtRejection::RequestBindingMismatch)
+        );
+        c.chain_id = ChainId::new(d(1));
+        c.expected_purpose = "different-purpose";
+        assert_eq!(
+            verify_openid4vp_sd_jwt_once(&mut cache, &c, &request),
+            Err(SdJwtRejection::RequestBindingMismatch)
+        );
+        c.expected_purpose = "age-check";
+        c.expected_response_uri = "https://other.example/cb";
+        assert_eq!(
+            verify_openid4vp_sd_jwt_once(&mut cache, &c, &request),
+            Err(SdJwtRejection::RequestBindingMismatch)
+        );
+        assert!(cache.entries().is_empty());
+    }
+
+    #[test]
+    fn euwallet_request_expiry_and_credential_type_are_enforced() {
+        use openid4vp::{OpenId4VpRequest, verify_openid4vp_sd_jwt_once};
+        let mut f = fixture();
+        let request = OpenId4VpRequest::new(
+            &context(&f),
+            principal(50),
+            d(51),
+            "wallet.example",
+            "eu.europa.ec.eudi.pid.1",
+            100,
+            120,
+        )
+        .unwrap();
+        f.presentation = euwallet_presentation(&f, request.nonce(), 110);
+        let mut c = context(&f);
+        c.expected_nonce = request.nonce();
+        c.now = 120;
+        let mut cache = SdJwtReplayCache::default();
+        assert_eq!(
+            verify_openid4vp_sd_jwt_once(&mut cache, &c, &request),
+            Err(SdJwtRejection::RequestBindingMismatch)
+        );
+        c.now = 110;
+        let wrong_type = OpenId4VpRequest::new(
+            &c,
+            principal(50),
+            d(51),
+            "wallet.example",
+            "other-credential",
+            100,
+            120,
+        )
+        .unwrap();
+        let presentation = euwallet_presentation(&f, wrong_type.nonce(), 110);
+        c.presentation = &presentation;
+        c.expected_nonce = wrong_type.nonce();
+        assert_eq!(
+            verify_openid4vp_sd_jwt_once(&mut cache, &c, &wrong_type),
+            Err(SdJwtRejection::ProfileNotAdmitted)
+        );
+        assert!(cache.entries().is_empty());
+    }
+
+    #[test]
+    fn euwallet_old_holder_proofs_and_expired_credentials_cannot_register() {
+        use openid4vp::{OpenId4VpRequest, verify_openid4vp_sd_jwt_once};
+        let mut f = fixture();
+        let request = OpenId4VpRequest::new(
+            &context(&f),
+            principal(50),
+            d(51),
+            "wallet.example",
+            "eu.europa.ec.eudi.pid.1",
+            100,
+            220,
+        )
+        .unwrap();
+        f.presentation = euwallet_presentation(&f, request.nonce(), 90);
+        let mut c = context(&f);
+        c.expected_nonce = request.nonce();
+        let mut cache = SdJwtReplayCache::default();
+        assert_eq!(
+            verify_openid4vp_sd_jwt_once(&mut cache, &c, &request),
+            Err(SdJwtRejection::TimeInvalid)
+        );
+        let current = euwallet_presentation(&f, request.nonce(), 199);
+        c.presentation = &current;
+        c.now = 200;
+        assert_eq!(
+            verify_openid4vp_sd_jwt_once(&mut cache, &c, &request),
+            Err(SdJwtRejection::TimeInvalid)
+        );
+        assert!(cache.entries().is_empty());
+    }
+
+    #[test]
+    fn euwallet_replay_consumption_survives_a_receiver_restart() {
+        use openid4vp::OpenId4VpRequest;
+        use openid4vp_store::{DurableOpenId4VpVerifier, DurablePresentationError};
+        let mut f = fixture();
+        let request = OpenId4VpRequest::new(
+            &context(&f),
+            principal(50),
+            d(51),
+            "wallet.example",
+            "eu.europa.ec.eudi.pid.1",
+            100,
+            200,
+        )
+        .unwrap();
+        f.presentation = euwallet_presentation(&f, request.nonce(), 110);
+        let mut c = context(&f);
+        c.expected_nonce = request.nonce();
+        let directory = std::env::temp_dir().join(format!(
+            "activechain-euwallet-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mut first = DurableOpenId4VpVerifier::open(&directory).unwrap();
+        assert!(
+            DurableOpenId4VpVerifier::open(&directory).is_err(),
+            "another receiver must not share a writer lock"
+        );
+        first.verify(&c, &request).unwrap();
+        let disk = std::fs::read(directory.join("requests.consumed")).unwrap();
+        assert!(!disk.windows(8).any(|part| part == b"age_over"));
+        drop(first);
+        let mut reopened = DurableOpenId4VpVerifier::open(&directory).unwrap();
+        assert_eq!(
+            reopened.verify(&c, &request),
+            Err(DurablePresentationError::Rejected(SdJwtRejection::Replay))
+        );
+        drop(reopened);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn euwallet_storage_failure_cannot_release_verification_evidence() {
+        use openid4vp::OpenId4VpRequest;
+        use openid4vp_store::{DurableOpenId4VpVerifier, DurablePresentationError};
+        let mut f = fixture();
+        let request = OpenId4VpRequest::new(
+            &context(&f),
+            principal(50),
+            d(51),
+            "wallet.example",
+            "eu.europa.ec.eudi.pid.1",
+            100,
+            200,
+        )
+        .unwrap();
+        f.presentation = euwallet_presentation(&f, request.nonce(), 110);
+        let mut c = context(&f);
+        c.expected_nonce = request.nonce();
+        let directory = std::env::temp_dir().join(format!(
+            "activechain-euwallet-disk-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mut receiver = DurableOpenId4VpVerifier::open(&directory).unwrap();
+        // An unavailable journal must prevent successful admission even when signatures are valid.
+        let moved = directory.with_extension("moved");
+        std::fs::rename(&directory, &moved).unwrap();
+        assert_eq!(receiver.verify(&c, &request), Err(DurablePresentationError::Storage));
+        std::fs::rename(&moved, &directory).unwrap();
+        assert_eq!(receiver.verify(&c, &request), Err(DurablePresentationError::Storage));
+        drop(receiver);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
     #[test]
     fn vcissuer_sd_jwt_produces_one_action_bound_handoff() {
         let f = fixture();
@@ -704,11 +1018,7 @@ mod tests {
     fn duplicate_keys_and_algorithm_confusion_are_typed_rejections() {
         let duplicated =
             URL_SAFE_NO_PAD.encode(br#"{"alg":"ES256","alg":"none","typ":"dc+sd-jwt"}"#);
-        let presentation = format!("{duplicated}.e30.AA~e30~e30.e30.AA");
-        assert_eq!(
-            reject_duplicate_json_keys_in_segments(&presentation),
-            Err(SdJwtRejection::DuplicateJsonKey)
-        );
+        assert_eq!(decode_json(&duplicated), Err(SdJwtRejection::DuplicateJsonKey));
         assert_eq!(
             exact_header(&json!({"alg":"none","typ":"dc+sd-jwt"}), "dc+sd-jwt"),
             Err(SdJwtRejection::UnsupportedAlgorithm)

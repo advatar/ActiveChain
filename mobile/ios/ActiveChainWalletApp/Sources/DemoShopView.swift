@@ -42,7 +42,7 @@ struct DemoShopView: View {
                                 .disabled(shop.busy || shop.pending || liveState.verifiedOwnerPage?.records.isEmpty != false)
                                 .accessibilityIdentifier("shop.enroll")
                         }
-                        if shop.busy { ProgressView() }
+                        if shop.busy { ProgressView().accessibilityIdentifier("shop.progress") }
                         Text(shop.message).font(.callout).accessibilityIdentifier("shop.status")
                         if let height = shop.paidHeight {
                             Label("Payment verified", systemImage: "checkmark.seal.fill")
@@ -74,12 +74,12 @@ struct DemoShopView: View {
         .task {
             await liveState.refresh()
             while !Task.isCancelled {
-                await shop.refresh(wallet: liveState)
+                await shop.refresh(wallet: liveState, background: true)
                 try? await Task.sleep(for: .seconds(3))
             }
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await shop.refresh(wallet: liveState) } }
+            if phase == .active { Task { await shop.refresh(wallet: liveState, background: true) } }
         }
         .sheet(isPresented: Binding(get: { shop.review != nil }, set: { if !$0 { shop.cancelReview() } })) {
             if let review = shop.review {

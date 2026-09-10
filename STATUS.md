@@ -2,6 +2,45 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## In progress — Tanzanian wallet identity and stakeholder distribution
+
+Tracked by [identity issue #846](https://github.com/advatar/ActiveChain/issues/846),
+[store automation #847](https://github.com/advatar/ActiveChain/issues/847), and the existing
+[Android parity #795](https://github.com/advatar/ActiveChain/issues/795). Codex claims the
+identity unit first on `feat/846-tanzania-identity`; Android implementation remains on its
+existing claimed branch until the iOS flow works and that claim is reconciled.
+
+- [x] Inspect AnyIdentity, current wallet UI, native credential trust boundaries and store setup.
+- [x] Inspect `../EUWallet` as an additional credential source: same-device OpenID4VP request loading, consent-bound presentation and app return routing exist.
+- [ ] Include **Use EUWallet** in the identity concept and implement a verified presentation handoff using its existing credential custody; do not export holder private keys.
+- [ ] Bind each EUWallet presentation to an ActiveChain request, wallet, network and nonce; validate issuer, holder proof, expiry and status before native registration.
+- [x] Implement standard SD-JWT key-binding compatibility with request-committed nonces and durable single-use admission; test against EUWallet’s actual Rust presentation machine. Live service and two-app qualification remain.
+- [x] Reject ambiguous signed JSON at every depth before accepting external credentials; 18 adapter tests and strict all-feature/all-target Clippy pass locally.
+- [ ] Complete authenticated ActiveChain relying-party configuration and verify the two-app return flow. EUWallet PR #196 replaces the external flow’s canned resolver with request certificate material checked by the existing trust engine; its 9 focused tests and iOS simulator build pass. Registration and live trust provisioning remain.
+- [x] Stabilize the already-verified payment card during automatic refresh; preserve finality checks for new purchases. The funded-wallet simulator test confirms a stable receipt without recurring progress indicators.
+- [x] Add an explicitly labeled in-app EUWallet test connection, real HTTPS receiver, consent/holder-proof round trip and persisted test receipts. Verified on iOS 27 and on the funded iOS 26.5 simulator, including relaunch. Per user instruction, external registration is deferred; test evidence cannot enable governed identity admission. The dedicated IdentityE2E scheme keeps this out of fresh-wallet tests.
+- [ ] Confirm the stakeholder's available Tanzanian provider or signed credential and holder-proof method.
+- [ ] Define and implement issuer-governed holder/wallet binding, secure credential attachment and minimal on-chain registration.
+- [ ] Show actual stored, verified, pending, finalized, expired and revoked states; keep identity data off the public chain.
+- [ ] Verify contextual unit/contract tests and a real iOS enrollment/relaunch flow with authorized provider data.
+- [ ] Prepare and qualify the stakeholder TestFlight candidate, merge and verify origin/main reachability.
+- [ ] Reconcile and complete Android parity after the iOS identity flow works.
+- [ ] Implement and qualify signed build/upload, processing checks and submission automation for both stores.
+
+No Tanzanian issuer/provider integration or store release credentials are currently configured
+in this repository. Provider availability is being clarified; no test credential will be
+presented as real government verification. Existing remote archive and clinical-demo branches
+are unrelated and remain untouched. Follow the contextual verification cadence: changed-boundary
+checks while iterating, then one settled-candidate full gate before integration.
+
+EUWallet is an available presentation client, so general credential attachment need not depend
+on obtaining a new Tanzania-specific provider first. Its existing signed credentials can supply
+evidence once the relying-party request/response bridge and issuer policy are integrated.
+The mockup includes EUWallet alongside the proposed Tanzanian provider route. A wallet app is
+not an independent issuer root: composite eligibility comes from verified underlying issuers.
+EUWallet-held credentials do not by themselves establish NIDA verification or Tanzanian citizenship.
+No ActiveChain-to-EUWallet end-to-end integration has yet been verified.
+
 ## Completed — demo merchant and verified live spending
 
 Tracked by [issue #844](https://github.com/advatar/ActiveChain/issues/844).

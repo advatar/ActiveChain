@@ -23,6 +23,7 @@ struct WalletPalette {
 struct WalletRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var liveState = WalletLiveState()
+    @StateObject private var identityConnection = IdentityConnection()
     @State private var selection: WalletTab = .home
 
     var body: some View {
@@ -45,7 +46,7 @@ struct WalletRootView: View {
                 .tag(WalletTab.approvals)
                 .tabItem { Label("Approvals", systemImage: "checkmark.shield.fill") }
 
-            NavigationStack { IdentityView(liveState: liveState) }
+            NavigationStack { IdentityView(liveState: liveState, connection: identityConnection) }
                 .tag(WalletTab.identity)
                 .tabItem { Label("Identity", systemImage: "person.text.rectangle.fill") }
         }
@@ -53,10 +54,16 @@ struct WalletRootView: View {
         .preferredColorScheme(.dark)
         .onAppear(perform: consumeAgentIntentRoute)
         .task { await liveState.refresh() }
+        .onOpenURL { url in
+            if url.scheme == "activechain-wallet", url.host == "identity-return" {
+                selection = .identity
+                Task { await identityConnection.returned(url) }
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 consumeAgentIntentRoute()
-                Task { await liveState.refresh() }
+                Task { await liveState.refresh(); await identityConnection.refresh() }
             }
         }
     }
@@ -819,6 +826,7 @@ private struct DetailSection: View {
 /// signing appears broken.
 private struct IdentityView: View {
     @ObservedObject var liveState: WalletLiveState
+    @ObservedObject var connection: IdentityConnection
 
     var body: some View {
         ZStack {
@@ -882,6 +890,13 @@ private struct IdentityView: View {
                         .cardStyle()
                     }
 
+                    if let profile = liveState.deviceProfile, !liveState.supersededProfile {
+                        IdentityConnectionCard(connection: connection)
+                            .task(id: profile.owner + profile.chainGenesis) {
+                                connection.select(owner: profile.owner, chain: profile.chainGenesis)
+                                await connection.refresh()
+                            }
+                    }
                 }
                 .padding(20)
             }
