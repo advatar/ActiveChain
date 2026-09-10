@@ -2,6 +2,24 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## In progress — mobile store submission automation
+
+Tracked by [issue #847](https://github.com/advatar/ActiveChain/issues/847). Claimed by Codex
+on `feat/847-store-automation` while [Tanzanian identity #846](https://github.com/advatar/ActiveChain/issues/846)
+awaits the stakeholder's provider/credential source. Android parity remains tracked by
+[existing issue #795](https://github.com/advatar/ActiveChain/issues/795) and follows the working iOS flow.
+
+- [x] Inspect Apple team/bundle settings, Android package/signing settings and repository secrets.
+- [ ] Add qualified-revision release preflight, signed artifacts and unique build-number handling.
+- [ ] Automate TestFlight and Play internal uploads with explicit processing/status evidence and safe retry behavior.
+- [ ] Add concrete App Store review and Play production submission commands without bypassing store review.
+- [ ] Verify contextual release-tool tests and local platform builds, then qualify the settled candidate.
+- [ ] Connect authorized publishing credentials, run real submissions, merge and verify origin/main reachability.
+
+App Store Connect CLI exists but has no authentication configured; repository secrets currently
+contain only Kanalen deployment credentials. Publishing requires the correct app records and
+scoped Apple/Google credentials. No upload or public release has been performed.
+
 ## Completed — demo merchant and verified live spending
 
 Tracked by [issue #844](https://github.com/advatar/ActiveChain/issues/844).
