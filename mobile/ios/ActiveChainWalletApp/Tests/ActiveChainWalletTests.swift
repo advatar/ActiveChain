@@ -1021,6 +1021,15 @@ final class ActiveChainWalletTests: XCTestCase {
         ) { XCTAssertEqual($0 as? AppleCustodyError, .unsupportedRecord) }
     }
 
+    func testKnownLegacyStatusExplainsVersionMismatchWithoutAcceptingOldWireForWalletOperations() throws {
+        var legacy = makeStatusResponse(schemaRevision: 4)
+        legacy[3] = 4
+        XCTAssertThrowsError(try WalletRPCCodec.decodeStatus(legacy))
+        let status = try WalletRPCCodec.decodeStatus(legacy, responseRevision: 4)
+        XCTAssertEqual(status.networkState, .incompatible)
+        XCTAssertThrowsError(try WalletRPCCodec.decodeStatus(legacy, responseRevision: 6))
+    }
+
     private func makeStatusResponse(
         chainID: Data = WalletKanalen.chainID,
         genesis: Data = WalletKanalen.genesis,

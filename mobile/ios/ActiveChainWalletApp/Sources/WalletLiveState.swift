@@ -212,7 +212,8 @@ final class WalletLiveState: ObservableObject {
                 "status refresh failed against \(WalletKanalen.hostDescription, privacy: .public): \(String(describing: error), privacy: .public)")
             networkState = .unavailable
             balanceState = .unavailable(
-                reason: "Kanalen RPC is unavailable; no local or optimistic balance is shown.")
+                reason: "Cannot connect to Kanalen. Tap the network card to retry.")
+            updateFundingAvailability()
             return
         }
         guard case let .healthy(height) = networkState,
@@ -237,6 +238,8 @@ final class WalletLiveState: ObservableObject {
                     WalletLog.rpc.error("node does not advertise the owner coin-cell capability")
                     reason = "The node does not serve owner-scoped Coin Cell proofs."
                 }
+            } else if case .incompatible = networkState {
+                reason = "This wallet build and the network configuration do not match."
             } else if case .stale = networkState {
                 reason = "The RPC checkpoint is stale; balances stay hidden until finality catches up."
             }
@@ -976,10 +979,11 @@ enum WalletRPCCodec {
         return framed
     }
 
-    static func decodeStatus(_ envelope: Data) throws -> WalletRPCStatus {
+    static func decodeStatus(_ envelope: Data, responseRevision: UInt16 = responseSchemaRevision) throws -> WalletRPCStatus {
         var decoder = WalletBinaryDecoder(data: envelope)
         guard try decoder.readUInt16() == responseTypeTag,
-              try decoder.readUInt16() == responseSchemaRevision
+              [4, 5].contains(responseRevision),
+              try decoder.readUInt16() == responseRevision
         else {
             throw WalletRPCError.unexpectedResponse
         }
@@ -1140,7 +1144,16 @@ final class WalletRPCClient: WalletLiveRPC, @unchecked Sendable {
     private let queue = DispatchQueue(label: "dev.activechain.wallet.rpc")
 
     func status() async throws -> WalletRPCStatus {
-        try WalletRPCCodec.decodeStatus(await roundTrip(WalletRPCCodec.framedStatusRequest))
+        do { return try WalletRPCCodec.decodeStatus(await roundTrip(WalletRPCCodec.framedStatusRequest)) }
+        catch WalletRPCError.transport {
+            // Diagnose the known previous server's handshake only. Its schema remains
+            // incompatible, so no holdings, faucet or spending operation is downgraded.
+            var legacy = WalletRPCCodec.framedStatusRequest
+            legacy[7] = 3
+            let status = try WalletRPCCodec.decodeStatus(await roundTrip(legacy), responseRevision: 4)
+            guard status.schemaRevision == 4 else { throw WalletRPCError.unexpectedResponse }
+            return status
+        }
     }
 
     func faucetTerms() async throws -> WalletFaucetTerms {

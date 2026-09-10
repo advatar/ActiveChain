@@ -97,6 +97,35 @@ enum DemoMerchant {
 struct DemoAmount: Equatable, Codable {
     let high: UInt64
     let low: UInt64
+    func adding(_ other: DemoAmount) throws -> DemoAmount {
+        let (low, carry) = low.addingReportingOverflow(other.low)
+        let (sum, overflow) = high.addingReportingOverflow(other.high)
+        let (high, carryOverflow) = sum.addingReportingOverflow(carry ? 1 : 0)
+        guard !overflow, !carryOverflow else { throw DemoShopError("Holdings exceed the native amount limit.") }
+        return DemoAmount(high: high, low: low)
+    }
+    var actText: String {
+        var high = high, low = low, digits = ""
+        repeat {
+            let division = UInt64(10).dividingFullWidth((high: high % 10, low: low))
+            digits.append(String(division.remainder))
+            high /= 10; low = division.quotient
+        } while high != 0 || low != 0
+        let decimal = String(digits.reversed())
+        let padded = String(repeating: "0", count: max(0, 19 - decimal.count)) + decimal
+        let split = padded.index(padded.endIndex, offsetBy: -18)
+        var fraction = String(padded[split...])
+        while fraction.last == "0" { fraction.removeLast() }
+        return String(padded[..<split]) + (fraction.isEmpty ? "" : "." + fraction) + " ACT"
+    }
+    static func total(in page: WalletOwnerCoinPage) throws -> DemoAmount {
+        guard page.next == nil, Set(page.records.map(\.key)).count == page.records.count else {
+            throw DemoShopError("A partial or duplicate holdings page cannot supply a total.")
+        }
+        return try page.records.reduce(DemoAmount(high: 0, low: 0)) {
+            try $0.adding(DemoCoin(value: $1.value).amount)
+        }
+    }
     func isAtLeast(_ value: UInt64) -> Bool { high > 0 || low >= value }
     func subtracting(_ value: UInt64) throws -> DemoAmount {
         guard isAtLeast(value) else { throw DemoShopError("Insufficient funds.") }

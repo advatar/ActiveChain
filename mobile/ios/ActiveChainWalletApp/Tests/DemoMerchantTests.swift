@@ -29,6 +29,19 @@ final class DemoMerchantTests: XCTestCase {
         XCTAssertThrowsError(try DemoAmount(high: 0, low: 4).subtracting(5))
         XCTAssertEqual(try DemoAmount(high: 0, low: DemoMerchant.price).subtracting(DemoMerchant.price), DemoAmount(high: 0, low: 0))
     }
+    func testVerifiedACTAmountsAreExactAndPartialPagesCannotClaimTotals() throws {
+        let fifty = DemoAmount(high: 2, low: 13_106_511_852_580_896_768)
+        let first = coin(key: 1, amount: fifty), second = coin(key: 2, amount: fifty)
+        let total = try DemoAmount.total(in: WalletOwnerCoinPage(records: [first, second], next: nil))
+        XCTAssertEqual(total.actText, "100 ACT")
+        XCTAssertEqual(try total.subtracting(DemoMerchant.price).subtracting(DemoMerchant.fee).actText, "94.999 ACT")
+        XCTAssertEqual(DemoAmount(high: 0, low: 1).actText, "0.000000000000000001 ACT")
+        XCTAssertEqual(DemoAmount(high: 0, low: 0).actText, "0 ACT")
+        XCTAssertEqual(DemoAmount(high: .max, low: .max).actText, "340282366920938463463.374607431768211455 ACT")
+        XCTAssertThrowsError(try DemoAmount(high: .max, low: .max).adding(DemoAmount(high: 0, low: 1)))
+        XCTAssertThrowsError(try DemoAmount.total(in: WalletOwnerCoinPage(records: [first], next: owner)))
+        XCTAssertThrowsError(try DemoAmount.total(in: WalletOwnerCoinPage(records: [first, first], next: nil)))
+    }
     func testCoinDecodingRejectsWrongTypeTruncationAndTrailingBytes() throws {
         let value = coin(key: 1, amount: DemoAmount(high: 0, low: 7)).value
         XCTAssertEqual(try DemoCoin(value: value).amount, DemoAmount(high: 0, low: 7))

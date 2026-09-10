@@ -76,7 +76,7 @@ private struct HomeView: View {
             ScrollView {
                 LazyVStack(spacing: 18) {
                     Header()
-                    BalanceCard(balanceState: liveState.balanceState)
+                    BalanceCard(balanceState: liveState.balanceState, page: liveState.verifiedOwnerPage)
                     if let secret = liveState.recoverySecret {
                         RecoveryKeyCard(secret: secret) { liveState.acknowledgeRecoverySecret() }
                     }
@@ -105,7 +105,7 @@ private struct HomeView: View {
                         refresh: { Task { await liveState.refresh() } },
                         select: { id in Task { await liveState.selectNetwork(id) } }
                     )
-                    AssetSection()
+                    AssetSection(page: liveState.verifiedOwnerPage)
                     SecurityFooter(
                         hasProfile: liveState.deviceProfile != nil,
                         hasVerifiedState: liveState.verifiedOwnerPage != nil
@@ -187,12 +187,15 @@ private struct Header: View {
 
 private struct BalanceCard: View {
     let balanceState: WalletBalanceState
+    let page: WalletOwnerCoinPage?
 
     /// A verified empty page is a claim the chain actually made, so it reads as
     /// a balance. The other two cases are absences of a claim and must not.
     private var headline: String {
         switch balanceState {
-        case let .verified(cells, _): cells == 0 ? "0 ACT" : "\(cells) Coin Cell\(cells == 1 ? "" : "s")"
+        case let .verified(cells, _):
+            if let page, let amount = try? DemoAmount.total(in: page) { amount.actText }
+            else { "\(cells) verified Coin Cells" }
         case .unverified: "Balance unverified"
         case .unavailable: "Balance unavailable"
         }
@@ -217,7 +220,7 @@ private struct BalanceCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack {
-                Label("Total balance", systemImage: "sparkles")
+                Label(page?.next == nil ? "Total balance" : "Verified holdings", systemImage: "sparkles")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.72))
                 Spacer()
@@ -345,17 +348,33 @@ private struct NetworkCard: View {
 }
 
 private struct AssetSection: View {
+    let page: WalletOwnerCoinPage?
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
+        if let page, !page.records.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
                 Text("Assets").font(.title3.bold())
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Label("ACT", systemImage: "a.circle.fill").font(.headline)
+                        Spacer()
+                        if let amount = try? DemoAmount.total(in: page) {
+                            Text(amount.actText).bold().accessibilityIdentifier("assets.act.balance")
+                        }
+                    }
+                    Text("\(page.records.count) verified Coin Cells").font(.caption)
+                    if page.next != nil { Text("Showing the first page of holdings.").font(.caption) }
+                    ForEach(page.records, id: \.key) { record in
+                        if let coin = try? DemoCoin(value: record.value) {
+                            HStack {
+                                Text(String(record.key.map { String(format: "%02x", $0) }.joined().prefix(12)) + "…")
+                                    .font(.caption.monospaced())
+                                Spacer()
+                                Text(coin.amount.actText).font(.caption)
+                            }
+                        }
+                    }
+                }.cardStyle()
             }
-            ContentUnavailableView(
-                "No verified assets",
-                systemImage: "tray",
-                description: Text("Asset balances require finalized owner-scoped Coin Cell proofs.")
-            )
-            .cardStyle()
         }
     }
 }
@@ -851,7 +870,7 @@ private struct IdentityView: View {
                                 .font(.system(size: 62))
                                 .foregroundStyle(WalletPalette.muted)
                             Text("No wallet identity").font(.title2.bold())
-                            Text("Create or import a wallet profile before receiving credentials or funds.")
+                            Text("Create a wallet from the Wallet tab to receive testnet ACT.")
                                 .font(.caption)
                                 .foregroundStyle(WalletPalette.muted)
                                 .multilineTextAlignment(.center)
@@ -863,12 +882,6 @@ private struct IdentityView: View {
                         .cardStyle()
                     }
 
-                    ContentUnavailableView(
-                        "No credentials",
-                        systemImage: "person.text.rectangle",
-                        description: Text("Only credentials persisted through the OpenWallet boundary will appear.")
-                    )
-                    .cardStyle()
                 }
                 .padding(20)
             }

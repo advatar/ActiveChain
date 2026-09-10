@@ -92,7 +92,7 @@ final class FreshWalletFaucetUITests: XCTestCase {
         reveal(balance, upwards: false)
         // Kanalen grants two cells so payment and fee inputs can be distinct.
         // One finalized half of the grant must not pass acceptance.
-        waitForLabel(balance, pattern: "([2-9]|[1-9][0-9]+) Coin Cells", timeout: 60)
+        waitForLabel(balance, pattern: "100 ACT", timeout: 60)
         let fundedBalance = balance.label
         let proof = app.staticTexts["balance.detail"].label
         XCTAssertTrue(proof.contains("proof(s) verified at finalized height"))
@@ -107,7 +107,7 @@ final class FreshWalletFaucetUITests: XCTestCase {
         app.terminate()
         app.launch()
         XCTAssertTrue(balance.waitForExistence(timeout: 30))
-        waitForLabel(balance, pattern: "([2-9]|[1-9][0-9]+) Coin Cells", timeout: 60)
+        waitForLabel(balance, pattern: "100 ACT", timeout: 60)
         XCTAssertEqual(balance.label, fundedBalance)
         XCTAssertGreaterThanOrEqual(try healthyHeight(), finalHeight)
         reveal(app.staticTexts["funding.title"], upwards: false)
