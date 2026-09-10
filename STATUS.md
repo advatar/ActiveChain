@@ -19,7 +19,7 @@ Draft [PR #845](https://github.com/advatar/ActiveChain/pull/845) owns the unit.
 - [x] Add unit coverage and a serial live iOS purchase test using faucet-funded coins.
 - [x] Restore the schema 5 app/server connection now that deployment SSH is reachable.
 - [x] Replace the hardcoded asset card with verified ACT holdings and remove claims about unimplemented credential storage.
-- [ ] Fix finalized-block construction for enrollment actions that preserve the Coin Cell root.
+- [x] Fix finalized-block construction for enrollment actions that preserve the Coin Cell root.
       Live fresh-wallet acceptance reached 100 ACT and submitted enrollment, then found the
       block builder incorrectly required every cash action to change coin holdings. Cover
       the real block construction boundary and preserve the pending signed enrollment.
@@ -27,7 +27,14 @@ Draft [PR #845](https://github.com/advatar/ActiveChain/pull/845) owns the unit.
       pending record. Skip already-batched action IDs and let verified finality repair an
       older erroneous rejection. Both retry regressions and real enrollment draft
       construction pass, with all 191 consensus/RPC tests and strict all-feature Clippy.
-      Deployment and resumed chain finalization remain to be verified.
+      Release c14db3d4 deployed; the retained enrollment finalized at block 20916 and
+      the app verified it. Block production resumed with the original chain state.
+- [x] Match purchase receipts to the native transfer ID and combined change output.
+      The retained wallet payment finalized, but the UI looked up the authorization intent
+      as the output origin and expected separate fee/payment change. Derive the actual
+      transfer ID in Rust, verify the single combined change cell, and recover this receipt
+      without another payment. Focused FFI/receipt tests pass; the retained wallet
+      verifies the merchant payment at block 20926 and 94.999 ACT after relaunch.
 - [ ] Deploy RPC schema 5 and pass the live faucet → enrollment → coffee → relaunch test.
       Schema 5 deployed on 2026-09-10 with chain state preserved; the user wallet faucet
       finalized at block 20890. Live acceptance found the Swift amount reader expected a

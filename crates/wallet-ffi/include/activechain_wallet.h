@@ -641,6 +641,16 @@ uint32_t activechain_wallet_submit_authorized(const uint8_t *envelope,
                                               void *callback_context);
 
 /**
+ * Derives the Coin Cell output origin from the exact reviewed cash request.
+ * This transfer identifier differs from the authorization intent committed by finality.
+ * # Safety
+ * Request is readable for request_len bytes; transition_out is writable for 48 bytes.
+ */
+uint32_t activechain_wallet_cash_transition_id(const uint8_t *request,
+                                               uint32_t request_len,
+                                               uint8_t *transition_out);
+
+/**
  * Encodes and verifies a signed wallet-key enrollment. Querying requires no signature.
  * # Safety
  * Fixed inputs are readable for 48/1312/2420 bytes; outputs are writable. Signature may be null

@@ -3,6 +3,34 @@ use activechain_wallet_core::{
     AuthorizedCashSessionGrantV1, CashKeyEnrollmentV1, CashSessionGrantV1,
 };
 
+/// Derives the Coin Cell output origin from the exact reviewed cash request.
+/// This transfer identifier differs from the authorization intent committed by finality.
+/// # Safety
+/// Request is readable for request_len bytes; transition_out is writable for 48 bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn activechain_wallet_cash_transition_id(
+    request: *const u8,
+    request_len: u32,
+    transition_out: *mut u8,
+) -> u32 {
+    if request.is_null() || transition_out.is_null() {
+        return WALLET_NULL_POINTER;
+    }
+    if request_len > MAX_WALLET_INPUT {
+        return WALLET_TOO_LARGE;
+    }
+    let Ok(request) = decode_envelope::<CashAuthorizationRequestV1>(unsafe {
+        core::slice::from_raw_parts(request, request_len as usize)
+    }) else {
+        return WALLET_MALFORMED;
+    };
+    let Ok(id) = activechain_protocol_commitment::cash_transition_id(request.transfer()) else {
+        return WALLET_MALFORMED;
+    };
+    unsafe { core::ptr::copy_nonoverlapping(id.digest().as_bytes().as_ptr(), transition_out, 48) };
+    WALLET_OK
+}
+
 /// Encodes and verifies a signed wallet-key enrollment. Querying requires no signature.
 /// # Safety
 /// Fixed inputs are readable for 48/1312/2420 bytes; outputs are writable. Signature may be null
@@ -236,6 +264,109 @@ pub unsafe extern "C" fn activechain_wallet_check_key_enrollment(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cash_output_origin_matches_real_ledger_and_change_is_combined() {
+        use activechain_cash_kernel::{
+            CashLedger, GenesisAllocation, GenesisEconomy, NativeAssetDefinition,
+        };
+        let chain = ChainId::new(Digest384::new([1; 48]));
+        let owner = PrincipalId::new(Digest384::new([2; 48]));
+        let merchant = PrincipalId::new(Digest384::new([3; 48]));
+        let definition = NativeAssetDefinition::new(
+            chain,
+            b"ACT".to_vec(),
+            18,
+            1000,
+            150,
+            Digest384::new([4; 48]),
+            Digest384::new([5; 48]),
+            Digest384::new([6; 48]),
+        )
+        .unwrap();
+        let economy = GenesisEconomy::new(
+            definition,
+            vec![
+                GenesisAllocation::new(owner, 700, 100).unwrap(),
+                GenesisAllocation::new(owner, 100, 0).unwrap(),
+            ],
+            100,
+        )
+        .unwrap();
+        let mut ledger = CashLedger::from_genesis(&economy).unwrap();
+        let cells = ledger.cells().as_slice();
+        let transfer =
+            CoinTransfer::new(owner, merchant, vec![cells[0].id()], cells[1].id(), 10, 1, 20)
+                .unwrap();
+        let request = CashAuthorizationRequestV1::new(
+            chain,
+            owner,
+            0,
+            Digest384::new([7; 48]),
+            20,
+            transfer.clone(),
+        )
+        .unwrap();
+        let bytes = encode_envelope(&request).unwrap();
+        let mut origin = [0; 48];
+        assert_eq!(
+            unsafe {
+                activechain_wallet_cash_transition_id(
+                    bytes.as_ptr(),
+                    bytes.len() as u32,
+                    origin.as_mut_ptr(),
+                )
+            },
+            WALLET_OK
+        );
+        assert_ne!(&origin, request.intent_id().unwrap().as_bytes());
+        ledger.apply_transfer(&transfer, 7).unwrap();
+        let outputs = ledger.cells().as_slice();
+        assert_eq!(outputs.len(), 2);
+        for record in outputs {
+            assert_eq!(record.cell().origin().transition_id().digest().as_bytes(), &origin);
+            assert_eq!(record.cell().creation_height(), 7);
+            match record.cell().origin().output_index() {
+                0 => {
+                    assert_eq!(record.cell().owner(), merchant);
+                    assert_eq!(record.cell().amount(), 10);
+                }
+                1 => {
+                    assert_eq!(record.cell().owner(), owner);
+                    assert_eq!(record.cell().amount(), 789);
+                }
+                _ => panic!("ordinary cash transfer must have one combined change output"),
+            }
+        }
+        let before = origin;
+        assert_eq!(
+            unsafe {
+                activechain_wallet_cash_transition_id(
+                    bytes.as_ptr(),
+                    bytes.len() as u32 - 1,
+                    origin.as_mut_ptr(),
+                )
+            },
+            WALLET_MALFORMED
+        );
+        assert_eq!(origin, before);
+        assert_eq!(
+            unsafe {
+                activechain_wallet_cash_transition_id(core::ptr::null(), 0, origin.as_mut_ptr())
+            },
+            WALLET_NULL_POINTER
+        );
+        assert_eq!(
+            unsafe {
+                activechain_wallet_cash_transition_id(
+                    bytes.as_ptr(),
+                    MAX_WALLET_INPUT + 1,
+                    origin.as_mut_ptr(),
+                )
+            },
+            WALLET_TOO_LARGE
+        );
+        assert_eq!(origin, before);
+    }
     #[test]
     fn native_enrollment_verifies_ownership_and_size_query_needs_no_secret() {
         let seed = ml_dsa::Seed::from([54; 32]);

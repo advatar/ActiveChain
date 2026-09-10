@@ -18,7 +18,8 @@ A fresh ML-DSA-44 receiver key was generated with `activechain-wallet derive` on
 `~/Library/Application Support/ActiveChain/DemoMerchant/kanalen-844` on the development Mac
 (directory mode 0700, key mode 0600). No seed or private key is stored in this repository or
 embedded in the customer app. The merchant key has not been enrolled on chain. The public
-principal can receive coins, but no demo purchase has been submitted or verified yet.
+principal received a verified 5 ACT demo purchase at block 20926 on 2026-09-10.
+The retained customer wallet shows 94.999 ACT after its 0.001 ACT fee and relaunch.
 
 ## Spending prerequisite
 
@@ -56,7 +57,10 @@ payment review, durable signed-action retry and certificate-backed merchant/chan
 RPC schema 5 was deployed on 2026-09-10 at revision `b5dac305`, preserving the chain and
 wallet state. The existing user wallet received a finalized 100 ACT faucet grant at block
 20890. A live check exposed and corrected a Swift record-decoding mismatch; the wallet now
-displays the actual total and both 50 ACT cells. Fresh-wallet purchase acceptance remains.
+displays the actual total and both 50 ACT cells. The first fresh-wallet flow exposed two server finalization/retry bugs and a client receipt
+mapping mismatch. Release `c14db3d4` restored finalization and enrolled that wallet at block
+20916. The corrected client verified its purchase at block 20926 without resubmission.
+A clean automated acceptance rerun and final qualification remain.
 
 ## Candidate app flow
 
@@ -72,4 +76,6 @@ across relaunch. A second purchase cannot replace an unresolved one.
 Local qualification covers the production Swift/Rust signing transcripts and a Rust scenario
 that rejects spending before enrollment and in its block, then pays the merchant in a later
 block, persists finality evidence and rejects replay. This does not replace the outstanding
-live iOS purchase test. Deployment access is restored and the public schema 5 RPC is healthy.
+clean automated live iOS purchase rerun. Deployment access is restored and the public
+schema 5 RPC is healthy. Development checks now target changed boundaries and build only
+the required iOS wallet library/simulator slice; full qualification waits for the settled flow.

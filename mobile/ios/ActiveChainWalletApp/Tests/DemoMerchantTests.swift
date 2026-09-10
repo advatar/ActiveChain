@@ -82,6 +82,23 @@ final class DemoMerchantTests: XCTestCase {
         XCTAssertEqual(loaded.nextNonce, 0)
         XCTAssertNil(try loaded.purchase?.verifiedPaidHeight(network: .kanalen, owner: owner))
     }
+    func testExistingPurchaseJournalUsesNativeTransferOriginAndCombinedChange() throws {
+        let fifty = DemoAmount(high: 2, low: 13_106_511_852_580_896_768)
+        let page = WalletOwnerCoinPage(records: [coin(key: 1, amount: fifty), coin(key: 2, amount: fifty)], next: nil)
+        let approval = try DemoMerchant.review(network: .kanalen, owner: owner, page: page, height: 20, nonce: 0)
+        let origin = try DemoMerchant.outputOrigin(request: approval.request)
+        XCTAssertNotEqual(origin, approval.intentID)
+        let laterAuthorization = try DemoMerchant.review(network: .kanalen, owner: owner, page: page, height: 20, nonce: 1)
+        XCTAssertNotEqual(approval.intentID, laterAuthorization.intentID)
+        XCTAssertEqual(origin, try DemoMerchant.outputOrigin(request: laterAuthorization.request))
+        let purchase = DemoPurchase(request: approval.request, reference: approval.intentID, session: Data([1]), transfer: Data([2]),
+                                    paymentChange: try fifty.subtracting(DemoMerchant.price), feeChange: try fifty.subtracting(DemoMerchant.fee))
+        let restored = try JSONDecoder().decode(DemoPurchase.self, from: JSONEncoder().encode(purchase))
+        XCTAssertEqual(try restored.combinedChange.actText, "94.999 ACT")
+        XCTAssertEqual(restored.transfer, purchase.transfer)
+        XCTAssertEqual(restored.reference, purchase.reference)
+        XCTAssertThrowsError(try DemoMerchant.outputOrigin(request: approval.request.dropLast()))
+    }
     func testForgedFinalityAndOutputProofsNeverShowPaid() throws {
         let evidence = DemoCashEvidence(ids: owner, finality: Data([1]))
         XCTAssertThrowsError(try evidence.verifiedHeight(reference: owner, network: .kanalen))

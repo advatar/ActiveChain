@@ -77,6 +77,15 @@ enum DemoMerchant {
         guard try d.readULEB128(maximum: 16) == 1 else { throw DemoShopError("The demo requires a single payment input.") }
         return try d.read(count: 48)
     }
+    static func outputOrigin(request: Data) throws -> Data {
+        guard !request.isEmpty, request.count <= 262144 else { throw DemoShopError("Malformed payment request.") }
+        var origin = Data(count: 48)
+        let code = request.withUnsafeBytes { input in origin.withUnsafeMutableBytes { output in
+            activechain_wallet_cash_transition_id(input.bindMemory(to: UInt8.self).baseAddress, UInt32(request.count), output.bindMemory(to: UInt8.self).baseAddress)
+        } }
+        guard code == ACTIVECHAIN_WALLET_OK else { throw DemoShopError("Could not derive the native payment outputs (\(code)).") }
+        return origin
+    }
     static func signedSession(approval: CanonicalCashApproval, slot: String, height: UInt64, provider: AppleNativeCustodyProvider? = nil) throws -> Data {
         let custody = try provider ?? Self.custody()
         let key = try custody.publicKey(slotID: slot)

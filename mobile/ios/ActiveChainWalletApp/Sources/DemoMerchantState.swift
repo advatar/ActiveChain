@@ -35,17 +35,24 @@ struct DemoPurchase: Codable {
     var merchantOutput: WalletOwnerCoinRecord?
     var customerOutputs: [WalletOwnerCoinRecord]?
 
+    // Preserve the existing journal fields so already-submitted payments recover.
+    // Ordinary CoinTransfer spends both inputs and produces a single change cell.
+    var combinedChange: DemoAmount { get throws { try paymentChange.adding(feeChange) } }
+
     func verifiedPaidHeight(network: WalletNetwork, owner: Data) throws -> UInt64? {
         guard let evidence, let merchantOutput, let customerOutputs else { return nil }
         let approval = try RustCanonicalApproval.review(request)
         guard approval.intentID == reference, approval.chainID == network.chainID, approval.signer == owner,
               approval.recipient == DemoMerchant.owner, approval.amount == Unsigned128Words(high: 0, low: DemoMerchant.price), approval.fee == Unsigned128Words(high: 0, low: DemoMerchant.fee) else { throw DemoShopError("Receipt does not match this purchase.") }
         let height = try evidence.verifiedHeight(reference: reference, network: network)
-        try Self.verifyOutput(merchantOutput, owner: DemoMerchant.owner, reference: reference, index: 0, amount: DemoAmount(high: 0, low: DemoMerchant.price), height: height, network: network)
-        for (index, amount) in [(UInt16(1), paymentChange), (UInt16(2), feeChange)] {
-            if amount == DemoAmount(high: 0, low: 0) { continue }
-            guard let output = try customerOutputs.first(where: { try DemoCoin(value: $0.value).outputIndex == index }) else { throw DemoShopError("Customer change has not been proved.") }
-            try Self.verifyOutput(output, owner: owner, reference: reference, index: index, amount: amount, height: height, network: network)
+        let origin = try DemoMerchant.outputOrigin(request: request)
+        try Self.verifyOutput(merchantOutput, owner: DemoMerchant.owner, reference: origin, index: 0, amount: DemoAmount(high: 0, low: DemoMerchant.price), height: height, network: network)
+        let change = try combinedChange
+        if change != DemoAmount(high: 0, low: 0) {
+            guard customerOutputs.count == 1, let output = customerOutputs.first else { throw DemoShopError("Customer change has not been proved.") }
+            try Self.verifyOutput(output, owner: owner, reference: origin, index: 1, amount: change, height: height, network: network)
+        } else if !customerOutputs.isEmpty {
+            throw DemoShopError("Unexpected customer change outputs.")
         }
         return height
     }
@@ -164,9 +171,10 @@ final class DemoMerchantState: ObservableObject {
         let height = try evidence.verifiedHeight(reference: purchase.reference, network: wallet.network)
         guard receipt.height == height else { throw DemoShopError("Payment checkpoint mismatch.") }
         purchase.evidence = evidence
-        purchase.merchantOutput = try await findOutput(owner: DemoMerchant.owner, reference: purchase.reference)
+        let origin = try DemoMerchant.outputOrigin(request: purchase.request)
+        purchase.merchantOutput = try await findOutput(owner: DemoMerchant.owner, reference: origin)
         let customer = try await rpc.ownerCoinCells(owner: saved.owner)
-        purchase.customerOutputs = try customer.records.filter { try DemoCoin(value: $0.value).origin == purchase.reference }
+        purchase.customerOutputs = try customer.records.filter { try DemoCoin(value: $0.value).origin == origin }
         guard try purchase.verifiedPaidHeight(network: wallet.network, owner: saved.owner) == height else { throw DemoShopError("Waiting for verified payment outputs.") }
         saved.purchase = purchase
         let approval = try RustCanonicalApproval.review(purchase.request)
