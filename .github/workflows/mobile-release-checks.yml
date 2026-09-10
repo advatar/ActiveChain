@@ -1,0 +1,18 @@
+name: Mobile release checks
+on:
+  pull_request:
+    paths:
+      - 'mobile/release/**'
+      - 'mobile/android/app/build.gradle.kts'
+      - 'scripts/test_mobile_release.py'
+      - '.github/workflows/mobile*release*.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  release-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - run: python3 scripts/test_mobile_release.py
+      - run: ruby -c mobile/release/fastlane/Fastfile

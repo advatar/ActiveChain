@@ -10,15 +10,23 @@ awaits the stakeholder's provider/credential source. Android parity remains trac
 [existing issue #795](https://github.com/advatar/ActiveChain/issues/795) and follows the working iOS flow.
 
 - [x] Inspect Apple team/bundle settings, Android package/signing settings and repository secrets.
-- [ ] Add qualified-revision release preflight, signed artifacts and unique build-number handling.
-- [ ] Automate TestFlight and Play internal uploads with explicit processing/status evidence and safe retry behavior.
-- [ ] Add concrete App Store review and Play production submission commands without bypassing store review.
-- [ ] Verify contextual release-tool tests and local platform builds, then qualify the settled candidate.
+- [x] Add qualified-revision/artifact preflight, explicit version/build inputs and fail-closed Android release signing configuration.
+- [x] Prepare pinned Fastlane archive, TestFlight, App Store review, Play internal and exact-build production promotion commands.
+- [x] Add explicit workflow dispatch, scoped credential cleanup, durable attempt receipts and per-build submission locks.
+- [x] Verify contextual release checks: 14 admission/retry tests, 17 workflow-policy tests, workflow lint, pinned Fastlane lane/options loading and Ruby syntax.
+- [x] Build the Android debug app locally and pass its 21 unit tests after the signing configuration change.
+- [x] Confirm `bundleRelease` rejects absent signing configuration before building an unsigned release.
+- [ ] Qualify signed iOS/Android artifacts, remote build-number handling and store processing/submission identifiers with real credentials.
+- [ ] Run the mandatory full gate on the settled substantive candidate; no full gate has been started for this draft.
 - [ ] Connect authorized publishing credentials, run real submissions, merge and verify origin/main reachability.
 
 App Store Connect CLI exists but has no authentication configured; repository secrets currently
 contain only Kanalen deployment credentials. Publishing requires the correct app records and
 scoped Apple/Google credentials. No upload or public release has been performed.
+The commands and remaining one-time prerequisites are documented in
+`docs/MOBILE_STORE_RELEASE.md`. Android store builds deliberately stop until the current
+API 35 target is upgraded to API 36 under #795. The draft does not claim live publishing
+or store approval; remote reconciliation remains pending authenticated qualification.
 
 ## Completed — demo merchant and verified live spending
 
