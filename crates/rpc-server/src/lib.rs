@@ -826,6 +826,8 @@ impl DurableRpcStore {
             // and must say so rather than accept and never settle.
             | RpcRequest::SubmitAuthorizedTransfer { .. }
             | RpcRequest::ResolveTransfer { .. }
+            | RpcRequest::EnrollCashKey { .. }
+            | RpcRequest::CashSubmissionEvidence { .. }
             | RpcRequest::FaucetTerms => RpcResponse::Error(RpcError::InvalidRequest),
         }
     }
@@ -1182,18 +1184,10 @@ impl RpcServer {
             }
             let envelope = &batch[offset..offset + length];
             offset += length;
-            let transaction = if let Ok(operator) =
-                decode_envelope::<activechain_wallet_core::OperatorFaucetAuthorizationV1>(envelope)
-            {
-                operator.transfer().request().intent_id()
-            } else {
-                decode_envelope::<AuthorizedCashTransferV1>(envelope)
-                    .map_err(|_| FaucetError::InvalidTransition)?
-                    .request()
-                    .intent_id()
-            }
-            .map_err(|_| FaucetError::InvalidTransition)?;
-            ids.push(TransactionId::new(transaction));
+            ids.push(
+                activechain_wallet_core::cash_action_id(envelope)
+                    .map_err(|_| FaucetError::InvalidTransition)?,
+            );
         }
         let mut committed = Vec::with_capacity(ids.len() * 48);
         for id in &ids {
@@ -1550,6 +1544,20 @@ impl RpcServer {
                     .cloned()
                     .map_or(RpcResponse::Error(RpcError::NotFound), RpcResponse::FaucetReceipt)
             }
+            RpcRequest::CashSubmissionEvidence { reference } => {
+                let Some(transfers) = &self.transfers else {
+                    return RpcResponse::Error(RpcError::InvalidRequest);
+                };
+                let Ok(mut transfers) = transfers.write() else {
+                    return RpcResponse::Error(RpcError::Internal);
+                };
+                match transfers.evidence(reference) {
+                    Ok((action_ids, finality)) => {
+                        RpcResponse::CashSubmissionEvidence { action_ids, finality }
+                    }
+                    Err(_) => RpcResponse::Error(RpcError::NotFound),
+                }
+            }
             RpcRequest::ResolveTransfer { reference } => {
                 let Some(transfers) = &self.transfers else {
                     return RpcResponse::Error(RpcError::InvalidRequest);
@@ -1562,7 +1570,15 @@ impl RpcServer {
                     Err(_) => RpcResponse::Error(RpcError::Internal),
                 }
             }
-            RpcRequest::SubmitAuthorizedTransfer { session, transfer } => {
+            request @ (RpcRequest::SubmitAuthorizedTransfer { .. }
+            | RpcRequest::EnrollCashKey { .. }) => {
+                let (session, transfer, is_enrollment) = match request {
+                    RpcRequest::EnrollCashKey { enrollment } => (Vec::new(), enrollment, true),
+                    RpcRequest::SubmitAuthorizedTransfer { session, transfer } => {
+                        (session, transfer, false)
+                    }
+                    _ => unreachable!(),
+                };
                 let (Some(transfers), Some(ingress_path)) =
                     (&self.transfers, &self.transfer_ingress_path)
                 else {
@@ -1583,13 +1599,12 @@ impl RpcServer {
                 let Ok(mut transfers) = transfers.write() else {
                     return RpcResponse::Error(RpcError::Internal);
                 };
-                match transfers.submit(
-                    &session,
-                    &transfer,
-                    &ingress,
-                    status.finalized_height(),
-                    now,
-                ) {
+                let result = if is_enrollment {
+                    transfers.submit_enrollment(&transfer, &ingress, status.finalized_height(), now)
+                } else {
+                    transfers.submit(&session, &transfer, &ingress, status.finalized_height(), now)
+                };
+                match result {
                     Ok(receipt) => RpcResponse::TransferReceipt(receipt),
                     Err(TransferSubmissionError::Rejected(rejection)) => {
                         RpcResponse::TransferRejected(rejection)
@@ -4182,7 +4197,7 @@ mod tests {
         // deliberate act: every client checks it to decide whether it can
         // understand the node at all, and a wallet pinned to 3 must refuse a
         // node serving 4 rather than guess.
-        assert_eq!(RPC_SCHEMA_REVISION, 4);
+        assert_eq!(RPC_SCHEMA_REVISION, 5);
         assert_eq!(RpcAccessTerms::TYPE_TAG, 0x00ba);
         assert_eq!(RpcAccessRequest::TYPE_TAG, 0x00bc);
         assert_eq!(RpcAccessResponse::TYPE_TAG, 0x00bd);

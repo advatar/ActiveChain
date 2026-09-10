@@ -1,0 +1,71 @@
+import XCTest
+import ActiveChainWallet
+@testable import ActiveChainWalletApp
+
+final class DemoMerchantTests: XCTestCase {
+    private let owner = Data(repeating: 8, count: 48)
+    private func coin(key: UInt8, amount: DemoAmount, owner: Data? = nil) -> WalletOwnerCoinRecord {
+        let body = Data(repeating: 9, count: 48) + DemoMerchant.integer(UInt16(0)) + (owner ?? self.owner) + DemoMerchant.integer(amount.high) + DemoMerchant.integer(amount.low) + DemoMerchant.integer(UInt64(10))
+        return WalletOwnerCoinRecord(key: Data(repeating: key, count: 48), finalizedHeight: 10,
+            value: Data([0, 0x83, 0, 1, 122]) + body, proof: Data([1]), finality: Data([1]))
+    }
+    func testPriceAndFeeSelectionUseDistinctOwnedCellsAndExactNativeReview() throws {
+        let first = coin(key: 2, amount: DemoAmount(high: 2, low: 13_106_511_852_580_896_768))
+        let second = coin(key: 3, amount: DemoAmount(high: 2, low: 13_106_511_852_580_896_768))
+        let page = WalletOwnerCoinPage(records: [first, second], next: nil)
+        let review = try DemoMerchant.review(network: .kanalen, owner: owner, page: page, height: 20, nonce: 3)
+        XCTAssertEqual(review.recipient, DemoMerchant.owner)
+        XCTAssertEqual(review.amount, Unsigned128Words(high: 0, low: DemoMerchant.price))
+        XCTAssertEqual(review.fee, Unsigned128Words(high: 0, low: DemoMerchant.fee))
+        XCTAssertEqual(review.nonce, 3)
+        XCTAssertEqual(try DemoMerchant.selectedInput(review), first.key)
+        XCTAssertEqual(review.feeReserve, second.key)
+        XCTAssertThrowsError(try DemoMerchant.review(network: .kanalen, owner: owner, page: WalletOwnerCoinPage(records: [first], next: nil), height: 20, nonce: 0))
+        let foreign = coin(key: 4, amount: DemoAmount(high: 3, low: 0), owner: Data(repeating: 7, count: 48))
+        XCTAssertThrowsError(try DemoMerchant.review(network: .kanalen, owner: owner, page: WalletOwnerCoinPage(records: [first, foreign], next: nil), height: 20, nonce: 0))
+    }
+    func testAmountsHandleBorrowAndInsufficientFundsWithoutFloatingPoint() throws {
+        XCTAssertEqual(try DemoAmount(high: 1, low: 0).subtracting(1), DemoAmount(high: 0, low: UInt64.max))
+        XCTAssertThrowsError(try DemoAmount(high: 0, low: 4).subtracting(5))
+        XCTAssertEqual(try DemoAmount(high: 0, low: DemoMerchant.price).subtracting(DemoMerchant.price), DemoAmount(high: 0, low: 0))
+    }
+    func testCoinDecodingRejectsWrongTypeTruncationAndTrailingBytes() throws {
+        let value = coin(key: 1, amount: DemoAmount(high: 0, low: 7)).value
+        XCTAssertEqual(try DemoCoin(value: value).amount, DemoAmount(high: 0, low: 7))
+        XCTAssertThrowsError(try DemoCoin(value: value.dropLast()))
+        XCTAssertThrowsError(try DemoCoin(value: value + Data([0])))
+        var altered = value; altered[1] = 0x84
+        XCTAssertThrowsError(try DemoCoin(value: altered))
+    }
+    func testPendingJournalSurvivesRelaunchWithoutClaimingPayment() throws {
+        let purchase = DemoPurchase(request: Data([1]), reference: owner, session: Data([2]), transfer: Data([3]), paymentChange: DemoAmount(high: 0, low: 4), feeChange: DemoAmount(high: 0, low: 5))
+        let journal = DemoJournal(owner: owner, genesis: WalletNetwork.kanalen.genesis, enrollment: DemoEnrollment(bytes: Data([4]), reference: owner), purchase: purchase)
+        let loaded = try JSONDecoder().decode(DemoJournal.self, from: JSONEncoder().encode(journal))
+        XCTAssertEqual(loaded.purchase?.transfer, purchase.transfer)
+        XCTAssertEqual(loaded.purchase?.session, purchase.session)
+        XCTAssertEqual(loaded.nextNonce, 0)
+        XCTAssertNil(try loaded.purchase?.verifiedPaidHeight(network: .kanalen, owner: owner))
+    }
+    func testForgedFinalityAndOutputProofsNeverShowPaid() throws {
+        let evidence = DemoCashEvidence(ids: owner, finality: Data([1]))
+        XCTAssertThrowsError(try evidence.verifiedHeight(reference: owner, network: .kanalen))
+        XCTAssertThrowsError(try DemoCashEvidence(ids: owner + owner, finality: Data([1])).verifiedHeight(reference: owner, network: .kanalen))
+        let record = coin(key: 1, amount: DemoAmount(high: 0, low: DemoMerchant.price), owner: DemoMerchant.owner)
+        XCTAssertThrowsError(try DemoPurchase.verifyOutput(record, owner: DemoMerchant.owner, reference: Data(repeating: 9, count: 48), index: 0, amount: DemoAmount(high: 0, low: DemoMerchant.price), height: 10, network: .kanalen))
+    }
+    private func response(_ body: Data) -> Data {
+        Data([1, 10, 0, 5]) + Data(WalletRPCCodec.uleb128(body.count)) + body
+    }
+    func testCashReceiptDistinguishesPendingUnknownAndFinalizedAndRejectsContradictions() throws {
+        for state: UInt8 in [0, 3] {
+            let receipt = try WalletRPCCodec.decodeCashReceipt(response(Data([11]) + owner + Data([state, 0, 0, 0, 0])))
+            XCTAssertEqual(receipt.state, state); XCTAssertNil(receipt.height)
+        }
+        let finalized = Data([11]) + owner + Data([1, 1]) + owner + Data([1]) + DemoMerchant.integer(UInt64(40)) + Data([1]) + Data(repeating: 2, count: 48) + Data([0])
+        XCTAssertEqual(try WalletRPCCodec.decodeCashReceipt(response(finalized)).height, 40)
+        var substituted = finalized; substituted[51] ^= 1
+        XCTAssertThrowsError(try WalletRPCCodec.decodeCashReceipt(response(substituted)))
+        XCTAssertThrowsError(try WalletRPCCodec.decodeCashReceipt(response(finalized + Data([0]))))
+        XCTAssertThrowsError(try WalletRPCCodec.decodeCashReceipt(response(Data([11]) + owner + Data([0, 1]) + owner + Data([0, 0, 0]))))
+    }
+}

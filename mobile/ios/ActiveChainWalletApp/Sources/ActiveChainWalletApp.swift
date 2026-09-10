@@ -8,7 +8,7 @@ struct ActiveChainWalletApp: App {
 }
 
 private enum WalletTab: Hashable {
-    case home, activity, approvals, identity
+    case home, activity, approvals, identity, shop
 }
 
 struct WalletPalette {
@@ -32,6 +32,10 @@ struct WalletRootView: View {
             }
             .tag(WalletTab.home)
             .tabItem { Label("Wallet", systemImage: "wallet.bifold.fill") }
+
+            NavigationStack { DemoShopView(liveState: liveState) }
+                .tag(WalletTab.shop)
+                .tabItem { Label("Shop", systemImage: "cup.and.saucer.fill") }
 
             NavigationStack { ActivityView(liveState: liveState) }
                 .tag(WalletTab.activity)

@@ -14,6 +14,8 @@ use activechain_wallet_core::{
     OpenWalletCredentialOfferV1, OpenWalletPresentationRequestV1,
 };
 
+mod cash_enrollment;
+pub use cash_enrollment::*;
 #[cfg(target_os = "android")]
 mod android;
 use core::ffi::c_void;

@@ -11,6 +11,8 @@
 		0203D15FB843A76A4366DB52 /* AgentEnrollment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8314E013FB77F1EBBD1BDE46 /* AgentEnrollment.swift */; };
 		07334189D34A9B6C4A160EAA /* WalletLiveState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D0CAF5609EE5137D2B9241C /* WalletLiveState.swift */; };
 		0794CC607A6235E9A3BCDB91 /* WalletNetwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1F16B7D1BDA1C94116989C /* WalletNetwork.swift */; };
+		1A76060FDB1F098764153117 /* DemoMerchantWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E90217A71E4625AFF3B72F1 /* DemoMerchantWire.swift */; };
+		1AFF711F7AD01E680AF6E873 /* DemoMerchantTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97D99514DC71A54EEF8237FE /* DemoMerchantTests.swift */; };
 		20ED92D62FC73117F71FDA7F /* AgentWallet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D41DFF27117CF804DD5B4301 /* AgentWallet.swift */; };
 		2C8CCD588629BA72F529AA84 /* RustAgentRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A908638375B69C4796EE249 /* RustAgentRegistry.swift */; };
 		374576FBA140D49B79CE92CC /* ReceiveRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A496EE1DE3CAA8472B124CAF /* ReceiveRequest.swift */; };
@@ -31,8 +33,10 @@
 		9D0E94D450087317D80E144E /* FreshWalletFaucetUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE2DDD588E6426122AFF97C6 /* FreshWalletFaucetUITests.swift */; };
 		A238900342B0AD7AF8819CE2 /* ActiveChainWalletApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00F60C541C50E0093CD8C615 /* ActiveChainWalletApp.swift */; };
 		A255F0544F1A5B6B4D343181 /* NetworkSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50EF838DF6F51C698FEE9C6F /* NetworkSelection.swift */; };
+		A7B67A8689B9C70E89571D4A /* DemoMerchantTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97D99514DC71A54EEF8237FE /* DemoMerchantTests.swift */; };
 		A955F5A4F6398043E6F147B7 /* OpenWalletAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9A7B68A6BF40EC2B257B49E /* OpenWalletAdapter.swift */; };
 		AD9C8CBA51E6E5123B86F339 /* NetworkSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50EF838DF6F51C698FEE9C6F /* NetworkSelection.swift */; };
+		AEFA276C01AF06687B0C37CA /* DemoMerchantWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E90217A71E4625AFF3B72F1 /* DemoMerchantWire.swift */; };
 		BA3657EA83D7DC0D110A102F /* ReceiveRequestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5C193E2E9CC1B91B0DFB62 /* ReceiveRequestView.swift */; };
 		BB6E5026B53B0AAAC47D02D9 /* WalletLifecycleUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FE5B79EEE48EB238AC35CE7 /* WalletLifecycleUITests.swift */; };
 		BEAC359D40E3322CD06C36BC /* AgentAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8A918D07F4706D86D226023 /* AgentAppIntents.swift */; };
@@ -41,12 +45,16 @@
 		C09A76603C1BDAAFF19FF475 /* CompositeIdentityProof.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFB56F56729E1FD903647C95 /* CompositeIdentityProof.swift */; };
 		C36503C27AA30E6900308D6A /* AnyIdentity in Frameworks */ = {isa = PBXBuildFile; productRef = 9EC02032308087119FD0715A /* AnyIdentity */; };
 		C6D5D7253B9EFD95E52C12B5 /* CompositeIdentityProof.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFB56F56729E1FD903647C95 /* CompositeIdentityProof.swift */; };
+		CA61C79DB3EA243E98CA86C6 /* DemoShopView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E3CA10F497E82D9887FD3FF /* DemoShopView.swift */; };
 		D0A75F0688EB6CCE64C6EF16 /* ReceiveRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A496EE1DE3CAA8472B124CAF /* ReceiveRequest.swift */; };
 		D0F9C505B058BC3F397446E9 /* AnyIdentity in Frameworks */ = {isa = PBXBuildFile; productRef = 76B7CB651E992058370462E9 /* AnyIdentity */; };
+		D5A2D12F6F0F014CF5D5D165 /* DemoMerchantState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F244A2752DFB422CC7F1A4A2 /* DemoMerchantState.swift */; };
+		D689969781F03CE443A43BDC /* DemoMerchantState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F244A2752DFB422CC7F1A4A2 /* DemoMerchantState.swift */; };
 		DD514FDF4C74A5F91E657DF5 /* RustAgentRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A908638375B69C4796EE249 /* RustAgentRegistry.swift */; };
 		DFA6CA854511D128103146C2 /* AgentEnrollment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8314E013FB77F1EBBD1BDE46 /* AgentEnrollment.swift */; };
 		E8468724E720CCEBF55A5100 /* WalletLiveState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D0CAF5609EE5137D2B9241C /* WalletLiveState.swift */; };
 		E88F607E1F44F4D3B1B9F54E /* McpProposalApproval.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94B4EAFAD4ADAA28A7F1AADB /* McpProposalApproval.swift */; };
+		EBBB500FD53CAB8B453B8252 /* DemoShopView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E3CA10F497E82D9887FD3FF /* DemoShopView.swift */; };
 		F0B673E2E0E1DD9303685E76 /* AgentWallet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D41DFF27117CF804DD5B4301 /* AgentWallet.swift */; };
 		F237267DD6AEE9833C23E042 /* AnyIdentity in Frameworks */ = {isa = PBXBuildFile; productRef = 35A034649BCC5FF3B5EAB3C4 /* AnyIdentity */; };
 		F8804379117C44DC8BD4CFAA /* CanonicalApproval.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A413B7566FFCF99636E760 /* CanonicalApproval.swift */; };
@@ -85,6 +93,7 @@
 
 /* Begin PBXFileReference section */
 		00F60C541C50E0093CD8C615 /* ActiveChainWalletApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveChainWalletApp.swift; sourceTree = "<group>"; };
+		0E90217A71E4625AFF3B72F1 /* DemoMerchantWire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoMerchantWire.swift; sourceTree = "<group>"; };
 		2CB380D50C9BFB374F558877 /* AnyIdentity */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AnyIdentity; path = ../../../vendor/AnyIdentity; sourceTree = SOURCE_ROOT; };
 		2D0CAF5609EE5137D2B9241C /* WalletLiveState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletLiveState.swift; sourceTree = "<group>"; };
 		329F5D83AC50D372D7E5BA6F /* ActiveChainWalletTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ActiveChainWalletTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -98,6 +107,8 @@
 		82AF43EE862E7362F5827841 /* ActiveChainWalletMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ActiveChainWalletMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8314E013FB77F1EBBD1BDE46 /* AgentEnrollment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentEnrollment.swift; sourceTree = "<group>"; };
 		94B4EAFAD4ADAA28A7F1AADB /* McpProposalApproval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = McpProposalApproval.swift; sourceTree = "<group>"; };
+		97D99514DC71A54EEF8237FE /* DemoMerchantTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoMerchantTests.swift; sourceTree = "<group>"; };
+		9E3CA10F497E82D9887FD3FF /* DemoShopView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoShopView.swift; sourceTree = "<group>"; };
 		A496EE1DE3CAA8472B124CAF /* ReceiveRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiveRequest.swift; sourceTree = "<group>"; };
 		A967749B3E6D962AAA26E424 /* ActiveChainWalletMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ActiveChainWalletMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B24AB3B38442EC791981F411 /* ActiveChainWalletMacUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ActiveChainWalletMacUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -109,6 +120,7 @@
 		D9A7B68A6BF40EC2B257B49E /* OpenWalletAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenWalletAdapter.swift; sourceTree = "<group>"; };
 		EC14403DED1743BE1698DF2B /* ActiveChainWalletIOSUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ActiveChainWalletIOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		EFB56F56729E1FD903647C95 /* CompositeIdentityProof.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompositeIdentityProof.swift; sourceTree = "<group>"; };
+		F244A2752DFB422CC7F1A4A2 /* DemoMerchantState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoMerchantState.swift; sourceTree = "<group>"; };
 		FE2DDD588E6426122AFF97C6 /* FreshWalletFaucetUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreshWalletFaucetUITests.swift; sourceTree = "<group>"; };
 		FE57D7E81DE8386DD91EE7F6 /* ActiveChainWallet.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = ActiveChainWallet.xcframework; path = ../../../dist/apple/current/ActiveChainWallet.xcframework; sourceTree = "<group>"; };
 		FF53AD2EFD667B91B6C0E2A2 /* ActiveChainWalletTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveChainWalletTests.swift; sourceTree = "<group>"; };
@@ -156,6 +168,7 @@
 			isa = PBXGroup;
 			children = (
 				FF53AD2EFD667B91B6C0E2A2 /* ActiveChainWalletTests.swift */,
+				97D99514DC71A54EEF8237FE /* DemoMerchantTests.swift */,
 			);
 			path = Tests;
 			sourceTree = "<group>";
@@ -175,6 +188,9 @@
 				C8A918D07F4706D86D226023 /* AgentAppIntents.swift */,
 				8314E013FB77F1EBBD1BDE46 /* AgentEnrollment.swift */,
 				D41DFF27117CF804DD5B4301 /* AgentWallet.swift */,
+				F244A2752DFB422CC7F1A4A2 /* DemoMerchantState.swift */,
+				0E90217A71E4625AFF3B72F1 /* DemoMerchantWire.swift */,
+				9E3CA10F497E82D9887FD3FF /* DemoShopView.swift */,
 				50EF838DF6F51C698FEE9C6F /* NetworkSelection.swift */,
 				D9A7B68A6BF40EC2B257B49E /* OpenWalletAdapter.swift */,
 				A496EE1DE3CAA8472B124CAF /* ReceiveRequest.swift */,
@@ -444,6 +460,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8F340B6575254D29F91B96E8 /* ActiveChainWalletTests.swift in Sources */,
+				1AFF711F7AD01E680AF6E873 /* DemoMerchantTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -457,6 +474,9 @@
 				20ED92D62FC73117F71FDA7F /* AgentWallet.swift in Sources */,
 				F8804379117C44DC8BD4CFAA /* CanonicalApproval.swift in Sources */,
 				C09A76603C1BDAAFF19FF475 /* CompositeIdentityProof.swift in Sources */,
+				D5A2D12F6F0F014CF5D5D165 /* DemoMerchantState.swift in Sources */,
+				1A76060FDB1F098764153117 /* DemoMerchantWire.swift in Sources */,
+				CA61C79DB3EA243E98CA86C6 /* DemoShopView.swift in Sources */,
 				E88F607E1F44F4D3B1B9F54E /* McpProposalApproval.swift in Sources */,
 				AD9C8CBA51E6E5123B86F339 /* NetworkSelection.swift in Sources */,
 				409D9AE4558B50CB086A4AC5 /* OpenWalletAdapter.swift in Sources */,
@@ -488,6 +508,9 @@
 				F0B673E2E0E1DD9303685E76 /* AgentWallet.swift in Sources */,
 				6F511419F638665160AC7FF2 /* CanonicalApproval.swift in Sources */,
 				C6D5D7253B9EFD95E52C12B5 /* CompositeIdentityProof.swift in Sources */,
+				D689969781F03CE443A43BDC /* DemoMerchantState.swift in Sources */,
+				AEFA276C01AF06687B0C37CA /* DemoMerchantWire.swift in Sources */,
+				EBBB500FD53CAB8B453B8252 /* DemoShopView.swift in Sources */,
 				681BD3D9D0213D6D54F91D6E /* McpProposalApproval.swift in Sources */,
 				A255F0544F1A5B6B4D343181 /* NetworkSelection.swift in Sources */,
 				A955F5A4F6398043E6F147B7 /* OpenWalletAdapter.swift in Sources */,
@@ -506,6 +529,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				654D7699CA37C0AEB8C01FD5 /* ActiveChainWalletTests.swift in Sources */,
+				A7B67A8689B9C70E89571D4A /* DemoMerchantTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -11,6 +11,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 activechain-canonical-codec.workspace = true
+activechain-finality-types.workspace = true
 activechain-cash-kernel.workspace = true
 activechain-crypto-provider.workspace = true
 activechain-wallet-core.workspace = true

@@ -41,7 +41,7 @@ enum AmberRPCError: Error, Equatable {
 
 enum AmberRPCCodec {
     static let supportedProtocolRevision: UInt64 = 1
-    static let supportedSchemaRevision: UInt32 = 4
+    static let supportedSchemaRevision: UInt32 = 5
     static let kanalenChainID = Data([
         0xb1, 0x2c, 0x1c, 0x31, 0x67, 0x17, 0xe9, 0x66,
         0x9c, 0xec, 0x36, 0xf7, 0x63, 0x2a, 0x90, 0x80,
@@ -60,11 +60,11 @@ enum AmberRPCCodec {
     ])
     static let maximumFrameLength = 4 * 1_024 * 1_024
     private static let responseTypeTag: UInt16 = 0x010a
-    private static let envelopeSchema: UInt16 = 4
+    private static let envelopeSchema: UInt16 = 5
 
     static let framedStatusRequest = Data([
         0x00, 0x00, 0x00, 0x06,
-        0x01, 0x07, 0x00, 0x03, 0x01, 0x00
+        0x01, 0x07, 0x00, 0x04, 0x01, 0x00
     ])
 
     static func decodeStatus(_ envelope: Data) throws -> AmberRPCStatus {

@@ -114,8 +114,35 @@ final class FreshWalletFaucetUITests: XCTestCase {
         XCTAssertFalse(create.exists, "Relaunch must load the original wallet from keychain")
         XCTAssertFalse(recovery.exists, "Acknowledged recovery material must not reappear")
         reveal(balance, upwards: false)
+        app.tabBars.buttons["Shop"].tap()
+        let enroll = app.buttons["shop.enroll"]
+        XCTAssertTrue(enroll.waitForExistence(timeout: 30))
+        XCTAssertTrue(enroll.isEnabled)
+        enroll.tap()
+        XCTAssertTrue(app.staticTexts["shop.enrollment"].waitForExistence(timeout: 180),
+                      "Wallet enrollment must finalize: \(app.staticTexts["shop.status"].label)")
+        let buy = app.buttons["shop.buy"]
+        reveal(buy)
+        XCTAssertTrue(buy.isEnabled)
+        buy.tap()
+        let confirm = app.buttons["shop.confirm"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 30))
+        confirm.tap()
+        let paid = app.staticTexts["shop.paid"]
+        XCTAssertTrue(paid.waitForExistence(timeout: 180),
+                      "Payment must have native finality and output proofs: \(app.staticTexts["shop.status"].label)")
+        let paymentReceipt = app.staticTexts["shop.receipt"].label
+        let purchaseEvidence = XCTAttachment(string: paymentReceipt + "\n" + app.staticTexts["shop.status"].label)
+        purchaseEvidence.name = "Verified demo merchant payment"
+        purchaseEvidence.lifetime = .keepAlways
+        add(purchaseEvidence)
+        app.terminate()
+        app.launch()
+        app.tabBars.buttons["Shop"].tap()
+        XCTAssertTrue(paid.waitForExistence(timeout: 45), "The verified purchase must survive relaunch")
+        XCTAssertEqual(app.staticTexts["shop.receipt"].label, paymentReceipt)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
-        screenshot.name = "Funded iOS wallet after relaunch"
+        screenshot.name = "Verified demo coffee purchase after relaunch"
         screenshot.lifetime = .keepAlways
         add(screenshot)
     }

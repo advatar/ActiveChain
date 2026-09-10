@@ -19,13 +19,13 @@ sys.modules[SPEC.name] = probe
 SPEC.loader.exec_module(probe)
 
 PUBLIC_STATUS = bytes.fromhex(
-    "010a0004910100"
+    "010a0005910100"
     "b12c1c316717e9669cec36f7632a9080702c57a3125d90c72154f8a7298e4f0"
     "b095e6cfe944bd2c9f6535b4c927782f1"
     "a836c4d201cda6ba33a01aa48011cf5f4d6acdfd1ec409d322dc1b56ed3552a2"
     "5dcb158e0b1ec0352728653d315d477c"
     "0000000000000001"
-    "00000004"
+    "00000005"
     "0000000000004587"
     "000000006a778641"
     "000000006a778641"
@@ -54,7 +54,7 @@ def status_envelope(
     chain_id: bytes = probe.EXPECTED_CHAIN_ID,
     genesis: bytes = probe.EXPECTED_GENESIS,
     protocol: int = 1,
-    schema: int = 4,
+    schema: int = 5,
     finalized_at: int = 1_785_233_700,
     served_at: int = 1_785_233_703,
     maximum_staleness: int = 300,
@@ -77,7 +77,7 @@ def status_envelope(
             proofs,
         )
     )
-    return bytes.fromhex("010a0004") + uleb128(len(body)) + body
+    return bytes.fromhex("010a0005") + uleb128(len(body)) + body
 
 
 class ProbeHealthGateTests(unittest.TestCase):
@@ -106,7 +106,7 @@ class ProbeHealthGateTests(unittest.TestCase):
 
 class DecodeStatusTests(unittest.TestCase):
     def test_status_request_uses_current_canonical_rpc_request_tag(self) -> None:
-        self.assertEqual(probe.STATUS_REQUEST, bytes.fromhex("00000006010700030100"))
+        self.assertEqual(probe.STATUS_REQUEST, bytes.fromhex("00000006010700040100"))
 
     def test_exact_kanalen_status_decodes(self) -> None:
         status = probe.decode_status_envelope(status_envelope())

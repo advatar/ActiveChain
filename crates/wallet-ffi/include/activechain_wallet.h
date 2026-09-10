@@ -640,6 +640,13 @@ uint32_t activechain_wallet_submit_authorized(const uint8_t *envelope,
                                               activechain_wallet_submit_callback callback,
                                               void *callback_context);
 
+uint32_t activechain_wallet_check_key_enrollment(const uint8_t *bytes, uint32_t length, const uint8_t *chain, const uint8_t *owner, const uint8_t *reference);
+
+/* Signed first enrollment and a session bound to the exact reviewed cash request. */
+uint32_t activechain_wallet_encode_key_enrollment(const uint8_t *chain, const uint8_t *public_key, uint64_t valid_from, uint64_t expires_at, const uint8_t *signature, uint8_t *output, uint32_t capacity, uint32_t *required, uint8_t *reference);
+uint32_t activechain_wallet_encode_cash_session(const uint8_t *request, uint32_t request_len, const uint8_t *public_key, uint64_t valid_from, const uint8_t *signature, uint8_t *output, uint32_t capacity, uint32_t *required);
+uint32_t activechain_wallet_verify_cash_finality(const uint8_t *chain, const uint8_t *genesis, const uint8_t *reference, const uint8_t *ids, uint32_t ids_len, const uint8_t *finality, uint32_t finality_len, uint64_t *height_out);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

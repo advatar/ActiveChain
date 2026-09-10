@@ -8,7 +8,7 @@ Work in progress: [issue #844](https://github.com/advatar/ActiveChain/issues/844
 - Name: Kanalen Coffee
 - Product: Demo coffee (no physical goods)
 - Proposed price: 5 ACT; network fee displayed separately before approval
-- Network: Kanalen testnet, protocol 1 / RPC schema 4
+- Network: Kanalen testnet, protocol 1 / RPC schema 5 (enrollment candidate)
 - Chain: `b12c1c316717e9669cec36f7632a9080702c57a3125d90c72154f8a7298e4f0b095e6cfe944bd2c9f6535b4c927782f1`
 - Genesis: `a836c4d201cda6ba33a01aa48011cf5f4d6acdfd1ec409d322dc1b56ed3552a25dcb158e0b1ec0352728653d315d477c`
 - Merchant principal: `23cfa78e90c6566bc708752e2079a0c5f6ec030eff3b9e83a36ccee673aca3b7412de87592b6c34579803d1bd4480bae`
@@ -50,3 +50,9 @@ faucet-funded testnet coins. An accepted RPC submission alone is not payment suc
 Initial verification: pinned TLS RPC healthy at height 19,612 with zero seconds of staleness;
 all 13 wallet CLI tests passed. These checks qualify merchant account preparation only, not an
 end-to-end checkout. Full candidate qualification and integration remain outstanding.
+
+Implementation in progress adds a native Shop tab, explicit first-enrollment action, canonical
+payment review, durable signed-action retry and certificate-backed merchant/change proofs.
+The live deployment still needs upgrading from RPC schema 4; do not use the candidate's schema 5
+probe as a claim that the unchanged schema 4 server is unhealthy. LAN access to the deployment
+host was unavailable on 2026-09-10; local qualification continues while access is restored.

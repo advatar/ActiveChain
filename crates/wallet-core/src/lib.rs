@@ -9,6 +9,7 @@ mod agent_authenticator;
 mod agent_enrollment;
 mod agent_management;
 mod cash_authorization;
+mod cash_enrollment;
 mod cash_persistence;
 #[cfg(feature = "passphrase-keystore")]
 mod keystore;
@@ -37,6 +38,7 @@ pub use cash_authorization::{
     CashSessionAdmissionWitnessV1, CashSessionGrantV1, DutyReceiptV1,
     OperatorFaucetAuthorizationV1, VerifierBondRegistrationV1, recipient_commitment,
 };
+pub use cash_enrollment::{CashKeyEnrollmentV1, MAX_CASH_ENROLLMENT_LENGTH, cash_action_id};
 pub use cash_persistence::{
     FinalizedIdentityKeyProof, FinalizedIdentityKeyVerifier, authenticator_set_root,
 };
@@ -728,6 +730,7 @@ impl TransactionIngress {
             .binary_search_by_key(&request.signer(), |lane| lane.sender)
             .map_err(|_| WalletError::UnknownAuthorizationKey)?;
         let lane = &self.authorization_lanes[lane_index];
+        self.ensure_enrollment_precedes_payment(lane, height)?;
         if request.nonce() != lane.next_nonce {
             return Err(WalletError::InvalidNonce);
         }
