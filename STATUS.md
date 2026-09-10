@@ -29,7 +29,9 @@ finality evidence, replay rejection, and nonce preservation. Exhaustive qualific
 live deployment acceptance remain pending. The consolidated seven-crate Rust run passed
 348 tests. Full gate `34450134470` found an outdated checksum for the updated Apple RPC
 fixture; the checksum was corrected and local proof conformance passed before submitting
-the replacement candidate.
+the replacement candidate. The canonical client inventory now includes the enrollment type;
+workspace-wide all-target/all-feature Clippy, the iOS no-std kernel checks, independent Go
+tests, fixture reproduction and the complete static preflight pass locally.
 
 ## Completed — funded wallet lifecycle and composite identity proofs
 
