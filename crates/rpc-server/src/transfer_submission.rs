@@ -486,8 +486,10 @@ impl DurableTransferSubmissions {
             return Err(TransferSubmissionError::Persistence);
         }
         let mut preview = ingress.clone();
+        let mut prefix_ids = Vec::with_capacity(prefix_actions.len());
         for action in prefix_actions {
             apply_action(&mut preview, action, height)?;
+            prefix_ids.push(action_id(action)?.into_digest());
         }
         let mut next = self.records.clone();
         let mut actions = Vec::new();
@@ -500,6 +502,12 @@ impl DurableTransferSubmissions {
             .collect::<Vec<_>>();
         pending.sort_by_key(|(_, accepted_at, reference)| (*accepted_at, *reference));
         for (index, _, _) in pending {
+            // A failed round retains its exact batch. Its pending submissions
+            // were already applied to the preview above and must not be replayed
+            // against their own successor state or falsely marked rejected.
+            if prefix_ids.contains(&next[index].reference) {
+                continue;
+            }
             if prefix_actions.len() + actions.len() == maximum_actions {
                 break;
             }
@@ -605,12 +613,9 @@ impl DurableTransferSubmissions {
         let mut reconciled = 0;
         for record in &mut next {
             let transaction = TransactionId::new(record.reference);
-            if ids.contains(&transaction)
-                && matches!(
-                    record.receipt.state(),
-                    TransferState::Pending | TransferState::Finalized
-                )
-            {
+            // Verified consensus finality is authoritative even if an older
+            // round retry incorrectly stored a terminal rejection for this ID.
+            if ids.contains(&transaction) {
                 if record.receipt.state() == TransferState::Finalized
                     && record.receipt.finalized_height() != Some(height)
                 {
@@ -1651,6 +1656,39 @@ mod tests {
         let (accepted, rejected) = qualify_cash_actions(&ingress, actions.clone(), 7).unwrap();
         assert_eq!(accepted, actions);
         assert!(rejected.is_empty());
+        // The operator retains this prefix when consensus construction fails.
+        // Preparing the next attempt must leave the already-batched request pending.
+        assert!(restored.prepare_pending_batch(&ingress, &actions, 7, 111, 32).unwrap().is_empty());
+        assert_eq!(restored.resolve(reference).unwrap(), pending);
+        drop(restored);
+        let mut restored = DurableTransferSubmissions::open(configured, path.clone()).unwrap();
+        assert!(restored.prepare_pending_batch(&ingress, &actions, 7, 112, 32).unwrap().is_empty());
+        assert_eq!(restored.resolve(reference).unwrap(), pending);
+        // Reproduce the erroneous status persisted by the older retry code.
+        let mut legacy = restored.records.clone();
+        legacy[0].receipt = TransferReceiptV1::new(
+            reference,
+            TransferState::Rejected,
+            None,
+            None,
+            None,
+            Some(
+                TransferRejectionV1::new(
+                    TransferRejectionCode::InvalidAuthorization,
+                    None,
+                    Some(reference),
+                )
+                .unwrap(),
+            ),
+        )
+        .unwrap();
+        restored.publish(legacy).unwrap();
+        let (_, wrong_finality) = signed_finality(finality_inputs(digest(99)));
+        assert_eq!(
+            restored.reconcile_finality(&frame_actions(&actions).unwrap(), &wrong_finality, 119),
+            Err(TransferSubmissionError::InvalidFinality),
+        );
+        assert_eq!(restored.resolve(reference).unwrap().state(), TransferState::Rejected);
         restored.reconcile_finality(&frame_actions(&actions).unwrap(), &finality, 120).unwrap();
         assert_eq!(restored.resolve(reference).unwrap().state(), TransferState::Finalized);
         assert_eq!(restored.evidence(reference).unwrap(), (vec![reference], finality));
@@ -1700,6 +1738,13 @@ mod tests {
             qualify_cash_actions(&finalized, payment_actions.clone(), 9).unwrap();
         assert_eq!(accepted, payment_actions);
         assert!(rejected.is_empty());
+        assert!(
+            restored
+                .prepare_pending_batch(&finalized, &payment_actions, 9, 125, 32)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(restored.resolve(payment_id).unwrap(), payment);
         apply_action(&mut finalized, &payment_actions[0], 9).unwrap();
         let merchant_cells = finalized
             .ledger()
