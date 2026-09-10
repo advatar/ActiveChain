@@ -2,6 +2,29 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
+## In progress — Tanzanian wallet identity and stakeholder distribution
+
+Tracked by [identity issue #846](https://github.com/advatar/ActiveChain/issues/846),
+[store automation #847](https://github.com/advatar/ActiveChain/issues/847), and the existing
+[Android parity #795](https://github.com/advatar/ActiveChain/issues/795). Codex claims the
+identity unit first on `feat/846-tanzania-identity`; Android implementation remains on its
+existing claimed branch until the iOS flow works and that claim is reconciled.
+
+- [x] Inspect AnyIdentity, current wallet UI, native credential trust boundaries and store setup.
+- [ ] Confirm the stakeholder's available Tanzanian provider or signed credential and holder-proof method.
+- [ ] Define and implement issuer-governed holder/wallet binding, secure credential attachment and minimal on-chain registration.
+- [ ] Show actual stored, verified, pending, finalized, expired and revoked states; keep identity data off the public chain.
+- [ ] Verify contextual unit/contract tests and a real iOS enrollment/relaunch flow with authorized provider data.
+- [ ] Prepare and qualify the stakeholder TestFlight candidate, merge and verify origin/main reachability.
+- [ ] Reconcile and complete Android parity after the iOS identity flow works.
+- [ ] Implement and qualify signed build/upload, processing checks and submission automation for both stores.
+
+No Tanzanian issuer/provider integration or store release credentials are currently configured
+in this repository. Provider availability is being clarified; no test credential will be
+presented as real government verification. Existing remote archive and clinical-demo branches
+are unrelated and remain untouched. Follow the contextual verification cadence: changed-boundary
+checks while iterating, then one settled-candidate full gate before integration.
+
 ## Completed — demo merchant and verified live spending
 
 Tracked by [issue #844](https://github.com/advatar/ActiveChain/issues/844).
