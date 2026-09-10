@@ -31,9 +31,8 @@ are not network-admissible.
 
 The node MUST resolve the sender's authorization key from finalized chain state, not from the
 request. It MUST atomically consume the nonce, session, payment inputs, fee input, and ledger
-transition. The current in-memory implementation satisfies the admission predicate but does not
-yet provide finalized key provenance or crash-atomic persistence of that joint state; both remain
-release gates.
+transition. Key provenance MUST come from the finalized enrollment path below or verified finalized identity
+state. Publication MUST preserve crash-atomic persistence of that joint state.
 
 ## Operator safety
 

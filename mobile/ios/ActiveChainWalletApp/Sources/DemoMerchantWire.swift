@@ -36,9 +36,9 @@ enum DemoMerchant {
     static func custody() throws -> AppleNativeCustodyProvider {
         AppleNativeCustodyProvider(store: try SharedKeychain(), hardware: SecureEnclaveWrappingBackend())
     }
-    static func enrollment(network: WalletNetwork, slot: String, height: UInt64) throws -> (Data, Data) {
+    static func enrollment(network: WalletNetwork, slot: String, height: UInt64, provider: AppleNativeCustodyProvider? = nil) throws -> (Data, Data) {
         guard height > 0, height <= UInt64.max - 120 else { throw DemoShopError("Invalid enrollment height.") }
-        let custody = try custody()
+        let custody = try provider ?? Self.custody()
         let key = try custody.publicKey(slotID: slot)
         let payload = Data("ACTIVECHAIN-CASH-KEY-ENROLLMENT-ML-DSA-44-V1".utf8) + network.chainID + key + integer(height) + integer(height + 120)
         let signature = try custody.sign(slotID: slot, payload: payload, minimumVersion: 1, minimumFinalizedHeight: 0, reason: "Register this wallet key for testnet spending")
@@ -77,8 +77,9 @@ enum DemoMerchant {
         guard try d.readULEB128(maximum: 16) == 1 else { throw DemoShopError("The demo requires a single payment input.") }
         return try d.read(count: 48)
     }
-    static func signedSession(approval: CanonicalCashApproval, slot: String, height: UInt64) throws -> Data {
-        let custody = try custody(), key = try custody.publicKey(slotID: slot)
+    static func signedSession(approval: CanonicalCashApproval, slot: String, height: UInt64, provider: AppleNativeCustodyProvider? = nil) throws -> Data {
+        let custody = try provider ?? Self.custody()
+        let key = try custody.publicKey(slotID: slot)
         // This transcript is checked by Rust against the exact reviewed request before export.
         let body = approval.chainID + approval.signer + approval.sessionID + integer(height) + integer(approval.sessionExpiresAt) + integer(UInt64(0)) + integer(price + fee)
         let grant = Data([0x00, 0x97, 0x00, 0x01]) + Data(WalletRPCCodec.uleb128(body.count)) + body

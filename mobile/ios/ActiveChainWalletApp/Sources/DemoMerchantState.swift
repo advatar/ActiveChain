@@ -12,7 +12,16 @@ struct DemoEnrollment: Codable {
             activechain_wallet_check_key_enrollment(p[0], UInt32(bytes.count), p[1], p[2], p[3])
         }
         guard code == ACTIVECHAIN_WALLET_OK else { throw DemoShopError("Enrollment does not belong to this wallet.") }
-        return try evidence?.verifiedHeight(reference: reference, network: network)
+        guard let evidence else { return nil }
+        let height = try evidence.verifiedHeight(reference: reference, network: network)
+        var decoder = WalletBinaryDecoder(data: bytes)
+        _ = try decoder.read(count: 4)
+        _ = try decoder.readULEB128(maximum: 4096)
+        _ = try decoder.read(count: 48)
+        _ = try decoder.readBlob(maximum: 1312)
+        let from = try decoder.readUInt64(), until = try decoder.readUInt64()
+        guard height >= from, height <= until else { throw DemoShopError("Enrollment finalized outside its validity window.") }
+        return height
     }
 }
 struct DemoPurchase: Codable {
@@ -51,6 +60,7 @@ struct DemoJournal: Codable {
     let owner: Data
     let genesis: Data
     var enrollment: DemoEnrollment?
+    var revision: UInt64 = 0
     var nextNonce: UInt64 = 0
     var purchase: DemoPurchase?
 }
@@ -63,6 +73,7 @@ final class DemoMerchantState: ObservableObject {
     @Published private(set) var paidHeight: UInt64?
     @Published private(set) var review: CanonicalCashApproval?
     @Published private(set) var pending = false
+    @Published private(set) var canBuy = false
     @Published private(set) var reference: String?
     private var journal: DemoJournal?
     private let rpc = WalletRPCClient()
@@ -80,22 +91,30 @@ final class DemoMerchantState: ObservableObject {
         }
         return DemoJournal(owner: profile.owner, genesis: profile.chainGenesis)
     }
-    private func save(_ next: DemoJournal, wallet: WalletLiveState) throws {
+    private func save(_ candidate: DemoJournal, wallet: WalletLiveState) throws {
+        var next = candidate
         guard wallet.network == .kanalen, wallet.deviceProfile?.owner == next.owner,
               wallet.network.genesis == next.genesis else { throw DemoShopError("Wallet changed during checkout.") }
+        // MainActor serializes this synchronous compare-and-save across app windows. An
+        // action prepared before an await cannot overwrite another window's pending action.
+        let store = try SharedKeychain()
+        let previous = try store.load(service: service, account: wallet.network.id)
+        let previousRevision = try previous.map { try JSONDecoder().decode(DemoJournal.self, from: $0).revision } ?? 0
+        guard previousRevision == next.revision, next.revision < UInt64.max else { throw DemoShopError("Payment state changed. Refresh before trying again.") }
+        next.revision += 1
         let bytes = try JSONEncoder().encode(next)
         guard bytes.count <= 1_048_576 else { throw DemoShopError("The payment journal exceeds its limit.") }
-        try SharedKeychain().save(bytes, service: service, account: wallet.network.id)
+        try store.save(bytes, service: service, account: wallet.network.id)
         journal = next
     }
     func refresh(wallet: WalletLiveState) async {
-        guard !busy else { return }
+        guard !busy, review == nil else { return }
         busy = true; defer { busy = false }
         do { try await resolve(wallet: wallet) } catch { message = error.localizedDescription }
     }
     private func resolve(wallet: WalletLiveState) async throws {
         var saved = try load(wallet: wallet)
-        journal = saved; paidHeight = nil; enrolledHeight = nil; pending = false; reference = nil
+        journal = saved; paidHeight = nil; enrolledHeight = nil; pending = false; canBuy = false; reference = nil
         guard let enrollment = saved.enrollment else {
             message = "Register your wallet key on chain to spend testnet ACT. Identity credentials are optional."
             return
@@ -117,12 +136,20 @@ final class DemoMerchantState: ObservableObject {
             guard receipt.height == height else { throw DemoShopError("Enrollment checkpoint mismatch.") }
             saved.enrollment?.evidence = evidence
             try save(saved, wallet: wallet)
+            saved = try load(wallet: wallet)
             enrolledHeight = height; pending = false
         }
-        guard var purchase = saved.purchase else { message = "Wallet key registered. Ready to buy a demo coffee."; return }
+        guard var purchase = saved.purchase else {
+            let status = try await rpc.status()
+            if case let .healthy(height) = status.networkState, let enrolledHeight, height > enrolledHeight { canBuy = true }
+            message = canBuy ? "Wallet key registered. Ready to buy a demo coffee." : "Wallet key registered. Waiting for the next healthy block before checkout."
+            return
+        }
         reference = purchase.reference.map { String(format: "%02x", $0) }.joined()
         if let height = try purchase.verifiedPaidHeight(network: wallet.network, owner: saved.owner) {
-            paidHeight = height; message = "Paid 5 ACT · network fee 0.001 ACT"; return
+            paidHeight = height; message = "Paid 5 ACT · network fee 0.001 ACT"
+            if case .healthy = try await rpc.status().networkState { canBuy = true }
+            return
         }
         pending = true; message = "Payment pending. Checking merchant receipt and your change."
         let receipt = try await rpc.resolveCash(purchase.reference)

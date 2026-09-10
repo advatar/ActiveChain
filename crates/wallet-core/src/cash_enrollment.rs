@@ -302,6 +302,29 @@ mod tests {
         assert_eq!(wrong.stage_cash_key_enrollment(&enrollment, 11), Err(WalletError::WrongChain));
         let mut expired = ingress.clone();
         assert_eq!(expired.stage_cash_key_enrollment(&enrollment, 101), Err(WalletError::Expired));
+        let other_key = SigningKey::<MlDsa44>::from_seed(&Seed::from([43; 32]));
+        let other_public = other_key.verifying_key().encode().to_vec();
+        let payload =
+            CashKeyEnrollmentV1::signing_payload(enrollment.chain_id, &other_public, 10, 100)
+                .unwrap();
+        let other = CashKeyEnrollmentV1::new(
+            enrollment.chain_id,
+            other_public,
+            10,
+            100,
+            ProtocolSignature::new(
+                CryptoSuiteId::ML_DSA_44,
+                other_key.sign(&payload).encode().to_vec(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let mut unfunded = ingress.clone();
+        assert_eq!(
+            unfunded.stage_cash_key_enrollment(&other, 11),
+            Err(WalletError::InsufficientFunds)
+        );
+        assert_eq!(unfunded, ingress);
         let mut changed = enrollment.clone();
         changed.public_key[0] ^= 1;
         assert!(changed.verify().is_err());

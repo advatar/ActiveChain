@@ -4886,8 +4886,8 @@ mod tests {
         )
         .unwrap();
         let bytes = encode_envelope(&enrollment).unwrap();
-        let first = gateway.prepare_envelope_batch(&[bytes.clone()], 7).unwrap();
-        let stale = gateway.prepare_envelope_batch(&[bytes.clone()], 7).unwrap();
+        let first = gateway.prepare_envelope_batch(std::slice::from_ref(&bytes), 7).unwrap();
+        let stale = gateway.prepare_envelope_batch(std::slice::from_ref(&bytes), 7).unwrap();
         assert_eq!(first.pre_cash_cell_root(), first.post_cash_cell_root());
         assert_eq!(first.action_ids(), &[TransactionId::new(enrollment.reference().unwrap())]);
         assert!(gateway.ingress.authorization_key(owner).is_none());

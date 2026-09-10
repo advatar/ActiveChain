@@ -7,7 +7,7 @@ Work in progress: [issue #844](https://github.com/advatar/ActiveChain/issues/844
 
 - Name: Kanalen Coffee
 - Product: Demo coffee (no physical goods)
-- Proposed price: 5 ACT; network fee displayed separately before approval
+- Price: 5 ACT; network fee: 0.001 ACT, displayed before approval
 - Network: Kanalen testnet, protocol 1 / RPC schema 5 (enrollment candidate)
 - Chain: `b12c1c316717e9669cec36f7632a9080702c57a3125d90c72154f8a7298e4f0b095e6cfe944bd2c9f6535b4c927782f1`
 - Genesis: `a836c4d201cda6ba33a01aa48011cf5f4d6acdfd1ec409d322dc1b56ed3552a25dcb158e0b1ec0352728653d315d477c`
@@ -22,7 +22,7 @@ principal can receive coins, but no demo purchase has been submitted or verified
 
 ## Spending prerequisite
 
-The current iOS app provisions local custody and receives faucet coins. It does not enroll
+The deployed schema 4 iOS app provisions local custody and receives faucet coins. It does not enroll
 its cash signing key in finalized chain state. `TransactionIngress::register_session` rejects
 unknown authorization keys before transfer admission. The finalized identity-key installation
 API exists, but its production integration is absent; its callers in the wallet, RPC and
@@ -51,8 +51,25 @@ Initial verification: pinned TLS RPC healthy at height 19,612 with zero seconds 
 all 13 wallet CLI tests passed. These checks qualify merchant account preparation only, not an
 end-to-end checkout. Full candidate qualification and integration remain outstanding.
 
-Implementation in progress adds a native Shop tab, explicit first-enrollment action, canonical
+The candidate implements a native Shop tab, explicit first-enrollment action, canonical
 payment review, durable signed-action retry and certificate-backed merchant/change proofs.
 The live deployment still needs upgrading from RPC schema 4; do not use the candidate's schema 5
 probe as a claim that the unchanged schema 4 server is unhealthy. LAN access to the deployment
 host was unavailable on 2026-09-10; local qualification continues while access is restored.
+
+## Candidate app flow
+
+After the schema 5 node upgrade, create or open a Kanalen wallet and request faucet funding.
+Open **Shop**, choose **Register wallet key**, and approve with the existing wallet custody.
+Registration proves ownership of the funded address; no identity credential is required.
+Wait for verified enrollment and a later healthy block, then choose **Buy demo coffee**.
+Review Kanalen Coffee's address, 5 ACT price, 0.001 ACT fee and expiry before confirming.
+The receipt appears only after native verification of finality, the merchant output and change.
+A pending action is saved before submission and retried with exactly the same signed bytes
+across relaunch. A second purchase cannot replace an unresolved one.
+
+Local qualification covers the production Swift/Rust signing transcripts and a Rust scenario
+that rejects spending before enrollment and in its block, then pays the merchant in a later
+block, persists finality evidence and rejects replay. This does not replace the outstanding
+live iOS test. Both direct SSH and CI status-only run `34448333344` failed because the
+deployment host had no reachable network route; no schema 5 deployment has been claimed.

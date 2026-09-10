@@ -123,7 +123,8 @@ final class FreshWalletFaucetUITests: XCTestCase {
                       "Wallet enrollment must finalize: \(app.staticTexts["shop.status"].label)")
         let buy = app.buttons["shop.buy"]
         reveal(buy)
-        XCTAssertTrue(buy.isEnabled)
+        let readyToBuy = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: buy)
+        XCTAssertEqual(XCTWaiter.wait(for: [readyToBuy], timeout: 90), .completed)
         buy.tap()
         let confirm = app.buttons["shop.confirm"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 30))

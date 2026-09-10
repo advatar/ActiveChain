@@ -202,6 +202,37 @@ pub unsafe extern "C" fn activechain_wallet_verify_cash_finality(
     WALLET_OK
 }
 
+/// Checks signed enrollment bytes against the exact wallet, chain and expected action ID.
+/// # Safety
+/// Bytes are readable for length; chain/owner/reference each point to 48 readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn activechain_wallet_check_key_enrollment(
+    bytes: *const u8,
+    length: u32,
+    chain: *const u8,
+    owner: *const u8,
+    reference: *const u8,
+) -> u32 {
+    if bytes.is_null() || chain.is_null() || owner.is_null() || reference.is_null() {
+        return WALLET_NULL_POINTER;
+    }
+    if length > 4096 {
+        return WALLET_TOO_LARGE;
+    }
+    let Ok(enrollment) = decode_envelope::<CashKeyEnrollmentV1>(unsafe {
+        core::slice::from_raw_parts(bytes, length as usize)
+    }) else {
+        return WALLET_MALFORMED;
+    };
+    if enrollment.chain_id().digest() != &unsafe { read_digest(chain) }
+        || enrollment.signer().digest() != &unsafe { read_digest(owner) }
+        || enrollment.reference().ok() != Some(unsafe { read_digest(reference) })
+    {
+        return WALLET_APPROVAL_MISMATCH;
+    }
+    WALLET_OK
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,35 +330,4 @@ mod tests {
             assert_eq!(height, 99);
         }
     }
-}
-
-/// Checks signed enrollment bytes against the exact wallet, chain and expected action ID.
-/// # Safety
-/// Bytes are readable for length; chain/owner/reference each point to 48 readable bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn activechain_wallet_check_key_enrollment(
-    bytes: *const u8,
-    length: u32,
-    chain: *const u8,
-    owner: *const u8,
-    reference: *const u8,
-) -> u32 {
-    if bytes.is_null() || chain.is_null() || owner.is_null() || reference.is_null() {
-        return WALLET_NULL_POINTER;
-    }
-    if length > 4096 {
-        return WALLET_TOO_LARGE;
-    }
-    let Ok(enrollment) = decode_envelope::<CashKeyEnrollmentV1>(unsafe {
-        core::slice::from_raw_parts(bytes, length as usize)
-    }) else {
-        return WALLET_MALFORMED;
-    };
-    if enrollment.chain_id().digest() != &unsafe { read_digest(chain) }
-        || enrollment.signer().digest() != &unsafe { read_digest(owner) }
-        || enrollment.reference().ok() != Some(unsafe { read_digest(reference) })
-    {
-        return WALLET_APPROVAL_MISMATCH;
-    }
-    WALLET_OK
 }

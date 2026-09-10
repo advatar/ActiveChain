@@ -69,3 +69,50 @@ final class DemoMerchantTests: XCTestCase {
         XCTAssertThrowsError(try WalletRPCCodec.decodeCashReceipt(response(Data([11]) + owner + Data([0, 1]) + owner + Data([0, 0, 0]))))
     }
 }
+
+private final class DemoTestStore: AppleCustodyRecordStore {
+    var data: [String: Data] = [:]
+    func loadCustodyRecord(slotID: String) throws -> Data? { data[slotID] }
+    func saveCustodyRecord(_ value: Data, slotID: String) throws { data[slotID] = value }
+    func deleteCustodyRecord(slotID: String) throws { data.removeValue(forKey: slotID) }
+}
+private final class DemoTestHardware: AppleHardwareWrapping {
+    let capability = AppleCustodyCapability.secureEnclaveWrappedMLDSA44
+    func createAndWrap(secret: Data, tag: Data) throws -> Data { secret }
+    func unwrap(ciphertext: Data, tag: Data, reason: String) throws -> Data { ciphertext }
+    func deleteWrappingKey(tag: Data) throws {}
+}
+extension DemoMerchantTests {
+    func testProductionEnrollmentAndSessionTranscriptsCrossSwiftAndRust() throws {
+        let provider = AppleNativeCustodyProvider(store: DemoTestStore(), hardware: DemoTestHardware())
+        var recovery = Data(repeating: 61, count: 32)
+        let publicKey = try provider.provision(slotID: "demo-test", keyVersion: 1, finalizedHeight: 10, recoveryKey: &recovery)
+        defer { recovery.zeroize() }
+        var owner = Data(count: 48)
+        let code = publicKey.withUnsafeBytes { key in owner.withUnsafeMutableBytes { output in
+            activechain_wallet_principal_id(key.bindMemory(to: UInt8.self).baseAddress, UInt32(publicKey.count), output.bindMemory(to: UInt8.self).baseAddress, 48)
+        } }
+        XCTAssertEqual(code, UInt32(ACTIVECHAIN_WALLET_OK))
+        let (bytes, reference) = try DemoMerchant.enrollment(network: .kanalen, slot: "demo-test", height: 10, provider: provider)
+        let enrollment = DemoEnrollment(bytes: bytes, reference: reference)
+        XCTAssertNil(try enrollment.verifiedHeight(network: .kanalen, owner: owner))
+        XCTAssertThrowsError(try enrollment.verifiedHeight(network: .kanalen, owner: Data(repeating: 7, count: 48)))
+        let page = WalletOwnerCoinPage(records: [coin(key: 1, amount: DemoAmount(high: 1, low: 0), owner: owner), coin(key: 2, amount: DemoAmount(high: 1, low: 0), owner: owner)], next: nil)
+        let approval = try DemoMerchant.review(network: .kanalen, owner: owner, page: page, height: 20, nonce: 0)
+        let session = try DemoMerchant.signedSession(approval: approval, slot: "demo-test", height: 20, provider: provider)
+        XCTAssertEqual(session.prefix(4), Data([0, 0x98, 0, 1]))
+        let transfer = try CanonicalCashApprovalSession(approval: approval).sign(with: provider, slotID: "demo-test", minimumVersion: 1, minimumFinalizedHeight: 10)
+        XCTAssertGreaterThan(transfer.count, 2420)
+    }
+}
+
+extension DemoMerchantTests {
+    func testDeviceKeychainPersistsTheBoundedProofJournal() throws {
+        let keychain = try SharedKeychain()
+        let service = "dev.activechain.demo-tests.\(UUID().uuidString)"
+        defer { try? keychain.delete(service: service, account: "journal") }
+        let proofJournal = Data(repeating: 0x52, count: 1_048_576)
+        try keychain.save(proofJournal, service: service, account: "journal")
+        XCTAssertEqual(try keychain.load(service: service, account: "journal"), proofJournal)
+    }
+}

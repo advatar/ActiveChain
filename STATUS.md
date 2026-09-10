@@ -9,15 +9,24 @@ Draft [PR #845](https://github.com/advatar/ActiveChain/pull/845) owns the unit.
 
 - [x] Verify live testnet health and create a separate merchant receiver with a private local key.
 - [x] Resolve spending policy: wallet-key ownership authorizes spending; identity credentials are optional.
-- [ ] Implement signed, chain-bound wallet-key enrollment finalized by consensus before spending.
+- [x] Implement signed, chain-bound wallet-key enrollment finalized by consensus before spending.
       Enrollment must prove ownership of the key-derived wallet address and cannot replace an existing key.
       See [merchant setup and findings](docs/DEMO_MERCHANT.md).
 
-- [ ] Add a native testnet demo shop with a separate merchant address and exact price/fee review.
-- [ ] Build and sign payments from verified wallet holdings, submit through RPC, and persist pending purchases.
-- [ ] Verify settlement and merchant holdings before displaying a paid receipt; handle retry and relaunch.
-- [ ] Add unit coverage and a serial live iOS purchase test using faucet-funded coins.
+- [x] Add a native testnet demo shop with a separate merchant address and exact price/fee review.
+- [x] Build and sign payments from verified wallet holdings, submit through RPC, and persist pending purchases.
+- [x] Verify settlement and merchant holdings before displaying a paid receipt; handle retry and relaunch.
+- [x] Add unit coverage and a serial live iOS purchase test using faucet-funded coins.
+- [ ] Deploy RPC schema 5 and pass the live faucet → enrollment → coffee → relaunch test.
+      Deployment is blocked by unavailable LAN routing to `192.168.2.126` from both this Mac
+      and the CI deployment runner. Public RPC schema 4 remains healthy.
 - [ ] Pass local builds, relevant suites, and the full exact-candidate gate; merge and verify origin/main reachability.
+
+Local checkpoint: the iOS wallet suite passed (55 passed, two opt-in live tests skipped),
+the universal macOS wallet built, and Amber macOS tests passed (15 passed, one opt-in live
+test skipped). Rust coverage includes signed enrollment, later-block spending, durable
+finality evidence, replay rejection, and nonce preservation. Exhaustive qualification and
+live deployment acceptance remain pending.
 
 ## Completed — funded wallet lifecycle and composite identity proofs
 

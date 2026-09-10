@@ -56,7 +56,7 @@ struct DemoShopView: View {
                         Button(shop.paidHeight == nil ? "Buy demo coffee · 5 ACT" : "Buy another demo coffee · 5 ACT") {
                             Task { await shop.prepare(wallet: liveState) }
                         }.buttonStyle(.borderedProminent)
-                            .disabled(shop.busy || shop.pending || shop.enrolledHeight == nil)
+                            .disabled(shop.busy || shop.pending || !shop.canBuy)
                             .accessibilityIdentifier("shop.buy")
                         Button("Refresh payment status") { Task { await shop.refresh(wallet: liveState) } }
                             .disabled(shop.busy).accessibilityIdentifier("shop.refresh")

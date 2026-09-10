@@ -1051,6 +1051,10 @@ fn snapshot_tag(body: &[u8]) -> [u8; SNAPSHOT_TAG_LENGTH] {
     tag
 }
 
+fn evidence_name(reference: Digest384) -> String {
+    reference.as_bytes().iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1199,7 +1203,7 @@ mod tests {
         let unsigned = ValidatorVote::new(
             validator,
             context,
-            7,
+            header.inputs.height,
             2,
             header.digest().unwrap(),
             header.proof_statement_commitment,
@@ -1210,7 +1214,7 @@ mod tests {
         let vote = ValidatorVote::new(
             validator,
             context,
-            7,
+            header.inputs.height,
             2,
             header.digest().unwrap(),
             header.proof_statement_commitment,
@@ -1226,7 +1230,7 @@ mod tests {
         XofReader::read(&mut hasher.finalize_xof(), &mut vote_root);
         let certificate = QuorumCertificate::new(
             context,
-            7,
+            header.inputs.height,
             2,
             header.digest().unwrap(),
             header.proof_statement_commitment,
@@ -1608,7 +1612,10 @@ mod tests {
         .unwrap();
         let economy = GenesisEconomy::new(
             definition,
-            vec![GenesisAllocation::new(owner, 800, 100).unwrap()],
+            vec![
+                GenesisAllocation::new(owner, 700, 100).unwrap(),
+                GenesisAllocation::new(owner, 100, 0).unwrap(),
+            ],
             100,
         )
         .unwrap();
@@ -1650,6 +1657,83 @@ mod tests {
         let mut forged = bytes;
         *forged.last_mut().unwrap() ^= 1;
         assert!(restored.submit_enrollment(&forged, &ingress, 8, 121).is_err());
+        // Follow the registered key through the real session and payment ingress boundary.
+        // Admission must fail before registration and at the enrollment height itself.
+        let cells = ingress.ledger().cells().as_slice();
+        let merchant = principal(11);
+        let transfer =
+            CoinTransfer::new(owner, merchant, vec![cells[0].id()], cells[1].id(), 10, 1, 20)
+                .unwrap();
+        let grant = CashSessionGrantV1::new(chain, owner, digest(62), 7, 20, 11).unwrap();
+        let signature = key.sign(&grant.signing_payload().unwrap());
+        let session = encode_envelope(
+            &AuthorizedCashSessionGrantV1::new(
+                grant,
+                ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec())
+                    .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let request =
+            CashAuthorizationRequestV1::new(chain, owner, 0, digest(62), 20, transfer).unwrap();
+        let payment_id = request.intent_id().unwrap();
+        let signature = key.sign(&request.signing_payload().unwrap());
+        let transfer = encode_envelope(
+            &AuthorizedCashTransferV1::new(
+                request,
+                ProtocolSignature::new(CryptoSuiteId::ML_DSA_44, signature.encode().to_vec())
+                    .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(restored.submit(&session, &transfer, &ingress, 8, 122).is_err());
+        let mut finalized = ingress.clone();
+        apply_action(&mut finalized, &actions[0], 7).unwrap();
+        assert!(restored.submit(&session, &transfer, &finalized, 7, 122).is_err());
+        let payment = restored.submit(&session, &transfer, &finalized, 8, 123).unwrap();
+        assert_eq!(payment.state(), TransferState::Pending);
+        let payment_actions = restored.prepare_pending_batch(&finalized, &[], 9, 124, 32).unwrap();
+        assert_eq!(payment_actions.len(), 1);
+        let (accepted, rejected) =
+            qualify_cash_actions(&finalized, payment_actions.clone(), 9).unwrap();
+        assert_eq!(accepted, payment_actions);
+        assert!(rejected.is_empty());
+        apply_action(&mut finalized, &payment_actions[0], 9).unwrap();
+        let merchant_cells = finalized
+            .ledger()
+            .cells()
+            .as_slice()
+            .iter()
+            .filter(|cell| cell.cell().owner() == merchant)
+            .collect::<Vec<_>>();
+        assert_eq!(merchant_cells.len(), 1);
+        assert_eq!(merchant_cells[0].cell().amount(), 10);
+        let (_, payment_finality) = signed_finality(ProofPublicInputs {
+            height: 9,
+            ..finality_inputs(commit_parts(
+                b"ACTIVECHAIN-BLOCK-CASH-ACTIONS-V1",
+                &[payment_id.as_bytes()],
+            ))
+        });
+        restored
+            .reconcile_finality(&frame_actions(&payment_actions).unwrap(), &payment_finality, 125)
+            .unwrap();
+        assert_eq!(restored.evidence(payment_id).unwrap(), (vec![payment_id], payment_finality));
+        assert_eq!(
+            restored.submit(&session, &transfer, &finalized, 10, 126).unwrap().state(),
+            TransferState::Finalized
+        );
+        assert!(restored.prepare_pending_batch(&finalized, &[], 10, 127, 32).unwrap().is_empty());
+        assert!(
+            apply_action(&mut finalized, &actions[0], 10).is_err(),
+            "enrollment cannot reset the spent nonce"
+        );
+        assert!(
+            apply_action(&mut finalized, &payment_actions[0], 10).is_err(),
+            "payment cannot be replayed"
+        );
         remove_snapshot(&path);
     }
 
@@ -1661,8 +1745,4 @@ mod tests {
         assert!(parse_framed_actions(&framed[..framed.len() - 1]).is_err());
         assert!(frame_actions(&vec![vec![1]; MAX_PENDING_TRANSFERS + 1]).is_err());
     }
-}
-
-fn evidence_name(reference: Digest384) -> String {
-    reference.as_bytes().iter().map(|byte| format!("{byte:02x}")).collect()
 }

@@ -1046,7 +1046,7 @@ struct SecondaryWalletButton: ButtonStyle {
     }
 }
 
-private extension View {
+extension View {
     @ViewBuilder
     func walletNavigationBarHidden() -> some View {
 #if os(iOS)
