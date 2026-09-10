@@ -11,6 +11,9 @@ identity unit first on `feat/846-tanzania-identity`; Android implementation rema
 existing claimed branch until the iOS flow works and that claim is reconciled.
 
 - [x] Inspect AnyIdentity, current wallet UI, native credential trust boundaries and store setup.
+- [x] Inspect `../EUWallet` as an additional credential source: same-device OpenID4VP request loading, consent-bound presentation and app return routing exist.
+- [ ] Include **Use EUWallet** in the identity concept and implement a verified presentation handoff using its existing credential custody; do not export holder private keys.
+- [ ] Bind each EUWallet presentation to an ActiveChain request, wallet, network and nonce; validate issuer, holder proof, expiry and status before native registration.
 - [ ] Confirm the stakeholder's available Tanzanian provider or signed credential and holder-proof method.
 - [ ] Define and implement issuer-governed holder/wallet binding, secure credential attachment and minimal on-chain registration.
 - [ ] Show actual stored, verified, pending, finalized, expired and revoked states; keep identity data off the public chain.
@@ -24,6 +27,14 @@ in this repository. Provider availability is being clarified; no test credential
 presented as real government verification. Existing remote archive and clinical-demo branches
 are unrelated and remain untouched. Follow the contextual verification cadence: changed-boundary
 checks while iterating, then one settled-candidate full gate before integration.
+
+EUWallet is an available presentation client, so general credential attachment need not depend
+on obtaining a new Tanzania-specific provider first. Its existing signed credentials can supply
+evidence once the relying-party request/response bridge and issuer policy are integrated.
+The mockup includes EUWallet alongside the proposed Tanzanian provider route. A wallet app is
+not an independent issuer root: composite eligibility comes from verified underlying issuers.
+EUWallet-held credentials do not by themselves establish NIDA verification or Tanzanian citizenship.
+No ActiveChain-to-EUWallet end-to-end integration has yet been verified.
 
 ## Completed — demo merchant and verified live spending
 
