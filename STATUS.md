@@ -26,7 +26,10 @@ Local checkpoint: the iOS wallet suite passed (55 passed, two opt-in live tests 
 the universal macOS wallet built, and Amber macOS tests passed (15 passed, one opt-in live
 test skipped). Rust coverage includes signed enrollment, later-block spending, durable
 finality evidence, replay rejection, and nonce preservation. Exhaustive qualification and
-live deployment acceptance remain pending.
+live deployment acceptance remain pending. The consolidated seven-crate Rust run passed
+348 tests. Full gate `34450134470` found an outdated checksum for the updated Apple RPC
+fixture; the checksum was corrected and local proof conformance passed before submitting
+the replacement candidate.
 
 ## Completed — funded wallet lifecycle and composite identity proofs
 
