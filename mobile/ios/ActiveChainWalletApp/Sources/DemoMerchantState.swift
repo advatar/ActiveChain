@@ -114,14 +114,25 @@ final class DemoMerchantState: ObservableObject {
         try store.save(bytes, service: service, account: wallet.network.id)
         journal = next
     }
-    func refresh(wallet: WalletLiveState) async {
+    func refresh(wallet: WalletLiveState, background: Bool = false) async {
         guard !busy, review == nil else { return }
+        // Finality is immutable. Re-enter resolution only when the locally stored purchase or
+        // wallet binding changes; an unchanged receipt must not flash a spinner every three seconds.
+        if background, paidHeight != nil, let previous = journal,
+           let current = try? load(wallet: wallet),
+           previous.owner == current.owner, previous.genesis == current.genesis,
+           previous.revision == current.revision,
+           previous.purchase?.reference == current.purchase?.reference { return }
         busy = true; defer { busy = false }
         do { try await resolve(wallet: wallet) } catch { message = error.localizedDescription }
     }
     private func resolve(wallet: WalletLiveState) async throws {
         var saved = try load(wallet: wallet)
-        journal = saved; paidHeight = nil; enrolledHeight = nil; pending = false; canBuy = false; reference = nil
+        let sameWallet = journal?.owner == saved.owner && journal?.genesis == saved.genesis
+        let samePurchase = sameWallet && journal?.purchase?.reference == saved.purchase?.reference
+        if !samePurchase { paidHeight = nil; reference = nil }
+        if !sameWallet || journal?.enrollment?.reference != saved.enrollment?.reference { enrolledHeight = nil }
+        journal = saved; pending = false; canBuy = false
         guard let enrollment = saved.enrollment else {
             message = "Register your wallet key on chain to spend testnet ACT. Identity credentials are optional."
             return

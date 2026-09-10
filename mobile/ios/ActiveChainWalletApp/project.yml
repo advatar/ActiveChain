@@ -9,6 +9,12 @@ packages:
 targets:
   ActiveChainWallet:
     type: application
+    info:
+      path: Config/WalletInfo.plist
+      properties:
+        CFBundleURLTypes:
+          - CFBundleURLName: dev.activechain.wallet.identity
+            CFBundleURLSchemes: [activechain-wallet]
     platform: iOS
     sources:
       - path: Sources
@@ -100,6 +106,17 @@ targets:
       TEST_TARGET_NAME: ActiveChainWallet
     dependencies:
       - target: ActiveChainWallet
+  ActiveChainWalletIdentityUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: IdentityUITests
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+      SWIFT_VERSION: "5.9"
+      TEST_TARGET_NAME: ActiveChainWallet
+    dependencies:
+      - target: ActiveChainWallet
   ActiveChainWalletMacUITests:
     type: bundle.ui-testing
     platform: macOS
@@ -122,3 +139,12 @@ schemes:
       gatherCoverageData: false
       targets:
         - ActiveChainWalletIOSUITests
+
+  ActiveChainWalletIdentityE2E:
+    build:
+      targets:
+        ActiveChainWallet: all
+    test:
+      gatherCoverageData: false
+      targets:
+        - ActiveChainWalletIdentityUITests
