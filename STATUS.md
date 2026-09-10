@@ -2,57 +2,35 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
-## In progress — demo merchant checkout
+## In progress — demo merchant final qualification
 
 Tracked by [issue #844](https://github.com/advatar/ActiveChain/issues/844). Claimed by Codex.
 Draft [PR #845](https://github.com/advatar/ActiveChain/pull/845) owns the unit.
 
 - [x] Verify live testnet health and create a separate merchant receiver with a private local key.
-- [x] Resolve spending policy: wallet-key ownership authorizes spending; identity credentials are optional.
-- [x] Implement signed, chain-bound wallet-key enrollment finalized by consensus before spending.
-      Enrollment must prove ownership of the key-derived wallet address and cannot replace an existing key.
-      See [merchant setup and findings](docs/DEMO_MERCHANT.md).
+- [x] Implement signed, chain-bound wallet-key enrollment finalized before spending; identity credentials are optional.
+- [x] Add the native Kanalen Coffee shop with exact 5 ACT price and 0.001 ACT fee review.
+- [x] Persist exact signed actions before submission and verify native finality, merchant output and customer change.
+- [x] Restore schema 5 connectivity and show actual ACT holdings from canonical RPC CoinCellRecord proofs.
+- [x] Remove hardcoded empty-asset and unimplemented credential-storage claims.
+- [x] Finalize enrollment without changing Coin Cells; preserve pending actions across round retries and repair false rejections from verified finality.
+- [x] Derive the native transfer output ID and verify one combined change cell; recover an existing payment without resubmission.
+- [x] Deploy server release c14db3d4 with original chain state preserved and advancing healthy blocks.
+- [x] Pass the fresh-wallet faucet → enrollment → coffee → relaunch test on implementation 236e0784.
+      On 2026-09-10, faucet funding finalized at block 20949 and merchant payment at block
+      20952. The test verified 100 ACT before spending, 94.999 ACT afterward, native merchant
+      and change proofs, and the persisted receipt after relaunch. Evidence is retained in
+      `tmp/ios-wallet-e2e.mKPsOm/LiveWallet.xcresult`; simulator
+      `503FEE97-8EEA-4DFB-962B-8AD9A76CFBBA` retains the test wallet.
+- [ ] Pass the full settled-candidate gate, merge and verify origin/main reachability.
 
-- [x] Add a native testnet demo shop with a separate merchant address and exact price/fee review.
-- [x] Build and sign payments from verified wallet holdings, submit through RPC, and persist pending purchases.
-- [x] Verify settlement and merchant holdings before displaying a paid receipt; handle retry and relaunch.
-- [x] Add unit coverage and a serial live iOS purchase test using faucet-funded coins.
-- [x] Restore the schema 5 app/server connection now that deployment SSH is reachable.
-- [x] Replace the hardcoded asset card with verified ACT holdings and remove claims about unimplemented credential storage.
-- [x] Fix finalized-block construction for enrollment actions that preserve the Coin Cell root.
-      Live fresh-wallet acceptance reached 100 ACT and submitted enrollment, then found the
-      block builder incorrectly required every cash action to change coin holdings. Cover
-      the real block construction boundary and preserve the pending signed enrollment.
-      Round retry also re-applied its existing batch prefix and falsely rejected the same
-      pending record. Skip already-batched action IDs and let verified finality repair an
-      older erroneous rejection. Both retry regressions and real enrollment draft
-      construction pass, with all 191 consensus/RPC tests and strict all-feature Clippy.
-      Release c14db3d4 deployed; the retained enrollment finalized at block 20916 and
-      the app verified it. Block production resumed with the original chain state.
-- [x] Match purchase receipts to the native transfer ID and combined change output.
-      The retained wallet payment finalized, but the UI looked up the authorization intent
-      as the output origin and expected separate fee/payment change. Derive the actual
-      transfer ID in Rust, verify the single combined change cell, and recover this receipt
-      without another payment. Focused FFI/receipt tests pass; the retained wallet
-      verifies the merchant payment at block 20926 and 94.999 ACT after relaunch.
-- [ ] Deploy RPC schema 5 and pass the live faucet → enrollment → coffee → relaunch test.
-      Schema 5 deployed on 2026-09-10 with chain state preserved; the user wallet faucet
-      finalized at block 20890. Live acceptance found the Swift amount reader expected a
-      CoinCell envelope instead of RPC CoinCellRecord. Corrected against Rust-generated
-      canonical bytes; the user simulator now displays 100 ACT as two verified 50 ACT cells.
-      The corrected iOS unit suite passes (58 passed, two opt-in live tests skipped).
-- [ ] Pass local builds, relevant suites, and the full exact-candidate gate; merge and verify origin/main reachability.
-
-Local checkpoint: the iOS wallet suite passed (55 passed, two opt-in live tests skipped),
-the universal macOS wallet built, and Amber macOS tests passed (15 passed, one opt-in live
-test skipped). Rust coverage includes signed enrollment, later-block spending, durable
-finality evidence, replay rejection, and nonce preservation. Exhaustive qualification and
-live deployment acceptance remain pending. The consolidated seven-crate Rust run passed
-348 tests. Full gate `34450134470` found an outdated checksum for the updated Apple RPC
-fixture; the checksum was corrected and local proof conformance passed before submitting
-the replacement candidate. The canonical client inventory now includes the enrollment type;
-workspace-wide all-target/all-feature Clippy, the iOS no-std kernel checks, independent Go
-tests, fixture reproduction and the complete static preflight pass locally.
+Contextual validation: 191 affected consensus/RPC tests and strict Clippy passed for the
+server fixes; 22 wallet FFI tests, 11 selected merchant tests and strict FFI Clippy passed
+for receipt mapping. The required simulator wallet library built in 16 seconds, without
+rebuilding the unrelated proof-prover distribution or rerunning unaffected app suites.
+Earlier iOS baseline coverage passed 58 tests with two opt-in live skips; the macOS app
+built. Full qualification starts only after the relevant live flow is settled.
+See [merchant setup and verified flow](docs/DEMO_MERCHANT.md).
 
 ## Completed — funded wallet lifecycle and composite identity proofs
 

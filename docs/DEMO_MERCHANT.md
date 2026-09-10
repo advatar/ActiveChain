@@ -60,7 +60,9 @@ wallet state. The existing user wallet received a finalized 100 ACT faucet grant
 displays the actual total and both 50 ACT cells. The first fresh-wallet flow exposed two server finalization/retry bugs and a client receipt
 mapping mismatch. Release `c14db3d4` restored finalization and enrolled that wallet at block
 20916. The corrected client verified its purchase at block 20926 without resubmission.
-A clean automated acceptance rerun and final qualification remain.
+The clean automated fresh-wallet acceptance then passed: faucet at block 20949, coffee
+payment at block 20952, and 94.999 ACT plus the verified receipt after relaunch. Final
+qualification and integration remain.
 
 ## Candidate app flow
 
@@ -76,6 +78,8 @@ across relaunch. A second purchase cannot replace an unresolved one.
 Local qualification covers the production Swift/Rust signing transcripts and a Rust scenario
 that rejects spending before enrollment and in its block, then pays the merchant in a later
 block, persists finality evidence and rejects replay. This does not replace the outstanding
-clean automated live iOS purchase rerun. Deployment access is restored and the public
+final integration gate. The clean live iOS purchase test passed in 144 seconds on
+implementation `236e0784`; evidence is in `tmp/ios-wallet-e2e.mKPsOm/LiveWallet.xcresult`.
+Deployment access is restored and the public
 schema 5 RPC is healthy. Development checks now target changed boundaries and build only
 the required iOS wallet library/simulator slice; full qualification waits for the settled flow.
