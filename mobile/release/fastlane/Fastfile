@@ -1,0 +1,107 @@
+require "json"
+require "shellwords"
+
+opt_out_usage
+
+def required(name)
+  value = ENV[name].to_s.strip
+  UI.user_error!("Missing #{name}") if value.empty?
+  value
+end
+
+def release_record
+  path = required("ACTIVECHAIN_RELEASE_MANIFEST")
+  record = JSON.parse(File.read(path))
+  record["artifact"] = File.expand_path(record.fetch("artifact"), File.dirname(path))
+  record
+end
+
+def apple_key
+  app_store_connect_api_key(
+    key_id: required("ASC_KEY_ID"), issuer_id: required("ASC_ISSUER_ID"),
+    key_filepath: required("ASC_PRIVATE_KEY_PATH"), in_house: false
+  )
+end
+
+platform :ios do
+  desc "Archive and export the explicitly versioned wallet using configured Apple signing"
+  lane :archive do
+    apple_key
+    auth = ["-allowProvisioningUpdates", "-authenticationKeyPath", required("ASC_PRIVATE_KEY_PATH"),
+            "-authenticationKeyID", required("ASC_KEY_ID"),
+            "-authenticationKeyIssuerID", required("ASC_ISSUER_ID")].shelljoin
+    build_app(
+      project: File.expand_path("../../ios/ActiveChainWalletApp/ActiveChainWallet.xcodeproj", __dir__),
+      scheme: "ActiveChainWallet", configuration: "Release", clean: false,
+      archive_path: File.join(required("ACTIVECHAIN_RELEASE_OUTPUT"), "Wallet.xcarchive"),
+      output_directory: required("ACTIVECHAIN_RELEASE_OUTPUT"), output_name: "ActiveChainWallet.ipa",
+      derived_data_path: File.join(required("ACTIVECHAIN_RELEASE_OUTPUT"), "DerivedData"),
+      export_method: "app-store", export_team_id: "L2AF8KFX35",
+      export_options: { signingStyle: "automatic", teamID: "L2AF8KFX35", manageAppVersionAndBuildNumber: false },
+      xcargs: "#{auth} MARKETING_VERSION=#{required('ACTIVECHAIN_RELEASE_VERSION').shellescape} " \
+              "CURRENT_PROJECT_VERSION=#{required('ACTIVECHAIN_RELEASE_BUILD').shellescape}",
+      export_xcargs: auth
+    )
+  end
+
+  desc "Upload a qualified IPA and submit it to the specified external TestFlight group"
+  lane :beta do
+    record = release_record
+    upload_to_testflight(
+      api_key: apple_key, ipa: record.fetch("artifact"),
+      app_identifier: record.fetch("application_id"), apple_id: required("ASC_APP_ID"),
+      groups: required("ASC_TESTFLIGHT_GROUPS").split(",").map(&:strip),
+      distribute_external: true, notify_external_testers: false,
+      skip_waiting_for_build_processing: false,
+      changelog: File.read(required("ACTIVECHAIN_RELEASE_NOTES"))
+    )
+  end
+
+  desc "Submit the exact previously uploaded build for App Store review; retain manual release"
+  lane :review do
+    record = release_record
+    upload_to_app_store(
+      api_key: apple_key, app_identifier: record.fetch("application_id"),
+      app_version: record.fetch("version"), build_number: record.fetch("build_number").to_s,
+      skip_binary_upload: true, skip_metadata: true, skip_screenshots: true,
+      submit_for_review: true, automatic_release: false, force: true,
+      precheck_include_in_app_purchases: false,
+      submission_information: JSON.parse(File.read(required("ASC_SUBMISSION_INFORMATION_PATH")))
+    )
+  end
+end
+
+platform :android do
+  desc "Upload a qualified signed AAB to internal testing"
+  lane :internal do
+    record = release_record
+    upload_to_play_store(
+      json_key: required("GOOGLE_PLAY_CREDENTIALS_PATH"),
+      package_name: record.fetch("application_id"), aab: record.fetch("artifact"),
+      track: "internal", release_status: "completed", version_name: record.fetch("version"),
+      skip_upload_apk: true, skip_upload_metadata: true,
+      skip_upload_images: true, skip_upload_screenshots: true,
+      metadata_path: required("ACTIVECHAIN_PLAY_METADATA"),
+      changes_not_sent_for_review: false, rescue_changes_not_sent_for_review: false
+    )
+  end
+
+  desc "Promote only the reviewed build number from internal testing to production"
+  lane :production do
+    record = release_record
+    version = record.fetch("build_number")
+    available = google_play_track_version_codes(
+      json_key: required("GOOGLE_PLAY_CREDENTIALS_PATH"),
+      package_name: record.fetch("application_id"), track: "internal"
+    )
+    UI.user_error!("Build #{version} is not on the internal track") unless available.include?(version)
+    upload_to_play_store(
+      json_key: required("GOOGLE_PLAY_CREDENTIALS_PATH"), package_name: record.fetch("application_id"),
+      track: "internal", track_promote_to: "production", version_code: version,
+      track_promote_release_status: "completed", skip_upload_aab: true, skip_upload_apk: true,
+      skip_upload_metadata: true, skip_upload_changelogs: true,
+      skip_upload_images: true, skip_upload_screenshots: true,
+      changes_not_sent_for_review: false, rescue_changes_not_sent_for_review: false
+    )
+  end
+end

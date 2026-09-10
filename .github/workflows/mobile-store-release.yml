@@ -1,0 +1,166 @@
+name: Mobile store release
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        required: true
+        options: [build-ios, build-android, ios-beta, ios-review, android-internal, android-production]
+      source:
+        description: Exact integrated source SHA (must match the artifact for submissions)
+        type: string
+        required: true
+      qualification_run:
+        description: Successful full kernel run for this source (build operations)
+        type: string
+        required: false
+      version:
+        description: Three-component release version (build operations)
+        type: string
+        required: false
+      build_number:
+        description: New increasing build number (build operations)
+        type: string
+        required: false
+      artifact_run:
+        description: This workflow's successful build run ID (submission operations)
+        type: string
+        required: false
+      notes:
+        description: What to test / release notes; required for beta uploads
+        type: string
+        required: false
+      execute:
+        description: Execute the selected operation; otherwise validate and preview
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: activechain-mobile-store-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, macOS, ARM64, activechain-ci]
+    environment: mobile-store
+    timeout-minutes: 90
+    env:
+      PATH: /opt/homebrew/opt/rustup/bin:/Users/johansellstrom/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+      JAVA_HOME: /opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
+      ANDROID_HOME: /Users/johansellstrom/Library/Android/sdk
+      GH_TOKEN: ${{ github.token }}
+      OPERATION: ${{ inputs.operation }}
+      RELEASE_SOURCE: ${{ inputs.source }}
+      QUALIFICATION_RUN: ${{ inputs.qualification_run }}
+      RELEASE_VERSION: ${{ inputs.version }}
+      RELEASE_BUILD: ${{ inputs.build_number }}
+      ARTIFACT_RUN: ${{ inputs.artifact_run }}
+      RELEASE_NOTES: ${{ inputs.notes }}
+      EXECUTE_RELEASE: ${{ inputs.execute }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_APP_ID: ${{ vars.ASC_APP_ID }}
+      ASC_TESTFLIGHT_GROUPS: ${{ vars.ASC_TESTFLIGHT_GROUPS }}
+      ACTIVECHAIN_ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+      ACTIVECHAIN_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ACTIVECHAIN_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ inputs.source }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate release source and tools
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          [[ $(git rev-parse HEAD) == "$RELEASE_SOURCE" ]]
+          git merge-base --is-ancestor HEAD origin/main
+          python3 scripts/test_mobile_release.py
+          ruby -c mobile/release/fastlane/Fastfile
+          echo "BUNDLE_PATH=$HOME/.cache/activechain-mobile-release/gems" >> "$GITHUB_ENV"
+      - name: Install locked release dependencies
+        working-directory: mobile/release
+        env:
+          BUNDLE_FROZEN: 'true'
+        run: bundle install --jobs 4
+      - name: Materialize scoped credential files
+        env:
+          APPLE_KEY: ${{ secrets.ASC_PRIVATE_KEY_P8_BASE64 }}
+          PLAY_KEY: ${{ secrets.GOOGLE_PLAY_CREDENTIALS_BASE64 }}
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          APPLE_SUBMISSION: ${{ secrets.ASC_SUBMISSION_INFORMATION_BASE64 }}
+        run: |
+          python3 - <<'PY'
+          import base64, os
+          from pathlib import Path
+          directory = Path(os.environ['RUNNER_TEMP']) / ('activechain-publishing-' + os.environ['GITHUB_RUN_ID'] + '-' + os.environ['GITHUB_RUN_ATTEMPT'])
+          directory.mkdir(mode=0o700)
+          fields = [('APPLE_KEY','ASC_PRIVATE_KEY_PATH','AuthKey.p8'),
+                    ('PLAY_KEY','GOOGLE_PLAY_CREDENTIALS_PATH','google-play.json'),
+                    ('ANDROID_KEYSTORE','ACTIVECHAIN_ANDROID_KEYSTORE','upload.jks'),
+                    ('APPLE_SUBMISSION','ASC_SUBMISSION_INFORMATION_PATH','submission.json')]
+          with open(os.environ['GITHUB_ENV'], 'a') as environment:
+              for source, target, filename in fields:
+                  value = os.environ.get(source, '')
+                  if not value: continue
+                  path = directory / filename
+                  with path.open('xb') as stream:
+                      os.chmod(path, 0o600)
+                      stream.write(base64.b64decode(value, validate=True))
+                  environment.write(f'{target}={path}\n')
+              environment.write(f'RELEASE_CREDENTIAL_DIRECTORY={directory}\n')
+          PY
+      - name: Build or submit the explicit release
+        run: |
+          set -euo pipefail
+          release_output="$RUNNER_TEMP/activechain-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "RELEASE_OUTPUT=$release_output" >> "$GITHUB_ENV"
+          execute=()
+          [[ "$EXECUTE_RELEASE" != true ]] || execute=(--execute)
+          if [[ "$OPERATION" == build-* ]]; then
+            python3 mobile/release/release.py build --platform "${OPERATION#build-}" \
+              --version "$RELEASE_VERSION" --build-number "$RELEASE_BUILD" \
+              --qualification-run "$QUALIFICATION_RUN" --output "$release_output" "${execute[@]}"
+          else
+            [[ "$ARTIFACT_RUN" =~ ^[0-9]+$ ]]
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ARTIFACT_RUN" > "$RUNNER_TEMP/activechain-artifact-run-${GITHUB_RUN_ID}.json"
+            python3 - "$RUNNER_TEMP/activechain-artifact-run-${GITHUB_RUN_ID}.json" <<'PY'
+          import json, os, sys
+          run = json.load(open(sys.argv[1]))
+          assert run['repository']['full_name'] == os.environ['GITHUB_REPOSITORY']
+          assert run['path'] == '.github/workflows/mobile-store-release.yml'
+          assert run['status'] == 'completed' and run['conclusion'] == 'success'
+          PY
+            gh run download "$ARTIFACT_RUN" --repo "$GITHUB_REPOSITORY" \
+              --name "wallet-release-${OPERATION%%-*}" --dir "$release_output"
+            printf '%s' "$RELEASE_NOTES" > "$release_output/notes.txt"
+            python3 mobile/release/release.py submit --action "$OPERATION" \
+              --manifest "$release_output/release.json" --notes "$release_output/notes.txt" "${execute[@]}"
+          fi
+      - name: Retain artifact and submission evidence
+        if: always() && env.RELEASE_OUTPUT != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wallet-release-${{ startsWith(inputs.operation, 'ios') && 'ios' || inputs.operation == 'build-ios' && 'ios' || 'android' }}
+          path: |
+            ${{ env.RELEASE_OUTPUT }}/*.ipa
+            ${{ env.RELEASE_OUTPUT }}/*.aab
+            ${{ env.RELEASE_OUTPUT }}/*.json
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Remove only this run's credential files
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os, shutil
+          from pathlib import Path
+          directory = Path(os.environ['RUNNER_TEMP']) / ('activechain-publishing-' + os.environ['GITHUB_RUN_ID'] + '-' + os.environ['GITHUB_RUN_ATTEMPT'])
+          if directory.is_dir(): shutil.rmtree(directory)
+          PY

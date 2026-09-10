@@ -129,6 +129,10 @@ jobs:
         with: {ios-targets: 'true'}
       - name: Check formatting
         run: cargo fmt --all --check
+      - name: Check mobile release admission and commands
+        run: |
+          python3 scripts/test_mobile_release.py
+          ruby -c mobile/release/fastlane/Fastfile
       - name: Verify canonical type-tag registry
         run: python3 scripts/check-type-tag-registry.py
       - name: Verify developer telemetry contract
