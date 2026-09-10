@@ -2,10 +2,10 @@
 
 This file tracks executable work derived from `BLUEPRINT.md` and `STACK.md`.
 
-## In progress — demo merchant final qualification
+## Completed — demo merchant and verified live spending
 
-Tracked by [issue #844](https://github.com/advatar/ActiveChain/issues/844). Claimed by Codex.
-Draft [PR #845](https://github.com/advatar/ActiveChain/pull/845) owns the unit.
+Tracked by [issue #844](https://github.com/advatar/ActiveChain/issues/844).
+Merged through [PR #845](https://github.com/advatar/ActiveChain/pull/845).
 
 - [x] Verify live testnet health and create a separate merchant receiver with a private local key.
 - [x] Implement signed, chain-bound wallet-key enrollment finalized before spending; identity credentials are optional.
@@ -22,7 +22,17 @@ Draft [PR #845](https://github.com/advatar/ActiveChain/pull/845) owns the unit.
       and change proofs, and the persisted receipt after relaunch. Evidence is retained in
       `tmp/ios-wallet-e2e.mKPsOm/LiveWallet.xcresult`; simulator
       `503FEE97-8EEA-4DFB-962B-8AD9A76CFBBA` retains the test wallet.
-- [ ] Pass the full settled-candidate gate, merge and verify origin/main reachability.
+- [x] Pass the full settled-candidate gate, merge and verify origin/main reachability.
+
+Full [qualification run 34467746855](https://github.com/advatar/ActiveChain/actions/runs/34467746855)
+passed all required jobs on `d957db1362971dd8d9b129e284f845a60f0a29b4`. A Docker cleanup timeout
+after successful Apple tests required retrying only that job; all other passing jobs were reused.
+Merge `5f94a497b52555fa9dacd1fbf14134b157796e60` has the same tree as the qualified candidate.
+The candidate, live-tested implementation `236e0784`, and deployed server repair `c14db3d4`
+were verified as ancestors of `origin/main`. Issue #844 is closed and both source branches
+are removed. The complete verified Apple package was reused locally from this CI run.
+A post-merge pinned public RPC probe was healthy at height 21146 with four seconds of finality
+staleness. This completion record is documentation-only and does not require another full gate.
 
 Contextual validation: 191 affected consensus/RPC tests and strict Clippy passed for the
 server fixes; 22 wallet FFI tests, 11 selected merchant tests and strict FFI Clippy passed
