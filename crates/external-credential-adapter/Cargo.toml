@@ -15,9 +15,17 @@ base64.workspace = true
 ciborium.workspace = true
 p256.workspace = true
 serde_json.workspace = true
+serde.workspace = true
+form_urlencoded = "1.2.2"
 sha2.workspace = true
 sha3.workspace = true
 time.workspace = true
+
+[dev-dependencies]
+# Exercise the actual EUWallet presentation machine, rather than a locally imitated KB-JWT.
+euwallet-oid4vp = { package = "oid4vp", git = "https://github.com/advatar/EUWallet", rev = "8b1bf2f82340c8fba6641b5cc6baa1d9e18b3f3c" }
+euwallet-crypto-traits = { package = "crypto-traits", git = "https://github.com/advatar/EUWallet", rev = "8b1bf2f82340c8fba6641b5cc6baa1d9e18b3f3c" }
+euwallet-crypto-backend = { package = "crypto-backend", git = "https://github.com/advatar/EUWallet", rev = "8b1bf2f82340c8fba6641b5cc6baa1d9e18b3f3c" }
 
 [lints]
 workspace = true

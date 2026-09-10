@@ -14,6 +14,9 @@ existing claimed branch until the iOS flow works and that claim is reconciled.
 - [x] Inspect `../EUWallet` as an additional credential source: same-device OpenID4VP request loading, consent-bound presentation and app return routing exist.
 - [ ] Include **Use EUWallet** in the identity concept and implement a verified presentation handoff using its existing credential custody; do not export holder private keys.
 - [ ] Bind each EUWallet presentation to an ActiveChain request, wallet, network and nonce; validate issuer, holder proof, expiry and status before native registration.
+- [x] Implement standard SD-JWT key-binding compatibility with request-committed nonces and durable single-use admission; test against EUWallet’s actual Rust presentation machine. Live service and two-app qualification remain.
+- [x] Reject ambiguous signed JSON at every depth before accepting external credentials; 18 adapter tests and strict all-feature/all-target Clippy pass locally.
+- [ ] Complete authenticated ActiveChain relying-party configuration and verify the two-app return flow. EUWallet PR #196 replaces the external flow’s canned resolver with request certificate material checked by the existing trust engine; its 9 focused tests and iOS simulator build pass. Registration and live trust provisioning remain.
 - [ ] Confirm the stakeholder's available Tanzanian provider or signed credential and holder-proof method.
 - [ ] Define and implement issuer-governed holder/wallet binding, secure credential attachment and minimal on-chain registration.
 - [ ] Show actual stored, verified, pending, finalized, expired and revoked states; keep identity data off the public chain.
