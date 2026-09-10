@@ -8,9 +8,9 @@ Tracked by [issue #844](https://github.com/advatar/ActiveChain/issues/844). Clai
 Draft [PR #845](https://github.com/advatar/ActiveChain/pull/845) owns the unit.
 
 - [x] Verify live testnet health and create a separate merchant receiver with a private local key.
-- [ ] Resolve spending policy and implement finalized wallet-key enrollment before checkout.
-      The current app only provisions local custody; production cash-key installation is missing.
-      Wallet-key ownership alone versus required composite credentials is pending user input.
+- [x] Resolve spending policy: wallet-key ownership authorizes spending; identity credentials are optional.
+- [ ] Implement signed, chain-bound wallet-key enrollment finalized by consensus before spending.
+      Enrollment must prove ownership of the key-derived wallet address and cannot replace an existing key.
       See [merchant setup and findings](docs/DEMO_MERCHANT.md).
 
 - [ ] Add a native testnet demo shop with a separate merchant address and exact price/fee review.

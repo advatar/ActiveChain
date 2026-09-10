@@ -33,10 +33,11 @@ sender's signing key from finalized chain state. Checkout must preserve this bou
 supplied alongside a payment, a synthetic accepted proof, or a manually patched cash snapshot
 is not a replacement for finalized enrollment.
 
-The outstanding product decision is whether wallet-key ownership is sufficient for demo
-spending or whether enrollment also requires composite identity credentials. The first choice
-still needs a real finalized registration path; it does not waive chain verification. The second
-also needs trusted demo issuers and the missing credential enrollment flow.
+The user selected wallet-key enrollment on 2026-09-10. Composite identity credentials are
+optional for spending. Enrollment must be signed by the key whose native principal owns the
+funded cells, bound to this chain and an expiry, and finalized in consensus before a later
+payment. It cannot overwrite a registered key or reset its nonce. The wallet must verify
+certificate-backed enrollment evidence before presenting the key as enrolled.
 
 ## Acceptance
 
