@@ -180,25 +180,3 @@ struct CreatePaymentRequestSheet: View {
         }
     }
 }
-
-struct WalletPaymentActionsCard: View {
-    let canRequest: Bool
-    let requestPayment: () -> Void
-    var body: some View {
-        HStack(spacing: 12) {
-            Button(action: requestPayment) {
-                Label("Request", systemImage: "qrcode")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(!canRequest)
-            ShareLink(item: URL(string: "https://activechain.dev")!) {
-                Label("Receive", systemImage: "square.and.arrow.down")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .disabled(true)
-        }
-        .cardStyle()
-    }
-}
