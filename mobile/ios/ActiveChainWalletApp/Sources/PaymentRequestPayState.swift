@@ -193,7 +193,8 @@ final class PaymentRequestPayState: ObservableObject {
                 try await resolvePending(pending, journal: &journal, wallet: wallet)
                 if journal.pending != nil { phase = .pending; return }
             }
-            guard case let .healthy(currentHeight) = try await rpc.status().networkState else {
+            let status = try await rpc.status()
+            guard case let .healthy(currentHeight) = status.networkState else {
                 throw WalletPaymentFlowError("Network became unavailable before authorization.")
             }
             let approval = try PaymentRequestFlow.buildApproval(verified: verifiedAgain, amount: amount,
