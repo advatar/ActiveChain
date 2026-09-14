@@ -1,5 +1,11 @@
 import SwiftUI
 
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
+
 struct DemoShopView: View {
     @ObservedObject var liveState: WalletLiveState
     @StateObject private var shop = DemoMerchantState()
