@@ -230,6 +230,52 @@ pub unsafe extern "C" fn activechain_wallet_verify_cash_finality(
     WALLET_OK
 }
 
+/// Verifies one bounded ML-DSA-44 signature without granting any wallet authority.
+///
+/// This is intentionally a generic cryptographic check. Request-specific policy such as chain,
+/// genesis, recipient, amount and expiry binding stays in the native wallet shell, while the
+/// implementation of ML-DSA remains in Rust.
+///
+/// # Safety
+/// `public_key` and `signature` point to exactly 1,312 and 2,420 readable bytes. `payload` is
+/// readable for `payload_len` bytes when non-empty. No pointer is retained.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn activechain_wallet_mldsa44_verify(
+    public_key: *const u8,
+    public_key_len: u32,
+    payload: *const u8,
+    payload_len: u32,
+    signature: *const u8,
+    signature_len: u32,
+) -> u32 {
+    if public_key.is_null()
+        || signature.is_null()
+        || (payload.is_null() && payload_len != 0)
+    {
+        return WALLET_NULL_POINTER;
+    }
+    if payload_len > MAX_WALLET_INPUT {
+        return WALLET_TOO_LARGE;
+    }
+    if public_key_len != ML_DSA44_PUBLIC_KEY_LENGTH as u32
+        || signature_len != ML_DSA44_SIGNATURE_LENGTH as u32
+    {
+        return WALLET_MALFORMED;
+    }
+    let public_key = unsafe { core::slice::from_raw_parts(public_key, public_key_len as usize) };
+    let signature = unsafe { core::slice::from_raw_parts(signature, signature_len as usize) };
+    let payload = if payload_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(payload, payload_len as usize) }
+    };
+    if verify_proposal_signature(public_key, signature, payload) {
+        WALLET_OK
+    } else {
+        WALLET_INVALID_SIGNATURE
+    }
+}
+
 /// Checks signed enrollment bytes against the exact wallet, chain and expected action ID.
 /// # Safety
 /// Bytes are readable for length; chain/owner/reference each point to 48 readable bytes.
@@ -437,6 +483,41 @@ mod tests {
             WALLET_INVALID_SIGNATURE
         );
         assert_eq!(output, before);
+    }
+    #[test]
+    fn generic_mldsa44_verifier_rejects_tampering() {
+        let seed = ml_dsa::Seed::from([91; 32]);
+        let key = SigningKey::<MlDsa44>::from_seed(&seed);
+        let public = key.verifying_key().encode();
+        let payload = b"ACTIVECHAIN-WALLET-PAYMENT-REQUEST-V1-test";
+        let mut signature = key.sign(payload).encode().to_vec();
+        assert_eq!(
+            unsafe {
+                activechain_wallet_mldsa44_verify(
+                    public.as_ptr(),
+                    public.len() as u32,
+                    payload.as_ptr(),
+                    payload.len() as u32,
+                    signature.as_ptr(),
+                    signature.len() as u32,
+                )
+            },
+            WALLET_OK
+        );
+        signature[100] ^= 1;
+        assert_eq!(
+            unsafe {
+                activechain_wallet_mldsa44_verify(
+                    public.as_ptr(),
+                    public.len() as u32,
+                    payload.as_ptr(),
+                    payload.len() as u32,
+                    signature.as_ptr(),
+                    signature.len() as u32,
+                )
+            },
+            WALLET_INVALID_SIGNATURE
+        );
     }
     #[test]
     fn cash_evidence_rejects_duplicates_oversize_and_malformed_certificates() {
