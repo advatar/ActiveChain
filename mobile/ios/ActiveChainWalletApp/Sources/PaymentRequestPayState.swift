@@ -13,9 +13,10 @@ enum WalletCashLaneGuard {
     static let demoService = "dev.activechain.demo-merchant.v1"
 
     static func peerPaymentPending(network: WalletNetwork) -> Bool {
-        guard let bytes = try? SharedKeychain().load(service: peerService, account: network.id),
-              let bytes,
-              let object = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]
+        guard let store = try? SharedKeychain(),
+              let bytes = try? store.load(service: peerService, account: network.id),
+              let decoded = try? JSONSerialization.jsonObject(with: bytes),
+              let object = decoded as? [String: Any]
         else { return false }
         return object["pending"] != nil && !(object["pending"] is NSNull)
     }
@@ -101,10 +102,6 @@ private enum PaymentRequestFlow {
                               nextNonce: 0, pending: nil)
         }
 
-        // The demo shop predates peer payment requests and already owns persisted cash-lane
-        // enrollment/nonce state. Until the RPC exposes finalized sender-lane state directly,
-        // treat that durable journal as the migration bridge so both wallet surfaces use one
-        // monotonically advancing sender nonce.
         if let demoBytes = try store.load(service: WalletCashLaneGuard.demoService,
                                           account: wallet.network.id) {
             guard demoBytes.count <= 1_048_576 else {
@@ -338,8 +335,6 @@ final class PaymentRequestPayState: ObservableObject {
                     "Network became unavailable before authorization."
                 )
             }
-            // Reload immediately before constructing the intent. The demo and peer surfaces
-            // mirror the same cash-lane nonce, so stale review state cannot authorize a replay.
             journal = try PaymentRequestFlow.load(wallet: wallet)
             let approval = try PaymentRequestFlow.buildApproval(
                 verified: verifiedAgain, amount: amount, wallet: wallet,
