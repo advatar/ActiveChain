@@ -40,30 +40,30 @@ struct WalletPaymentRequestV1: Codable, Equatable, Sendable {
                   !recipient.allSatisfy({ $0 == 0 }),
                   !reference.allSatisfy({ $0 == 0 }),
                   memo.utf8.count <= 160,
-                  expiresAtHeight != 0,
+                  expiresAtHeight != .some(0),
                   amountAtomicUnits.map(Self.validAtomicAmount) ?? true
             else { throw WalletPaymentRequestError.malformed }
 
             var data = WalletPaymentRequestV1.signingDomain
-            data.append(version.bigEndianBytes)
+            data.append(version.bigEndianData)
             data.append(chainID)
             data.append(genesis)
             data.append(recipient)
             if let amountAtomicUnits {
                 data.append(1)
                 let amount = Data(amountAtomicUnits.utf8)
-                data.append(UInt16(amount.count).bigEndianBytes)
+                data.append(UInt16(amount.count).bigEndianData)
                 data.append(amount)
             } else {
                 data.append(0)
             }
             data.append(reference)
             let memoBytes = Data(memo.utf8)
-            data.append(UInt16(memoBytes.count).bigEndianBytes)
+            data.append(UInt16(memoBytes.count).bigEndianData)
             data.append(memoBytes)
             if let expiresAtHeight {
                 data.append(1)
-                data.append(expiresAtHeight.bigEndianBytes)
+                data.append(expiresAtHeight.bigEndianData)
             } else {
                 data.append(0)
             }
@@ -72,7 +72,9 @@ struct WalletPaymentRequestV1: Codable, Equatable, Sendable {
         }
 
         private static func validAtomicAmount(_ value: String) -> Bool {
-            guard !value.isEmpty, value.count <= 39, value.first != "0" || value == "0" else {
+            guard !value.isEmpty,
+                  value.count <= 39,
+                  value.first != "0" || value == "0" else {
                 return false
             }
             return value != "0" && value.utf8.allSatisfy { $0 >= 48 && $0 <= 57 }
@@ -140,13 +142,15 @@ struct WalletPaymentRequestService {
         }
         let amount = try amountACT.map(Self.atomicUnits)
         var reference = Data(count: 48)
-        guard SecRandomCopyBytes(kSecRandomDefault, reference.count, &reference) == errSecSuccess,
-              reference.contains(where: { $0 != 0 }) else {
+        let randomStatus = reference.withUnsafeMutableBytes { bytes in
+            SecRandomCopyBytes(kSecRandomDefault, bytes.count, bytes.baseAddress!)
+        }
+        guard randomStatus == errSecSuccess, reference.contains(where: { $0 != 0 }) else {
             throw WalletPaymentRequestError.malformed
         }
 
-        let custody = try AppleNativeCustodyProvider(
-            store: SharedKeychain(),
+        let custody = AppleNativeCustodyProvider(
+            store: try SharedKeychain(),
             hardware: SecureEnclaveWrappingBackend()
         )
         let publicKey = try custody.publicKey(slotID: network.custodySlotID)
@@ -201,22 +205,23 @@ struct WalletPaymentRequestService {
               whole.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }) else {
             throw WalletPaymentRequestError.amount
         }
-        let fraction = pieces.count == 2 ? pieces[1] : Substring()
+        let fraction: Substring = pieces.count == 2 ? pieces[1] : Substring("")
         guard fraction.count <= 18,
               fraction.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }) else {
             throw WalletPaymentRequestError.amount
         }
         let normalizedWhole = whole.drop(while: { $0 == "0" })
+        let wholeDigits = normalizedWhole.isEmpty ? "0" : String(normalizedWhole)
         let paddedFraction = String(fraction) + String(repeating: "0", count: 18 - fraction.count)
-        var atomic = String(normalizedWhole.isEmpty ? "0" : normalizedWhole) + paddedFraction
+        var atomic = wholeDigits + paddedFraction
         while atomic.first == "0" && atomic.count > 1 { atomic.removeFirst() }
         guard atomic != "0", atomic.count <= 39 else { throw WalletPaymentRequestError.amount }
         return atomic
     }
 }
 
-/// Siri/Shortcuts entry point. This makes payment requests usable without adding a parallel
-/// signing path to the wallet UI; a later Wallet tab can call the exact same service.
+/// Siri/Shortcuts entry point. A wallet UI can call the same service without creating a second
+/// signing path.
 struct RequestActiveChainPaymentIntent: AppIntent {
     static var title: LocalizedStringResource = "Request ActiveChain Payment"
     static var description = IntentDescription(
@@ -301,8 +306,8 @@ private extension Data {
     }
 }
 
-private extension UInt16 {
-    var bigEndianBytes: Data {
+private extension FixedWidthInteger {
+    var bigEndianData: Data {
         var value = bigEndian
         return Data(bytes: &value, count: MemoryLayout<Self>.size)
     }
