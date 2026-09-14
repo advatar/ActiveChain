@@ -15,6 +15,23 @@ targets:
       - path: ../ActiveChainWallet/Sources/ActiveChainWallet
       - path: Resources
         buildPhase: resources
+    info:
+      path: Config/ActiveChainWallet-Info.plist
+      properties:
+        CFBundleDisplayName: ActiveChain Wallet
+        CFBundleIconName: AppIcon
+        LSApplicationCategoryType: public.app-category.finance
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        CFBundleURLTypes:
+          - CFBundleTypeRole: Editor
+            CFBundleURLName: dev.activechain.wallet.payment
+            CFBundleURLSchemes:
+              - activechain
     settings:
       ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       DEVELOPMENT_TEAM: L2AF8KFX35
@@ -23,12 +40,6 @@ targets:
       CURRENT_PROJECT_VERSION: 1
       PRODUCT_MODULE_NAME: ActiveChainWalletApp
       SWIFT_VERSION: "5.9"
-      GENERATE_INFOPLIST_FILE: YES
-      INFOPLIST_KEY_CFBundleDisplayName: ActiveChain Wallet
-      INFOPLIST_KEY_CFBundleIconName: AppIcon
-      INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.finance
-      INFOPLIST_KEY_UILaunchScreen_Generation: YES
-      INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
     dependencies:
       - package: AnyIdentity
         product: AnyIdentity
