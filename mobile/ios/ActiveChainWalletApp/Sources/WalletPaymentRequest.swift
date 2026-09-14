@@ -1,9 +1,20 @@
+import ActiveChainWallet
 import AppIntents
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import Foundation
 import Security
 import SwiftUI
+
+@_silgen_name("activechain_wallet_mldsa44_verify")
+private func activechain_wallet_mldsa44_verify_ffi(
+    _ publicKey: UnsafePointer<UInt8>?,
+    _ publicKeyLen: UInt32,
+    _ payload: UnsafePointer<UInt8>?,
+    _ payloadLen: UInt32,
+    _ signature: UnsafePointer<UInt8>?,
+    _ signatureLen: UInt32
+) -> UInt32
 
 /// A signed, non-authoritative request for a payment.
 ///
@@ -120,11 +131,30 @@ struct WalletPaymentRequestV1: Codable, Equatable, Sendable {
     }
 }
 
+/// A payment request that has passed cryptographic and network admission checks.
+///
+/// `cashSessionID` deliberately reuses the request reference. The subsequent normal cash
+/// authorization therefore has a stable request correlation without making the request itself
+/// authoritative or changing consensus.
+struct VerifiedWalletPaymentRequest: Equatable, Sendable {
+    let request: WalletPaymentRequestV1
+    let cashSessionID: Data
+
+    var recipient: Data { request.body.recipient }
+    var amountAtomicUnits: String? { request.body.amountAtomicUnits }
+    var memo: String { request.body.memo }
+    var reference: Data { request.body.reference }
+}
+
 enum WalletPaymentRequestError: Error, Equatable {
     case noWallet
     case malformed
     case wrongKey
     case amount
+    case wrongNetwork
+    case expired
+    case invalidSignature
+    case recipientKeyMismatch
 }
 
 struct WalletPaymentRequestService {
@@ -189,6 +219,81 @@ struct WalletPaymentRequestService {
             reason: "Create an ActiveChain payment request"
         )
         return try WalletPaymentRequestV1(body: body, signature: signature)
+    }
+
+    /// Admits an incoming request for human review. No payment is built or signed here.
+    ///
+    /// Cryptography and wallet-principal derivation are delegated to Rust. Swift only applies
+    /// request policy to the already signed fields: exact network/genesis and finalized-height
+    /// expiry. A successful result remains non-authoritative until the payer later signs a normal
+    /// cash authorization.
+    static func verify(
+        _ request: WalletPaymentRequestV1,
+        network: WalletNetwork,
+        finalizedHeight: UInt64
+    ) throws -> VerifiedWalletPaymentRequest {
+        guard request.body.chainID == network.chainID,
+              request.body.genesis == network.genesis else {
+            throw WalletPaymentRequestError.wrongNetwork
+        }
+        if let expiresAtHeight = request.body.expiresAtHeight,
+           finalizedHeight > expiresAtHeight {
+            throw WalletPaymentRequestError.expired
+        }
+
+        var derivedRecipient = Data(count: 48)
+        let principalCode = request.body.publicKey.withUnsafeBytes { key in
+            derivedRecipient.withUnsafeMutableBytes { output in
+                activechain_wallet_principal_id(
+                    key.bindMemory(to: UInt8.self).baseAddress,
+                    UInt32(key.count),
+                    output.bindMemory(to: UInt8.self).baseAddress,
+                    UInt32(output.count)
+                )
+            }
+        }
+        guard principalCode == ACTIVECHAIN_WALLET_OK else {
+            throw WalletPaymentRequestError.malformed
+        }
+        guard derivedRecipient == request.body.recipient else {
+            throw WalletPaymentRequestError.recipientKeyMismatch
+        }
+
+        let payload = try request.body.signingPayload()
+        let signatureCode = request.body.publicKey.withUnsafeBytes { key in
+            payload.withUnsafeBytes { payloadBytes in
+                request.signature.withUnsafeBytes { signature in
+                    activechain_wallet_mldsa44_verify_ffi(
+                        key.bindMemory(to: UInt8.self).baseAddress,
+                        UInt32(key.count),
+                        payloadBytes.bindMemory(to: UInt8.self).baseAddress,
+                        UInt32(payloadBytes.count),
+                        signature.bindMemory(to: UInt8.self).baseAddress,
+                        UInt32(signature.count)
+                    )
+                }
+            }
+        }
+        guard signatureCode == ACTIVECHAIN_WALLET_OK else {
+            throw WalletPaymentRequestError.invalidSignature
+        }
+
+        return VerifiedWalletPaymentRequest(
+            request: request,
+            cashSessionID: request.body.reference
+        )
+    }
+
+    static func verify(
+        _ url: URL,
+        network: WalletNetwork,
+        finalizedHeight: UInt64
+    ) throws -> VerifiedWalletPaymentRequest {
+        try verify(
+            WalletPaymentRequestV1.decode(url),
+            network: network,
+            finalizedHeight: finalizedHeight
+        )
     }
 
     /// Exact decimal ACT parser. No floating point enters a payment request.
