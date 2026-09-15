@@ -35,6 +35,12 @@ targets:
         product: AnyIdentity
       - framework: ../../../dist/apple/current/ActiveChainWallet.xcframework
         embed: false
+    postBuildScripts:
+      - path: ../../../scripts/finalize-anyidentity-archive.sh
+        name: Generate CAnyIdentity archive symbols
+        basedOnDependencyAnalysis: false
+        runOnlyWhenInstalling: true
+        showEnvVars: false
     scheme:
       testTargets:
         - ActiveChainWalletTests

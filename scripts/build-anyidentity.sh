@@ -21,7 +21,8 @@ fi
 # The upstream builder uses its own target paths and invalidates only its SwiftPM cache.
 # macOS 27 rejects stripped Rust proc-macro dylibs with misaligned LINKEDIT strings.
 env -u CARGO_TARGET_DIR -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS \
-  CARGO_PROFILE_RELEASE_STRIP=none bash vendor/AnyIdentity/scripts/build-rust.sh --all
+  CARGO_PROFILE_RELEASE_STRIP=none CARGO_PROFILE_RELEASE_DEBUG=line-tables-only \
+  bash vendor/AnyIdentity/scripts/build-rust.sh --all
 # Xcode copies static-library XCFramework headers into one shared include directory.
 # Package AnyIdentity as a static framework so its module map cannot collide with
 # ActiveChainWallet's module map. The pinned upstream sources remain unchanged.
@@ -44,6 +45,8 @@ for library in info['AvailableLibraries']:
         'CFBundleIdentifier': 'dev.activechain.CAnyIdentity', 'CFBundleName': 'CAnyIdentity',
         'CFBundleExecutable': 'CAnyIdentity', 'CFBundlePackageType': 'FMWK',
         'CFBundleShortVersionString': '0.1.0', 'CFBundleVersion': '1',
+        **({'MinimumOSVersion': '16.0'} if library['SupportedPlatform'] == 'ios'
+           else {'LSMinimumSystemVersion': '13.0'}),
     }))
     if library['SupportedPlatform'] == 'macos':
         version = framework / 'Versions/A'

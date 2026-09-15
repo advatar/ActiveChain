@@ -1359,9 +1359,9 @@ Tracked by [GitHub issue #147](https://github.com/advatar/ActiveChain/issues/147
 
 Tracked by [GitHub issue #855](https://github.com/advatar/ActiveChain/issues/855).
 
-- [ ] Add valid iOS minimum OS metadata to the vendored CAnyIdentity framework bundle.
-- [ ] Generate an archive dSYM for the embedded CAnyIdentity binary with its matching UUID.
-- [ ] Qualify the unsigned iOS Archive and exact-revision build before integration.
+- [x] Add valid iOS minimum OS metadata to the vendored CAnyIdentity framework bundle.
+- [x] Generate an archive dSYM for the embedded CAnyIdentity binary with its matching UUID.
+- [x] Qualify the unsigned iOS Archive and matching symbol UUIDs before integration.
 
 ## Active fix — Xcode 27 wallet project dependencies
 
