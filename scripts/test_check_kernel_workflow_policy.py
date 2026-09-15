@@ -55,9 +55,32 @@ class KernelWorkflowPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "dedicated Docker input"):
             POLICY.validate_setup(unsafe)
 
-    def test_main_push_cannot_repeat_the_candidate_gate(self) -> None:
-        unsafe = WORKFLOW.replace("    tags: ['v*']", "    branches: [main]\n    tags: ['v*']")
-        with self.assertRaisesRegex(ValueError, "must not repeat"):
+    def test_routine_dispatch_defaults_to_changed_files(self) -> None:
+        unsafe = WORKFLOW.replace("default: development", "default: full", 1)
+        with self.assertRaisesRegex(ValueError, "must default"):
+            POLICY.validate(unsafe)
+
+    def test_ready_pr_runs_changed_file_checks(self) -> None:
+        unsafe = WORKFLOW.replace(
+            "types: [opened, synchronize, reopened, ready_for_review]",
+            "types: [opened, synchronize, reopened]",
+            1,
+        )
+        with self.assertRaisesRegex(ValueError, "ready PRs"):
+            POLICY.validate(unsafe)
+
+    def test_push_cannot_force_full_qualification(self) -> None:
+        unsafe = WORKFLOW.replace(
+            'if [[ "$EVENT_NAME" == push && "$REF_TYPE" == tag ]] ||',
+            'if [[ "$EVENT_NAME" == push ]] ||\n             [[ "$EVENT_NAME" == workflow_dispatch && "$REQUESTED_QUALIFICATION" == full ]]; then',
+            1,
+        )
+        with self.assertRaisesRegex(ValueError, "pushes must not force"):
+            POLICY.validate(unsafe)
+
+    def test_release_tag_keeps_full_qualification(self) -> None:
+        unsafe = WORKFLOW.replace('"$REF_TYPE" == tag', '"$REF_TYPE" == branch', 1)
+        with self.assertRaisesRegex(ValueError, "release tag pushes"):
             POLICY.validate(unsafe)
 
     def test_each_mandatory_command_fails_closed_when_removed(self) -> None:
@@ -81,27 +104,27 @@ class KernelWorkflowPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "complete stage set"):
             POLICY.validate(incomplete)
 
-    def test_missing_force_push_reachability_guard_fails_closed(self) -> None:
+    def test_missing_push_reachability_guard_fails_closed(self) -> None:
         unsafe = WORKFLOW.replace('git cat-file -e "${BEFORE_SHA}^{commit}"', "true", 1)
         with self.assertRaisesRegex(ValueError, "before SHA is reachable"):
             POLICY.validate(unsafe)
 
-    def test_missing_force_push_fallback_fails_closed(self) -> None:
+    def test_missing_pr_merge_base_diff_fails_closed(self) -> None:
         unsafe = WORKFLOW.replace(
-            "before SHA is unreachable after force-push; classifying complete PR diff",
-            "force push ignored",
+            'changed=$(git diff --name-only "origin/${BASE_REF}...HEAD")',
+            "changed='docs/example.md'",
             1,
         )
-        with self.assertRaisesRegex(ValueError, "conservatively fall back"):
+        with self.assertRaisesRegex(ValueError, "effective diff"):
             POLICY.validate(unsafe)
 
     def test_draft_lightweight_guard_fails_closed_when_removed(self) -> None:
         unsafe = WORKFLOW.replace(
-            '"$PR_DRAFT" == true || "$PR_ACTION" == ready_for_review',
+            '"$EVENT_NAME" == pull_request && "$PR_DRAFT" == true',
             '"$PR_DRAFT" == false',
             1,
         )
-        with self.assertRaisesRegex(ValueError, "bookkeeping must remain policy-only"):
+        with self.assertRaisesRegex(ValueError, "draft PR events"):
             POLICY.validate(unsafe)
 
     def classify(self, full: bool, *paths: str) -> dict[str, str]:
@@ -118,9 +141,23 @@ class KernelWorkflowPolicyTests(unittest.TestCase):
         scope = self.classify(False, "docs/example.md")
         self.assertEqual({value for key, value in scope.items() if key != "full"}, {"false"})
 
-    def test_ci_core_change_selects_every_stage(self) -> None:
+    def test_ci_workflow_change_uses_only_policy_job(self) -> None:
         scope = self.classify(False, ".github/workflows/kernel.yml")
-        self.assertEqual({value for key, value in scope.items() if key != "full"}, {"true"})
+        self.assertEqual({value for key, value in scope.items() if key != "full"}, {"false"})
+
+    def test_ios_packaging_change_selects_apple_only(self) -> None:
+        scope = self.classify(
+            False,
+            "mobile/ios/ActiveChainWalletApp/project.yml",
+            "vendor/AnyIdentity/Artifacts/CAnyIdentity.xcframework/Info.plist",
+            "scripts/build-anyidentity.sh",
+            "scripts/check-ios-wallet-archive.py",
+        )
+        self.assertEqual(scope["apple"], "true")
+        self.assertEqual(
+            {value for key, value in scope.items() if key not in ("full", "apple")},
+            {"false"},
+        )
 
     def test_full_qualification_selects_every_stage(self) -> None:
         scope = self.classify(True, "docs/example.md")

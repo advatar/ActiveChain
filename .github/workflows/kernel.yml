@@ -2,14 +2,15 @@ name: Deterministic kernel
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
       qualification:
-        description: Run affected development checks or the complete exact-SHA qualification gate
+        description: Run checks selected by changed files, or request the complete exact-SHA gate
         required: true
-        default: full
+        default: development
         type: choice
         options:
           - development
@@ -53,33 +54,24 @@ jobs:
         id: scope
         env:
           EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
           REQUESTED_QUALIFICATION: ${{ inputs.qualification }}
           BASE_REF: ${{ github.base_ref }}
           BEFORE_SHA: ${{ github.event.before }}
-          PR_ACTION: ${{ github.event.action }}
           PR_DRAFT: ${{ github.event.pull_request.draft }}
         run: |
           set -euo pipefail
           full=false
-          if [[ "$EVENT_NAME" == push ]] ||
+          if [[ "$EVENT_NAME" == push && "$REF_TYPE" == tag ]] ||
              [[ "$EVENT_NAME" == workflow_dispatch && "$REQUESTED_QUALIFICATION" == full ]]; then
             full=true
           fi
 
-          if [[ "$EVENT_NAME" == pull_request &&
-                ("$PR_DRAFT" == true || "$PR_ACTION" == ready_for_review) ]]; then
-            echo "draft/review-bookkeeping event: selecting lightweight policy-only checks"
+          if [[ "$EVENT_NAME" == pull_request && "$PR_DRAFT" == true ]]; then
+            echo "draft PR event: selecting lightweight policy-only checks"
             changed='docs/draft-pr-lightweight.md'
           elif [[ "$full" == true ]]; then
             changed='__FULL_QUALIFICATION__'
-          elif [[ "$EVENT_NAME" == pull_request && "$PR_ACTION" == synchronize &&
-                  -n "$BEFORE_SHA" && "$BEFORE_SHA" != 0000000000000000000000000000000000000000 ]]; then
-            if git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
-              changed=$(git diff --name-only "$BEFORE_SHA...HEAD")
-            else
-              echo "before SHA is unreachable after force-push; classifying complete PR diff" >&2
-              changed=$(git diff --name-only "origin/${BASE_REF}...HEAD")
-            fi
           elif [[ "$EVENT_NAME" == pull_request ]]; then
             changed=$(git diff --name-only "origin/${BASE_REF}...HEAD")
           elif [[ -n "$BEFORE_SHA" && "$BEFORE_SHA" != 0000000000000000000000000000000000000000 ]]; then

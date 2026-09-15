@@ -1355,13 +1355,26 @@ Tracked by [GitHub issue #147](https://github.com/advatar/ActiveChain/issues/147
 - [x] Pass Wallet and Amber iOS/macOS builds and tests.
 - [x] Commit, push, merge, and leave generated/user-specific files out of the change.
 
-## Active fix — AnyIdentity App Store archive metadata and symbols
+## Completed — AnyIdentity App Store archive metadata and symbols
 
 Tracked by [GitHub issue #855](https://github.com/advatar/ActiveChain/issues/855).
 
 - [x] Add valid iOS minimum OS metadata to the vendored CAnyIdentity framework bundle.
 - [x] Generate an archive dSYM for the embedded CAnyIdentity binary with its matching UUID.
 - [x] Qualify the unsigned iOS Archive and matching symbol UUIDs before integration.
+
+Merged through [PR #856](https://github.com/advatar/ActiveChain/pull/856). The
+implementation commit is reachable from `origin/main`; an unsigned fresh Archive and the
+Apple distribution CI stage passed. Project-owner direction limited final verification
+to the changed iOS packaging boundary.
+
+## Active policy fix — change-scoped repository verification
+
+Tracked by [GitHub issue #857](https://github.com/advatar/ActiveChain/issues/857).
+
+- [x] Update `AGENTS.md` so merge qualification uses checks selected by changed files.
+- [x] Make routine workflow events change-scoped and classify iOS/AnyIdentity packaging for Apple checks.
+- [ ] Verify policy and classification tests, merge, and confirm `origin/main` reachability.
 
 ## Active fix — Xcode 27 wallet project dependencies
 

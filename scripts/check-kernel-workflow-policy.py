@@ -60,8 +60,14 @@ def validate(text: str) -> None:
     errors: list[str] = []
     if "workflow_dispatch:" not in text or "qualification:" not in text:
         errors.append("workflow_dispatch must expose an explicit qualification input")
-    if "branches: [main]" in text:
-        errors.append("main merges must not repeat an already-qualified full candidate gate")
+    if "types: [opened, synchronize, reopened, ready_for_review]" not in text:
+        errors.append("ready PRs must classify the full changed-file diff")
+    if "default: development" not in text:
+        errors.append("routine qualification must default to changed-file checks")
+    if '"$EVENT_NAME" == push ]] ||' in text:
+        errors.append("pushes must not force the complete qualification gate")
+    if '"$EVENT_NAME" == push && "$REF_TYPE" == tag' not in text:
+        errors.append("release tag pushes must run the complete qualification gate")
     if "CARGO_TARGET_DIR: /Users/johansellstrom/.cache/activechain-ci/target/${{ github.sha }}" not in text:
         errors.append("Cargo artifacts must be isolated by exact qualified SHA")
     for job in MANDATORY_JOBS:
@@ -72,18 +78,16 @@ def validate(text: str) -> None:
         errors.append("both aggregate jobs must name the complete stage set")
     if "if: always() && needs.scope.outputs.full == 'true'" not in text:
         errors.append("full aggregate must be fail-closed and full-scope-only")
-    if '"$PR_ACTION" == synchronize' not in text or 'git diff --name-only "$BEFORE_SHA...HEAD"' not in text:
-        errors.append("PR synchronization must classify only the newly pushed commit delta")
-    if text.count('git cat-file -e "${BEFORE_SHA}^{commit}"') != 2:
-        errors.append("incremental classification must prove the before SHA is reachable")
-    if "before SHA is unreachable after force-push; classifying complete PR diff" not in text:
-        errors.append("force-push classification must conservatively fall back to the PR-base diff")
+    if 'changed=$(git diff --name-only "origin/${BASE_REF}...HEAD")' not in text:
+        errors.append("PR checks must classify the effective diff against the merge base")
+    if text.count('git cat-file -e "${BEFORE_SHA}^{commit}"') != 1:
+        errors.append("push classification must prove the before SHA is reachable")
     if (
         "PR_DRAFT: ${{ github.event.pull_request.draft }}" not in text
-        or '"$PR_DRAFT" == true || "$PR_ACTION" == ready_for_review' not in text
-        or "draft/review-bookkeeping event: selecting lightweight policy-only checks" not in text
+        or '"$EVENT_NAME" == pull_request && "$PR_DRAFT" == true' not in text
+        or "draft PR event: selecting lightweight policy-only checks" not in text
     ):
-        errors.append("draft and ready-for-review bookkeeping must remain policy-only")
+        errors.append("draft PR events must remain policy-only")
     if text.count("git status --porcelain --untracked-files=normal") != 2:
         errors.append("Apple qualification must prove cleanliness before and after header generation")
     if text.count("with: {lean: 'true', docker-anonymous: 'true'}") != 1:
