@@ -60,6 +60,8 @@ def validate(text: str) -> None:
     errors: list[str] = []
     if "workflow_dispatch:" not in text or "qualification:" not in text:
         errors.append("workflow_dispatch must expose an explicit qualification input")
+    if "types: [opened, synchronize, reopened, ready_for_review]" not in text:
+        errors.append("ready PRs must classify the full changed-file diff")
     if "default: development" not in text:
         errors.append("routine qualification must default to changed-file checks")
     if '"$EVENT_NAME" == push ]] ||' in text:

@@ -60,6 +60,15 @@ class KernelWorkflowPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must default"):
             POLICY.validate(unsafe)
 
+    def test_ready_pr_runs_changed_file_checks(self) -> None:
+        unsafe = WORKFLOW.replace(
+            "types: [opened, synchronize, reopened, ready_for_review]",
+            "types: [opened, synchronize, reopened]",
+            1,
+        )
+        with self.assertRaisesRegex(ValueError, "ready PRs"):
+            POLICY.validate(unsafe)
+
     def test_push_cannot_force_full_qualification(self) -> None:
         unsafe = WORKFLOW.replace(
             'if [[ "$EVENT_NAME" == push && "$REF_TYPE" == tag ]] ||',

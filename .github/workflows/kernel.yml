@@ -2,6 +2,7 @@ name: Deterministic kernel
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     tags: ['v*']
   workflow_dispatch:
