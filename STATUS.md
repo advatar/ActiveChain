@@ -1372,8 +1372,8 @@ to the changed iOS packaging boundary.
 
 Tracked by [GitHub issue #857](https://github.com/advatar/ActiveChain/issues/857).
 
-- [ ] Update `AGENTS.md` so merge qualification uses checks selected by changed files.
-- [ ] Make routine workflow events change-scoped and classify iOS/AnyIdentity packaging for Apple checks.
+- [x] Update `AGENTS.md` so merge qualification uses checks selected by changed files.
+- [x] Make routine workflow events change-scoped and classify iOS/AnyIdentity packaging for Apple checks.
 - [ ] Verify policy and classification tests, merge, and confirm `origin/main` reachability.
 
 ## Active fix — Xcode 27 wallet project dependencies
