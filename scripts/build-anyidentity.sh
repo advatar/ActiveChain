@@ -19,8 +19,9 @@ if [[ ${1:-} != --force && -f "$stamp" && $(cat "$stamp") == "$expected" &&
   exit 0
 fi
 # The upstream builder uses its own target paths and invalidates only its SwiftPM cache.
+# macOS 27 rejects stripped Rust proc-macro dylibs with misaligned LINKEDIT strings.
 env -u CARGO_TARGET_DIR -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS \
-  bash vendor/AnyIdentity/scripts/build-rust.sh --all
+  CARGO_PROFILE_RELEASE_STRIP=none bash vendor/AnyIdentity/scripts/build-rust.sh --all
 # Xcode copies static-library XCFramework headers into one shared include directory.
 # Package AnyIdentity as a static framework so its module map cannot collide with
 # ActiveChainWallet's module map. The pinned upstream sources remain unchanged.
