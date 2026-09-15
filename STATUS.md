@@ -1355,6 +1355,14 @@ Tracked by [GitHub issue #147](https://github.com/advatar/ActiveChain/issues/147
 - [x] Pass Wallet and Amber iOS/macOS builds and tests.
 - [x] Commit, push, merge, and leave generated/user-specific files out of the change.
 
+## Active fix — Xcode 27 wallet project dependencies
+
+Tracked by [GitHub issue #853](https://github.com/advatar/ActiveChain/issues/853).
+
+- [x] Keep the generated Xcode project on Xcode 27 recommended settings.
+- [x] Restore the local AnyIdentity package path and build its binary artifact on macOS 27.
+- [x] Build the exact-HEAD Apple wallet XCFramework and verify the iOS simulator app.
+
 ## Active developer setup — iOS wallet XCFramework
 
 Tracked by [GitHub issue #129](https://github.com/advatar/ActiveChain/issues/129).

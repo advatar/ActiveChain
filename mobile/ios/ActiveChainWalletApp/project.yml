@@ -1,5 +1,6 @@
 name: ActiveChainWallet
 options:
+  xcodeVersion: "27.0"
   bundleIdPrefix: dev.activechain
   deploymentTarget:
     iOS: "17.0"
