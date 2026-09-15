@@ -1355,6 +1355,14 @@ Tracked by [GitHub issue #147](https://github.com/advatar/ActiveChain/issues/147
 - [x] Pass Wallet and Amber iOS/macOS builds and tests.
 - [x] Commit, push, merge, and leave generated/user-specific files out of the change.
 
+## Active fix — AnyIdentity App Store archive metadata and symbols
+
+Tracked by [GitHub issue #855](https://github.com/advatar/ActiveChain/issues/855).
+
+- [ ] Add valid iOS minimum OS metadata to the vendored CAnyIdentity framework bundle.
+- [ ] Generate an archive dSYM for the embedded CAnyIdentity binary with its matching UUID.
+- [ ] Qualify the unsigned iOS Archive and exact-revision build before integration.
+
 ## Active fix — Xcode 27 wallet project dependencies
 
 Tracked by [GitHub issue #853](https://github.com/advatar/ActiveChain/issues/853).
