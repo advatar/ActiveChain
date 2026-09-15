@@ -1368,13 +1368,16 @@ implementation commit is reachable from `origin/main`; an unsigned fresh Archive
 Apple distribution CI stage passed. Project-owner direction limited final verification
 to the changed iOS packaging boundary.
 
-## Active policy fix — change-scoped repository verification
+## Completed — change-scoped repository verification
 
 Tracked by [GitHub issue #857](https://github.com/advatar/ActiveChain/issues/857).
 
 - [x] Update `AGENTS.md` so merge qualification uses checks selected by changed files.
 - [x] Make routine workflow events change-scoped and classify iOS/AnyIdentity packaging for Apple checks.
-- [ ] Verify policy and classification tests, merge, and confirm `origin/main` reachability.
+- [x] Verify policy and classification tests, merge, and confirm `origin/main` reachability.
+
+Merged through [PR #858](https://github.com/advatar/ActiveChain/pull/858).
+The final implementation revision passed change-scoped CI and is reachable from `origin/main`.
 
 ## Active fix — Xcode 27 wallet project dependencies
 
