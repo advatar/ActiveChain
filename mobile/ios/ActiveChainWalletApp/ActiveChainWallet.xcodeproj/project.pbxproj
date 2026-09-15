@@ -342,6 +342,7 @@
 				C5E941163FED6D12870EF095 /* Sources */,
 				078FC8D70516D5B6CE940629 /* Resources */,
 				60F1497C2A65F383E76D4C5B /* Frameworks */,
+				F8C1F7403CE094F0383D2E2E /* Generate CAnyIdentity archive symbols */,
 			);
 			buildRules = (
 			);
@@ -453,6 +454,29 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		F8C1F7403CE094F0383D2E2E /* Generate CAnyIdentity archive symbols */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Generate CAnyIdentity archive symbols";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 1;
+			shellPath = /bin/sh;
+			shellScript = "#!/usr/bin/env bash\nset -euo pipefail\n\nframework=\"$TARGET_BUILD_DIR/$FULL_PRODUCT_NAME/Frameworks/CAnyIdentity.framework\"\nbinary=\"$framework/CAnyIdentity\"\nif [[ ! -f \"$binary\" ]]; then\n  if [[ ${ACTION:-} == install ]]; then\n    echo \"CAnyIdentity framework is missing from the archive product: $framework\" >&2\n    exit 1\n  fi\n  exit 0\nfi\n\ndsym=\"$DWARF_DSYM_FOLDER_PATH/CAnyIdentity.framework.dSYM\"\nmkdir -p \"$DWARF_DSYM_FOLDER_PATH\"\nxcrun dsymutil \"$binary\" -o \"$dsym\"\n\npython3 - \"$binary\" \"$dsym\" <<'PY'\nimport re\nimport subprocess\nimport sys\n\ndef uuids(path):\n    output = subprocess.check_output(['xcrun', 'dwarfdump', '--uuid', path], text=True)\n    return set(re.findall(r'UUID: ([0-9A-F-]+)', output))\n\nbinary, dsym = sys.argv[1:]\nif not uuids(binary) or uuids(binary) != uuids(dsym):\n    raise SystemExit('CAnyIdentity dSYM UUID does not match the embedded framework')\nPY\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		061D7A1B1578E30DFB882D7D /* Sources */ = {
