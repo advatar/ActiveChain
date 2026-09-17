@@ -1,0 +1,26 @@
+{
+  "id": "actum-replay-safe-capability-invocation",
+  "title": "Scope-bound, budgeted capability invocation with restart-safe replay history",
+  "maturity": "IMPLEMENTED",
+  "gates": ["G8"],
+  "scope": "Capability authorization bound to the exact resource, action and holder, with an enforced delegation depth bound, an inclusive validity window, budgets exhausted across admissions, one atomic winner for concurrent duplicate invocation, and a replay accumulator whose history survives epoch advance and process restart.",
+  "assumptions": [
+    "Authorization binds the exact finalized action height, so a decision cannot be replayed against a different chain state.",
+    "Signatures, status, attenuation, scope and budgets all fail closed rather than degrading to a weaker permission."
+  ],
+  "verification": [
+    {
+      "command": "cargo test -p activechain-canonical-codec -p activechain-authorization-kernel -p activechain-capability -p activechain-credential",
+      "expect_tests": 40,
+      "description": "Includes the depth bound enforced at every boundary, one atomic winner under concurrent duplicate invocation, permanent replay history across epoch advance, batch-atomic restart-safe replay storage, and an accumulator accepting 4097 entries while rejecting a stale replay after restart."
+    }
+  ],
+  "known_failures": [
+    "The full workspace does not build here: risc0-build-kernel 2.0.1 fails with 'Could not build metal kernels', so the prover, consensus and settlement crates are untested by this gate and the four crates above are selected explicitly.",
+    "This is the chain-side capability primitive. That the clinical execution hosts in this program actually route through it is not verified here.",
+    "Synthetic keys and in-process storage; no production custody or deployed node."
+  ],
+  "clinical_use": "none",
+  "dependencies": [],
+  "last_reviewed": "2026-09-17"
+}

@@ -1,0 +1,16 @@
+{
+  "id": "actum-unified-assurance-graph",
+  "title": "One queryable chain from source evidence to observed outcome",
+  "maturity": "TARGET",
+  "gates": ["G16"],
+  "scope": "Traversing, for any consequential action, the whole chain: source evidence, admitted facts, OpenBody observation, model version, patient-state snapshot, K-lines, model calls, AI objections, DG claims and human decisions, the authority grant, point-of-effect enforcement, the actual effects, the COSMIC transaction and the observed outcome — with commitments and references rather than duplicated PHI.",
+  "assumptions": [
+    "The individual links exist in several repositories already; what is missing is the traversal that connects them and the commitments that anchor it.",
+    "Sensitive clinical content stays in its protected store; the provenance layer references rather than copies it."
+  ],
+  "verification": [],
+  "known_failures": [],
+  "clinical_use": "none",
+  "dependencies": ["actum-replay-safe-capability-invocation"],
+  "last_reviewed": "2026-09-17"
+}
