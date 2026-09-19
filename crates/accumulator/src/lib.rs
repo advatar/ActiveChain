@@ -373,8 +373,7 @@ mod hidden_membership_tests {
 
         let mut wrong_path = witness.siblings().to_vec();
         wrong_path[31][0] ^= 1;
-        let wrong_path =
-            HiddenHistoryMembershipWitness::new(witness.index(), wrong_path).unwrap();
+        let wrong_path = HiddenHistoryMembershipWitness::new(witness.index(), wrong_path).unwrap();
         assert_eq!(
             commitment.verify_hidden_membership(root(2), &wrong_path),
             Err(AccumulatorError::WrongRoot)
@@ -392,10 +391,7 @@ mod hidden_membership_tests {
 
     #[test]
     fn hidden_membership_rejects_malformed_path_and_zero_leaf() {
-        assert_eq!(
-            HiddenHistoryMembershipWitness::new(0, vec![]),
-            Err(AccumulatorError::Bounds)
-        );
+        assert_eq!(HiddenHistoryMembershipWitness::new(0, vec![]), Err(AccumulatorError::Bounds));
 
         let mut history = ReferenceHistory::default();
         history.append(root(1)).unwrap();
