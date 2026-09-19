@@ -31,6 +31,10 @@ name = "billboard-post"
 path = "src/bin/billboard_post.rs"
 
 [[bin]]
+name = "emerald-post-v2"
+path = "src/bin/emerald_post_v2.rs"
+
+[[bin]]
 name = "billboard-withdraw"
 path = "src/bin/billboard_withdraw.rs"
 
