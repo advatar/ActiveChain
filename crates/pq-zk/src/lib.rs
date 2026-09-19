@@ -895,6 +895,79 @@ mod tests {
     }
 
     #[test]
+    fn legacy_billboard_post_transcript_links_consecutive_permits() {
+        let (first, _) = billboard_relations();
+        let first_reference = BillboardVerifier::verify_post(
+            first.config,
+            &first.public,
+            &first.witness,
+            &first.decisions,
+        )
+        .unwrap();
+
+        // Construct the next valid post from the first post's successor permit.
+        let prior = first.witness.successor.clone();
+        let successor = derive_post_successor(
+            first.config,
+            &prior,
+            &[],
+            digest(12),
+            20,
+            digest(13),
+            &[],
+        )
+        .unwrap();
+        let second = PostRelationInput {
+            config: first.config,
+            public: PostPublicInputs {
+                chain_id: first.config.chain_id(),
+                asset_id: first.config.asset_id(),
+                anchor: digest(6),
+                nullifier: prior.nullifier(digest(14)).unwrap(),
+                successor_commitment: successor.commitment().unwrap(),
+                post_id: digest(12),
+                content: vec![],
+                height: 20,
+                fee: 2,
+                dummy: true,
+                policy_revision: 7,
+            },
+            witness: PostWitness {
+                prior,
+                successor,
+                nullifier_key: digest(14),
+            },
+            decisions: vec![],
+        };
+        let second_reference = BillboardVerifier::verify_post(
+            second.config,
+            &second.public,
+            &second.witness,
+            &second.decisions,
+        )
+        .unwrap();
+        let second_journal = super::execute_post_relation(&second).unwrap();
+
+        // This is the EOA-M0 privacy regression: the first post publishes its
+        // successor commitment, while the next v1 proof journal publishes that
+        // same value as the consumed permit commitment. An observer can therefore
+        // link the two otherwise senderless posts by exact equality.
+        assert_eq!(
+            first.public.successor_commitment,
+            second_reference.permit_commitment()
+        );
+        assert_ne!(
+            first_reference.permit_commitment(),
+            second_reference.permit_commitment()
+        );
+        assert!(
+            second_journal
+                .windows(Digest384::BYTE_LEN)
+                .any(|window| window == first.public.successor_commitment.as_bytes())
+        );
+    }
+
+    #[test]
     fn billboard_guest_and_reference_both_reject_substituted_successor() {
         let (mut post, _) = billboard_relations();
         post.public.successor_commitment = digest(99);
