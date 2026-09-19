@@ -53,9 +53,9 @@ The run is reproducible with:
 bash scripts/check-tla-consensus.sh
 ```
 
-The runner pins immutable GitHub release asset `538706268` for the TLA+ tools v1.8.0 jar by
+The runner pins immutable GitHub release asset `569359548` for the TLA+ tools v1.8.0 jar by
 SHA-256
-`dbcc75552f21978a4846688b8e23be1a6b6c0b3fcee35d78fec2df167958ec94` and executes it with
+`9d36716ffb5e49d1ba8fae4651eba59f3189887e12eb90e204a42d2e6e993fef` and executes it with
 Eclipse Temurin 21.0.8 using OCI image digest
 `sha256:db1689535962d757a5adabf57387584ed543d38c0b9d1fe870123ea362ad73b0`. The repository does not
 depend on an unpinned host Java installation.
