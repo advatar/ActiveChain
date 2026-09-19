@@ -8,8 +8,8 @@ import re
 import sys
 
 
-EXPECTED_ASSET_ID = "538706268"
-EXPECTED_SHA256 = "dbcc75552f21978a4846688b8e23be1a6b6c0b3fcee35d78fec2df167958ec94"
+EXPECTED_ASSET_ID = "569359548"
+EXPECTED_SHA256 = "9d36716ffb5e49d1ba8fae4651eba59f3189887e12eb90e204a42d2e6e993fef"
 RUNNERS = (
     pathlib.Path("scripts/check-tla-consensus.sh"),
     pathlib.Path("scripts/check-tla-proof-pipeline.sh"),

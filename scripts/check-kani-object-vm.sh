@@ -9,8 +9,8 @@ harness_timeout=${ACTIVECHAIN_KANI_OBJECT_VM_HARNESS_TIMEOUT:-180s}
 jobs=${ACTIVECHAIN_KANI_OBJECT_VM_JOBS:-2}
 target_dir=${ACTIVECHAIN_KANI_OBJECT_VM_TARGET_DIR:-${TMPDIR:-/tmp}/activechain-kani-object-vm}
 
-command -v cargo-kani >/dev/null 2>&1 || {
-  echo "cargo-kani ${kani_version} is required" >&2
+command -v cargo >/dev/null 2>&1 || {
+  echo "cargo is required for the Kani ObjectVM proof gate" >&2
   exit 1
 }
 command -v python3 >/dev/null 2>&1 || {

@@ -1,0 +1,13 @@
+profile_id=ACTIVECHAIN-PQ-ZK-RISC0-STARK-V1
+relation=emerald-post-v2
+relation_schema_version=2
+guest_binary=emerald-post-v2
+journal_domain=ACTIVECHAIN-EMERALD-POST-RISC0-STARK-V2
+public_journal=domain,public-input-commitment-384,nullifier-384
+forbidden_public_journal=consumed-permit-commitment,permit-position,membership-siblings
+membership=activechain-history-commitment-v1
+receipt_kind=succinct-stark
+dev_mode=disabled
+image_id=generated-by-pinned-risc0-build-before-publication
+third_party_audit=pending
+tracking_issue=859

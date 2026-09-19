@@ -21,11 +21,14 @@ use activechain_pq_zk_methods::{
 };
 use activechain_pq_zk_methods::{
     ACTIVECHAIN_PQ_ZK_GUEST_ID as GUEST_ID, BILLBOARD_POST_ELF, BILLBOARD_POST_ID,
-    BILLBOARD_WITHDRAW_ELF, BILLBOARD_WITHDRAW_ID, PRIVATE_IDENTITY_ELF, PRIVATE_IDENTITY_ID,
-    PROOF_OF_FUNDS_ELF, PROOF_OF_FUNDS_ID, WORK_NON_OVERLAP_ELF, WORK_NON_OVERLAP_ID,
+    BILLBOARD_WITHDRAW_ELF, BILLBOARD_WITHDRAW_ID, EMERALD_POST_V2_ELF, EMERALD_POST_V2_ID,
+    PRIVATE_IDENTITY_ELF, PRIVATE_IDENTITY_ID, PROOF_OF_FUNDS_ELF, PROOF_OF_FUNDS_ID,
+    WORK_NON_OVERLAP_ELF, WORK_NON_OVERLAP_ID,
 };
 use activechain_privacy_kernel::{PrivateIdentityRelationInputV1, ProofOfFundsRelationInputV1};
-use activechain_private_billboard::{PostRelationInput, WithdrawalRelationInput};
+use activechain_private_billboard::{
+    PostRelationInput, PostRelationInputV2, WithdrawalRelationInput,
+};
 use activechain_protocol_types::Digest384;
 use activechain_work_proof::{WorkClaimPublicV1, WorkClaimRelationInputV1, public_journal};
 use risc0_zkvm::{ExecutorEnv, Receipt, default_executor};
@@ -131,6 +134,7 @@ pub struct RecursiveCashProof {
 }
 
 const POST_JOURNAL_DOMAIN: &[u8] = b"ACTIVECHAIN-BILLBOARD-POST-RISC0-STARK-V1";
+const EMERALD_POST_V2_JOURNAL_DOMAIN: &[u8] = b"ACTIVECHAIN-EMERALD-POST-RISC0-STARK-V2";
 const WITHDRAW_JOURNAL_DOMAIN: &[u8] = b"ACTIVECHAIN-BILLBOARD-WITHDRAW-RISC0-STARK-V1";
 const PROOF_OF_FUNDS_JOURNAL_DOMAIN: &[u8] = b"ACTIVECHAIN-PROOF-OF-FUNDS-RISC0-STARK-V1";
 const PRIVATE_IDENTITY_JOURNAL_DOMAIN: &[u8] = b"ACTIVECHAIN-PRIVATE-IDENTITY-RISC0-STARK-V1";
@@ -520,6 +524,13 @@ pub fn execute_post_relation(input: &PostRelationInput) -> Result<Vec<u8>, PqZkE
         .map_err(|_| PqZkError::Verification)
 }
 
+pub fn execute_emerald_post_v2_relation(input: &PostRelationInputV2) -> Result<Vec<u8>, PqZkError> {
+    default_executor()
+        .execute(relation_env(input)?, EMERALD_POST_V2_ELF)
+        .map(|session| session.journal.bytes)
+        .map_err(|_| PqZkError::Verification)
+}
+
 pub fn execute_withdrawal_relation(input: &WithdrawalRelationInput) -> Result<Vec<u8>, PqZkError> {
     default_executor()
         .execute(relation_env(input)?, BILLBOARD_WITHDRAW_ELF)
@@ -531,6 +542,17 @@ pub fn execute_withdrawal_relation(input: &WithdrawalRelationInput) -> Result<Ve
 pub fn prove_post_relation(input: &PostRelationInput) -> Result<BillboardPqZkProof, PqZkError> {
     let receipt = default_prover()
         .prove_with_opts(relation_env(input)?, BILLBOARD_POST_ELF, &ProverOpts::succinct())
+        .map_err(|_| PqZkError::Prover)?
+        .receipt;
+    Ok(BillboardPqZkProof { receipt })
+}
+
+#[cfg(feature = "prover")]
+pub fn prove_emerald_post_v2_relation(
+    input: &PostRelationInputV2,
+) -> Result<BillboardPqZkProof, PqZkError> {
+    let receipt = default_prover()
+        .prove_with_opts(relation_env(input)?, EMERALD_POST_V2_ELF, &ProverOpts::succinct())
         .map_err(|_| PqZkError::Prover)?
         .receipt;
     Ok(BillboardPqZkProof { receipt })
@@ -553,6 +575,22 @@ pub fn verify_post_relation(
     permit: Digest384,
 ) -> Result<(), PqZkError> {
     verify_billboard_receipt(proof, BILLBOARD_POST_ID, POST_JOURNAL_DOMAIN, public, permit)
+}
+
+pub fn verify_emerald_post_v2_relation(
+    proof: &BillboardPqZkProof,
+    public: Digest384,
+    nullifier: Digest384,
+) -> Result<(), PqZkError> {
+    proof.receipt.inner.succinct().map_err(|_| PqZkError::WrongReceiptKind)?;
+    proof.receipt.verify(EMERALD_POST_V2_ID).map_err(|_| PqZkError::Verification)?;
+    let mut expected = EMERALD_POST_V2_JOURNAL_DOMAIN.to_vec();
+    expected.extend_from_slice(public.as_bytes());
+    expected.extend_from_slice(nullifier.as_bytes());
+    if proof.receipt.journal.bytes != expected {
+        return Err(PqZkError::WrongPublicStatement);
+    }
+    Ok(())
 }
 
 pub fn verify_withdrawal_relation(
@@ -580,11 +618,12 @@ fn verify_billboard_receipt(
 
 #[cfg(test)]
 mod tests {
+    use activechain_accumulator::ReferenceHistory;
     use activechain_canonical_codec::{decode_envelope, encode_envelope};
     use activechain_private_billboard::{
-        BillboardConfig, BillboardPermit, BillboardVerifier, PostPublicInputs, PostRelationInput,
-        PostWitness, WithdrawalPublicInputs, WithdrawalRelationInput, WithdrawalWitness,
-        derive_post_successor,
+        BillboardConfig, BillboardPermit, BillboardVerifier, PostPublicInputs, PostPublicInputsV2,
+        PostRelationInput, PostRelationInputV2, PostWitness, PostWitnessV2, WithdrawalPublicInputs,
+        WithdrawalRelationInput, WithdrawalWitness, derive_post_successor,
     };
     use activechain_protocol_types::{AssetId, ChainId, Digest384, PrincipalId};
 
@@ -856,6 +895,104 @@ mod tests {
         ));
     }
 
+    fn emerald_post_v2_relation() -> PostRelationInputV2 {
+        let config = BillboardConfig::new(
+            ChainId::new(digest(1)),
+            AssetId::new(digest(2)),
+            100,
+            10,
+            3,
+            20,
+            5,
+            2,
+            7,
+        )
+        .unwrap();
+        let prior = BillboardPermit::new(config, digest(3), 300, 0, digest(4)).unwrap();
+        let successor =
+            derive_post_successor(config, &prior, &[], digest(11), 10, digest(5), &[]).unwrap();
+        let prior_commitment = prior.commitment().unwrap();
+        let mut history = ReferenceHistory::default();
+        history.append(digest(90).into_bytes()).unwrap();
+        history.append(prior_commitment.into_bytes()).unwrap();
+        history.append(digest(91).into_bytes()).unwrap();
+        let root = history.commitment();
+        let membership = history.proof(1).unwrap();
+        PostRelationInputV2 {
+            config,
+            public: PostPublicInputsV2 {
+                chain_id: config.chain_id(),
+                asset_id: config.asset_id(),
+                anchor: digest(6),
+                permit_root: Digest384::new(root.root),
+                permit_count: root.count,
+                nullifier: prior.nullifier(digest(7)).unwrap(),
+                successor_commitment: successor.commitment().unwrap(),
+                post_id: digest(11),
+                content: vec![],
+                height: 10,
+                fee: 2,
+                dummy: true,
+                policy_revision: 7,
+            },
+            witness: PostWitnessV2 {
+                prior,
+                prior_position: membership.index,
+                prior_membership_siblings: membership
+                    .siblings
+                    .into_iter()
+                    .map(Digest384::new)
+                    .collect(),
+                successor,
+                nullifier_key: digest(7),
+            },
+            decisions: vec![],
+        }
+    }
+
+    #[test]
+    fn emerald_post_v2_guest_matches_reference_and_hides_consumed_permit() {
+        let input = emerald_post_v2_relation();
+        let reference = BillboardVerifier::verify_post_v2(
+            input.config,
+            &input.public,
+            &input.witness,
+            &input.decisions,
+        )
+        .unwrap();
+        let journal = super::execute_emerald_post_v2_relation(&input).unwrap();
+        let mut expected = super::EMERALD_POST_V2_JOURNAL_DOMAIN.to_vec();
+        expected.extend_from_slice(reference.public_inputs_commitment().as_bytes());
+        expected.extend_from_slice(reference.nullifier().as_bytes());
+        assert_eq!(journal, expected);
+
+        let consumed = input.witness.prior.commitment().unwrap();
+        assert!(!journal.windows(Digest384::BYTE_LEN).any(|window| window == consumed.as_bytes()));
+        assert_eq!(
+            journal.len(),
+            super::EMERALD_POST_V2_JOURNAL_DOMAIN.len() + 2 * Digest384::BYTE_LEN
+        );
+    }
+
+    #[test]
+    fn emerald_post_v2_guest_rejects_membership_and_public_substitution() {
+        let mut wrong_root = emerald_post_v2_relation();
+        wrong_root.public.permit_root = digest(92);
+        assert!(super::execute_emerald_post_v2_relation(&wrong_root).is_err());
+
+        let mut wrong_path = emerald_post_v2_relation();
+        wrong_path.witness.prior_membership_siblings[31] = digest(93);
+        assert!(super::execute_emerald_post_v2_relation(&wrong_path).is_err());
+
+        let mut wrong_successor = emerald_post_v2_relation();
+        wrong_successor.public.successor_commitment = digest(94);
+        assert!(super::execute_emerald_post_v2_relation(&wrong_successor).is_err());
+
+        let mut wrong_nullifier = emerald_post_v2_relation();
+        wrong_nullifier.public.nullifier = digest(95);
+        assert!(super::execute_emerald_post_v2_relation(&wrong_nullifier).is_err());
+    }
+
     #[test]
     fn billboard_guests_differentially_match_reference_relations() {
         let (post, withdrawal) = billboard_relations();
@@ -891,6 +1028,62 @@ mod tests {
                 withdrawal_reference.public_inputs_commitment(),
                 withdrawal_reference.permit_commitment(),
             )
+        );
+    }
+
+    #[test]
+    fn legacy_billboard_post_transcript_links_consecutive_permits() {
+        let (first, _) = billboard_relations();
+        let first_reference = BillboardVerifier::verify_post(
+            first.config,
+            &first.public,
+            &first.witness,
+            &first.decisions,
+        )
+        .unwrap();
+
+        // Construct the next valid post from the first post's successor permit.
+        let prior = first.witness.successor.clone();
+        let successor =
+            derive_post_successor(first.config, &prior, &[], digest(12), 20, digest(13), &[])
+                .unwrap();
+        let second = PostRelationInput {
+            config: first.config,
+            public: PostPublicInputs {
+                chain_id: first.config.chain_id(),
+                asset_id: first.config.asset_id(),
+                anchor: digest(6),
+                nullifier: prior.nullifier(digest(14)).unwrap(),
+                successor_commitment: successor.commitment().unwrap(),
+                post_id: digest(12),
+                content: vec![],
+                height: 20,
+                fee: 2,
+                dummy: true,
+                policy_revision: 7,
+            },
+            witness: PostWitness { prior, successor, nullifier_key: digest(14) },
+            decisions: vec![],
+        };
+        let second_reference = BillboardVerifier::verify_post(
+            second.config,
+            &second.public,
+            &second.witness,
+            &second.decisions,
+        )
+        .unwrap();
+        let second_journal = super::execute_post_relation(&second).unwrap();
+
+        // This is the EOA-M0 privacy regression: the first post publishes its
+        // successor commitment, while the next v1 proof journal publishes that
+        // same value as the consumed permit commitment. An observer can therefore
+        // link the two otherwise senderless posts by exact equality.
+        assert_eq!(first.public.successor_commitment, second_reference.permit_commitment());
+        assert_ne!(first_reference.permit_commitment(), second_reference.permit_commitment());
+        assert!(
+            second_journal
+                .windows(Digest384::BYTE_LEN)
+                .any(|window| window == first.public.successor_commitment.as_bytes())
         );
     }
 

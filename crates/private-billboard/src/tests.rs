@@ -1,5 +1,5 @@
 use super::*;
-use activechain_accumulator::{AccumulatorDomain, ReferenceSet};
+use activechain_accumulator::{AccumulatorDomain, ReferenceHistory, ReferenceSet};
 use activechain_cash_kernel::{
     CashLedger, GenesisAllocation, GenesisEconomy, NativeAssetDefinition,
 };
@@ -70,6 +70,124 @@ fn successor(
     }
     value.blinding = blinding;
     value
+}
+
+fn post_v2_fixture() -> (PostPublicInputsV2, PostWitnessV2, BillboardConfig) {
+    let config = config();
+    let prior = BillboardPermit::new(config, digest(3), 300, 0, digest(4)).unwrap();
+    let next = successor(&prior, &[], digest(11), 10, digest(5));
+    let prior_commitment = prior.commitment().unwrap();
+    let mut history = ReferenceHistory::default();
+    history.append(digest(90).into_bytes()).unwrap();
+    history.append(prior_commitment.into_bytes()).unwrap();
+    history.append(digest(91).into_bytes()).unwrap();
+    let commitment = history.commitment();
+    let membership = history.proof(1).unwrap();
+    (
+        PostPublicInputsV2 {
+            chain_id: config.chain_id,
+            asset_id: config.asset_id,
+            anchor: digest(6),
+            permit_root: Digest384::new(commitment.root),
+            permit_count: commitment.count,
+            nullifier: prior.nullifier(digest(7)).unwrap(),
+            successor_commitment: next.commitment().unwrap(),
+            post_id: digest(11),
+            content: vec![],
+            height: 10,
+            fee: 2,
+            dummy: true,
+            policy_revision: 7,
+        },
+        PostWitnessV2 {
+            prior,
+            prior_position: membership.index,
+            prior_membership_siblings: membership
+                .siblings
+                .into_iter()
+                .map(Digest384::new)
+                .collect(),
+            successor: next,
+            nullifier_key: digest(7),
+        },
+        config,
+    )
+}
+
+#[test]
+fn emerald_post_v2_binds_hidden_permit_membership_without_returning_prior_commitment() {
+    let (public, witness, config) = post_v2_fixture();
+    let prior_commitment = witness.prior.commitment().unwrap();
+    let proof = BillboardVerifier::verify_post_v2(config, &public, &witness, &[]).unwrap();
+    assert_eq!(proof.public_inputs_commitment(), public.commitment().unwrap());
+    assert_eq!(proof.nullifier(), public.nullifier);
+    assert_ne!(proof.nullifier(), prior_commitment);
+}
+
+#[test]
+fn emerald_post_v2_rejects_membership_root_path_position_and_permit_substitution() {
+    let (public, witness, config) = post_v2_fixture();
+
+    let mut wrong_root = public.clone();
+    wrong_root.permit_root = digest(92);
+    assert_eq!(
+        BillboardVerifier::verify_post_v2(config, &wrong_root, &witness, &[]),
+        Err(BillboardError::InvalidMembership)
+    );
+
+    let mut wrong_path = witness.clone();
+    wrong_path.prior_membership_siblings[31] = digest(93);
+    assert_eq!(
+        BillboardVerifier::verify_post_v2(config, &public, &wrong_path, &[]),
+        Err(BillboardError::InvalidMembership)
+    );
+
+    let mut wrong_position = witness.clone();
+    wrong_position.prior_position = 0;
+    assert_eq!(
+        BillboardVerifier::verify_post_v2(config, &public, &wrong_position, &[]),
+        Err(BillboardError::InvalidMembership)
+    );
+
+    let mut wrong_permit = witness.clone();
+    wrong_permit.prior = BillboardPermit::new(config, digest(3), 300, 0, digest(94)).unwrap();
+    assert_eq!(
+        BillboardVerifier::verify_post_v2(config, &public, &wrong_permit, &[]),
+        Err(BillboardError::InvalidMembership)
+    );
+}
+
+#[test]
+fn emerald_post_v2_rejects_successor_nullifier_policy_and_fee_substitution() {
+    let (public, witness, config) = post_v2_fixture();
+
+    let mut wrong_successor = public.clone();
+    wrong_successor.successor_commitment = digest(95);
+    assert_eq!(
+        BillboardVerifier::verify_post_v2(config, &wrong_successor, &witness, &[]),
+        Err(BillboardError::WrongPermit)
+    );
+
+    let mut wrong_nullifier = public.clone();
+    wrong_nullifier.nullifier = digest(96);
+    assert_eq!(
+        BillboardVerifier::verify_post_v2(config, &wrong_nullifier, &witness, &[]),
+        Err(BillboardError::WrongPermit)
+    );
+
+    let mut wrong_policy = public.clone();
+    wrong_policy.policy_revision += 1;
+    assert_eq!(
+        BillboardVerifier::verify_post_v2(config, &wrong_policy, &witness, &[]),
+        Err(BillboardError::WrongPolicy)
+    );
+
+    let mut wrong_fee = public;
+    wrong_fee.fee += 1;
+    assert_eq!(
+        BillboardVerifier::verify_post_v2(config, &wrong_fee, &witness, &[]),
+        Err(BillboardError::InsufficientValue)
+    );
 }
 
 #[test]

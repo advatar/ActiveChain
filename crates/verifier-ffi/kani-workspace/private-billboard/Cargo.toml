@@ -20,6 +20,7 @@ runtime = [
 path = "../../../private-billboard/src/lib.rs"
 
 [dependencies]
+activechain-accumulator.workspace = true
 activechain-canonical-codec.workspace = true
 activechain-cash-kernel = { workspace = true, optional = true }
 activechain-crypto-provider = { workspace = true, optional = true }
