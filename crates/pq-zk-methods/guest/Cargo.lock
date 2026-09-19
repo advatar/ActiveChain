@@ -125,6 +125,7 @@ dependencies = [
 name = "activechain-private-billboard"
 version = "0.1.0"
 dependencies = [
+ "activechain-accumulator",
  "activechain-canonical-codec",
  "activechain-protocol-commitment",
  "activechain-protocol-types",
