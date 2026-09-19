@@ -1,7 +1,7 @@
 # Emerald on Actum
 
 Status: new integration track  
-Tracking: #
+Tracking: #859
 
 ## Purpose
 
@@ -35,6 +35,18 @@ The replacement relation MUST prove, without revealing the consumed permit commi
 The public statement SHOULD expose only what consensus and the Emerald application require: accepted root(s), nullifier(s), new commitment(s), exact public application effects, policy/revision bindings, and proof-profile identifiers.
 
 Deleting the current journal field alone is not a fix. Validators need a sound hidden-membership relation.
+
+### M0 regression baseline
+
+The branch now contains `legacy_billboard_post_transcript_links_consecutive_permits` in
+`crates/pq-zk/src/lib.rs`. It constructs two valid consecutive v1 posts and demonstrates the
+privacy defect directly: the first post's public `successor_commitment` equals the second proof's
+publicly journaled consumed `permit_commitment`.
+
+This is a characterization/regression test for the legacy v1 statement, not an acceptance of that
+statement. The replacement relation must make this equality unavailable to a public transcript
+observer while preserving membership, authorization, nullifier, successor-state, policy and
+conservation checks inside the proof.
 
 ## Claims and exits
 
