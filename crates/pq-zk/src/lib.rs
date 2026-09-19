@@ -620,10 +620,11 @@ fn verify_billboard_receipt(
 mod tests {
     use activechain_canonical_codec::{decode_envelope, encode_envelope};
     use activechain_private_billboard::{
-        BillboardConfig, BillboardPermit, BillboardVerifier, PostPublicInputs, PostRelationInput,
-        PostWitness, WithdrawalPublicInputs, WithdrawalRelationInput, WithdrawalWitness,
-        derive_post_successor,
+        BillboardConfig, BillboardPermit, BillboardVerifier, PostPublicInputs, PostPublicInputsV2,
+        PostRelationInput, PostRelationInputV2, PostWitness, PostWitnessV2, WithdrawalPublicInputs,
+        WithdrawalRelationInput, WithdrawalWitness, derive_post_successor,
     };
+    use activechain_accumulator::ReferenceHistory;
     use activechain_protocol_types::{AssetId, ChainId, Digest384, PrincipalId};
 
     use super::{PublicStatement, statement_for};
@@ -892,6 +893,104 @@ mod tests {
             super::prove(b"secret", statement_for(b"other")),
             Err(super::PqZkError::WrongPublicStatement)
         ));
+    }
+
+    fn emerald_post_v2_relation() -> PostRelationInputV2 {
+        let config = BillboardConfig::new(
+            ChainId::new(digest(1)),
+            AssetId::new(digest(2)),
+            100,
+            10,
+            3,
+            20,
+            5,
+            2,
+            7,
+        )
+        .unwrap();
+        let prior = BillboardPermit::new(config, digest(3), 300, 0, digest(4)).unwrap();
+        let successor =
+            derive_post_successor(config, &prior, &[], digest(11), 10, digest(5), &[]).unwrap();
+        let prior_commitment = prior.commitment().unwrap();
+        let mut history = ReferenceHistory::default();
+        history.append(digest(90).into_bytes()).unwrap();
+        history.append(prior_commitment.into_bytes()).unwrap();
+        history.append(digest(91).into_bytes()).unwrap();
+        let root = history.commitment();
+        let membership = history.proof(1).unwrap();
+        PostRelationInputV2 {
+            config,
+            public: PostPublicInputsV2 {
+                chain_id: config.chain_id(),
+                asset_id: config.asset_id(),
+                anchor: digest(6),
+                permit_root: Digest384::new(root.root),
+                permit_count: root.count,
+                nullifier: prior.nullifier(digest(7)).unwrap(),
+                successor_commitment: successor.commitment().unwrap(),
+                post_id: digest(11),
+                content: vec![],
+                height: 10,
+                fee: 2,
+                dummy: true,
+                policy_revision: 7,
+            },
+            witness: PostWitnessV2 {
+                prior,
+                prior_position: membership.index,
+                prior_membership_siblings: membership
+                    .siblings
+                    .into_iter()
+                    .map(Digest384::new)
+                    .collect(),
+                successor,
+                nullifier_key: digest(7),
+            },
+            decisions: vec![],
+        }
+    }
+
+    #[test]
+    fn emerald_post_v2_guest_matches_reference_and_hides_consumed_permit() {
+        let input = emerald_post_v2_relation();
+        let reference = BillboardVerifier::verify_post_v2(
+            input.config,
+            &input.public,
+            &input.witness,
+            &input.decisions,
+        )
+        .unwrap();
+        let journal = super::execute_emerald_post_v2_relation(&input).unwrap();
+        let mut expected = super::EMERALD_POST_V2_JOURNAL_DOMAIN.to_vec();
+        expected.extend_from_slice(reference.public_inputs_commitment().as_bytes());
+        expected.extend_from_slice(reference.nullifier().as_bytes());
+        assert_eq!(journal, expected);
+
+        let consumed = input.witness.prior.commitment().unwrap();
+        assert!(!journal.windows(Digest384::BYTE_LEN).any(|window| window == consumed.as_bytes()));
+        assert_eq!(
+            journal.len(),
+            super::EMERALD_POST_V2_JOURNAL_DOMAIN.len() + 2 * Digest384::BYTE_LEN
+        );
+    }
+
+    #[test]
+    fn emerald_post_v2_guest_rejects_membership_and_public_substitution() {
+        let mut wrong_root = emerald_post_v2_relation();
+        wrong_root.public.permit_root = digest(92);
+        assert!(super::execute_emerald_post_v2_relation(&wrong_root).is_err());
+
+        let mut wrong_path = emerald_post_v2_relation();
+        wrong_path.witness.prior_membership_siblings[31] = digest(93);
+        assert!(super::execute_emerald_post_v2_relation(&wrong_path).is_err());
+
+        let mut wrong_successor = emerald_post_v2_relation();
+        wrong_successor.public.successor_commitment = digest(94);
+        assert!(super::execute_emerald_post_v2_relation(&wrong_successor).is_err());
+
+        let mut wrong_nullifier = emerald_post_v2_relation();
+        wrong_nullifier.public.nullifier = digest(95);
+        assert!(super::execute_emerald_post_v2_relation(&wrong_nullifier).is_err());
     }
 
     #[test]
