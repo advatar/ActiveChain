@@ -339,6 +339,75 @@ impl ReferenceHistory {
     }
 }
 
+#[cfg(test)]
+mod hidden_membership_tests {
+    use super::{AccumulatorError, HiddenHistoryMembershipWitness, ReferenceHistory};
+
+    fn root(byte: u8) -> [u8; 48] {
+        [byte; 48]
+    }
+
+    #[test]
+    fn hidden_membership_binds_leaf_position_path_and_root() {
+        let mut history = ReferenceHistory::default();
+        history.append(root(1)).unwrap();
+        history.append(root(2)).unwrap();
+        history.append(root(3)).unwrap();
+
+        let commitment = history.commitment();
+        let proof = history.proof(1).unwrap();
+        let witness = HiddenHistoryMembershipWitness::from(&proof);
+
+        assert_eq!(commitment.verify_hidden_membership(root(2), &witness), Ok(()));
+        assert_eq!(
+            commitment.verify_hidden_membership(root(9), &witness),
+            Err(AccumulatorError::WrongRoot)
+        );
+
+        let wrong_position =
+            HiddenHistoryMembershipWitness::new(0, witness.siblings().to_vec()).unwrap();
+        assert_eq!(
+            commitment.verify_hidden_membership(root(2), &wrong_position),
+            Err(AccumulatorError::WrongRoot)
+        );
+
+        let mut wrong_path = witness.siblings().to_vec();
+        wrong_path[31][0] ^= 1;
+        let wrong_path =
+            HiddenHistoryMembershipWitness::new(witness.index(), wrong_path).unwrap();
+        assert_eq!(
+            commitment.verify_hidden_membership(root(2), &wrong_path),
+            Err(AccumulatorError::WrongRoot)
+        );
+
+        let mut other_history = ReferenceHistory::default();
+        other_history.append(root(1)).unwrap();
+        other_history.append(root(2)).unwrap();
+        other_history.append(root(4)).unwrap();
+        assert_eq!(
+            other_history.commitment().verify_hidden_membership(root(2), &witness),
+            Err(AccumulatorError::WrongRoot)
+        );
+    }
+
+    #[test]
+    fn hidden_membership_rejects_malformed_path_and_zero_leaf() {
+        assert_eq!(
+            HiddenHistoryMembershipWitness::new(0, vec![]),
+            Err(AccumulatorError::Bounds)
+        );
+
+        let mut history = ReferenceHistory::default();
+        history.append(root(1)).unwrap();
+        let commitment = history.commitment();
+        let witness = HiddenHistoryMembershipWitness::from(&history.proof(0).unwrap());
+        assert_eq!(
+            commitment.verify_hidden_membership([0; 48], &witness),
+            Err(AccumulatorError::Bounds)
+        );
+    }
+}
+
 fn history_proof(
     headers: &[Root],
     index: u32,
