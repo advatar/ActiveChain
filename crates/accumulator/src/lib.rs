@@ -205,6 +205,43 @@ pub struct HistoryProof {
     pub siblings: Vec<Root>,
 }
 
+/// Canonical append-only membership witness for a private commitment history.
+///
+/// The leaf value may remain inside a zero-knowledge witness while the finalized
+/// `HistoryCommitment` is public. Verification binds the hidden leaf and position
+/// to that exact public root; callers must not serialize this witness into a public
+/// transcript when the leaf identity itself is private.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HiddenHistoryMembershipWitness {
+    index: u32,
+    siblings: Vec<Root>,
+}
+
+impl HiddenHistoryMembershipWitness {
+    pub fn new(index: u32, siblings: Vec<Root>) -> Result<Self, AccumulatorError> {
+        if siblings.len() != HISTORY_BITS {
+            return Err(AccumulatorError::Bounds);
+        }
+        Ok(Self { index, siblings })
+    }
+
+    #[must_use]
+    pub const fn index(&self) -> u32 {
+        self.index
+    }
+
+    #[must_use]
+    pub fn siblings(&self) -> &[Root] {
+        &self.siblings
+    }
+}
+
+impl From<&HistoryProof> for HiddenHistoryMembershipWitness {
+    fn from(proof: &HistoryProof) -> Self {
+        Self { index: proof.index, siblings: proof.siblings.clone() }
+    }
+}
+
 impl HistoryCommitment {
     pub fn append(
         self,
@@ -232,16 +269,32 @@ impl HistoryCommitment {
     }
 
     pub fn verify(&self, proof: &HistoryProof) -> Result<(), AccumulatorError> {
-        if proof.index >= self.count
-            || proof.header_digest == [0; 48]
-            || proof.siblings.len() != HISTORY_BITS
+        self.verify_hidden_membership(
+            proof.header_digest,
+            &HiddenHistoryMembershipWitness::from(proof),
+        )
+    }
+
+    /// Verify membership while keeping the leaf value outside the witness object.
+    ///
+    /// This is intended for proof relations where `header_digest`, `index`, and
+    /// the authentication path are private zkVM inputs and only this commitment's
+    /// root/count are bound into the public statement.
+    pub fn verify_hidden_membership(
+        &self,
+        header_digest: Root,
+        witness: &HiddenHistoryMembershipWitness,
+    ) -> Result<(), AccumulatorError> {
+        if witness.index >= self.count
+            || header_digest == [0; 48]
+            || witness.siblings.len() != HISTORY_BITS
         {
             return Err(AccumulatorError::Bounds);
         }
         let tree = fold_history(
-            proof.index,
-            history_leaf(proof.index, proof.header_digest),
-            &proof.siblings,
+            witness.index,
+            history_leaf(witness.index, header_digest),
+            &witness.siblings,
         );
         if history_commitment_root(self.count, tree) != self.root {
             return Err(AccumulatorError::WrongRoot);
