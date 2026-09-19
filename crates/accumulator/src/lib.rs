@@ -391,7 +391,7 @@ mod hidden_membership_tests {
 
     #[test]
     fn hidden_membership_rejects_malformed_path_and_zero_leaf() {
-        assert_eq!(HiddenHistoryMembershipWitness::new(0, Vec::new()), Err(AccumulatorError::Bounds));
+        assert_eq!(\n            HiddenHistoryMembershipWitness::new(0, Vec::new()),\n            Err(AccumulatorError::Bounds)\n        );
 
         let mut history = ReferenceHistory::default();
         history.append(root(1)).unwrap();
