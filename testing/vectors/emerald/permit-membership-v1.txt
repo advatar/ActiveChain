@@ -1,0 +1,12 @@
+# Emerald/Actum permit membership v1
+
+profile=emerald-actum-permit-history-v1
+accumulator=activechain-history-commitment-v1
+depth_bits=32
+leaf=permit_commitment_384
+public=history_root,history_count
+private=permit_commitment,index,siblings[32]
+accept=history_commitment.verify_hidden_membership(permit_commitment,witness)
+reject=wrong_leaf,wrong_index,wrong_sibling,wrong_root,wrong_count,zero_leaf,malformed_path
+public_transcript_must_not_contain=permit_commitment,index,siblings
+tracking_issue=859
