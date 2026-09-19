@@ -22,11 +22,13 @@ use activechain_pq_zk_methods::{
 use activechain_pq_zk_methods::{
     ACTIVECHAIN_PQ_ZK_GUEST_ID as GUEST_ID, BILLBOARD_POST_ELF, BILLBOARD_POST_ID,
     BILLBOARD_WITHDRAW_ELF, BILLBOARD_WITHDRAW_ID, EMERALD_POST_V2_ELF, EMERALD_POST_V2_ID,
-    PRIVATE_IDENTITY_ELF, PRIVATE_IDENTITY_ID,
-    PROOF_OF_FUNDS_ELF, PROOF_OF_FUNDS_ID, WORK_NON_OVERLAP_ELF, WORK_NON_OVERLAP_ID,
+    PRIVATE_IDENTITY_ELF, PRIVATE_IDENTITY_ID, PROOF_OF_FUNDS_ELF, PROOF_OF_FUNDS_ID,
+    WORK_NON_OVERLAP_ELF, WORK_NON_OVERLAP_ID,
 };
 use activechain_privacy_kernel::{PrivateIdentityRelationInputV1, ProofOfFundsRelationInputV1};
-use activechain_private_billboard::{PostRelationInput, PostRelationInputV2, WithdrawalRelationInput};
+use activechain_private_billboard::{
+    PostRelationInput, PostRelationInputV2, WithdrawalRelationInput,
+};
 use activechain_protocol_types::Digest384;
 use activechain_work_proof::{WorkClaimPublicV1, WorkClaimRelationInputV1, public_journal};
 use risc0_zkvm::{ExecutorEnv, Receipt, default_executor};
@@ -522,9 +524,7 @@ pub fn execute_post_relation(input: &PostRelationInput) -> Result<Vec<u8>, PqZkE
         .map_err(|_| PqZkError::Verification)
 }
 
-pub fn execute_emerald_post_v2_relation(
-    input: &PostRelationInputV2,
-) -> Result<Vec<u8>, PqZkError> {
+pub fn execute_emerald_post_v2_relation(input: &PostRelationInputV2) -> Result<Vec<u8>, PqZkError> {
     default_executor()
         .execute(relation_env(input)?, EMERALD_POST_V2_ELF)
         .map(|session| session.journal.bytes)
@@ -618,13 +618,13 @@ fn verify_billboard_receipt(
 
 #[cfg(test)]
 mod tests {
+    use activechain_accumulator::ReferenceHistory;
     use activechain_canonical_codec::{decode_envelope, encode_envelope};
     use activechain_private_billboard::{
         BillboardConfig, BillboardPermit, BillboardVerifier, PostPublicInputs, PostPublicInputsV2,
         PostRelationInput, PostRelationInputV2, PostWitness, PostWitnessV2, WithdrawalPublicInputs,
         WithdrawalRelationInput, WithdrawalWitness, derive_post_successor,
     };
-    use activechain_accumulator::ReferenceHistory;
     use activechain_protocol_types::{AssetId, ChainId, Digest384, PrincipalId};
 
     use super::{PublicStatement, statement_for};
@@ -1044,16 +1044,9 @@ mod tests {
 
         // Construct the next valid post from the first post's successor permit.
         let prior = first.witness.successor.clone();
-        let successor = derive_post_successor(
-            first.config,
-            &prior,
-            &[],
-            digest(12),
-            20,
-            digest(13),
-            &[],
-        )
-        .unwrap();
+        let successor =
+            derive_post_successor(first.config, &prior, &[], digest(12), 20, digest(13), &[])
+                .unwrap();
         let second = PostRelationInput {
             config: first.config,
             public: PostPublicInputs {
@@ -1069,11 +1062,7 @@ mod tests {
                 dummy: true,
                 policy_revision: 7,
             },
-            witness: PostWitness {
-                prior,
-                successor,
-                nullifier_key: digest(14),
-            },
+            witness: PostWitness { prior, successor, nullifier_key: digest(14) },
             decisions: vec![],
         };
         let second_reference = BillboardVerifier::verify_post(
@@ -1089,14 +1078,8 @@ mod tests {
         // successor commitment, while the next v1 proof journal publishes that
         // same value as the consumed permit commitment. An observer can therefore
         // link the two otherwise senderless posts by exact equality.
-        assert_eq!(
-            first.public.successor_commitment,
-            second_reference.permit_commitment()
-        );
-        assert_ne!(
-            first_reference.permit_commitment(),
-            second_reference.permit_commitment()
-        );
+        assert_eq!(first.public.successor_commitment, second_reference.permit_commitment());
+        assert_ne!(first_reference.permit_commitment(), second_reference.permit_commitment());
         assert!(
             second_journal
                 .windows(Digest384::BYTE_LEN)
