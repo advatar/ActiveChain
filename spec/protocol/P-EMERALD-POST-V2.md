@@ -163,7 +163,7 @@ where unlinkable posting is required.
 
 The smallest correct implementation slice is:
 
-1. add a bounded canonical permit-tree membership witness and deterministic vectors;
+1. add a bounded canonical permit-tree membership witness and deterministic vectors; **implemented as the reusable append-only `HiddenHistoryMembershipWitness` plus `testing/vectors/emerald/permit-membership-v1.txt`; production root-transition/admission wiring remains pending**
 2. implement `PostPublicInputsV2` / `PostWitnessV2`;
 3. add the reference v2 verifier and negative membership/root tests;
 4. add a separate pinned `billboard_post_v2`/Emerald post guest;
