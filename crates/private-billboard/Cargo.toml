@@ -8,6 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+activechain-accumulator.workspace = true
 activechain-canonical-codec.workspace = true
 activechain-cash-kernel = { workspace = true, optional = true }
 activechain-crypto-provider = { workspace = true, optional = true }
@@ -26,7 +27,6 @@ runtime = [
 ]
 
 [dev-dependencies]
-activechain-accumulator.workspace = true
 proptest.workspace = true
 
 [lints]
