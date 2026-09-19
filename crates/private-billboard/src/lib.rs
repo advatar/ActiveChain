@@ -536,7 +536,7 @@ impl CanonicalDecode for PostPublicInputsV2 {
 }
 
 impl CanonicalType for PostPublicInputsV2 {
-    const TYPE_TAG: u16 = 0x00b6;
+    const TYPE_TAG: u16 = 0x01d4;
     const SCHEMA_VERSION: u16 = 2;
     const MAX_ENCODED_LEN: usize = 48 * 7 + 4 + 2 + MAX_MESSAGE_BYTES + 8 + 16 + 1 + 8;
 }
@@ -599,7 +599,7 @@ impl CanonicalDecode for PostWitnessV2 {
 }
 
 impl CanonicalType for PostWitnessV2 {
-    const TYPE_TAG: u16 = 0x00b7;
+    const TYPE_TAG: u16 = 0x01d5;
     const SCHEMA_VERSION: u16 = 2;
     const MAX_ENCODED_LEN: usize =
         BillboardPermit::MAX_ENCODED_LEN * 2 + 4 + 2 + HISTORY_BITS * 48 + 48;
@@ -641,7 +641,7 @@ impl CanonicalDecode for PostRelationInputV2 {
 }
 
 impl CanonicalType for PostRelationInputV2 {
-    const TYPE_TAG: u16 = 0x00b8;
+    const TYPE_TAG: u16 = 0x01d6;
     const SCHEMA_VERSION: u16 = 2;
     const MAX_ENCODED_LEN: usize = 8192;
 }
