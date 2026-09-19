@@ -9,6 +9,7 @@
 
 #[cfg(feature = "runtime")]
 use activechain_canonical_codec::decode_envelope;
+use activechain_accumulator::{HiddenHistoryMembershipWitness, HistoryCommitment, HISTORY_BITS};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     encode_envelope,
@@ -50,6 +51,7 @@ pub enum BillboardError {
     WrongPolicy,
     WrongPermit,
     InvalidProof,
+    InvalidMembership,
     NullifierSpent,
     CapacityExceeded,
     Cooldown,
@@ -434,6 +436,235 @@ impl CanonicalType for PostPublicInputs {
     const MAX_ENCODED_LEN: usize = 48 * 6 + 2 + MAX_MESSAGE_BYTES + 8 + 16 + 1 + 8;
 }
 
+/// Emerald-on-Actum v2 public post statement.
+///
+/// The accepted permit history root is public, but the consumed permit commitment,
+/// its position, and its authentication path remain private witness material.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PostPublicInputsV2 {
+    pub chain_id: ChainId,
+    pub asset_id: AssetId,
+    pub anchor: Digest384,
+    pub permit_root: Digest384,
+    pub permit_count: u32,
+    pub nullifier: Digest384,
+    pub successor_commitment: Digest384,
+    pub post_id: Digest384,
+    pub content: Vec<u8>,
+    pub height: u64,
+    pub fee: u128,
+    pub dummy: bool,
+    pub policy_revision: u64,
+}
+
+impl PostPublicInputsV2 {
+    pub fn commitment(&self) -> Result<Digest384, BillboardError> {
+        if self.content.len() > MAX_MESSAGE_BYTES {
+            return Err(BillboardError::MessageTooLarge);
+        }
+        let mut scalar = Vec::new();
+        scalar.extend_from_slice(&self.permit_count.to_be_bytes());
+        scalar.extend_from_slice(&self.height.to_be_bytes());
+        scalar.extend_from_slice(&self.fee.to_be_bytes());
+        scalar.push(u8::from(self.dummy));
+        scalar.extend_from_slice(&self.policy_revision.to_be_bytes());
+        hash_parts(
+            b"ACTIVECHAIN-EMERALD-POST-PUBLIC-V2",
+            &[
+                self.chain_id.digest().as_bytes(),
+                self.asset_id.digest().as_bytes(),
+                self.anchor.as_bytes(),
+                self.permit_root.as_bytes(),
+                self.nullifier.as_bytes(),
+                self.successor_commitment.as_bytes(),
+                self.post_id.as_bytes(),
+                &self.content,
+                &scalar,
+            ],
+        )
+    }
+
+    fn permit_history(&self) -> HistoryCommitment {
+        HistoryCommitment { root: self.permit_root.into_bytes(), count: self.permit_count }
+    }
+}
+
+impl CanonicalEncode for PostPublicInputsV2 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.chain_id.encode(e)?;
+        self.asset_id.encode(e)?;
+        self.anchor.encode(e)?;
+        self.permit_root.encode(e)?;
+        self.permit_count.encode(e)?;
+        self.nullifier.encode(e)?;
+        self.successor_commitment.encode(e)?;
+        self.post_id.encode(e)?;
+        e.write_bytes(&self.content, MAX_MESSAGE_BYTES)?;
+        self.height.encode(e)?;
+        self.fee.encode(e)?;
+        u8::from(self.dummy).encode(e)?;
+        self.policy_revision.encode(e)
+    }
+}
+
+impl CanonicalDecode for PostPublicInputsV2 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let value = Self {
+            chain_id: ChainId::decode(d)?,
+            asset_id: AssetId::decode(d)?,
+            anchor: Digest384::decode(d)?,
+            permit_root: Digest384::decode(d)?,
+            permit_count: u32::decode(d)?,
+            nullifier: Digest384::decode(d)?,
+            successor_commitment: Digest384::decode(d)?,
+            post_id: Digest384::decode(d)?,
+            content: d.read_bytes(MAX_MESSAGE_BYTES)?.to_vec(),
+            height: u64::decode(d)?,
+            fee: u128::decode(d)?,
+            dummy: match u8::decode(d)? {
+                0 => false,
+                1 => true,
+                _ => return Err(DecodeError::InvalidValue("invalid dummy tag")),
+            },
+            policy_revision: u64::decode(d)?,
+        };
+        if value.permit_count == 0 || (value.dummy && !value.content.is_empty()) {
+            return Err(DecodeError::InvalidValue("invalid Emerald post v2 public inputs"));
+        }
+        Ok(value)
+    }
+}
+
+impl CanonicalType for PostPublicInputsV2 {
+    const TYPE_TAG: u16 = 0x00b6;
+    const SCHEMA_VERSION: u16 = 2;
+    const MAX_ENCODED_LEN: usize =
+        48 * 7 + 4 + 2 + MAX_MESSAGE_BYTES + 8 + 16 + 1 + 8;
+}
+
+#[derive(Clone, Debug)]
+pub struct PostWitnessV2 {
+    pub prior: BillboardPermit,
+    pub prior_position: u32,
+    pub prior_membership_siblings: Vec<Digest384>,
+    pub successor: BillboardPermit,
+    pub nullifier_key: Digest384,
+}
+
+impl PostWitnessV2 {
+    fn membership_witness(&self) -> Result<HiddenHistoryMembershipWitness, BillboardError> {
+        if self.prior_membership_siblings.len() != HISTORY_BITS {
+            return Err(BillboardError::InvalidMembership);
+        }
+        HiddenHistoryMembershipWitness::new(
+            self.prior_position,
+            self.prior_membership_siblings.iter().map(|digest| digest.into_bytes()).collect(),
+        )
+        .map_err(|_| BillboardError::InvalidMembership)
+    }
+}
+
+impl CanonicalEncode for PostWitnessV2 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.prior.encode(e)?;
+        self.prior_position.encode(e)?;
+        e.write_length(self.prior_membership_siblings.len(), HISTORY_BITS)?;
+        for sibling in &self.prior_membership_siblings {
+            sibling.encode(e)?;
+        }
+        self.successor.encode(e)?;
+        self.nullifier_key.encode(e)
+    }
+}
+
+impl CanonicalDecode for PostWitnessV2 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let prior = BillboardPermit::decode(d)?;
+        let prior_position = u32::decode(d)?;
+        let count = d.read_length(HISTORY_BITS)?;
+        if count != HISTORY_BITS {
+            return Err(DecodeError::InvalidValue("invalid Emerald permit membership path"));
+        }
+        let mut prior_membership_siblings = Vec::with_capacity(count);
+        for _ in 0..count {
+            prior_membership_siblings.push(Digest384::decode(d)?);
+        }
+        Ok(Self {
+            prior,
+            prior_position,
+            prior_membership_siblings,
+            successor: BillboardPermit::decode(d)?,
+            nullifier_key: Digest384::decode(d)?,
+        })
+    }
+}
+
+impl CanonicalType for PostWitnessV2 {
+    const TYPE_TAG: u16 = 0x00b7;
+    const SCHEMA_VERSION: u16 = 2;
+    const MAX_ENCODED_LEN: usize =
+        BillboardPermit::MAX_ENCODED_LEN * 2 + 4 + 2 + HISTORY_BITS * 48 + 48;
+}
+
+#[derive(Clone, Debug)]
+pub struct PostRelationInputV2 {
+    pub config: BillboardConfig,
+    pub public: PostPublicInputsV2,
+    pub witness: PostWitnessV2,
+    pub decisions: Vec<ModerationDecision>,
+}
+
+impl CanonicalEncode for PostRelationInputV2 {
+    fn encode(&self, e: &mut Encoder) -> Result<(), EncodeError> {
+        self.config.encode(e)?;
+        self.public.encode(e)?;
+        self.witness.encode(e)?;
+        e.write_length(self.decisions.len(), MAX_RELATION_DECISIONS)?;
+        for decision in &self.decisions {
+            decision.encode(e)?;
+        }
+        Ok(())
+    }
+}
+
+impl CanonicalDecode for PostRelationInputV2 {
+    fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
+        let config = BillboardConfig::decode(d)?;
+        let public = PostPublicInputsV2::decode(d)?;
+        let witness = PostWitnessV2::decode(d)?;
+        let count = d.read_length(MAX_RELATION_DECISIONS)?;
+        let mut decisions = Vec::with_capacity(count);
+        for _ in 0..count {
+            decisions.push(ModerationDecision::decode(d)?);
+        }
+        Ok(Self { config, public, witness, decisions })
+    }
+}
+
+impl CanonicalType for PostRelationInputV2 {
+    const TYPE_TAG: u16 = 0x00b8;
+    const SCHEMA_VERSION: u16 = 2;
+    const MAX_ENCODED_LEN: usize = 8192;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VerifiedBillboardProofV2 {
+    public_inputs_commitment: Digest384,
+    nullifier: Digest384,
+}
+
+impl VerifiedBillboardProofV2 {
+    #[must_use]
+    pub const fn public_inputs_commitment(self) -> Digest384 {
+        self.public_inputs_commitment
+    }
+
+    #[must_use]
+    pub const fn nullifier(self) -> Digest384 {
+        self.nullifier
+    }
+}
+
 /// ML-KEM protected senderless action payload for the existing protected-ordering lane.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EncryptedPostSubmission {
@@ -741,6 +972,61 @@ impl BillboardVerifier {
         Ok(VerifiedBillboardProof {
             public_inputs_commitment: public.commitment()?,
             permit_commitment: prior_commitment,
+        })
+    }
+
+    pub fn verify_post_v2(
+        config: BillboardConfig,
+        public: &PostPublicInputsV2,
+        witness: &PostWitnessV2,
+        decisions: &[ModerationDecision],
+    ) -> Result<VerifiedBillboardProofV2, BillboardError> {
+        verify_context(config, public.chain_id, public.asset_id, public.policy_revision)?;
+        if public.content.len() > MAX_MESSAGE_BYTES || (public.dummy && !public.content.is_empty()) {
+            return Err(BillboardError::MessageTooLarge);
+        }
+        let prior = &witness.prior;
+        let successor = &witness.successor;
+        let prior_commitment = prior.commitment()?;
+        public
+            .permit_history()
+            .verify_hidden_membership(
+                prior_commitment.into_bytes(),
+                &witness.membership_witness()?,
+            )
+            .map_err(|_| BillboardError::InvalidMembership)?;
+        if public.nullifier != prior.nullifier(witness.nullifier_key)?
+            || successor.commitment()? != public.successor_commitment
+            || prior.chain_id != config.chain_id
+            || prior.asset_id != config.asset_id
+            || prior.policy_revision != config.policy_revision
+            || successor.owner_key != prior.owner_key
+            || successor.chain_id != prior.chain_id
+            || successor.asset_id != prior.asset_id
+            || successor.policy_revision != prior.policy_revision
+            || successor.sequence
+                != prior.sequence.checked_add(1).ok_or(BillboardError::ArithmeticOverflow)?
+        {
+            return Err(BillboardError::WrongPermit);
+        }
+        if public.fee != config.post_fee {
+            return Err(BillboardError::InsufficientValue);
+        }
+        let expected = derive_post_successor(
+            config,
+            prior,
+            if public.dummy { &[] } else { &public.content },
+            public.post_id,
+            public.height,
+            successor.blinding,
+            decisions,
+        )?;
+        if expected != *successor {
+            return Err(BillboardError::WrongPermit);
+        }
+        Ok(VerifiedBillboardProofV2 {
+            public_inputs_commitment: public.commitment()?,
+            nullifier: public.nullifier,
         })
     }
 
