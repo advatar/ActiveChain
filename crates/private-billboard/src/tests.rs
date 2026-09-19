@@ -150,8 +150,7 @@ fn emerald_post_v2_rejects_membership_root_path_position_and_permit_substitution
     );
 
     let mut wrong_permit = witness.clone();
-    wrong_permit.prior =
-        BillboardPermit::new(config, digest(3), 300, 0, digest(94)).unwrap();
+    wrong_permit.prior = BillboardPermit::new(config, digest(3), 300, 0, digest(94)).unwrap();
     assert_eq!(
         BillboardVerifier::verify_post_v2(config, &public, &wrong_permit, &[]),
         Err(BillboardError::InvalidMembership)
