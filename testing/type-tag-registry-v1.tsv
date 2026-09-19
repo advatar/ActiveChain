@@ -343,3 +343,6 @@
 0x01D1	1	AccountingViewV1	crates/application-primitives/src/evidence_settlement.rs
 0x01D2	1	SettlementLedgerSnapshotV1	crates/application-primitives/src/evidence_settlement.rs
 0x01D3	1	CashKeyEnrollmentV1	crates/wallet-core/src/cash_enrollment.rs
+0x01D4	2	PostPublicInputsV2	crates/private-billboard/src/lib.rs
+0x01D5	2	PostWitnessV2	crates/private-billboard/src/lib.rs
+0x01D6	2	PostRelationInputV2	crates/private-billboard/src/lib.rs
