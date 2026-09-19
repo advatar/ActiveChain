@@ -7,9 +7,9 @@
 //! This reference verifier validates semantics directly; a production deployment must replace it
 //! with a zero-knowledge verifier while preserving the same public statement.
 
+use activechain_accumulator::{HISTORY_BITS, HiddenHistoryMembershipWitness, HistoryCommitment};
 #[cfg(feature = "runtime")]
 use activechain_canonical_codec::decode_envelope;
-use activechain_accumulator::{HiddenHistoryMembershipWitness, HistoryCommitment, HISTORY_BITS};
 use activechain_canonical_codec::{
     CanonicalDecode, CanonicalEncode, CanonicalType, DecodeError, Decoder, EncodeError, Encoder,
     encode_envelope,
@@ -538,8 +538,7 @@ impl CanonicalDecode for PostPublicInputsV2 {
 impl CanonicalType for PostPublicInputsV2 {
     const TYPE_TAG: u16 = 0x00b6;
     const SCHEMA_VERSION: u16 = 2;
-    const MAX_ENCODED_LEN: usize =
-        48 * 7 + 4 + 2 + MAX_MESSAGE_BYTES + 8 + 16 + 1 + 8;
+    const MAX_ENCODED_LEN: usize = 48 * 7 + 4 + 2 + MAX_MESSAGE_BYTES + 8 + 16 + 1 + 8;
 }
 
 #[derive(Clone, Debug)]
@@ -982,7 +981,8 @@ impl BillboardVerifier {
         decisions: &[ModerationDecision],
     ) -> Result<VerifiedBillboardProofV2, BillboardError> {
         verify_context(config, public.chain_id, public.asset_id, public.policy_revision)?;
-        if public.content.len() > MAX_MESSAGE_BYTES || (public.dummy && !public.content.is_empty()) {
+        if public.content.len() > MAX_MESSAGE_BYTES || (public.dummy && !public.content.is_empty())
+        {
             return Err(BillboardError::MessageTooLarge);
         }
         let prior = &witness.prior;
@@ -990,10 +990,7 @@ impl BillboardVerifier {
         let prior_commitment = prior.commitment()?;
         public
             .permit_history()
-            .verify_hidden_membership(
-                prior_commitment.into_bytes(),
-                &witness.membership_witness()?,
-            )
+            .verify_hidden_membership(prior_commitment.into_bytes(), &witness.membership_witness()?)
             .map_err(|_| BillboardError::InvalidMembership)?;
         if public.nullifier != prior.nullifier(witness.nullifier_key)?
             || successor.commitment()? != public.successor_commitment
