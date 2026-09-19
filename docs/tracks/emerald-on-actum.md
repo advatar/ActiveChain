@@ -34,7 +34,7 @@ The replacement relation MUST prove, without revealing the consumed permit commi
 
 The public statement SHOULD expose only what consensus and the Emerald application require: accepted root(s), nullifier(s), new commitment(s), exact public application effects, policy/revision bindings, and proof-profile identifiers.
 
-Deleting the current journal field alone is not a fix. Validators need a sound hidden-membership relation.
+Deleting the current journal field alone is not a fix. Validators need a sound hidden-membership relation. The normative v2 target is now frozen in [`spec/protocol/P-EMERALD-POST-V2.md`](../../spec/protocol/P-EMERALD-POST-V2.md): root-bound hidden membership, one-shot nullification, exact successor/economic effects, and a public journal containing only the v2 domain, public-input commitment, and nullifier.
 
 ### M0 regression baseline
 
