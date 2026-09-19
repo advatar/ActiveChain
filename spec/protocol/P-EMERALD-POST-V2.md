@@ -166,8 +166,8 @@ The smallest correct implementation slice is:
 1. add a bounded canonical permit-tree membership witness and deterministic vectors; **implemented as the reusable append-only `HiddenHistoryMembershipWitness` plus `testing/vectors/emerald/permit-membership-v1.txt`; production root-transition/admission wiring remains pending**
 2. implement `PostPublicInputsV2` / `PostWitnessV2`;
 3. add the reference v2 verifier and negative membership/root tests;
-4. add a separate pinned `billboard_post_v2`/Emerald post guest;
-5. publish a v2 journal vector containing only the domain, public-input commitment and nullifier;
+4. add a separate pinned `billboard_post_v2`/Emerald post guest; **implemented as `emerald-post-v2` with the v2-only journal domain; reproducible image-ID publication and real succinct proving remain release gates**
+5. publish a v2 journal vector containing only the domain, public-input commitment and nullifier; **contract frozen in `testing/vectors/pq-zk/emerald-post-v2.txt`; image ID remains intentionally unpublished until the pinned reproducible build is qualified**
 6. add admission composition only after root transition semantics are frozen.
 
 Until all six are present, this document is a target specification rather than an implemented
